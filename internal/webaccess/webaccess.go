@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/omnara-ai/omnara/internal/webaccess/telemlineage"
 )
 
 // SearchRequest is a provider-neutral web search request. Handlers clamp and
@@ -18,6 +20,7 @@ type SearchRequest struct {
 	NumResults int      // validated as 1..20 by the handler
 	Recency    string   // "", "day", "week", "month", "year"
 	Domains    []string // "-" prefix excludes a domain
+	Lineage    telemlineage.Lineage
 }
 
 type SearchResult struct {

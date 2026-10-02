@@ -72,7 +72,12 @@ type Config struct {
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
+	WebSearchProvider                 string
 	ExaAPIKey                         string
+	TelemAPIKey                       string
+	TelemProvidersInclude             []string
+	TelemProvidersExclude             []string
+	TelemAutoRouting                  string // "" when off
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
 	EmailDriver                       string
@@ -261,7 +266,12 @@ func Load() (Config, error) {
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
+		WebSearchProvider:                 getenv("OMNARA_WEB_SEARCH_PROVIDER", "exa"),
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
+		TelemAPIKey:                       getenv("TELEM_API_KEY", ""),
+		TelemProvidersInclude:             getenvCSV("TELEM_PROVIDERS_INCLUDE"),
+		TelemProvidersExclude:             getenvCSV("TELEM_PROVIDERS_EXCLUDE"),
+		TelemAutoRouting:                  telemAutoRouting(getenv("TELEM_AUTO_ROUTING", "accuracy")),
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,
 		EmailDriver:                       getenv("OMNARA_EMAIL_DRIVER", "none"),
@@ -627,7 +637,35 @@ func (cfg Config) ValidateWorker() error {
 	if err := validateSkillDownloadSigningKeyConfig(cfg); err != nil {
 		return err
 	}
-	return nil
+	return validateWebSearchConfig(cfg)
+}
+
+// telemAutoRouting maps the configured auto-routing mode to the value sent to
+// Telem; "off" sends none.
+func telemAutoRouting(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "off" {
+		return ""
+	}
+	return mode
+}
+
+func validateWebSearchConfig(cfg Config) error {
+	switch cfg.WebSearchProvider {
+	case "exa":
+		return nil
+	case "telem":
+		if cfg.TelemAPIKey == "" {
+			return fmt.Errorf("TELEM_API_KEY is required when OMNARA_WEB_SEARCH_PROVIDER=telem")
+		}
+		// Add a mode here when the Telem API accepts it.
+		if cfg.TelemAutoRouting != "" && cfg.TelemAutoRouting != "accuracy" {
+			return fmt.Errorf("TELEM_AUTO_ROUTING must be accuracy or off (got %q)", cfg.TelemAutoRouting)
+		}
+		return nil
+	default:
+		return fmt.Errorf("OMNARA_WEB_SEARCH_PROVIDER must be exa or telem (got %q)", cfg.WebSearchProvider)
+	}
 }
 
 func (cfg Config) ValidateMigrate() error {

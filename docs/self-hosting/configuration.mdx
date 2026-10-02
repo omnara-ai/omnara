@@ -220,4 +220,13 @@ Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_se
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
+| `OMNARA_WEB_SEARCH_PROVIDER` | Search backend for `web_search`: `exa` or `telem` | `exa` | No |
 | `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | — | No |
+| `TELEM_API_KEY` | Telem API key from the Telem console | — | When the provider is `telem` |
+| `TELEM_PROVIDERS_INCLUDE` | Comma-separated Telem search providers to use, for example `exa,tavily` | Telem's default providers | No |
+| `TELEM_PROVIDERS_EXCLUDE` | Comma-separated Telem search providers to skip | — | No |
+| `TELEM_AUTO_ROUTING` | `accuracy` lets Telem choose the search providers for each query to get the most accurate results; `off` uses the same providers for every query | `accuracy` | No |
+
+With `telem`, each search goes to several search providers and Omnara merges their results. With auto-routing on, Telem chooses those providers for each query, only from the providers that `TELEM_PROVIDERS_INCLUDE` and `TELEM_PROVIDERS_EXCLUDE` allow. `domains` filters the merged results by host. `recency` has no effect.
+
+With `telem`, each search sends Telem the search query, the agent's task (the text of the first message it received, or for a subagent, the task it got from its parent), and identifiers that link the searches of one agent and of its subagents. It sends no other conversation text.

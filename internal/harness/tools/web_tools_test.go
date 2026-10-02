@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/omnara-ai/omnara/internal/webaccess/telemlineage"
 )
 
 func TestResolveWebSearchRequest(t *testing.T) {
@@ -210,6 +214,66 @@ func TestWebSearchHandlerSuccessParts(t *testing.T) {
 	if !structuredFound {
 		t.Fatal("structured_data part missing")
 	}
+}
+
+func TestWebSearchHandlerPassesCallLineageOnlyToTelem(t *testing.T) {
+	turn := Turn{AgentID: uuid.New(), ModelCallContextID: uuid.New()}
+	toolCallID := uuid.New()
+	search := func(provider webaccess.SearchProvider) {
+		_, err := runWebSearch(context.Background(), asyncToolContext{
+			Executor:   Executor{WebSearch: provider},
+			Turn:       turn,
+			Call:       model.ToolCall{Name: "web_search", Input: json.RawMessage(`{"query":"q"}`)},
+			ToolCallID: toolCallID,
+		})
+		if err != nil {
+			t.Fatalf("run web search: %v", err)
+		}
+	}
+
+	other := &fakeSearchProvider{}
+	search(other)
+	if !other.gotReq.Lineage.IsZero() {
+		t.Fatalf("lineage sent to a non-Telem provider = %+v, want zero", other.gotReq.Lineage)
+	}
+
+	var sent struct {
+		Metadata map[string]any `json:"metadata"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_, _ = w.Write([]byte(`{"preprocessor_runs":[]}`))
+	}))
+	defer server.Close()
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search(webaccess.TelemProvider{APIKey: "tlm_test", HTTPClient: &http.Client{
+		Transport: rewriteHostTransport{target: target, base: server.Client().Transport},
+	}})
+	want := telemlineage.Metadata(telemlineage.Lineage{Call: telemlineage.Call{
+		AgentID:            turn.AgentID,
+		ModelCallContextID: turn.ModelCallContextID,
+		ToolCallID:         toolCallID,
+	}}, "search")
+	if sent.Metadata["node_key"] != want["node_key"] || sent.Metadata["session_key"] != want["session_key"] {
+		t.Fatalf("metadata sent to Telem = %v, want the call's lineage %v", sent.Metadata, want)
+	}
+}
+
+// rewriteHostTransport sends every request to the test server.
+type rewriteHostTransport struct {
+	target *url.URL
+	base   http.RoundTripper
+}
+
+func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = t.target.Scheme
+	clone.URL.Host = t.target.Host
+	clone.Host = t.target.Host
+	return t.base.RoundTrip(clone)
 }
 
 func TestWebSearchHandlerFailuresPreserveStructuredContent(t *testing.T) {
@@ -442,5 +506,60 @@ func TestWebSearchToolResultContentTruncatesSnippetOnRuneBoundary(t *testing.T) 
 			strings.Count(text, "é"),
 			text[:min(len(text), 120)],
 		)
+	}
+}
+
+func TestLeadGoalIsTheFirstContentInputOnly(t *testing.T) {
+	event := func(sequence int64, eventKind, inputKind, blocks string) executionstore.AgentEventReadRecord {
+		return executionstore.AgentEventReadRecord{
+			Sequence: sequence, EventKind: eventKind, InputKind: inputKind, ContentBlocks: json.RawMessage(blocks),
+		}
+	}
+	launchConfig := event(1, "agent_input", "config_change", `[]`)
+	laterConfig := event(5, "agent_input", "config_change", `[{"type":"text","text":"Agent configuration changed."}]`)
+	fileOnly := event(2, "agent_input", "content", `[{"type":"media_ref","artifact_id":"a"}]`)
+	cases := []struct {
+		name     string
+		events   []executionstore.AgentEventReadRecord
+		goal     string
+		resolved bool
+	}{
+		{
+			name: "text first message",
+			events: []executionstore.AgentEventReadRecord{
+				launchConfig, event(2, "agent_input", "content", `[{"type":"text","text":"  Plan a Kyoto trip  "}]`),
+			},
+			goal:     "Plan a Kyoto trip",
+			resolved: true,
+		},
+		{
+			name: "file-only first message, then a text follow-up",
+			events: []executionstore.AgentEventReadRecord{
+				launchConfig, fileOnly, event(3, "model_output", "", `[{"type":"text","text":"Reading it."}]`),
+				event(4, "agent_input", "content", `[{"type":"text","text":"Summarize the file."}]`),
+			},
+			goal:     "",
+			resolved: true,
+		},
+		{
+			name:     "a config change is never the goal",
+			events:   []executionstore.AgentEventReadRecord{launchConfig, laterConfig},
+			goal:     "",
+			resolved: false,
+		},
+		{
+			name: "a config change before the first message is skipped",
+			events: []executionstore.AgentEventReadRecord{
+				launchConfig, laterConfig, event(6, "agent_input", "content", `[{"type":"text","text":"Go."}]`),
+			},
+			goal:     "Go.",
+			resolved: true,
+		},
+	}
+	for _, c := range cases {
+		goal, resolved := firstContentInputText(c.events)
+		if goal != c.goal || resolved != c.resolved {
+			t.Errorf("%s: goal %q resolved %v, want %q %v", c.name, goal, resolved, c.goal, c.resolved)
+		}
 	}
 }

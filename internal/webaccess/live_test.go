@@ -4,6 +4,8 @@ package webaccess
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -65,6 +67,72 @@ func assertLiveExaSearchResponse(t *testing.T, response SearchResponse) {
 		}
 	}
 	t.Fatalf("live search results had no usable title, snippet, or URL: %+v", response.Results)
+}
+
+func TestTelemProviderLiveSearch(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("TELEM_API_KEY"))
+	if apiKey == "" {
+		t.Skip("TELEM_API_KEY is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	response, err := (TelemProvider{APIKey: apiKey}).Search(ctx, SearchRequest{
+		Query:      "Go programming language release notes",
+		NumResults: 3,
+		Domains:    []string{"go.dev"},
+	})
+	if err != nil {
+		t.Fatalf("live telem search: %v", err)
+	}
+	if response.Provider != "telem" || len(response.Results) == 0 {
+		t.Fatalf("live telem response = %+v, want telem results", response)
+	}
+	snippets := 0
+	for _, result := range response.Results {
+		if !strings.Contains(result.URL, "go.dev") {
+			t.Fatalf("result %q is outside the go.dev domain filter", result.URL)
+		}
+		if strings.TrimSpace(result.Snippet) != "" {
+			snippets++
+		}
+	}
+	if snippets == 0 {
+		t.Fatalf("live telem results carry no snippets on the default tier: %+v", response.Results)
+	}
+}
+
+func TestTelemProviderLiveAutoRouting(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("TELEM_API_KEY"))
+	if apiKey == "" {
+		t.Skip("TELEM_API_KEY is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	provider := TelemProvider{APIKey: apiKey, AutoRouting: "accuracy"}
+	request := provider.searchRequest(SearchRequest{Query: "latest Go release notes", NumResults: 2}, false)
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	status, body, err := provider.postSearch(ctx, provider.httpClient(), payload)
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("live auto-routed search: status %d, err %v, body %s", status, err, body)
+	}
+	var response struct {
+		Routing []struct {
+			Providers []string `json:"providers"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Routing) != 1 || len(response.Routing[0].Providers) == 0 {
+		t.Fatalf("routing = %s, want one entry that names providers", body)
+	}
 }
 
 func TestFetcherLiveExtractsPublicHTML(t *testing.T) {

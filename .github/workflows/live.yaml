@@ -55,6 +55,7 @@ jobs:
       - run: make test-live-web
         env:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          TELEM_API_KEY: ${{ secrets.TELEM_API_KEY }}
 
   live:
     name: Live Provider Tests
