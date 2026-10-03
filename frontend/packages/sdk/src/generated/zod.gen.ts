@@ -3196,25 +3196,6 @@ export const zDeclineInvitationPath = z.object({
  */
 export const zDeclineInvitationResponse = zOrgInvitation;
 
-export const zGetUsageTimeseriesQuery = z.object({
-    since: z.iso.datetime({ offset: true }).optional(),
-    until: z.iso.datetime({ offset: true }).optional(),
-    timezone: z.string().max(64).optional().default('UTC'),
-    interval: zUsageTimeseriesInterval.optional(),
-    metric: zUsageTimeseriesMetric.optional(),
-    group_by: zUsageTimeseriesGroupBy.optional(),
-    group_limit: z.int().gte(1).lte(20).optional().default(8),
-    org_ids: z.array(zOrganizationId).min(1).max(100).optional(),
-    project_ids: z.array(zProjectId).min(1).max(100).optional(),
-    agent_profile_ids: z.array(zAgentProfileId).min(1).max(100).optional(),
-    include_subagents: z.boolean().optional().default(false)
-});
-
-/**
- * Usage timeseries.
- */
-export const zGetUsageTimeseriesResponse = zUsageTimeseries;
-
 export const zGetOrgOverviewPath = z.object({
     orgID: zOrganizationId
 });
@@ -3239,6 +3220,28 @@ export const zGetOrgUsageQuery = z.object({
  * Usage totals for the organization.
  */
 export const zGetOrgUsageResponse = zUsageReport;
+
+export const zGetOrgUsageTimeseriesPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageTimeseriesQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    timezone: z.string().max(64).optional().default('UTC'),
+    interval: zUsageTimeseriesInterval.optional(),
+    metric: zUsageTimeseriesMetric.optional(),
+    group_by: zUsageTimeseriesGroupBy.optional(),
+    group_limit: z.int().gte(1).lte(20).optional().default(8),
+    project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    agent_profile_ids: z.array(zAgentProfileId).min(1).max(100).optional(),
+    include_subagents: z.boolean().optional().default(false)
+});
+
+/**
+ * Usage timeseries.
+ */
+export const zGetOrgUsageTimeseriesResponse = zUsageTimeseries;
 
 export const zListOrgAgentsPath = z.object({
     orgID: zOrganizationId

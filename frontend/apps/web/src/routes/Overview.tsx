@@ -52,7 +52,7 @@ export function Overview() {
         <>
           <OverviewSummary overview={overview} />
           <UsageOverview
-            filters={{ orgIDs: [activeOrg.id] }}
+            orgId={activeOrg.id}
             reportLink={
               canManageOrg(activeOrg.role) && (
                 <Link to="/usage" className={cn(panelHintClass, 'inline-flex hover:underline')}>

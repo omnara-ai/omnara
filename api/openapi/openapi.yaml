@@ -553,122 +553,6 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /usage/timeseries:
-    get:
-      operationId: getUsageTimeseries
-      tags: [Organizations and Projects]
-      summary: Get usage timeseries
-      description: >-
-        Buckets model usage over time for one metric, optionally broken down by
-        configured model or agent profile. Covers every project the caller can
-        read across its organizations; `org_ids`, `project_ids`, and
-        `agent_profile_ids` narrow that scope. Buckets are calendar days, weeks
-        (starting Monday), or months in `timezone`.
-      parameters:
-        - $ref: '#/components/parameters/UsageSince'
-        - $ref: '#/components/parameters/UsageUntil'
-        - name: timezone
-          in: query
-          required: false
-          schema:
-            type: string
-            default: UTC
-            maxLength: 64
-          description: IANA time zone that decides where each bucket starts.
-        - name: interval
-          in: query
-          required: false
-          schema:
-            $ref: '#/components/schemas/UsageTimeseriesInterval'
-          description: >-
-            Bucket width. Omit to pick one from the window length: days up to 92
-            days, weeks up to 730 days, months beyond. Hourly buckets are used
-            only when requested. The window may span at most 400 buckets.
-        - name: metric
-          in: query
-          required: false
-          schema:
-            $ref: '#/components/schemas/UsageTimeseriesMetric'
-          description: Value plotted in each bucket. Defaults to `sum_tokens`.
-        - name: group_by
-          in: query
-          required: false
-          schema:
-            $ref: '#/components/schemas/UsageTimeseriesGroupBy'
-          description: Break the metric down into one series per group. Omit for a single series.
-        - name: group_limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 20
-            default: 8
-          description: >-
-            With `group_by`, how many groups get their own series, ranked by the
-            metric. The rest are folded into one `other` series.
-        - name: org_ids
-          in: query
-          required: false
-          schema:
-            type: array
-            minItems: 1
-            maxItems: 100
-            items:
-              $ref: '#/components/schemas/OrganizationID'
-          description: Only count usage from these organizations.
-        - name: project_ids
-          in: query
-          required: false
-          schema:
-            type: array
-            minItems: 1
-            maxItems: 100
-            items:
-              $ref: '#/components/schemas/ProjectID'
-          description: Only count usage from these projects.
-        - name: agent_profile_ids
-          in: query
-          required: false
-          schema:
-            type: array
-            minItems: 1
-            maxItems: 100
-            items:
-              $ref: '#/components/schemas/AgentProfileID'
-          description: >-
-            Only count usage from top-level agents launched from these agent
-            profiles.
-        - name: include_subagents
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: >-
-            With `agent_profile_ids`, also count usage from subagents spawned by
-            those agents.
-      responses:
-        '200':
-          description: Usage timeseries.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UsageTimeseries'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/overview:
     parameters:
       - name: orgID
@@ -733,6 +617,118 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/usage/timeseries:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgUsageTimeseries
+      tags: [Organizations and Projects]
+      summary: Get usage timeseries
+      description: >-
+        Buckets model usage over time for one metric, optionally broken down by
+        configured model or agent profile. Covers every project the caller can
+        read in the organization; `project_ids` and `agent_profile_ids` narrow
+        that scope. Buckets are calendar days, weeks (starting Monday), or months
+        in `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: UTC
+            maxLength: 64
+          description: IANA time zone that decides where each bucket starts.
+        - name: interval
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesInterval'
+          description: >-
+            Bucket width. Omit to pick one from the window length: days up to 92
+            days, weeks up to 730 days, months beyond. Hourly buckets are used
+            only when requested. The window may span at most 400 buckets.
+        - name: metric
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesMetric'
+          description: Value plotted in each bucket. Defaults to `sum_tokens`.
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesGroupBy'
+          description: Break the metric down into one series per group. Omit for a single series.
+        - name: group_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 8
+          description: >-
+            With `group_by`, how many groups get their own series, ranked by the
+            metric. The rest are folded into one `other` series.
+        - name: project_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/ProjectID'
+          description: Only count usage from these projects.
+        - name: agent_profile_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/AgentProfileID'
+          description: >-
+            Only count usage from top-level agents launched from these agent
+            profiles.
+        - name: include_subagents
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: >-
+            With `agent_profile_ids`, also count usage from subagents spawned by
+            those agents.
+      responses:
+        '200':
+          description: Usage timeseries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageTimeseries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

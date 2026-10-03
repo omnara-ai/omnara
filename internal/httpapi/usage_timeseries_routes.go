@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 const (
@@ -25,12 +24,18 @@ const (
 	usageTimeseriesWeeklyMaxSpan     = 730 * 24 * time.Hour
 )
 
-func (s strictOpenAPIServer) GetUsageTimeseries(
+func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 	ctx context.Context,
-	request openapi.GetUsageTimeseriesRequestObject,
-) (openapi.GetUsageTimeseriesResponseObject, error) {
+	request openapi.GetOrgUsageTimeseriesRequestObject,
+) (openapi.GetOrgUsageTimeseriesResponseObject, error) {
 	params := request.Params
-	if _, err := usageWindowFromParams(params.Since, params.Until); err != nil {
+	// Default until before validating, so a since in the future is a bad request
+	// rather than a window the store rejects.
+	until := time.Now()
+	if params.Until != nil {
+		until = *params.Until
+	}
+	if _, err := usageWindowFromParams(params.Since, &until); err != nil {
 		return nil, err
 	}
 	location, err := timezoneLocation(params.Timezone)
@@ -48,10 +53,6 @@ func (s strictOpenAPIServer) GetUsageTimeseries(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid interval")
 	}
 	groupLimit := cmp.Or(valueOrZero(params.GroupLimit), usageTimeseriesDefaultGroupLimit)
-	orgIDs, err := usagePublicIDsFromParams(publicid.KindOrganization, "org_ids", params.OrgIds)
-	if err != nil {
-		return nil, err
-	}
 	projectIDs, err := usagePublicIDsFromParams(publicid.KindProject, "project_ids", params.ProjectIds)
 	if err != nil {
 		return nil, err
@@ -60,16 +61,16 @@ func (s strictOpenAPIServer) GetUsageTimeseries(
 	if err != nil {
 		return nil, err
 	}
-	orgIDs, projectIDs, err = s.usageTimeseriesScope(ctx, orgIDs, projectIDs)
+	org, err := orgScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	until := time.Now()
-	if params.Until != nil {
-		until = *params.Until
+	projectIDs, err = s.usageTimeseriesProjects(ctx, projectIDs)
+	if err != nil {
+		return nil, err
 	}
 	filter := executionstore.ModelUsageSeriesFilter{
-		OrgIDs:                  orgIDs,
+		OrgIDs:                  []uuid.UUID{org.ID},
 		ProjectIDs:              projectIDs,
 		AgentProfileIDs:         profileIDs,
 		IncludeProfileSubagents: profileIDs != nil && valueOrZero(params.IncludeSubagents),
@@ -101,70 +102,28 @@ func (s strictOpenAPIServer) GetUsageTimeseries(
 	response.Interval = interval
 	response.Timezone = location.String()
 	response.Until = until.UTC()
-	return openapi.GetUsageTimeseries200JSONResponse(response), nil
+	return openapi.GetOrgUsageTimeseries200JSONResponse(response), nil
 }
 
-// usageTimeseriesScope resolves the orgs the caller belongs to and the projects
-// it can read in them, narrowed to orgIDs and projectIDs when given.
-func (s strictOpenAPIServer) usageTimeseriesScope(
+// usageTimeseriesProjects returns the projects the caller can read in the
+// scoped org, narrowed to projectIDs when given; an unreadable one is not found.
+func (s strictOpenAPIServer) usageTimeseriesProjects(
 	ctx context.Context,
-	orgIDs, projectIDs []uuid.UUID,
-) ([]uuid.UUID, []uuid.UUID, error) {
-	principal, ok := principalFromContext(ctx)
-	if !ok || !identitystore.IsAccountPrincipal(principal) {
-		return nil, nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-	}
-	memberships, err := s.server.store.Identity().ListOrgMembershipsForPrincipal(ctx, principal)
+	projectIDs []uuid.UUID,
+) ([]uuid.UUID, error) {
+	scope, err := s.orgListScope(ctx, identitystore.ProjectActionRead)
 	if err != nil {
-		return nil, nil, apierror.FromError(err)
-	}
-	memberOrgIDs := make([]uuid.UUID, 0, len(memberships))
-	for _, membership := range memberships {
-		memberOrgIDs = append(memberOrgIDs, membership.OrgID)
-	}
-	if orgIDs == nil {
-		orgIDs = memberOrgIDs
-	}
-	readable := map[uuid.UUID]bool{}
-	for _, orgID := range orgIDs {
-		if !slices.Contains(memberOrgIDs, orgID) {
-			return nil, nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-		}
-		after := listing.KeysetCursor{}
-		for {
-			page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
-				ctx,
-				identitystore.ListVisibleProjectsForPrincipalInput{
-					OrgID: orgID, Principal: principal, Limit: orgListProjectPageSize, After: after,
-				},
-			)
-			if err != nil {
-				return nil, nil, apierror.OrgScoped(err)
-			}
-			for _, record := range page.Projects {
-				if identitystore.ProjectRolesAllow(record.Roles, identitystore.ProjectActionRead) {
-					readable[record.Project.ID] = true
-				}
-			}
-			if !page.HasMore || len(page.Projects) == 0 {
-				break
-			}
-			last := page.Projects[len(page.Projects)-1].Project
-			after = listing.KeysetCursor{Set: true, CreatedAt: last.CreatedAt, ID: last.ID}
-		}
+		return nil, err
 	}
 	if projectIDs == nil {
-		for id := range readable {
-			projectIDs = append(projectIDs, id)
-		}
-		return orgIDs, projectIDs, nil
+		return scope.projectIDs, nil
 	}
 	for _, id := range projectIDs {
-		if !readable[id] {
-			return nil, nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		if !slices.Contains(scope.projectIDs, id) {
+			return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 		}
 	}
-	return orgIDs, projectIDs, nil
+	return projectIDs, nil
 }
 
 // usageTimeseriesStart returns where the window begins: since when given,

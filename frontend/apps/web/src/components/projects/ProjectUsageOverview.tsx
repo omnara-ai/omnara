@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils'
 export function ProjectUsageOverview({ orgId, projectId }: { orgId: string; projectId: string }) {
   return (
     <UsageOverview
-      filters={{ orgIDs: [orgId], projectIDs: [projectId] }}
+      orgId={orgId}
+      filters={{ projectIDs: [projectId] }}
       reportLink={
         <Link
           to="/projects/$projectId/usage"

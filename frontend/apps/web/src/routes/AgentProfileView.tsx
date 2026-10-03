@@ -292,10 +292,10 @@ function ProfileUsageTab({
         query={query}
         chart={
           <UsageTimeseriesPanel
+            orgId={orgId}
             filters={{
               ...range.window,
               interval: range.interval,
-              orgIDs: [orgId],
               projectIDs: [projectId],
               agentProfileIDs: [profileId],
               includeSubagents,

@@ -15,10 +15,12 @@ import { formatCount } from '@/lib/format'
 const usageDays = 30
 
 export function UsageOverview({
-  filters,
+  orgId,
+  filters = {},
   reportLink,
 }: {
-  filters: UsageTimeseriesScope
+  orgId: string
+  filters?: UsageTimeseriesScope
   reportLink?: ReactNode
 }) {
   return (
@@ -29,6 +31,7 @@ export function UsageOverview({
         action={reportLink}
       />
       <UsageTimeseriesPanel
+        orgId={orgId}
         filters={{ ...filters, ...lastDaysUsageWindow(usageDays), interval: 'day' }}
         summary={(timeseries) => <UsageFigures timeseries={timeseries} />}
         showControls={false}
