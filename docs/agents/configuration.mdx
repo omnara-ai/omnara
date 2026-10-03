@@ -241,6 +241,8 @@ max_depth: 2
 
 Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. Each subagent launches from a new config derived from its base with the key's overrides applied; a subagent at the tree's `max_depth` has `subagents` and `spawn_agent` removed. Subagents share the parent's attached machines, including its pool machines, instead of provisioning from the base config's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
+For a complete example you can deploy, with a `self` subagent whose copies each work in their own `git worktree` on the parent's machine, see [Coding agent in Slack](/examples/slack-coding-agent).
+
 ## Create a config
 
 <Tabs>
