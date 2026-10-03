@@ -4643,112 +4643,6 @@ export type DeclineInvitationResponses = {
 
 export type DeclineInvitationResponse = DeclineInvitationResponses[keyof DeclineInvitationResponses];
 
-export type GetUsageTimeseriesData = {
-    body?: never;
-    path?: never;
-    query?: {
-        /**
-         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
-         */
-        since?: string;
-        /**
-         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
-         */
-        until?: string;
-        /**
-         * IANA time zone that decides where each bucket starts.
-         */
-        timezone?: string;
-        /**
-         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. Hourly buckets are used only when requested. The window may span at most 400 buckets.
-         */
-        interval?: UsageTimeseriesInterval;
-        /**
-         * Value plotted in each bucket. Defaults to `sum_tokens`.
-         */
-        metric?: UsageTimeseriesMetric;
-        /**
-         * Break the metric down into one series per group. Omit for a single series.
-         */
-        group_by?: UsageTimeseriesGroupBy;
-        /**
-         * With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
-         */
-        group_limit?: number;
-        /**
-         * Only count usage from these organizations.
-         */
-        org_ids?: Array<OrganizationId>;
-        /**
-         * Only count usage from these projects.
-         */
-        project_ids?: Array<ProjectId>;
-        /**
-         * Only count usage from top-level agents launched from these agent profiles.
-         */
-        agent_profile_ids?: Array<AgentProfileId>;
-        /**
-         * With `agent_profile_ids`, also count usage from subagents spawned by those agents.
-         */
-        include_subagents?: boolean;
-    };
-    url: '/usage/timeseries';
-};
-
-export type GetUsageTimeseriesErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type GetUsageTimeseriesError = GetUsageTimeseriesErrors[keyof GetUsageTimeseriesErrors];
-
-export type GetUsageTimeseriesResponses = {
-    /**
-     * Usage timeseries.
-     */
-    200: UsageTimeseries;
-};
-
-export type GetUsageTimeseriesResponse = GetUsageTimeseriesResponses[keyof GetUsageTimeseriesResponses];
-
 export type GetOrgOverviewData = {
     body?: never;
     path: {
@@ -4887,6 +4781,110 @@ export type GetOrgUsageResponses = {
 };
 
 export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
+
+export type GetOrgUsageTimeseriesData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * IANA time zone that decides where each bucket starts.
+         */
+        timezone?: string;
+        /**
+         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. Hourly buckets are used only when requested. The window may span at most 400 buckets.
+         */
+        interval?: UsageTimeseriesInterval;
+        /**
+         * Value plotted in each bucket. Defaults to `sum_tokens`.
+         */
+        metric?: UsageTimeseriesMetric;
+        /**
+         * Break the metric down into one series per group. Omit for a single series.
+         */
+        group_by?: UsageTimeseriesGroupBy;
+        /**
+         * With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
+         */
+        group_limit?: number;
+        /**
+         * Only count usage from these projects.
+         */
+        project_ids?: Array<ProjectId>;
+        /**
+         * Only count usage from top-level agents launched from these agent profiles.
+         */
+        agent_profile_ids?: Array<AgentProfileId>;
+        /**
+         * With `agent_profile_ids`, also count usage from subagents spawned by those agents.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/usage/timeseries';
+};
+
+export type GetOrgUsageTimeseriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgUsageTimeseriesError = GetOrgUsageTimeseriesErrors[keyof GetOrgUsageTimeseriesErrors];
+
+export type GetOrgUsageTimeseriesResponses = {
+    /**
+     * Usage timeseries.
+     */
+    200: UsageTimeseries;
+};
+
+export type GetOrgUsageTimeseriesResponse = GetOrgUsageTimeseriesResponses[keyof GetOrgUsageTimeseriesResponses];
 
 export type ListOrgAgentsData = {
     body?: never;

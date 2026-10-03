@@ -7,8 +7,8 @@ import {
   getAgentProfileUsageOptions,
   getAgentUsageOptions,
   getOrgUsageOptions,
+  getOrgUsageTimeseriesOptions,
   getProjectUsageOptions,
-  getUsageTimeseriesOptions,
 } from '@omnara/sdk/tanstack'
 import { keepPreviousData, type Query, useQuery } from '@tanstack/react-query'
 
@@ -35,7 +35,6 @@ export interface UsageTimeseriesFilters extends UsageWindow {
   metric?: UsageTimeseriesMetric
   groupBy?: UsageTimeseriesGroupBy
   groupLimit?: number
-  orgIDs?: string[]
   projectIDs?: string[]
   agentProfileIDs?: string[]
   includeSubagents?: boolean
@@ -113,10 +112,11 @@ export function useAgentUsage(
   })
 }
 
-export function useUsageTimeseries(filters: UsageTimeseriesFilters = {}) {
+export function useUsageTimeseries(orgID: string, filters: UsageTimeseriesFilters = {}) {
   const client = useOmnaraClient()
   return useQuery({
-    ...getUsageTimeseriesOptions({
+    ...getOrgUsageTimeseriesOptions({
+      path: { orgID },
       query: {
         since: filters.since,
         until: filters.until,
@@ -125,7 +125,6 @@ export function useUsageTimeseries(filters: UsageTimeseriesFilters = {}) {
         metric: filters.metric,
         group_by: filters.groupBy,
         group_limit: filters.groupLimit,
-        org_ids: nonEmpty(filters.orgIDs),
         project_ids: nonEmpty(filters.projectIDs),
         agent_profile_ids: nonEmpty(filters.agentProfileIDs),
         include_subagents: filters.includeSubagents,

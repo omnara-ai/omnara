@@ -7365,17 +7365,8 @@ type GetOrgUsageParams struct {
 	ExcludeProjectIds *UsageExcludeProjectIDs `form:"exclude_project_ids,omitempty" json:"exclude_project_ids,omitempty"`
 }
 
-// ListPersonalAccessTokensParams defines parameters for ListPersonalAccessTokens.
-type ListPersonalAccessTokensParams struct {
-	// Limit Maximum number of items to return in one page.
-	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
-	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-}
-
-// GetUsageTimeseriesParams defines parameters for GetUsageTimeseries.
-type GetUsageTimeseriesParams struct {
+// GetOrgUsageTimeseriesParams defines parameters for GetOrgUsageTimeseries.
+type GetOrgUsageTimeseriesParams struct {
 	// Since Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
 	Since *UsageSince `form:"since,omitempty" json:"since,omitempty"`
 
@@ -7397,9 +7388,6 @@ type GetUsageTimeseriesParams struct {
 	// GroupLimit With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
 	GroupLimit *int `form:"group_limit,omitempty" json:"group_limit,omitempty"`
 
-	// OrgIds Only count usage from these organizations.
-	OrgIds *[]OrganizationID `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
 	// ProjectIds Only count usage from these projects.
 	ProjectIds *[]ProjectID `form:"project_ids,omitempty" json:"project_ids,omitempty"`
 
@@ -7408,6 +7396,15 @@ type GetUsageTimeseriesParams struct {
 
 	// IncludeSubagents With `agent_profile_ids`, also count usage from subagents spawned by those agents.
 	IncludeSubagents *bool `form:"include_subagents,omitempty" json:"include_subagents,omitempty"`
+}
+
+// ListPersonalAccessTokensParams defines parameters for ListPersonalAccessTokens.
+type ListPersonalAccessTokensParams struct {
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // RecordMachineFailureTextRequestBody defines body for RecordMachineFailure for text/plain ContentType.
@@ -11254,6 +11251,9 @@ type ServerInterface interface {
 	// GetOrgUsage Get org usage
 	// (GET /orgs/{orgID}/usage)
 	GetOrgUsage(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageParams)
+	// GetOrgUsageTimeseries Get usage timeseries
+	// (GET /orgs/{orgID}/usage/timeseries)
+	GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageTimeseriesParams)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
 	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request, params ListPersonalAccessTokensParams)
@@ -11266,9 +11266,6 @@ type ServerInterface interface {
 	// GetToolCatalog Get tool catalog
 	// (GET /tool-catalog)
 	GetToolCatalog(w http.ResponseWriter, r *http.Request)
-	// GetUsageTimeseries Get usage timeseries
-	// (GET /usage/timeseries)
-	GetUsageTimeseries(w http.ResponseWriter, r *http.Request, params GetUsageTimeseriesParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -19635,114 +19632,23 @@ func (siw *ServerInterfaceWrapper) GetOrgUsage(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// ListPersonalAccessTokens operation middleware
-func (siw *ServerInterfaceWrapper) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request) {
+// GetOrgUsageTimeseries operation middleware
+func (siw *ServerInterfaceWrapper) GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListPersonalAccessTokensParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListPersonalAccessTokens(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreatePersonalAccessToken operation middleware
-func (siw *ServerInterfaceWrapper) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreatePersonalAccessToken(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RevokePersonalAccessToken operation middleware
-func (siw *ServerInterfaceWrapper) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "tokenID" -------------
-	var tokenID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "tokenID", r.PathValue("tokenID"), &tokenID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tokenID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RevokePersonalAccessToken(w, r, tokenID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetToolCatalog operation middleware
-func (siw *ServerInterfaceWrapper) GetToolCatalog(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetToolCatalog(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetUsageTimeseries operation middleware
-func (siw *ServerInterfaceWrapper) GetUsageTimeseries(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetUsageTimeseriesParams
+	var params GetOrgUsageTimeseriesParams
 
 	// ------------- Optional query parameter "since" -------------
 
@@ -19835,19 +19741,6 @@ func (siw *ServerInterfaceWrapper) GetUsageTimeseries(w http.ResponseWriter, r *
 		return
 	}
 
-	// ------------- Optional query parameter "org_ids" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "org_ids", r.URL.Query(), &params.OrgIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "org_ids"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "org_ids", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "project_ids" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_ids", r.URL.Query(), &params.ProjectIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
@@ -19888,7 +19781,107 @@ func (siw *ServerInterfaceWrapper) GetUsageTimeseries(w http.ResponseWriter, r *
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetUsageTimeseries(w, r, params)
+		siw.Handler.GetOrgUsageTimeseries(w, r, orgID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPersonalAccessTokens operation middleware
+func (siw *ServerInterfaceWrapper) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPersonalAccessTokensParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPersonalAccessTokens(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePersonalAccessToken operation middleware
+func (siw *ServerInterfaceWrapper) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePersonalAccessToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokePersonalAccessToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tokenID" -------------
+	var tokenID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tokenID", r.PathValue("tokenID"), &tokenID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tokenID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokePersonalAccessToken(w, r, tokenID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetToolCatalog operation middleware
+func (siw *ServerInterfaceWrapper) GetToolCatalog(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetToolCatalog(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20031,9 +20024,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/invitations", wrapper.ListPendingInvitations)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/invitations/{invitationID}/accept", wrapper.AcceptInvitation)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/invitations/{invitationID}/decline", wrapper.DeclineInvitation)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/usage/timeseries", wrapper.GetUsageTimeseries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/overview", wrapper.GetOrgOverview)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/usage", wrapper.GetOrgUsage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/usage/timeseries", wrapper.GetOrgUsageTimeseries)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/agents", wrapper.ListOrgAgents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/agent-profiles", wrapper.ListOrgAgentProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects", wrapper.ListVisibleProjects)
@@ -44241,6 +44234,145 @@ func (response GetOrgUsage5XXJSONResponse) VisitGetOrgUsageResponse(w http.Respo
 	return err
 }
 
+type GetOrgUsageTimeseriesRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params GetOrgUsageTimeseriesParams
+}
+
+type GetOrgUsageTimeseriesResponseObject interface {
+	VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error
+}
+
+type GetOrgUsageTimeseries200JSONResponse UsageTimeseries
+
+func (response GetOrgUsageTimeseries200JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetOrgUsageTimeseries400JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetOrgUsageTimeseries401JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetOrgUsageTimeseries403JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetOrgUsageTimeseries404JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetOrgUsageTimeseries4XXJSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetOrgUsageTimeseries503JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetOrgUsageTimeseries5XXJSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPersonalAccessTokensRequestObject struct {
 	Params ListPersonalAccessTokensParams
 }
@@ -44764,144 +44896,6 @@ func (response GetToolCatalog5XXJSONResponse) VisitGetToolCatalogResponse(w http
 	return err
 }
 
-type GetUsageTimeseriesRequestObject struct {
-	Params GetUsageTimeseriesParams
-}
-
-type GetUsageTimeseriesResponseObject interface {
-	VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error
-}
-
-type GetUsageTimeseries200JSONResponse UsageTimeseries
-
-func (response GetUsageTimeseries200JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response GetUsageTimeseries400JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetUsageTimeseries401JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetUsageTimeseries403JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetUsageTimeseries404JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries4XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-		Code ClientErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response GetUsageTimeseries4XXJSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response GetUsageTimeseries503JSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetUsageTimeseries5XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-		Code ServerErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response GetUsageTimeseries5XXJSONResponse) VisitGetUsageTimeseriesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// BootstrapDaemon Bootstrap daemon
@@ -45372,6 +45366,9 @@ type StrictServerInterface interface {
 	// GetOrgUsage Get org usage
 	// (GET /orgs/{orgID}/usage)
 	GetOrgUsage(ctx context.Context, request GetOrgUsageRequestObject) (GetOrgUsageResponseObject, error)
+	// GetOrgUsageTimeseries Get usage timeseries
+	// (GET /orgs/{orgID}/usage/timeseries)
+	GetOrgUsageTimeseries(ctx context.Context, request GetOrgUsageTimeseriesRequestObject) (GetOrgUsageTimeseriesResponseObject, error)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
 	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(ctx context.Context, request ListPersonalAccessTokensRequestObject) (ListPersonalAccessTokensResponseObject, error)
@@ -45384,9 +45381,6 @@ type StrictServerInterface interface {
 	// GetToolCatalog Get tool catalog
 	// (GET /tool-catalog)
 	GetToolCatalog(ctx context.Context, request GetToolCatalogRequestObject) (GetToolCatalogResponseObject, error)
-	// GetUsageTimeseries Get usage timeseries
-	// (GET /usage/timeseries)
-	GetUsageTimeseries(ctx context.Context, request GetUsageTimeseriesRequestObject) (GetUsageTimeseriesResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -50103,6 +50097,33 @@ func (sh *strictHandler) GetOrgUsage(w http.ResponseWriter, r *http.Request, org
 	}
 }
 
+// GetOrgUsageTimeseries operation middleware
+func (sh *strictHandler) GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageTimeseriesParams) {
+	var request GetOrgUsageTimeseriesRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOrgUsageTimeseries(ctx, request.(GetOrgUsageTimeseriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOrgUsageTimeseries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOrgUsageTimeseriesResponseObject); ok {
+		if err := validResponse.VisitGetOrgUsageTimeseriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPersonalAccessTokens operation middleware
 func (sh *strictHandler) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request, params ListPersonalAccessTokensParams) {
 	var request ListPersonalAccessTokensRequestObject
@@ -50203,32 +50224,6 @@ func (sh *strictHandler) GetToolCatalog(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetToolCatalogResponseObject); ok {
 		if err := validResponse.VisitGetToolCatalogResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetUsageTimeseries operation middleware
-func (sh *strictHandler) GetUsageTimeseries(w http.ResponseWriter, r *http.Request, params GetUsageTimeseriesParams) {
-	var request GetUsageTimeseriesRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetUsageTimeseries(ctx, request.(GetUsageTimeseriesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetUsageTimeseries")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetUsageTimeseriesResponseObject); ok {
-		if err := validResponse.VisitGetUsageTimeseriesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -51040,33 +51035,33 @@ var swaggerSpec = []string{
 	"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",
-	"+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",
+	"+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",
+	"vWMdrGhwNGodyZfYZfT5w+f//wA=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

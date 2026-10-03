@@ -36,10 +36,12 @@ const measures: { value: UsageMeasure; label: string }[] = [
 ]
 
 export function UsageTimeseriesPanel({
+  orgId,
   filters,
   summary,
   showControls = true,
 }: {
+  orgId: string
   filters: UsageTimeseriesScope
   summary?: (timeseries: UsageTimeseries) => ReactNode
   /** Measure and breakdown toggles; without them the chart shows tokens by model. */
@@ -47,7 +49,7 @@ export function UsageTimeseriesPanel({
 }) {
   const [breakdown, setBreakdown] = useState<UsageBreakdown>('model')
   const [measure, setMeasure] = useState<UsageMeasure>('tokens')
-  const query = useUsageTimeseries({
+  const query = useUsageTimeseries(orgId, {
     ...filters,
     timezone: browserTimezone,
     metric: usageMeasureMetrics[measure],

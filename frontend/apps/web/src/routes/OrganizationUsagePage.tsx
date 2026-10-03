@@ -32,7 +32,8 @@ export function OrganizationUsagePage() {
           query={query}
           chart={
             <UsageTimeseriesPanel
-              filters={{ ...range.window, interval: range.interval, orgIDs: [activeOrg.id] }}
+              orgId={activeOrg.id}
+              filters={{ ...range.window, interval: range.interval }}
             />
           }
           emptyMessage={

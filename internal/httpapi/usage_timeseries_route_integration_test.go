@@ -17,7 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-func TestGetUsageTimeseries(t *testing.T) {
+func TestGetOrgUsageTimeseries(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -85,11 +85,15 @@ func TestGetUsageTimeseries(t *testing.T) {
 		}
 		return query
 	}
-	get := func(token string, query url.Values, status int) map[string]any {
+	getIn := func(orgID, token string, query url.Values, status int) map[string]any {
 		t.Helper()
 		return requestJSONWithHeaders(
-			t, handler, http.MethodGet, "/api/v1/usage/timeseries?"+query.Encode(), "", "", status, authHeaders(token),
+			t, handler, http.MethodGet, orgUsageTimeseriesPath(orgID, query), "", "", status, authHeaders(token),
 		)
+	}
+	get := func(token string, query url.Values, status int) map[string]any {
+		t.Helper()
+		return getIn(project.OrgID, token, query, status)
 	}
 
 	byModel := get(project.AdminToken, window(url.Values{"group_by": {"model"}}), http.StatusOK)
@@ -148,9 +152,6 @@ func TestGetUsageTimeseries(t *testing.T) {
 	}), http.StatusOK)
 	assertUsageTotals(t, "profile with subagents", overviewUsageObject(t, withSubagents, "totals"),
 		addExpectedUsage(firstOnly, childOnly))
-	orgScoped := get(project.AdminToken, window(url.Values{"org_ids": {project.OrgID}}), http.StatusOK)
-	assertUsageTotals(t, "org", overviewUsageObject(t, orgScoped, "totals"), all)
-
 	allTime := get(project.AdminToken, url.Values{"timezone": {zone}}, http.StatusOK)
 	allTimeStarts := testutil.RequireType[[]any](t, allTime["bucket_starts"])
 	if allTime["interval"] != "day" || len(allTimeStarts) != 1 ||
@@ -224,23 +225,26 @@ func TestGetUsageTimeseries(t *testing.T) {
 		{"interval": {"minute"}},
 		{"since": {since.Format(time.RFC3339)}, "interval": {"hour"}},
 		{"since": {now.Format(time.RFC3339)}, "until": {now.Add(-time.Hour).Format(time.RFC3339)}},
+		// until defaults to now, so a future since is a bad request too.
+		{"since": {now.Add(24 * time.Hour).Format(time.RFC3339)}},
 		{"since": {now.AddDate(-2, 0, 0).Format(time.RFC3339)}, "interval": {"day"}},
 		{"project_ids": {"not-a-project"}},
 	} {
 		get(project.AdminToken, query, http.StatusBadRequest)
 	}
 	otherOrg := bootstrapPublicHTTPProject(t, handler, "usage-series-other")
-	get(otherOrg.AdminToken, window(url.Values{"org_ids": {project.OrgID}}), http.StatusNotFound)
-	otherUsage := get(otherOrg.AdminToken, window(nil), http.StatusOK)
+	get(otherOrg.AdminToken, window(nil), http.StatusNotFound)
+	otherUsage := getIn(otherOrg.OrgID, otherOrg.AdminToken, window(nil), http.StatusOK)
 	assertUsageTotals(t, "other org", overviewUsageObject(t, otherUsage, "totals"), nothing)
 }
 
-func TestGetUsageTimeseriesWithoutMemberships(t *testing.T) {
+func TestGetOrgUsageTimeseriesRequiresMembership(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
 	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "usage-series-outsider")
 	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
 		Email: "usage-series-orgless@example.com", DisplayName: "Orgless",
 	})
@@ -254,17 +258,14 @@ func TestGetUsageTimeseriesWithoutMemberships(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	for _, query := range []url.Values{
-		{},
-		{"since": {time.Now().AddDate(0, 0, -7).Format(time.RFC3339)}},
-	} {
-		body := requestJSONWithHeaders(
-			t, handler, http.MethodGet, "/api/v1/usage/timeseries?"+query.Encode(), "", "",
-			http.StatusOK, authHeaders(token.Token),
-		)
-		assertUsageTotals(t, "orgless", overviewUsageObject(t, body, "totals"), expectedUsage{cost: "0"})
-		assertOverviewActiveAgents(t, body, 0)
-	}
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, orgUsageTimeseriesPath(project.OrgID, url.Values{}), "", "",
+		http.StatusNotFound, authHeaders(token.Token),
+	)
+}
+
+func orgUsageTimeseriesPath(orgID string, query url.Values) string {
+	return "/api/v1/orgs/" + orgID + "/usage/timeseries?" + query.Encode()
 }
 
 func overviewNoonTimezone(now time.Time) string {
