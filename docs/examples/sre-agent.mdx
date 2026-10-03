@@ -1,10 +1,10 @@
 ---
 title: SRE agent
-description: A production investigator for AWS, with optional Grafana and code access
+description: A read-only production investigator for AWS, with optional code access
 icon: "server"
 ---
 
-Ask it about a symptom or paste an alert, and it works through AWS, plus Grafana and your source code if you connect them, to report the most likely cause with evidence. Its AWS access is read-only; with Grafana connected, the only thing it can write is dashboards.
+Ask it about a symptom or paste an alert, and it works through AWS (infrastructure plus CloudWatch logs and metrics), and your source code if you connect it, to report the most likely cause with evidence. Its AWS access is read-only, so it never changes production.
 
 ## Deploy
 

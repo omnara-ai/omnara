@@ -172,7 +172,7 @@ model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"
   name: "{{MODEL_NAME}}"
   reasoning:
-    effort: medium
+    effort: high
 
 machine_sources:
   - machine_pool_name: "{{MACHINE_POOL}}"

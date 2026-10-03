@@ -66,5 +66,13 @@ tools:
   run_command:
     permission:
       mode: always_allow    # scheduled runs have no one to approve the curl call
+  read_process: {}
+  write_process: {}
+  stop_process: {}
+  list_processes: {}
+  list_machines: {}
+  inspect_machine: {}
+  upload_file: {}
+  download_file: {}
   web_search: {}
   web_fetch: {}

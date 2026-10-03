@@ -97,8 +97,8 @@ may need to approve the token.
 
 1. `npx omnara grant models list --json`: each item has
    `model.provider_config` and `model.name`. Ask the user which model to use.
-   Suggest `anthropic/claude-fable-5.1` on `omnara-openrouter` if it's granted
-   (the instruction was tested with it); otherwise suggest the strongest
+   Suggest `anthropic/claude-opus-5.5` on `omnara-openrouter` if it's granted
+   (`agent.yaml` runs it at high reasoning effort); otherwise suggest the strongest
    coding model on the list. Name a couple of alternatives rather than the
    whole list, and show everything if they ask. The choice gives
    `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
@@ -132,7 +132,7 @@ may need to approve the token.
    - Exists: `npx omnara profiles update <agent-profile-id> --file ./slack-coding-agent.yaml --json`
 
    If it rejects the reasoning effort, the chosen model doesn't support
-   `medium`: remove the `reasoning` block and retry. Note the profile `id`.
+   `high`: remove the `reasoning` block and retry. Note the profile `id`.
 
 ## 5. Connect Slack
 

@@ -1,6 +1,6 @@
 ---
 name: sre-agent
-description: Deploy or update the SRE Agent on Omnara, a production investigator that diagnoses issues across AWS, Grafana, and source code and reports the likely cause with evidence. Use when the user asks to deploy, set up, update, or remove the SRE agent.
+description: Deploy or update the SRE Agent on Omnara, a production investigator that diagnoses issues across AWS and source code and reports the likely cause with evidence. Use when the user asks to deploy, set up, update, or remove the SRE agent.
 ---
 
 # Deploy the SRE Agent
@@ -12,7 +12,7 @@ optionally running a daily health check.
 
 The steps below are the usual path and have the exact commands. Skip anything
 that's already done (for example, the secrets and profile exist and the user
-only wants to add Grafana), follow the user's lead if they want a different
+only wants to add code access), follow the user's lead if they want a different
 order, and narrate briefly as you go.
 
 - Start from `agent.yaml` as written. If the user wants something different
@@ -28,7 +28,7 @@ reference, not a requirement: the Omnara MCP tools, the
 [REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
 too, and the flags map directly to API fields. What matters is the result:
 secrets for the data sources, a profile from the filled-in `agent.yaml`, and
-whatever the user picks in steps 9 and 10. Slack setup is simplest with the
+whatever the user picks in steps 8 and 9. Slack setup is simplest with the
 CLI.
 
 ## 1. Connect to Omnara
@@ -61,13 +61,13 @@ Ask the user about the production system the agent will investigate:
   `aws ecs list-services`, `aws lambda list-functions`, and similar
   read-only calls.
 - `AWS_REGION`: the region production runs in, for example `us-west-2`.
-- Whether they use Grafana (step 4) and want the agent to read their code
-  (step 5). Both are optional and make answers sharper.
+- Whether they want the agent to read their code (step 4). It's optional and
+  makes answers sharper.
 
 Show `SYSTEM_CONTEXT` to the user and adjust until they're happy. If they
 can say more about their logs or metrics (for example, every request writes
 one structured log line with its errors and database queries), add a short
-section for each under `# Available Data` in step 7, like the `## AWS` one.
+section for each under `# Available Data` in step 6, like the `## AWS` one.
 
 ## 3. Create read-only AWS credentials
 
@@ -125,49 +125,7 @@ If it does, ask whether to reuse it and note its `id`.
    add `--material-role-arn` (and `--material-external-id` if the role's
    trust policy requires one); Omnara assumes it with these keys.
 
-## 4. Connect Grafana (optional)
-
-Skip this step if the user doesn't use Grafana.
-
-Besides reading, the agent can create and update Grafana dashboards when a
-result is too much for one message, so the Grafana identity it uses needs
-permission to edit dashboards (the Editor role, or `dashboards:create` and
-`dashboards:write`). If the user wants Grafana read-only, in step 7 also
-delete the `update_dashboard` line, the line under `# Guidelines` that starts
-"The only exception", and the dashboard sentences in the `## Grafana` section
-(keep the deeplink sentence and adjust the Slack one).
-
-**Grafana Cloud.** `GRAFANA_MCP_URL` is
-`https://mcp.grafana.com/mcp/<stack>.grafana.net`, using the user's stack
-hostname. Check for an existing secret named `sre-agent-grafana` as in step 3,
-otherwise run:
-
-```sh
-npx omnara secrets mcp-oauth --owner-kind project --owner-project-id <project-id> \
-  --name sre-agent-grafana --mcp-url <grafana-mcp-url>
-```
-
-It opens Grafana's authorization page (`--no-browser` prints the link to share
-instead), waits for the user to approve, and prints the secret's ID as
-`GRAFANA_SECRET_ID`. The agent acts as the user who approves. For dashboard
-writes, that user must grant write access on the consent page, which Grafana
-allows only with the Assistant Admin role (or the
-`grafana-assistant-app.cloud-mcp.scope:write` permission); without it the
-agent stays read-only.
-
-**Self-hosted Grafana.** The user runs
-[mcp-grafana](https://github.com/grafana/mcp-grafana) with
-`--transport streamable-http` and a Grafana service account token, reachable
-over HTTPS behind a proxy that requires a bearer token. Only the tools enabled
-in `agent.yaml` are exposed to the agent. mcp-grafana leaves its CloudWatch,
-SQL, and panel-query tools off by default; to use them, pass
-`--enabled-tools` with the default categories plus `cloudwatch`, `sql`, and
-`runpanelquery` (the flag replaces the default list). Store the proxy's bearer
-token as a `generic` secret named `sre-agent-grafana`, from a `.env` entry
-like the GitHub token in step 5, and in step 7 change the grafana block's
-`auth` to `type: bearer`.
-
-## 5. Let the agent read the code (optional)
+## 4. Let the agent read the code (optional)
 
 Recommended: with the repository cloned on a machine, the agent can trace an
 error to the code behind it and cite the exact lines. Ask which repository
@@ -189,7 +147,7 @@ error to the code behind it and cite the exact lines. Ask which repository
 
   Note the `id` as `GITHUB_TOKEN_SECRET_ID`.
 
-## 6. Pick the model (and machine pool)
+## 5. Pick the model (and machine pool)
 
 1. `npx omnara grant models list --json`: each item has
    `model.provider_config` and `model.name`. Ask the user which model to use.
@@ -198,23 +156,19 @@ error to the code behind it and cite the exact lines. Ask which repository
    model on the list. Name a couple of alternatives rather than the whole
    list, and show everything if they ask. The choice gives
    `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
-2. Only if the agent reads the code (step 5):
+2. Only if the agent reads the code (step 4):
    `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
    candidate `MACHINE_POOL`. Use the only one, or ask if there are several. If
    there are none, tell the user the project needs a machine pool for code
    access, and continue without it if they prefer.
 
-## 7. Create the agent
+## 6. Create the agent
 
 1. Copy `agent.yaml` from this folder to `./sre-agent.yaml` in the current
    directory. If this folder isn't available locally, download
    https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/sre-agent/agent.yaml
    instead.
 2. Remove what the user isn't using:
-   - No Grafana: in the instruction, delete the `* Grafana` bullet (and the
-     line under it), the `## Grafana` section, and the line under
-     `# Guidelines` that starts "The only exception"; then delete the
-     `grafana:` block under `mcp:`.
    - No code access: delete the `## Source Code` section of the instruction,
      `machine_sources`, and the `tools:` block at the end.
    - Public repository: delete the `secret_env_overlay` block.
@@ -226,13 +180,11 @@ error to the code behind it and cite the exact lines. Ask which repository
    | `{{SYSTEM_CONTEXT}}` | from step 2 |
    | `{{AWS_REGION}}` | from step 2 |
    | `{{AWS_SECRET_ID}}` | the `sec_…` ID from step 3 |
-   | `{{GRAFANA_MCP_URL}}` | from step 4 |
-   | `{{GRAFANA_SECRET_ID}}` | from step 4 |
-   | `{{GITHUB_REPO}}` | from step 5 |
-   | `{{GITHUB_TOKEN_SECRET_ID}}` | from step 5 |
-   | `{{MODEL_PROVIDER_CONFIG}}` | from step 6 |
-   | `{{MODEL_NAME}}` | from step 6 |
-   | `{{MACHINE_POOL}}` | from step 6 |
+   | `{{GITHUB_REPO}}` | from step 4 |
+   | `{{GITHUB_TOKEN_SECRET_ID}}` | from step 4 |
+   | `{{MODEL_PROVIDER_CONFIG}}` | from step 5 |
+   | `{{MODEL_NAME}}` | from step 5 |
+   | `{{MACHINE_POOL}}` | from step 5 |
 
    Then confirm nothing is left: `grep -n '{{' sre-agent.yaml` must print
    nothing.
@@ -242,7 +194,7 @@ error to the code behind it and cite the exact lines. Ask which repository
 
    Note the profile's `id` and `current_config_id` from the output.
 
-## 8. Run a first health check
+## 7. Run a first health check
 
 ```sh
 npx omnara agents launch --profile <agent-profile-id> --config <current-config-id> \
@@ -257,7 +209,7 @@ alert or "why was checkout slow yesterday at 3pm?". If the agent reports an
 AWS call as denied, that's the read-only policy working; only widen it if the
 user wants that data.
 
-## 9. Choose where to use it
+## 8. Choose where to use it
 
 Ask where the user wants to talk to the agent, offering these in this order.
 Any combination is fine.
@@ -297,7 +249,7 @@ instructions to the agent. An incidents or alerts channel works well.
 **Omnara console.** Already done: every agent launched from the profile shows
 up in the console.
 
-## 10. Run a daily health check (optional)
+## 9. Run a daily health check (optional)
 
 A schedule works with any of the above. Ask whether the user wants a daily
 health check, and for the time and timezone (default: weekdays at 9am in the
@@ -321,7 +273,7 @@ create the trigger with `--target-type agent --target-agent-id <agent-id>`
 (the agent ID from that conversation's console URL), so every check posts to
 that thread.
 
-## 11. Wrap up
+## 10. Wrap up
 
 Summarize what you created: the secrets, the IAM user if you made it, the
 profile, and the Slack app or cron trigger if any. Remind the user to delete
