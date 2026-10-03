@@ -28,11 +28,15 @@ func (s strictOpenAPIServer) GetOrgUsage(
 			openapi.ErrorCodeInvalidRequest, "include_project_ids and exclude_project_ids cannot be combined",
 		)
 	}
-	includeProjectIDs, err := usageProjectIDsFromParams("include_project_ids", request.Params.IncludeProjectIds)
+	includeProjectIDs, err := usagePublicIDsFromParams(
+		publicid.KindProject, "include_project_ids", request.Params.IncludeProjectIds,
+	)
 	if err != nil {
 		return nil, err
 	}
-	excludeProjectIDs, err := usageProjectIDsFromParams("exclude_project_ids", request.Params.ExcludeProjectIds)
+	excludeProjectIDs, err := usagePublicIDsFromParams(
+		publicid.KindProject, "exclude_project_ids", request.Params.ExcludeProjectIds,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -155,21 +159,6 @@ func usageWindowFromParams(since *openapi.UsageSince, until *openapi.UsageUntil)
 		)
 	}
 	return executionstore.UsageWindow{Since: since, Until: until}, nil
-}
-
-func usageProjectIDsFromParams(name string, values *[]openapi.ProjectID) ([]uuid.UUID, error) {
-	if values == nil {
-		return nil, nil
-	}
-	ids := make([]uuid.UUID, 0, len(*values))
-	for _, value := range *values {
-		id, ok := parseOpenAPIPublicID(publicid.KindProject, value)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid "+name)
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 func usageReportResponse(records []executionstore.ModelUsageRecord) (openapi.UsageReport, error) {

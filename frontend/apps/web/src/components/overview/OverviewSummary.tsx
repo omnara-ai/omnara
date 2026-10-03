@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
 import { isAgentActive } from '@/lib/agent-status'
 import { formatCount } from '@/lib/format'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OverviewSummary({ overview }: { overview: OrgOverviewResponse }) {
@@ -41,7 +42,7 @@ function RecentProjectsColumn({ overview }: { overview: OrgOverviewResponse }) {
       {projects.length === 0 ? (
         <OverviewEmpty
           message="No projects yet"
-          action={<NewProjectButton orgId={activeOrg.id} />}
+          action={canManageOrg(activeOrg.role) && <NewProjectButton orgId={activeOrg.id} />}
         />
       ) : (
         <OverviewList>
@@ -91,7 +92,12 @@ function EditedProfilesColumn({ overview }: { overview: OrgOverviewResponse }) {
       {profiles.length === 0 ? (
         <OverviewEmpty
           message="No profiles yet"
-          action={<OrgCreateAgentProfileButton orgId={activeOrg.id} />}
+          action={
+            <OrgCreateAgentProfileButton
+              orgId={activeOrg.id}
+              offerNewProject={canManageOrg(activeOrg.role)}
+            />
+          }
         />
       ) : (
         <OverviewList>
@@ -130,7 +136,10 @@ function LatestAgentsColumn({ overview }: { overview: OrgOverviewResponse }) {
           message="No agents yet"
           action={
             overview.recent_agent_profiles.length === 0 ? (
-              <OrgCreateAgentProfileButton orgId={activeOrg.id} />
+              <OrgCreateAgentProfileButton
+                orgId={activeOrg.id}
+                offerNewProject={canManageOrg(activeOrg.role)}
+              />
             ) : (
               <Button asChild size="sm">
                 <Link to="/agents">Launch an agent</Link>

@@ -43,6 +43,16 @@ describe('configured model drafts', () => {
     expect(draft.name.length).toBeLessThanOrEqual(64)
   })
 
+  it('numbers the suggested name past names already taken and rejects a taken name', () => {
+    const taken = new Set([discovered.slug, `${discovered.slug}-2`])
+    const draft = configuredModelDraft(discovered, taken)
+    expect(draft.name).toBe(`${discovered.slug}-3`)
+    expect(configuredModelDraftError(draft, taken)).toBe('')
+    expect(configuredModelDraftError({ ...draft, name: discovered.slug }, taken)).toContain(
+      'already uses this name',
+    )
+  })
+
   it('requires a context window for models without reported limits', () => {
     const draft = configuredModelDraft({ slug: 'custom-model' })
     expect(configuredModelDraftError(draft)).toContain('Enter the context window')

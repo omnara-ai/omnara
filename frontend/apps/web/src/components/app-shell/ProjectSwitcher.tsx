@@ -1,5 +1,5 @@
 import { useProjects } from '@omnara/react'
-import { useNavigate, useParams, useRouterState } from '@tanstack/react-router'
+import { useNavigate, useParams, useRouterState, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { Check, ChevronsUpDown, Folder, LayoutGrid, Plus } from '@/components/icons'
@@ -25,6 +25,8 @@ export function ProjectSwitcher() {
   const projects = useInfiniteQueryItems(projectsQuery)
   const projectId = useParams({ strict: false, select: (params) => params.projectId })
   const section = useRouterState({ select: (state) => currentSection(state.location.pathname) })
+  // The section's tab, kept when switching scope where the destination has the same tabs.
+  const tab = useSearch({ strict: false, select: (search) => search.tab })
   const navigate = useNavigate()
   const [newOpen, setNewOpen] = useState(false)
   // Loads further pages until the current project is found, so its name never waits on Load more.
@@ -47,7 +49,10 @@ export function ProjectSwitcher() {
           <DropdownMenuItem
             className="gap-2"
             onClick={() => {
-              void navigate({ to: section ? organizationPaths[section] : '/' })
+              void navigate({
+                to: section ? organizationPaths[section] : '/',
+                search: section === 'agents' && tab ? { tab } : {},
+              })
             }}
           >
             <LayoutGrid />
@@ -67,6 +72,7 @@ export function ProjectSwitcher() {
                 void navigate({
                   to: section ? projectPaths[section] : '/projects/$projectId',
                   params: { projectId: project.id },
+                  search: tab ? { tab } : {},
                 })
               }}
             >

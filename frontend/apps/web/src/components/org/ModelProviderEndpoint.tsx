@@ -23,7 +23,49 @@ import {
 type EndpointChange = (patch: Partial<CreateModelProviderFormValues>) => void
 
 /**
- * Endpoint settings shown under Advanced: Bedrock's region, API, and auth, or the base URL
+ * Bedrock's AWS region, shown outside Advanced: it decides which region serves requests,
+ * so its prefilled default shouldn't go unnoticed.
+ */
+export function BedrockRegionField({
+  values,
+  onChange,
+}: {
+  values: CreateModelProviderFormValues
+  onChange: EndpointChange
+}) {
+  const regionValid = awsRegionPattern.test(values.region.trim())
+  const sigv4 = values.bedrockAuth === 'sigv4'
+
+  return (
+    <Field>
+      <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
+      <Input
+        id="mp-region"
+        required
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        pattern={awsRegionPattern.source}
+        value={values.region}
+        placeholder="us-west-2"
+        aria-invalid={!regionValid}
+        onChange={(event) => {
+          onChange({ region: event.target.value })
+        }}
+      />
+      <FieldDescription>
+        {!regionValid
+          ? 'Enter an AWS region such as us-west-2.'
+          : sigv4
+            ? 'The AWS region used to sign model requests.'
+            : 'The region where your Bedrock API key was generated.'}
+      </FieldDescription>
+    </Field>
+  )
+}
+
+/**
+ * Endpoint settings shown under Advanced: Bedrock's API and auth, or the base URL
  * and API format for every other provider, prefilled with the provider's own endpoint.
  */
 export function ModelProviderEndpointSettings({
@@ -46,9 +88,6 @@ function BedrockProviderFields({
   values: CreateModelProviderFormValues
   onChange: EndpointChange
 }) {
-  const regionValid = awsRegionPattern.test(values.region.trim())
-  const sigv4 = values.bedrockAuth === 'sigv4'
-
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <Field>
@@ -95,30 +134,6 @@ function BedrockProviderFields({
             ))}
           </SelectContent>
         </Select>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
-        <Input
-          id="mp-region"
-          required
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          pattern={awsRegionPattern.source}
-          value={values.region}
-          placeholder="us-west-2"
-          aria-invalid={!regionValid}
-          onChange={(event) => {
-            onChange({ region: event.target.value })
-          }}
-        />
-        <FieldDescription>
-          {!regionValid
-            ? 'Enter an AWS region such as us-west-2.'
-            : sigv4
-              ? 'The AWS region used to sign model requests.'
-              : 'The region where your Bedrock API key was generated.'}
-        </FieldDescription>
       </Field>
     </div>
   )

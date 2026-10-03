@@ -7,6 +7,7 @@ import { PillTabs } from '@/components/agents/PillTabs'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { type Guide, guides } from '@/lib/docs'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 type AgentsTab = 'profiles' | 'instances'
@@ -46,11 +47,7 @@ export function OrgAgentsPage() {
                 { value: 'instances', label: 'Instances' },
               ]}
             />
-            <OrgCreateAgentProfileButton
-              orgId={activeOrg.id}
-              label="New agent"
-              offerNewProject={false}
-            />
+            <OrgCreateAgentProfileButton orgId={activeOrg.id} label="New agent" />
           </div>
         </div>
         {tab === 'profiles' ? (
@@ -59,7 +56,12 @@ export function OrgAgentsPage() {
           <OrgAgentsSection
             orgId={activeOrg.id}
             emptyMessage="No agents yet. Create an agent profile, then launch agents from it."
-            emptyAction={<OrgCreateAgentProfileButton orgId={activeOrg.id} />}
+            emptyAction={
+              <OrgCreateAgentProfileButton
+                orgId={activeOrg.id}
+                offerNewProject={canManageOrg(activeOrg.role)}
+              />
+            }
           />
         )}
       </div>

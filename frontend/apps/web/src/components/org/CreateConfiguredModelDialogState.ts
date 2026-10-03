@@ -14,13 +14,26 @@ export function configuredModelSuggestedName(providerModelSlug: string) {
   return resourceNameSuggestion(providerModelSlug, 'Configured model')
 }
 
-/** A draft prefilled from the provider's catalog: suggested name and reported token limits. */
+/** The slug's suggested name, numbered past any name already taken on the provider. */
+function uniqueConfiguredModelName(providerModelSlug: string, takenNames: ReadonlySet<string>) {
+  let name = configuredModelSuggestedName(providerModelSlug)
+  for (let suffix = 2; takenNames.has(name); suffix++) {
+    name = configuredModelSuggestedName(`${providerModelSlug}-${String(suffix)}`)
+  }
+  return name
+}
+
+/**
+ * A draft prefilled from the provider's catalog or an existing configuration of the same
+ * slug: a name not already taken and the reported token limits.
+ */
 export function configuredModelDraft(
   model: Pick<DiscoveredProviderModel, 'slug' | 'context_window_tokens' | 'max_output_tokens'>,
+  takenNames: ReadonlySet<string> = new Set(),
 ): ConfiguredModelDraft {
   return {
     slug: model.slug,
-    name: configuredModelSuggestedName(model.slug),
+    name: uniqueConfiguredModelName(model.slug, takenNames),
     contextWindowTokens:
       model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
     maxOutputTokens: model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
@@ -58,10 +71,17 @@ export function configuredModelTokenLimitsError(values: {
   return ''
 }
 
-/** Why a draft cannot be created yet, or '' when it is ready. */
-export function configuredModelDraftError(draft: ConfiguredModelDraft) {
+/**
+ * Why a draft cannot be created yet, or '' when it is ready. takenNames holds the names
+ * of the provider's models and the other drafts, which must not repeat.
+ */
+export function configuredModelDraftError(
+  draft: ConfiguredModelDraft,
+  takenNames: ReadonlySet<string> = new Set(),
+) {
   const nameError = resourceNameError(draft.name)
   if (nameError) return nameError
+  if (takenNames.has(draft.name)) return 'Another model on this provider already uses this name.'
   if (draft.contextWindowTokens.trim() === '') {
     return 'Enter the context window; the provider did not report it.'
   }

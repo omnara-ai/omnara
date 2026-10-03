@@ -75,11 +75,7 @@ export function useOrgOverview(
 ) {
   const client = useOmnaraClient()
   return useQuery({
-    ...getOrgOverviewOptions({
-      path: { orgID },
-      query: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-      client,
-    }),
+    ...getOrgOverviewOptions({ path: { orgID }, client }),
     refetchInterval: options?.refetchInterval,
   })
 }

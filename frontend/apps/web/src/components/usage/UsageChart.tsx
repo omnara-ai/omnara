@@ -115,7 +115,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
         </div>
         {top === 0 && (
           <span className="text-muted-foreground absolute inset-0 flex items-center justify-center text-sm">
-            No usage
+            {data.emptyMessage}
           </span>
         )}
         {focusedColumn && focusedIndex !== null && (

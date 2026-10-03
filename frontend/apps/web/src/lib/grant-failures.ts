@@ -33,16 +33,20 @@ export function collectBatchGrantFailures(
     return [{ id, cause }]
   })
   if (failed.length === 0) return null
+  // One project can fail for several resources, so count each ID once.
+  const failedIds = [...new Set(failed.map((entry) => entry.id))]
   return {
-    failedIds: failed.map((entry) => entry.id),
-    message: `Sharing ${describeFailed(failed.length)} failed${grantFailureDetail(failed[0]?.cause)}. The failed selections are still selected — retry or remove them.`,
+    failedIds,
+    message: `Sharing ${describeFailed(failedIds.length)} failed${grantFailureDetail(failed[0]?.cause)}. The failed selections are still selected — retry or remove them.`,
   }
 }
 
 /**
  * Pair Promise.allSettled grant results back with the project IDs that
- * produced them. Returns null when every grant succeeded, so callers can
- * keep the dialog open with only the failed projects still selected.
+ * produced them. A project ID may repeat when several resources are shared
+ * with it; failures name each project once. Returns null when every grant
+ * succeeded, so callers can keep the dialog open with the failed projects
+ * still selected.
  */
 export function collectGrantFailures(
   projectIds: string[],

@@ -598,6 +598,31 @@ model:
 		len(listedEfforts) != 2 || listedEfforts[0] != "low" || listedEfforts[1] != "medium" {
 		t.Fatalf("listed effective reasoning = %+v, want grant reasoning", effectiveReasoning)
 	}
+
+	// Project developers and viewers can list the project's shared models (the
+	// agent builder reads them), but only access managers can change grants.
+	developerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-developer", "developer")
+	viewerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-viewer", "viewer")
+	for _, token := range []string{developerToken, viewerToken} {
+		readerGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+			t, handler, http.MethodGet, project.ProjectPath+"/model-grants", "", "", http.StatusOK,
+			authHeaders(token),
+		)["data"])
+		if len(readerGrants) != len(listedGrants) {
+			t.Fatalf("reader listed %d model grants, want %d", len(readerGrants), len(listedGrants))
+		}
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodPatch, grantPath, `{"max_output_tokens":1024}`, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodDelete, grantPath, "", "", http.StatusForbidden, authHeaders(token),
+		)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

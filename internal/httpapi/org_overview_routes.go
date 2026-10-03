@@ -3,10 +3,8 @@ package httpapi
 import (
 	"context"
 	"slices"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -26,10 +24,6 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	request openapi.GetOrgOverviewRequestObject,
 ) (openapi.GetOrgOverviewResponseObject, error) {
 	org, err := orgScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	location, err := timezoneLocation(request.Params.Timezone)
 	if err != nil {
 		return nil, err
 	}
@@ -100,22 +94,11 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	todayStart := executionstore.UsageDayStart(time.Now(), location)
-	activity, err := s.server.store.Execution().CountOrgActivity(ctx, executionstore.CountOrgActivityInput{
-		ProjectIDs: agentProjectIDs, Window: executionstore.UsageWindow{Since: &todayStart},
-	})
-	if err != nil {
-		return nil, apierror.OrgScoped(err)
-	}
 	return openapi.GetOrgOverview200JSONResponse(openapi.OrgOverviewResponse{
 		Projects:                projects,
 		RecentAgents:            recentAgents,
 		RecentAgentProfiles:     recentProfiles,
 		ReferencedAgentProfiles: referencedProfiles,
-		Today: openapi.OrgOverviewToday{
-			AgentsCreated: activity.AgentsCreated,
-			MessagesSent:  activity.MessagesSent,
-		},
 	}), nil
 }
 
@@ -157,15 +140,4 @@ func (s strictOpenAPIServer) referencedAgentProfiles(
 		})
 	}
 	return references, nil
-}
-
-func timezoneLocation(timezone *string) (*time.Location, error) {
-	if timezone == nil {
-		return time.UTC, nil
-	}
-	location, err := cronschedule.LoadLocation(*timezone)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid timezone")
-	}
-	return location, nil
 }

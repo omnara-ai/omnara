@@ -3,12 +3,13 @@ import { useState } from 'react'
 
 import { GrantMachinePoolDialog } from '@/components/projects/GrantMachinePoolDialog'
 import { Button } from '@/components/ui/button'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
 /**
  * Self-contained "Share pool" trigger and dialog for the current project.
- * Renders nothing when the viewer can't manage project access.
+ * Renders nothing unless the viewer can manage both project access and the org.
  */
 export function GrantMachinePoolButton({
   onGranted,
@@ -18,7 +19,7 @@ export function GrantMachinePoolButton({
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const [open, setOpen] = useState(false)
-  if (!project?.access.can_manage_access) return null
+  if (!canManageMachineGrants(activeOrg.role, project?.access)) return null
 
   return (
     <>

@@ -1,15 +1,11 @@
-import type { ConfiguredModel, DiscoveredProviderModel, ModelCatalog } from '@omnara/sdk'
-import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import type { DiscoveredProviderModel, ModelCatalog } from '@omnara/sdk'
+import { type KeyboardEvent, type ReactNode, type Ref, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
-import {
-  AddedModelRow,
-  CustomModelRow,
-  DiscoveredModelRow,
-  SelectedModelRow,
-} from './ConfiguredModelPickerRows'
+import { CustomModelRow, DiscoveredModelRow, SelectedModelRow } from './ConfiguredModelPickerRows'
 import type { ConfiguredModelDraft } from './CreateConfiguredModelDialogState'
 
 /**
@@ -25,6 +21,7 @@ export function ConfiguredModelPickerList({
   empty,
   search,
   drafts,
+  draftError,
   expandedSlug,
   availableModels,
   addedModels,
@@ -37,6 +34,7 @@ export function ConfiguredModelPickerList({
   onSelect,
   onAddCustom,
   onRowKeyDown,
+  onEditProvider,
 }: {
   listRef: Ref<HTMLUListElement>
   providerName: string
@@ -46,9 +44,11 @@ export function ConfiguredModelPickerList({
   empty: boolean
   search: string
   drafts: ConfiguredModelDraft[]
+  draftError: (draft: ConfiguredModelDraft) => string
   expandedSlug: string | null
   availableModels: DiscoveredProviderModel[]
-  addedModels: ConfiguredModel[]
+  /** Slugs the provider already has, which can be configured again with other settings. */
+  addedModels: DiscoveredProviderModel[]
   customSlug: string
   canAddCustom: boolean
   disabled: boolean
@@ -58,10 +58,14 @@ export function ConfiguredModelPickerList({
   onSelect: (model: DiscoveredProviderModel) => void
   onAddCustom: () => void
   onRowKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+  /** Offered when the catalog fails, to go back and fix the provider's settings. */
+  onEditProvider?: () => Promise<void>
 }) {
   return (
     <>
-      {catalog?.status === 'failed' && <CatalogWarning />}
+      {catalog?.status === 'failed' && (
+        <CatalogWarning disabled={disabled} onEditProvider={onEditProvider} />
+      )}
       {catalogError !== undefined && (
         <p role="alert" className="text-destructive text-sm">
           {errorMessage(catalogError, 'Could not load the provider’s models.')} You can still add a
@@ -84,6 +88,7 @@ export function ConfiguredModelPickerList({
               <SelectedModelRow
                 key={draft.slug}
                 draft={draft}
+                error={draftError(draft)}
                 index={index}
                 expanded={expandedSlug === draft.slug}
                 disabled={disabled}
@@ -117,7 +122,16 @@ export function ConfiguredModelPickerList({
               />
             )}
             {addedModels.map((model) => (
-              <AddedModelRow key={model.id} slug={model.provider_model_slug} name={model.name} />
+              <DiscoveredModelRow
+                key={model.slug}
+                model={model}
+                added
+                disabled={disabled}
+                onRowKeyDown={onRowKeyDown}
+                onSelect={() => {
+                  onSelect(model)
+                }}
+              />
             ))}
             {empty && <ListStatus>{emptyMessage(catalog, search)}</ListStatus>}
           </>
@@ -127,7 +141,28 @@ export function ConfiguredModelPickerList({
   )
 }
 
-function CatalogWarning() {
+function CatalogWarning({
+  disabled,
+  onEditProvider,
+}: {
+  disabled: boolean
+  onEditProvider?: () => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [editError, setEditError] = useState('')
+
+  async function editProvider() {
+    if (!onEditProvider) return
+    setEditing(true)
+    setEditError('')
+    try {
+      await onEditProvider()
+    } catch (error) {
+      setEditError(errorMessage(error, 'Could not delete the model provider'))
+      setEditing(false)
+    }
+  }
+
   return (
     <div role="alert" className="text-warning text-sm">
       <p className="font-medium">Warning: unable to fetch available models. This might mean:</p>
@@ -137,6 +172,22 @@ function CatalogWarning() {
         <li>This API endpoint doesn&apos;t support listing models</li>
       </ul>
       <p className="mt-2">You can still add a model by entering its slug above.</p>
+      {onEditProvider && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          disabled={disabled || editing}
+          loading={editing}
+          onClick={() => {
+            void editProvider()
+          }}
+        >
+          Back to provider settings
+        </Button>
+      )}
+      {editError && <p className="text-destructive mt-2">{editError}</p>}
     </div>
   )
 }

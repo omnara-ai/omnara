@@ -17,6 +17,12 @@ import {
   neverResponds,
 } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
+import {
+  addProject,
+  closeProjectMenu,
+  openProjectMenu,
+  projectOptions,
+} from '@/test/project-share-chips'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { waitForUI } from '@/test/secret-editor'
 
@@ -255,21 +261,6 @@ async function selectOption(selector: string, label: string) {
   })
 }
 
-async function addProject(name: string) {
-  await interact(() => {
-    button('Project').dispatchEvent(
-      new PointerEvent('pointerdown', { bubbles: true, button: 0, ctrlKey: false }),
-    )
-  })
-  await interact(() => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (candidate) => candidate.textContent === name,
-    )
-    if (!item) throw new Error(`Missing project: ${name}`)
-    item.click()
-  })
-}
-
 function AddModelsDialog() {
   const [open, setOpen] = useState(true)
   return (
@@ -344,6 +335,34 @@ function focusedLabel() {
 function focusedRow() {
   return document.activeElement?.closest('label')?.querySelector('.font-mono')?.textContent
 }
+
+it('configures an already-added slug again under another name', async () => {
+  const api = creationApi({ failingProjects: new Map() })
+  await render(api, <AddModelsDialog />)
+  await waitForUI(() => {
+    expect(modelRows()).toContain('model-zeroAdded')
+  })
+
+  await toggleModel('model-zero')
+  expect(element('#cm-draft-0-context')).toHaveProperty('value', '100000')
+  await type('#cm-draft-0-name', 'zero')
+  expect(document.body.textContent).toContain('already uses this name')
+  expect(button('Add 1 model').disabled).toBe(true)
+  await type('#cm-draft-0-name', 'zero-short')
+  await type('#cm-draft-0-max-output', '4096')
+  await clickButton('Add 1 model')
+
+  expect(api.requestsTo('POST', modelsPath).map((request) => request.body)).toEqual([
+    {
+      name: 'zero-short',
+      provider_model_slug: 'model-zero',
+      context_window_tokens: 100000,
+      max_output_tokens: 4096,
+      supports_tools: true,
+      supports_reasoning: false,
+    },
+  ])
+})
 
 it('picks, edits, and adds models from the keyboard alone', async () => {
   const api = creationApi({ failingProjects: new Map() })
@@ -438,7 +457,7 @@ it('keeps only failed models selected and retries only failed shares', async () 
   await clickButton('Add 2 models')
 
   expect(document.body.textContent).toContain('Added 1 of 2 models.')
-  expect(document.body.textContent).toContain('Sharing failed for 1 project')
+  expect(document.body.textContent).toContain('Sharing with 1 project failed')
   await clickButton('Retry sharing')
   expect(api.requestsTo('POST', grantPath(projects[1]?.id ?? ''))).toHaveLength(2)
   await clickButton('Add 1 model')
@@ -448,6 +467,88 @@ it('keeps only failed models selected and retries only failed shares', async () 
     { name: 'model-two' },
     { name: 'model-two' },
   ])
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+function failedChips() {
+  return [...document.querySelectorAll('[data-failed]')].map(
+    (chip) => chip.querySelector('.truncate')?.textContent,
+  )
+}
+
+/** Each created model gets its own ID, as the API assigns. */
+function distinctModels() {
+  let created = 0
+  return () => {
+    created += 1
+    return jsonResponse({ ...model, id: `mdl_${'bcd'.charAt(created - 1).repeat(26)}` }, 201)
+  }
+}
+
+async function addThreeModels(api: FakeApi) {
+  await render(api, <AddModelsDialog />)
+  await waitForUI(() => {
+    expect(modelRows()).toContain('model-one100K')
+  })
+  await toggleModel('model-one')
+  await toggleModel('model-two')
+  await toggleModel('model-three')
+  await type('#cm-draft-2-context', '50000')
+  await addProject('Alpha')
+  await addProject('Beta')
+  await clickButton('Add 3 models')
+}
+
+it('counts a project once when it fails for several models and retries only its failures', async () => {
+  const api = creationApi({
+    createModel: distinctModels(),
+    failingProjects: new Map([['Beta', 2]]),
+  })
+  await addThreeModels(api)
+
+  expect(element('[role="alert"]').textContent).toBe(
+    'Sharing with 1 project failed: Grant temporarily unavailable. The failed projects are still selected — retry or remove them.',
+  )
+  expect(failedChips()).toEqual(['Beta'])
+  expect(button('Add project').getAttribute('data-disabled')).toBeNull()
+  await clickButton('Retry sharing')
+
+  expect(api.requestsTo('POST', modelsPath)).toHaveLength(3)
+  expect(api.requestsTo('POST', grantPath(projects[0]?.id ?? ''))).toHaveLength(3)
+  expect(api.requestsTo('POST', grantPath(projects[1]?.id ?? ''))).toHaveLength(5)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('finishes sharing once the failing project is removed', async () => {
+  const api = creationApi({
+    createModel: distinctModels(),
+    failingProjects: new Map([['Beta', 3]]),
+  })
+  await addThreeModels(api)
+
+  expect(document.body.textContent).toContain('Sharing with 1 project failed')
+  expect(failedChips()).toEqual(['Beta'])
+  await clickButton('Remove Beta')
+  await clickButton('Retry sharing')
+
+  expect(api.requestsTo('POST', grantPath(projects[0]?.id ?? ''))).toHaveLength(3)
+  expect(api.requestsTo('POST', grantPath(projects[1]?.id ?? ''))).toHaveLength(3)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('shares the added models with a project picked while retrying', async () => {
+  const api = creationApi({
+    createModel: distinctModels(),
+    failingProjects: new Map([['Beta', 3]]),
+  })
+  await addThreeModels(api)
+
+  await clickButton('Remove Beta')
+  await addProject('Gamma')
+  await clickButton('Retry sharing')
+
+  expect(api.requestsTo('POST', grantPath(projects[0]?.id ?? ''))).toHaveLength(3)
+  expect(api.requestsTo('POST', grantPath(projects[2]?.id ?? ''))).toHaveLength(3)
   expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
 
@@ -462,7 +563,6 @@ it('warns when the catalog fails and adds a model by slug', async () => {
           orgId={orgId}
           providers={[provider]}
           defaultProviderId={provider.id}
-          initialCatalog={{ status: 'failed', error: 'unauthorized' }}
           dismissLabel="Skip for now"
           onDone={onDone}
         />
@@ -470,8 +570,9 @@ it('warns when the catalog fails and adds a model by slug', async () => {
     </Dialog>,
   )
 
-  expect(element('[role="alert"]').textContent).toContain('unable to fetch available models')
-  expect(api.requestsTo('GET', catalogPath)).toEqual([])
+  await waitForUI(() => {
+    expect(element('[role="alert"]').textContent).toContain('unable to fetch available models')
+  })
   await type('[aria-label="Search models"]', 'vendor/custom-model')
   await interact(() => {
     element('[aria-label="Search models"]').dispatchEvent(
@@ -502,21 +603,19 @@ it('Share model retains successful grants across partial failures', async () => 
     )
   }
   await render(api, <GrantDialog />)
+  await waitForUI(() => {
+    expect(button('Add project').getAttribute('data-disabled')).toBeNull()
+  })
   for (const project of projects) {
-    await selectOption('[aria-label="Search projects…"]', project.name)
+    await addProject(project.name)
   }
   await clickButton('Share model')
 
   expect(document.body.textContent).toContain('Sharing with 2 projects failed')
   for (const remaining of [['Beta', 'Gamma'], ['Gamma']]) {
-    await interact(() => {
-      element('[aria-label="Search projects…"]').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-      )
-    })
-    expect(
-      [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent),
-    ).toEqual(remaining)
+    await openProjectMenu()
+    expect(projectOptions()).toEqual(remaining)
+    await closeProjectMenu()
     await clickButton('Share model')
   }
 
@@ -541,9 +640,14 @@ const credentialSecret = {
 }
 const providersPath = `/api/v1/orgs/${orgId}/model-provider-configs`
 
-function providerApi() {
+function providerApi(modelCatalog: JsonValue = { status: 'ok', models: discoveredModels }) {
   return creationApi({
     extraRoutes: [
+      {
+        method: 'DELETE',
+        path: `${providersPath}/${provider.id}`,
+        respond: () => new Response(null, { status: 204 }),
+      },
       {
         method: 'GET',
         path: `/api/v1/orgs/${orgId}/secrets`,
@@ -557,11 +661,7 @@ function providerApi() {
       {
         method: 'POST',
         path: providersPath,
-        respond: () =>
-          jsonResponse(
-            { config: provider, model_catalog: { status: 'ok', models: discoveredModels } },
-            201,
-          ),
+        respond: () => jsonResponse({ config: provider, model_catalog: modelCatalog }, 201),
       },
     ],
   })
@@ -584,6 +684,24 @@ it('creates a preset provider and continues straight into the model picker', asy
   })
   expect(api.requestsTo('GET', catalogPath)).toEqual([])
   expect(button('Skip for now')).toBeDefined()
+})
+
+it('deletes the provider and returns to its settings when the catalog fails', async () => {
+  const api = providerApi({ status: 'failed', error: 'unauthorized' })
+  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
+  await type('#mp-name', 'production-openai')
+  await selectOption('[aria-label="Search secrets…"]', 'openai-api-key')
+  await clickButton('Add provider')
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain('unable to fetch available models')
+  })
+  expect(api.requestsTo('GET', catalogPath)).toEqual([])
+
+  await clickButton('Back to provider settings')
+  await waitForUI(() => {
+    expect(element('#mp-name')).toHaveProperty('value', 'production-openai')
+  })
+  expect(api.requestsTo('DELETE', `${providersPath}/${provider.id}`)).toHaveLength(1)
 })
 
 it('edits a preset endpoint under Advanced without switching provider', async () => {

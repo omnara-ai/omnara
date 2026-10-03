@@ -1,9 +1,5 @@
-import { useCreateModelProvider } from '@omnara/react'
-import type {
-  CreateModelProviderConfigRequest,
-  ModelCatalog,
-  ModelProviderConfig,
-} from '@omnara/sdk'
+import { useCreateModelProvider, useDeleteModelProvider } from '@omnara/react'
+import type { CreateModelProviderConfigRequest, ModelProviderConfig } from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
 import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
@@ -36,7 +32,7 @@ import {
   modelProviderOption,
   providerSecretName,
 } from './CreateModelProviderDialogState'
-import { ModelProviderEndpointSettings } from './ModelProviderEndpoint'
+import { BedrockRegionField, ModelProviderEndpointSettings } from './ModelProviderEndpoint'
 import { ModelProviderTypeSelect } from './ModelProviderTypeSelect'
 
 type DialogPhase =
@@ -44,7 +40,6 @@ type DialogPhase =
   | {
       step: 'models'
       provider: ModelProviderConfig
-      discovery: ModelCatalog
     }
 
 function modelProviderRequest(
@@ -126,6 +121,7 @@ export function CreateModelProviderDialog({
   orgId: string
 }) {
   const createModelProvider = useCreateModelProvider(orgId)
+  const deleteModelProvider = useDeleteModelProvider(orgId)
   const [phase, setPhase] = useState<DialogPhase>({ step: 'provider' })
   const [values, setValues] = useState<CreateModelProviderFormValues>(
     createModelProviderFormDefaults,
@@ -160,12 +156,17 @@ export function CreateModelProviderDialog({
       setPhase({
         step: 'models',
         provider: result.config,
-        discovery: result.model_catalog,
       })
     } catch (err) {
       if (submissionGeneration !== providerSubmissionGeneration.current) return
       setStatus(submitError(err, 'Could not add provider'))
     }
+  }
+
+  // Deletes the provider whose catalog failed so its settings, kept in the form, can be fixed.
+  async function backToProviderSettings(providerId: string) {
+    await deleteModelProvider.mutateAsync(providerId)
+    setPhase({ step: 'provider' })
   }
 
   const provider = modelProviderOption(values.provider)
@@ -232,6 +233,14 @@ export function CreateModelProviderDialog({
                     secretValuePlaceholder={provider.keyPlaceholder}
                     kind={credential.kind}
                   />
+                  {values.provider === 'bedrock' && (
+                    <BedrockRegionField
+                      values={values}
+                      onChange={(patch) => {
+                        setValues((prev) => ({ ...prev, ...patch }))
+                      }}
+                    />
+                  )}
                 </div>
                 <OverridesCollapsible
                   title="Advanced"
@@ -286,9 +295,9 @@ export function CreateModelProviderDialog({
             orgId={orgId}
             providers={[phase.provider]}
             defaultProviderId={phase.provider.id}
-            initialCatalog={phase.discovery}
             dismissLabel="Skip for now"
             onDone={close}
+            onEditProvider={() => backToProviderSettings(phase.provider.id)}
           />
         )}
       </DialogContent>

@@ -1,42 +1,29 @@
-import { resourceNameValid } from '@/lib/resource-name'
-
 import {
   derivedMemoryTotalCapPlaceholder,
   derivedTotalCapPlaceholder,
-  machinePoolCapacityValid,
   type MachinePoolFormValues,
 } from './MachinePoolDialogState'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
+import {
+  type MachinePoolFieldGroup,
+  machinePoolFieldGroups,
+  machinePoolFieldGroupValid,
+} from './machinePoolValidation'
 
-export const machinePoolCreateSteps = ['provider', 'image', 'capacity', 'environment'] as const
+/** Create walks through the form one field group per step. */
+export const machinePoolCreateSteps = machinePoolFieldGroups
 
-export type MachinePoolCreateStep = (typeof machinePoolCreateSteps)[number]
+export type MachinePoolCreateStep = MachinePoolFieldGroup
 
 /**
- * Whether a create step's own fields are complete. The environment step has only optional
- * fields; creating the pool still requires the whole form to be valid.
+ * Whether a create step's own fields are valid: the same per-field validation as the whole
+ * form, limited to the step's group, so every valid step together means Create is enabled.
  */
 export function machinePoolCreateStepValid(
   step: MachinePoolCreateStep,
   values: MachinePoolFormValues,
 ) {
-  const provider = machinePoolProviderDefinitions[values.provider]
-  switch (step) {
-    case 'provider':
-      return resourceNameValid(values.name) && values.secretId !== ''
-    case 'image':
-      return (
-        (provider.resource.optional === true || values.image.trim() !== '') &&
-        (!provider.scope?.required || values.providerScope.trim() !== '')
-      )
-    case 'capacity':
-      return (
-        (!provider.location?.required || values.location.trim() !== '') &&
-        machinePoolCapacityValid(values)
-      )
-    case 'environment':
-      return true
-  }
+  return machinePoolFieldGroupValid(step, values, 'create')
 }
 
 /** The size of each machine, e.g. "2 vCPU · 4 GB"; undefined while a size input is invalid. */

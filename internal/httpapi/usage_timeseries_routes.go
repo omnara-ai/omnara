@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -51,7 +52,7 @@ func (s strictOpenAPIServer) GetUsageTimeseries(
 	if err != nil {
 		return nil, err
 	}
-	projectIDs, err := usageProjectIDsFromParams("project_ids", params.ProjectIds)
+	projectIDs, err := usagePublicIDsFromParams(publicid.KindProject, "project_ids", params.ProjectIds)
 	if err != nil {
 		return nil, err
 	}
@@ -349,4 +350,15 @@ func usageMetricValue(metric openapi.UsageTimeseriesMetric, totals executionstor
 	default:
 		return 0, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid metric")
 	}
+}
+
+func timezoneLocation(timezone *string) (*time.Location, error) {
+	if timezone == nil {
+		return time.UTC, nil
+	}
+	location, err := cronschedule.LoadLocation(*timezone)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid timezone")
+	}
+	return location, nil
 }

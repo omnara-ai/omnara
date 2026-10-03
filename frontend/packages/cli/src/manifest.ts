@@ -202,7 +202,6 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.getOrgOverview,
         format: formatRecord(),
         path: schemas.zGetOrgOverviewPath,
-        query: schemas.zGetOrgOverviewQuery,
       }),
       op({
         verb: 'delete',

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, machinePool, projectMachinePoolGrant } from '@/test/fixtures'
+import { addProject } from '@/test/project-share-chips'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button } from '@/test/secret-editor'
 
@@ -159,19 +160,6 @@ async function chooseSecret(name: string) {
   })
 }
 
-async function shareWith(name: string) {
-  await interact(() => {
-    button('Project').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
-  })
-  await interact(() => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (candidate) => candidate.textContent === name,
-    )
-    if (!item) throw new Error(`Missing project: ${name}`)
-    item.click()
-  })
-}
-
 function activeStep() {
   return document.querySelector('[aria-current="step"] [data-step-title]')?.textContent
 }
@@ -216,7 +204,7 @@ it('walks through each step, summarizing finished ones, and creates the pool ear
   await click('More machines')
   expect(text()).toContain('Up to 4 machines in us-pdx-1 · 4 GB total')
 
-  await shareWith('cli-agent')
+  await addProject('cli-agent')
   expect(button('Remove cli-agent')).toBeDefined()
   await toggleStep('Capacity')
   expect(document.querySelector('#mpool-memory')).toBeNull()
@@ -244,4 +232,34 @@ it('walks through each step, summarizing finished ones, and creates the pool ear
     { machine_pool_id: createdPool.id },
   ])
   expect(onOpenChange).toHaveBeenCalledWith(false)
+})
+
+it('blocks the capacity step on an invalid max machine memory and shows why', async () => {
+  const api = poolApi()
+  await render(api, vi.fn())
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN')
+  await click('Continue')
+  await type('#mpool-image', 'omnara/agent-sandbox')
+  await type('#mpool-provider-scope', 'acme')
+  await click('Continue')
+  expect(activeStep()).toBe('Capacity')
+  expect(button('Continue').disabled).toBe(false)
+
+  await click('Advanced')
+  expect(button('Advanced').getAttribute('aria-expanded')).toBe('true')
+  await type('#mpool-max-machine-memory', '0')
+  expect(button('Continue').disabled).toBe(true)
+  expect(() => button('Skip & create')).toThrow()
+  expect(input('#mpool-max-machine-memory').getAttribute('aria-invalid')).toBe('true')
+  expect(text()).toContain('Enter a size greater than 0 GB, or leave it empty.')
+  // The section can't be folded away while it hides the error blocking the step.
+  await click('Advanced')
+  expect(button('Advanced').getAttribute('aria-expanded')).toBe('true')
+
+  await type('#mpool-max-machine-memory', '2')
+  expect(button('Continue').disabled).toBe(false)
+  expect(text()).not.toContain('Enter a size greater than 0 GB')
+  await click('Advanced')
+  expect(button('Advanced').getAttribute('aria-expanded')).toBe('false')
 })

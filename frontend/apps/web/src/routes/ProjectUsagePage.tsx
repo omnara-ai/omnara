@@ -4,7 +4,11 @@ import { useState } from 'react'
 
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
-import { defaultUsageRange, isDefaultUsageRange } from '@/components/usage/usage-date-range'
+import {
+  defaultUsageDays,
+  defaultUsageRange,
+  isDefaultUsageRange,
+} from '@/components/usage/usage-date-range'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
@@ -42,7 +46,7 @@ function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }
         emptyMessage={
           filtered
             ? 'No model usage in this time range.'
-            : 'No model usage yet. Usage shows up here once you send a message to an agent.'
+            : `No model usage in the last ${String(defaultUsageDays)} days. Usage shows up here once you send a message to an agent.`
         }
         emptyAction={
           !filtered && (

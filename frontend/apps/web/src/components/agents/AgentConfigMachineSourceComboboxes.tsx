@@ -15,6 +15,7 @@ import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-que
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { formatMemoryGb } from '@/lib/machine-memory'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -103,7 +104,7 @@ export function PoolSourceCombobox({
   onPoolResolved?: (pool: SelectedPool) => void
   onGrantResolved?: (grant: ResolvedPoolGrant | null) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectMachinePoolGrants(orgId, projectId, {
@@ -153,7 +154,7 @@ export function PoolSourceCombobox({
         query={grantsQuery}
         placeholder={grantsQuery.isPending ? 'Loading pools…' : 'Search machine pools…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
               label="Share machine pool"
               onOpen={() => {
@@ -197,7 +198,7 @@ export function MachineSourceCombobox({
   onUnavailableChange?: (unavailable: boolean) => void
   onMachinesGranted?: (names: string[]) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const machinesQuery = useProjectMachines(orgId, projectId, {
@@ -235,7 +236,7 @@ export function MachineSourceCombobox({
         query={machinesQuery}
         placeholder={machinesQuery.isPending ? 'Loading machines…' : 'Search machines…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
               label="Share machine"
               onOpen={() => {

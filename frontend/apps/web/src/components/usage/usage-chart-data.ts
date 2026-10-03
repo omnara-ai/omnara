@@ -55,6 +55,8 @@ export interface UsageChartData {
   interval: UsageTimeseriesInterval
   series: UsageSeries[]
   columns: UsageColumn[]
+  /** Shown over an empty chart: no usage, or calls whose provider reported no cost. */
+  emptyMessage: string
 }
 
 export function usageMeasureValue(totals: UsageTotals, measure: UsageMeasure) {
@@ -101,7 +103,12 @@ export function usageChartData(timeseries: UsageTimeseries, measure: UsageMeasur
     const total = [...values.values()].reduce((sum, value) => sum + value, 0)
     return { start: new Date(start), total, values }
   })
-  return { measure, interval: timeseries.interval, series, columns }
+  const { totals } = timeseries
+  const emptyMessage =
+    measure === 'cost' && totals.model_calls > 0
+      ? `No cost reported for ${formatCount(totals.model_calls)} ${totals.model_calls === 1 ? 'call' : 'calls'}`
+      : 'No usage'
+  return { measure, interval: timeseries.interval, series, columns, emptyMessage }
 }
 
 export function usageBucketEnd(start: Date, interval: UsageTimeseriesInterval) {

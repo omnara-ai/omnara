@@ -3404,7 +3404,6 @@ export type OrgOverviewResponse = {
      * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
      */
     referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
-    today: OrgOverviewToday;
 };
 
 export type OrgOverviewAgentProfileReference = {
@@ -3414,20 +3413,6 @@ export type OrgOverviewAgentProfileReference = {
      * Agents, not counting subagents, launched from the profile, including archived ones.
      */
     agent_count: number;
-};
-
-/**
- * Activity since the start of today in `timezone`, across the readable projects in `projects`.
- */
-export type OrgOverviewToday = {
-    /**
-     * Agents created today, not counting subagents.
-     */
-    agents_created: number;
-    /**
-     * Messages sent to agents today, not counting messages to or from subagents.
-     */
-    messages_sent: number;
 };
 
 export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
@@ -4692,12 +4677,7 @@ export type GetOrgOverviewData = {
     path: {
         orgID: OrganizationId;
     };
-    query?: {
-        /**
-         * IANA time zone that decides where today starts.
-         */
-        timezone?: string;
-    };
+    query?: never;
     url: '/orgs/{orgID}/overview';
 };
 

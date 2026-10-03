@@ -1,4 +1,5 @@
 import {
+  type Agent,
   ApiError,
   type GetAgentResponse,
   type ListAgentsData,
@@ -36,7 +37,19 @@ import { useScopedMutation } from './scoped-mutation'
 
 export type AgentListFilters = ListFilters<ListAgentsData>
 export type AgentListSort = ListSort<ListAgentsData>
-export type AgentListOptions = PaginatedListOptions<ListAgentsData>
+/** Polls the list while it returns an interval for the agents loaded so far. */
+interface AgentListPolling {
+  refetchInterval?: (agents: Agent[]) => number | false
+}
+
+export type AgentListOptions = PaginatedListOptions<ListAgentsData> & AgentListPolling
+
+function agentListRefetchInterval(options: AgentListPolling | undefined) {
+  const refetchInterval = options?.refetchInterval
+  if (refetchInterval == null) return undefined
+  return (query: { state: { data?: { pages: { data: Agent[] }[] } } }) =>
+    refetchInterval(query.state.data?.pages.flatMap((page) => page.data) ?? [])
+}
 
 export function useAgents(orgID: string, projectID: string, options?: AgentListOptions) {
   const client = useOmnaraClient()
@@ -51,10 +64,11 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
+    refetchInterval: agentListRefetchInterval(options),
   })
 }
 
-export type OrgAgentListOptions = PaginatedListOptions<ListOrgAgentsData>
+export type OrgAgentListOptions = PaginatedListOptions<ListOrgAgentsData> & AgentListPolling
 
 export function useOrgAgents(orgID: string, options?: OrgAgentListOptions) {
   const client = useOmnaraClient()
@@ -69,6 +83,7 @@ export function useOrgAgents(orgID: string, options?: OrgAgentListOptions) {
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
+    refetchInterval: agentListRefetchInterval(options),
   })
 }
 

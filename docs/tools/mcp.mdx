@@ -71,7 +71,7 @@ For servers that take a static token, store the token as a generic secret and re
   <McpBearerSecret />
 </Tab>
 <Tab title="Dashboard">
-  Under org, project, or user secrets, click **New secret**, name it, choose the **Generic** kind, and paste the token. You can add **Project grants** in the same dialog.
+  Open **Secrets** — the **User** or **Organization** tab with **All projects** selected in the project switcher, or the **Project** tab inside a project — and click **New secret**. Name it, choose the **Generic** kind, and paste the token. You can pick projects under **Share with** in the same dialog.
 </Tab>
 </Tabs>
 
@@ -81,7 +81,7 @@ For a complete runnable example — PostHog's MCP server with Slack delivery and
 
 ## AWS Signature Version 4 auth
 
-For a SigV4-protected MCP server, create an **AWS credentials** secret in the dashboard, grant it to the project, and select **AWS Signature V4** for server authentication:
+For a SigV4-protected MCP server, create an **AWS credentials** secret in the dashboard, share it with the project, and select **AWS Signature V4** for server authentication:
 
 ```yaml
 mcp:

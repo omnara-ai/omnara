@@ -1,30 +1,39 @@
 import { Minus, Plus } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Field, RequiredFieldLabel } from '@/components/ui/field'
+import { Field, FieldError, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 import { machinePoolMachineSizeLabel, machinePoolTotalLabel } from './machinePoolCreateSteps'
-import type { MachinePoolFormValues } from './MachinePoolDialogState'
-import type { MachinePoolFormSetValue } from './MachinePoolFields'
+import { type MachinePoolFormSetValue, type MachinePoolFormValues } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
+import { type MachinePoolFieldErrors, shownFieldError } from './machinePoolValidation'
 
 const maxPreviewMachines = 8
 
-/** Location, per-machine size, and machine count, with a preview of the machines they allow. */
+/**
+ * Location, per-machine size, and machine count, with a preview of the machines they allow.
+ * A cluster manages the location and pool-wide quotas, so cluster pools size machines only.
+ */
 export function MachinePoolCapacityFields({
+  clusterManaged,
   values,
   setValue,
+  errors,
 }: {
+  clusterManaged: boolean
   values: MachinePoolFormValues
   setValue: MachinePoolFormSetValue
+  errors: MachinePoolFieldErrors
 }) {
   const definition = machinePoolProviderDefinitions[values.provider]
   const { cpu, memoryMb } = definition.resources
-  const sizeFields = [cpu !== 'unsupported', memoryMb !== 'unsupported', true].filter(Boolean)
+  const sizeFields = [cpu !== 'unsupported', memoryMb !== 'unsupported', !clusterManaged].filter(
+    Boolean,
+  )
   return (
     <>
-      {definition.location && (
+      {!clusterManaged && definition.location && (
         <MachinePoolInputField
           id="mpool-location"
           label={definition.location.label}
@@ -35,6 +44,7 @@ export function MachinePoolCapacityFields({
           onValueChange={(location) => {
             setValue('location', location)
           }}
+          error={errors.location}
         />
       )}
       <div
@@ -53,6 +63,7 @@ export function MachinePoolCapacityFields({
             onValueChange={(value) => {
               setValue('cpu', value)
             }}
+            error={errors.cpu}
           />
         )}
         {memoryMb !== 'unsupported' && (
@@ -68,16 +79,20 @@ export function MachinePoolCapacityFields({
             onValueChange={(value) => {
               setValue('memoryGb', value)
             }}
+            error={errors.memoryGb}
           />
         )}
-        <MaxMachinesField
-          value={values.maxMachines}
-          onValueChange={(value) => {
-            setValue('maxMachines', value)
-          }}
-        />
+        {!clusterManaged && (
+          <MaxMachinesField
+            value={values.maxMachines}
+            onValueChange={(value) => {
+              setValue('maxMachines', value)
+            }}
+            error={errors.maxMachines}
+          />
+        )}
       </div>
-      <CapacityPreview values={values} />
+      {!clusterManaged && <CapacityPreview values={values} />}
     </>
   )
 }
@@ -88,6 +103,7 @@ function UnitInputField({
   unit,
   value,
   onValueChange,
+  error,
   ...inputProps
 }: {
   id: string
@@ -97,7 +113,9 @@ function UnitInputField({
   min: string
   step: string
   onValueChange: (value: string) => void
+  error: string | undefined
 }) {
+  const shownError = shownFieldError(value, error)
   return (
     <Field>
       <RequiredFieldLabel htmlFor={id}>{label}</RequiredFieldLabel>
@@ -108,6 +126,7 @@ function UnitInputField({
           type="number"
           required
           value={value}
+          aria-invalid={shownError !== undefined || undefined}
           className="pr-14 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           onChange={(event) => {
             onValueChange(event.target.value)
@@ -120,6 +139,7 @@ function UnitInputField({
           {unit}
         </span>
       </div>
+      {shownError && <FieldError>{shownError}</FieldError>}
     </Field>
   )
 }
@@ -127,10 +147,13 @@ function UnitInputField({
 function MaxMachinesField({
   value,
   onValueChange,
+  error,
 }: {
   value: string
   onValueChange: (value: string) => void
+  error: string | undefined
 }) {
+  const shownError = shownFieldError(value, error)
   const current = Number(value)
   const count = Number.isInteger(current) && current >= 0 ? current : undefined
   return (
@@ -144,6 +167,7 @@ function MaxMachinesField({
           step="1"
           required
           value={value}
+          aria-invalid={shownError !== undefined || undefined}
           className="pr-20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           onChange={(event) => {
             onValueChange(event.target.value)
@@ -177,6 +201,7 @@ function MaxMachinesField({
           </Button>
         </div>
       </div>
+      {shownError && <FieldError>{shownError}</FieldError>}
     </Field>
   )
 }

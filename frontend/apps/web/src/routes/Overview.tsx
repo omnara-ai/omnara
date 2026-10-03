@@ -27,9 +27,13 @@ export function Overview() {
   const needsOnboarding =
     overview != null && manageableProject != null && overview.recent_agents.length === 0
 
-  const [profileSeen, setProfileSeen] = useState(false)
+  // Keyed by org and project so a profile seen during one org's onboarding doesn't keep
+  // onboarding up after switching to another org.
+  const onboardingKey = manageableProject && `${activeOrg.id}:${manageableProject.id}`
+  const [profileSeenKey, setProfileSeenKey] = useState<string>()
+  const profileSeen = onboardingKey !== undefined && profileSeenKey === onboardingKey
   if (needsOnboarding && !profileSeen && overview.recent_agent_profiles.length > 0) {
-    setProfileSeen(true)
+    setProfileSeenKey(onboardingKey)
   }
   const showOnboarding =
     overview != null && manageableProject != null && (needsOnboarding || profileSeen)
@@ -42,11 +46,7 @@ export function Overview() {
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
         <div className="flex min-h-0 flex-1 justify-center pb-8 sm:pb-16">
-          <AgentOnboarding
-            key={`${activeOrg.id}:${manageableProject.id}`}
-            orgId={activeOrg.id}
-            project={manageableProject}
-          />
+          <AgentOnboarding key={onboardingKey} orgId={activeOrg.id} project={manageableProject} />
         </div>
       ) : overview ? (
         <>
