@@ -1,26 +1,103 @@
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
-import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
+import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
+import { MachinePoolCapacityFields } from './MachinePoolCapacityFields'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
+  type MachinePoolFormSetValue,
   type MachinePoolFormValues,
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
-import { MachinePoolResourceFields } from './MachinePoolResourceFields'
-
-export type MachinePoolFormSetValue = <K extends keyof MachinePoolFormValues>(
-  key: K,
-  value: MachinePoolFormValues[K],
-) => void
+import {
+  type MachinePoolFieldErrors,
+  machinePoolFieldErrors,
+  type MachinePoolFieldGroup,
+  machinePoolFieldGroups,
+} from './machinePoolValidation'
 
 interface MachinePoolFieldProps {
   values: MachinePoolFormValues
   setValue: MachinePoolFormSetValue
+  errors: MachinePoolFieldErrors
+}
+
+interface MachinePoolFieldsProps {
+  orgId: string
+  enabled: boolean
+  mode: MachinePoolFormMode
+  values: MachinePoolFormValues
+  setValue: MachinePoolFormSetValue
+}
+
+/**
+ * One section of the pool form. Create shows one per step and edit shows them all, so both
+ * render the same fields; `machinePoolFieldGroup` assigns each field to its section.
+ */
+export function MachinePoolFieldGroupFields({
+  group,
+  orgId,
+  enabled,
+  mode,
+  values,
+  setValue,
+}: MachinePoolFieldsProps & { group: MachinePoolFieldGroup }) {
+  const errors = machinePoolFieldErrors(values, mode)
+  const fieldProps = { values, setValue, errors }
+  const clusterManaged = mode === 'cluster-edit'
+  switch (group) {
+    case 'provider':
+      if (clusterManaged) return null
+      return (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MachinePoolNameField {...fieldProps} />
+            <MachinePoolProviderField {...fieldProps} disabled={mode !== 'create'} />
+          </div>
+          <MachinePoolDescriptionField {...fieldProps} />
+          <MachinePoolCredentialField orgId={orgId} enabled={enabled} {...fieldProps} />
+        </>
+      )
+    case 'image':
+      if (clusterManaged) return null
+      return (
+        <>
+          <MachinePoolImageField {...fieldProps} />
+          <MachinePoolScopeField {...fieldProps} />
+        </>
+      )
+    case 'capacity':
+      return (
+        <>
+          <MachinePoolCapacityFields clusterManaged={clusterManaged} {...fieldProps} />
+          <MachinePoolAdvancedSection clusterManaged={clusterManaged} {...fieldProps} />
+        </>
+      )
+    case 'environment':
+      return (
+        <>
+          {!clusterManaged && <MachinePoolStartupScriptField {...fieldProps} />}
+          <MachinePoolEnvironmentFields
+            orgId={orgId}
+            enabled={enabled}
+            clusterManaged={clusterManaged}
+            {...fieldProps}
+          />
+        </>
+      )
+  }
+}
+
+/** Every section of the pool form, in step order. */
+export function MachinePoolFields(props: MachinePoolFieldsProps) {
+  return machinePoolFieldGroups.map((group) => (
+    <MachinePoolFieldGroupFields key={group} group={group} {...props} />
+  ))
 }
 
 /** Switches provider and resets every field whose meaning depends on it. */
@@ -46,11 +123,11 @@ function changeMachinePoolProvider(
   setValue('secretId', nextValues.secretId)
 }
 
-export function MachinePoolProviderField({
+function MachinePoolProviderField({
   values,
   setValue,
-  disabled = false,
-}: MachinePoolFieldProps & { disabled?: boolean }) {
+  disabled,
+}: MachinePoolFieldProps & { disabled: boolean }) {
   return (
     <MachinePoolProviderSelect
       value={values.provider}
@@ -62,7 +139,7 @@ export function MachinePoolProviderField({
   )
 }
 
-export function MachinePoolNameField({ values, setValue }: MachinePoolFieldProps) {
+function MachinePoolNameField({ values, setValue, errors }: MachinePoolFieldProps) {
   return (
     <MachinePoolInputField
       id="mpool-name"
@@ -73,12 +150,12 @@ export function MachinePoolNameField({ values, setValue }: MachinePoolFieldProps
       onValueChange={(name) => {
         setValue('name', name)
       }}
-      error={<ResourceNameFieldError value={values.name} />}
+      error={errors.name}
     />
   )
 }
 
-export function MachinePoolDescriptionField({ values, setValue }: MachinePoolFieldProps) {
+function MachinePoolDescriptionField({ values, setValue }: MachinePoolFieldProps) {
   return (
     <MachinePoolInputField
       id="mpool-description"
@@ -91,7 +168,7 @@ export function MachinePoolDescriptionField({ values, setValue }: MachinePoolFie
   )
 }
 
-export function MachinePoolImageField({ values, setValue }: MachinePoolFieldProps) {
+function MachinePoolImageField({ values, setValue, errors }: MachinePoolFieldProps) {
   const resource = machinePoolProviderDefinitions[values.provider].resource
   return (
     <MachinePoolInputField
@@ -104,13 +181,14 @@ export function MachinePoolImageField({ values, setValue }: MachinePoolFieldProp
       onValueChange={(image) => {
         setValue('image', image)
       }}
+      error={errors.image}
       description={resource.description}
       descriptionHref={resource.descriptionHref}
     />
   )
 }
 
-export function MachinePoolScopeField({ values, setValue }: MachinePoolFieldProps) {
+function MachinePoolScopeField({ values, setValue, errors }: MachinePoolFieldProps) {
   const scope = machinePoolProviderDefinitions[values.provider].scope
   if (!scope) return null
   return (
@@ -125,19 +203,16 @@ export function MachinePoolScopeField({ values, setValue }: MachinePoolFieldProp
       onValueChange={(providerScope) => {
         setValue('providerScope', providerScope)
       }}
+      error={errors.providerScope}
     />
   )
 }
 
-export function MachinePoolStartupScriptField({
-  values,
-  setValue,
-  label = 'Startup script (optional)',
-}: MachinePoolFieldProps & { label?: string }) {
+function MachinePoolStartupScriptField({ values, setValue }: MachinePoolFieldProps) {
   return (
     <StartupScriptField
       id="mpool-startup-script"
-      label={label}
+      label="Startup script"
       provider={values.provider}
       value={values.startupScript}
       placeholder={'apt-get update\napt-get install -y ripgrep'}
@@ -148,7 +223,7 @@ export function MachinePoolStartupScriptField({
   )
 }
 
-export function MachinePoolCredentialField({
+function MachinePoolCredentialField({
   orgId,
   enabled,
   values,
@@ -177,66 +252,40 @@ export function MachinePoolCredentialField({
   )
 }
 
-export function MachinePoolFields({
+/** What every machine starts with: working directory and environment variables. */
+function MachinePoolEnvironmentFields({
   orgId,
   enabled,
-  mode,
+  clusterManaged,
   values,
   setValue,
-}: MachinePoolFieldProps & {
-  orgId: string
-  enabled: boolean
-  mode: MachinePoolFormMode
-}) {
-  const providerEditable = mode === 'create'
-  const clusterEdit = mode === 'cluster-edit'
-
+}: MachinePoolFieldProps & { orgId: string; enabled: boolean; clusterManaged: boolean }) {
   return (
     <>
-      {!clusterEdit && (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MachinePoolProviderField
-              values={values}
-              setValue={setValue}
-              disabled={!providerEditable}
-            />
-            <MachinePoolNameField values={values} setValue={setValue} />
-          </div>
-          <MachinePoolDescriptionField values={values} setValue={setValue} />
-          <MachinePoolImageField values={values} setValue={setValue} />
-          <MachinePoolScopeField values={values} setValue={setValue} />
-        </>
-      )}
-      <MachinePoolResourceFields
-        provider={values.provider}
-        clusterManaged={clusterEdit}
-        location={values.location}
-        cpu={values.cpu}
-        memoryGb={values.memoryGb}
-        maxMachines={values.maxMachines}
-        onLocationChange={(location) => {
-          setValue('location', location)
-        }}
-        onCpuChange={(cpu) => {
-          setValue('cpu', cpu)
-        }}
-        onMemoryGbChange={(memoryGb) => {
-          setValue('memoryGb', memoryGb)
-        }}
-        onMaxMachinesChange={(maxMachines) => {
-          setValue('maxMachines', maxMachines)
-        }}
-      />
-      {!clusterEdit && <MachinePoolStartupScriptField values={values} setValue={setValue} />}
-      {!clusterEdit && (
-        <MachinePoolCredentialField
-          orgId={orgId}
-          enabled={enabled}
-          values={values}
-          setValue={setValue}
+      {!clusterManaged && (
+        <MachinePoolInputField
+          id="mpool-cwd"
+          label="Working directory"
+          value={values.cwd}
+          placeholder="/workspace"
+          onValueChange={(value) => {
+            setValue('cwd', value)
+          }}
         />
       )}
+      <KeyValueEditor
+        orgId={orgId}
+        enabled={enabled}
+        label="Environment variables"
+        itemLabel="Variable"
+        keyPlaceholder="NAME"
+        textRows={values.envRows}
+        secretRows={values.secretEnvRows}
+        onChange={({ textRows, secretRows }) => {
+          setValue('envRows', textRows)
+          setValue('secretEnvRows', secretRows)
+        }}
+      />
     </>
   )
 }

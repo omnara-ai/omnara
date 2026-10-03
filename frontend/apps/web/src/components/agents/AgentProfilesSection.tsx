@@ -29,13 +29,17 @@ import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDi
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert, Users } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { ReportedCost } from '@/components/usage/ReportedCost'
+import { defaultUsageDays, lastDaysUsageWindow } from '@/components/usage/usage-date-range'
 import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
 import { agentStatusLabel, isAgentActive } from '@/lib/agent-status'
-import { formatCount, formatTimeAgo, formatUsd } from '@/lib/format'
+import { formatCount, formatTimeAgo } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
 type ProfileListControls = ReturnType<typeof useResourceList<AgentProfileListSort>>
@@ -79,6 +83,7 @@ export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
   const query = useOrgAgentProfiles(orgId, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
   const { projects } = useProjectDirectory(orgId)
+  const { activeOrg } = useActiveOrg()
   return (
     <AgentProfileList
       orgId={orgId}
@@ -92,7 +97,9 @@ export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
       }}
       canOperate={(profile) => projects.get(profile.project_id)?.access.can_operate ?? false}
       projectOf={(profile) => projects.get(profile.project_id)}
-      emptyAction={<OrgCreateAgentProfileButton orgId={orgId} />}
+      emptyAction={
+        <OrgCreateAgentProfileButton orgId={orgId} offerNewProject={canManageOrg(activeOrg.role)} />
+      }
     />
   )
 }
@@ -264,7 +271,11 @@ function ProfileCard({
   action: ReactNode
 }) {
   const projectId = profile.project_id
-  const usage = useAgentProfileUsage(orgId, projectId, profile.id, { includeSubagents: true })
+  // The same window and subagent default as the profile's Usage tab, so the numbers match.
+  const usage = useAgentProfileUsage(orgId, projectId, profile.id, {
+    ...lastDaysUsageWindow(defaultUsageDays),
+    includeSubagents: true,
+  })
   const instances = useAgents(orgId, projectId, {
     filters: { agent_profile_id: profile.id },
     sort: '-updated_at',
@@ -329,8 +340,15 @@ function ProfileCard({
       stats={
         <>
           <AgentCardStat
-            label="cost"
-            value={usage.data && formatUsd(usage.data.totals.cost.provider_reported_usd)}
+            label={`cost, last ${String(defaultUsageDays)} days`}
+            value={
+              usage.data && (
+                <ReportedCost
+                  modelCalls={usage.data.totals.model_calls}
+                  cost={usage.data.totals.cost}
+                />
+              )
+            }
           />
           {recentAgents.length > 0 ? (
             <AgentCardStatToggle

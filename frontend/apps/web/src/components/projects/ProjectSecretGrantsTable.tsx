@@ -31,11 +31,14 @@ export function ProjectSecretGrantsTable({
   orgId,
   projectId,
   projectName,
+  canManage,
   actions,
 }: {
   orgId: string
   projectId: string
   projectName: string
+  /** Whether the viewer may stop sharing (requires managing the target project). */
+  canManage: boolean
   /** Header controls, e.g. tabs. */
   actions?: ReactNode
 }) {
@@ -96,7 +99,7 @@ export function ProjectSecretGrantsTable({
                 secret={access.secret}
                 availability={access.availability}
                 projectName={projectName}
-                canDelete
+                canDelete={canManage}
               />
             ),
           },

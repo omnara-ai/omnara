@@ -2,7 +2,7 @@ import { useCreateProjectModelGrant } from '@omnara/react'
 import { type ConfiguredModel } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FieldGroup } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -90,17 +90,21 @@ export function GrantConfiguredModelDialog({
           }}
         >
           <FieldGroup>
-            <ProjectGrantsField
-              orgId={orgId}
-              isProjectEligible={(project) => project.access.can_manage_access}
-              value={state.projectIds}
-              onChange={(projectIds) => {
-                setState((prev) => ({ ...prev, projectIds }))
-              }}
-              disabled={isSubmitting}
-              excludedProjectIds={state.grantedProjectIds}
-              description={`Selected projects will be able to use ${model.name}.`}
-            />
+            <Field>
+              <ProjectShareChips
+                orgId={orgId}
+                isProjectEligible={(project) => project.access.can_manage_access}
+                value={state.projectIds}
+                onChange={(projectIds) => {
+                  setState((prev) => ({ ...prev, projectIds }))
+                }}
+                disabled={isSubmitting}
+                excludedProjectIds={state.grantedProjectIds}
+              />
+              <FieldDescription>
+                Selected projects will be able to use {model.name}.
+              </FieldDescription>
+            </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button

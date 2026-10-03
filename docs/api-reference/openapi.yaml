@@ -684,18 +684,8 @@ paths:
       summary: Get org overview
       description: >-
         Returns the data backing the web app's overview page: the caller's visible
-        projects, the most recently active agents and most recently updated agent
-        profiles, and today's activity. Internal to the web app and subject to change
-        without notice.
-      parameters:
-        - name: timezone
-          in: query
-          required: false
-          schema:
-            type: string
-            default: UTC
-            maxLength: 64
-          description: IANA time zone that decides where today starts.
+        projects, the most recently active agents, and the most recently updated
+        agent profiles. Internal to the web app and subject to change without notice.
       responses:
         '200':
           description: Overview data for the organization.
@@ -13957,7 +13947,7 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles, today]
+      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles]
       properties:
         projects:
           type: array
@@ -13986,8 +13976,6 @@ components:
             since deleted are omitted.
           items:
             $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
-        today:
-          $ref: '#/components/schemas/OrgOverviewToday'
     OrgOverviewAgentProfileReference:
       type: object
       additionalProperties: false
@@ -14002,22 +13990,6 @@ components:
           format: int64
           minimum: 0
           description: Agents, not counting subagents, launched from the profile, including archived ones.
-    OrgOverviewToday:
-      type: object
-      additionalProperties: false
-      description: Activity since the start of today in `timezone`, across the readable projects in `projects`.
-      required: [agents_created, messages_sent]
-      properties:
-        agents_created:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Agents created today, not counting subagents.
-        messages_sent:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Messages sent to agents today, not counting messages to or from subagents.
     UsageTimeseriesInterval:
       type: string
       enum: [hour, day, week, month]

@@ -291,9 +291,11 @@ export function CreateSkillDialog({
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    if (shares.pending.length > 0) {
+    if (shares.retrying) {
+      // Stay open while uploads still need retrying, so their failures aren't cleared.
+      const uploadsLeft = pendingItems.length
       void shares.retry().then((shared) => {
-        if (shared) close()
+        if (shared && uploadsLeft === 0) close()
       })
     } else if (review) void submitReview()
     else if (tab === 'skill-md') void submitDraft()
@@ -343,7 +345,7 @@ export function CreateSkillDialog({
             <CreateSkillFooter
               orgId={orgId}
               shares={owner.kind === 'project' ? undefined : shares}
-              retrying={shares.pending.length > 0}
+              retrying={shares.retrying}
               error={shares.error}
               busy={busy}
               canSubmit={canSubmit}

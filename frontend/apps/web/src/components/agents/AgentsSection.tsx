@@ -30,14 +30,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ReportedCost } from '@/components/usage/ReportedCost'
 import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
 import { agentStatusLabel, isAgentActive } from '@/lib/agent-status'
-import { formatUsd } from '@/lib/format'
 
 type AgentListControls = ReturnType<typeof useAgentListControls>
+
+/** Polls while any listed agent is working, so its status settles once it finishes. */
+function activeAgentPollInterval(agents: Agent[]) {
+  return agents.some(isAgentActive) ? 5_000 : false
+}
 
 function useAgentListControls() {
   const list = useResourceList<AgentListSort>('-updated_at')
@@ -76,7 +81,11 @@ export function AgentsSection({
   const filters = profileId
     ? { ...controls.filters, agent_profile_id: profileId }
     : controls.filters
-  const query = useAgents(orgId, projectId, { filters, sort: controls.list.sort })
+  const query = useAgents(orgId, projectId, {
+    filters,
+    sort: controls.list.sort,
+    refetchInterval: activeAgentPollInterval,
+  })
   const paged = usePagedQuery(query, controls.resetKey)
   return (
     <AgentList
@@ -107,7 +116,11 @@ export function OrgAgentsSection({
   emptyAction?: ReactNode
 }) {
   const controls = useAgentListControls()
-  const query = useOrgAgents(orgId, { filters: controls.filters, sort: controls.list.sort })
+  const query = useOrgAgents(orgId, {
+    filters: controls.filters,
+    sort: controls.list.sort,
+    refetchInterval: activeAgentPollInterval,
+  })
   const paged = usePagedQuery(query, controls.resetKey)
   const { projects } = useProjectDirectory(orgId)
   return (
@@ -261,7 +274,10 @@ function AgentInstanceCard({
         <>
           {usage.data && (
             <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-              {formatUsd(usage.data.totals.cost.provider_reported_usd)}
+              <ReportedCost
+                modelCalls={usage.data.totals.model_calls}
+                cost={usage.data.totals.cost}
+              />
               <span className="ml-0.5" aria-hidden="true">
                 ·
               </span>

@@ -319,7 +319,7 @@ export const getUsageTimeseries = <ThrowOnError extends boolean = true>(options?
 /**
  * Get org overview
  *
- * Returns the data backing the web app's overview page: the caller's visible projects, the most recently active agents and most recently updated agent profiles, and today's activity. Internal to the web app and subject to change without notice.
+ * Returns the data backing the web app's overview page: the caller's visible projects, the most recently active agents, and the most recently updated agent profiles. Internal to the web app and subject to change without notice.
  */
 export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Options<GetOrgOverviewData, ThrowOnError>): RequestResult<GetOrgOverviewResponses, GetOrgOverviewErrors, ThrowOnError> => (options.client ?? client).get<GetOrgOverviewResponses, GetOrgOverviewErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetOrgOverviewResponse),

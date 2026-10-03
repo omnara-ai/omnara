@@ -1,7 +1,7 @@
 import type { VisibleProject } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useState } from 'react'
 
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FieldGroup } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -82,17 +82,19 @@ export function GrantToProjectDialog<TGrant>({
         </DialogHeader>
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
-            <ProjectGrantsField
-              orgId={orgId}
-              isProjectEligible={isProjectEligible}
-              value={state.projectIds}
-              onChange={(projectIds) => {
-                setState((prev) => ({ ...prev, projectIds }))
-              }}
-              disabled={isSubmitting}
-              excludedProjectIds={excludedProjectIds}
-              description="Add one or more projects to share with."
-            />
+            <Field>
+              <ProjectShareChips
+                orgId={orgId}
+                isProjectEligible={isProjectEligible}
+                value={state.projectIds}
+                onChange={(projectIds) => {
+                  setState((prev) => ({ ...prev, projectIds }))
+                }}
+                disabled={isSubmitting}
+                excludedProjectIds={excludedProjectIds}
+              />
+              <FieldDescription>Add one or more projects to share with.</FieldDescription>
+            </Field>
             {options}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>

@@ -62,6 +62,9 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
  * The provider's live model catalog. Every fetch probes the provider's /models
  * endpoint, so keep it disabled until the catalog is actually needed.
  */
+// Probing a catalog calls the provider, so a fetched or seeded catalog is reused for a while.
+const modelCatalogStaleTime = 5 * 60 * 1000
+
 export function useModelCatalog(
   orgID: string,
   modelProviderConfigID: string,
@@ -71,10 +74,9 @@ export function useModelCatalog(
   return useQuery({
     ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID }, client }),
     enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
+    staleTime: modelCatalogStaleTime,
   })
 }
-
-const modelCatalogPricingStaleTime = 5 * 60 * 1000
 
 export interface ModelPricingLookup {
   pricingFor: (
@@ -112,7 +114,7 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
   const catalogs = useQueries({
     queries: clusterProviders.map((provider) => ({
       ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID: provider.id }, client }),
-      staleTime: modelCatalogPricingStaleTime,
+      staleTime: modelCatalogStaleTime,
     })),
   })
   const catalogByProvider = new Map<string, DiscoveredProviderModel[]>()
@@ -230,7 +232,15 @@ export function useCreateModelProvider(orgID: string) {
       })
       return data
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      // Creation already probes the catalog; seed it so the model picker doesn't probe again.
+      queryClient.setQueryData(
+        getModelCatalogQueryKey({
+          path: { orgID, modelProviderConfigID: data.config.id },
+          client,
+        }),
+        data.model_catalog,
+      )
       await queryClient.invalidateQueries({
         queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
       })

@@ -27,12 +27,18 @@ import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { modelPricingDetailItems } from '@/lib/model-pricing'
 
+/**
+ * Models shared with the project. Anyone who can read the project can view the
+ * list; editing and revoking grants requires project access management.
+ */
 export function ProjectModelGrantsTable({
   orgId,
   projectId,
+  canManageAccess,
 }: {
   orgId: string
   projectId: string
+  canManageAccess: boolean
 }) {
   const list = useResourceList<ProjectModelGrantListSort>('-created_at')
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
@@ -108,13 +114,21 @@ export function ProjectModelGrantsTable({
             cell: (item) => (
               <ResourceRowActions
                 deleteLabel="Stop sharing"
-                onEdit={() => {
-                  setEditing(item)
-                }}
-                onDelete={() => {
-                  if (!window.confirm('Stop sharing this model with the project?')) return
-                  deleteGrant.mutate(item.grant.id)
-                }}
+                onEdit={
+                  canManageAccess
+                    ? () => {
+                        setEditing(item)
+                      }
+                    : undefined
+                }
+                onDelete={
+                  canManageAccess
+                    ? () => {
+                        if (!window.confirm('Stop sharing this model with the project?')) return
+                        deleteGrant.mutate(item.grant.id)
+                      }
+                    : undefined
+                }
               />
             ),
           },
@@ -156,10 +170,14 @@ export function ProjectModelGrantsTable({
         onRetry={() => {
           void grantsQuery.refetch()
         }}
-        emptyMessage="No shared models. Share an organization model so agents in this project can use it."
+        emptyMessage={
+          canManageAccess
+            ? 'No shared models. Share an organization model so agents in this project can use it.'
+            : 'No models are shared with this project yet. Ask a project admin to share one.'
+        }
         emptyAction={<GrantModelButton />}
       />
-      {editing && (
+      {canManageAccess && editing && (
         <EditModelGrantDialog
           key={editing.grant.id}
           open

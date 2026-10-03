@@ -12,6 +12,7 @@ import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
 import { bundleSource, type SkillSource } from '@/lib/skill-bundles'
 import { jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
+import { addProject } from '@/test/project-share-chips'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, field, waitForUI } from '@/test/secret-editor'
 
@@ -94,6 +95,7 @@ async function render(
   existing: Skill[] = [],
   attachedSkills: Skill[] = [],
   projects: VisibleProject[] = [],
+  failingGrants = 0,
 ) {
   const uploads = arrivals<Upload>()
   const created = arrivals<string[]>()
@@ -110,6 +112,9 @@ async function render(
       if (request.method === 'POST' && path.endsWith('/grants')) {
         const body: unknown = await request.json()
         grants.push(body)
+        if (grants.length <= failingGrants) {
+          return jsonResponse({ code: 'internal', error: 'grant failed' }, 500)
+        }
         return jsonResponse(
           {
             id: fakeId('skg'),
@@ -297,27 +302,27 @@ it('uploads a single new skill straight from the picker', async () => {
   expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
 })
 
+const project = {
+  id: fakeId('proj'),
+  org_id: orgId,
+  name: 'cli-agent',
+  access: { can_read: true, can_manage: true, can_manage_access: true, can_operate: true },
+  created_at: '2026-09-28T00:00:00Z',
+  updated_at: '2026-09-28T00:00:00Z',
+}
+
+async function pickProject(name: string) {
+  await waitForUI(() => {
+    expect(button('Add project').getAttribute('data-disabled')).toBeNull()
+  })
+  await addProject(name)
+  expect(button(`Remove ${name}`)).toBeDefined()
+}
+
 it('shares a new skill with the projects picked in the footer', async () => {
-  const project = {
-    id: fakeId('proj'),
-    org_id: orgId,
-    name: 'cli-agent',
-    access: { can_read: true, can_manage: true, can_manage_access: true, can_operate: true },
-    created_at: '2026-09-28T00:00:00Z',
-    updated_at: '2026-09-28T00:00:00Z',
-  }
   const ctx = await render([], [], [project])
   await chooseArchive(await skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
-  await settle(() => {
-    button('Project').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
-  })
-  await settle(() => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (candidate) => candidate.textContent === 'cli-agent',
-    )
-    item?.click()
-  })
-  expect(button('Remove cli-agent')).toBeDefined()
+  await pickProject('cli-agent')
 
   submit()
   const solo = await ctx.uploads.at(0)
@@ -325,6 +330,67 @@ it('shares a new skill with the projects picked in the footer', async () => {
   expect(await ctx.created.at(0)).toEqual(['solo'])
   await waitForUI(() => {
     expect(ctx.grants).toEqual([{ target_project_id: project.id }])
+  })
+  expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
+})
+
+it('says why sharing failed and finishes once the failing project is removed', async () => {
+  const ctx = await render([], [], [project], 1)
+  await chooseArchive(await skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
+  await pickProject('cli-agent')
+
+  submit()
+  ;(await ctx.uploads.at(0)).respond(jsonResponse(skill('solo'), 201))
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain(
+      'The skill was created. Sharing with 1 project failed: grant failed. The failed projects are still selected — retry or remove them.',
+    )
+  })
+  expect(document.querySelector('[data-failed]')?.textContent).toContain('cli-agent')
+  expect(ctx.onOpenChange).not.toHaveBeenCalled()
+
+  await settle(() => {
+    button('Remove cli-agent').click()
+  })
+  submit()
+  await waitForUI(() => {
+    expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
+  })
+  expect(ctx.grants).toHaveLength(1)
+})
+
+it('stays open after retrying shares while failed uploads still need retrying', async () => {
+  const ctx = await render([], [], [project], 1)
+  await chooseArchive(
+    await skillZip(
+      { 'pair/alpha/SKILL.md': skillMd('alpha'), 'pair/beta/SKILL.md': skillMd('beta') },
+      'pair.zip',
+    ),
+  )
+  await pickProject('cli-agent')
+  submit()
+  submit()
+  ;(await ctx.uploads.at(0)).respond(jsonResponse(skill('alpha'), 201))
+  ;(await ctx.uploads.at(1)).respond(
+    jsonResponse({ code: 'invalid_request', error: 'bad frontmatter' }, 422),
+  )
+  await waitForUI(() => {
+    expect(ctx.grants).toHaveLength(1)
+    expect(document.body.textContent).toContain('Retry sharing')
+  })
+
+  submit()
+  await waitForUI(() => {
+    expect(ctx.grants).toHaveLength(2)
+    expect(document.body.textContent).toContain('Retry upload')
+  })
+  expect(ctx.onOpenChange).not.toHaveBeenCalled()
+  expect(reviewRows()[1]).toBe('betabad frontmatterNew')
+
+  submit()
+  ;(await ctx.uploads.at(2)).respond(jsonResponse(skill('beta'), 201))
+  await waitForUI(() => {
+    expect(ctx.grants).toHaveLength(3)
   })
   expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
 })

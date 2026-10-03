@@ -108,12 +108,6 @@ func usageHourStarts(since, until time.Time, limit int) ([]time.Time, bool) {
 	return starts, true
 }
 
-// UsageDayStart returns the start of the calendar day containing now in location.
-func UsageDayStart(now time.Time, location *time.Location) time.Time {
-	year, month, day := now.In(location).Date()
-	return usageDayStart(year, month, day, location)
-}
-
 func usageDayStart(year int, month time.Month, day int, location *time.Location) time.Time {
 	year, month, day = time.Date(year, month, day, 12, 0, 0, 0, time.UTC).Date()
 	start := time.Date(year, month, day, 0, 0, 0, 0, location)

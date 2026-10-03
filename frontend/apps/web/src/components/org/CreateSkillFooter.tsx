@@ -34,7 +34,8 @@ export function CreateSkillFooter({
             isProjectEligible={(project) => project.access.can_manage}
             value={shares.projectIds}
             onChange={shares.setProjectIds}
-            disabled={busy || retrying}
+            failedProjectIds={shares.failedProjectIds}
+            disabled={busy}
           />
         )}
         <div className="ml-auto flex gap-2">

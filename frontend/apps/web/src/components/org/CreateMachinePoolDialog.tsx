@@ -3,7 +3,6 @@ import type { MachinePool } from '@omnara/sdk'
 import { useMutation } from '@tanstack/react-query'
 import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
-import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,12 +12,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
-import { MachinePoolEnvironmentFields, MachinePoolLimitFields } from './MachinePoolAdvancedSection'
-import { MachinePoolCapacityFields } from './MachinePoolCapacityFields'
 import { MachinePoolCreateStep, type MachinePoolCreateStepStatus } from './MachinePoolCreateStep'
 import {
   type MachinePoolCreateStep as MachinePoolCreateStepId,
@@ -29,21 +25,13 @@ import {
 import {
   machinePoolCreateRequest,
   machinePoolFormDefaults,
-  machinePoolFormValid,
+  type MachinePoolFormSetValue,
   type MachinePoolFormValues,
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
-import {
-  MachinePoolCredentialField,
-  MachinePoolDescriptionField,
-  type MachinePoolFormSetValue,
-  MachinePoolImageField,
-  MachinePoolNameField,
-  MachinePoolProviderField,
-  MachinePoolScopeField,
-  MachinePoolStartupScriptField,
-} from './MachinePoolFields'
+import { MachinePoolFieldGroupFields } from './MachinePoolFields'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
+import { machinePoolFormValid } from './machinePoolValidation'
 
 const stepTitles: Record<MachinePoolCreateStepId, string> = {
   provider: 'Provider',
@@ -125,7 +113,7 @@ export function CreateMachinePoolDialog({
         setPhase({
           kind: 'retry-grants',
           created: pool,
-          error: `The pool was created, but ${failures.message}`,
+          error: `The pool was created. ${failures.message}`,
         })
         return
       }
@@ -203,52 +191,6 @@ export function CreateMachinePoolDialog({
     environment: environmentSummary(values),
   }
 
-  const stepFields: Record<MachinePoolCreateStepId, ReactNode> = {
-    provider: (
-      <>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <MachinePoolNameField values={values} setValue={setValue} />
-          <MachinePoolProviderField values={values} setValue={setValue} />
-        </div>
-        <MachinePoolDescriptionField values={values} setValue={setValue} />
-        <MachinePoolCredentialField
-          orgId={orgId}
-          enabled={open}
-          values={values}
-          setValue={setValue}
-        />
-      </>
-    ),
-    image: (
-      <>
-        <MachinePoolImageField values={values} setValue={setValue} />
-        <MachinePoolScopeField values={values} setValue={setValue} />
-      </>
-    ),
-    capacity: (
-      <>
-        <MachinePoolCapacityFields values={values} setValue={setValue} />
-        <OverridesCollapsible title="Advanced">
-          <FieldGroup>
-            <MachinePoolLimitFields clusterManaged={false} values={values} setValue={setValue} />
-          </FieldGroup>
-        </OverridesCollapsible>
-      </>
-    ),
-    environment: (
-      <>
-        <MachinePoolStartupScriptField label="Startup script" values={values} setValue={setValue} />
-        <MachinePoolEnvironmentFields
-          orgId={orgId}
-          enabled={open}
-          clusterManaged={false}
-          values={values}
-          setValue={setValue}
-        />
-      </>
-    ),
-  }
-
   const primaryLabel =
     phase.kind === 'retry-grants' ? 'Retry sharing' : isLast ? 'Create pool' : 'Continue'
   const primaryReady =
@@ -286,7 +228,14 @@ export function CreateMachinePoolDialog({
                   else if (nextOpen) goToStep(index)
                 }}
               >
-                {stepFields[step]}
+                <MachinePoolFieldGroupFields
+                  group={step}
+                  orgId={orgId}
+                  enabled={open}
+                  mode="create"
+                  values={values}
+                  setValue={setValue}
+                />
               </MachinePoolCreateStep>
             ))}
           </div>

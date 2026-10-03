@@ -1,4 +1,4 @@
-import type { ModelCatalog, ModelProviderConfig } from '@omnara/sdk'
+import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 import { useState } from 'react'
 
 import {
@@ -23,18 +23,18 @@ export function AddConfiguredModelsView({
   orgId,
   providers,
   defaultProviderId,
-  initialCatalog,
   dismissLabel,
   onDone,
+  onEditProvider,
 }: {
   orgId: string
   providers: ModelProviderConfig[]
   defaultProviderId?: string
-  /** A catalog already fetched for defaultProviderId, such as the one returned on creation. */
-  initialCatalog?: ModelCatalog
   /** Shows a secondary button that closes without adding models. */
   dismissLabel?: string
   onDone: () => void
+  /** Discards the provider and returns to its settings, offered while its catalog fails. */
+  onEditProvider?: () => Promise<void>
 }) {
   const submission = useConfiguredModelSubmission(orgId, onDone)
   const [providerId, setProviderId] = useState(defaultProviderId ?? providers[0]?.id ?? '')
@@ -49,18 +49,33 @@ export function AddConfiguredModelsView({
     canAddCustom,
     availableModels,
     addedModels,
+    existingNames,
     loading,
     empty,
   } = useModelPickerOptions({
     orgId,
     providerId,
-    initialCatalog: providerId === defaultProviderId ? initialCatalog : undefined,
     drafts,
     search,
   })
   const { retrying, submitting } = submission
   const locked = submitting || retrying
-  const ready = drafts.length > 0 && drafts.every((draft) => !configuredModelDraftError(draft))
+  const ready = drafts.length > 0 && drafts.every((draft) => !draftError(draft))
+
+  /** Names a draft must not reuse: the provider's models and the other drafts. */
+  function takenNames(except?: string) {
+    const names = new Set(existingNames)
+    for (const draft of drafts) if (draft.slug !== except) names.add(draft.name)
+    return names
+  }
+
+  function draftError(draft: ConfiguredModelDraft) {
+    return configuredModelDraftError(draft, takenNames(draft.slug))
+  }
+
+  function newDraft(model: DiscoveredProviderModel) {
+    return configuredModelDraft(model, takenNames())
+  }
 
   function switchProvider(nextProviderId: string) {
     setProviderId(nextProviderId)
@@ -82,9 +97,14 @@ export function AddConfiguredModelsView({
       setSearch((current) => (key === 'Backspace' ? current.slice(0, -1) : current + key))
     },
     onSearchEnter: () => {
-      const [onlyMatch, ...others] = availableModels
-      if (onlyMatch && others.length === 0) {
-        select(configuredModelDraft(onlyMatch))
+      // An exact slug wins over others it is a prefix of, like gpt-5 over gpt-5-mini.
+      const matches = [...availableModels, ...addedModels]
+      const [onlyMatch, ...others] = matches
+      const match =
+        matches.find((model) => model.slug === customSlug) ??
+        (others.length === 0 ? onlyMatch : undefined)
+      if (match) {
+        select(newDraft(match))
         setSearch('')
       } else {
         addCustom()
@@ -99,13 +119,16 @@ export function AddConfiguredModelsView({
   function select(draft: ConfiguredModelDraft) {
     holdFocusedRow()
     setDrafts((previous) => [...previous, draft])
-    if (configuredModelDraftError(draft)) setExpandedSlug(draft.slug)
+    // Open the fields for a missing limit, or for a slug the provider already has, whose
+    // second configuration is only worth adding with a different name or limits.
+    const configured = addedModels.some((model) => model.slug === draft.slug)
+    if (configured || draftError(draft)) setExpandedSlug(draft.slug)
   }
 
   function addCustom() {
     if (!canAddCustom) return
     releaseHeldRow()
-    select(configuredModelDraft({ slug: customSlug }))
+    select(newDraft({ slug: customSlug }))
     setSearch('')
   }
 
@@ -142,6 +165,7 @@ export function AddConfiguredModelsView({
         empty={empty}
         search={search}
         drafts={drafts}
+        draftError={draftError}
         expandedSlug={expandedSlug}
         availableModels={availableModels}
         addedModels={addedModels}
@@ -162,10 +186,12 @@ export function AddConfiguredModelsView({
           setExpandedSlug((current) => (current === slug ? null : current))
         }}
         onSelect={(model) => {
-          select(configuredModelDraft(model))
+          select(newDraft(model))
         }}
         onAddCustom={addCustom}
         onRowKeyDown={onRowKeyDown}
+        // Once models are added the provider is in use, so it's no longer discarded.
+        onEditProvider={submission.addedCount === 0 ? onEditProvider : undefined}
       />
       {submission.error && (
         <p role="alert" className="text-destructive text-sm">
@@ -176,7 +202,7 @@ export function AddConfiguredModelsView({
         orgId={orgId}
         projectIds={submission.projectIds}
         onProjectIdsChange={submission.setProjectIds}
-        locked={locked}
+        failedProjectIds={submission.failedProjectIds}
         submitting={submitting}
         dismissLabel={dismissButtonLabel(dismissLabel, retrying, submission.addedCount)}
         onDismiss={onDone}

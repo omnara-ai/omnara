@@ -267,36 +267,6 @@ func TestGetUsageTimeseriesWithoutMemberships(t *testing.T) {
 	}
 }
 
-func TestGetOrgOverviewToday(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServer(pool)
-	store := integrationStoreForHandler(t, handler)
-	project := bootstrapPublicHTTPProject(t, handler, "overview-today")
-	agent := createHTTPRuntimeAgent(
-		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "overview-today",
-	)
-	recordHTTPModelUsageForAgent(
-		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent.Agent,
-		modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 2}, "",
-	)
-	overviewPath := "/api/v1/orgs/" + project.OrgID + "/overview"
-	query := url.Values{"timezone": {overviewNoonTimezone(time.Now())}}
-	overview := requestJSONWithHeaders(
-		t, handler, http.MethodGet, overviewPath+"?"+query.Encode(), "", "", http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	assertOverviewToday(t, overview, 1, 1)
-	if _, ok := overview["usage"]; ok {
-		t.Fatalf("overview = %+v, want no usage", overview)
-	}
-	requestJSONWithHeaders(
-		t, handler, http.MethodGet, overviewPath+"?timezone=Local", "", "", http.StatusBadRequest,
-		authHeaders(project.AdminToken),
-	)
-}
-
 func overviewNoonTimezone(now time.Time) string {
 	offset := 12 - now.UTC().Hour()
 	switch {
@@ -355,16 +325,6 @@ func assertUsageSeriesValues(t *testing.T, item map[string]any, buckets int, tot
 
 func expectedTokens(usage expectedUsage) float64 {
 	return float64(usage.input + usage.output)
-}
-
-func assertOverviewToday(t *testing.T, overview map[string]any, agentsCreated, messagesSent float64) {
-	t.Helper()
-	today := overviewUsageObject(t, overview, "today")
-	for field, want := range map[string]float64{"agents_created": agentsCreated, "messages_sent": messagesSent} {
-		if got := testutil.RequireType[float64](t, today[field]); got != want {
-			t.Fatalf("today.%s = %v, want %v (today %+v)", field, got, want, today)
-		}
-	}
 }
 
 func assertOverviewActiveAgents(t *testing.T, timeseries map[string]any, want float64) {

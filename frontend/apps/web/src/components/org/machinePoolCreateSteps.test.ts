@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  machinePoolCreateSteps,
   machinePoolCreateStepValid,
   machinePoolMachineSizeLabel,
   machinePoolTotalLabel,
@@ -8,7 +9,14 @@ import {
 import {
   machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
+  type MachinePoolFormValues,
 } from './MachinePoolDialogState'
+import {
+  machinePoolFieldErrors,
+  machinePoolFieldGroup,
+  machinePoolFieldGroups,
+  machinePoolFormValid,
+} from './machinePoolValidation'
 
 const blaxel = {
   ...machinePoolFormDefaults,
@@ -37,6 +45,75 @@ describe('machinePoolCreateStepValid', () => {
     expect(machinePoolCreateStepValid('capacity', { ...blaxel, maxMachines: '-1' })).toBe(false)
 
     expect(machinePoolCreateStepValid('environment', { ...blaxel, startupScript: '' })).toBe(true)
+    expect(
+      machinePoolCreateStepValid('environment', {
+        ...blaxel,
+        envRows: [{ id: 'row_1', key: '', value: 'x' }],
+      }),
+    ).toBe(false)
+  })
+
+  it('fails the capacity step for advanced limits that would block create', () => {
+    const invalidLimits: Partial<MachinePoolFormValues>[] = [
+      { maxMachineMemoryGb: '0' },
+      { maxMachineMemoryGb: '-1' },
+      { maxTotalMemoryGb: '-1' },
+      { minMachineMemoryGb: '-1' },
+      { deleteAfterIdleMinutes: '4' },
+    ]
+    for (const limit of invalidLimits) {
+      const values = { ...blaxel, ...limit }
+      expect(machinePoolFormValid(values)).toBe(false)
+      expect(machinePoolCreateStepValid('capacity', values)).toBe(false)
+    }
+    const freestyle = machinePoolFormAfterProviderChange(blaxel, 'freestyle')
+    expect(machinePoolCreateStepValid('capacity', { ...freestyle, maxMachineCpu: '0' })).toBe(false)
+    expect(machinePoolCreateStepValid('capacity', { ...freestyle, minMachineCpu: '1.5' })).toBe(
+      false,
+    )
+    expect(machinePoolCreateStepValid('capacity', { ...freestyle, maxTotalCpu: '-1' })).toBe(false)
+  })
+
+  it('makes create valid exactly when every step is valid', () => {
+    const cases: MachinePoolFormValues[] = [
+      blaxel,
+      { ...blaxel, name: '' },
+      { ...blaxel, providerScope: '' },
+      { ...blaxel, memoryGb: '0' },
+      { ...blaxel, maxMachineMemoryGb: '0' },
+      { ...blaxel, maxMachines: '1.5' },
+      { ...blaxel, secretEnvRows: [{ id: 'row_1', key: 'TOKEN', secretId: '' }] },
+      machinePoolFormAfterProviderChange(blaxel, 'freestyle'),
+    ]
+    for (const values of cases) {
+      const stepsValid = machinePoolCreateSteps.every((step) =>
+        machinePoolCreateStepValid(step, values),
+      )
+      expect(stepsValid).toBe(machinePoolFormValid(values))
+    }
+  })
+})
+
+describe('machinePoolFieldErrors', () => {
+  it('explains each invalid field and assigns it to one step', () => {
+    expect(machinePoolFieldErrors(blaxel)).toEqual({})
+    const errors = machinePoolFieldErrors({ ...blaxel, maxMachineMemoryGb: '0' })
+    expect(errors).toEqual({
+      maxMachineMemoryGb: 'Enter a size greater than 0 GB, or leave it empty.',
+    })
+    expect(machinePoolFieldGroup.maxMachineMemoryGb).toBe('capacity')
+    expect(machinePoolCreateSteps).toEqual(machinePoolFieldGroups)
+  })
+
+  it('skips fields a cluster manages', () => {
+    const cluster = { ...blaxel, name: '', secretId: '', maxMachines: '', maxTotalMemoryGb: '-1' }
+    expect(machinePoolFieldErrors(cluster, 'cluster-edit')).toEqual({})
+    expect(machinePoolFormValid(cluster, 'cluster-edit')).toBe(true)
+  })
+
+  it('flags a size whose derived pool total overflows', () => {
+    const errors = machinePoolFieldErrors({ ...blaxel, memoryGb: '2000000', maxMachines: '2' })
+    expect(errors.memoryGb).toMatch(/Too large for this many machines/)
   })
 })
 

@@ -46,12 +46,13 @@ export function ProjectSecretsPage() {
             />
           </TabsContent>
           <TabsContent value="shared">
-            {project?.access.can_manage_access ? (
+            {project?.access.can_manage ? (
               <ProjectSecretGrantsTable
                 actions={sourceTabs}
                 orgId={activeOrg.id}
                 projectId={projectId}
                 projectName={project.name}
+                canManage={project.access.can_manage}
               />
             ) : (
               <div className="flex flex-col gap-3">

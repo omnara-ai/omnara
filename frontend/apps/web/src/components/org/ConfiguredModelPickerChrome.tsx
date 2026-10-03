@@ -90,7 +90,7 @@ export function ConfiguredModelPickerFooter({
   orgId,
   projectIds,
   onProjectIdsChange,
-  locked,
+  failedProjectIds,
   submitting,
   dismissLabel,
   onDismiss,
@@ -101,7 +101,8 @@ export function ConfiguredModelPickerFooter({
   orgId: string
   projectIds: string[]
   onProjectIdsChange: (projectIds: string[]) => void
-  locked: boolean
+  /** Selected projects whose share failed, highlighted so they can be removed before a retry. */
+  failedProjectIds: string[]
   submitting: boolean
   /** Omitted to hide the secondary button. */
   dismissLabel?: ReactNode
@@ -116,7 +117,8 @@ export function ConfiguredModelPickerFooter({
         orgId={orgId}
         value={projectIds}
         onChange={onProjectIdsChange}
-        disabled={locked}
+        failedProjectIds={failedProjectIds}
+        disabled={submitting}
         isProjectEligible={(project) => project.access.can_manage_access}
       />
       <div className="ml-auto flex gap-2">

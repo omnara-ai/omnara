@@ -46,7 +46,7 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 <Tab title="Dashboard">
   <Steps>
     <Step title="Open the provider dialog">
-      Go to **Models** in the sidebar and click **New provider**. Pick a provider and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
+      With **All projects** selected in the project switcher, open **Models** and click **New provider**. Pick a provider and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
     </Step>
     <Step title="Create the credential inline">
       In the API key field, click **New secret**, name it, paste the provider's API key, and click **Create secret**. It's stored as an organization [secret](/organization/secrets) (`sec_…`); the provider only ever holds the reference.
@@ -78,7 +78,11 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 <Tab title="Dashboard">
   In **Add models**, select the detected models you want, or click **Skip for now**. The detected slug is used as the configured model name. Agent YAML must use the configured model name exactly.
 
-  To add a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and review the context window and maximum output capacity. Use **Advanced** to set an optional default output allowance. You can also attach project grants in this dialog.
+  To add models later, select **All projects** in the project switcher, open **Models**, and click **New model**. In **Add models**, choose the provider, then search the provider's models and check the ones you want, or type a slug that isn't listed and click its **Add … as a custom model** row. Click **Edit** on a selected row to set its **Name**, **Context**, and **Max output**; a row that still needs input shows **Needs details**. Optionally pick projects under **Share with**, then click the add button, which shows the count (for example, **Add 2 models**).
+
+  A provider can have several configured models for the same slug — for example, two names with different limits. Models the provider already has are marked **Added**; check one again to add another configuration under a different name.
+
+  To set the optional **Default output** allowance or change other settings later, open the model's row actions on the **Models** page and click **Edit**.
 </Tab>
 </Tabs>
 
@@ -107,10 +111,10 @@ A project needs a model grant (`pmog_…`) before its configs can use the model.
   Revoking a grant prevents the project from creating new configs with that model. It does not change agents that already use it.
 </Tab>
 <Tab title="Dashboard">
-  Two ways to the same grant:
+  Two ways to share the same model:
 
-  - From the model: **Models > Configured models >** row action **Grant to project** (or attach **Project grants** while creating the model).
-  - From the project: in the project's sidebar, open **Grants**, switch to the **Models** tab, and click **Grant models**. This tab also shows the project's existing model grants. Click **Delete grant** to remove one.
+  - From the model: on the organization **Models** page, use the model's row action **Share with project** (or pick projects under **Share with** while creating the model).
+  - From the project: in the project's sidebar, open **Models** and click **Share models**. This page also lists the project's shared models. Click **Stop sharing** to remove one.
 </Tab>
 </Tabs>
 

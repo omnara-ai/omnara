@@ -7,10 +7,7 @@ import { Input } from '@/components/ui/input'
 import { formatCompactCount } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import {
-  type ConfiguredModelDraft,
-  configuredModelDraftError,
-} from './CreateConfiguredModelDialogState'
+import type { ConfiguredModelDraft } from './CreateConfiguredModelDialogState'
 
 const rowClass =
   'flex min-h-11 items-center gap-3 rounded-lg px-3 has-[[data-picker-row]:focus-visible]:bg-muted/70'
@@ -44,6 +41,7 @@ type RowKeyDown = (event: KeyboardEvent<HTMLElement>) => void
 /** A model chosen for creation; expanded, it edits the name and token limits. */
 export function SelectedModelRow({
   draft,
+  error,
   index,
   expanded,
   disabled,
@@ -53,6 +51,8 @@ export function SelectedModelRow({
   onRowKeyDown,
 }: {
   draft: ConfiguredModelDraft
+  /** Why the draft cannot be created yet, or ''. */
+  error: string
   index: number
   expanded: boolean
   disabled: boolean
@@ -61,7 +61,6 @@ export function SelectedModelRow({
   onRemove: () => void
   onRowKeyDown: RowKeyDown
 }) {
-  const error = configuredModelDraftError(draft)
   const id = `cm-draft-${index}`
   const checkboxRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
@@ -215,13 +214,16 @@ function DraftInput({
   )
 }
 
+/** A model to pick; added marks a slug the provider already has, picked to configure again. */
 export function DiscoveredModelRow({
   model,
+  added = false,
   disabled,
   onSelect,
   onRowKeyDown,
 }: {
   model: DiscoveredProviderModel
+  added?: boolean
   disabled: boolean
   onSelect: () => void
   onRowKeyDown: RowKeyDown
@@ -239,23 +241,22 @@ export function DiscoveredModelRow({
           onKeyDown={onRowKeyDown}
           data-picker-row=""
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-sm">{model.slug}</span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate font-mono text-sm',
+            added && 'text-muted-foreground/70',
+          )}
+        >
+          {model.slug}
+        </span>
         <span className="text-muted-foreground text-xs tabular-nums">
-          {model.context_window_tokens === undefined
-            ? 'No limits'
-            : formatCompactCount(model.context_window_tokens)}
+          {added
+            ? 'Added'
+            : model.context_window_tokens === undefined
+              ? 'No limits'
+              : formatCompactCount(model.context_window_tokens)}
         </span>
       </label>
-    </li>
-  )
-}
-
-export function AddedModelRow({ slug, name }: { slug: string; name: string }) {
-  return (
-    <li className={cn(rowClass, 'text-muted-foreground/70')} title={name}>
-      <span aria-hidden="true" className="size-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate font-mono text-sm">{slug}</span>
-      <span className="text-xs">Added</span>
     </li>
   )
 }

@@ -124,6 +124,18 @@ describe('usageChartData', () => {
     expect(data.series.map((series) => [series.key, series.name])).toEqual([['all', 'Total']])
     expect(data.columns.map((column) => column.total)).toEqual([1, 0, 0.5])
   })
+
+  it('says when calls were made but no cost was reported, rather than no usage', () => {
+    const unreported = { ...timeseries([{ kind: 'all', total: 0, values: [0, 0, 0] }]) }
+    unreported.totals = {
+      ...unreported.totals,
+      cost: { provider_reported_usd: '0', model_calls_with_reported_cost: 0 },
+    }
+    expect(usageChartData(unreported, 'cost').emptyMessage).toBe('No cost reported for 10 calls')
+    expect(usageChartData(unreported, 'tokens').emptyMessage).toBe('No usage')
+    const idle = { ...unreported, totals: totals(0, 0, '0', 0) }
+    expect(usageChartData(idle, 'cost').emptyMessage).toBe('No usage')
+  })
 })
 
 describe('bucket formatting', () => {

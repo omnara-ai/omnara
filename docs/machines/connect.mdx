@@ -16,7 +16,7 @@ A machine starts as a record in the control plane — the daemon attaches to it 
 
 <Tabs>
 <Tab title="Dashboard">
-  Open **Machines** in the sidebar and click **Connect machine**. In the **Connect a machine** dialog, set the machine name — this is what agent configs reference as `machine_name`, so pick something stable — and optionally attach **Project grants**. Click **Connect machine**; the next screen shows the machine token alongside the install command for the daemon install step below.
+  With **All projects** selected in the project switcher, open **Machines** and click **Connect machine**. In the **Connect a machine** dialog, set the machine name — this is what agent configs reference as `machine_name`, so pick something stable — and optionally pick projects under **Shared with projects**. Click **Connect machine**; the next screen shows the machine token alongside the install command for the daemon install step below.
 </Tab>
 <Tab title="CLI">
   To connect the computer you are sitting at, one command creates the machine, mints its token, and runs the installer locally:
@@ -66,9 +66,9 @@ Machines are org-level; a project's agents can only target machines granted to t
 
 <Tabs>
 <Tab title="Dashboard">
-  If you didn't grant the machine while connecting it, find its row under **Machines**, click **Grant to project**, and select the project.
+  If you didn't share the machine while connecting it, select **All projects** in the project switcher, find its row under **Machines**, click **Share with project**, and select the project.
 
-  From a project, open **Grants**, select the **Machines** tab, and click **Grant machines**. This tab also lists existing grants; click **Delete grant** to revoke one.
+  From a project, open its **Machines** page and click **Share machines**. The page's **Shared machines** table lists existing shares; click **Stop sharing** to revoke one.
 </Tab>
 <Tab title="API">
   If you didn't pass `project_ids` while connecting the machine, grant it afterwards:
@@ -91,7 +91,7 @@ machine_sources:
 
 ## Manage a machine
 
-The dashboard's **Machines** page shows every machine you can access. `omnara machines list` and the org API provide the same view and explain whether access comes from your org role, having created the machine, or a project grant. The project API lists only machines that project's agents can use.
+The dashboard's **Machines** page (with **All projects** selected in the project switcher) shows every machine you can access. `omnara machines list` and the org API provide the same view and explain whether access comes from your org role, having created the machine, or a project grant. The project API lists only machines that project's agents can use.
 
 You can update `cwd`, `env`, and `secret_env` with `omnara machines update {machine-id}` or through the API; machine names cannot be changed.
 

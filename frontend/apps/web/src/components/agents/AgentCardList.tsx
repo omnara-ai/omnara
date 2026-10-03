@@ -168,7 +168,7 @@ export function AgentCardStat({
 }: {
   icon?: ComponentType<SVGProps<SVGSVGElement>>
   label: string
-  value: string | undefined
+  value: ReactNode
 }) {
   return (
     <div className="flex items-center gap-1.5">

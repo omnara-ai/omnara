@@ -22,11 +22,14 @@ export function ProjectSkillGrantsTable({
   orgId,
   projectId,
   projectName,
+  canManage,
   actions,
 }: {
   orgId: string
   projectId: string
   projectName: string
+  /** Whether the viewer may stop sharing (requires managing the target project). */
+  canManage: boolean
   /** Header controls, e.g. tabs. */
   actions?: ReactNode
 }) {
@@ -87,7 +90,7 @@ export function ProjectSkillGrantsTable({
                 skill={access.skill}
                 availability={access.availability}
                 projectName={projectName}
-                canDelete
+                canDelete={canManage}
               />
             ),
           },

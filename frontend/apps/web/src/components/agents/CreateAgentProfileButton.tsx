@@ -33,17 +33,20 @@ export function CreateAgentProfileButton({
 
 /**
  * Org-wide variant: profiles live in a project, so this links straight to the
- * only manageable project, asks which one when there are several, and offers
+ * only manageable project, asks which one when there are several, and can offer
  * to create a project when there are none.
  */
 export function OrgCreateAgentProfileButton({
   orgId,
   label = defaultLabel,
-  offerNewProject = true,
+  offerNewProject = false,
 }: {
   orgId: string
   label?: string
-  /** Offer to create a project when the viewer can't manage any; otherwise render nothing. */
+  /**
+   * Offer to create a project when the viewer can't manage any; otherwise render nothing.
+   * Only org admins can create projects, so callers pass canManageOrg.
+   */
   offerNewProject?: boolean
 }) {
   const directory = useProjectDirectory(orgId)

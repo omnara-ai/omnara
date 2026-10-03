@@ -26,7 +26,11 @@ import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
-import { defaultUsageRange, isDefaultUsageRange } from '@/components/usage/usage-date-range'
+import {
+  defaultUsageDays,
+  defaultUsageRange,
+  isDefaultUsageRange,
+} from '@/components/usage/usage-date-range'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
@@ -272,7 +276,8 @@ function ProfileUsageTab({
   emptyAction: ReactNode
 }) {
   const [range, setRange] = useState(defaultUsageRange)
-  const [includeSubagents, setIncludeSubagents] = useState(false)
+  // Subagents launched by the profile's agents count toward its usage, as on its card.
+  const [includeSubagents, setIncludeSubagents] = useState(true)
   const query = useAgentProfileUsage(orgId, projectId, profileId, {
     ...range.window,
     includeSubagents,
@@ -300,7 +305,7 @@ function ProfileUsageTab({
         emptyMessage={
           !isDefaultUsageRange(range)
             ? 'No model usage from this profile in this time range.'
-            : 'No model usage from this profile yet. Launch an agent and send it a message to get started.'
+            : `No model usage from this profile in the last ${String(defaultUsageDays)} days. Launch an agent and send it a message to get started.`
         }
         emptyAction={isDefaultUsageRange(range) && emptyAction}
       />
