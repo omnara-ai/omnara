@@ -399,7 +399,7 @@ export const getOrgUsageQueryKey = (options: Options<GetOrgUsageData>) => create
 /**
  * Get org usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of projects.
+ * Tallies model token usage and provider-reported cost across every project the caller can read in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of those projects; including a project the caller can't read is not found.
  */
 export const getOrgUsageOptions = (options: Options<GetOrgUsageData>) => queryOptions<GetOrgUsageResponse, GetOrgUsageError, GetOrgUsageResponse, ReturnType<typeof getOrgUsageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

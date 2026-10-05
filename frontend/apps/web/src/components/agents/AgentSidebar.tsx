@@ -255,7 +255,12 @@ function AgentUsageGroup({
             {errorMessage(query.error, 'Could not load usage.')}
           </p>
         ) : query.data.totals.model_calls === 0 ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">No model usage yet.</p>
+          // All-time usage, so "yet" holds here unlike the 30-day usage pages.
+          <p className="text-muted-foreground py-1.5 text-sm">
+            {includeSubagents
+              ? "This agent and its subagents haven't used a model yet."
+              : "This agent hasn't used a model yet."}
+          </p>
         ) : (
           <AgentUsageDetails report={query.data} />
         )}

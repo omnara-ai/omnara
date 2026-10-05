@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -40,14 +41,25 @@ func (s strictOpenAPIServer) GetOrgUsage(
 	if err != nil {
 		return nil, err
 	}
-	records, err := s.server.store.Execution().SumOrgModelUsage(ctx, executionstore.SumOrgModelUsageInput{
-		OrgID:             org.ID,
-		Window:            window,
-		IncludeProjectIDs: includeProjectIDs,
-		ExcludeProjectIDs: excludeProjectIDs,
-	})
+	projectIDs, err := s.usageReadableProjects(ctx, includeProjectIDs)
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return nil, err
+	}
+	projectIDs = slices.DeleteFunc(projectIDs, func(id uuid.UUID) bool {
+		return slices.Contains(excludeProjectIDs, id)
+	})
+	// The store reads an empty project filter as every project, so no readable
+	// projects skips the query and reports nothing.
+	var records []executionstore.ModelUsageRecord
+	if len(projectIDs) > 0 {
+		records, err = s.server.store.Execution().SumOrgModelUsage(ctx, executionstore.SumOrgModelUsageInput{
+			OrgID:             org.ID,
+			Window:            window,
+			IncludeProjectIDs: projectIDs,
+		})
+		if err != nil {
+			return nil, apierror.OrgScoped(err)
+		}
 	}
 	report, err := usageReportResponse(records)
 	if err != nil {

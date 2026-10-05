@@ -76,8 +76,10 @@ export function AgentProfileView() {
 function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId: string }) {
   const { activeOrg } = useActiveOrg()
   const { project } = useProjectPage()
-  const canOperate = project?.access.can_operate ?? false
-  const canManage = project?.access.can_manage ?? false
+  // Show actions while the project list is still loading (or failed) rather than
+  // waiting on it; the API still enforces access, and they hide once access says no.
+  const canOperate = project?.access.can_operate ?? true
+  const canManage = project?.access.can_manage ?? true
 
   const navigate = useNavigate()
   const pathname = useLocation({ select: (location) => location.pathname })

@@ -3047,7 +3047,7 @@ export const zUsageUntil = z.iso.datetime({ offset: true });
 export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
- * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
  */
 export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 

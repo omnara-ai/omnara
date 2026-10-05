@@ -19,12 +19,13 @@ import { errorMessage } from '@/lib/submit-status'
 
 export function UsageReportView({
   query,
-  emptyMessage = 'No model usage recorded yet.',
+  emptyMessage,
   emptyAction,
   chart,
 }: {
   query: UseQueryResult<UsageReportData, unknown>
-  emptyMessage?: string
+  /** Says which window is empty; usage pages default to the last 30 days, not all time. */
+  emptyMessage: string
   /** Call to action shown under the empty message when no usage is recorded. */
   emptyAction?: ReactNode
   /** Usage over time, shown between the summary and the per-model table when usage exists. */

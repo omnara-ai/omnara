@@ -65,7 +65,7 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 	if err != nil {
 		return nil, err
 	}
-	projectIDs, err = s.usageTimeseriesProjects(ctx, projectIDs)
+	projectIDs, err = s.usageReadableProjects(ctx, projectIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -105,9 +105,9 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 	return openapi.GetOrgUsageTimeseries200JSONResponse(response), nil
 }
 
-// usageTimeseriesProjects returns the projects the caller can read in the
+// usageReadableProjects returns the projects the caller can read in the
 // scoped org, narrowed to projectIDs when given; an unreadable one is not found.
-func (s strictOpenAPIServer) usageTimeseriesProjects(
+func (s strictOpenAPIServer) usageReadableProjects(
 	ctx context.Context,
 	projectIDs []uuid.UUID,
 ) ([]uuid.UUID, error) {

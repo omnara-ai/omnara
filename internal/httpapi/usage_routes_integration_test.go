@@ -16,7 +16,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func TestUsageRoutes(t *testing.T) {
@@ -126,6 +128,47 @@ func TestUsageRoutes(t *testing.T) {
 			http.StatusBadRequest, authHeaders(project.AdminToken),
 		)
 	}
+
+	// Members see org usage only from the projects they can read.
+	memberToken := func(email string, projectID uuid.UUID) string {
+		t.Helper()
+		user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
+			Email: email, DisplayName: email,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", email, err)
+		}
+		if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+			OrgID: project.OrgUUID, UserID: user.ID, Role: "member",
+		}); err != nil {
+			t.Fatalf("add %s org membership: %v", email, err)
+		}
+		if projectID != uuid.Nil {
+			if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+				OrgID: project.OrgUUID, ProjectID: projectID, UserID: user.ID, Role: "viewer",
+			}); err != nil {
+				t.Fatalf("add %s project membership: %v", email, err)
+			}
+		}
+		pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+			ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: email},
+		)
+		if err != nil {
+			t.Fatalf("create %s token: %v", email, err)
+		}
+		return pat.Token
+	}
+	getAs := func(token, path string, status int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", status, authHeaders(token))
+	}
+	viewer := memberToken("usage-viewer@example.com", project.ProjectUUID)
+	assertUsageReport(t, getAs(viewer, orgUsagePath, http.StatusOK), wholeTree)
+	emptyViewer := memberToken("usage-empty-viewer@example.com", mustPublicHTTPID(t, publicid.KindProject, emptyProjectID))
+	assertUsageReport(t, getAs(emptyViewer, orgUsagePath, http.StatusOK), nothing)
+	getAs(emptyViewer, orgUsagePath+"?include_project_ids="+project.ProjectID, http.StatusNotFound)
+	noProjects := memberToken("usage-no-projects@example.com", uuid.Nil)
+	assertUsageReport(t, getAs(noProjects, orgUsagePath, http.StatusOK), nothing)
 
 	missingProfilePath := project.ProjectPath + "/agent-profiles/" +
 		testPublicID(t, publicid.KindAgentProfile, httpTestID("usage-missing-profile")) + "/usage"

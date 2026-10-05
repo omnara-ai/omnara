@@ -3714,7 +3714,7 @@ export type UsageUntil = string;
 export type UsageIncludeProjectIds = Array<ProjectId>;
 
 /**
- * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
  */
 export type UsageExcludeProjectIds = Array<ProjectId>;
 
@@ -4725,7 +4725,7 @@ export type GetOrgUsageData = {
          */
         include_project_ids?: Array<ProjectId>;
         /**
-         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
          */
         exclude_project_ids?: Array<ProjectId>;
     };

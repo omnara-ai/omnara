@@ -604,8 +604,10 @@ paths:
       summary: Get org usage
       description: >-
         Tallies model token usage and provider-reported cost across every
-        agent in the organization, broken down by configured model. Optionally
-        limits the tally to a time window or to a subset of projects.
+        project the caller can read in the organization, broken down by
+        configured model. Optionally limits the tally to a time window or to a
+        subset of those projects; including a project the caller can't read is
+        not found.
       parameters:
         - $ref: '#/components/parameters/UsageSince'
         - $ref: '#/components/parameters/UsageUntil'
@@ -7568,7 +7570,7 @@ components:
         items:
           $ref: '#/components/schemas/ProjectID'
       description: >-
-        Tally model calls from every project except these. Cannot be combined
+        Tally model calls from every readable project except these. Cannot be combined
         with `include_project_ids`.
     IdempotencyKey:
       name: Idempotency-Key

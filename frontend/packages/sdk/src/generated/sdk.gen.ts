@@ -319,7 +319,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
 /**
  * Get org usage
  *
- * Tallies model token usage and provider-reported cost across every agent in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of projects.
+ * Tallies model token usage and provider-reported cost across every project the caller can read in the organization, broken down by configured model. Optionally limits the tally to a time window or to a subset of those projects; including a project the caller can't read is not found.
  */
 export const getOrgUsage = <ThrowOnError extends boolean = true>(options: Options<GetOrgUsageData, ThrowOnError>): RequestResult<GetOrgUsageResponses, GetOrgUsageErrors, ThrowOnError> => (options.client ?? client).get<GetOrgUsageResponses, GetOrgUsageErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetOrgUsageResponse),
