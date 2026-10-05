@@ -60,7 +60,6 @@ export function AddConfiguredModelsView({
   })
   const { retrying, submitting } = submission
   const locked = submitting || retrying
-  const ready = drafts.length > 0 && drafts.every((draft) => !draftError(draft))
 
   /** Names a draft must not reuse: the provider's models and the other drafts. */
   function takenNames(except?: string) {
@@ -76,6 +75,8 @@ export function AddConfiguredModelsView({
   function newDraft(model: DiscoveredProviderModel) {
     return configuredModelDraft(model, takenNames())
   }
+
+  const ready = drafts.length > 0 && drafts.every((draft) => !draftError(draft))
 
   function switchProvider(nextProviderId: string) {
     setProviderId(nextProviderId)
