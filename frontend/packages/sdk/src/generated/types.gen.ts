@@ -5,34 +5,37 @@ export type ClientOptions = {
 };
 
 /**
- * Agent config definition: the JSON form of an agent config source. The server validates it fully when compiling, including rules this schema does not express.
+ * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export type AgentConfigDefinition = {
     event_webhook?: AgentConfigDefinitionEventWebhook;
     git_credentials?: AgentConfigDefinitionGitCredentials;
     instruction: string;
-    interaction_handlers?: {
-        [key: string]: AgentConfigDefinitionIntegrationCapability;
-    };
-    machine_sources?: Array<AgentConfigDefinitionMachineSource> | null;
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
     max_depth?: number;
     max_subagents?: number;
-    mcp?: {
-        [key: string]: AgentConfigDefinitionMcpServer;
-    };
-    memory_stores?: Array<{
-        access: 'read' | 'read_write';
-        name: string;
-    }>;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
     model: AgentConfigDefinitionModel;
-    skills?: Array<string> | null;
-    subagents?: {
-        [key: string]: AgentConfigDefinitionSubagent;
-    };
-    tools?: {
-        [key: string]: AgentConfigDefinitionTool;
-    };
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
     version?: 'v1';
+};
+
+/**
+ * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+ */
+export type AgentConfigToolsDefinition = {
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
+    [key: string]: unknown;
 };
 
 export type AgentConfigDefinitionEventWebhook = {
@@ -42,11 +45,20 @@ export type AgentConfigDefinitionEventWebhook = {
 };
 
 export type AgentConfigDefinitionGitCredentials = {
-    integration: string;
+    integration: AgentConfigDefinitionIntegrationName;
 };
 
 export type AgentConfigDefinitionIntegrationCapability = {
     [key: string]: never;
+};
+
+/**
+ * Name of an integration in the project.
+ */
+export type AgentConfigDefinitionIntegrationName = string;
+
+export type AgentConfigDefinitionInteractionHandlers = {
+    [key in AgentConfigDefinitionIntegrationName]?: AgentConfigDefinitionIntegrationCapability;
 };
 
 export type AgentConfigDefinitionMcpAuth = {
@@ -67,43 +79,62 @@ export type AgentConfigDefinitionMcpServer = {
     url: string;
 };
 
+export type AgentConfigDefinitionMcpServers = {
+    [key: string]: AgentConfigDefinitionMcpServer;
+};
+
 export type AgentConfigDefinitionMcpTool = {
     deferred?: boolean | null;
     enabled?: boolean | null;
     permission?: AgentConfigDefinitionToolPermission;
 };
 
-export type AgentConfigDefinitionMachineSource = {
+export type AgentConfigDefinitionMachineSource = ({
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+}) & {
     cwd?: string;
     delete_after_idle_minutes?: 0 | number;
     description?: string;
     env_overlay?: {
-        [key: string]: string | null;
+        [key in EnvironmentVariableName]?: string | null;
     } | null;
     initial_num_machines?: number;
     machine_cpu?: number;
     machine_memory_mb?: number;
-    machine_name?: string;
-    machine_pool_name?: string;
+    machine_name?: ResourceNameReference;
+    machine_pool_name?: ResourceNameReference;
     machine_provider_options_overlay?: {
         [key: string]: unknown;
     } | null;
     max_machines?: number;
     secret_env_overlay?: {
-        [key: string]: string | null;
+        [key in EnvironmentVariableName]?: string | null;
     } | null;
 };
+
+export type AgentConfigDefinitionMachineSources = Array<AgentConfigDefinitionMachineSource> | null;
+
+export type AgentConfigDefinitionMemoryStore = {
+    name: MemoryStoreName;
+    access: 'read' | 'read_write';
+};
+
+export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore>;
 
 export type AgentConfigDefinitionModel = {
     cache_retention?: 'none' | 'short' | 'long';
     context_window_tokens?: number;
     default_max_output_tokens?: number;
-    name: string;
-    provider_config: string;
+    name: ResourceNameReference;
+    provider_config: ResourceNameReference;
     reasoning?: {
         effort: string;
     };
 };
+
+export type AgentConfigDefinitionSkills = Array<string> | null;
 
 export type AgentConfigDefinitionSubagent = {
     archive_after_idle_minutes?: number;
@@ -111,7 +142,7 @@ export type AgentConfigDefinitionSubagent = {
     instruction?: AgentConfigDefinitionSubagentInstruction;
     max_instances?: number;
     model?: AgentConfigDefinitionSubagentModel;
-    profile?: string;
+    profile?: ResourceNameReference;
     type: 'profile' | 'self';
 };
 
@@ -123,11 +154,15 @@ export type AgentConfigDefinitionSubagentModel = {
     cache_retention?: 'none' | 'short' | 'long';
     context_window_tokens?: number;
     default_max_output_tokens?: number;
-    name?: string;
-    provider_config?: string;
+    name?: ResourceNameReference;
+    provider_config?: ResourceNameReference;
     reasoning?: {
         effort: string;
     };
+};
+
+export type AgentConfigDefinitionSubagents = {
+    [key: string]: AgentConfigDefinitionSubagent;
 };
 
 export type AgentConfigDefinitionTool = {
@@ -156,26 +191,16 @@ export type AgentConfigDefinitionToolPermission = {
     };
 };
 
-/**
- * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
- */
-export type AgentConfigToolsDefinition = {
-    interaction_handlers?: {
-        [key: string]: AgentConfigDefinitionIntegrationCapability;
-    };
-    machine_sources?: Array<AgentConfigDefinitionMachineSource> | null;
-    mcp?: {
-        [key: string]: AgentConfigDefinitionMcpServer;
-    };
-    skills?: Array<string> | null;
-    subagents?: {
-        [key: string]: AgentConfigDefinitionSubagent;
-    };
-    tools?: {
-        [key: string]: AgentConfigDefinitionTool;
-    };
-    [key: string]: unknown;
+export type AgentConfigDefinitionTools = {
+    [key: string]: AgentConfigDefinitionTool;
 };
+
+export type EnvironmentVariableName = string;
+
+/**
+ * Name of an existing resource, resolved when the config is compiled.
+ */
+export type ResourceNameReference = string;
 
 /**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.

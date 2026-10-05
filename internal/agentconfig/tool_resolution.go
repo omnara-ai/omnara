@@ -57,14 +57,7 @@ func compileTools(
 }
 
 var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
-	schema := agentConfigSourceSchema()
-	schema.Required = nil
-	for name := range *schema.Properties {
-		if !toolSourceField(name) {
-			delete(*schema.Properties, name)
-		}
-	}
-	raw, err := json.Marshal(schema)
+	raw, err := specJSONSchema(OpenAPIToolsDefinitionComponent)
 	if err != nil {
 		return nil, err
 	}

@@ -247,23 +247,38 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"EventWebhook":                           reflect.TypeOf(EventWebhook{}),
-		"AgentConfigIntegrationCapabilitySource": reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
-		"GitCredentialsSource":                   reflect.TypeOf(GitCredentialsSource{}),
-		"AgentConfigModelSource":                 reflect.TypeOf(AgentConfigModelSource{}),
-		"AgentConfigMachineSource":               reflect.TypeOf(AgentConfigMachineSource{}),
-		"AgentConfigToolSource":                  reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigMCPSource":                   reflect.TypeOf(AgentConfigMCPSource{}),
-		"AgentConfigMCPAuthSource":               reflect.TypeOf(AgentConfigMCPAuthSource{}),
-		"AgentConfigMCPToolSource":               reflect.TypeOf(AgentConfigMCPToolSource{}),
-		"ToolPermissionSelection":                reflect.TypeOf(toolpermission.Selection{}),
-		"AgentConfigSubagentSource":              reflect.TypeOf(AgentConfigSubagentSource{}),
-		"AgentConfigSubagentModelSource":         reflect.TypeOf(AgentConfigSubagentModelSource{}),
-		"AgentConfigSubagentInstructionSource":   reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionEventWebhook":          reflect.TypeOf(EventWebhook{}),
+		"AgentConfigDefinitionModel":                 reflect.TypeOf(AgentConfigModelSource{}),
+		"AgentConfigDefinitionMachineSource":         reflect.TypeOf(AgentConfigMachineSource{}),
+		"AgentConfigDefinitionTool":                  reflect.TypeOf(AgentConfigToolSource{}),
+		"AgentConfigDefinitionMCPServer":             reflect.TypeOf(AgentConfigMCPSource{}),
+		"AgentConfigDefinitionMCPAuth":               reflect.TypeOf(AgentConfigMCPAuthSource{}),
+		"AgentConfigDefinitionMCPTool":               reflect.TypeOf(AgentConfigMCPToolSource{}),
+		"AgentConfigDefinitionToolPermission":        reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigDefinitionSubagent":              reflect.TypeOf(AgentConfigSubagentSource{}),
+		"AgentConfigDefinitionSubagentModel":         reflect.TypeOf(AgentConfigSubagentModelSource{}),
+		"AgentConfigDefinitionSubagentInstruction":   reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionMemoryStore":           reflect.TypeOf(MemoryStoreSource{}),
+		"AgentConfigDefinitionIntegrationCapability": reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
+		"AgentConfigDefinitionGitCredentials":        reflect.TypeOf(GitCredentialsSource{}),
 	}
 	// Custom tool input_schema decodes into map[string]any, so its schema
-	// stays deliberately open.
-	openDefs := map[string]bool{"AgentToolInputSchema": true}
+	// stays deliberately open. The rest are maps, arrays, and strings rather
+	// than struct-backed objects.
+	openDefs := map[string]bool{
+		"AgentConfigDefinitionToolInputSchema":     true,
+		"AgentConfigDefinitionIntegrationName":     true,
+		"AgentConfigDefinitionInteractionHandlers": true,
+		"AgentConfigDefinitionMachineSources":      true,
+		"AgentConfigDefinitionMCPServers":          true,
+		"AgentConfigDefinitionMemoryStores":        true,
+		"AgentConfigDefinitionSkills":              true,
+		"AgentConfigDefinitionSubagents":           true,
+		"AgentConfigDefinitionTools":               true,
+		"EnvironmentVariableName":                  true,
+		"MemoryStoreName":                          true,
+		"ResourceNameReference":                    true,
+	}
 	for name := range defs {
 		if !openDefs[name] && structsByDef[name] == nil {
 			t.Errorf("schema $def %q is not mapped to a Go struct here; map it or mark it open", name)

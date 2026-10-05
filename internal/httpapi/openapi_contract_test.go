@@ -411,6 +411,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 	}
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
+	const resourceNameReferenceRef = "#/components/schemas/ResourceNameReference"
 	exceptions := map[string]string{
 		"MemoryStore.name":                                        "#/components/schemas/MemoryStoreName",
 		"CreateMemoryStore.name":                                  "#/components/schemas/MemoryStoreName",
@@ -449,14 +450,15 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ResolvedAgentConfigTool.name":                            "",
 		"ToolPermissionMode.name":                                 "",
 		"UpdateMachinePoolRequest.provider_config":                "",
-		// Config definitions reference existing resources by name; the
-		// agent config compiler resolves and validates these.
-		"AgentConfigDefinitionMachineSource.machine_name":      "",
-		"AgentConfigDefinitionMachineSource.machine_pool_name": "",
-		"AgentConfigDefinitionModel.name":                      "",
-		"AgentConfigDefinitionModel.provider_config":           "",
-		"AgentConfigDefinitionSubagentModel.name":              "",
-		"AgentConfigDefinitionSubagentModel.provider_config":   "",
+		"AgentConfigDefinitionMemoryStore.name":                   "#/components/schemas/MemoryStoreName",
+		// Config definitions reference existing resources by name; the agent
+		// config compiler resolves them.
+		"AgentConfigDefinitionMachineSource.machine_name":      resourceNameReferenceRef,
+		"AgentConfigDefinitionMachineSource.machine_pool_name": resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.name":                      resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.provider_config":           resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.name":              resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.provider_config":   resourceNameReferenceRef,
 	}
 
 	var failures []string

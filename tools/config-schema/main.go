@@ -21,6 +21,15 @@ const (
 	sectionEnd       = "    # END GENERATED INTEGRATION CAPABILITY SCHEMAS\n"
 )
 
+// generatedComponentNames keeps the published names of the components this
+// tool copies out of the agent config definition schemas.
+var generatedComponentNames = map[string]string{
+	"AgentConfigDefinitionIntegrationCapability": "ConfigIntegrationCapabilitySource",
+	"AgentConfigDefinitionTool":                  "ConfigToolSource",
+	"AgentConfigDefinitionToolInputSchema":       "ConfigAgentToolInputSchema",
+	"AgentConfigDefinitionToolPermission":        "ConfigToolPermissionSelection",
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "config-schema:", err)
@@ -103,7 +112,12 @@ func renderOpenAPI(schema, spec []byte) ([]byte, error) {
 		return nil, err
 	}
 	components := map[string]map[string]any{}
-	name := func(key string) string { return "Config" + strings.TrimPrefix(key, "AgentConfig") }
+	name := func(key string) string {
+		if component, ok := generatedComponentNames[key]; ok {
+			return component
+		}
+		return "Config" + strings.TrimPrefix(key, "AgentConfigDefinition")
+	}
 	var visit func(any) error
 	add := func(key string) error {
 		if _, seen := components[name(key)]; seen {
@@ -143,12 +157,15 @@ func renderOpenAPI(schema, spec []byte) ([]byte, error) {
 		}
 		return nil
 	}
-	for _, root := range []string{"AgentConfigIntegrationCapabilitySource", "AgentConfigToolSource"} {
-		if err := add(root); err != nil {
+	for _, root := range []struct{ def, goType string }{
+		{"AgentConfigDefinitionIntegrationCapability", "AgentConfigIntegrationCapabilitySource"},
+		{"AgentConfigDefinitionTool", "AgentConfigToolSource"},
+	} {
+		if err := add(root.def); err != nil {
 			return nil, err
 		}
-		definition := components[name(root)]
-		definition["x-go-type"] = "agentconfig." + root
+		definition := components[name(root.def)]
+		definition["x-go-type"] = "agentconfig." + root.goType
 		definition["x-go-type-import"] = map[string]any{"path": "github.com/omnara-ai/omnara/internal/agentconfig"}
 	}
 	var out bytes.Buffer

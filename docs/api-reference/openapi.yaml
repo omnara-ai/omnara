@@ -8437,394 +8437,476 @@ components:
               code:
                 $ref: '#/components/schemas/ServerErrorCode'
   schemas:
-    # BEGIN GENERATED AgentConfigDefinition components.
-    # Projected from the agent config source schema. Regenerate with
-    # OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 go test ./internal/agentconfig -run TestGenerated
+    # Agent config definition schemas. These are the source of truth for agent
+    # configs: internal/agentconfig compiles YAML and JSON configs against them,
+    # and generates internal/agentconfig/generated/agent_config.schema.json for
+    # the web editor.
     AgentConfigDefinition:
+      description: >-
+        An agent config as a JSON object. This schema is the source of truth for
+        agent configs: the server compiles YAML and JSON configs against it.
+      type: object
       additionalProperties: false
-      description: 'Agent config definition: the JSON form of an agent config source. The server validates it fully when compiling, including rules this schema does not express.'
+      required: [instruction, model]
       properties:
         event_webhook:
           $ref: '#/components/schemas/AgentConfigDefinitionEventWebhook'
+        git_credentials:
+          $ref: '#/components/schemas/AgentConfigDefinitionGitCredentials'
         instruction:
-          minLength: 1
           type: string
+          minLength: 1
+          pattern: '\S'
+        interaction_handlers:
+          $ref: '#/components/schemas/AgentConfigDefinitionInteractionHandlers'
         machine_sources:
-          items:
-            $ref: '#/components/schemas/AgentConfigDefinitionMachineSource'
-          type:
-            - array
-            - "null"
+          $ref: '#/components/schemas/AgentConfigDefinitionMachineSources'
         max_depth:
+          type: integer
+          minimum: 1
           maximum: 8
-          minimum: 1
-          type: integer
         max_subagents:
-          maximum: 2147483647
-          minimum: 1
           type: integer
+          minimum: 1
+          maximum: 2147483647
         mcp:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
-          type: object
+          $ref: '#/components/schemas/AgentConfigDefinitionMCPServers'
+        memory_stores:
+          $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
         model:
           $ref: '#/components/schemas/AgentConfigDefinitionModel'
         skills:
-          items:
-            type: string
-          type:
-            - array
-            - "null"
-          uniqueItems: true
+          $ref: '#/components/schemas/AgentConfigDefinitionSkills'
         subagents:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
-          type: object
+          $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
         tools:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionTool'
-          type: object
+          $ref: '#/components/schemas/AgentConfigDefinitionTools'
         version:
-          enum:
-            - v1
-      required:
-        - instruction
-        - model
+          enum: [v1]
+      x-go-type: json.RawMessage
+    AgentConfigToolsDefinition:
+      description: >-
+        The parts of an agent config definition that determine its effective
+        tools. Other fields are ignored.
       type: object
+      additionalProperties: true
+      properties:
+        interaction_handlers:
+          $ref: '#/components/schemas/AgentConfigDefinitionInteractionHandlers'
+        machine_sources:
+          $ref: '#/components/schemas/AgentConfigDefinitionMachineSources'
+        mcp:
+          $ref: '#/components/schemas/AgentConfigDefinitionMCPServers'
+        memory_stores:
+          $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
+        skills:
+          $ref: '#/components/schemas/AgentConfigDefinitionSkills'
+        subagents:
+          $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
+        tools:
+          $ref: '#/components/schemas/AgentConfigDefinitionTools'
       x-go-type: json.RawMessage
     AgentConfigDefinitionEventWebhook:
+      type: object
       additionalProperties: false
+      required: [url, events]
       properties:
         events:
-          items:
-            enum:
-              - agent_input
-              - model_output
-              - tool_result
-              - context_checkpoint
-              - tool_call_update
-          minItems: 1
           type: array
+          minItems: 1
           uniqueItems: true
+          items:
+            enum: [agent_input, model_output, tool_result, context_checkpoint, tool_call_update]
         signing_secret_id:
-          minLength: 1
           type: string
+          minLength: 1
         url:
-          minLength: 1
           type: string
-      required:
-        - url
-        - events
+          minLength: 1
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionGitCredentials:
       type: object
+      additionalProperties: false
+      required: [integration]
+      properties:
+        integration:
+          $ref: '#/components/schemas/AgentConfigDefinitionIntegrationName'
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionIntegrationCapability:
+      type: object
+      additionalProperties: false
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionIntegrationName:
+      description: Name of an integration in the project.
+      type: string
+      pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
+    AgentConfigDefinitionInteractionHandlers:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AgentConfigDefinitionIntegrationCapability'
+      propertyNames:
+        $ref: '#/components/schemas/AgentConfigDefinitionIntegrationName'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPAuth:
+      type: object
       additionalProperties: false
+      required: [type, secret_id]
       properties:
         region:
-          minLength: 1
           type: string
+          minLength: 1
         secret_id:
-          minLength: 1
           type: string
+          minLength: 1
+          pattern: '^sec_[a-z2-7]{26}$'
         service:
-          minLength: 1
           type: string
+          minLength: 1
         type:
-          enum:
-            - bearer
-            - oauth
-            - sigv4
-      required:
-        - type
-        - secret_id
-      type: object
+          enum: [bearer, oauth, sigv4]
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPServer:
+      type: object
       additionalProperties: false
+      required: [url]
       properties:
         auth:
           $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
         default_enabled:
-          type:
-            - boolean
-            - "null"
+          anyOf:
+            - type: boolean
+            - type: 'null'
         deferred:
           type: boolean
         permission:
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         tools:
+          type: object
           additionalProperties:
             $ref: '#/components/schemas/AgentConfigDefinitionMCPTool'
-          type: object
+          propertyNames:
+            type: string
+            pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}$'
         url:
-          minLength: 1
           type: string
-      required:
-        - url
+          minLength: 1
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMCPServers:
       type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
+      propertyNames:
+        type: string
+        pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPTool:
+      type: object
       additionalProperties: false
       properties:
         deferred:
-          type:
-            - boolean
-            - "null"
+          anyOf:
+            - type: boolean
+            - type: 'null'
         enabled:
-          type:
-            - boolean
-            - "null"
+          anyOf:
+            - type: boolean
+            - type: 'null'
         permission:
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
-      type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionMachineSource:
+      type: object
       additionalProperties: false
       properties:
         cwd:
-          maxLength: 4096
           type: string
+          maxLength: 4096
         delete_after_idle_minutes:
           anyOf:
             - const: 0
-            - maximum: 2147483647
+            - type: integer
               minimum: 5
-              type: integer
+              maximum: 2147483647
         description:
+          type: string
           maxLength: 4096
-          type: string
         env_overlay:
-          additionalProperties:
-            type:
-              - string
-              - "null"
-          type:
-            - object
-            - "null"
+          anyOf:
+            - type: object
+              additionalProperties:
+                anyOf:
+                  - type: string
+                  - type: 'null'
+              propertyNames:
+                $ref: '#/components/schemas/EnvironmentVariableName'
+            - type: 'null'
         initial_num_machines:
-          minimum: 0
           type: integer
+          minimum: 0
         machine_cpu:
-          maximum: 2147483647
-          minimum: 1
           type: integer
+          minimum: 1
+          maximum: 2147483647
         machine_memory_mb:
-          maximum: 2147483647
+          type: integer
           minimum: 1
-          type: integer
+          maximum: 2147483647
         machine_name:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         machine_pool_name:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         machine_provider_options_overlay:
-          type:
-            - object
-            - "null"
+          anyOf:
+            - type: object
+            - type: 'null'
         max_machines:
-          minimum: 0
           type: integer
+          minimum: 0
         secret_env_overlay:
-          additionalProperties:
-            type:
-              - string
-              - "null"
-          type:
-            - object
-            - "null"
+          anyOf:
+            - type: object
+              additionalProperties:
+                anyOf:
+                  - type: string
+                    pattern: '^sec_[a-z2-7]{26}$'
+                  - type: 'null'
+              propertyNames:
+                $ref: '#/components/schemas/EnvironmentVariableName'
+            - type: 'null'
+      oneOf:
+        - type: object
+          required: [machine_name]
+        - type: object
+          required: [machine_pool_name]
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMachineSources:
+      anyOf:
+        - type: array
+          items:
+            $ref: '#/components/schemas/AgentConfigDefinitionMachineSource'
+        - type: 'null'
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMemoryStore:
       type: object
+      additionalProperties: false
+      required: [name, access]
+      properties:
+        name:
+          $ref: '#/components/schemas/MemoryStoreName'
+        access:
+          type: string
+          enum: [read, read_write]
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMemoryStores:
+      type: array
+      items:
+        $ref: '#/components/schemas/AgentConfigDefinitionMemoryStore'
       x-go-type: json.RawMessage
     AgentConfigDefinitionModel:
+      type: object
       additionalProperties: false
+      required: [provider_config, name]
       properties:
         cache_retention:
-          enum:
-            - none
-            - short
-            - long
+          enum: [none, short, long]
         context_window_tokens:
-          minimum: 1
           type: integer
+          minimum: 1
         default_max_output_tokens:
-          minimum: 1
           type: integer
+          minimum: 1
         name:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
+          type: object
           additionalProperties: false
+          required: [effort]
           properties:
             effort:
-              minLength: 1
               type: string
-          required:
-            - effort
-          type: object
-      required:
-        - provider_config
-        - name
-      type: object
+              minLength: 1
+              pattern: '\S'
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionSkills:
+      anyOf:
+        - type: array
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^skl_[a-z2-7]{26}$'
+        - type: 'null'
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagent:
+      type: object
       additionalProperties: false
+      required: [type]
       properties:
         archive_after_idle_minutes:
-          maximum: 2147483647
-          minimum: 1
           type: integer
+          minimum: 1
+          maximum: 2147483647
         description:
           type: string
         instruction:
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentInstruction'
         max_instances:
-          maximum: 2147483647
-          minimum: 1
           type: integer
+          minimum: 1
+          maximum: 2147483647
         model:
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentModel'
         profile:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         type:
-          enum:
-            - profile
-            - self
-      required:
-        - type
-      type: object
+          enum: [profile, self]
+      if:
+        type: object
+        required: [type]
+        properties:
+          type:
+            const: profile
+      then:
+        required: [profile]
+      else:
+        not:
+          type: object
+          required: [profile]
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagentInstruction:
+      type: object
       additionalProperties: false
       properties:
         append:
           type: string
-      type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagentModel:
+      type: object
       additionalProperties: false
+      dependentRequired:
+        name: [provider_config]
+        provider_config: [name]
       properties:
         cache_retention:
-          enum:
-            - none
-            - short
-            - long
+          enum: [none, short, long]
         context_window_tokens:
-          minimum: 1
           type: integer
+          minimum: 1
         default_max_output_tokens:
-          minimum: 1
           type: integer
+          minimum: 1
         name:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
-          maxLength: 64
-          minLength: 1
-          type: string
+          $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
+          type: object
           additionalProperties: false
+          required: [effort]
           properties:
             effort:
-              minLength: 1
               type: string
-          required:
-            - effort
-          type: object
+              minLength: 1
+              pattern: '\S'
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionSubagents:
       type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
+      propertyNames:
+        type: string
+        pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
       x-go-type: json.RawMessage
     AgentConfigDefinitionTool:
+      type: object
       additionalProperties: false
       properties:
         deferred:
           type: boolean
         description:
-          minLength: 1
           type: string
+          minLength: 1
         enabled:
-          type:
-            - boolean
-            - "null"
+          anyOf:
+            - type: boolean
+            - type: 'null'
         input_schema:
           $ref: '#/components/schemas/AgentConfigDefinitionToolInputSchema'
         permission:
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         type:
-          enum:
-            - built_in
-            - custom
-      type: object
+          enum: [built_in, custom]
+      if:
+        type: object
+        required: [type]
+        properties:
+          type:
+            const: custom
+      then:
+        required: [description, input_schema]
+      else:
+        not:
+          anyOf:
+            - type: object
+              required: [description]
+            - type: object
+              required: [input_schema]
       x-go-type: json.RawMessage
     AgentConfigDefinitionToolInputSchema:
+      type: object
+      required: [type]
       properties:
         properties:
+          type: object
           additionalProperties:
             type: object
-          type: object
         required:
-          items:
-            minLength: 1
-            type: string
           type: array
+          items:
+            type: string
+            minLength: 1
         type:
           const: object
-      required:
-        - type
-      type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionToolPermission:
+      type: object
       additionalProperties: false
+      required: [mode]
       properties:
         mode:
-          minLength: 1
           type: string
+          minLength: 1
+          pattern: '\S'
         parameters:
           type: object
-      required:
-        - mode
-      type: object
       x-go-type: json.RawMessage
-    AgentConfigToolsDefinition:
-      additionalProperties: true
-      description: The parts of an agent config definition that determine its effective tools. Other fields are ignored.
-      properties:
-        machine_sources:
-          items:
-            $ref: '#/components/schemas/AgentConfigDefinitionMachineSource'
-          type:
-            - array
-            - "null"
-        mcp:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
-          type: object
-        skills:
-          items:
-            type: string
-          type:
-            - array
-            - "null"
-          uniqueItems: true
-        subagents:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
-          type: object
-        tools:
-          additionalProperties:
-            $ref: '#/components/schemas/AgentConfigDefinitionTool'
-          type: object
+    AgentConfigDefinitionTools:
       type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AgentConfigDefinitionTool'
+      propertyNames:
+        allOf:
+          - anyOf:
+              - type: string
+                pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
+              - type: string
+                maxLength: 64
+                pattern: '^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$'
+          - not:
+              type: string
+              pattern: '^mcp__'
       x-go-type: json.RawMessage
-    # END GENERATED AgentConfigDefinition components.
+    EnvironmentVariableName:
+      type: string
+      minLength: 1
+      pattern: '^[^=\x00]+$'
+    ResourceNameReference:
+      description: Name of an existing resource, resolved when the config is compiled.
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^\S(?:.*\S)?$'
     ResourceName:
       type: string
       minLength: 1
