@@ -1693,6 +1693,8 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 							t.Fatal(err)
 						}
 						delete(wantValue, "file_transfer")
+						fields["error_code"] = fields["code"]
+						delete(fields, "code")
 						for key, value := range fields {
 							wantValue[key] = value
 						}

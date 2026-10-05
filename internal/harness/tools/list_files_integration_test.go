@@ -4,15 +4,18 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -70,7 +73,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		}
 		return parts[0].Value, nil
 	}
-	for _, pattern := range []string{"/*", "/**", "/artifacts/tool-result", "/memory/**"} {
+	for _, pattern := range []string{"/artifacts", "/memory", "/artifacts/*", "/artifacts/tool-result", "/memory/**"} {
 		baseline, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 100, listing.Cursor{})
 		if err != nil {
 			t.Fatal(err)
@@ -85,6 +88,10 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		}
 		if pattern == "/artifacts/tool-result" && len(expected) != 101 {
 			t.Fatalf("lost duplicate filenames: %d", len(expected))
+		}
+		if (pattern == "/artifacts" || pattern == "/memory") &&
+			(len(expected) != 1 || expected[0].Path != pattern || expected[0].Type != listing.FileTypeDirectory) {
+			t.Fatalf("root listing %s: %+v", pattern, expected)
 		}
 		for _, limit := range []int{1, 7, 100} {
 			request := listFilesRequest{Pattern: pattern, Limit: limit}
@@ -111,6 +118,12 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 			}
 		}
 	}
+	for _, pattern := range []string{"/*", "/**/review-note.txt", "/mem*/*", "/unknown/*"} {
+		_, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 100, listing.Cursor{})
+		if !errors.Is(err, storeerr.ErrInvalidRequest) || !strings.Contains(err.Error(), "/memory or /artifacts") {
+			t.Fatalf("invalid root %s: %v", pattern, err)
+		}
+	}
 	first, err := read(listFilesRequest{Pattern: "/artifacts/*", Limit: 1}, call.Turn)
 	if err != nil || first.Next == nil {
 		t.Fatalf("first page: %+v, %v", first, err)
@@ -120,7 +133,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		changed, turn := request, call.Turn
 		switch dimension {
 		case "pattern":
-			changed.Pattern = "/**"
+			changed.Pattern = "/memory/**"
 		case "agent":
 			turn.AgentID = uuid.New()
 		case "project":
@@ -133,6 +146,17 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 	cursor, err := decodeFileListCursor(*first.Next)
 	if err != nil {
 		t.Fatal(err)
+	}
+	wrongRoot := cursor
+	wrongRoot.Key, wrongRoot.ID = "/memory/engineering", uuid.Nil
+	payload, err := json.Marshal(wrongRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongRequest := request
+	wrongRequest.Cursor = base64.RawURLEncoding.EncodeToString(payload)
+	if _, err := read(wrongRequest, call.Turn); !errors.Is(err, errInvalidFileListCursor) {
+		t.Fatalf("cursor accepted a position from another root: %v", err)
 	}
 	if _, err := fixture.Pool.Exec(ctx, "DELETE FROM artifacts WHERE id = $1", cursor.ID); err != nil {
 		t.Fatal(err)
@@ -155,7 +179,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := fixture.Store.ListFiles(
-		canceled, toolsTestProjectID, fixture.Agent.ID, "/**", 1, listing.Cursor{},
+		canceled, toolsTestProjectID, fixture.Agent.ID, "/memory/**", 1, listing.Cursor{},
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled listing succeeded: %v", err)
 	}

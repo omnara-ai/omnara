@@ -280,7 +280,10 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	}
 	call(download, http.MethodPost, content, http.StatusNotFound)
 	replacementContent := []byte("updated content")
-	call(upload, http.MethodPost, replacementContent, http.StatusConflict)
+	missingDigest := call(upload, http.MethodPost, replacementContent, http.StatusConflict)
+	if missingDigest["code"] != "expected_digest_required" || missingDigest["current_digest"] != uploaded["digest"] {
+		t.Fatalf("missing digest: %v", missingDigest)
+	}
 	digest, ok := uploaded["digest"].(string)
 	if !ok {
 		t.Fatalf("upload response is missing a string digest: %v", uploaded)
@@ -291,7 +294,10 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		t.Fatalf("incorrect replacement digest: %v", replaced)
 	}
 	staleContent := []byte("stale replacement")
-	call(replacement, http.MethodPost, staleContent, http.StatusConflict)
+	staleDigest := call(replacement, http.MethodPost, staleContent, http.StatusConflict)
+	if staleDigest["code"] != "file_content_conflict" || staleDigest["current_digest"] != replaced["digest"] {
+		t.Fatalf("stale digest: %v", staleDigest)
+	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE memory_stores RENAME TO unavailable_memory_stores`); err != nil {
 		t.Fatal(err)
 	}

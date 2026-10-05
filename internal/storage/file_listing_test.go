@@ -13,7 +13,8 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 		pattern, path string
 		match         bool
 	}{
-		{"/*", "/memory", true}, {"/*", "/memory/team", false},
+		{"/memory", "/memory", true}, {"/memory", "/memory/team", false},
+		{"/artifacts", "/artifacts", true}, {"/artifacts", "/artifacts/file", false},
 		{"/memory/*", "/memory/team", true}, {"/memory/*", "/memory/team/a.md", false},
 		{"/memory/team/**/*.md", "/memory/team/a.md", true},
 		{"/memory/team/**/*.md", "/memory/team/deep/a.md", true},
@@ -23,7 +24,7 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 		{"/memory/team/**/**/?.md", "/memory/team/deep/ab.md", false},
 		{"/memory/team/**", "/memory/team/deep/a.md", true},
 		{"/memory/team/**", "/memory/team", false},
-		{"/**/**", "/memory/team/a.md", true},
+		{"/memory/**/**", "/memory/team/a.md", true},
 		{"/memory/team/*", "/memory/team", false},
 		{"/memory/team", "/memory/team", true},
 	} {
@@ -36,6 +37,17 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 				t.Fatalf("%q matching %q: want %v", test.pattern, test.path, test.match)
 			}
 		})
+	}
+}
+
+func TestFilePatternRequiresLiteralRoot(t *testing.T) {
+	for _, pattern := range []string{
+		"/", "/*", "/**", "/**/review-note.txt", "/mem*/a/*", "/artifacts*/*", "/unknown/*",
+	} {
+		_, err := CompileFilePattern(pattern)
+		if err == nil || !strings.Contains(err.Error(), "/memory or /artifacts") {
+			t.Errorf("pattern %q: expected allowed roots in error, got %v", pattern, err)
+		}
 	}
 }
 

@@ -122,7 +122,8 @@ func runReadFileAsync(
 		digest, contentType = record.Digest, record.ContentType
 	}
 	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
-		return nil, fmt.Errorf("file digest mismatch; restart the read: %w", storeerr.ErrConflict)
+		return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
+			errors.New("file digest mismatch; restart the read"))
 	}
 	if isViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
@@ -336,16 +337,21 @@ func validateFilePath(path string) error {
 		_, _, err := memorystore.ParsePath(path)
 		return err
 	}
-	if _, err := resolveArtifactPath(path); err != nil {
-		return errors.New("path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
+	if strings.HasPrefix(path, toolcatalog.ArtifactVFSRoot+"/") {
+		_, err := resolveArtifactPath(path)
+		return err
 	}
-	return nil
+	return errors.New("path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
 }
 
 func resolveArtifactPath(path string) (uuid.UUID, error) {
 	id, ok := strings.CutPrefix(path, toolcatalog.ArtifactVFSRoot+"/")
-	if !ok || strings.Contains(id, "/") {
-		return uuid.Nil, errors.New("path must be /artifacts/<artifact_id>")
+	if ok && !strings.Contains(id, "/") {
+		if artifactID, err := publicid.Decode(publicid.KindArtifact, id); err == nil {
+			return artifactID, nil
+		}
 	}
-	return publicid.Decode(publicid.KindArtifact, id)
+	return uuid.Nil, errors.New(
+		"artifacts are read by ID; use list_files with /artifacts/<filename or glob>, then use a returned /artifacts/<artifact_id> path",
+	)
 }

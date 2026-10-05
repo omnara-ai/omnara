@@ -252,22 +252,22 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			t.Fatalf("artifact metadata: %+v", entry)
 		}
 	}
-	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/**", 100, listing.Cursor{})
+	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/**", 100, listing.Cursor{})
 	if err != nil || result.Next.Set {
-		t.Fatalf("combined listing: %+v %v", result, err)
+		t.Fatalf("memory listing: %+v %v", result, err)
 	}
 	var paths []string
 	for _, entry := range result.Entries {
 		paths = append(paths, entry.Path)
 	}
 	wantPaths := []string{
-		"/artifacts", artifactPath, "/memory", "/memory/engineering", "/memory/engineering/a.md",
+		"/memory/engineering", "/memory/engineering/a.md",
 		"/memory/engineering/deployment", "/memory/engineering/deployment/b.md", "/memory/engineering/deployment/c.md",
 	}
 	slices.Sort(paths)
 	slices.Sort(wantPaths)
 	if !slices.Equal(paths, wantPaths) {
-		t.Fatalf("combined listing paths = %v, want %v", paths, wantPaths)
+		t.Fatalf("memory listing paths = %v, want %v", paths, wantPaths)
 	}
 	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 1, listing.Cursor{})
 	if err != nil || len(stores.Entries) != 1 || stores.Entries[0].Access != "read" {
@@ -281,7 +281,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limit := range []int{1, 2, 3, 5} {
-		paged, err := collectFileListing(ctx, store, agent.ID, "/**", limit)
+		paged, err := collectFileListing(ctx, store, agent.ID, "/memory/**", limit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -291,7 +291,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		}
 		slices.Sort(got)
 		if !slices.Equal(got, wantPaths) {
-			t.Fatalf("combined pages with limit %d: %v", limit, got)
+			t.Fatalf("memory pages with limit %d: %v", limit, got)
 		}
 	}
 	for _, test := range []struct {
@@ -766,11 +766,11 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 		}
 	}
 	for _, pattern := range []string{
-		"/*", "/memory", "/memory/*", "/memory/a", "/memory/a/*", "/memory/a/**", "/memory/a/**/*.md",
+		"/memory", "/memory/*", "/memory/a", "/memory/a/*", "/memory/a/**", "/memory/a/**/*.md",
 		"/memory/a/dir", "/memory/a/dir/*", "/memory/a/dir/**", "/memory/a/dir/deep/note.md",
 		"/memory/a/dir/missing", "/memory/a/dir*/*.md", "/memory/a*/*", "/memory/a*/**",
-		"/**/a/**/*.md", "/**/**/*.md", "/**/*/*.md", "/memory/?", "/memory/文*",
-		"/memory/a/weird[1]%_?.md", "/memory/a/prefix/\U0001f600*", "/mem*/a/**/*.md", "/**/note.md", "/**",
+		"/memory/**/a/**/*.md", "/memory/**/**/*.md", "/memory/**/*/*.md", "/memory/?", "/memory/文*",
+		"/memory/a/weird[1]%_?.md", "/memory/a/prefix/\U0001f600*", "/memory/**/note.md", "/memory/**",
 		"/memory/missing/**", "/memory/unattached", "/memory/unattached/**", "/memory/unattached/hidden.md",
 		"/memory/a/**/*.pdf", "/memory/*/**/*.md", "/memory/*/cross-project.md",
 		"/memory/a/shared/*", "/memory/a/shared/**", "/memory/a/shared/one/t*/**", "/memory/a/shared/**/*.md",
@@ -895,21 +895,8 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 			}
 		})
 	}
-	combined, err := collectFileListing(ctx, store, agentID, "/**", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var gotPaths []string
-	for _, entry := range combined {
-		gotPaths = append(gotPaths, entry.Path)
-	}
 	newestFirst := slices.Clone(artifactPaths)
 	slices.Reverse(newestFirst)
-	wantPaths := append([]string{"/artifacts"}, newestFirst...)
-	wantPaths = append(wantPaths, "/memory")
-	if !slices.Equal(gotPaths, wantPaths) {
-		t.Fatalf("combined listing: %v, want %v", gotPaths, wantPaths)
-	}
 	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 1, listing.Cursor{})
 	if err != nil || !first.Next.Set || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
 		t.Fatalf("first artifact page: %+v %v", first, err)
@@ -936,7 +923,7 @@ func TestFilePatternSQLMatchesGo(t *testing.T) {
 		{"/memory/team/*[x].md", "/memory/team/ax.md", false},
 		{"/memory/team/a%_?.md", "/memory/team/a%_文.md", true},
 		{"/memory/team/*", "/memory/team/deep/a.md", false},
-		{"/**", "/artifacts/report\nfinal.pdf", true},
+		{"/artifacts/**", "/artifacts/report\nfinal.pdf", true},
 		{"/artifacts/*", "/artifacts/report\nfinal.pdf", true},
 		{"/memory/team/**", "/memory/team", false},
 		{"/memory/team/a+b.(md)", "/memory/team/a+b.(md)", true},

@@ -99,21 +99,37 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	for _, test := range []struct {
 		input   map[string]any
 		message string
+		code    string
 	}{
-		{map[string]any{"path": path, "content": "stale", "expected_digest": first}, "memory changed;"},
-		{map[string]any{"path": path, "script": "d", "expected_digest": first}, "memory changed;"},
-		{map[string]any{"path": path, "content": "unguarded"}, "expected_digest is required"},
-		{map[string]any{"path": path, "content": "tail", "append": true}, "expected_digest is required"},
-		{map[string]any{"path": path, "script": "d"}, "expected_digest is required"},
+		{
+			map[string]any{"path": path, "content": "stale", "expected_digest": first},
+			"memory changed;", "file_content_conflict",
+		},
+		{map[string]any{"path": path, "script": "d", "expected_digest": first}, "memory changed;", "file_content_conflict"},
+		{map[string]any{"path": path, "content": "unguarded"}, "expected_digest is required", "expected_digest_required"},
+		{
+			map[string]any{"path": path, "content": "tail", "append": true},
+			"expected_digest is required", "expected_digest_required",
+		},
+		{map[string]any{"path": path, "script": "d"}, "expected_digest is required", "expected_digest_required"},
 		{
 			map[string]any{"path": "/memory/engineering/missing.txt", "content": "x", "expected_digest": first},
-			"memory file does not exist",
+			"memory file does not exist", "file_content_conflict",
 		},
 	} {
 		if _, err := write(test.input); !errors.Is(err, storeerr.ErrConflict) ||
-			!strings.Contains(err.Error(), test.message) {
+			!strings.Contains(err.Error(), test.message) || strings.Contains(err.Error(), "resource conflict") ||
+			storeerr.FileErrorCode(err) != test.code {
 			t.Fatalf("write %v: %v; want conflict containing %q", test.input, err, test.message)
 		}
+	}
+	if _, err := write(map[string]any{
+		"path": "/memory/engineering/missing.txt", "content": "x", "append": true, "expected_digest": first,
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("append to missing file with digest: %v; want not found", err)
+	}
+	if _, _, err := memories.Read(ctx, scope, store.ID, "missing.txt"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("append created missing file: %v", err)
 	}
 	check("é😀 tail")
 	if digest, err := write(map[string]any{"path": path, "content": "é😀 tail"}); err != nil || digest != second {
@@ -169,10 +185,20 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	}); !storeerr.IsNotFound(err) {
 		t.Fatalf("unattached store write: %v", err)
 	}
+	for _, name := range []string{private.Name, "nonexistent"} {
+		_, err := write(map[string]any{
+			"path": "/memory/" + name + "/note.txt", "content": "x", "append": true, "expected_digest": digest,
+		})
+		if !storeerr.IsNotFound(err) || err.Error() != "memory store is unavailable: not found" ||
+			storeerr.FileErrorCode(err) != "" {
+			t.Fatalf("unavailable store %s: %v", name, err)
+		}
+	}
 	call.Turn.AgentID = fixture.Agent.ID
 	if _, err := write(map[string]any{
 		"path": path, "content": "x", "expected_digest": digest,
-	}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
+	}); !errors.Is(err, storeerr.ErrConflict) || storeerr.FileErrorCode(err) != "file_read_only" ||
+		!strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment write: %v", err)
 	}
 	call.Turn.AgentID = agent.ID
@@ -182,7 +208,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	}
 	if _, err := write(map[string]any{
 		"path": path, "content": "x", "expected_digest": digest,
-	}); !errors.Is(err, storeerr.ErrConflict) {
+	}); !errors.Is(err, storeerr.ErrConflict) || storeerr.FileErrorCode(err) != "file_read_only" {
 		t.Fatalf("read-only store write: %v", err)
 	}
 }
@@ -201,6 +227,7 @@ func TestEditFileTextLimits(t *testing.T) {
 		{name: "delete", script: "d", input: "abc\n"},
 		{name: "syntax error", script: "s/a/b", input: "a", failure: "char 5: unterminated"},
 		{name: "empty diagnostic", script: "Q1", input: "a", failure: "script execution failed: exit status 1"},
+		{name: "reserved exit", script: "Q125", input: "a", failure: "script execution failed: exit status 125"},
 		{name: "sandbox read", script: "r /etc/passwd", input: "x", failure: "sandbox"},
 		{name: "sandbox write", script: "w /tmp/forbidden", input: "x", failure: "sandbox"},
 		{name: "sandbox execute", script: "e id", input: "x", failure: "sandbox"},

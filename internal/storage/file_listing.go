@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -42,71 +41,43 @@ func (s *Store) ListFiles(
 	if err != nil {
 		return listing.FileListResult{}, fmt.Errorf("load file listing scope: %w", err)
 	}
-	result := listing.FileListResult{Entries: make([]listing.FileEntry, 0, limit)}
-	finish := func(err error) (listing.FileListResult, error) {
-		if parent.Err() != nil {
-			return listing.FileListResult{}, parent.Err()
+	root, suffix, descends := strings.Cut(pattern[1:], "/")
+	result := listing.FileListResult{Entries: []listing.FileEntry{}}
+	var listErr error
+	switch {
+	case !descends:
+		if !after.Set {
+			result.Entries = append(result.Entries, listing.FileEntry{Path: pattern, Type: listing.FileTypeDirectory})
+			after = listing.Cursor{Set: true, Key: pattern}
 		}
-		limited := errors.Is(err, memorystore.ErrFileTraversalLimit) ||
-			(errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded))
-		if err != nil && (!limited || len(result.Entries) == 0) {
-			return listing.FileListResult{}, err
-		}
-		if limited || len(result.Entries) == limit {
-			result.Next = after
-		}
-		return result, nil
-	}
-	prefix := pattern
-	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
-		prefix = prefix[:i]
-	}
-	parts := strings.Split(pattern[1:], "/")
-	recursive := slices.Contains(parts, "**")
-	descend := len(parts) > 1 || recursive
-	relevant := func(root string) bool {
-		return strings.HasPrefix(root, prefix) || strings.HasPrefix(prefix, root+"/")
-	}
-	if after.Key == "" && matcher.MatchString("/artifacts") {
-		result.Entries = append(result.Entries, listing.FileEntry{Path: "/artifacts", Type: listing.FileTypeDirectory})
-		after = listing.Cursor{Set: true, Key: "/artifacts"}
-	}
-	if len(result.Entries) < limit && after.Key < memorystore.Root && relevant("/artifacts") && descend {
+	case root == "artifacts":
 		var artifactID *uuid.UUID
-		if prefix == pattern {
-			id, decodeErr := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(pattern, "/artifacts/"))
-			if decodeErr == nil {
-				artifactID = &id
-			}
+		if id, decodeErr := publicid.Decode(publicid.KindArtifact, suffix); decodeErr == nil {
+			artifactID = &id
 		}
-		files, last, err := s.artifacts.ListFiles(
-			ctx, agentID, artifactID, matcher.String(), limit-len(result.Entries), after,
+		result.Entries, after, listErr = s.artifacts.ListFiles(
+			ctx, agentID, artifactID, matcher.String(), limit, after,
 		)
-		if err != nil {
-			return finish(err)
-		}
-		result.Entries = append(result.Entries, files...)
-		after = last
-	}
-	if len(result.Entries) < limit && after.Key < memorystore.Root && matcher.MatchString(memorystore.Root) {
-		result.Entries = append(result.Entries, listing.FileEntry{Path: memorystore.Root, Type: listing.FileTypeDirectory})
-		after = listing.Cursor{Set: true, Key: memorystore.Root}
-	}
-	if len(result.Entries) < limit && relevant(memorystore.Root) && descend {
-		memoryAfter := ""
-		if strings.HasPrefix(after.Key, memorystore.Root) {
-			memoryAfter = after.Key
-		}
-		files, err := s.memories.ListFiles(
-			ctx, projectID, attachments, pattern, matcher, limit-len(result.Entries), memoryAfter,
+	case root == "memory":
+		result.Entries, listErr = s.memories.ListFiles(
+			ctx, projectID, attachments, pattern, matcher, limit, after.Key,
 		)
-		result.Entries = append(result.Entries, files...)
-		if len(files) != 0 {
-			after = listing.Cursor{Set: true, Key: files[len(files)-1].Path}
+		if len(result.Entries) != 0 {
+			after = listing.Cursor{Set: true, Key: result.Entries[len(result.Entries)-1].Path}
 		}
-		return finish(err)
 	}
-	return finish(nil)
+	if parent.Err() != nil {
+		return listing.FileListResult{}, parent.Err()
+	}
+	limited := errors.Is(listErr, memorystore.ErrFileTraversalLimit) ||
+		(errors.Is(listErr, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded))
+	if listErr != nil && (!limited || len(result.Entries) == 0) {
+		return listing.FileListResult{}, listErr
+	}
+	if limited || len(result.Entries) == limit {
+		result.Next = after
+	}
+	return result, nil
 }
 
 func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
@@ -118,6 +89,9 @@ func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
 		return nil, errors.New("invalid glob pattern")
 	}
 	parts := strings.Split(pattern[1:], "/")
+	if parts[0] != "memory" && parts[0] != "artifacts" {
+		return nil, errors.New("pattern must start with /memory or /artifacts; globs are allowed only below that root")
+	}
 	var out strings.Builder
 	out.WriteString("(?s)^")
 	for i, part := range parts {

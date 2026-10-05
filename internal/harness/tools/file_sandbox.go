@@ -5,12 +5,36 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const sandboxStderrLimitBytes = 4 * 1024
+const (
+	sandboxStderrLimitBytes      = 4 * 1024
+	sandboxSetupExitCode         = 125
+	fileSearchUnavailableMessage = "file search is unavailable on this worker; " +
+		"ask the operator to enable file-tool support"
+	scriptEditUnavailableMessage = "scripted editing is unavailable on this worker; " +
+		"use write_file with content and expected_digest to replace the file, or ask the operator to enable file-tool support"
+)
+
+func sandboxSetupFailed(err error, stderr []byte) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == sandboxSetupExitCode && len(stderr) > 0
+}
+
+func fileToolUnavailable(ctx context.Context, message string, cause error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	logent.WorkerFileToolsUnavailable(ctx, fmt.Errorf("%s: %w", message, cause))
+	return storeerr.Tag(errFileToolUnavailable, errors.New(message))
+}
 
 func CheckFileToolSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

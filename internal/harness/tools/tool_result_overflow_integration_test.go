@@ -231,7 +231,7 @@ func TestAsyncToolInvalidResult(t *testing.T) {
 			}
 			var parts []struct {
 				Value struct {
-					Code    string `json:"code"`
+					Code    string `json:"error_code"`
 					Message string `json:"message"`
 				} `json:"value"`
 			}

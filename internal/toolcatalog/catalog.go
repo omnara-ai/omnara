@@ -273,8 +273,10 @@ func buildDefaultCatalog() (Catalog, error) {
 			"pattern": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Absolute path pattern: /* lists /artifacts and /memory, /memory/* lists attached stores, " +
-					"/artifacts/*.pdf matches artifact filenames, and /memory/<store>/**/*.md matches notes recursively. " +
+				"description": "Pattern under literal /memory or /artifacts. Memory patterns match paths: " +
+					"/memory/* lists attached stores; /memory/** lists recursively. " +
+					"Artifact patterns match filenames, which can repeat, and return /artifacts/<artifact_id> paths for read/download. " +
+					"An exact artifact ID selects one artifact; wildcards match filenames, not IDs. " +
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
 			"cursor": map[string]any{
@@ -750,7 +752,6 @@ func downloadFileTool(machineID map[string]any) (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"pattern":     "^(/artifacts/art_[a-z2-7]{26}|/memory/[^/]+/.+)$",
 				"description": "Source path in Omnara: /artifacts/<artifact_id> or /memory/<store>/<path>.",
 			},
 			"destination": map[string]any{

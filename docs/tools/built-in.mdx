@@ -177,13 +177,13 @@ Lists matching files and directories without reading their contents.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Absolute path pattern; see examples below |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Path pattern under literal `/memory` or `/artifacts`; globs are allowed only below the root |
 | `limit` | integer | 1–100; default 50 |
 | `cursor` | string | `next_cursor` from the previous result; keep the same pattern |
 
-Use `/*` to list `/artifacts` and `/memory`, `/artifacts/*` for the agent's artifacts, or `/memory/*` for attached stores and their descriptions. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
+Use `/artifacts/*` for the agent's artifacts, `/memory/*` for attached stores and their descriptions, or `/memory/**` to list paths across attached stores recursively. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
 
-Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths. An exact `/artifacts/<artifact_id>` selects one artifact; an exact filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. Continue with `next_cursor` until it is `null`; narrow the pattern if the listing exceeds its resource limit.
+Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths for reading or downloading. An exact `/artifacts/<artifact_id>` selects one artifact; wildcards match filenames, not IDs, and a filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. Continue with `next_cursor` until it is `null`; narrow the pattern if the listing exceeds its resource limit.
 
 ### `upload_file`
 

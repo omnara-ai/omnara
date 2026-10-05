@@ -98,7 +98,9 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 			project.AdminToken, http.StatusConflict)
 		var conflictBody map[string]string
 		require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
-		require.Equal(t, "file_content_conflict", conflictBody["code"])
+		require.Equal(t, "expected_digest_required", conflictBody["code"])
+		require.Equal(t, "expected_digest is required: "+
+			"expected_digest is required to change an existing file; read the file and retry with its digest", conflictBody["error"])
 		require.Equal(t, digest, conflictBody["current_digest"])
 		request(t, http.MethodDelete, file(name), nil,
 			project.AdminToken, http.StatusBadRequest)
@@ -113,6 +115,8 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		var staleWriteBody map[string]string
 		require.NoError(t, json.Unmarshal(staleWrite.Body.Bytes(), &staleWriteBody))
 		require.Equal(t, "file_content_conflict", staleWriteBody["code"])
+		require.Equal(t,
+			"file content conflict: memory changed; retrieve the latest contents and retry", staleWriteBody["error"])
 		require.Equal(t, blobstore.ContentDigest([]byte("changed")), staleWriteBody["current_digest"])
 		staleDelete := request(t,
 			http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(digest), nil,
@@ -121,6 +125,8 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		var staleDeleteBody map[string]string
 		require.NoError(t, json.Unmarshal(staleDelete.Body.Bytes(), &staleDeleteBody))
 		require.Equal(t, "file_content_conflict", staleDeleteBody["code"])
+		require.Equal(t,
+			"file content conflict: memory changed; retrieve the latest contents and retry", staleDeleteBody["error"])
 		require.Equal(t, blobstore.ContentDigest([]byte("changed")), staleDeleteBody["current_digest"])
 		rec := request(t, http.MethodGet, file(name), nil,
 			project.AdminToken, http.StatusOK)
@@ -139,6 +145,7 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		var missingBody map[string]string
 		require.NoError(t, json.Unmarshal(missing.Body.Bytes(), &missingBody))
 		require.Equal(t, "file_content_conflict", missingBody["code"])
+		require.Equal(t, "file content conflict: memory file does not exist", missingBody["error"])
 		require.NotContains(t, missingBody, "current_digest")
 		request(t, http.MethodPut, file(name), body, project.AdminToken, http.StatusOK)
 		request(t,
@@ -154,21 +161,26 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 			project.AdminToken, http.StatusOK)
 	}
 	for _, endpoint := range []string{
-		file("nested"), file("a.txt/child"),
+		file("a.txt/child"),
 		base + "/files?path=a.txt/child",
 	} {
 		request(t, http.MethodGet, endpoint, nil, project.AdminToken, http.StatusBadRequest)
 	}
+	notFile := request(t, http.MethodGet, file("nested"), nil, project.AdminToken, http.StatusBadRequest)
+	var notFileBody map[string]string
+	require.NoError(t, json.Unmarshal(notFile.Body.Bytes(), &notFileBody))
+	require.Equal(t, "not_a_file", notFileBody["code"])
+	require.Equal(t, "path is not a file: path is a directory; list its contents and choose a file", notFileBody["error"])
 	notDirectory := request(t, http.MethodGet, base+"/files?path=a.txt", nil,
 		project.AdminToken, http.StatusBadRequest)
 	require.JSONEq(t,
 		`{"code":"invalid_request","error":"invalid request: path must identify a directory"}`, notDirectory.Body.String())
 	request(t, http.MethodGet, file("missing.txt"), nil, project.AdminToken, http.StatusNotFound)
 	conflict := request(t, http.MethodPut, file("nested"), []byte("content"),
-		project.AdminToken, http.StatusConflict)
+		project.AdminToken, http.StatusBadRequest)
 	var conflictBody map[string]string
 	require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
-	require.Equal(t, "conflict", conflictBody["code"])
+	require.Equal(t, "not_a_file", conflictBody["code"])
 	require.NotContains(t, conflictBody, "current_digest")
 	first := request(t, http.MethodGet, base+"/files?limit=1", nil,
 		project.AdminToken, http.StatusOK)

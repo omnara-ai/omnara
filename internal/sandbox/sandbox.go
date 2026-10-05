@@ -1,3 +1,6 @@
 package sandbox
 
-const MaxStoreRoots = 32
+const (
+	MaxStoreRoots        = 32
+	SetupFailureExitCode = 125
+)

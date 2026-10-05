@@ -24,6 +24,9 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeNotFound:                {http.StatusNotFound, "not found"},
 	openapi.ErrorCodeConflict:                {http.StatusConflict, "conflict"},
 	openapi.ErrorCodeFileContentConflict:     {http.StatusConflict, "file content conflict"},
+	openapi.ErrorCodeFileReadOnly:            {http.StatusConflict, "file access is read-only"},
+	openapi.ErrorCodeExpectedDigestRequired:  {http.StatusConflict, "expected_digest is required"},
+	openapi.ErrorCodeNotAFile:                {http.StatusBadRequest, "path is not a file"},
 	openapi.ErrorCodeGone:                    {http.StatusGone, "gone"},
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
@@ -144,9 +147,9 @@ func (err ResponseError) body() openapi.Error {
 func FromError(err error) ResponseError {
 	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
 	var fileConflict *storeerr.FileContentConflictError
-	if errors.As(err, &fileConflict) {
-		responseErr = FromCode(openapi.ErrorCodeFileContentConflict, err.Error())
-		if fileConflict.CurrentDigest != "" {
+	if code := storeerr.FileErrorCode(err); code != "" {
+		responseErr = FromCode(openapi.ErrorCode(code), err.Error())
+		if errors.As(err, &fileConflict) && fileConflict.CurrentDigest != "" {
 			responseErr.CurrentDigest = &fileConflict.CurrentDigest
 		}
 	} else if errors.Is(err, pgx.ErrNoRows) {

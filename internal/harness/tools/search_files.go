@@ -67,6 +67,9 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 			}
 		}
 	} else if _, err := resolveArtifactPath(input.Path); err != nil {
+		if strings.HasPrefix(input.Path, toolcatalog.ArtifactVFSRoot+"/") {
+			return input, err
+		}
 		return input, errors.New("path must be a /memory/ path or glob, or one /artifacts/<artifact_id> path")
 	}
 	input.mode, err = parseSearchArgs(input.Args)
@@ -255,7 +258,7 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 		var err error
 		view, err = newSearchView(source.stores)
 		if err != nil {
-			return err
+			return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 		}
 		defer func() {
 			_ = view.Close()
@@ -264,7 +267,7 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 	}
 	command, err := newSearchCommand(commandCtx, output.input, source, view)
 	if err != nil {
-		return err
+		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 	}
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
@@ -272,10 +275,10 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return err
+		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 	}
 	if err := command.Start(); err != nil {
-		return fmt.Errorf("start ripgrep: %w", err)
+		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, err)
 	}
 	stream := searchStream{output: output, source: source}
 	readErr := stream.read(stdout)
@@ -289,6 +292,9 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 	}
 	if readErr != nil {
 		return readErr
+	}
+	if sandboxSetupFailed(waitErr, stderr.data) {
+		return fileToolUnavailable(ctx, fileSearchUnavailableMessage, fmt.Errorf("%s: %w", stderr.data, waitErr))
 	}
 	var exit *exec.ExitError
 	if waitErr != nil && !(errors.As(waitErr, &exit) && exit.ExitCode() == 1 && len(stderr.data) == 0) {

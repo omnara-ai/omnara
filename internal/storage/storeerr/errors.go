@@ -33,6 +33,9 @@ var (
 	ErrInvalidActorRequest           = errors.New("invalid actor request")
 	ErrInvalidModelProviderConfig    = errors.New("invalid model provider config")
 	ErrConflict                      = errors.New("resource conflict")
+	ErrFileReadOnly                  = errors.New("file access is read-only")
+	ErrExpectedDigestRequired        = errors.New("expected_digest is required")
+	ErrNotAFile                      = errors.New("path is a directory; list its contents and choose a file")
 	ErrIdempotencyConflict           = errors.New("idempotency key used for different resource")
 	ErrAuthConnectorImmutable        = errors.New("auth connector kind and issuer are immutable for slug")
 	ErrAuthConnectorIdentityConflict = errors.New("auth connector issuer already exists")
@@ -62,6 +65,22 @@ type FileContentConflictError struct {
 func (err *FileContentConflictError) Error() string { return ErrConflict.Error() }
 
 func (err *FileContentConflictError) Unwrap() error { return ErrConflict }
+
+func FileErrorCode(err error) string {
+	var conflict *FileContentConflictError
+	switch {
+	case errors.Is(err, ErrFileReadOnly):
+		return "file_read_only"
+	case errors.Is(err, ErrExpectedDigestRequired):
+		return "expected_digest_required"
+	case errors.Is(err, ErrNotAFile):
+		return "not_a_file"
+	case errors.As(err, &conflict):
+		return "file_content_conflict"
+	default:
+		return ""
+	}
+}
 
 type taggedError struct {
 	sentinel error

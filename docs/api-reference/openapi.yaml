@@ -7643,7 +7643,7 @@ components:
         current_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
-          description: Current file digest for a file_content_conflict; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
+          description: Current file digest for file_content_conflict or expected_digest_required; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
         issues:
           type: array
           description: >-
@@ -7662,6 +7662,9 @@ components:
             - not_found
             - conflict
             - file_content_conflict
+            - file_read_only
+            - expected_digest_required
+            - not_a_file
             - gone
             - request_too_large
             - unsupported_media_type
@@ -7689,6 +7692,9 @@ components:
         - not_found
         - conflict
         - file_content_conflict
+        - file_read_only
+        - expected_digest_required
+        - not_a_file
         - gone
         - request_too_large
         - unsupported_media_type
@@ -7718,6 +7724,9 @@ components:
         - not_found
         - conflict
         - file_content_conflict
+        - file_read_only
+        - expected_digest_required
+        - not_a_file
         - idempotency_key_conflict
         - state_transition_conflict
         - pending_work

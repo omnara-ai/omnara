@@ -315,7 +315,7 @@ func failedFileTransferToolResultContentParts(
 	delete(value, "file_transfer")
 	value["error"] = failure.Message
 	if failure.Code != "" {
-		value["code"] = failure.Code
+		value["error_code"] = failure.Code
 	}
 	if failure.CurrentDigest != "" {
 		value["current_digest"] = failure.CurrentDigest

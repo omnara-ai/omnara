@@ -167,7 +167,7 @@ func (s *Store) VisitSearchStores(
 				return fileReadError(err)
 			}
 			if !info.Mode().IsRegular() {
-				return storeerr.InvalidRequest(errors.New("memory path is not a regular file"))
+				return storeerr.InvalidRequest(storeerr.ErrNotAFile)
 			}
 		}
 		if err := visit(SearchStore{Name: store.Name, Root: root}); err != nil {

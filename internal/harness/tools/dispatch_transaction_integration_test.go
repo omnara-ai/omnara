@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -1088,6 +1089,44 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 	case <-backgroundStarted:
 		t.Fatal("background phase started after async failure")
 	default:
+	}
+}
+
+func TestAsyncFileFailureCodes(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	conflict := &storeerr.FileContentConflictError{CurrentDigest: digest}
+	for _, test := range []struct {
+		code   string
+		cause  error
+		digest string
+	}{
+		{"file_read_only", storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.ErrConflict), ""},
+		{"expected_digest_required", storeerr.Tag(storeerr.ErrExpectedDigestRequired, conflict), digest},
+		{"file_content_conflict", conflict, digest},
+		{"not_a_file", storeerr.InvalidRequest(storeerr.ErrNotAFile), ""},
+		{"operation_unavailable", errFileToolUnavailable, ""},
+		{"async_tool_interrupted", context.Canceled, ""},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			ctx := t.Context()
+			fixture := newIntegrationToolFixture(t, ctx, test.code)
+			call := fixture.recordToolCall(t, ctx, "call_file_failure", "read_file",
+				`{"path":"/memory/notes/file.txt"}`, fixture.Now.Add(20*time.Second))
+			callID := fixture.toolCallID(t, ctx, call.ID)
+			dispatchTestAsyncHandler(t, ctx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, toolHandler{
+				Async: func(context.Context, asyncToolContext) (asyncPhaseResult, error) { return nil, test.cause },
+			})
+			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+			var parts []struct {
+				Value map[string]string `json:"value"`
+			}
+			require.NoError(t, json.Unmarshal(record.ResultContentParts, &parts))
+			require.Len(t, parts, 1)
+			require.Equal(t, test.code, parts[0].Value["error_code"])
+			require.Equal(t, test.digest, parts[0].Value["current_digest"])
+		})
 	}
 }
 

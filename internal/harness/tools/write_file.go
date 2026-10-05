@@ -92,9 +92,13 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 		} else if err != nil {
 			return nil, err
 		} else if input.ExpectedDigest == nil {
-			return nil, fmt.Errorf("expected_digest is required to change an existing file: %w", storeerr.ErrConflict)
+			return nil, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
+				&storeerr.FileContentConflictError{CurrentDigest: digest},
+				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
+			))
 		} else if *input.ExpectedDigest != digest {
-			return nil, fmt.Errorf("memory changed; retrieve the latest contents and retry: %w", storeerr.ErrConflict)
+			return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
+				errors.New("memory changed; retrieve the latest contents and retry"))
 		}
 		if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
 			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
@@ -131,10 +135,10 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("prepare script execution: %w", err)
+		return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
 	}
 	if err := command.Start(); err != nil {
-		return nil, fmt.Errorf("start script execution: %w", err)
+		return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, err)
 	}
 	output, err := io.ReadAll(io.LimitReader(stdout, daemonprotocol.MaxFileTransferBytes+1))
 	if err == nil && len(output) > daemonprotocol.MaxFileTransferBytes {
@@ -155,6 +159,9 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 		return nil, fmt.Errorf("script execution canceled: %w", ctx.Err())
 	}
 	if waitErr != nil {
+		if sandboxSetupFailed(waitErr, stderr.data) {
+			return nil, fileToolUnavailable(ctx, scriptEditUnavailableMessage, fmt.Errorf("%s: %w", stderr.data, waitErr))
+		}
 		if diagnostic := strings.TrimSpace(string(stderr.data)); diagnostic != "" {
 			return nil, fmt.Errorf("script execution failed: %s (%w)", diagnostic, waitErr)
 		}

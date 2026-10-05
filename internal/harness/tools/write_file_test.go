@@ -3,7 +3,6 @@ package tools
 import (
 	"encoding/json"
 	"errors"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 func TestEditFileTextMissingExecutable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, err := editFileText(t.Context(), nil, "")
-	if !errors.Is(err, exec.ErrNotFound) || !strings.Contains(err.Error(), "start script execution:") {
+	if !errors.Is(err, errFileToolUnavailable) || !strings.Contains(err.Error(), "use write_file with content") {
 		t.Fatalf("missing executable: %v", err)
 	}
 }

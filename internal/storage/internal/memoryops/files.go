@@ -167,7 +167,7 @@ func openRegularFile(root *os.Root, name string) (*os.File, error) {
 	}
 	info, err := file.Stat()
 	if err == nil && !info.Mode().IsRegular() {
-		err = fmt.Errorf("memory path is not a regular file: %w", storeerr.ErrConflict)
+		err = storeerr.Tag(storeerr.ErrConflict, storeerr.ErrNotAFile)
 	}
 	if err != nil {
 		_ = file.Close()

@@ -317,7 +317,9 @@ func (s *Store) authorizeAttachment(
 	for _, attached := range attachments {
 		if attached.ID == storeID {
 			if write && attached.Access != agentconfig.MemoryStoreAccessReadWrite {
-				return fmt.Errorf("memory store attachment is read-only: %w", storeerr.ErrConflict)
+				return storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.Tag(storeerr.ErrConflict, errors.New(
+					"memory store attachment is read-only; choose a writable store or request write access",
+				)))
 			}
 			return nil
 		}

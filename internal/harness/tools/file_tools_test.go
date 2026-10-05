@@ -79,7 +79,7 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 	}{
 		{name: "trailing slash",
 			raw:  `{"path":"/artifacts/","destination":"a"}`,
-			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+			want: "artifacts are read by ID"},
 		{name: "artifact root", raw: `{"path":"/artifacts"}`,
 			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
 		{name: "artifact destination", raw: `{"path":"/artifacts/` + artifactID + `"}`, want: "destination is required"},
@@ -89,11 +89,11 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 		},
 		{name: "invalid artifact",
 			raw:  `{"path":"/artifacts/not-an-id","destination":"a"}`,
-			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+			want: "artifacts are read by ID"},
 		{
 			name: "nested artifact",
 			raw:  `{"path":"/artifacts/` + artifactID + `/file","destination":"a"}`,
-			want: "must be /artifacts",
+			want: "artifacts are read by ID",
 		},
 	}
 	for _, test := range tests {
@@ -230,5 +230,46 @@ func TestMemoryUploadDigestValidation(t *testing.T) {
 	}
 	if err := validateListFiles(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
 		t.Fatal("list_files accepted malformed cursor")
+	}
+}
+
+func TestFileToolPaths(t *testing.T) {
+	for _, toolName := range []string{
+		toolcatalog.ToolNameUploadFile, toolcatalog.ToolNameDownloadFile, toolcatalog.ToolNameWriteFile,
+	} {
+		t.Run(toolName, func(t *testing.T) {
+			tool, ok, err := toolImplementationFor(toolName)
+			if err != nil || !ok {
+				t.Fatal("tool missing from catalog")
+			}
+			artifactPath := "/artifacts/art_aaaaaaaaaaaaaaaaaaaaaaaaae"
+			for _, path := range []string{
+				"/artifacts", artifactPath, "/artifacts/art_Z3JEHCYD5N6A2BFGIK7MV4QTRW",
+				"", "/artifacts/", "/skills/example", artifactPath + "/", artifactPath + "/nested",
+				"/artifacts/art_short", "prefix" + artifactPath,
+				"/memory/team/nested/note.md", "/memory/team", "/memory/team/",
+			} {
+				input := map[string]string{"path": path}
+				wantValid := false
+				switch toolName {
+				case toolcatalog.ToolNameUploadFile:
+					input["source"] = "file.txt"
+					wantValid = path == toolcatalog.ArtifactVFSRoot
+				case toolcatalog.ToolNameDownloadFile:
+					input["destination"] = "file.txt"
+					wantValid = path == artifactPath
+				case toolcatalog.ToolNameWriteFile:
+					input["content"] = ""
+				}
+				wantValid = wantValid || path == "/memory/team/nested/note.md"
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := tool.validateInput(raw); (err == nil) != wantValid {
+					t.Errorf("path %q: error = %v, want valid = %t", path, err, wantValid)
+				}
+			}
+		})
 	}
 }

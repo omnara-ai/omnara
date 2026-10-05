@@ -10,6 +10,6 @@ import (
 func main() {
 	if err := sandbox.RunChroot(os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(sandbox.SetupFailureExitCode)
 	}
 }

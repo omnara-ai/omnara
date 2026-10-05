@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -146,7 +147,9 @@ func TestSandboxArtifactConfinement(t *testing.T) {
 			"-test.run=^TestSandboxWithoutLandlock$", "--", launcher, "0", rg, "-e", "TARGET", "--", "-")
 		command.Stdin = strings.NewReader(content)
 		output, err := command.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") ||
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != SetupFailureExitCode ||
+			!strings.Contains(string(output), "missing kernel Landlock support") ||
 			strings.Contains(string(output), "TARGET") {
 			t.Fatalf("did not fail closed: %s, %v", output, err)
 		}

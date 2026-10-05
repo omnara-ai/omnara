@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -43,8 +42,7 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 		return cursor, errInvalidFileListCursor
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || json.Unmarshal(payload, &cursor) != nil || cursor.Version != 1 || cursor.Scope == "" ||
-		dbsafe.Text(cursor.Key) != nil {
+	if err != nil || json.Unmarshal(payload, &cursor) != nil || cursor.Version != 1 || cursor.Scope == "" {
 		return cursor, errInvalidFileListCursor
 	}
 	switch {
@@ -87,7 +85,8 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	scope := fmt.Sprintf("%x", sha256.Sum256([]byte(
 		call.Turn.ProjectID.String()+"/"+call.Turn.AgentID.String()+"/"+input.Pattern,
 	)))
-	if input.Cursor != "" && cursor.Scope != scope {
+	root, _, _ := strings.Cut(strings.TrimPrefix(input.Pattern, "/"), "/")
+	if input.Cursor != "" && (cursor.Scope != scope || !strings.HasPrefix(cursor.Key+"/", "/"+root+"/")) {
 		return nil, errInvalidFileListCursor
 	}
 	result, err := call.Executor.Store.ListFiles(

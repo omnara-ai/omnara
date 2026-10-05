@@ -23,6 +23,9 @@ func TestSearchStoreBatchSize(t *testing.T) {
 	if searchStoreBatchSize != sandbox.MaxStoreRoots {
 		t.Fatalf("search batch size %d does not match sandbox root limit %d", searchStoreBatchSize, sandbox.MaxStoreRoots)
 	}
+	if sandboxSetupExitCode != sandbox.SetupFailureExitCode {
+		t.Fatal("sandbox setup failure exit codes differ")
+	}
 }
 
 func setupSandbox(t *testing.T) {

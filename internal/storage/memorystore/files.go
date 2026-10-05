@@ -87,7 +87,9 @@ func (s *Store) authorizeFile(
 		return memoryops.StoreRef{}, fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
 	if write && scope.AgentID != uuid.Nil && store.AgentAccess != string(agentconfig.MemoryStoreAccessReadWrite) {
-		return memoryops.StoreRef{}, fmt.Errorf("memory store is read-only: %w", storeerr.ErrConflict)
+		return memoryops.StoreRef{}, storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.Tag(storeerr.ErrConflict, errors.New(
+			"memory store is read-only; choose a writable store or request write access",
+		)))
 	}
 	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, store.ID, store.Name)
 }
@@ -164,20 +166,20 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 			return result, s.files.Sync(ref, root, input.Path)
 		}
 		if input.ExpectedDigest == nil {
-			return WriteResult{}, fmt.Errorf(
-				"expected_digest is required to change an existing file: %w",
+			return WriteResult{}, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
-			)
+				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
+			))
 		}
 		if *input.ExpectedDigest != currentDigest {
-			return WriteResult{}, fmt.Errorf(
-				"memory changed; retrieve the latest contents and retry: %w",
+			return WriteResult{}, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
+				errors.New("memory changed; retrieve the latest contents and retry"),
 			)
 		}
 	} else {
 		if input.ExpectedDigest != nil {
-			return WriteResult{}, fmt.Errorf("memory file does not exist: %w", &storeerr.FileContentConflictError{})
+			return WriteResult{}, storeerr.Tag(&storeerr.FileContentConflictError{}, errors.New("memory file does not exist"))
 		}
 		if err := checkFileCapacity(ctx, q, input.Scope.OrgID, root); err != nil {
 			return WriteResult{}, err
@@ -277,9 +279,9 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 		return err
 	}
 	if currentDigest != expectedDigest {
-		return fmt.Errorf(
-			"memory changed; retrieve the latest contents and retry: %w",
+		return storeerr.Tag(
 			&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
+			errors.New("memory changed; retrieve the latest contents and retry"),
 		)
 	}
 	return s.files.RemoveFile(ref, root, path)

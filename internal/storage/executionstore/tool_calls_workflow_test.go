@@ -274,6 +274,8 @@ func TestFileTransferFailureResult(t *testing.T) {
 			if tc.wantError {
 				var fields map[string]any
 				require.NoError(t, json.Unmarshal([]byte(tc.metadata), &fields))
+				fields["error_code"] = fields["code"]
+				delete(fields, "code")
 				fields["output"] = "diagnostics"
 				body, err := json.Marshal(fields)
 				require.NoError(t, err)

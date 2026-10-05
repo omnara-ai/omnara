@@ -3,7 +3,10 @@ import { ApiError } from '@omnara/sdk'
 import { decodeUTF8Text } from '@/lib/file-text'
 
 export function fileContentConflict(error: Error | null): ApiError | undefined {
-  return error instanceof ApiError && error.code === 'file_content_conflict' ? error : undefined
+  return error instanceof ApiError &&
+    (error.code === 'file_content_conflict' || error.code === 'expected_digest_required')
+    ? error
+    : undefined
 }
 
 export function memoryPreview(bytes: Uint8Array) {

@@ -322,6 +322,10 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
 		t.Fatalf("missing file read: %v", err)
 	}
+	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested"}`)
+	if _, err := runReadFileAsync(ctx, call); storeerr.FileErrorCode(err) != "not_a_file" {
+		t.Fatalf("directory read: %v", err)
+	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested/0.txt"}`)
 	call.Turn.ProjectID = uuid.New()
 	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
@@ -480,7 +484,8 @@ func TestReadMemoryExpectedDigest(t *testing.T) {
 					Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: json.RawMessage(input + `}`)},
 				})
 				if test.conflict {
-					if !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "restart the read") || result != nil {
+					if !errors.Is(err, storeerr.ErrConflict) ||
+						err.Error() != "file digest mismatch; restart the read" || result != nil {
 						t.Fatalf("stale read returned %v, %v", result, err)
 					}
 					return

@@ -28,6 +28,8 @@ func TestFileListCursorValidation(t *testing.T) {
 		{"/memory/a/nested/note.txt", uuid.Nil, true},
 		{"/memory/a/" + strings.Repeat("<", 250) + "/" + strings.Repeat("\u2028", 80), uuid.Nil, true},
 		{"/memory/a/../other", uuid.Nil, false},
+		{"/memory/a\x00", uuid.Nil, false},
+		{"/memory/a/note\x00.txt", uuid.Nil, false},
 		{"/memory/a/note.txt", uuid.New(), false},
 		{"/artifacts/a/b", uuid.New(), false},
 		{"/artifacts/note.txt", uuid.Nil, false},
@@ -55,6 +57,26 @@ func TestFileListCursorValidation(t *testing.T) {
 	for _, raw := range []string{"bad", strings.Repeat("a", toolcatalog.ListFilesMaxCursorLength+1), "e30"} {
 		if _, err := decodeFileListCursor(raw); !errors.Is(err, errInvalidFileListCursor) {
 			t.Fatalf("accepted malformed cursor: %v", err)
+		}
+	}
+}
+
+func TestListFilesLiteralRootValidation(t *testing.T) {
+	for _, pattern := range []string{
+		"/memory", "/artifacts", "/memory/*", "/memory/**", "/memory/*-archive/**/*.md",
+		"/artifacts/*.pdf", "/artifacts/art_*", "/*", "/**", "/**/review-note.txt", "/mem*/*", "/unknown/*",
+	} {
+		raw, err := json.Marshal(listFilesRequest{Pattern: pattern})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw)
+		valid := pattern == "/memory" || pattern == "/artifacts" ||
+			strings.HasPrefix(pattern, "/memory/") || strings.HasPrefix(pattern, "/artifacts/")
+		if valid && err != nil {
+			t.Errorf("valid pattern %q rejected: %v", pattern, err)
+		} else if !valid && (err == nil || !strings.Contains(err.Error(), "/memory or /artifacts")) {
+			t.Errorf("pattern %q: expected allowed roots in error, got %v", pattern, err)
 		}
 	}
 }

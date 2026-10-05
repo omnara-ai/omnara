@@ -1,6 +1,20 @@
+import { ApiError } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { memoryPreview } from './memory-files'
+import { fileContentConflict, memoryPreview } from './memory-files'
+
+it('offers replacement for missing and stale digests, but not read-only files', () => {
+  for (const code of ['file_content_conflict', 'expected_digest_required']) {
+    const error = ApiError.fromBody(409, {
+      code,
+      error: 'replacement requires confirmation',
+      current_digest: `sha256:${'a'.repeat(64)}`,
+    })
+    expect(fileContentConflict(error)).toBe(error)
+    expect(fileContentConflict(error)?.currentDigest).toBe(`sha256:${'a'.repeat(64)}`)
+  }
+  expect(fileContentConflict(new ApiError(409, 'read-only', 'file_read_only'))).toBeUndefined()
+})
 
 describe('memory file previews', () => {
   it('preserves empty text, Unicode, line endings, and a UTF-8 BOM', () => {

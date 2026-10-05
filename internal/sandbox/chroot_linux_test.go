@@ -89,7 +89,9 @@ func TestChrootSandboxConfinement(t *testing.T) {
 			"-test.run=^TestChrootSandboxWithoutPrivileges$", "--", launcher, "s/foo/bar/")
 		command.Stdin = strings.NewReader("foo")
 		output, err := command.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "chroot") || strings.Contains(string(output), "bar") {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != SetupFailureExitCode ||
+			!strings.Contains(string(output), "chroot") || strings.Contains(string(output), "bar") {
 			t.Fatalf("did not fail closed: %q, %v", output, err)
 		}
 	})
