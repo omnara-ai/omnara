@@ -85,7 +85,7 @@ func (s *Store) MarkProcessStarted(
 	}
 	resultCommitted := false
 	var committedResult json.RawMessage
-	if record.ToolCallID != uuid.Nil && record.FileTransfer == nil {
+	if record.ToolCallID != uuid.Nil && record.ExecutionSpec.FileTransfer == nil {
 		startedRecord := record
 		startedRecord.State = ProcessStateRunning
 		result, err := startedProcessToolResult(startedRecord, input.Result)
@@ -293,16 +293,6 @@ func (s *Store) CompleteDaemonProcess(
 	resultCommitted := false
 	var committedResult json.RawMessage
 	if reportMatchesProcess && record.ToolCallID != uuid.Nil {
-		toolCall, err := getToolCallTx(
-			ctx,
-			tx,
-			input.ProjectID,
-			input.AgentID,
-			record.ToolCallID,
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, fmt.Errorf("load linked tool call: %w", err)
-		}
 		outcome, result, resultErr := processToolResult(record)
 		if resultErr != nil {
 			return DaemonProcessReportApplication{}, resultErr
@@ -314,8 +304,8 @@ func (s *Store) CompleteDaemonProcess(
 			}
 		}
 		var contentParts json.RawMessage
-		if record.FileTransfer != nil {
-			outcome, contentParts, err = fileTransferToolResultContentParts(ctx, qtx, record, toolCall.Input, result)
+		if record.ExecutionSpec.FileTransfer != nil {
+			outcome, contentParts, err = fileTransferToolResultContentParts(ctx, qtx, record, result)
 		} else {
 			contentParts, err = ToolResultContentParts(result)
 		}

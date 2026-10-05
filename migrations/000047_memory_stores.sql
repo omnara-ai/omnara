@@ -68,12 +68,30 @@ CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id
 WHERE orgs.deleted_at IS NULL;
 
+ALTER TABLE processes ADD COLUMN execution_spec jsonb;
+
+UPDATE processes SET execution_spec = jsonb_build_object(
+    'kind', 'shell',
+    'shell', jsonb_build_object('command', command, 'shell_selector', shell_selector, 'io_mode', io_mode)
+);
+
 ALTER TABLE processes
-    ADD COLUMN file_transfer jsonb,
-    DROP CONSTRAINT processes_command_check,
-    DROP CONSTRAINT processes_shell_selector_check,
-    ADD CONSTRAINT processes_execution_check CHECK (
-        (file_transfer IS NULL AND command <> '' AND shell_selector <> '')
-        OR (file_transfer IS NOT NULL AND jsonb_typeof(file_transfer) = 'object'
-            AND command = '' AND shell_selector = '' AND io_mode = 'pipe')
-    );
+    ALTER COLUMN execution_spec SET NOT NULL,
+    DROP COLUMN command,
+    DROP COLUMN shell_selector,
+    DROP COLUMN io_mode,
+    ADD CONSTRAINT processes_execution_check CHECK (COALESCE(
+        jsonb_typeof(execution_spec) = 'object' AND (
+            (execution_spec->>'kind' = 'shell'
+                AND jsonb_typeof(execution_spec->'shell') = 'object'
+                AND NOT execution_spec ? 'file_transfer'
+                AND jsonb_typeof(execution_spec->'shell'->'command') = 'string'
+                AND execution_spec->'shell'->>'command' <> ''
+                AND jsonb_typeof(execution_spec->'shell'->'shell_selector') = 'string'
+                AND execution_spec->'shell'->>'shell_selector' <> ''
+                AND execution_spec->'shell'->>'io_mode' IN ('pipe', 'pty'))
+            OR (execution_spec->>'kind' = 'file_transfer'
+                AND jsonb_typeof(execution_spec->'file_transfer') = 'object'
+                AND NOT execution_spec ? 'shell')
+        ), false
+    ));

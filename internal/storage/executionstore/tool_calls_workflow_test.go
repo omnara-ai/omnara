@@ -3,13 +3,16 @@ package executionstore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -162,9 +165,9 @@ func TestCommandTerminalToolResultUsesCanonicalProcessID(t *testing.T) {
 
 func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 	process := ProcessRecord{
-		ID:      uuid.New(),
-		State:   ProcessStateRunning,
-		Command: "go test ./...",
+		ExecutionSpec: processcmd.ForShell("go test ./...", "", ""),
+		ID:            uuid.New(),
+		State:         ProcessStateRunning,
 	}
 	result, err := startedProcessToolResult(
 		process,
@@ -178,7 +181,7 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		t.Fatalf("decode started process result: %v", err)
 	}
 	if body["state"] != string(ProcessStateRunning) ||
-		body["command"] != process.Command ||
+		body["command"] != process.ExecutionSpec.Shell.Command ||
 		body["next_action"] == "stop" ||
 		body["output"] != "ready" {
 		t.Fatalf("started process result = %s", result)
@@ -188,10 +191,12 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 func TestFileTransferToolResultContentParts(t *testing.T) {
 	const path = "/memory/team/notes.md"
 	digest := "sha256:" + strings.Repeat("a", 64)
-	for _, direction := range []string{"upload", "download"} {
-		t.Run(direction, func(t *testing.T) {
+	for _, direction := range []processcmd.FileTransferDirection{
+		processcmd.FileTransferUpload, processcmd.FileTransferDownload,
+	} {
+		t.Run(string(direction), func(t *testing.T) {
 			metadata := `{"digest":"` + digest + `"}`
-			if direction == "upload" {
+			if direction == processcmd.FileTransferUpload {
 				metadata = `{"path":"` + path + `","digest":"` + digest + `"}`
 			}
 			for _, tc := range []struct {
@@ -217,11 +222,15 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 					require.NoError(t, err)
 					exitCode := 0
 					process := ProcessRecord{
-						State: ProcessStateExited, ExitCode: &exitCode,
-						FileTransfer: &processcmd.FileTransfer{Direction: direction},
+						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+							Direction: direction,
+							Target:    processcmd.FileTarget{Memory: &processcmd.MemoryTarget{StoreID: uuid.New(), Path: "notes.md"}},
+						}),
+						State:    ProcessStateExited,
+						ExitCode: &exitCode,
 					}
 					outcome, got, err := fileTransferToolResultContentParts(
-						context.Background(), nil, process, json.RawMessage(`{"path":"`+path+`"}`), result,
+						context.Background(), dbsqlc.New(memoryTransferNameDB{}), process, result,
 					)
 					require.NoError(t, err)
 					if tc.wantOK {
@@ -261,12 +270,14 @@ func TestFileTransferFailureResult(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := ProcessRecord{
-				State: tc.state, StateReasonCode: tc.reason, ExitCode: &tc.exitCode,
-				FileTransfer: &processcmd.FileTransfer{Direction: "upload"},
+				ExecutionSpec:   processcmd.ForFileTransfer(processcmd.FileTransfer{Direction: processcmd.FileTransferUpload}),
+				State:           tc.state,
+				StateReasonCode: tc.reason,
+				ExitCode:        &tc.exitCode,
 			}
 			result := `{"output":"diagnostics", "file_transfer":{"error":` + tc.metadata + `}}`
 			outcome, got, err := fileTransferToolResultContentParts(
-				context.Background(), nil, process, json.RawMessage(`{"path":"/memory/team/note.md"}`), json.RawMessage(result),
+				context.Background(), nil, process, json.RawMessage(result),
 			)
 			require.NoError(t, err)
 			require.Equal(t, ToolResultOutcomeFailed, outcome)
@@ -284,4 +295,21 @@ func TestFileTransferFailureResult(t *testing.T) {
 			require.JSONEq(t, `[{"type":"structured_data","value":`+want+`}]`, string(got))
 		})
 	}
+}
+
+type memoryTransferNameDB struct{ dbsqlc.DBTX }
+
+func (memoryTransferNameDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	return memoryTransferNameRow{}
+}
+
+type memoryTransferNameRow struct{}
+
+func (memoryTransferNameRow) Scan(dest ...any) error {
+	name, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("expected memory store name destination")
+	}
+	*name = "team"
+	return nil
 }

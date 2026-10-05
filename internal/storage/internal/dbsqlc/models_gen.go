@@ -410,9 +410,6 @@ type Process struct {
 	AgentMachineBindingID uuid.UUID
 	MachineID             uuid.UUID
 	ExecutionGrantedAt    *time.Time
-	IoMode                string
-	Command               string
-	ShellSelector         string
 	Cwd                   string
 	Env                   json.RawMessage
 	SecretEnv             json.RawMessage
@@ -430,7 +427,7 @@ type Process struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastActivityAt        time.Time
-	FileTransfer          *processcmd.FileTransfer
+	ExecutionSpec         processcmd.ExecutionSpec
 }
 
 type ProcessAction struct {

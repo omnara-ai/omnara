@@ -1094,7 +1094,7 @@ func (s *runnerServerState) runApplyOnce(
 ) error {
 	if preflight := preflightActionResult(
 		action,
-		s.assignment.Process.IOMode,
+		s.assignment.Process.ExecutionSpec.IOMode(),
 	); preflight != nil {
 		return s.recordActionWithoutEffect(ctx, action, *preflight)
 	}
@@ -1645,7 +1645,7 @@ func prepareLocalRunner(
 	}
 	runner := &localProcessRunner{
 		terminalResultReady: make(chan struct{}),
-		fileTransfer:        assignment.Process.FileTransfer,
+		fileTransfer:        assignment.Process.ExecutionSpec.FileTransfer,
 	}
 	machine, err := localstore.Machine(
 		bootstrap.OmnaraHome,
@@ -1687,11 +1687,7 @@ func prepareLocalRunner(
 	if err != nil {
 		return preparedRunnerWithStartFailure(runner, err)
 	}
-	ioMode, err := processcmd.NormalizeIOMode(assignment.Process.IOMode)
-	if err != nil {
-		return preparedRunnerWithStartFailure(runner, err)
-	}
-	switch ioMode {
+	switch assignment.Process.ExecutionSpec.IOMode() {
 	case processcmd.IOModePipe:
 	case processcmd.IOModePTY:
 		if runtime.GOOS == "windows" {
@@ -1792,16 +1788,14 @@ func startPreparedLocalRunner(
 }
 
 func processArgvForLocalOS(processID string, process Process) ([]string, error) {
-	if process.FileTransfer != nil {
-		if process.IOMode != processcmd.IOModePipe || process.Command != "" || process.ShellSelector != "" {
-			return nil, errors.New("file transfers require pipe IO and no shell command")
-		}
-		return fileTransferArgv(processID, *process.FileTransfer)
+	if err := process.ExecutionSpec.Validate(); err != nil {
+		return nil, err
+	}
+	if transfer := process.ExecutionSpec.FileTransfer; transfer != nil {
+		return fileTransferArgv(processID, *transfer)
 	}
 	return processcmd.ResolveShellCommand(
-		process.Command,
-		process.ShellSelector,
-		runtime.GOOS,
+		process.ExecutionSpec.Shell.Command, process.ExecutionSpec.Shell.Shell, runtime.GOOS,
 	)
 }
 

@@ -1,7 +1,7 @@
 import { open, writeFile } from 'node:fs/promises'
 import { buffer } from 'node:stream/consumers'
 
-import { MAX_MEMORY_FILE_BYTES, sdk } from '@omnara/sdk'
+import { FILE_DIGEST_HEADER, MAX_MEMORY_FILE_BYTES, sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -48,7 +48,7 @@ export const memoryDownloadOp = customOp({
     )
     const output = parseWithSchema(z.string().min(1), options.output, '--output')
     const { response } = await sdk.downloadMemoryFile({ client, path, query, parseAs: 'stream' })
-    const digest = response.headers.get('X-Omnara-File-Digest')
+    const digest = response.headers.get(FILE_DIGEST_HEADER)
     if (!digest) throw new CliInputError('file response is missing its digest')
     const bytes = new Uint8Array(await response.arrayBuffer())
     await writeFile(output, bytes, { flag: 'wx' })

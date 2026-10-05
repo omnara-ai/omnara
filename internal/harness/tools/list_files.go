@@ -18,6 +18,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
+const fileListCursorVersion = 1
+
 type listFilesRequest struct {
 	Pattern string `json:"pattern"`
 	Limit   int    `json:"limit,omitempty"`
@@ -42,11 +44,12 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 		return cursor, errInvalidFileListCursor
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || json.Unmarshal(payload, &cursor) != nil || cursor.Version != 1 || cursor.Scope == "" {
+	if err != nil || json.Unmarshal(payload, &cursor) != nil ||
+		cursor.Version != fileListCursorVersion || cursor.Scope == "" {
 		return cursor, errInvalidFileListCursor
 	}
 	switch {
-	case cursor.Key == "/artifacts":
+	case cursor.Key == toolcatalog.ArtifactVFSRoot:
 		return cursor, nil
 	case cursor.Key == memorystore.Root:
 		if cursor.ID == uuid.Nil {
@@ -105,7 +108,7 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 		encoder := json.NewEncoder(&payload)
 		encoder.SetEscapeHTML(false)
 		if err := encoder.Encode(fileListCursor{
-			Version: 1, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
+			Version: fileListCursorVersion, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
 		}); err != nil {
 			return nil, err
 		}

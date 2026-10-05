@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -33,9 +34,10 @@ type uploadFileRequest struct {
 }
 
 type resolvedUploadFileRequest struct {
-	Path      string
-	Source    string
-	MachineID uuid.UUID
+	ExpectedDigest *string
+	Path           string
+	Source         string
+	MachineID      uuid.UUID
 }
 
 type downloadFileRequest struct {
@@ -86,7 +88,9 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 	if err != nil {
 		return resolvedUploadFileRequest{}, err
 	}
-	return resolvedUploadFileRequest{Path: input.Path, Source: input.Source, MachineID: machineID}, nil
+	return resolvedUploadFileRequest{
+		Path: input.Path, Source: input.Source, MachineID: machineID, ExpectedDigest: input.ExpectedDigest,
+	}, nil
 }
 
 func validateDownloadFileInput(input json.RawMessage) error {
@@ -133,8 +137,16 @@ func runUploadFile(
 	if err != nil {
 		return nil, err
 	}
-	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("upload", resolved.Source))
+	processInput, err := fileTransferProcessInput(
+		ctx, call.Reader, processcmd.FileTransferUpload, resolved.Source, resolved.Path, resolved.ExpectedDigest,
+	)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return failInTransaction(toolResultContent{}, err), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return startProcessTool(ctx, call, binding, authorization, processInput)
 }
 
 func runDownloadFile(
@@ -153,8 +165,16 @@ func runDownloadFile(
 	if err != nil {
 		return nil, err
 	}
-	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("download", resolved.Destination))
+	processInput, err := fileTransferProcessInput(
+		ctx, call.Reader, processcmd.FileTransferDownload, resolved.Destination, resolved.Path, nil,
+	)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return failInTransaction(toolResultContent{}, err), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return startProcessTool(ctx, call, binding, authorization, processInput)
 }
 
 func uploadFilePermissionChallenge(
@@ -225,17 +245,38 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 }
 
 func fileTransferProcessInput(
-	direction, localPath string,
-) executionstore.CreateProcessInput {
+	ctx context.Context, reader *executionstore.ToolCallReader,
+	direction processcmd.FileTransferDirection, localPath, remotePath string, expectedDigest *string,
+) (executionstore.CreateProcessInput, error) {
+	transfer := processcmd.FileTransfer{Direction: direction, LocalPath: localPath}
+	if strings.HasPrefix(remotePath, memorystore.Root+"/") {
+		name, path, err := memorystore.ParsePath(remotePath)
+		if err != nil {
+			return executionstore.CreateProcessInput{}, err
+		}
+		id, err := reader.ResolveMemoryTransferStore(ctx, name)
+		if err != nil {
+			return executionstore.CreateProcessInput{}, err
+		}
+		transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: path, ExpectedDigest: expectedDigest}
+	} else {
+		target := &processcmd.ArtifactTarget{}
+		if direction == processcmd.FileTransferDownload {
+			id, err := resolveArtifactPath(remotePath)
+			if err != nil {
+				return executionstore.CreateProcessInput{}, err
+			}
+			target.ID = id
+		}
+		transfer.Target.Artifact = target
+	}
 	timeoutSeconds := fileUploadProcessTimeoutSeconds
-	if direction == "download" {
+	if direction == processcmd.FileTransferDownload {
 		timeoutSeconds = fileDownloadProcessTimeoutSeconds
 	}
 	return executionstore.CreateProcessInput{
-		FileTransfer: &processcmd.FileTransfer{
-			Direction: direction, LocalPath: localPath,
-		},
-		IOMode:        processcmd.IOModePipe,
-		InitialWaitMS: processaction.MaxWaitMilliseconds, TimeoutSeconds: timeoutSeconds,
-	}
+		ExecutionSpec:  processcmd.ForFileTransfer(transfer),
+		InitialWaitMS:  processaction.MaxWaitMilliseconds,
+		TimeoutSeconds: timeoutSeconds,
+	}, nil
 }

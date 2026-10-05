@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 var version = daemonversion.Development
@@ -234,7 +235,8 @@ func Run(
 			return 1
 		}
 		if err := runFileTransfer(
-			ctx, command.FileTransfer.Direction, command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
+			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
+			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

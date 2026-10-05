@@ -97,10 +97,11 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			fixture := newDetachedSupervisorTestFixture(t, ctx, ProcessAssignment{
 				ID: fileTransferTestProcessID,
 				Process: Process{
-					FileTransfer: &processcmd.FileTransfer{
-						Direction: "upload", LocalPath: "a file;$(false).md",
-					},
-					IOMode: processcmd.IOModePipe, Cwd: t.TempDir(),
+					ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+						Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
+						Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+					}),
+					Cwd: t.TempDir(),
 				},
 				Env: env, WaitMs: 20, TimeoutSeconds: timeoutSeconds,
 			})
@@ -150,17 +151,23 @@ func TestReadFileTransferResultEscapedPath(t *testing.T) {
 
 func TestFileTransferDoesNotFallBackToShell(t *testing.T) {
 	transfer := &processcmd.FileTransfer{
-		Direction: "upload", LocalPath: "file",
+		Direction: processcmd.FileTransferUpload, LocalPath: "file",
+		Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
 	}
 	_, err := processArgvForLocalOS(fileTransferTestProcessID, Process{
-		FileTransfer: transfer, Command: "touch unexpected", IOMode: processcmd.IOModePipe,
+		ExecutionSpec: processcmd.ExecutionSpec{
+			Kind: processcmd.KindFileTransfer, FileTransfer: transfer,
+			Shell: &processcmd.ShellCommand{Command: "echo fallback", Shell: processcmd.ShellSH, IOMode: processcmd.IOModePipe},
+		},
 	})
 	require.Error(t, err)
 	transfer.Direction = "invalid"
 	_, err = processArgvForLocalOS(fileTransferTestProcessID, Process{
-		FileTransfer: transfer, IOMode: processcmd.IOModePipe,
+		ExecutionSpec: processcmd.ForFileTransfer(*transfer),
 	})
 	require.Error(t, err)
-	_, err = processArgvForLocalOS(fileTransferTestProcessID, Process{IOMode: processcmd.IOModePipe})
+	_, err = processArgvForLocalOS(fileTransferTestProcessID, Process{
+		ExecutionSpec: processcmd.ForShell("", "", processcmd.IOModePipe),
+	})
 	require.Error(t, err)
 }

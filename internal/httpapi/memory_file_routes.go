@@ -16,6 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 )
 
+const memoryDirectoryCursorVersion = 1
+
 func (s strictOpenAPIServer) ListMemoryFiles(
 	ctx context.Context, req openapi.ListMemoryFilesRequestObject,
 ) (openapi.ListMemoryFilesResponseObject, error) {
@@ -47,7 +49,9 @@ func (s strictOpenAPIServer) ListMemoryFiles(
 		var payload bytes.Buffer
 		encoder := json.NewEncoder(&payload)
 		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(memoryDirectoryCursor{Version: 1, Scope: cursorScope, After: page.Next}); err != nil {
+		if err := encoder.Encode(memoryDirectoryCursor{
+			Version: memoryDirectoryCursorVersion, Scope: cursorScope, After: page.Next,
+		}); err != nil {
 			return nil, err
 		}
 		token := base64.RawURLEncoding.EncodeToString(payload.Bytes())
@@ -91,7 +95,8 @@ func decodeMemoryDirectoryCursor(raw, scope string) (string, error) {
 	if err := json.Unmarshal(payload, &cursor); err != nil {
 		return "", errInvalidCursor
 	}
-	if cursor.Version != 1 || cursor.Scope != scope || path.Base(cursor.After) != cursor.After ||
+	if cursor.Version != memoryDirectoryCursorVersion || cursor.Scope != scope ||
+		path.Base(cursor.After) != cursor.After ||
 		memorystore.ValidatePath(cursor.After) != nil {
 		return "", errInvalidCursor
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -68,7 +69,7 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 				t.Fatalf("chmod destination: %v", err)
 			}
 			err := runFileTransfer(context.Background(),
-				"download",
+				processcmd.FileTransferDownload,
 				processID,
 				test.path, io.Discard)
 			if err != nil {
@@ -104,7 +105,7 @@ func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 	destination := filepath.Join(t.TempDir(), "large-artifact.txt")
 	err := runFileTransfer(context.Background(),
-		"download",
+		processcmd.FileTransferDownload,
 		processID,
 		destination, io.Discard)
 	if err != nil {
@@ -176,7 +177,7 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 			defer server.Close()
 			setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 			err := runFileTransfer(context.Background(),
-				"download",
+				processcmd.FileTransferDownload,
 				processID,
 				destination, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -208,7 +209,7 @@ func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 	destination := filepath.Join(t.TempDir(), "missing", "artifact.bin")
 	err := runFileTransfer(context.Background(),
-		"download",
+		processcmd.FileTransferDownload,
 		processID,
 		destination, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "create temporary file") {

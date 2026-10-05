@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -291,10 +292,8 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       command,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(command, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"MARKER":        markerPath,
@@ -500,10 +499,8 @@ func TestRestartReconciliationClosesPreparedSupervisor(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       "printf should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("printf should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -596,10 +593,8 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       `printf started > "$MARKER"; sleep 30`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`printf started > "$MARKER"; sleep 30`, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{"MARKER": markerPath},
 		},
@@ -709,13 +704,13 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		ProcessAssignment{
 			ID: "prc_no_persisted_secrets",
 			Process: Process{
-				Command: `test -n "$OMNARA_HOME" && ` +
-					`test -n "$LAUNCH_TEST_SECRET" && ` +
-					`test -z "${OMNARA_TEST_SECRET+x}" && ` +
-					`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`,
-				ShellSelector: "default",
-				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
+				ExecutionSpec: processcmd.ForShell(
+					`test -n "$OMNARA_HOME" && `+
+						`test -n "$LAUNCH_TEST_SECRET" && `+
+						`test -z "${OMNARA_TEST_SECRET+x}" && `+
+						`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`, "default", "pipe",
+				),
+				Cwd: t.TempDir(),
 			},
 			Env: map[string]string{
 				"LAUNCH_TEST_SECRET":  launchSecret,
@@ -797,10 +792,8 @@ func TestAcceptedProcessCanTerminateBeforeSpawn(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_accepted_terminate_before_spawn",
 			Process: Process{
-				Command:       `printf ran > "$MARKER"`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`printf ran > "$MARKER"`, "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{"MARKER": markerPath},
 		},
@@ -939,10 +932,8 @@ func TestDetachedSupervisorFastExitFreezesOnlyTerminalReport(t *testing.T) {
 				ProcessAssignment{
 					ID: "prc_fast_terminal_only_" + tt.name,
 					Process: Process{
-						Command:       command,
-						ShellSelector: "default",
+						ExecutionSpec: processcmd.ForShell(command, "default", "pipe"),
 						Cwd:           t.TempDir(),
-						IOMode:        "pipe",
 					},
 					WaitMs: 1000,
 				},
@@ -993,10 +984,8 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		ProcessAssignment{
 			ID: "prc_started_without_initial_output",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			WaitMs: 10_000,
 		},
@@ -1060,10 +1049,8 @@ func TestDetachedSupervisorRejectsWrongIPCIdentityBeforeStart(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_ipc_identity",
 			Process: Process{
-				Command:       "echo should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("echo should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1128,10 +1115,8 @@ func TestDetachedSupervisorCloseUngrantedRetainsLifetimeLock(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_close_ungranted_lock",
 			Process: Process{
-				Command:       "echo should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("echo should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1161,10 +1146,8 @@ func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_detached_timeout",
 			Process: Process{
-				Command:       "sleep 30 & wait",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30 & wait", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			TimeoutSeconds: 1,
 		},
@@ -1197,11 +1180,11 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_detached_pty",
 			Process: Process{
-				Command: `printf '\033[31mready\033[0m\n'; ` +
-					`IFS= read -r line; printf 'got:%s\n' "$line"; sleep 30`,
-				ShellSelector: "default",
-				Cwd:           t.TempDir(),
-				IOMode:        "pty",
+				ExecutionSpec: processcmd.ForShell(
+					`printf '\033[31mready\033[0m\n'; `+
+						`IFS= read -r line; printf 'got:%s\n' "$line"; sleep 30`, "default", "pty",
+				),
+				Cwd: t.TempDir(),
 			},
 		},
 	)
@@ -1302,10 +1285,8 @@ func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_unsafe_action_payload",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1416,10 +1397,8 @@ func TestDetachedStalledWriteClosesStdinAndReleasesReconciliation(
 		ProcessAssignment{
 			ID: "prc_stalled_stdin",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1524,10 +1503,8 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_stalled_pty_stdin",
 			Process: Process{
-				Command:       "stty raw -echo; printf ready; sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("stty raw -echo; printf ready; sleep 30", "default", "pty"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pty",
 			},
 		},
 	)

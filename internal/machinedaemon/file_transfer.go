@@ -19,16 +19,13 @@ type fileTransferOutcome struct {
 }
 
 func fileTransferArgv(processID string, transfer processcmd.FileTransfer) ([]string, error) {
-	if err := transfer.Validate(); err != nil {
-		return nil, err
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve file transfer executable: %w", err)
 	}
 	return []string{
 		executable, "__omnara_file_transfer", "--",
-		transfer.Direction, processID, transfer.LocalPath,
+		string(transfer.Direction), processID, transfer.LocalPath,
 	}, nil
 }
 

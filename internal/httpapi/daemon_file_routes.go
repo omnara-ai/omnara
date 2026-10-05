@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -28,7 +29,7 @@ import (
 func (s strictOpenAPIServer) daemonTransferScope(
 	ctx context.Context,
 	processID string,
-	toolName string,
+	direction processcmd.FileTransferDirection,
 ) (executionstore.DaemonFileProcessScope, error) {
 	scope, err := machineDaemonScopeFromContext(ctx)
 	if err != nil {
@@ -39,7 +40,7 @@ func (s strictOpenAPIServer) daemonTransferScope(
 		return executionstore.DaemonFileProcessScope{}, storeerr.ErrNotFound
 	}
 	process, found, queryErr := s.server.store.Execution().GetDaemonFileProcessScope(
-		ctx, scope.OrgID, scope.MachineID, id, toolName,
+		ctx, scope.OrgID, scope.MachineID, id, direction,
 	)
 	if queryErr != nil {
 		return executionstore.DaemonFileProcessScope{}, fmt.Errorf("resolve file transfer: %w", queryErr)
@@ -50,43 +51,16 @@ func (s strictOpenAPIServer) daemonTransferScope(
 	return process, nil
 }
 
-type daemonMemoryTarget struct {
-	Scope   memorystore.Scope
-	StoreID uuid.UUID
-	Path    string
-}
-
-func (s strictOpenAPIServer) daemonMemoryScope(
-	ctx context.Context,
-	process executionstore.DaemonFileProcessScope,
-) (daemonMemoryTarget, error) {
-	name, path, parseErr := memorystore.ParsePath(process.Path)
-	if parseErr != nil {
-		return daemonMemoryTarget{}, storeerr.ErrNotFound
-	}
-	store, resolveErr := s.server.store.Memories().Resolve(ctx, process.ProjectID, name)
-	if resolveErr != nil {
-		return daemonMemoryTarget{}, fmt.Errorf("resolve memory transfer: %w", resolveErr)
-	}
-	return daemonMemoryTarget{
-		Scope: memorystore.Scope{
-			OrgID: process.OrgID, ProjectID: process.ProjectID, AgentID: process.AgentID,
-		},
-		StoreID: store.ID,
-		Path:    path,
-	}, nil
-}
-
 func (s strictOpenAPIServer) UploadDaemonFile(
 	ctx context.Context,
 	req openapi.UploadDaemonFileRequestObject,
 ) (openapi.UploadDaemonFileResponseObject, error) {
 	process, err := s.daemonTransferScope(ctx, req.ProcessID,
-		toolcatalog.ToolNameUploadFile)
+		processcmd.FileTransferUpload)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	if process.Path == toolcatalog.ArtifactVFSRoot {
+	if process.Transfer.Target.Artifact != nil {
 		filename := ""
 		if req.Params.Filename != nil {
 			filename = *req.Params.Filename
@@ -103,17 +77,14 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 			Path: toolcatalog.ArtifactVFSRoot + "/" + artifactID, Digest: artifact.Digest,
 		}, nil
 	}
-	target, err := s.daemonMemoryScope(ctx, process)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
+	target := process.Transfer.Target.Memory
 	body, err := readMemoryContent(req.Body)
 	if err != nil {
 		return nil, err
 	}
 	result, err := s.server.store.Memories().Write(ctx, memorystore.WriteInput{
-		Scope: target.Scope, StoreID: target.StoreID, Path: target.Path, Content: body,
-		ExpectedDigest: process.ExpectedDigest,
+		Scope:   memorystore.Scope{OrgID: process.OrgID, ProjectID: process.ProjectID, AgentID: process.AgentID},
+		StoreID: target.StoreID, Path: target.Path, Content: body, ExpectedDigest: target.ExpectedDigest,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -126,23 +97,19 @@ func (s strictOpenAPIServer) DownloadDaemonFile(
 	req openapi.DownloadDaemonFileRequestObject,
 ) (openapi.DownloadDaemonFileResponseObject, error) {
 	process, err := s.daemonTransferScope(ctx, req.ProcessID,
-		toolcatalog.ToolNameDownloadFile)
+		processcmd.FileTransferDownload)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	artifactID := strings.TrimPrefix(process.Path, toolcatalog.ArtifactVFSRoot+"/")
-	if strings.HasPrefix(process.Path, toolcatalog.ArtifactVFSRoot+"/") {
-		id, ok := parseOpenAPIPublicID(publicid.KindArtifact, artifactID)
-		if !ok {
-			return nil, apierror.ProjectScoped(storeerr.ErrNotFound)
-		}
-		return s.downloadDaemonArtifact(ctx, process, id)
+	if target := process.Transfer.Target.Artifact; target != nil {
+		return s.downloadDaemonArtifact(ctx, process, target.ID)
 	}
-	target, err := s.daemonMemoryScope(ctx, process)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	digest, body, err := s.server.store.Memories().Read(ctx, target.Scope, target.StoreID, target.Path)
+
+	target := process.Transfer.Target.Memory
+	digest, body, err := s.server.store.Memories().Read(
+		ctx, memorystore.Scope{OrgID: process.OrgID, ProjectID: process.ProjectID, AgentID: process.AgentID},
+		target.StoreID, target.Path,
+	)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}

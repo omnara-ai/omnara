@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -86,7 +87,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 			wantName.Store(filepath.Base(test.path))
 			var result bytes.Buffer
 			err := runFileTransfer(context.Background(),
-				"upload",
+				processcmd.FileTransferUpload,
 				processID,
 				test.path, &result)
 			if err != nil {
@@ -149,7 +150,7 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 			path := test.path(t)
 			var result bytes.Buffer
 			err := runFileTransfer(context.Background(),
-				"upload",
+				processcmd.FileTransferUpload,
 				processID,
 				path, &result)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -183,7 +184,7 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 	}))
 	defer redirect.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "redirect-home"), redirect.URL, "")
-	direction := "upload"
+	direction := processcmd.FileTransferUpload
 	err := runFileTransfer(context.Background(), direction, processID, path, io.Discard)
 	if err == nil {
 		t.Fatal("redirected upload succeeded")

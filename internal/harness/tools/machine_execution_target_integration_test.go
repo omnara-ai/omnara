@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1802,10 +1803,8 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 			RuntimeLockID: lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("printf done", "sh", "pipe"),
 			AgentMachineBindingID: agentBinding.ID,
-			IOMode:                "pipe",
-			Command:               "printf done",
-			ShellSelector:         "sh",
 			Cwd:                   "/replay",
 		},
 	)

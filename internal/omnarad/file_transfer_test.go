@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +73,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("download %q %v", got, err)
 	}
-	direction := "download"
+	direction := processcmd.FileTransferDownload
 	fail = true
 	if err = runFileTransfer(context.Background(), direction, processID, path, &output); err == nil {
 		t.Fatal("failed download succeeded")
@@ -104,7 +105,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 		}
 	}
 	responseDigest = digest
-	direction = "upload"
+	direction = processcmd.FileTransferUpload
 	output.Reset()
 	if err = os.WriteFile(path, want, 0600); err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package daemonprotocol
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,7 @@ const (
 	MaxMessageBytes      = 1048576
 	MaxFileTransferBytes = 10 * 1024 * 1024
 	MaxFileDownloadBytes = 48 * 1024 * 1024
+	FileDigestHeader     = "X-Omnara-File-Digest"
 
 	AckStatusCommitted       AckStatus = "committed"
 	AckStatusCleanupOnly     AckStatus = "cleanup_only"
@@ -350,16 +352,16 @@ func decodeEnvelope(data []byte, dst any) error {
 }
 
 type ProcessOffer struct {
-	FileTransfer     *processcmd.FileTransfer `json:"file_transfer,omitempty"`
-	ProcessID        string                   `json:"process_id"`
-	PreparationError string                   `json:"preparation_error,omitempty"`
-	IOMode           processcmd.IOMode        `json:"io_mode"`
-	Command          string                   `json:"command"`
-	ShellSelector    processcmd.ShellSelector `json:"shell_selector"`
-	Cwd              string                   `json:"cwd"`
-	Env              map[string]string        `json:"env,omitempty"`
-	WaitMs           int                      `json:"wait_ms,omitempty"`
-	TimeoutSeconds   int                      `json:"timeout_seconds"`
+	ExecutionSpec    *processcmd.ExecutionSpec `json:"execution_spec,omitempty"`
+	Command          string                    `json:"command,omitempty"`
+	ShellSelector    processcmd.ShellSelector  `json:"shell_selector,omitempty"`
+	IOMode           processcmd.IOMode         `json:"io_mode,omitempty"`
+	ProcessID        string                    `json:"process_id"`
+	PreparationError string                    `json:"preparation_error,omitempty"`
+	Cwd              string                    `json:"cwd"`
+	Env              map[string]string         `json:"env,omitempty"`
+	WaitMs           int                       `json:"wait_ms,omitempty"`
+	TimeoutSeconds   int                       `json:"timeout_seconds"`
 }
 
 type FileTransferResult struct {
@@ -378,7 +380,7 @@ func (e *FileTransferError) Error() string {
 	return e.Message
 }
 
-func (r FileTransferResult) Validate(direction string) error {
+func (r FileTransferResult) Validate(direction processcmd.FileTransferDirection) error {
 	if r.Error != nil {
 		if r.Path != "" || r.Digest != "" || r.Error.Code == "" || r.Error.Message == "" {
 			return errors.New("invalid file transfer error")
@@ -391,7 +393,7 @@ func (r FileTransferResult) Validate(direction string) error {
 	if err := ValidateFileDigest(r.Digest); err != nil {
 		return err
 	}
-	if direction == "download" {
+	if direction == processcmd.FileTransferDownload {
 		if r.Path != "" {
 			return errors.New("download result must not contain an upload path")
 		}
@@ -570,10 +572,11 @@ const (
 )
 
 func ValidateFileDigest(digest string) error {
-	if len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
+	const prefix = "sha256:"
+	if len(digest) != len(prefix)+2*sha256.Size || !strings.HasPrefix(digest, prefix) {
 		return errors.New("expected sha256 digest with 64 lowercase hexadecimal characters")
 	}
-	for _, c := range digest[7:] {
+	for _, c := range digest[len(prefix):] {
 		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
 			return errors.New("expected sha256 digest with 64 lowercase hexadecimal characters")
 		}

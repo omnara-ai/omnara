@@ -1,4 +1,9 @@
-import { type ListMemoryStoresData, MAX_MEMORY_FILE_BYTES, sdk } from '@omnara/sdk'
+import {
+  FILE_DIGEST_HEADER,
+  type ListMemoryStoresData,
+  MAX_MEMORY_FILE_BYTES,
+  sdk,
+} from '@omnara/sdk'
 import {
   downloadMemoryFileQueryKey,
   getMemoryStoreOptions,
@@ -111,7 +116,7 @@ export function useMemoryFile(scope: MemoryScope, path: string) {
         signal,
         parseAs: 'stream',
       })
-      const digest = response.headers.get('X-Omnara-File-Digest')
+      const digest = response.headers.get(FILE_DIGEST_HEADER)
       if (!digest) throw new Error('The file response is missing content or its digest')
       return { bytes: new Uint8Array(await response.arrayBuffer()), digest }
     },

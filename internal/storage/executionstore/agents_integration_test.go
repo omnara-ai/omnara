@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1746,9 +1747,8 @@ tools:
 			ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, testName, "run_command"),
 			RuntimeLockID: lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 			AgentMachineBindingID: bindingID,
-			Command:               "sleep 3600",
-			ShellSelector:         "sh",
 		})
 		if err != nil {
 			t.Fatalf("start %s process: %v", testName, err)

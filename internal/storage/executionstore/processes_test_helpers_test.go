@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1172,9 +1173,8 @@ func createTerminalProcessActionsForLifecycleTest(
 				RuntimeLockID: fixture.Lock.ID,
 			},
 			executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "cat",
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			},
 		)

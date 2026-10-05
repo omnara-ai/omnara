@@ -24,6 +24,8 @@ const (
 const (
 	FilePageBytes            = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
+	ListFilesDefaultLimit    = 50
+	ListFilesMaxLimit        = 100
 	ReadFileDefaultLines     = 100
 	ReadFileMaxLines         = 200
 	ReadFileDefaultChars     = 512
@@ -34,6 +36,8 @@ const (
 	SearchMaxPatternBytes    = 1024
 	SearchMaxArgs            = 64
 )
+
+const fileDigestPattern = `^sha256:[0-9a-f]{64}$`
 
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
@@ -286,8 +290,8 @@ func buildDefaultCatalog() (Catalog, error) {
 			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     100,
-				"description": "Maximum entries to return. Defaults to 50.",
+				"maximum":     ListFilesMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListFilesDefaultLimit),
 			},
 		},
 	); err != nil {
@@ -611,7 +615,7 @@ func readFileTool() (Entry, error) {
 			},
 			"expected_digest": map[string]any{
 				"type":    "string",
-				"pattern": `^sha256:[0-9a-f]{64}$`,
+				"pattern": fileDigestPattern,
 				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
 					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
 			},
@@ -671,7 +675,7 @@ func writeFileTool() (Entry, error) {
 			},
 			"expected_digest": map[string]any{
 				"type":        "string",
-				"pattern":     `^sha256:[0-9a-f]{64}$`,
+				"pattern":     fileDigestPattern,
 				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
 			},
 		},
@@ -735,7 +739,7 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 			"machine_id": machineID,
 			"expected_digest": map[string]any{
 				"type":    "string",
-				"pattern": `^sha256:[0-9a-f]{64}$`,
+				"pattern": fileDigestPattern,
 				"description": "To replace changed memory content, use digest from download_file. " +
 					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
 			},

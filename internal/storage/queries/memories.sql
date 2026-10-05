@@ -100,3 +100,18 @@ WHERE s.project_id = sqlc.arg(project_id)
   AND s.name < (sqlc.arg(store_prefix)::text || '{') COLLATE "C"
 ORDER BY s.name COLLATE "C"
 LIMIT sqlc.narg(row_limit)::integer;
+
+-- name: GetMemoryStoreName :one
+SELECT name FROM memory_stores
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
+
+-- name: ResolveAgentMemoryStore :one
+SELECT s.id
+FROM memory_stores s
+JOIN agents a ON a.project_id = s.project_id AND a.id = sqlc.arg(agent_id)
+JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+WHERE s.project_id = sqlc.arg(project_id)
+  AND s.name = sqlc.arg(name)
+  AND s.deleted_at IS NULL
+  AND a.state = 'active'
+  AND c.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id));

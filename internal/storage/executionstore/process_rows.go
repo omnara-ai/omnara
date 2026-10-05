@@ -1,13 +1,13 @@
 package executionstore
 
 import (
-	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func processRecordFromSQLC(row dbsqlc.Process) ProcessRecord {
 	return ProcessRecord{
+		ExecutionSpec:         row.ExecutionSpec,
 		ID:                    row.ID,
 		OrgID:                 row.OrgID,
 		ProjectID:             row.ProjectID,
@@ -17,10 +17,6 @@ func processRecordFromSQLC(row dbsqlc.Process) ProcessRecord {
 		AgentMachineBindingID: row.AgentMachineBindingID,
 		MachineID:             row.MachineID,
 		ExecutionGrantedAt:    row.ExecutionGrantedAt,
-		IOMode:                processcmd.IOMode(row.IoMode),
-		Command:               row.Command,
-		FileTransfer:          row.FileTransfer,
-		ShellSelector:         processcmd.ShellSelector(row.ShellSelector),
 		Cwd:                   row.Cwd,
 		TimeoutSeconds:        int(row.TimeoutSeconds),
 		InitialWaitMS:         int(row.InitialWaitMs),
@@ -52,6 +48,7 @@ func processRecordFromCompleteSQLC(row dbsqlc.Process) ProcessRecord {
 
 func processRecordFromAcceptSQLC(row dbsqlc.AcceptDaemonProcessRow) ProcessRecord {
 	return ProcessRecord{
+		ExecutionSpec:         row.ExecutionSpec,
 		ID:                    row.ID,
 		OrgID:                 row.OrgID,
 		ProjectID:             row.ProjectID,
@@ -61,10 +58,6 @@ func processRecordFromAcceptSQLC(row dbsqlc.AcceptDaemonProcessRow) ProcessRecor
 		AgentMachineBindingID: row.AgentMachineBindingID,
 		MachineID:             row.MachineID,
 		ExecutionGrantedAt:    row.ExecutionGrantedAt,
-		IOMode:                processcmd.IOMode(row.IoMode),
-		Command:               row.Command,
-		FileTransfer:          row.FileTransfer,
-		ShellSelector:         processcmd.ShellSelector(row.ShellSelector),
 		Cwd:                   row.Cwd,
 		TimeoutSeconds:        int(row.TimeoutSeconds),
 		InitialWaitMS:         int(row.InitialWaitMs),
@@ -84,13 +77,10 @@ func processRecordFromAcceptSQLC(row dbsqlc.AcceptDaemonProcessRow) ProcessRecor
 
 func activeProcessRecordFromSQLC(row dbsqlc.ListActiveProcessesRow) ActiveProcessRecord {
 	return ActiveProcessRecord{
+		ExecutionSpec:   row.ExecutionSpec,
 		ID:              row.ID,
 		State:           ProcessState(row.State),
 		MachineID:       row.MachineID,
-		IOMode:          processcmd.IOMode(row.IoMode),
-		Command:         row.Command,
-		FileTransfer:    row.FileTransfer,
-		ShellSelector:   processcmd.ShellSelector(row.ShellSelector),
 		Cwd:             row.Cwd,
 		SourceStartedAt: row.SourceStartedAt,
 		CreatedAt:       row.CreatedAt,

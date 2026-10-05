@@ -20,6 +20,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const (
+	stagingDir = ".staging"
+	locksDir   = ".locks"
+)
+
 type Filesystem struct{ root *os.Root }
 
 type StoreRef struct {
@@ -42,7 +47,7 @@ func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, er
 		return StoreRef{}, err
 	}
 	storePath := org + "/" + project + "/" + store
-	return StoreRef{Name: name, path: storePath, staging: ".staging/" + storePath}, nil
+	return StoreRef{Name: name, path: storePath, staging: stagingDir + "/" + storePath}, nil
 }
 
 func OpenFilesystem(dir string) (*Filesystem, error) {
@@ -57,7 +62,7 @@ func OpenFilesystem(dir string) (*Filesystem, error) {
 		return nil, fmt.Errorf("open memory directory: %w", err)
 	}
 	files := &Filesystem{root: root}
-	for _, name := range []string{".staging", ".locks"} {
+	for _, name := range []string{stagingDir, locksDir} {
 		if err = root.MkdirAll(name, 0700); err == nil {
 			err = CheckPath(root, name)
 		}
@@ -126,7 +131,7 @@ func (f *Filesystem) Lock(ctx context.Context, ref StoreRef) (*os.File, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	name := ".locks/" + ref.path
+	name := locksDir + "/" + ref.path
 	if err := f.root.MkdirAll(path.Dir(name), 0700); err != nil {
 		return nil, err
 	}
@@ -345,7 +350,7 @@ func (f *Filesystem) RemoveScope(orgID uuid.UUID, projectID *uuid.UUID) error {
 		}
 		scope += "/" + project
 	}
-	return f.remove(scope, ".staging/"+scope, ".locks/"+scope)
+	return f.remove(scope, stagingDir+"/"+scope, locksDir+"/"+scope)
 }
 
 func (f *Filesystem) remove(paths ...string) error {

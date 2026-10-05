@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -1871,9 +1872,8 @@ tools:
 			ToolCallID:    toolCallID,
 			RuntimeLockID: lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo archive", "sh", ""),
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo archive",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -2753,9 +2753,8 @@ tools:
 			ToolCallID:    toolCallID,
 			RuntimeLockID: lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo active", "sh", ""),
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo active",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)

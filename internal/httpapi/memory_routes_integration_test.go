@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -168,21 +169,25 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	)
 	store := integrationStoreForHandler(t, handler)
 	makeFixture := func(name, tool string, expectedDigest *string) daemonProcessFixture {
+		var storeID uuid.UUID
+		if err := pool.QueryRow(ctx,
+			`SELECT id FROM memory_stores WHERE project_id = $1 AND name = 'engineering'`,
+			project.ProjectUUID).Scan(&storeID); err != nil {
+			t.Fatal(err)
+		}
+		direction := processcmd.FileTransferUpload
+		if tool == "download_file" {
+			direction = processcmd.FileTransferDownload
+		}
 		fixture := createDaemonProcessFixtureWithToolInputBuilder(
-			t, ctx, pool, store, project, time.Now(), name, tool, nil, func(uuid.UUID) json.RawMessage {
-				if tool == "upload_file" {
-					input, err := json.Marshal(struct {
-						Path           string  `json:"path"`
-						Source         string  `json:"source"`
-						ExpectedDigest *string `json:"expected_digest,omitempty"`
-					}{Path: "/memory/engineering/empty.md", Source: "note.md", ExpectedDigest: expectedDigest})
-					if err != nil {
-						t.Fatal(err)
-					}
-					return input
-				}
-				return json.RawMessage(`{"path":"/memory/engineering/empty.md","destination":"note.md"}`)
-			})
+			t, ctx, pool, store, project, time.Now(), name, "run_command", nil, nil,
+			processcmd.ForFileTransfer(processcmd.FileTransfer{
+				Direction: direction, LocalPath: "note.md",
+				Target: processcmd.FileTarget{Memory: &processcmd.MemoryTarget{
+					StoreID: storeID, Path: "empty.md", ExpectedDigest: expectedDigest,
+				}},
+			}),
+		)
 		var source string
 		if err := pool.QueryRow(
 			ctx,
@@ -258,6 +263,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		}
 		return body
 	}
+
 	uploaded := call(upload, http.MethodPost, content, http.StatusCreated)
 	if uploaded["path"] != "/memory/engineering/empty.md" {
 		t.Fatalf("incorrect upload path: %v", uploaded)
@@ -298,6 +304,17 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	if staleDigest["code"] != "file_content_conflict" || staleDigest["current_digest"] != replaced["digest"] {
 		t.Fatalf("stale digest: %v", staleDigest)
 	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE project_id = $1 AND name = 'engineering'`,
+		project.ProjectUUID); err != nil {
+		t.Fatal(err)
+	}
+	requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/memory-stores",
+		`{"name":"engineering"}`, "", http.StatusCreated, authHeaders(project.AdminToken),
+	)
+	call(upload, http.MethodPost, content, http.StatusNotFound)
+	call(download, http.MethodGet, nil, http.StatusNotFound)
 	if _, err := pool.Exec(ctx, `ALTER TABLE memory_stores RENAME TO unavailable_memory_stores`); err != nil {
 		t.Fatal(err)
 	}

@@ -197,7 +197,7 @@ func processToolResult(process ProcessRecord) (ToolResultOutcome, json.RawMessag
 }
 
 func startedProcessToolResult(process ProcessRecord, observed json.RawMessage) (json.RawMessage, error) {
-	commandLabel := processcmd.CommandLabel(process.Command)
+	commandLabel := process.ExecutionSpec.Label()
 	result := map[string]any{
 		"process_id":  publicResourceID(publicid.KindProcess, process.ID),
 		"state":       process.State,
@@ -242,9 +242,10 @@ func fileTransferToolResultContentParts(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	process ProcessRecord,
-	input, result json.RawMessage,
+	result json.RawMessage,
 ) (ToolResultOutcome, json.RawMessage, error) {
-	direction := process.FileTransfer.Direction
+	transfer := process.ExecutionSpec.FileTransfer
+	direction := transfer.Direction
 	var observed struct {
 		FileTransfer *daemonprotocol.FileTransferResult `json:"file_transfer"`
 	}
@@ -260,19 +261,15 @@ func fileTransferToolResultContentParts(
 		contentParts, err := ToolResultContentParts(result)
 		return ToolResultOutcomeFailed, contentParts, err
 	}
-	invalidMetadata := daemonprotocol.FileTransferError{Message: direction + " completed without valid file metadata"}
+	invalidMetadata := daemonprotocol.FileTransferError{
+		Message: string(direction) + " completed without valid file metadata",
+	}
 	if !valid || metadata.Error != nil {
 		return failedFileTransferToolResultContentParts(result, invalidMetadata)
 	}
-	var request struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(input, &request); err != nil {
-		return "", nil, fmt.Errorf("decode file transfer request: %w", err)
-	}
 	parts := []map[string]any{{"type": "structured_data", "value": metadata}}
-	if direction == "upload" {
-		if request.Path == toolcatalog.ArtifactVFSRoot {
+	if direction == processcmd.FileTransferUpload {
+		if transfer.Target.Artifact != nil {
 			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
 				ProjectID:      process.ProjectID,
 				AgentID:        process.AgentID,
@@ -292,8 +289,17 @@ func fileTransferToolResultContentParts(
 			parts = append(parts, map[string]any{
 				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": true,
 			})
-		} else if metadata.Path != request.Path {
-			return failedFileTransferToolResultContentParts(result, invalidMetadata)
+		} else {
+			target := transfer.Target.Memory
+			name, err := qtx.GetMemoryStoreName(ctx, dbsqlc.GetMemoryStoreNameParams{
+				ProjectID: process.ProjectID, ID: target.StoreID,
+			})
+			if err != nil {
+				return "", nil, fmt.Errorf("load memory transfer name: %w", err)
+			}
+			if metadata.Path != "/memory/"+name+"/"+target.Path {
+				return failedFileTransferToolResultContentParts(result, invalidMetadata)
+			}
 		}
 	}
 	contentParts, err := marshalJSON(parts)

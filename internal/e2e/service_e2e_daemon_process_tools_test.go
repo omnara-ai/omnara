@@ -501,7 +501,7 @@ WHERE call.project_id = $1 AND call.agent_id = $2
 		var processDetails string
 		_ = env.db.QueryRow(
 			ctx,
-			`SELECT coalesce(string_agg(command || ':timeout=' || timeout_seconds::text || ':shell=' || shell_selector, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
+			`SELECT coalesce(string_agg((execution_spec->'shell'->>'command') || ':timeout=' || timeout_seconds::text || ':shell=' || (execution_spec->'shell'->>'shell_selector'), ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
 			projectUUID, agentUUID,
 		).
 			Scan(&processDetails)

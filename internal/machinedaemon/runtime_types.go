@@ -128,11 +128,8 @@ type ProcessAssignment struct {
 }
 
 type Process struct {
-	FileTransfer  *processcmd.FileTransfer `json:"file_transfer,omitempty"`
-	Command       string                   `json:"command"`
-	ShellSelector processcmd.ShellSelector `json:"shell_selector"`
+	ExecutionSpec processcmd.ExecutionSpec `json:"execution_spec"`
 	Cwd           string                   `json:"cwd"`
-	IOMode        processcmd.IOMode        `json:"io_mode"`
 }
 
 type ProcessAction struct {

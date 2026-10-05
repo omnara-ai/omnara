@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -189,17 +191,30 @@ func TestFileTransferApprovalPinsBindingAndInput(t *testing.T) {
 func TestFileTransferProcessInput(t *testing.T) {
 	localPath := "notes/a file;$(false).md"
 	for _, tc := range []struct {
-		direction string
+		direction processcmd.FileTransferDirection
 		timeout   int
 	}{
-		{"upload", 30},
-		{"download", 120},
+		{processcmd.FileTransferUpload, 30},
+		{processcmd.FileTransferDownload, 120},
 	} {
-		input := fileTransferProcessInput(tc.direction, localPath)
-		want := processcmd.FileTransfer{Direction: tc.direction, LocalPath: localPath}
-		if input.FileTransfer == nil || *input.FileTransfer != want ||
-			input.Command != "" || input.ShellSelector != "" ||
-			input.IOMode != processcmd.IOModePipe || input.Cwd != "" ||
+		remotePath := "/artifacts"
+		target := processcmd.ArtifactTarget{}
+		if tc.direction == processcmd.FileTransferDownload {
+			target.ID = uuid.New()
+			id, err := publicid.Encode(publicid.KindArtifact, target.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			remotePath += "/" + id
+		}
+		input, err := fileTransferProcessInput(context.Background(), nil, tc.direction, localPath, remotePath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := processcmd.FileTransfer{
+			Direction: tc.direction, LocalPath: localPath, Target: processcmd.FileTarget{Artifact: &target},
+		}
+		if !reflect.DeepEqual(input.ExecutionSpec, processcmd.ForFileTransfer(want)) || input.Cwd != "" ||
 			input.InitialWaitMS != processaction.MaxWaitMilliseconds || input.TimeoutSeconds != tc.timeout {
 			t.Fatalf("%s process input = %+v", tc.direction, input)
 		}

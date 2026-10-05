@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -584,7 +585,7 @@ func TestDaemonFileProcessScopeRejectsWrongMachine(t *testing.T) {
 		fixture.OrgUUID,
 		uuid.UUID{1},
 		fixture.ProcessUUID,
-		"upload_file",
+		processcmd.FileTransferUpload,
 	)
 	if err != nil {
 		t.Fatalf("load wrong-machine scope: %v", err)

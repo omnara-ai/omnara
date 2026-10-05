@@ -15,11 +15,13 @@ import (
 var protocolTestDaemonInstanceID = uuid.MustParse("00000000-0000-4000-8000-000000000001")
 
 func TestFileTransferOffer(t *testing.T) {
+	spec := processcmd.ForFileTransfer(processcmd.FileTransfer{
+		Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
+		Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+	})
 	offer := ProcessOffer{
-		ProcessID: "prc_transfer", IOMode: processcmd.IOModePipe,
-		FileTransfer: &processcmd.FileTransfer{
-			Direction: "upload", LocalPath: "a file;$(false).md",
-		},
+		ExecutionSpec: &spec,
+		ProcessID:     "prc_transfer",
 	}
 	body, err := json.Marshal(Message{Type: MessageProcessOffer, ProcessOffer: &offer})
 	if err != nil {
@@ -33,21 +35,21 @@ func TestFileTransferOffer(t *testing.T) {
 		t.Fatal(diff)
 	}
 	for _, invalid := range []string{`"upload"`, `[]`} {
-		body := []byte(`{"command":"echo unexpected","file_transfer":` + invalid + `}`)
+		body := []byte(`{"execution_spec":{"kind":"file_transfer","file_transfer":` + invalid + `}}`)
 		var offer ProcessOffer
 		if err := json.Unmarshal(body, &offer); err == nil {
 			t.Fatalf("accepted invalid transfer: %s", body)
 		}
 	}
 	for _, shell := range []string{
-		`{"command":"echo shell","shell_selector":"sh","future_field":true}`,
-		`{"command":"echo shell","shell_selector":"sh","file_transfer":null}`,
+		`{"execution_spec":{"kind":"shell","shell":{"command":"echo shell","shell_selector":"sh","io_mode":"pipe"}},"future_field":true}`,
+		`{"execution_spec":{"kind":"shell","shell":{"command":"echo shell","shell_selector":"sh","io_mode":"pipe"}}}`,
 	} {
 		var offer ProcessOffer
 		if err := json.Unmarshal([]byte(shell), &offer); err != nil {
 			t.Fatal(err)
 		}
-		if offer.FileTransfer != nil || offer.Command != "echo shell" {
+		if offer.ExecutionSpec.FileTransfer != nil || offer.ExecutionSpec.Shell.Command != "echo shell" {
 			t.Fatalf("unexpected shell offer: %+v", offer)
 		}
 	}
@@ -256,6 +258,7 @@ func TestMessageUnmarshalDecodesOfferPayload(t *testing.T) {
 }
 
 func TestMessageEnvelopeRoundTripsEveryMessageType(t *testing.T) {
+	shell := processcmd.ForShell("echo ok", "sh", "pty")
 	exitCode := 7
 	observedAt := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	startedAt := observedAt.Add(-time.Second)
@@ -271,10 +274,8 @@ func TestMessageEnvelopeRoundTripsEveryMessageType(t *testing.T) {
 			Type:      "process_offer",
 			ProcessID: "prc_1",
 			ProcessOffer: &ProcessOffer{
+				ExecutionSpec:  &shell,
 				ProcessID:      "prc_1",
-				IOMode:         "pty",
-				Command:        "echo ok",
-				ShellSelector:  "sh",
 				Cwd:            "/work",
 				WaitMs:         100,
 				TimeoutSeconds: 30,
@@ -398,7 +399,9 @@ func TestFileTransferResultErrorValidation(t *testing.T) {
 		}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, direction := range []string{"upload", "download"} {
+			for _, direction := range []processcmd.FileTransferDirection{
+				processcmd.FileTransferUpload, processcmd.FileTransferDownload,
+			} {
 				if err := tc.result.Validate(direction); (err == nil) != tc.wantValid {
 					t.Fatalf("Validate(%s) = %v, want valid %t", direction, err, tc.wantValid)
 				}

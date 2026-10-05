@@ -179,6 +179,23 @@ func (q *Queries) GetMemoryStoreByName(ctx context.Context, arg GetMemoryStoreBy
 	return i, err
 }
 
+const getMemoryStoreName = `-- name: GetMemoryStoreName :one
+SELECT name FROM memory_stores
+WHERE project_id = $1 AND id = $2
+`
+
+type GetMemoryStoreNameParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetMemoryStoreName(ctx context.Context, arg GetMemoryStoreNameParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMemoryStoreName, arg.ProjectID, arg.ID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const listAttachedMemoryStores = `-- name: ListAttachedMemoryStores :many
 SELECT s.id, s.name, s.description, s.agent_access, p.org_id
 FROM memory_stores s
@@ -362,6 +379,31 @@ type LockMemoryStoreSharedParams struct {
 
 func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStoreSharedParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockMemoryStoreShared, arg.ProjectID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const resolveAgentMemoryStore = `-- name: ResolveAgentMemoryStore :one
+SELECT s.id
+FROM memory_stores s
+JOIN agents a ON a.project_id = s.project_id AND a.id = $1
+JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+WHERE s.project_id = $2
+  AND s.name = $3
+  AND s.deleted_at IS NULL
+  AND a.state = 'active'
+  AND c.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id))
+`
+
+type ResolveAgentMemoryStoreParams struct {
+	AgentID   uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+}
+
+func (q *Queries) ResolveAgentMemoryStore(ctx context.Context, arg ResolveAgentMemoryStoreParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, resolveAgentMemoryStore, arg.AgentID, arg.ProjectID, arg.Name)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err

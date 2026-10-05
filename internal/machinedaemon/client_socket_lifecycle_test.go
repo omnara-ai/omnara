@@ -16,13 +16,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/skillsync"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
 type blockingPrepareLauncher struct {
-	started chan struct{}
-	release chan struct{}
-	runtime *processRuntime
+	started     chan struct{}
+	release     chan struct{}
+	runtime     *processRuntime
+	assignments chan ProcessAssignment
 }
 
 type unresolvedPrepareLauncher struct{}
@@ -37,10 +39,13 @@ type cleanupPendingPrepareLauncher struct {
 }
 
 func (launcher blockingPrepareLauncher) Prepare(
-	context.Context,
-	*Client,
-	ProcessAssignment,
+	_ context.Context,
+	_ *Client,
+	assignment ProcessAssignment,
 ) (*processRuntime, error) {
+	if launcher.assignments != nil {
+		launcher.assignments <- assignment
+	}
 	close(launcher.started)
 	<-launcher.release
 	if launcher.runtime != nil {
@@ -172,6 +177,74 @@ func (runner *recordingProcessRunner) IsDone() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func TestProcessOfferExecutionFormats(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload, wantError string
+		want                     processcmd.ExecutionSpec
+	}{
+		{
+			name: "legacy shell", payload: `{"command":"echo legacy","shell_selector":"sh","io_mode":"pty"}`,
+			want: processcmd.ForShell("echo legacy", processcmd.ShellSH, processcmd.IOModePTY),
+		},
+		{
+			name: "legacy defaults", payload: `{"command":"echo legacy"}`,
+			want: processcmd.ForShell("echo legacy", processcmd.ShellDefault, processcmd.IOModePipe),
+		},
+		{
+			name: "shell spec", payload: `{"execution_spec":{"kind":"shell","shell":` +
+				`{"command":"echo typed","shell_selector":"sh","io_mode":"pipe"}}}`,
+			want: processcmd.ForShell("echo typed", processcmd.ShellSH, processcmd.IOModePipe),
+		},
+		{
+			name: "transfer spec", payload: `{"execution_spec":{"kind":"file_transfer","file_transfer":` +
+				`{"direction":"upload","local_path":"report.txt","target":{"artifact":{}}}}}`,
+			want: processcmd.ForFileTransfer(processcmd.FileTransfer{
+				Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+				Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+			}),
+		},
+		{
+			name: "empty spec cannot fall back", payload: `{"execution_spec":{},"command":"echo fallback"}`,
+			wantError: "invalid execution kind",
+		},
+		{
+			name: "invalid transfer cannot fall back", payload: `{"command":"echo fallback",` +
+				`"execution_spec":{"kind":"file_transfer","file_transfer":{"direction":"invalid"}}}`,
+			wantError: "invalid file transfer direction",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var offer daemonprotocol.ProcessOffer
+			require.NoError(t, json.Unmarshal([]byte(tc.payload), &offer))
+			offer.ProcessID = "prc_offer_format"
+			assignments := make(chan ProcessAssignment, 1)
+			release := make(chan struct{})
+			client := New(Config{}, nil, nil)
+			client.runnerLauncher = blockingPrepareLauncher{
+				started: make(chan struct{}), release: release, assignments: assignments,
+			}
+			transport := newDaemonSocketTransport(&client, DaemonRuntime{}, localStartupState{})
+			defer func() {
+				close(release)
+				transport.stopAndWait(func() {})
+			}()
+			transport.offerProcess(t.Context(), offer)
+			select {
+			case assignment := <-assignments:
+				_, err := processArgvForLocalOS(offer.ProcessID, assignment.Process)
+				if tc.wantError != "" {
+					require.ErrorContains(t, err, tc.wantError)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, tc.want, assignment.Process.ExecutionSpec)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("offer did not reach process preparation")
+			}
+		})
 	}
 }
 
@@ -322,11 +395,11 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 	defer transport.stopAndWait(func() {})
 
 	transport.offerProcess(ctx, daemonprotocol.ProcessOffer{
-		ProcessID:      processID,
 		Command:        "echo should-not-run",
-		ShellSelector:  "default",
-		Cwd:            t.TempDir(),
+		ShellSelector:  processcmd.ShellDefault,
 		IOMode:         invalidMode,
+		ProcessID:      processID,
+		Cwd:            t.TempDir(),
 		TimeoutSeconds: 1,
 	})
 	select {
@@ -446,11 +519,11 @@ func TestTransientPreparationFailureCleansLocalStateWithoutAcceptance(
 	transport.offerProcess(
 		ctx,
 		daemonprotocol.ProcessOffer{
-			ProcessID:      processID,
 			Command:        "echo should-not-run",
-			ShellSelector:  "default",
+			ShellSelector:  processcmd.ShellDefault,
+			IOMode:         processcmd.IOModePipe,
+			ProcessID:      processID,
 			Cwd:            t.TempDir(),
-			IOMode:         "pipe",
 			TimeoutSeconds: 1,
 		},
 	)

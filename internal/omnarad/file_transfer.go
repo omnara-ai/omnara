@@ -20,7 +20,10 @@ import (
 
 const maxFileTransferErrorBytes = 1024
 
-func runFileTransfer(ctx context.Context, direction, processID, localPath string, resultWriter io.Writer) error {
+func runFileTransfer(
+	ctx context.Context, direction processcmd.FileTransferDirection,
+	processID, localPath string, resultWriter io.Writer,
+) error {
 	result, err := transferFile(ctx, direction, processID, localPath)
 	if err != nil {
 		failure := daemonprotocol.FileTransferError{Code: "file_transfer_failed", Message: err.Error()}
@@ -38,17 +41,19 @@ func runFileTransfer(ctx context.Context, direction, processID, localPath string
 }
 
 func transferFile(
-	ctx context.Context, direction, processID, localPath string,
+	ctx context.Context, direction processcmd.FileTransferDirection, processID, localPath string,
 ) (daemonprotocol.FileTransferResult, error) {
-	transfer := processcmd.FileTransfer{Direction: direction, LocalPath: localPath}
-	if err := transfer.Validate(); err != nil {
-		return daemonprotocol.FileTransferResult{}, err
+	if direction != processcmd.FileTransferUpload && direction != processcmd.FileTransferDownload {
+		return daemonprotocol.FileTransferResult{}, errors.New("invalid file transfer direction")
+	}
+	if localPath == "" || strings.ContainsRune(localPath, 0) {
+		return daemonprotocol.FileTransferResult{}, errors.New("invalid local path")
 	}
 	path, err := processcmd.ExpandHomeRelativePath(localPath)
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, fmt.Errorf("resolve user home: %w", err)
 	}
-	if direction == "upload" {
+	if direction == processcmd.FileTransferUpload {
 		return uploadFile(ctx, processID, path)
 	}
 	return downloadFile(ctx, processID, path)
@@ -105,7 +110,7 @@ func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.F
 		return daemonprotocol.FileTransferResult{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	digest := response.Header.Get("X-Omnara-File-Digest")
+	digest := response.Header.Get(daemonprotocol.FileDigestHeader)
 	if err := daemonprotocol.ValidateFileDigest(digest); err != nil {
 		return daemonprotocol.FileTransferResult{}, errors.New("file transfer response contains an invalid digest")
 	}

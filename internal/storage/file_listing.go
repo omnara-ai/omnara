@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (s *Store) ListFiles(
@@ -29,10 +30,12 @@ func (s *Store) ListFiles(
 		return listing.FileListResult{}, storeerr.InvalidRequest(err)
 	}
 	if limit == 0 {
-		limit = 50
+		limit = toolcatalog.ListFilesDefaultLimit
 	}
-	if limit < 1 || limit > 100 {
-		return listing.FileListResult{}, storeerr.InvalidRequest(errors.New("limit must be between 1 and 100"))
+	if limit < 1 || limit > toolcatalog.ListFilesMaxLimit {
+		return listing.FileListResult{}, storeerr.InvalidRequest(
+			fmt.Errorf("limit must be between 1 and %d", toolcatalog.ListFilesMaxLimit),
+		)
 	}
 	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
