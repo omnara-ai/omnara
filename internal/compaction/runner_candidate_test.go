@@ -8,6 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -304,9 +305,15 @@ func TestRenderEventSourceReducesProjectionWithoutMutatingCanonicalOutput(t *tes
 }
 
 func TestRenderContentPartsLabelsMediaRefsAsArtifacts(t *testing.T) {
-	got := renderContentParts(json.RawMessage(`[{"type":"media_ref","artifact_id":"art_media"}]`))
-	if !strings.Contains(got, "Artifact: ") || !strings.Contains(got, "art_media") {
+	raw := json.RawMessage(`[{"type":"media_ref","artifact_id":"00000000-0000-0000-0000-000000000001"}]`)
+	original := string(raw)
+	got := renderContentParts(raw)
+	path := "/artifacts/" + modelcontext.ArtifactPublicID("00000000-0000-0000-0000-000000000001")
+	if !strings.Contains(got, "Artifact: ") || !strings.Contains(got, path) {
 		t.Fatalf("rendered content parts = %q", got)
+	}
+	if string(raw) != original {
+		t.Fatal("canonical attachment reference was mutated")
 	}
 	if strings.Contains(got, "Content: ") {
 		t.Fatalf("media_ref should not use generic content label: %q", got)

@@ -423,6 +423,11 @@ func UsableInputTokensForRequest(capabilities Capabilities, policy RequestPolicy
 	return modelWindowForRequest(capabilities, policy).UsableInputTokens()
 }
 
+func TextAttachmentBudgetTokens(client Client) int {
+	capabilities := CapabilitiesForClient(client)
+	return UsableInputTokensForRequest(capabilities, RequestPolicyFromCapabilities(capabilities)) / 4
+}
+
 func WorkingInputTargetTokens(client Client, policy RequestPolicy, errorSource string) (int, error) {
 	limits, err := OutputTokenLimitsForClient(client, errorSource)
 	if err != nil {

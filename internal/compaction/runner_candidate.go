@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func compactionSourceAdjustmentError(
@@ -499,6 +500,10 @@ func renderContentParts(raw json.RawMessage) string {
 			builder.WriteString("\n")
 		case "media_ref":
 			builder.WriteString("Artifact: ")
+			if id, ok := part["artifact_id"].(string); ok {
+				part["path"] = toolcatalog.ArtifactVFSRoot + "/" + modelcontext.ArtifactPublicID(id)
+				delete(part, "artifact_id")
+			}
 			builder.WriteString(compactJSONValue(part))
 			builder.WriteString("\n")
 		case "structured_data":

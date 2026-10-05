@@ -12,14 +12,15 @@ import (
 )
 
 type BuildInput struct {
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	TurnID              uuid.UUID
-	OpeningInputIDs     []uuid.UUID
-	Now                 time.Time
-	AgentConfigSnapshot *executionstore.AgentConfigSnapshotRecord
-	CheckpointOverride  *CheckpointRef
-	MediaProjector      MediaProjector
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	TurnID                     uuid.UUID
+	OpeningInputIDs            []uuid.UUID
+	Now                        time.Time
+	AgentConfigSnapshot        *executionstore.AgentConfigSnapshotRecord
+	CheckpointOverride         *CheckpointRef
+	MediaProjector             MediaProjector
+	TextAttachmentBudgetTokens int
 }
 
 type Bundle struct {

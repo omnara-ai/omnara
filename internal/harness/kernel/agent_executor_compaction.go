@@ -247,13 +247,14 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 		boundaryInput.DesiredRetainFromSequence,
 		func(retainFrom int64) (bool, error) {
 			bundle, buildErr := e.contextBuilder().Build(ctx, modelcontext.BuildInput{
-				ProjectID:           contextRow.ProjectID,
-				AgentID:             contextRow.AgentID,
-				TurnID:              input.TurnID,
-				OpeningInputIDs:     input.InputIDs,
-				Now:                 input.Now,
-				AgentConfigSnapshot: &snapshot,
-				MediaProjector:      model.MediaProjectorForClient(client),
+				ProjectID:                  contextRow.ProjectID,
+				AgentID:                    contextRow.AgentID,
+				TurnID:                     input.TurnID,
+				OpeningInputIDs:            input.InputIDs,
+				Now:                        input.Now,
+				AgentConfigSnapshot:        &snapshot,
+				MediaProjector:             model.MediaProjectorForClient(client),
+				TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 				CheckpointOverride: &modelcontext.CheckpointRef{
 					SummarizedThroughEventSequence: retainFrom - 1,
 					Summary:                        projectionSummary,

@@ -182,13 +182,14 @@ func (e AgentExecutor) executeModelStep(
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		TurnID:              input.TurnID,
-		OpeningInputIDs:     input.InputIDs,
-		Now:                 input.Now,
-		AgentConfigSnapshot: &snapshot,
-		MediaProjector:      model.MediaProjectorForClient(client),
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		TurnID:                     input.TurnID,
+		OpeningInputIDs:            input.InputIDs,
+		Now:                        input.Now,
+		AgentConfigSnapshot:        &snapshot,
+		MediaProjector:             model.MediaProjectorForClient(client),
+		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
