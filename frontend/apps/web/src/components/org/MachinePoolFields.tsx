@@ -95,9 +95,13 @@ export function MachinePoolFieldGroupFields({
 
 /** Every section of the pool form, in step order. */
 export function MachinePoolFields(props: MachinePoolFieldsProps) {
-  return machinePoolFieldGroups.map((group) => (
-    <MachinePoolFieldGroupFields key={group} group={group} {...props} />
-  ))
+  return (
+    <>
+      {machinePoolFieldGroups.map((group) => (
+        <MachinePoolFieldGroupFields key={group} group={group} {...props} />
+      ))}
+    </>
+  )
 }
 
 /** Switches provider and resets every field whose meaning depends on it. */
