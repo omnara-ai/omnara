@@ -58,6 +58,13 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
+-- name: LockAgentForMemoryWrite :one
+SELECT id
+FROM agents
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(agent_id)
+FOR SHARE;
+
 -- name: GetAgentMemoryConfig :one
 SELECT coalesce(c.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
 FROM agents a

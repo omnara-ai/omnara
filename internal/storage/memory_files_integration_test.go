@@ -5,6 +5,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
@@ -457,6 +459,76 @@ func TestMemoryFileMutationsWaitForStoreDeletion(t *testing.T) {
 			defer func() { _ = root.Close() }()
 			content, err := memoryops.Read(root, input.Path)
 			require.NoError(t, err)
+			require.Equal(t, "original", string(content))
+		})
+	}
+}
+
+func TestMemoryPublishRechecksAgentAfterLockWait(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"archive", "detach"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store, _ := newMemoryIntegrationStore(t, ctx, pool)
+			admin := createSecretTestUser(t, ctx, store, "Memory Agent Lock Admin", "admin")
+			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+			resource, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
+			require.NoError(t, err)
+			input := memorystore.WriteInput{
+				Scope: scope, StoreID: resource.ID, Path: "note.txt", Content: []byte("original"),
+			}
+			original, err := store.Memories().Write(ctx, input)
+			require.NoError(t, err)
+			source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: notes\n    access: read_write\n"
+			model := ensureTestConfiguredModelForSource(t, ctx, store, source)
+			compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
+				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+					return resolvedTestModelSelection(model), nil
+				},
+				ResolveMemoryStoreName: func(string) (uuid.UUID, error) { return resource.ID, nil },
+			})
+			require.NoError(t, err)
+			config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, Source: source, SourceFormat: "yaml", ConfiguredModelID: model.ID,
+				CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+				EffectiveDefinitionHash: compiled.Hash,
+			})
+			require.NoError(t, err)
+			agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+				ProjectID: testProjectID, CurrentConfigID: config.ID,
+			})
+			require.NoError(t, err)
+			detachedConfigID := mustCreateAgentConfig(t, ctx, store, testProjectID)
+			tx := integrationdb.BeginTx(t, ctx, pool)
+			_, err = dbsqlc.New(tx).LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
+				ProjectID: testProjectID, ID: agent.ID,
+			})
+			require.NoError(t, err)
+			input.Scope = memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, AgentID: agent.ID}
+			input.Content, input.ExpectedDigest = []byte("replacement"), &original.Digest
+			done := make(chan error, 1)
+			go func() {
+				_, err := store.Memories().Write(ctx, input)
+				done <- err
+			}()
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentForMemoryWrite", 1)
+			if operation == "archive" {
+				_, err = tx.Exec(ctx,
+					`UPDATE agents SET state = 'archived', archived_at = statement_timestamp() WHERE id = $1`, agent.ID,
+				)
+			} else {
+				_, err = tx.Exec(ctx, `UPDATE agents SET current_config_id = $1 WHERE id = $2`, detachedConfigID, agent.ID)
+			}
+			require.NoError(t, err)
+			require.NoError(t, tx.Commit(ctx))
+			require.ErrorIs(t, integrationdb.Await(t, done, "memory write after agent change"), storeerr.ErrNotFound)
+			digest, content, err := store.Memories().Read(ctx, scope, resource.ID, input.Path)
+			require.NoError(t, err)
+			require.Equal(t, original.Digest, digest)
 			require.Equal(t, "original", string(content))
 		})
 	}

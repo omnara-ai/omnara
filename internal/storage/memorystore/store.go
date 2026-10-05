@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -28,14 +29,15 @@ import (
 const maxDescriptionLength = 1024
 
 type Store struct {
-	pool  *storeutil.Pool
-	q     *dbsqlc.Queries
-	files *Filesystem
+	pool     *storeutil.Pool
+	q        *dbsqlc.Queries
+	files    *Filesystem
+	recorder *metrics.MemoryRecorder
 }
 
-func New(pool *pgxpool.Pool, files *Filesystem) *Store {
+func New(pool *pgxpool.Pool, files *Filesystem, recorder *metrics.MemoryRecorder) *Store {
 	db := storeutil.WrapPool(pool)
-	return &Store{pool: db, q: dbsqlc.New(db), files: files}
+	return &Store{pool: db, q: dbsqlc.New(db), files: files, recorder: recorder}
 }
 
 type Scope struct {

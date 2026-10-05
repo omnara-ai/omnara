@@ -296,6 +296,26 @@ func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresPara
 	return items, nil
 }
 
+const lockAgentForMemoryWrite = `-- name: LockAgentForMemoryWrite :one
+SELECT id
+FROM agents
+WHERE project_id = $1
+  AND id = $2
+FOR SHARE
+`
+
+type LockAgentForMemoryWriteParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) LockAgentForMemoryWrite(ctx context.Context, arg LockAgentForMemoryWriteParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockAgentForMemoryWrite, arg.ProjectID, arg.AgentID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockMemoryStore = `-- name: LockMemoryStore :one
 SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores

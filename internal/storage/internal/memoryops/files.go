@@ -130,9 +130,6 @@ func (f *Filesystem) Lock(ctx context.Context, ref StoreRef) (*os.File, error) {
 	if err := f.root.MkdirAll(path.Dir(name), 0700); err != nil {
 		return nil, err
 	}
-	if err := CheckPath(f.root, path.Dir(name)); err != nil {
-		return nil, err
-	}
 	if err := CheckPath(f.root, name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}

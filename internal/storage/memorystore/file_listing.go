@@ -31,6 +31,8 @@ func (s *Store) ListFiles(
 	limit int,
 	after string,
 ) ([]listing.FileEntry, error) {
+	defer s.recorder.StartListing().ObserveDuration()
+
 	from, _, _ := strings.Cut(strings.TrimPrefix(after, Root+"/"), "/")
 	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, from, limit+1)
 	if err != nil {

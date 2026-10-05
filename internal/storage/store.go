@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/accountsecurity"
@@ -39,6 +40,7 @@ type storeConfig struct {
 	secretKeyWrapper      secrets.KeyWrapper
 	blobs                 blobstore.Store
 	memoryFS              *memorystore.Filesystem
+	memoryRecorder        *metrics.MemoryRecorder
 	machinePoolProviders  executionstore.MachinePoolProviders
 	modelCallRetryBackoff func(int, string) time.Duration
 }
@@ -69,6 +71,12 @@ func WithMemoryFilesystem(files *memorystore.Filesystem) Option {
 	}
 }
 
+func WithMemoryRecorder(recorder *metrics.MemoryRecorder) Option {
+	return func(config *storeConfig) {
+		config.memoryRecorder = recorder
+	}
+}
+
 func WithMachinePoolProviders(machinePoolProviders executionstore.MachinePoolProviders) Option {
 	return func(config *storeConfig) {
 		config.machinePoolProviders = machinePoolProviders
@@ -94,7 +102,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.models = modelstore.New(pool)
 	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
-	store.memories = memorystore.New(pool, config.memoryFS)
+	store.memories = memorystore.New(pool, config.memoryFS, config.memoryRecorder)
 	store.artifacts = artifactstore.New(pool, config.blobs)
 	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{

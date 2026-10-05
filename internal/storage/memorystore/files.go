@@ -183,6 +183,16 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 			return WriteResult{}, err
 		}
 	}
+	if input.Scope.AgentID != uuid.Nil {
+		if _, err := q.LockAgentForMemoryWrite(ctx, dbsqlc.LockAgentForMemoryWriteParams{
+			ProjectID: input.Scope.ProjectID, AgentID: input.Scope.AgentID,
+		}); err != nil {
+			return WriteResult{}, fmt.Errorf("lock agent for memory write: %w", mapped(err))
+		}
+		if err := s.authorizeAttachment(ctx, q, input.Scope, input.StoreID, true); err != nil {
+			return WriteResult{}, err
+		}
+	}
 	if err := s.files.Publish(ctx, ref, root, input.Path, staged); err != nil {
 		return WriteResult{}, err
 	}

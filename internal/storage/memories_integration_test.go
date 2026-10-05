@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -526,6 +529,37 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 		ProjectID: testProjectID, DerivedConfig: &derived, LaunchedBy: userPrincipal(admin.ID),
 	}); err != nil {
 		t.Fatalf("read-only store blocked inherited attachment: %v", err)
+	}
+}
+
+func TestMemoryListingRecordsDuration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	set := metrics.New()
+	store := newIntegrationStore(pool, WithMemoryRecorder(metrics.NewMemoryRecorder(set)))
+	const pattern = "/memory/*"
+	matcher, err := CompileFilePattern(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Memories().ListFiles(ctx, testProjectID, nil, pattern, matcher, 50, ""); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := store.Memories().ListFiles(
+		canceled, testProjectID, nil, pattern, matcher, 50, "",
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled listing error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("scrape status = %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "omnara_memory_listing_duration_seconds_count 2\n") {
+		t.Fatalf("expected both listings to be recorded:\n%s", response.Body.String())
 	}
 }
 
