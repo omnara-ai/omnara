@@ -28,7 +28,6 @@ import (
 const (
 	apiURL                  = "boxd.sh:9443"
 	authURL                 = "https://app.boxd.sh/api/v1/auth/token"
-	sessionTokenLifetime    = time.Hour
 	sessionTokenRefreshSkew = 5 * time.Minute
 	dialTimeout             = 10 * time.Second
 	execStdinChunkBytes     = 32 * 1024
@@ -385,7 +384,7 @@ func vmFromResponse(response *boxdv1.GetVmResponse) vm {
 	}
 }
 
-func (c *grpcClient) exchangeAPIKey(ctx context.Context) (string, error) {
+func (c *grpcClient) exchangeAPIKey(ctx context.Context) (string, time.Time, error) {
 	response, err := providers.DoHTTPResponse(
 		ctx,
 		c.httpClient,
@@ -396,28 +395,29 @@ func (c *grpcClient) exchangeAPIKey(ctx context.Context) (string, error) {
 		map[string]string{"api_key": c.apiKey},
 	)
 	if err != nil {
-		return "", apiError{Code: codes.Unavailable, Message: err.Error(), cause: err}
+		return "", time.Time{}, apiError{Code: codes.Unavailable, Message: err.Error(), cause: err}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		code := codes.Unauthenticated
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
 			code = codes.Unavailable
 		}
-		return "", providers.WithRetryAfter(
+		return "", time.Time{}, providers.WithRetryAfter(
 			apiError{Code: code, Message: fmt.Sprintf("token exchange returned HTTP %d", response.StatusCode)},
 			response.Header,
 		)
 	}
 	var body struct {
-		Token string `json:"token"`
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at"`
 	}
 	if err := json.Unmarshal(response.Body, &body); err != nil {
-		return "", fmt.Errorf("decode boxd token exchange response: %w", err)
+		return "", time.Time{}, fmt.Errorf("decode boxd token exchange response: %w", err)
 	}
-	if body.Token == "" {
-		return "", errors.New("boxd token exchange response is missing the token")
+	if body.Token == "" || body.ExpiresAt <= 0 {
+		return "", time.Time{}, errors.New("boxd token exchange response is missing the token or its expiry")
 	}
-	return body.Token, nil
+	return body.Token, time.Unix(body.ExpiresAt, 0), nil
 }
 
 type sessionToken struct {
@@ -453,12 +453,12 @@ func (c *sessionTokenCache) token(ctx context.Context, client *grpcClient) (stri
 	if c.now().Before(entry.expiresAt) {
 		return entry.value, nil
 	}
-	value, err := client.exchangeAPIKey(ctx)
+	value, expiresAt, err := client.exchangeAPIKey(ctx)
 	if err != nil {
 		return "", err
 	}
 	entry.value = value
-	entry.expiresAt = c.now().Add(sessionTokenLifetime - sessionTokenRefreshSkew)
+	entry.expiresAt = expiresAt.Add(-sessionTokenRefreshSkew)
 	return value, nil
 }
 

@@ -26,13 +26,9 @@ func TestBoxdProviderLiveSmoke(t *testing.T) {
 	provisional := executionstore.MachineProvisioningConfig{
 		ProviderOptions: testOptions(t, strings.TrimSpace(os.Getenv("OMNARA_BOXD_TEST_SNAPSHOT")), ""),
 	}
-	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
-	if omnaraPublicURL == "" {
-		omnaraPublicURL = "https://app.omnara.com"
-	}
 	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
 	if omnaraPublicAPIURL == "" {
-		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
+		omnaraPublicAPIURL = "https://api.omnara.com/v1"
 	}
 	machineProvider, err := (Definition{}).NewProvider(
 		mustRawJSON(t, config),
@@ -88,8 +84,8 @@ func TestBoxdProviderLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision live boxd machine: %v", err)
 	}
-	cleanupResourceID = resourceID.ProviderResourceID
 	t.Logf("provisioned boxd machine %s as %s", cleanupResourceID, resourceID.ProviderResourceID)
+	cleanupResourceID = resourceID.ProviderResourceID
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	probe, err := concreteProvider.api.Exec(
 		probeCtx,

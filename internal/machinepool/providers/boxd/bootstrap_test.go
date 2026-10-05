@@ -42,6 +42,9 @@ func TestLauncherCommandDetachesBootScript(t *testing.T) {
 			t.Fatalf("launcher command missing %q:\n%s", want, command)
 		}
 	}
+	if strings.Count(command, `rm -f "$b/boot"`) != 2 {
+		t.Fatalf("launcher command must remove the boot payload whether boot starts or exits early:\n%s", command)
+	}
 	if strings.HasSuffix(command, "\n") {
 		t.Fatal("launcher command must be trimmed")
 	}

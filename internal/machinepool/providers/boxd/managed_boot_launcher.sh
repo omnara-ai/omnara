@@ -23,6 +23,7 @@ if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
   echo "omnara daemon bootstrap started (pid $p)"
   exit 0
 fi
+rm -f "$b/boot"
 echo "omnara daemon bootstrap exited early" >&2
 cat "$b/log" >&2
 exit 1

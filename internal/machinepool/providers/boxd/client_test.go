@@ -216,7 +216,7 @@ func newExchangeServer(t *testing.T) *exchangeServer {
 	t.Helper()
 	exchange := &exchangeServer{
 		status:   http.StatusOK,
-		response: map[string]any{"token": "jwt-1"},
+		response: map[string]any{"token": "jwt-1", "expires_at": time.Now().Add(time.Hour).Unix()},
 	}
 	exchange.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -369,17 +369,19 @@ func TestBoxdGRPCClientRefreshesExpiringSessionTokens(t *testing.T) {
 	client := newTestClient(t, server, exchange)
 	now := time.Now()
 	client.tokens.now = func() time.Time { return now }
+	expiresAt := now.Add(30 * time.Minute)
+	exchange.response = map[string]any{"token": "jwt-1", "expires_at": expiresAt.Unix()}
 	if _, err := client.ListVMs(context.Background()); err != nil {
 		t.Fatalf("first list: %v", err)
 	}
-	now = now.Add(sessionTokenLifetime - sessionTokenRefreshSkew - time.Second)
+	now = expiresAt.Add(-sessionTokenRefreshSkew - 2*time.Second)
 	if _, err := client.ListVMs(context.Background()); err != nil || exchange.calls != 1 {
 		t.Fatalf("second list = error %v exchange calls %d, want cached token", err, exchange.calls)
 	}
 	exchange.mu.Lock()
-	exchange.response = map[string]any{"token": "jwt-fresh"}
+	exchange.response = map[string]any{"token": "jwt-fresh", "expires_at": expiresAt.Add(time.Hour).Unix()}
 	exchange.mu.Unlock()
-	now = now.Add(time.Second)
+	now = now.Add(3 * time.Second)
 	if _, err := client.ListVMs(context.Background()); err != nil {
 		t.Fatalf("third list: %v", err)
 	}
@@ -401,7 +403,10 @@ func TestBoxdSessionTokenRefreshDoesNotBlockOtherCredentials(t *testing.T) {
 			close(started)
 			<-release
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"token": "jwt-" + body.APIKey})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "jwt-" + body.APIKey,
+			"expires_at": time.Now().Add(time.Hour).Unix(),
+		})
 	}))
 	t.Cleanup(exchange.Close)
 	t.Cleanup(releaseExchange)
@@ -455,6 +460,10 @@ func TestBoxdGRPCClientReportsExchangeFailures(t *testing.T) {
 	client.tokens = newSessionTokenCache()
 	if _, err := client.ListVMs(context.Background()); err == nil || !strings.Contains(err.Error(), "missing the token") {
 		t.Fatalf("empty token error = %v", err)
+	}
+	exchange.response = map[string]any{"token": "jwt-1"}
+	if _, err := client.ListVMs(context.Background()); err == nil || !strings.Contains(err.Error(), "its expiry") {
+		t.Fatalf("missing expiry error = %v", err)
 	}
 	exchange.Close()
 	client.tokens = newSessionTokenCache()
