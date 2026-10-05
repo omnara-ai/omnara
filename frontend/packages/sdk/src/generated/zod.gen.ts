@@ -18,6 +18,11 @@ export const zAgentName = z.string().refine(value => Array.from(value).length <=
 export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 /**
+ * Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export const zMemoryStoreName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export const zResourceListSort = z.enum([
@@ -48,65 +53,52 @@ export const zAgentConfigErrorIssue = z.object({
 
 export const zError = z.object({
     error: z.string(),
+    current_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
     issues: z.array(zAgentConfigErrorIssue).optional(),
-    code: z.enum([
-        'invalid_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'conflict',
-        'gone',
-        'request_too_large',
-        'unsupported_media_type',
-        'unprocessable',
-        'upstream_unavailable',
-        'rate_limited',
-        'internal_error',
-        'service_unavailable',
-        'idempotency_key_conflict',
-        'state_transition_conflict',
-        'managed_work_admission_denied',
-        'pending_work',
-        'not_wake_capable',
-        'daemon_runtime_unregistered',
-        'validation_failed',
-        'csrf_check_failed',
-        'authentication_unavailable'
-    ])
+    code: z.string()
 });
 
 /**
- * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ * Known error codes.
  */
-export const zClientErrorCode = z.enum([
+export const zErrorCode = z.enum([
     'invalid_request',
-    'validation_failed',
     'unauthorized',
     'forbidden',
-    'csrf_check_failed',
     'not_found',
     'conflict',
-    'idempotency_key_conflict',
-    'state_transition_conflict',
-    'pending_work',
-    'not_wake_capable',
+    'file_content_conflict',
+    'file_read_only',
+    'expected_digest_required',
+    'not_a_file',
     'gone',
-    'daemon_runtime_unregistered',
     'request_too_large',
     'unsupported_media_type',
     'unprocessable',
     'upstream_unavailable',
-    'rate_limited'
+    'rate_limited',
+    'internal_error',
+    'service_unavailable',
+    'idempotency_key_conflict',
+    'state_transition_conflict',
+    'managed_work_admission_denied',
+    'pending_work',
+    'not_wake_capable',
+    'daemon_runtime_unregistered',
+    'validation_failed',
+    'csrf_check_failed',
+    'authentication_unavailable'
 ]);
+
+/**
+ * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ */
+export const zClientErrorCode = z.string();
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
  */
-export const zServerErrorCode = z.enum([
-    'internal_error',
-    'service_unavailable',
-    'authentication_unavailable'
-]);
+export const zServerErrorCode = z.string();
 
 /**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
@@ -321,6 +313,8 @@ export const zSkillRevisionId = z.string().regex(/^skr_[a-z2-7]{26}$/);
 
 export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
 
+export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
+
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 /**
@@ -532,18 +526,18 @@ export const zSkillOwner = z.discriminatedUnion('kind', [
 
 export const zCreateSkillRequest = z.object({
     owner: zSkillOwnerInput,
-    archive: z.string()
+    archive: z.instanceof(Blob)
 });
 
 export const zUpdateSkillRequest = z.intersection(z.union([
     z.object({
-        archive: z.string()
+        archive: z.instanceof(Blob)
     }),
     z.object({
         skill_md: z.string()
     })
 ]), z.object({
-    archive: z.string().optional(),
+    archive: z.instanceof(Blob).optional(),
     skill_md: z.string().optional()
 }));
 
@@ -606,6 +600,64 @@ export const zSkillGrant = z.object({
     skill_id: zSkillId,
     target_project_id: zProjectId,
     created_at: zTimestamp
+});
+
+export const zMemoryStoreAccess = z.enum(['read', 'read_write']);
+
+export const zMemoryStore = z.object({
+    id: zMemoryStoreId,
+    name: zMemoryStoreName,
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }),
+    agent_access: zMemoryStoreAccess,
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateMemoryStore = z.object({
+    name: zMemoryStoreName,
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
+    agent_access: zMemoryStoreAccess.optional().default('read_write')
+});
+
+export const zUpdateMemoryStore = z.object({
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
+    agent_access: zMemoryStoreAccess.optional()
+});
+
+export const zMemoryStoreList = z.object({
+    data: z.array(zMemoryStore),
+    next_cursor: z.string().nullable()
+});
+
+export const zMemoryRegularFile = z.object({
+    path: z.string(),
+    type: z.enum(['file']),
+    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    modified_at: zTimestamp
+});
+
+export const zMemoryDirectory = z.object({
+    path: z.string(),
+    type: z.enum(['directory']),
+    modified_at: zTimestamp
+});
+
+export const zMemoryFile = z.discriminatedUnion('type', [
+    zMemoryRegularFile.extend({ type: z.literal('file') }),
+    zMemoryDirectory.extend({ type: z.literal('directory') })
+]);
+
+export const zMemoryFileList = z.object({
+    data: z.array(zMemoryFile),
+    next_cursor: z.string().nullable()
+});
+
+/**
+ * Returns the uploaded file's path and digest.
+ */
+export const zUploadFileResponse = z.object({
+    path: z.string(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
 });
 
 /**
@@ -971,6 +1023,11 @@ export const zCompiledSkill = z.object({
     id: zSkillId
 });
 
+export const zCompiledMemoryStore = z.object({
+    id: zMemoryStoreId,
+    access: zMemoryStoreAccess
+});
+
 export const zCompiledSubagentModel = z.object({
     configured_model_id: zConfiguredModelId.optional(),
     context_window_tokens: z.int().optional(),
@@ -1015,6 +1072,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     event_webhook: zCompiledEventWebhook.optional(),
     skills: z.array(zCompiledSkill).optional(),
+    memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),
     max_subagents: z.int().optional(),
     max_depth: z.int().optional()
@@ -2749,10 +2807,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zUploadArtifactResponse = z.object({
-    artifact_id: zArtifactId
-});
-
 export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
@@ -3610,6 +3664,135 @@ export const zListProjectAvailableSkillsQuery = z.object({
  */
 export const zListProjectAvailableSkillsResponse = zListProjectSkillAccessesResponse;
 
+export const zListMemoryStoresPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListMemoryStoresQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    name: z.string().min(1).max(200).optional(),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryStoresResponse = zMemoryStoreList;
+
+export const zCreateMemoryStoreBody = zCreateMemoryStore;
+
+export const zCreateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Success.
+ */
+export const zCreateMemoryStoreResponse = zMemoryStore;
+
+export const zDeleteMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryStoreResponse = z.void();
+
+export const zGetMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zGetMemoryStoreResponse = zMemoryStore;
+
+export const zUpdateMemoryStoreBody = zUpdateMemoryStore;
+
+export const zUpdateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zUpdateMemoryStoreResponse = zMemoryStore;
+
+export const zListMemoryFilesPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zListMemoryFilesQuery = z.object({
+    path: z.string().max(1024).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryFilesResponse = zMemoryFileList;
+
+export const zDeleteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDeleteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryFileResponse = z.void();
+
+export const zDownloadMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDownloadMemoryFileQuery = z.object({
+    path: z.string().max(1024)
+});
+
+/**
+ * Success.
+ */
+export const zDownloadMemoryFileResponse = z.instanceof(Blob);
+
+export const zWriteMemoryFileBody = z.instanceof(Blob);
+
+export const zWriteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zWriteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional()
+});
+
+/**
+ * Returns the file's store-relative path and digest.
+ */
+export const zWriteMemoryFileResponse = zUploadFileResponse;
+
 export const zListSecretsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -4381,7 +4564,7 @@ export const zGetArtifactContentPath = z.object({
 /**
  * Artifact bytes, served with the artifact's stored content type.
  */
-export const zGetArtifactContentResponse = z.string();
+export const zGetArtifactContentResponse = z.instanceof(Blob);
 
 export const zListVisibleProjectMachinesPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -4977,29 +5160,28 @@ export const zGetDaemonSkillArchiveQuery = z.object({
 /**
  * Skill archive bytes.
  */
-export const zGetDaemonSkillArchiveResponse = z.string();
+export const zGetDaemonSkillArchiveResponse = z.instanceof(Blob);
 
-export const zUploadDaemonArtifactBody = z.string();
-
-export const zUploadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId
-});
-
-export const zUploadDaemonArtifactQuery = z.object({
-    filename: z.string().min(1).max(255)
+export const zDownloadDaemonFilePath = z.object({
+    processID: zProcessId
 });
 
 /**
- * Artifact created.
+ * Success.
  */
-export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
+export const zDownloadDaemonFileResponse = z.instanceof(Blob);
 
-export const zDownloadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId,
-    artifactID: zArtifactId
+export const zUploadDaemonFileBody = z.instanceof(Blob);
+
+export const zUploadDaemonFilePath = z.object({
+    processID: zProcessId
+});
+
+export const zUploadDaemonFileQuery = z.object({
+    filename: z.string().optional()
 });
 
 /**
- * Artifact bytes, served with the artifact's stored content type.
+ * Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
  */
-export const zDownloadDaemonArtifactResponse = z.string();
+export const zUploadDaemonFileResponse = zUploadFileResponse;

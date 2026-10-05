@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -217,7 +218,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
 		"agent_profiles,agents,cron_triggers,integration_installs,integration_targets," +
-		"model_call_contexts,process_actions,processes,project_machine_grants," +
+		"memory_stores,model_call_contexts,process_actions,processes,project_machine_grants," +
 		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `
@@ -1242,4 +1243,42 @@ func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	parsed.Path = "/" + pool.Config().ConnConfig.Database
 	return parsed.String()
+}
+
+func TestProcessExecutionSpecMigration(t *testing.T) {
+	ctx := context.Background()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	_, err := pool.Exec(ctx, `CREATE TABLE processes (
+  id integer PRIMARY KEY, command text NOT NULL CHECK(command <> ''),
+  shell_selector text NOT NULL CHECK(shell_selector <> ''),
+  io_mode text NOT NULL CHECK(io_mode IN ('pipe', 'pty'))
+ );
+ INSERT INTO processes VALUES (1, 'echo hello', 'default', 'pipe'), (2, 'python', 'bash', 'pty')`)
+	require.NoError(t, err)
+	migration, err := os.ReadFile("../../migrations/000047_memory_stores.sql")
+	require.NoError(t, err)
+	_, statement, found := strings.Cut(string(migration), "ALTER TABLE processes")
+	require.True(t, found)
+	_, err = pool.Exec(ctx, "ALTER TABLE processes"+statement)
+	require.NoError(t, err)
+	for _, expected := range []struct {
+		id                     int
+		command, shell, ioMode string
+	}{
+		{1, "echo hello", "default", "pipe"}, {2, "python", "bash", "pty"},
+	} {
+		var spec processcmd.ExecutionSpec
+		require.NoError(t, pool.QueryRow(ctx, `SELECT execution_spec FROM processes WHERE id = $1`, expected.id).Scan(&spec))
+		require.Equal(t, processcmd.ForShell(
+			expected.command, processcmd.ShellSelector(expected.shell), processcmd.IOMode(expected.ioMode),
+		), spec)
+	}
+	for _, invalid := range []string{
+		`null`, `{}`, `{"kind":"shell"}`, `{"kind":"unknown"}`,
+		`{"kind":"shell","shell":{"command":"echo hi","shell_selector":"default","io_mode":"pipe"},"file_transfer":{}}`,
+		`{"kind":"shell","shell":{"command":"","shell_selector":"default","io_mode":"pipe"}}`,
+	} {
+		_, err := pool.Exec(ctx, `UPDATE processes SET execution_spec = $1::jsonb WHERE id = 1`, invalid)
+		require.ErrorContains(t, err, "processes_execution_check")
+	}
 }

@@ -153,9 +153,7 @@ func runCommand(
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorizationInput, executionstore.CreateProcessInput{
-		IOMode:         resolved.IOMode,
-		Command:        resolved.Command,
-		ShellSelector:  resolved.Selector,
+		ExecutionSpec:  processcmd.ForShell(resolved.Command, resolved.Selector, resolved.IOMode),
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
@@ -633,7 +631,7 @@ func processListObservations(records []executionstore.ActiveProcessRecord) []pro
 		item := processListObservation{
 			ProcessID:    processHandle,
 			State:        record.State,
-			CommandLabel: processcmd.CommandLabel(record.Command),
+			CommandLabel: record.ExecutionSpec.Label(),
 			Cwd:          record.Cwd,
 			UpdatedAt:    record.UpdatedAt.UTC().Format(timeRFC3339Nano),
 		}

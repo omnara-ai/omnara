@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -20,41 +22,36 @@ type DaemonProcessOffer struct {
 	RetryError       error             `json:"-"`
 }
 
-type DaemonArtifactProcessScope struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
+type DaemonFileProcessScope struct {
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ToolCallID uuid.UUID
+	Transfer   processcmd.FileTransfer
 }
 
-func (s *Store) GetDaemonArtifactProcessScope(
-	ctx context.Context,
-	orgID, machineID, toolCallID uuid.UUID,
-	toolName string,
-) (DaemonArtifactProcessScope, bool, error) {
-	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
-		return DaemonArtifactProcessScope{}, false, errors.New(
-			"organization id, machine id, and tool call id are required",
-		)
-	}
-	if toolName == "" {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
-	}
-	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
-		OrgID:      orgID,
-		MachineID:  machineID,
-		ToolCallID: toolCallID,
-		ToolName:   toolName,
+func (s *Store) GetDaemonFileProcessScope(
+	ctx context.Context, orgID, machineID, processID uuid.UUID, direction processcmd.FileTransferDirection,
+) (DaemonFileProcessScope, bool, error) {
+	record, err := s.q.GetDaemonFileProcessScope(ctx, dbsqlc.GetDaemonFileProcessScopeParams{
+		OrgID: orgID, MachineID: machineID, ProcessID: processID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DaemonArtifactProcessScope{}, false, nil
+		return DaemonFileProcessScope{}, false, nil
 	}
 	if err != nil {
-		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
+		return DaemonFileProcessScope{}, false, fmt.Errorf("load daemon file process scope: %w", err)
 	}
-	return DaemonArtifactProcessScope{
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
-		Path:      record.Path,
+	if err := record.ExecutionSpec.Validate(); err != nil {
+		return DaemonFileProcessScope{}, false, err
+	}
+	transfer := record.ExecutionSpec.FileTransfer
+	if transfer == nil || transfer.Direction != direction {
+		return DaemonFileProcessScope{}, false, nil
+	}
+	return DaemonFileProcessScope{
+		OrgID: orgID, ProjectID: record.ProjectID, AgentID: record.AgentID,
+		ToolCallID: record.ToolCallID, Transfer: *transfer,
 	}, true, nil
 }
 
@@ -65,18 +62,16 @@ func (t *toolCallTransaction) startProcess(
 	if input.AgentMachineBindingID == uuid.Nil {
 		return ProcessRecord{}, errors.New("agent machine binding is required")
 	}
-	if input.Command == "" {
-		return ProcessRecord{}, errors.New("process command is required")
-	}
-	spec, err := processcmd.NormalizeShellCommand(input.Command, input.ShellSelector)
-	if err != nil {
+	if err := input.ExecutionSpec.Validate(); err != nil {
 		return ProcessRecord{}, err
 	}
-	input.Command = spec.Command
-	input.ShellSelector = spec.Shell
-	input.IOMode, err = processcmd.NormalizeIOMode(input.IOMode)
-	if err != nil {
-		return ProcessRecord{}, err
+	if transfer := input.ExecutionSpec.FileTransfer; transfer != nil && transfer.Target.Memory != nil {
+		target := transfer.Target.Memory
+		if target.ExpectedDigest != nil {
+			if err := daemonprotocol.ValidateFileDigest(*target.ExpectedDigest); err != nil {
+				return ProcessRecord{}, err
+			}
+		}
 	}
 	if input.InitialWaitMS < 0 {
 		return ProcessRecord{}, errors.New("process initial wait must be non-negative")
@@ -175,9 +170,7 @@ func (t *toolCallTransaction) startProcess(
 	}
 	row, err := t.q.InsertProcess(ctx, dbsqlc.InsertProcessParams{
 		ToolCallID:            toolCallID,
-		IoMode:                string(input.IOMode),
-		Command:               input.Command,
-		ShellSelector:         string(input.ShellSelector),
+		ExecutionSpec:         input.ExecutionSpec,
 		Cwd:                   cwd,
 		Env:                   processEnv,
 		SecretEnv:             processSecretEnv,
@@ -229,9 +222,7 @@ func (t *toolCallTransaction) startProcess(
 
 func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool {
 	return existing.AgentMachineBindingID == input.AgentMachineBindingID &&
-		existing.IOMode == input.IOMode &&
-		existing.Command == input.Command &&
-		existing.ShellSelector == input.ShellSelector &&
+		reflect.DeepEqual(existing.ExecutionSpec, input.ExecutionSpec) &&
 		existing.TimeoutSeconds == input.TimeoutSeconds &&
 		existing.InitialWaitMS == input.InitialWaitMS
 }

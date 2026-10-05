@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -320,9 +321,8 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		ToolCallID:    higherToolCallID,
 		RuntimeLockID: higher.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: higher.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -353,9 +353,8 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		ToolCallID:    lowerToolCallID,
 		RuntimeLockID: lower.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: lower.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {

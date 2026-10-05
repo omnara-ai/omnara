@@ -255,8 +255,8 @@ func failRuntimeToolCallsTx(
 	reason string,
 ) error {
 	result, err := marshalJSON(map[string]any{
-		"code":    reason,
-		"message": RuntimeToolInterruptedMessage,
+		"error_code": reason,
+		"message":    RuntimeToolInterruptedMessage,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal interrupted runtime tool result: %w", err)

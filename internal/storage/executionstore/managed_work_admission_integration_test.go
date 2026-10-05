@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -357,9 +358,8 @@ func TestManagedWorkAdmissionGatesNewProcessesOnManagedMachines(t *testing.T) {
 		}
 	}
 	processInput := executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}
 	firstProcess, err := startProcessForTest(
@@ -436,9 +436,8 @@ func TestManagedWorkAdmissionDoesNotGateBYOProcesses(t *testing.T) {
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo allowed", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo allowed",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	); err != nil {
@@ -491,9 +490,8 @@ func TestManagedWorkAdmissionDoesNotGateTenantPoolProcesses(t *testing.T) {
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo allowed", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo allowed",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	); err != nil {

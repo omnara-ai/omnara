@@ -285,77 +285,107 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	if replayed.Created {
 		t.Fatal("replay should not report created")
 	}
-	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
-		blobs.deleteKeys[0] != blobs.putKeys[1] {
-		t.Fatalf("replay blob writes=%v deletes=%v, want second upload deleted", blobs.putKeys, blobs.deleteKeys)
+	if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 0 {
+		t.Fatalf("replay blob writes=%v deletes=%v, want no additional blob operations", blobs.putKeys, blobs.deleteKeys)
 	}
 	if _, ok := blobs.content[blobs.putKeys[0]]; !ok {
 		t.Fatal("replay deleted the original artifact blob")
 	}
 
-	input.Content = []byte("different bytes")
-	if _, err := store.Artifacts().CreateArtifact(ctx, input); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
+	for _, field := range []string{"content", "content type", "filename"} {
+		conflicting := input
+		conflicting.Digest = first.Digest
+		switch field {
+		case "content":
+			conflicting.Content = []byte("different bytes")
+		case "content type":
+			conflicting.ContentType = "image/jpeg"
+		case "filename":
+			conflicting.Filename = "other.png"
+		}
+		if _, err := store.Artifacts().CreateArtifact(ctx, conflicting); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+			t.Fatalf("conflicting %s replay error = %v, want ErrIdempotencyConflict", field, err)
+		}
 	}
-	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
-		blobs.deleteKeys[1] != blobs.putKeys[2] {
-		t.Fatalf("conflict blob writes=%v deletes=%v, want third upload deleted", blobs.putKeys, blobs.deleteKeys)
+	if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 0 {
+		t.Fatalf("conflict blob writes=%v deletes=%v, want no additional blob operations", blobs.putKeys, blobs.deleteKeys)
 	}
 }
 
-func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
+func TestCreateArtifactConcurrentReplayCleanup(t *testing.T) {
 	t.Parallel()
-	var logs bytes.Buffer
-	ctx := log.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	blobs := newRecordingBlobStore()
-	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	agentID := mustCreateAgent(t, ctx, store)
-	input := artifactstore.CreateArtifactInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		ContentType:    "image/png",
-		Content:        []byte("same bytes"),
-		IdempotencyKey: "upload:cleanup-failure:0",
-	}
-	first, err := store.Artifacts().CreateArtifact(ctx, input)
-	if err != nil {
-		t.Fatalf("create artifact: %v", err)
-	}
-	blobs.deleteErr = errors.New("injected blob deletion failure")
-
-	replayed, err := store.Artifacts().CreateArtifact(ctx, input)
-	if err != nil {
-		t.Fatalf("replay artifact after cleanup failure: %v", err)
-	}
-	if replayed.Created || replayed.ID != first.ID {
-		t.Fatalf("replay = %+v, want existing artifact %s", replayed, first.ID)
-	}
-	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
-		blobs.deleteKeys[0] != blobs.putKeys[1] {
-		t.Fatalf(
-			"replay cleanup writes=%v deletes=%v, want second upload deletion attempted",
-			blobs.putKeys,
-			blobs.deleteKeys,
-		)
-	}
-	var event map[string]any
-	if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
-		t.Fatalf("decode cleanup warning: %v; logs=%s", err, logs.String())
-	}
-	for key, want := range map[string]string{
-		"event.name":    "artifact.replay.cleanup",
-		"level":         "WARN",
-		"project.id":    input.ProjectID.String(),
-		"agent.id":      agentID.String(),
-		"artifact.id":   first.ID.String(),
-		"blob.key":      blobs.putKeys[1],
-		"error.message": blobs.deleteErr.Error(),
-	} {
-		if event[key] != want {
-			t.Errorf("cleanup warning %s = %v, want %q", key, event[key], want)
+	for _, cleanupFails := range []bool{false, true} {
+		name := "success"
+		if cleanupFails {
+			name = "failure"
 		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			ctx := log.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			blobs := newRecordingBlobStore()
+			store := newIntegrationStore(pool, WithBlobStore(blobs))
+			agentID := mustCreateAgent(t, ctx, store)
+			input := artifactstore.CreateArtifactInput{
+				ProjectID:      testProjectID,
+				AgentID:        agentID,
+				ContentType:    "image/png",
+				Content:        []byte("same bytes"),
+				IdempotencyKey: "upload:cleanup:0",
+			}
+			var winner artifactstore.ArtifactRecord
+			blobs.afterPut = func() {
+				blobs.afterPut = nil
+				var err error
+				winner, err = store.Artifacts().CreateArtifact(ctx, input)
+				if err != nil {
+					t.Fatalf("create competing artifact during upload: %v", err)
+				}
+			}
+			if cleanupFails {
+				blobs.deleteErr = errors.New("injected blob deletion failure")
+			}
+			replayed, err := store.Artifacts().CreateArtifact(ctx, input)
+			if err != nil {
+				t.Fatalf("replay artifact after competing create: %v", err)
+			}
+			if replayed.Created || replayed.ID != winner.ID {
+				t.Fatalf("replay = %+v, want existing artifact %s", replayed, winner.ID)
+			}
+			if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
+				blobs.deleteKeys[0] != blobs.putKeys[0] {
+				t.Fatalf("replay cleanup writes=%v deletes=%v, want losing upload deletion attempted",
+					blobs.putKeys, blobs.deleteKeys)
+			}
+			if !bytes.Equal(blobs.content[blobs.putKeys[1]], input.Content) {
+				t.Fatal("replay cleanup changed the winning artifact's content")
+			}
+			if !cleanupFails {
+				if _, ok := blobs.content[blobs.putKeys[0]]; ok {
+					t.Fatal("replay cleanup retained the losing upload")
+				}
+				return
+			}
+			var event map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
+				t.Fatalf("decode cleanup warning: %v; logs=%s", err, logs.String())
+			}
+			for key, want := range map[string]string{
+				"event.name":    "artifact.replay.cleanup",
+				"level":         "WARN",
+				"project.id":    input.ProjectID.String(),
+				"agent.id":      input.AgentID.String(),
+				"artifact.id":   winner.ID.String(),
+				"blob.key":      blobs.putKeys[0],
+				"error.message": blobs.deleteErr.Error(),
+			} {
+				if event[key] != want {
+					t.Errorf("cleanup warning %s = %v, want %q", key, event[key], want)
+				}
+			}
+		})
 	}
 }
 
@@ -378,19 +408,22 @@ func TestCreateArtifactReleasesAgentBeforeBlobCleanup(t *testing.T) {
 				ProjectID: testProjectID, AgentID: agentID, ContentType: "text/plain",
 				Content: []byte("original"), IdempotencyKey: "cleanup-lock",
 			}
-			if _, err := store.Artifacts().CreateArtifact(ctx, input); err != nil {
-				t.Fatalf("create original artifact: %v", err)
-			}
 			wantErr := storeerr.ErrIdempotencyConflict
 			if archived {
 				user := mustCreateProjectOperatorUser(t, ctx, store, "cleanup-lock@example.com", "Cleanup Lock")
 				if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, agentID, userPrincipal(user.ID)); err != nil {
 					t.Fatalf("archive agent: %v", err)
 				}
-				input.IdempotencyKey = "cleanup-lock-new"
 				wantErr = storeerr.ErrStateTransitionConflict
 			} else {
+				winningInput := input
 				input.Content = []byte("conflicting")
+				blobs.afterPut = func() {
+					blobs.afterPut = nil
+					if _, err := store.Artifacts().CreateArtifact(ctx, winningInput); err != nil {
+						t.Fatalf("create competing artifact during upload: %v", err)
+					}
+				}
 			}
 			// Probe from another transaction synchronously inside the blob callback:
 			// any retained agent lock would keep external cleanup from progressing.
@@ -457,10 +490,10 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("new archived agent artifact error = %v, want ErrStateTransitionConflict", err)
 	}
-	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
-		blobs.deleteKeys[0] != blobs.putKeys[1] || blobs.deleteKeys[1] != blobs.putKeys[2] {
+	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
+		blobs.deleteKeys[0] != blobs.putKeys[1] {
 		t.Fatalf(
-			"artifact blob writes=%v deletes=%v, want both post-archive uploads deleted",
+			"artifact blob writes=%v deletes=%v, want only the new post-archive upload deleted",
 			blobs.putKeys, blobs.deleteKeys,
 		)
 	}

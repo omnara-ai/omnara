@@ -52,7 +52,10 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"send_integration_message", "web_search", "web_fetch", "skill", "read_file", "search_files"},
+		[]string{
+			"send_integration_message", "web_search", "web_fetch", "skill",
+			"list_files", "read_file", "write_file", "search_files",
+		},
 		expectedTopology{async: true},
 	)
 
@@ -161,6 +164,19 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 	}
 }
 
+func TestListFilesImplementationValidatorBinding(t *testing.T) {
+	for _, limit := range []int{-1, 0, 1, 100, 101} {
+		input := json.RawMessage(fmt.Sprintf(`{"pattern":"/memory/*","limit":%d}`, limit))
+		err := validateRegisteredToolInput("list_files", input)
+		if valid := limit >= 1 && limit <= 100; (err == nil) != valid {
+			t.Fatalf("limit %d: %v", limit, err)
+		}
+	}
+	if err := validateRegisteredToolInput("list_files", json.RawMessage(`{"pattern":"/memory/*"}`)); err != nil {
+		t.Fatalf("omitted limit rejected: %v", err)
+	}
+}
+
 func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	if err := validateRegisteredToolInput(
 		"ask_question",
@@ -204,39 +220,43 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 	require.NoError(t, err)
 	if err := validateRegisteredToolInput(
 		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
+		json.RawMessage(`{"text":"hello","paths":["/artifacts/`+artifactID+`"]}`),
 	); err != nil {
 		t.Fatalf("valid integration message rejected: %v", err)
 	}
 	if err := validateRegisteredToolInput(
 		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[]}`),
+		json.RawMessage(`{"text":"hello","paths":[]}`),
 	); err != nil {
-		t.Fatalf("empty artifact_ids rejected: %v", err)
+		t.Fatalf("empty paths rejected: %v", err)
 	}
 	if err := validateRegisteredToolInput(
 		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":null}`),
+		json.RawMessage(`{"text":"hello","paths":null}`),
 	); err == nil {
-		t.Fatal("null artifact_ids accepted")
+		t.Fatal("null paths accepted")
 	}
 	if err := validateRegisteredToolInput(
 		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[""]}`),
+		json.RawMessage(`{"text":"hello","paths":[""]}`),
 	); err == nil {
-		t.Fatal("empty artifact ID accepted")
+		t.Fatal("empty path accepted")
 	}
-	tooManyArtifactIDs := make([]string, 21)
-	for index := range tooManyArtifactIDs {
-		tooManyArtifactIDs[index] = artifactID
+	require.NoError(t, validateRegisteredToolInput("send_integration_message",
+		json.RawMessage(`{"text":"hello","paths":["/memory/engineering/report.pdf"]}`)))
+	require.Error(t, validateRegisteredToolInput("send_integration_message",
+		json.RawMessage(`{"text":"hello","artifact_ids":[]}`)))
+	tooManyPaths := make([]string, 21)
+	for index := range tooManyPaths {
+		tooManyPaths[index] = "/artifacts/" + artifactID
 	}
 	tooManyInput, err := json.Marshal(map[string]any{
-		"text":         "hello",
-		"artifact_ids": tooManyArtifactIDs,
+		"text":  "hello",
+		"paths": tooManyPaths,
 	})
 	require.NoError(t, err)
 	if err := validateRegisteredToolInput("send_integration_message", tooManyInput); err == nil {
-		t.Fatal("more than 20 artifact IDs accepted")
+		t.Fatal("more than 20 paths accepted")
 	}
 }
 

@@ -243,6 +243,24 @@ Subagents start with a clean context: only the `task` passed to `spawn_agent` re
 
 For a complete example you can deploy, with a `self` subagent whose copies each work in their own `git worktree` on the parent's machine, see [Coding agent in Slack](/examples/slack-coding-agent).
 
+## Memory stores
+
+`memory_stores` attaches project-owned stores where agents can keep files between conversations or share them with other agents. Reference each store by name:
+
+```yaml
+memory_stores:
+  - name: engineering
+    access: read_write
+```
+
+Store names are unique within a project and use 1–64 lowercase letters, digits, and single hyphens between groups of letters or digits.
+
+Each attachment requires `access: read` or `access: read_write`. Agent writes require both attachment `access` and store `agent_access` to be `read_write`. Project managers can edit files in read-only stores.
+
+Attached stores are available through the [file tools](/tools/built-in#files) at `/memory/<store-name>/<file-path>`. Paths can include nested directories. Files keep only their current contents; there is no edit history. Retrieval tools are added automatically; `read_write` attachments also add `write_file`. Explicit tool disables still apply.
+
+The CLI's `omnara memory-stores` commands manage stores; `omnara memory-stores files` manages their files using a store ID and a path relative to its root. Replacing or deleting a file requires `--expected-digest`, returned by upload and download.
+
 ## Create a config
 
 <Tabs>

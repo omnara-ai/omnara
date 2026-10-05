@@ -66,8 +66,8 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
-	test-service-e2e \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
+	test-service-e2e test-worker-image install-chroot-sandbox \
+	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad build-sandbox web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
@@ -90,7 +90,7 @@ verify-go: verify-static unit race-unit
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
-	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
+	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path './.context' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
 	test -z "$$files" || { printf 'gofmt needed:\n%s\n' "$$files"; exit 1; }
 
 golangci-version-check:
@@ -331,6 +331,20 @@ tagged-packages-check:
 	@tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		$(GO) test -c -tags=blackbox -o "$$tmp_dir/blackbox.test" ./internal/blackbox
 
+test-worker-image: ## Test sandboxes inside the built worker image
+	docker build --target worker -t omnara-worker-test .
+	@set -e; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
+		chmod 755 "$$tmp_dir"; \
+		build_image="$$(docker build --target go-base -q .)"; \
+		docker run --rm --network none --mount "type=bind,source=$$tmp_dir,target=/smoke" \
+			"$$build_image" cc -Wall -Wextra -Werror -o /smoke/seccomp-probe internal/sandbox/testdata/seccomp_probe.c; \
+		CGO_ENABLED=0 GOOS=linux GOARCH="$$(docker version --format '{{.Server.Arch}}')" $(GO) test -c -o "$$tmp_dir/sandbox.test" ./internal/sandbox; \
+		docker run --rm --network none --mount "type=bind,source=$$tmp_dir,target=/smoke,readonly" \
+			-e OMNARA_TEST_SANDBOX=/usr/local/bin/omnara-sandbox \
+			-e OMNARA_TEST_SECCOMP_PROBE=/smoke/seccomp-probe \
+			-e OMNARA_TEST_CHROOT_SANDBOX=/usr/local/bin/omnara-chroot-sandbox --entrypoint /smoke/sandbox.test \
+			omnara-worker-test -test.v -test.run '^Test(Sandbox|ChrootSandbox)' -test.timeout 60s
+
 db-up:
 	POSTGRES_HOST_PORT=$(POSTGRES_HOST_PORT) REDIS_HOST_PORT=$(REDIS_HOST_PORT) docker compose up -d --wait postgres redis rustfs
 	docker compose run --rm rustfs-init
@@ -374,6 +388,15 @@ build-omnarad:
 	mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -ldflags "-X github.com/omnara-ai/omnara/internal/omnarad.version=$(OMNARAD_VERSION)" -o bin/omnarad ./cmd/daemon
 
+install-chroot-sandbox: ## Install the chroot sandbox for native Linux workers (requires sudo)
+	@set -e; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
+		CGO_ENABLED=0 $(GO) build -o "$$tmp_dir/omnara-chroot-sandbox" ./cmd/chroot-sandbox; \
+		sudo sh cmd/chroot-sandbox/install.sh "$$tmp_dir/omnara-chroot-sandbox" /
+
+build-sandbox:
+	mkdir -p bin
+	CGO_ENABLED=0 $(GO) build -o bin/omnara-sandbox ./cmd/sandbox
+
 web-lint:
 	cd frontend && pnpm run lint
 
@@ -415,7 +438,7 @@ define RUN_SERVICE
 	OMNARA_PUBLIC_URL=$${OMNARA_PUBLIC_URL:-http://localhost:5173} \
 	OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=$${OMNARA_MCP_REGISTRY_SNAPSHOT_PATH:-$(MCP_REGISTRY_SNAPSHOT)} \
 	$(AIR) --tmp_dir tmp \
-	  --build.cmd "$(GO) build -o tmp/air-$(1) ./cmd/$(1)" \
+	  --build.cmd "$(2)$(GO) build -o tmp/air-$(1) ./cmd/$(1)" \
 	  --build.bin tmp/air-$(1) \
 	  --build.log air-$(1)-errors.log \
 	  --build.include_dir cmd,internal \
@@ -427,8 +450,9 @@ endef
 run-api:
 	@$(call RUN_SERVICE,api)
 
+run-worker: export PATH := $(REPO_ROOT)/bin:$(PATH)
 run-worker:
-	@$(call RUN_SERVICE,worker)
+	@$(call RUN_SERVICE,worker,$(MAKE) build-sandbox && )
 
 run-maintenance:
 	@$(call RUN_SERVICE,maintenance)

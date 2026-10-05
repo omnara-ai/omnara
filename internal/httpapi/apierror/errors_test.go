@@ -53,6 +53,10 @@ func TestFromError(t *testing.T) {
 			openapi.ErrorCodeInvalidRequest,
 		},
 		{"not found sentinel", storeerr.ErrNotFound, http.StatusNotFound, openapi.ErrorCodeNotFound},
+		{"read-only", storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.ErrConflict),
+			http.StatusConflict, openapi.ErrorCodeFileReadOnly},
+		{"directory read", storeerr.InvalidRequest(storeerr.ErrNotAFile),
+			http.StatusBadRequest, openapi.ErrorCodeNotAFile},
 		{
 			"wrapped pgx no rows",
 			fmt.Errorf("load agent: %w", pgx.ErrNoRows),
@@ -103,6 +107,24 @@ func TestFromError(t *testing.T) {
 				t.Fatalf("FromError(%v) does not preserve its cause", tt.err)
 			}
 		})
+	}
+}
+
+func TestFileConflictCodesAndDigest(t *testing.T) {
+	for _, code := range []openapi.ErrorCode{
+		openapi.ErrorCodeFileContentConflict, openapi.ErrorCodeExpectedDigestRequired,
+	} {
+		for _, digest := range []string{"", "sha256:current"} {
+			var err error = &storeerr.FileContentConflictError{CurrentDigest: digest}
+			if code == openapi.ErrorCodeExpectedDigestRequired {
+				err = storeerr.Tag(storeerr.ErrExpectedDigestRequired, err)
+			}
+			got := FromError(err)
+			if got.Status != http.StatusConflict || got.Code != code || (got.CurrentDigest != nil) != (digest != "") ||
+				(got.CurrentDigest != nil && *got.CurrentDigest != digest) {
+				t.Fatalf("error = %+v, want %s with digest %q", got, code, digest)
+			}
+		}
 	}
 }
 

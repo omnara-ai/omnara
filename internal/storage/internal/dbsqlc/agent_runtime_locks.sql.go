@@ -201,7 +201,7 @@ WHERE process.project_id = $2
   AND process.agent_id = $3
   AND process.runtime_lock_id = $4::uuid
   AND process.state = 'queued'
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 `
 
 type FailQueuedProcessesForRuntimeEndParams struct {
@@ -235,9 +235,6 @@ func (q *Queries) FailQueuedProcessesForRuntimeEnd(ctx context.Context, arg Fail
 			&i.AgentMachineBindingID,
 			&i.MachineID,
 			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.Env,
 			&i.SecretEnv,
@@ -255,6 +252,7 @@ func (q *Queries) FailQueuedProcessesForRuntimeEnd(ctx context.Context, arg Fail
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.ExecutionSpec,
 		); err != nil {
 			return nil, err
 		}

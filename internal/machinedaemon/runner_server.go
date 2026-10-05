@@ -945,12 +945,14 @@ func captureTerminalResult(
 	captureErr error,
 ) (json.RawMessage, processRunnerExit) {
 	var (
-		output    string
-		start     int64
-		next      int64
-		truncated bool
+		fileTransfer *daemonprotocol.FileTransferResult
+		output       string
+		start        int64
+		next         int64
+		truncated    bool
 	)
 	if runner != nil {
+		fileTransfer = runner.captureFileTransferResult(&exit)
 		cursor := int64(0)
 		var readErr error
 		output, start, next, truncated, readErr = runner.Slice(
@@ -965,7 +967,7 @@ func captureTerminalResult(
 		truncated = true
 		recordOutputCaptureFailure(&exit, captureErr)
 	}
-	result, _ := marshalJSON(map[string]any{
+	resultObject := map[string]any{
 		"state":       exit.State,
 		"exit_code":   exit.ExitCode,
 		"output":      output,
@@ -974,7 +976,11 @@ func captureTerminalResult(
 		"truncated":   truncated,
 		"done":        true,
 		"error":       processTerminalErrorMessage(exit),
-	})
+	}
+	if fileTransfer != nil {
+		resultObject["file_transfer"] = fileTransfer
+	}
+	result, _ := marshalJSON(resultObject)
 	return result, exit
 }
 
@@ -1088,7 +1094,7 @@ func (s *runnerServerState) runApplyOnce(
 ) error {
 	if preflight := preflightActionResult(
 		action,
-		s.assignment.Process.IOMode,
+		s.assignment.Process.ExecutionSpec.IOMode(),
 	); preflight != nil {
 		return s.recordActionWithoutEffect(ctx, action, *preflight)
 	}
@@ -1639,6 +1645,7 @@ func prepareLocalRunner(
 	}
 	runner := &localProcessRunner{
 		terminalResultReady: make(chan struct{}),
+		fileTransfer:        assignment.Process.ExecutionSpec.FileTransfer,
 	}
 	machine, err := localstore.Machine(
 		bootstrap.OmnaraHome,
@@ -1676,15 +1683,11 @@ func prepareLocalRunner(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	argv, err := processArgvForLocalOS(assignment.Process)
+	argv, err := processArgvForLocalOS(assignment.ID, assignment.Process)
 	if err != nil {
 		return preparedRunnerWithStartFailure(runner, err)
 	}
-	ioMode, err := processcmd.NormalizeIOMode(assignment.Process.IOMode)
-	if err != nil {
-		return preparedRunnerWithStartFailure(runner, err)
-	}
-	switch ioMode {
+	switch assignment.Process.ExecutionSpec.IOMode() {
 	case processcmd.IOModePipe:
 	case processcmd.IOModePTY:
 		if runtime.GOOS == "windows" {
@@ -1757,7 +1760,24 @@ func startPreparedLocalRunner(
 	runner.stdinOK = true
 	command.Stdout = &runner.output
 	command.Stderr = &runner.output
+	if runner.fileTransfer != nil {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			return nil, processNotStarted, fmt.Errorf("create file transfer result pipe: %w", err)
+		}
+		defer func() { _ = writer.Close() }()
+		command.ExtraFiles = []*os.File{writer}
+		runner.transferReader = reader
+		runner.transferResult = make(chan fileTransferOutcome, 1)
+		go func() {
+			defer func() { _ = reader.Close() }()
+			runner.transferResult <- readFileTransferResult(reader)
+		}()
+	}
 	if err := command.Start(); err != nil {
+		if runner.transferReader != nil {
+			_ = runner.transferReader.Close()
+		}
 		return nil, processNotStarted, err
 	}
 	runner.startedAt = time.Now()
@@ -1767,11 +1787,15 @@ func startPreparedLocalRunner(
 	return runner, processStarted, nil
 }
 
-func processArgvForLocalOS(process Process) ([]string, error) {
+func processArgvForLocalOS(processID string, process Process) ([]string, error) {
+	if err := process.ExecutionSpec.Validate(); err != nil {
+		return nil, err
+	}
+	if transfer := process.ExecutionSpec.FileTransfer; transfer != nil {
+		return fileTransferArgv(processID, *transfer)
+	}
 	return processcmd.ResolveShellCommand(
-		process.Command,
-		process.ShellSelector,
-		runtime.GOOS,
+		process.ExecutionSpec.Shell.Command, process.ExecutionSpec.Shell.Shell, runtime.GOOS,
 	)
 }
 

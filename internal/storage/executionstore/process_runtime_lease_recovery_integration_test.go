@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -869,8 +868,9 @@ func TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load reaped runtime tool call: %v", err)
 	}
-	if record.State != "completed" ||
-		!strings.Contains(string(record.ResultContentParts), "external outcome is unknown") {
+	wantResult := json.RawMessage(`[{"type":"structured_data","value":{"error_code":"runtime_lock_stale",` +
+		`"message":"` + executionstore.RuntimeToolInterruptedMessage + `"}}]`)
+	if record.State != "completed" || !sameJSON(record.ResultContentParts, wantResult) {
 		t.Fatalf("reaped runtime tool call = %+v", record)
 	}
 	lateParts, err := executionstore.ToolResultContentParts(json.RawMessage(`{"ok":true}`))

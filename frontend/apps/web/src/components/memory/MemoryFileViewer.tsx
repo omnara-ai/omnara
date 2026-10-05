@@ -1,0 +1,372 @@
+import {
+  type MemoryScope,
+  useDeleteMemoryFile,
+  useMemoryFile,
+  useWriteMemoryFile,
+} from '@omnara/react'
+import { CatchBoundary } from '@tanstack/react-router'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Streamdown } from 'streamdown'
+
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
+import { attachmentSize } from '@/lib/agent-attachments'
+import { downloadMemoryBlob, fileContentConflict, memoryPreview } from '@/lib/memory-files'
+import { errorMessage } from '@/lib/submit-status'
+
+const MAX_MARKDOWN_PREVIEW_CHARS = 256 * 1024
+
+const TextFileEditor = lazy(async () => ({
+  default: (await import('@/components/ui/text-file-editor')).TextFileEditor,
+}))
+
+export function MemoryFileViewer({
+  scope,
+  path,
+  canWrite,
+  onDeleted,
+}: {
+  scope: MemoryScope
+  path: string
+  canWrite: boolean
+  onDeleted: () => void
+}) {
+  const query = useMemoryFile(scope, path)
+  const preview = useMemo(
+    () => (query.data ? { ...query.data, ...memoryPreview(query.data.bytes) } : null),
+    [query.data],
+  )
+  return (
+    <>
+      {query.isError && (
+        <div role="alert" className="p-5 text-sm">
+          <p>{errorMessage(query.error, 'Could not load file')}</p>
+          <Button variant="outline" onClick={() => void query.refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {preview ? (
+        <FileContent
+          scope={scope}
+          path={path}
+          canWrite={canWrite}
+          preview={preview}
+          onDeleted={onDeleted}
+          onRefresh={() => void query.refetch()}
+        />
+      ) : (
+        !query.isError && <p className="text-muted-foreground p-5 text-sm">Loading file…</p>
+      )}
+    </>
+  )
+}
+
+function FileContent({
+  scope,
+  path,
+  canWrite,
+  preview,
+  onDeleted,
+  onRefresh,
+}: {
+  scope: MemoryScope
+  path: string
+  canWrite: boolean
+  preview: {
+    text: string | null
+    type: string | null
+    digest: string
+    bytes: Uint8Array<ArrayBuffer>
+  }
+  onDeleted: () => void
+  onRefresh: () => void
+}) {
+  const [draft, setDraft] = useState<{
+    text: string
+    originalText: string | null
+    digest: string
+  } | null>(null)
+  const content = draft ?? preview
+  const write = useWriteMemoryFile(scope)
+  const remove = useDeleteMemoryFile(scope)
+  const dirty = draft !== null
+  useUnsavedChangesWarning(
+    dirty,
+    ({ current, next }) =>
+      current.pathname === next.pathname &&
+      ('path' in current.search ? current.search.path : undefined) ===
+        ('path' in next.search ? next.search.path : undefined),
+  )
+  const pending = write.isPending || remove.isPending
+  const changed = !write.isPending && content.digest !== preview.digest
+  const error = write.error ?? remove.error
+  const conflict = fileContentConflict(write.error)
+  const currentDigest = conflict?.currentDigest
+  function updateDraft(text: string) {
+    const originalText = draft?.originalText ?? preview.text
+    setDraft(text === originalText ? null : { text, originalText, digest: content.digest })
+  }
+  function save() {
+    if (!draft) return
+    remove.reset()
+    write.mutate(
+      {
+        path,
+        content: new Blob([draft.text]),
+        expectedDigest: conflict ? currentDigest : draft.digest,
+      },
+      {
+        onSuccess: () => {
+          setDraft(null)
+        },
+      },
+    )
+  }
+  function deleteFile() {
+    if (!window.confirm(`Delete ${path}?${dirty ? ' Unsaved edits will be lost.' : ''}`)) return
+    write.reset()
+    remove.mutate({ path, digest: preview.digest }, { onSuccess: onDeleted })
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4 p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="break-all font-medium">{path}</h2>
+          <p className="text-muted-foreground text-xs">
+            {attachmentSize(preview.bytes.byteLength)}
+            {dirty ? ' · Unsaved changes' : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canWrite && content.text !== null && (
+            <Button size="sm" loading={write.isPending} disabled={!dirty || pending} onClick={save}>
+              {conflict
+                ? currentDigest
+                  ? 'Replace current contents'
+                  : 'Recreate file'
+                : 'Save changes'}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              downloadMemoryBlob(new Blob([preview.bytes]), path)
+            }}
+          >
+            Download
+          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={pending}
+              loading={remove.isPending}
+              onClick={deleteFile}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
+      </div>
+      <FileNotices
+        changed={changed}
+        error={error}
+        pending={pending}
+        onRefresh={() => {
+          remove.reset()
+          onRefresh()
+        }}
+        onLoadLatest={() => {
+          if (!dirty || window.confirm('Discard your edits and reload the latest file?')) {
+            setDraft(null)
+            write.reset()
+            remove.reset()
+          }
+        }}
+      />
+      {content.text !== null ? (
+        <TextPreview
+          scope={scope}
+          path={path}
+          value={content.text}
+          onChange={updateDraft}
+          canWrite={canWrite}
+          pending={pending}
+        />
+      ) : (
+        <BinaryPreview key={preview.digest} bytes={preview.bytes} type={preview.type} path={path} />
+      )}
+    </div>
+  )
+}
+
+function TextPreview({
+  scope,
+  path,
+  value,
+  onChange,
+  canWrite,
+  pending,
+}: {
+  scope: MemoryScope
+  path: string
+  value: string
+  onChange: (value: string) => void
+  canWrite: boolean
+  pending: boolean
+}) {
+  const markdown = path.toLowerCase().endsWith('.md')
+  const canPreviewMarkdown = value.length <= MAX_MARKDOWN_PREVIEW_CHARS
+  const [editorOpened, setEditorOpened] = useState(!canPreviewMarkdown)
+  const editor = (
+    <CatchBoundary
+      getResetKey={() => path}
+      errorComponent={() => (
+        <p role="alert">Could not load the editor. Download the file to view it.</p>
+      )}
+    >
+      <Suspense fallback={<p className="text-muted-foreground text-sm">Loading editor…</p>}>
+        <TextFileEditor
+          id={`memory-${scope.memoryStoreID}-${path}`}
+          filename={path}
+          value={value}
+          onChange={onChange}
+          readOnly={!canWrite || pending}
+          className="h-[min(65vh,48rem)]"
+        />
+      </Suspense>
+    </CatchBoundary>
+  )
+
+  return markdown ? (
+    <Tabs
+      defaultValue={canPreviewMarkdown ? 'preview' : 'source'}
+      className="gap-4"
+      onValueChange={(tab) => {
+        if (tab === 'source') setEditorOpened(true)
+      }}
+    >
+      <TabsList aria-label="File view">
+        <TabsTrigger value="preview">Preview</TabsTrigger>
+        <TabsTrigger value="source">{canWrite ? 'Edit' : 'Source'}</TabsTrigger>
+      </TabsList>
+      <TabsContent
+        value="source"
+        forceMount={editorOpened || undefined}
+        className="data-[state=inactive]:hidden"
+      >
+        {editor}
+      </TabsContent>
+      <TabsContent value="preview">
+        {canPreviewMarkdown ? (
+          <Streamdown
+            mode="static"
+            disallowedElements={['img']}
+            className="min-h-64 overflow-auto text-sm"
+          >
+            {value}
+          </Streamdown>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Markdown preview is unavailable for large files.
+          </p>
+        )}
+      </TabsContent>
+    </Tabs>
+  ) : (
+    editor
+  )
+}
+
+function FileNotices({
+  changed,
+  error,
+  pending,
+  onRefresh,
+  onLoadLatest,
+}: {
+  changed: boolean
+  error: Error | null
+  pending: boolean
+  onRefresh: () => void
+  onLoadLatest: () => void
+}) {
+  const conflict = fileContentConflict(error)
+  const currentDigest = conflict?.currentDigest
+  return (
+    <>
+      {changed && (
+        <div className="bg-muted rounded-md p-3 text-sm">
+          This file changed since you opened it. Your draft is preserved.{' '}
+          <button
+            className="underline disabled:opacity-50"
+            disabled={pending}
+            onClick={onLoadLatest}
+          >
+            Load latest
+          </button>
+        </div>
+      )}
+      {error && !(changed && currentDigest) && (
+        <p role="alert" className="text-destructive text-sm">
+          {conflict
+            ? currentDigest
+              ? 'This file changed.'
+              : 'This file no longer exists.'
+            : error.message}{' '}
+          <button className="underline" onClick={onRefresh}>
+            Check latest
+          </button>
+        </p>
+      )}
+    </>
+  )
+}
+
+function BinaryPreview({
+  bytes,
+  type,
+  path,
+}: {
+  bytes: Uint8Array<ArrayBuffer>
+  type: string | null
+  path: string
+}) {
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const frame = useRef<HTMLIFrameElement>(null)
+  const image = useRef<HTMLImageElement>(null)
+  useEffect(() => {
+    const next = type ? URL.createObjectURL(new Blob([bytes], { type })) : null
+    const element = frame.current ?? image.current
+    if (element && next) element.src = next
+    return () => {
+      if (next) URL.revokeObjectURL(next)
+    }
+  }, [bytes, type])
+  if (!type || previewFailed)
+    return (
+      <Empty className="min-h-64 border">
+        <EmptyDescription>
+          Preview isn’t available for this file. Download it to open it.
+        </EmptyDescription>
+      </Empty>
+    )
+  if (type === 'application/pdf')
+    return <iframe ref={frame} title={path} className="h-[65vh] w-full rounded-md border" />
+  return (
+    <img
+      ref={image}
+      alt={path}
+      className="max-h-[65vh] max-w-full self-center rounded-md object-contain"
+      onError={() => {
+        setPreviewFailed(true)
+      }}
+    />
+  )
+}

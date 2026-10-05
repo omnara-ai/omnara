@@ -21,7 +21,7 @@ export function ResourceListToolbar<TSort extends string>({
   onSearchChange: (value: string) => void
   placeholder: string
   showSearch: boolean
-  sort: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
+  sort?: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
   filters?: FilterProps<TSort>
 }) {
   const hasFilters = filters !== undefined && Object.values(filters).some(Boolean)
@@ -41,7 +41,9 @@ export function ResourceListToolbar<TSort extends string>({
           className="h-9 min-w-0 flex-1 text-sm"
         />
       )}
-      <FiltersMenu label={label} sort={showSearch ? sort : undefined} {...filters} />
+      {(hasFilters || sort) && (
+        <FiltersMenu label={label} sort={showSearch ? sort : undefined} {...filters} />
+      )}
     </div>
   )
 }

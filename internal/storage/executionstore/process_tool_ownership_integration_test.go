@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -34,9 +35,8 @@ func TestDurableProcessCommandsChooseWaitingDisposition(t *testing.T) {
 			},
 			func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 				return executionstore.StartProcessForToolCall(executionstore.CreateProcessInput{
+					ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 					AgentMachineBindingID: fixture.BindingID,
-					Command:               "sleep 1",
-					ShellSelector:         "sh",
 					Cwd:                   "/work",
 				}), nil
 			},
@@ -80,9 +80,8 @@ func TestDurableProcessCommandsChooseWaitingDisposition(t *testing.T) {
 				RuntimeLockID: fixture.Lock.ID,
 			},
 			executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "cat",
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			},
 		)
