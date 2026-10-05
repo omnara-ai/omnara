@@ -723,6 +723,24 @@ model:
     expect(parse(updated)).toMatchObject({ mcp: { '': { url: '' } } })
   })
 
+  it('reads back incomplete drafts instead of leaving the builder', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_name: ""
+    secret_env_overlay: {TOKEN: ""}
+  - machine_pool_name: ""
+mcp:
+  "": {url: "", auth: {type: sigv4, secret_id: "", service: "", region: ""}}
+  docs: {url: "", auth: {type: bearer, secret_id: ""}}
+subagents:
+  helper: {type: profile, profile: ""}
+`
+    const draft = mustDeserialize(source)
+    expect(draft.machineSources.map((row) => row.name)).toEqual(['', ''])
+    expect(draft.mcpServers.map((server) => server.url)).toEqual(['', ''])
+    expect(draft.subagents[0]?.profileName).toBe('')
+    expect(applyToSource(source, draft)).toBe(source)
+  })
+
   it('builds a fresh document when there is no baseline source', () => {
     const source = applyToSource('', fullConfig)
     expect(parse(source)).toMatchObject({

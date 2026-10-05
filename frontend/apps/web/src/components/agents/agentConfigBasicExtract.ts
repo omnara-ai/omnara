@@ -14,7 +14,6 @@ import {
   zAgentConfigDefinitionTool,
   zAgentConfigDefinitionToolPermission,
   zConfigIntegrationCapabilitySource,
-  zResourceNameReference,
 } from '@omnara/sdk/zod'
 import { type Document, isAlias, isMap, isScalar, parseDocument, visit } from 'yaml'
 import { z } from 'zod'
@@ -59,6 +58,12 @@ export function permissionSelection(selection: ToolPermissionSelection): Permiss
   return { mode: selection.mode, parameters: permissionParameters.parse(selection.parameters) }
 }
 
+// The builder writes rows as soon as they are added, before their names, URLs,
+// and secrets are filled in, so references it edits accept any text here and
+// the form and server validate them instead.
+const draftText = z.string()
+const draftSecretOverlay = z.record(z.string(), draftText.nullable()).nullish()
+
 // The generated machine source intersects "exactly one of machine_name or
 // machine_pool_name" with the fields; the builder splits the two kinds itself.
 const machineSourceFields = zAgentConfigDefinitionMachineSource.def.right.shape
@@ -66,16 +71,16 @@ const machineSourceFields = zAgentConfigDefinitionMachineSource.def.right.shape
 const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
 const machineEntry = z.strictObject({
-  machine_name: zResourceNameReference,
+  machine_name: draftText,
   cwd: machineSourceFields.cwd,
   env_overlay: machineSourceFields.env_overlay,
-  secret_env_overlay: machineSourceFields.secret_env_overlay,
+  secret_env_overlay: draftSecretOverlay,
 })
 
 export type MachineEntry = z.infer<typeof machineEntry>
 
 const poolEntry = z.strictObject({
-  machine_pool_name: zResourceNameReference,
+  machine_pool_name: draftText,
   initial_num_machines: machineSourceFields.initial_num_machines,
   max_machines: machineSourceFields.max_machines,
   delete_after_idle_minutes: machineSourceFields.delete_after_idle_minutes,
@@ -84,7 +89,7 @@ const poolEntry = z.strictObject({
   machine_provider_options_overlay: providerOptionsOverlay,
   cwd: machineSourceFields.cwd,
   env_overlay: machineSourceFields.env_overlay,
-  secret_env_overlay: machineSourceFields.secret_env_overlay,
+  secret_env_overlay: draftSecretOverlay,
 })
 
 export type PoolEntry = z.infer<typeof poolEntry>
@@ -94,13 +99,13 @@ const authFields = zAgentConfigDefinitionMcpAuth.shape
 const mcpAuth = z.discriminatedUnion('type', [
   z.strictObject({
     type: authFields.type.extract(['oauth', 'bearer']),
-    secret_id: authFields.secret_id,
+    secret_id: draftText,
   }),
   z.strictObject({
     type: authFields.type.extract(['sigv4']),
-    secret_id: authFields.secret_id,
-    service: authFields.service.unwrap(),
-    region: authFields.region.unwrap(),
+    secret_id: draftText,
+    service: draftText,
+    region: draftText,
   }),
 ])
 
@@ -113,6 +118,7 @@ export type McpToolEntry = z.infer<typeof mcpToolEntry>
 
 const mcpEntry = z.strictObject({
   ...zAgentConfigDefinitionMcpServer.shape,
+  url: draftText,
   permission: permission.optional(),
   auth: mcpAuth.optional(),
   tools: z.record(z.string(), mcpToolEntry).optional(),
@@ -144,12 +150,16 @@ export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
 
 const subagentEntry = z.strictObject({
   ...zAgentConfigDefinitionSubagent.shape,
+  profile: draftText.optional(),
   model: subagentModelEntry.optional(),
   instruction: z.strictObject(zAgentConfigDefinitionSubagentInstruction.shape).optional(),
 })
 export type SubagentEntry = z.infer<typeof subagentEntry>
 
-const memoryStoreEntry = z.strictObject(zAgentConfigDefinitionMemoryStore.shape)
+const memoryStoreEntry = z.strictObject({
+  ...zAgentConfigDefinitionMemoryStore.shape,
+  name: draftText,
+})
 export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
 
 const definitionFields = zAgentConfigDefinition.shape
