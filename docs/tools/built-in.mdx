@@ -205,7 +205,9 @@ The download process has a 120-second execution timeout.
 
 ### `read_file`
 
-Reads a UTF-8 text file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Files must contain no NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP artifact images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
+Reads a text or image file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
+
+Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
 | Input | Type | Notes |
 | --- | --- | --- |

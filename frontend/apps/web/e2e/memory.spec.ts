@@ -332,47 +332,54 @@ test('memory uploads allow empty files and distinguish quota errors from conflic
   expect(failures).toEqual([])
 })
 
-test('memory store settings preserve previews and control default agent access', async ({
-  page,
-}) => {
-  const { failures, storeName } = await createMemoryStore(page)
-  await createMemoryFile(page)
-  const dialog = page.getByRole('dialog')
-  let fileDownloads = 0
-  page.on('request', (request) => {
-    if (request.method() === 'GET' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()))
-      fileDownloads++
+for (const readOnly of [true, false]) {
+  test(`memory store settings preserve previews and control agent access (${readOnly ? 'read-only' : 'writable'})`, async ({
+    page,
+  }) => {
+    const { failures, storeName } = await createMemoryStore(page)
+    await createMemoryFile(page)
+    const dialog = page.getByRole('dialog')
+    let fileDownloads = 0
+    page.on('request', (request) => {
+      if (request.method() === 'GET' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()))
+        fileDownloads++
+    })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await dialog.getByLabel('Read-only for agents', { exact: true }).setChecked(readOnly)
+    await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText('Read-only for agents', { exact: true })).toHaveCount(
+      readOnly ? 1 : 0,
+    )
+    await expect(page.getByRole('button', { name: 'Add file', exact: true })).toBeEnabled()
+    expect(fileDownloads).toBe(0)
+    const storeURL = new URL(page.url()).pathname + new URL(page.url()).search
+    await signIn(page, adminEmail, `/projects/${projectID}/agents/new`)
+    await page.getByRole('button', { name: 'Attach memory store', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Search memory stores…', exact: true }).click()
+    await page.getByPlaceholder('Search memory stores…').fill(storeName)
+    await page.getByRole('option', { name: new RegExp(storeName) }).click()
+    await expect(page.getByRole('combobox', { name: `Access to ${storeName}` })).toContainText(
+      readOnly ? 'Read-only' : 'Read & write',
+    )
+    await page.getByRole('combobox', { name: `Access to ${storeName}` }).click()
+    await expect(page.getByRole('option', { name: 'Read-only', exact: true })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Read & write', exact: true })).toHaveCount(
+      readOnly ? 0 : 1,
+    )
+    await page.getByRole('option', { name: 'Read-only', exact: true }).click()
+    await expect(
+      page.getByText('This store is read-only for agents', { exact: false }),
+    ).toHaveCount(readOnly ? 1 : 0)
+    await page.getByRole('button', { name: `Detach ${storeName}` }).click()
+    await page.goto(storeURL)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    page.once('dialog', (prompt) => prompt.accept())
+    await dialog.getByRole('button', { name: 'Delete store', exact: true }).click()
+    await expect(page).toHaveURL(memoryPath)
+    expect(failures).toEqual([])
   })
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await dialog.getByLabel('Read-only for agents', { exact: true }).check()
-  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
-  await expect(dialog).toBeHidden()
-  await expect(page.getByText('Read-only for agents', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Add file', exact: true })).toBeEnabled()
-  expect(fileDownloads).toBe(0)
-  const storeURL = new URL(page.url()).pathname + new URL(page.url()).search
-  await signIn(page, adminEmail, `/projects/${projectID}/agents/new`)
-  await page.getByRole('button', { name: 'Attach memory store', exact: true }).click()
-  await page.getByRole('combobox', { name: 'Search memory stores…', exact: true }).click()
-  await page.getByPlaceholder('Search memory stores…').fill(storeName)
-  await page.getByRole('option', { name: new RegExp(storeName) }).click()
-  await expect(page.getByRole('combobox', { name: `Access to ${storeName}` })).toContainText(
-    'Read-only',
-  )
-  await page.getByRole('combobox', { name: `Access to ${storeName}` }).click()
-  await page.getByRole('option', { name: 'Read & write', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: `Access to ${storeName}` })).toContainText(
-    'Read & write',
-  )
-  await expect(page.getByText('This store is read-only for agents', { exact: false })).toBeVisible()
-  await page.getByRole('button', { name: `Detach ${storeName}` }).click()
-  await page.goto(storeURL)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  page.once('dialog', (prompt) => prompt.accept())
-  await dialog.getByRole('button', { name: 'Delete store', exact: true }).click()
-  await expect(page).toHaveURL(memoryPath)
-  expect(failures).toEqual([])
-})
+}
 
 test('memory viewers follow remote text and binary updates without an editable draft', async ({
   page,

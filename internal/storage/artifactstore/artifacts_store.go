@@ -79,6 +79,13 @@ func (s *Store) CreateArtifact(
 	if s.blobs == nil {
 		return ArtifactRecord{}, ErrBlobStoreNotConfigured
 	}
+	if input.IdempotencyKey != "" {
+		input.Digest = blobstore.ContentDigest(input.Content)
+		replay, found, err := findArtifactReplay(ctx, s.q, input)
+		if err != nil || found {
+			return replay, err
+		}
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("generate artifact id: %w", err)
@@ -133,7 +140,7 @@ func (s *Store) createArtifactRecord(
 		return ArtifactRecord{}, err
 	}
 	if input.IdempotencyKey != "" {
-		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
+		replay, found, err := findArtifactReplay(ctx, qtx, input)
 		if err != nil {
 			return ArtifactRecord{}, err
 		}
@@ -167,12 +174,12 @@ func (s *Store) createArtifactRecord(
 	return record, nil
 }
 
-func findArtifactReplayTx(
+func findArtifactReplay(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	q *dbsqlc.Queries,
 	input CreateArtifactInput,
 ) (ArtifactRecord, bool, error) {
-	row, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+	row, err := q.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
 		ProjectID:      input.ProjectID,
 		AgentID:        input.AgentID,
 		IdempotencyKey: input.IdempotencyKey,

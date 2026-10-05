@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFileRetrievalWithoutMachine(t *testing.T) {
@@ -326,6 +327,114 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
 		t.Fatalf("cross-project store read: %v", err)
 	}
+}
+
+func TestReadMemoryImageSnapshots(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-images", toolFixtureOptions{withMemory: true},
+		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	scope := memorystore.Scope{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
+	}
+	store, err := fixture.Store.Memories().Resolve(ctx, scope.ProjectID, "engineering")
+	require.NoError(t, err)
+	images := testImages(t)
+	snapshots := make(map[uuid.UUID][]byte)
+	var expectedDigest *string
+	for _, contentType := range []string{"image/png", "image/jpeg", "image/gif", "image/webp"} {
+		content := images[contentType]
+		written, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: store.ID, Path: "nested/image.png", Content: content, ExpectedDigest: expectedDigest,
+		})
+		require.NoError(t, err)
+		expectedDigest = &written.Digest
+		input, err := json.Marshal(map[string]any{
+			"path": written.Path, "expected_digest": written.Digest, "offset_line": 2,
+		})
+		require.NoError(t, err)
+		call := asyncToolContext{
+			Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
+			Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: input},
+		}
+		result, err := runReadFileAsync(ctx, call)
+		require.NoError(t, err)
+		raw := asyncCompletionContent(t, result)
+		var parts []struct {
+			Type       string          `json:"type"`
+			Value      json.RawMessage `json:"value"`
+			ArtifactID uuid.UUID       `json:"artifact_id"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &parts))
+		require.Len(t, parts, 2)
+		require.Equal(t, "structured_data", parts[0].Type)
+		require.JSONEq(t, fmt.Sprintf(`{"path":%q,"digest":%q,"size_bytes":%d,"content_type":%q}`,
+			written.Path, written.Digest, len(content), contentType), string(parts[0].Value))
+		require.Equal(t, "media_ref", parts[1].Type)
+		require.NotEqual(t, uuid.Nil, parts[1].ArtifactID)
+		require.NotContains(t, snapshots, parts[1].ArtifactID)
+		snapshots[parts[1].ArtifactID] = content
+		artifact, err := fixture.Store.Artifacts().GetArtifact(ctx, scope.ProjectID, fixture.Agent.ID, parts[1].ArtifactID)
+		require.NoError(t, err)
+		require.Equal(t, "image.png", artifact.Filename)
+		require.Equal(t, contentType, artifact.ContentType)
+		call.ToolCallID = uuid.New()
+		repeated, err := runReadFileAsync(ctx, call)
+		require.NoError(t, err)
+		require.JSONEq(t, string(raw), string(asyncCompletionContent(t, repeated)))
+	}
+	require.NoError(t, fixture.Store.Memories().DeleteFile(ctx, scope, store.ID, "nested/image.png", *expectedDigest))
+	for id, want := range snapshots {
+		content, artifact, err := fixture.Store.Artifacts().GetArtifactBlob(ctx, scope.ProjectID, fixture.Agent.ID, id)
+		require.NoError(t, err)
+		require.Equal(t, want, content)
+		require.Equal(t, blobstore.ContentDigest(want), artifact.Digest)
+	}
+	var count int
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM artifacts WHERE agent_id = $1", fixture.Agent.ID).Scan(&count))
+	require.Equal(t, len(images), count)
+}
+
+func TestReadMemoryImagesCheckAccessAndDigestBeforeSnapshot(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-image-access", toolFixtureOptions{withMemory: true},
+		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	scope := memorystore.Scope{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
+	}
+	store, err := fixture.Store.Memories().Resolve(ctx, scope.ProjectID, "engineering")
+	require.NoError(t, err)
+	private, err := fixture.Store.Memories().Create(ctx, scope, "private", "", agentconfig.MemoryStoreAccessReadWrite)
+	require.NoError(t, err)
+	content := testImages(t)["image/png"]
+	for _, storeID := range []uuid.UUID{store.ID, private.ID} {
+		_, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: storeID, Path: "image.png", Content: content,
+		})
+		require.NoError(t, err)
+	}
+	for _, test := range []struct {
+		name, input string
+		want        error
+	}{
+		{"stale digest", `{"path":"/memory/engineering/image.png","expected_digest":"` +
+			blobstore.ContentDigest([]byte("changed")) + `"}`, storeerr.ErrConflict},
+		{"unattached store", `{"path":"/memory/private/image.png"}`, storeerr.ErrNotFound},
+		{"missing store", `{"path":"/memory/missing/image.png"}`, storeerr.ErrNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := runReadFileAsync(ctx, asyncToolContext{
+				Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
+				Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: json.RawMessage(test.input)},
+			})
+			require.ErrorIs(t, err, test.want)
+			require.Nil(t, result)
+		})
+	}
+	var count int
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM artifacts WHERE agent_id = $1", fixture.Agent.ID).Scan(&count))
+	require.Zero(t, count)
 }
 
 func TestReadMemoryExpectedDigest(t *testing.T) {

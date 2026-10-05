@@ -69,7 +69,7 @@ const (
 		"(e.g. curl) on the machine where the service runs instead."
 	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
 	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
-		"PNG, JPEG, GIF, and WebP artifact images are returned for you to view; paging inputs don't apply to images. " +
+		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text in Omnara files. " +

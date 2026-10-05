@@ -11,10 +11,12 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
+	"path"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -122,12 +124,27 @@ func runReadFileAsync(
 	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
 		return nil, fmt.Errorf("file digest mismatch; restart the read: %w", storeerr.ErrConflict)
 	}
-	if artifactID != uuid.Nil && isViewableImage(contentType, content) {
+	if isViewableImage(contentType, content) {
+		if artifactID == uuid.Nil {
+			artifact, err := call.Executor.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+				ProjectID:      call.Turn.ProjectID,
+				AgentID:        call.Turn.AgentID,
+				ContentType:    contentType,
+				Filename:       path.Base(input.Path),
+				Content:        content,
+				MaxBytes:       daemonprotocol.MaxFileTransferBytes,
+				IdempotencyKey: "memory-image:" + blobstore.ContentDigest([]byte(input.Path+"\x00"+digest)),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("save memory image: %w", err)
+			}
+			artifactID = artifact.ID
+		}
 		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
 	}
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return nil, errors.New(
-			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP artifact image",
+			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
 		)
 	}
 	var result map[string]any

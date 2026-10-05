@@ -23,10 +23,7 @@ const StoreCombobox = createResourceCombobox<MemoryStore>({
   itemLabel: (store) => store.name,
   renderItem: (store) => (
     <span className="flex min-w-0 flex-col gap-0.5">
-      <span className="font-medium">
-        {store.name}
-        {store.agent_access === 'read' ? ' · Read-only' : ''}
-      </span>
+      <span className="font-medium">{store.name}</span>
       <span className="text-muted-foreground line-clamp-2 text-xs">{store.description}</span>
     </span>
   ),
@@ -165,6 +162,7 @@ function MemoryAttachment({
       </div>
       <Select
         value={attachment.access}
+        disabled={!store}
         onValueChange={(value) => {
           if (value === 'read' || value === 'read_write') onChange(value)
         }}
@@ -175,7 +173,9 @@ function MemoryAttachment({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="read_write">Read & write</SelectItem>
+          {store?.agent_access === 'read_write' && (
+            <SelectItem value="read_write">Read & write</SelectItem>
+          )}
           <SelectItem value="read">Read-only</SelectItem>
         </SelectContent>
       </Select>
