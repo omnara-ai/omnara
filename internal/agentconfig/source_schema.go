@@ -129,6 +129,38 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	return parsed, err
 }
 
+// CanonicalDefinitionJSON compacts a JSON definition and sorts its object
+// keys, so equal definitions share a source hash however they were written.
+// Numbers keep their original text. Invalid JSON is returned unchanged for the
+// compiler to report.
+func CanonicalDefinitionJSON(raw []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return raw
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return raw
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return canonical
+}
+
+// SourceDefinitionJSON converts saved source text to its JSON object form
+// without validating it, so configs saved under older schema rules still
+// render.
+func SourceDefinitionJSON(format SourceFormat, raw []byte) (json.RawMessage, error) {
+	jsonSource, _, err := sourceJSON(format, raw)
+	if err != nil {
+		return nil, err
+	}
+	return CanonicalDefinitionJSON(jsonSource), nil
+}
+
 func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return AgentConfigSource{}, nil, errors.New("agent config source is required")

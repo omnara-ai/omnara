@@ -3058,7 +3058,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateAgentConfigRequest'
+              $ref: '#/components/schemas/AgentConfigSource'
       responses:
         '200':
           description: Existing agent config returned.
@@ -8437,6 +8437,394 @@ components:
               code:
                 $ref: '#/components/schemas/ServerErrorCode'
   schemas:
+    # BEGIN GENERATED AgentConfigDefinition components.
+    # Projected from the agent config source schema. Regenerate with
+    # OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 go test ./internal/agentconfig -run TestGenerated
+    AgentConfigDefinition:
+      additionalProperties: false
+      description: 'Agent config definition: the JSON form of an agent config source. The server validates it fully when compiling, including rules this schema does not express.'
+      properties:
+        event_webhook:
+          $ref: '#/components/schemas/AgentConfigDefinitionEventWebhook'
+        instruction:
+          minLength: 1
+          type: string
+        machine_sources:
+          items:
+            $ref: '#/components/schemas/AgentConfigDefinitionMachineSource'
+          type:
+            - array
+            - "null"
+        max_depth:
+          maximum: 8
+          minimum: 1
+          type: integer
+        max_subagents:
+          maximum: 2147483647
+          minimum: 1
+          type: integer
+        mcp:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
+          type: object
+        model:
+          $ref: '#/components/schemas/AgentConfigDefinitionModel'
+        skills:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+          uniqueItems: true
+        subagents:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
+          type: object
+        tools:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionTool'
+          type: object
+        version:
+          enum:
+            - v1
+      required:
+        - instruction
+        - model
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionEventWebhook:
+      additionalProperties: false
+      properties:
+        events:
+          items:
+            enum:
+              - agent_input
+              - model_output
+              - tool_result
+              - context_checkpoint
+              - tool_call_update
+          minItems: 1
+          type: array
+          uniqueItems: true
+        signing_secret_id:
+          minLength: 1
+          type: string
+        url:
+          minLength: 1
+          type: string
+      required:
+        - url
+        - events
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMCPAuth:
+      additionalProperties: false
+      properties:
+        region:
+          minLength: 1
+          type: string
+        secret_id:
+          minLength: 1
+          type: string
+        service:
+          minLength: 1
+          type: string
+        type:
+          enum:
+            - bearer
+            - oauth
+            - sigv4
+      required:
+        - type
+        - secret_id
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMCPServer:
+      additionalProperties: false
+      properties:
+        auth:
+          $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
+        default_enabled:
+          type:
+            - boolean
+            - "null"
+        deferred:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
+        tools:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionMCPTool'
+          type: object
+        url:
+          minLength: 1
+          type: string
+      required:
+        - url
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMCPTool:
+      additionalProperties: false
+      properties:
+        deferred:
+          type:
+            - boolean
+            - "null"
+        enabled:
+          type:
+            - boolean
+            - "null"
+        permission:
+          $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionMachineSource:
+      additionalProperties: false
+      properties:
+        cwd:
+          maxLength: 4096
+          type: string
+        delete_after_idle_minutes:
+          anyOf:
+            - const: 0
+            - maximum: 2147483647
+              minimum: 5
+              type: integer
+        description:
+          maxLength: 4096
+          type: string
+        env_overlay:
+          additionalProperties:
+            type:
+              - string
+              - "null"
+          type:
+            - object
+            - "null"
+        initial_num_machines:
+          minimum: 0
+          type: integer
+        machine_cpu:
+          maximum: 2147483647
+          minimum: 1
+          type: integer
+        machine_memory_mb:
+          maximum: 2147483647
+          minimum: 1
+          type: integer
+        machine_name:
+          maxLength: 64
+          minLength: 1
+          type: string
+        machine_pool_name:
+          maxLength: 64
+          minLength: 1
+          type: string
+        machine_provider_options_overlay:
+          type:
+            - object
+            - "null"
+        max_machines:
+          minimum: 0
+          type: integer
+        secret_env_overlay:
+          additionalProperties:
+            type:
+              - string
+              - "null"
+          type:
+            - object
+            - "null"
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionModel:
+      additionalProperties: false
+      properties:
+        cache_retention:
+          enum:
+            - none
+            - short
+            - long
+        context_window_tokens:
+          minimum: 1
+          type: integer
+        default_max_output_tokens:
+          minimum: 1
+          type: integer
+        name:
+          maxLength: 64
+          minLength: 1
+          type: string
+        provider_config:
+          maxLength: 64
+          minLength: 1
+          type: string
+        reasoning:
+          additionalProperties: false
+          properties:
+            effort:
+              minLength: 1
+              type: string
+          required:
+            - effort
+          type: object
+      required:
+        - provider_config
+        - name
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionSubagent:
+      additionalProperties: false
+      properties:
+        archive_after_idle_minutes:
+          maximum: 2147483647
+          minimum: 1
+          type: integer
+        description:
+          type: string
+        instruction:
+          $ref: '#/components/schemas/AgentConfigDefinitionSubagentInstruction'
+        max_instances:
+          maximum: 2147483647
+          minimum: 1
+          type: integer
+        model:
+          $ref: '#/components/schemas/AgentConfigDefinitionSubagentModel'
+        profile:
+          maxLength: 64
+          minLength: 1
+          type: string
+        type:
+          enum:
+            - profile
+            - self
+      required:
+        - type
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionSubagentInstruction:
+      additionalProperties: false
+      properties:
+        append:
+          type: string
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionSubagentModel:
+      additionalProperties: false
+      properties:
+        cache_retention:
+          enum:
+            - none
+            - short
+            - long
+        context_window_tokens:
+          minimum: 1
+          type: integer
+        default_max_output_tokens:
+          minimum: 1
+          type: integer
+        name:
+          maxLength: 64
+          minLength: 1
+          type: string
+        provider_config:
+          maxLength: 64
+          minLength: 1
+          type: string
+        reasoning:
+          additionalProperties: false
+          properties:
+            effort:
+              minLength: 1
+              type: string
+          required:
+            - effort
+          type: object
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionTool:
+      additionalProperties: false
+      properties:
+        deferred:
+          type: boolean
+        description:
+          minLength: 1
+          type: string
+        enabled:
+          type:
+            - boolean
+            - "null"
+        input_schema:
+          $ref: '#/components/schemas/AgentConfigDefinitionToolInputSchema'
+        permission:
+          $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
+        type:
+          enum:
+            - built_in
+            - custom
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionToolInputSchema:
+      properties:
+        properties:
+          additionalProperties:
+            type: object
+          type: object
+        required:
+          items:
+            minLength: 1
+            type: string
+          type: array
+        type:
+          const: object
+      required:
+        - type
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionToolPermission:
+      additionalProperties: false
+      properties:
+        mode:
+          minLength: 1
+          type: string
+        parameters:
+          type: object
+      required:
+        - mode
+      type: object
+      x-go-type: json.RawMessage
+    AgentConfigToolsDefinition:
+      additionalProperties: true
+      description: The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+      properties:
+        machine_sources:
+          items:
+            $ref: '#/components/schemas/AgentConfigDefinitionMachineSource'
+          type:
+            - array
+            - "null"
+        mcp:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
+          type: object
+        skills:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+          uniqueItems: true
+        subagents:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
+          type: object
+        tools:
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionTool'
+          type: object
+      type: object
+      x-go-type: json.RawMessage
+    # END GENERATED AgentConfigDefinition components.
     ResourceName:
       type: string
       minLength: 1
@@ -10140,16 +10528,14 @@ components:
         expires_at:
           $ref: '#/components/schemas/Timestamp'
     ResolveAgentConfigToolsRequest:
+      description: Send exactly one of definition or yaml.
       type: object
       additionalProperties: false
-      required: [source, source_format]
       properties:
-        source:
-          type: string
-          minLength: 1
-        source_format:
-          type: string
-          enum: [yaml, json]
+        definition:
+          $ref: '#/components/schemas/AgentConfigToolsDefinition'
+        yaml:
+          $ref: '#/components/schemas/AgentConfigYAMLSource'
     ResolvedAgentConfigTools:
       type: object
       additionalProperties: false
@@ -10170,33 +10556,35 @@ components:
           type: boolean
         permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
-    CreateAgentConfigRequest:
+    AgentConfigSource:
+      description: >-
+        An agent config to compile. Send exactly one of definition, a JSON
+        object, or yaml, YAML text that is stored verbatim so comments and
+        formatting survive.
       type: object
       additionalProperties: false
-      required: [source, source_format]
       properties:
-        source:
-          type: string
-          minLength: 1
-        source_format:
-          type: string
-          enum: [yaml, json]
+        definition:
+          $ref: '#/components/schemas/AgentConfigDefinition'
+        yaml:
+          $ref: '#/components/schemas/AgentConfigYAMLSource'
+    AgentConfigYAMLSource:
+      type: string
+      minLength: 1
+      description: Agent config source as YAML text.
     UpdateAgentConfigRequest:
       description: >-
-        Replaces a live agent's config. expected_current_config_id makes the
-        change conditional on the agent still running that config, so
-        concurrent editors get a conflict instead of silently overwriting each
-        other.
+        Replaces a live agent's config. Send exactly one of definition or yaml.
+        expected_current_config_id makes the change conditional on the agent
+        still running that config, so concurrent editors get a conflict instead
+        of silently overwriting each other.
       type: object
       additionalProperties: false
-      required: [source, source_format]
       properties:
-        source:
-          type: string
-          minLength: 1
-        source_format:
-          type: string
-          enum: [yaml, json]
+        definition:
+          $ref: '#/components/schemas/AgentConfigDefinition'
+        yaml:
+          $ref: '#/components/schemas/AgentConfigYAMLSource'
         expected_current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
     ToolPermissionSelection:
@@ -11019,9 +11407,15 @@ components:
           $ref: '#/components/schemas/ProjectID'
         source:
           type: string
+          description: Saved source text. YAML sources keep their original text; JSON definitions are stored canonicalized.
         source_format:
           type: string
           enum: [yaml, json]
+        definition:
+          $ref: '#/components/schemas/AgentConfigDefinition'
+          description: >-
+            The saved source as a JSON object. Omitted for configs derived by
+            Omnara, such as subagent configs, which have no source.
         effective_definition_hash:
           type: string
         model:

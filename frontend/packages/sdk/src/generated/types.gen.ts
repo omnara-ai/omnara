@@ -5,6 +5,179 @@ export type ClientOptions = {
 };
 
 /**
+ * Agent config definition: the JSON form of an agent config source. The server validates it fully when compiling, including rules this schema does not express.
+ */
+export type AgentConfigDefinition = {
+    event_webhook?: AgentConfigDefinitionEventWebhook;
+    git_credentials?: AgentConfigDefinitionGitCredentials;
+    instruction: string;
+    interaction_handlers?: {
+        [key: string]: AgentConfigDefinitionIntegrationCapability;
+    };
+    machine_sources?: Array<AgentConfigDefinitionMachineSource> | null;
+    max_depth?: number;
+    max_subagents?: number;
+    mcp?: {
+        [key: string]: AgentConfigDefinitionMcpServer;
+    };
+    memory_stores?: Array<{
+        access: 'read' | 'read_write';
+        name: string;
+    }>;
+    model: AgentConfigDefinitionModel;
+    skills?: Array<string> | null;
+    subagents?: {
+        [key: string]: AgentConfigDefinitionSubagent;
+    };
+    tools?: {
+        [key: string]: AgentConfigDefinitionTool;
+    };
+    version?: 'v1';
+};
+
+export type AgentConfigDefinitionEventWebhook = {
+    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
+    signing_secret_id?: string;
+    url: string;
+};
+
+export type AgentConfigDefinitionGitCredentials = {
+    integration: string;
+};
+
+export type AgentConfigDefinitionIntegrationCapability = {
+    [key: string]: never;
+};
+
+export type AgentConfigDefinitionMcpAuth = {
+    region?: string;
+    secret_id: string;
+    service?: string;
+    type: 'bearer' | 'oauth' | 'sigv4';
+};
+
+export type AgentConfigDefinitionMcpServer = {
+    auth?: AgentConfigDefinitionMcpAuth;
+    default_enabled?: boolean | null;
+    deferred?: boolean;
+    permission?: AgentConfigDefinitionToolPermission;
+    tools?: {
+        [key: string]: AgentConfigDefinitionMcpTool;
+    };
+    url: string;
+};
+
+export type AgentConfigDefinitionMcpTool = {
+    deferred?: boolean | null;
+    enabled?: boolean | null;
+    permission?: AgentConfigDefinitionToolPermission;
+};
+
+export type AgentConfigDefinitionMachineSource = {
+    cwd?: string;
+    delete_after_idle_minutes?: 0 | number;
+    description?: string;
+    env_overlay?: {
+        [key: string]: string | null;
+    } | null;
+    initial_num_machines?: number;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    machine_name?: string;
+    machine_pool_name?: string;
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    } | null;
+    max_machines?: number;
+    secret_env_overlay?: {
+        [key: string]: string | null;
+    } | null;
+};
+
+export type AgentConfigDefinitionModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name: string;
+    provider_config: string;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionSubagent = {
+    archive_after_idle_minutes?: number;
+    description?: string;
+    instruction?: AgentConfigDefinitionSubagentInstruction;
+    max_instances?: number;
+    model?: AgentConfigDefinitionSubagentModel;
+    profile?: string;
+    type: 'profile' | 'self';
+};
+
+export type AgentConfigDefinitionSubagentInstruction = {
+    append?: string;
+};
+
+export type AgentConfigDefinitionSubagentModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name?: string;
+    provider_config?: string;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionTool = {
+    deferred?: boolean;
+    description?: string;
+    enabled?: boolean | null;
+    input_schema?: AgentConfigDefinitionToolInputSchema;
+    permission?: AgentConfigDefinitionToolPermission;
+    type?: 'built_in' | 'custom';
+};
+
+export type AgentConfigDefinitionToolInputSchema = {
+    properties?: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    required?: Array<string>;
+    type: 'object';
+};
+
+export type AgentConfigDefinitionToolPermission = {
+    mode: string;
+    parameters?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+ */
+export type AgentConfigToolsDefinition = {
+    interaction_handlers?: {
+        [key: string]: AgentConfigDefinitionIntegrationCapability;
+    };
+    machine_sources?: Array<AgentConfigDefinitionMachineSource> | null;
+    mcp?: {
+        [key: string]: AgentConfigDefinitionMcpServer;
+    };
+    skills?: Array<string> | null;
+    subagents?: {
+        [key: string]: AgentConfigDefinitionSubagent;
+    };
+    tools?: {
+        [key: string]: AgentConfigDefinitionTool;
+    };
+    [key: string]: unknown;
+};
+
+/**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
  */
 export type ResourceName = string;
@@ -1082,9 +1255,12 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
+/**
+ * Send exactly one of definition or yaml.
+ */
 export type ResolveAgentConfigToolsRequest = {
-    source: string;
-    source_format: 'yaml' | 'json';
+    definition?: AgentConfigToolsDefinition;
+    yaml?: AgentConfigYamlSource;
 };
 
 export type ResolvedAgentConfigTools = {
@@ -1097,17 +1273,25 @@ export type ResolvedAgentConfigTool = {
     permission: ToolPermissionSelection;
 };
 
-export type CreateAgentConfigRequest = {
-    source: string;
-    source_format: 'yaml' | 'json';
+/**
+ * An agent config to compile. Send exactly one of definition, a JSON object, or yaml, YAML text that is stored verbatim so comments and formatting survive.
+ */
+export type AgentConfigSource = {
+    definition?: AgentConfigDefinition;
+    yaml?: AgentConfigYamlSource;
 };
 
 /**
- * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ * Agent config source as YAML text.
+ */
+export type AgentConfigYamlSource = string;
+
+/**
+ * Replaces a live agent's config. Send exactly one of definition or yaml. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export type UpdateAgentConfigRequest = {
-    source: string;
-    source_format: 'yaml' | 'json';
+    definition?: AgentConfigDefinition;
+    yaml?: AgentConfigYamlSource;
     expected_current_config_id?: AgentConfigId;
 };
 
@@ -1558,8 +1742,15 @@ export type AgentConfig = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
+    /**
+     * Saved source text. YAML sources keep their original text; JSON definitions are stored canonicalized.
+     */
     source?: string;
     source_format?: 'yaml' | 'json';
+    /**
+     * The saved source as a JSON object. Omitted for configs derived by Omnara, such as subagent configs, which have no source.
+     */
+    definition?: AgentConfigDefinition;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
@@ -9265,7 +9456,7 @@ export type ResolveAgentConfigToolsResponses = {
 export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
 
 export type CreateAgentConfigData = {
-    body: CreateAgentConfigRequest;
+    body: AgentConfigSource;
     path: {
         orgID: string;
         projectID: string;

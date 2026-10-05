@@ -2,6 +2,167 @@
 
 import * as z from 'zod';
 
+export const zAgentConfigDefinitionEventWebhook = z.object({
+    events: z.array(z.enum([
+        'agent_input',
+        'model_output',
+        'tool_result',
+        'context_checkpoint',
+        'tool_call_update'
+    ])).min(1),
+    signing_secret_id: z.string().min(1).optional(),
+    url: z.string().min(1)
+});
+
+export const zAgentConfigDefinitionGitCredentials = z.object({
+    integration: z.string()
+});
+
+export const zAgentConfigDefinitionIntegrationCapability = z.record(z.string(), z.never());
+
+export const zAgentConfigDefinitionMcpAuth = z.object({
+    region: z.string().min(1).optional(),
+    secret_id: z.string().min(1),
+    service: z.string().min(1).optional(),
+    type: z.enum([
+        'bearer',
+        'oauth',
+        'sigv4'
+    ])
+});
+
+export const zAgentConfigDefinitionMachineSource = z.object({
+    cwd: z.string().max(4096).optional(),
+    delete_after_idle_minutes: z.union([
+        z.literal(0),
+        z.int().gte(5).lte(2147483647)
+    ]).optional(),
+    description: z.string().max(4096).optional(),
+    env_overlay: z.record(z.string(), z.string().nullable()).nullish(),
+    initial_num_machines: z.int().gte(0).optional(),
+    machine_cpu: z.int().gte(1).lte(2147483647).optional(),
+    machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
+    machine_name: z.string().min(1).max(64).optional(),
+    machine_pool_name: z.string().min(1).max(64).optional(),
+    machine_provider_options_overlay: z.record(z.string(), z.unknown()).nullish(),
+    max_machines: z.int().gte(0).optional(),
+    secret_env_overlay: z.record(z.string(), z.string().nullable()).nullish()
+});
+
+export const zAgentConfigDefinitionModel = z.object({
+    cache_retention: z.enum([
+        'none',
+        'short',
+        'long'
+    ]).optional(),
+    context_window_tokens: z.int().gte(1).optional(),
+    default_max_output_tokens: z.int().gte(1).optional(),
+    name: z.string().min(1).max(64),
+    provider_config: z.string().min(1).max(64),
+    reasoning: z.object({
+        effort: z.string().min(1)
+    }).optional()
+});
+
+export const zAgentConfigDefinitionSubagentInstruction = z.object({
+    append: z.string().optional()
+});
+
+export const zAgentConfigDefinitionSubagentModel = z.object({
+    cache_retention: z.enum([
+        'none',
+        'short',
+        'long'
+    ]).optional(),
+    context_window_tokens: z.int().gte(1).optional(),
+    default_max_output_tokens: z.int().gte(1).optional(),
+    name: z.string().min(1).max(64).optional(),
+    provider_config: z.string().min(1).max(64).optional(),
+    reasoning: z.object({
+        effort: z.string().min(1)
+    }).optional()
+});
+
+export const zAgentConfigDefinitionSubagent = z.object({
+    archive_after_idle_minutes: z.int().gte(1).lte(2147483647).optional(),
+    description: z.string().optional(),
+    instruction: zAgentConfigDefinitionSubagentInstruction.optional(),
+    max_instances: z.int().gte(1).lte(2147483647).optional(),
+    model: zAgentConfigDefinitionSubagentModel.optional(),
+    profile: z.string().min(1).max(64).optional(),
+    type: z.enum(['profile', 'self'])
+});
+
+export const zAgentConfigDefinitionToolInputSchema = z.object({
+    properties: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+    required: z.array(z.string().min(1)).optional(),
+    type: z.literal('object')
+});
+
+export const zAgentConfigDefinitionToolPermission = z.object({
+    mode: z.string().min(1),
+    parameters: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zAgentConfigDefinitionMcpTool = z.object({
+    deferred: z.boolean().nullish(),
+    enabled: z.boolean().nullish(),
+    permission: zAgentConfigDefinitionToolPermission.optional()
+});
+
+export const zAgentConfigDefinitionMcpServer = z.object({
+    auth: zAgentConfigDefinitionMcpAuth.optional(),
+    default_enabled: z.boolean().nullish(),
+    deferred: z.boolean().optional(),
+    permission: zAgentConfigDefinitionToolPermission.optional(),
+    tools: z.record(z.string(), zAgentConfigDefinitionMcpTool).optional(),
+    url: z.string().min(1)
+});
+
+export const zAgentConfigDefinitionTool = z.object({
+    deferred: z.boolean().optional(),
+    description: z.string().min(1).optional(),
+    enabled: z.boolean().nullish(),
+    input_schema: zAgentConfigDefinitionToolInputSchema.optional(),
+    permission: zAgentConfigDefinitionToolPermission.optional(),
+    type: z.enum(['built_in', 'custom']).optional()
+});
+
+/**
+ * Agent config definition: the JSON form of an agent config source. The server validates it fully when compiling, including rules this schema does not express.
+ */
+export const zAgentConfigDefinition = z.object({
+    event_webhook: zAgentConfigDefinitionEventWebhook.optional(),
+    git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
+    instruction: z.string().min(1),
+    interaction_handlers: z.record(z.string(), zAgentConfigDefinitionIntegrationCapability).optional(),
+    machine_sources: z.array(zAgentConfigDefinitionMachineSource).nullish(),
+    max_depth: z.int().gte(1).lte(8).optional(),
+    max_subagents: z.int().gte(1).lte(2147483647).optional(),
+    mcp: z.record(z.string(), zAgentConfigDefinitionMcpServer).optional(),
+    memory_stores: z.array(z.object({
+        access: z.enum(['read', 'read_write']),
+        name: z.string().min(1).max(64)
+    })).optional(),
+    model: zAgentConfigDefinitionModel,
+    skills: z.array(z.string()).nullish(),
+    subagents: z.record(z.string(), zAgentConfigDefinitionSubagent).optional(),
+    tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
+    version: z.enum(['v1']).optional()
+});
+
+/**
+ * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+ */
+export const zAgentConfigToolsDefinition = z.object({
+    interaction_handlers: z.record(z.string(), zAgentConfigDefinitionIntegrationCapability).optional(),
+    machine_sources: z.array(zAgentConfigDefinitionMachineSource).nullish(),
+    mcp: z.record(z.string(), zAgentConfigDefinitionMcpServer).optional(),
+    skills: z.array(z.string()).nullish(),
+    subagents: z.record(z.string(), zAgentConfigDefinitionSubagent).optional(),
+    tools: z.record(z.string(), zAgentConfigDefinitionTool).optional()
+});
+
 /**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
  */
@@ -739,22 +900,33 @@ export const zCreateSlackSetupRequest = z.object({
     return_to: z.string().optional()
 });
 
-export const zResolveAgentConfigToolsRequest = z.object({
-    source: z.string().min(1),
-    source_format: z.enum(['yaml', 'json'])
-});
+/**
+ * Agent config source as YAML text.
+ */
+export const zAgentConfigYamlSource = z.string().min(1);
 
-export const zCreateAgentConfigRequest = z.object({
-    source: z.string().min(1),
-    source_format: z.enum(['yaml', 'json'])
+/**
+ * Send exactly one of definition or yaml.
+ */
+export const zResolveAgentConfigToolsRequest = z.object({
+    definition: zAgentConfigToolsDefinition.optional(),
+    yaml: zAgentConfigYamlSource.optional()
 });
 
 /**
- * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ * An agent config to compile. Send exactly one of definition, a JSON object, or yaml, YAML text that is stored verbatim so comments and formatting survive.
+ */
+export const zAgentConfigSource = z.object({
+    definition: zAgentConfigDefinition.optional(),
+    yaml: zAgentConfigYamlSource.optional()
+});
+
+/**
+ * Replaces a live agent's config. Send exactly one of definition or yaml. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export const zUpdateAgentConfigRequest = z.object({
-    source: z.string().min(1),
-    source_format: z.enum(['yaml', 'json']),
+    definition: zAgentConfigDefinition.optional(),
+    yaml: zAgentConfigYamlSource.optional(),
     expected_current_config_id: zAgentConfigId.optional()
 });
 
@@ -3090,6 +3262,7 @@ export const zAgentConfig = z.object({
     project_id: zProjectId,
     source: z.string().optional(),
     source_format: z.enum(['yaml', 'json']).optional(),
+    definition: zAgentConfigDefinition.optional(),
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
@@ -4308,7 +4481,7 @@ export const zResolveAgentConfigToolsPath = z.object({
  */
 export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
 
-export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
+export const zCreateAgentConfigBody = zAgentConfigSource;
 
 export const zCreateAgentConfigPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

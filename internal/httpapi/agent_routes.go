@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -47,11 +46,11 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
-		string(request.Body.SourceFormat),
-		request.Body.Source,
+		request.Body.Definition,
+		request.Body.Yaml,
 	)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
@@ -699,11 +698,11 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated account principal is required to change an agent config")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
-		string(request.Body.SourceFormat),
-		request.Body.Source,
+		request.Body.Definition,
+		request.Body.Yaml,
 	)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
@@ -946,12 +945,25 @@ func agentConfigDetailResponse(
 	if err != nil {
 		return openapi.AgentConfig{}, err
 	}
+	var sourceDefinition *openapi.AgentConfigDefinition
+	if summary.Source != nil && summary.SourceFormat != nil {
+		// Saved sources were valid when compiled; a conversion failure here
+		// only omits the convenience field rather than failing the read.
+		converted, err := agentconfig.SourceDefinitionJSON(
+			agentconfig.SourceFormat(*summary.SourceFormat),
+			[]byte(*summary.Source),
+		)
+		if err == nil {
+			sourceDefinition = &converted
+		}
+	}
 	return openapi.AgentConfig{
 		Id:                      summary.Id,
 		OrgId:                   summary.OrgId,
 		ProjectId:               summary.ProjectId,
 		Source:                  summary.Source,
 		SourceFormat:            (*openapi.AgentConfigSourceFormat)(summary.SourceFormat),
+		Definition:              sourceDefinition,
 		EffectiveDefinitionHash: summary.EffectiveDefinitionHash,
 		Model:                   summary.Model,
 		InstructionHash:         summary.InstructionHash,
@@ -1142,29 +1154,35 @@ func instructionHash(instruction string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case string(agentconfig.SourceFormatYAML):
-		return agentconfig.SourceFormatYAML, nil
-	case string(agentconfig.SourceFormatJSON):
-		return agentconfig.SourceFormatJSON, nil
-	case "":
-		return "", fmt.Errorf("source_format is required")
+// agentConfigSourceInput resolves the definition-or-yaml pair carried by every
+// config-accepting request into compiler input.
+func agentConfigSourceInput(
+	definition *json.RawMessage,
+	yamlSource *string,
+) (agentconfig.SourceFormat, string, error) {
+	switch {
+	case definition != nil && yamlSource != nil:
+		return "", "", errors.New("send only one of definition or yaml")
+	case definition != nil:
+		return agentconfig.SourceFormatJSON, string(agentconfig.CanonicalDefinitionJSON(*definition)), nil
+	case yamlSource != nil:
+		return agentconfig.SourceFormatYAML, *yamlSource, nil
 	default:
-		return "", fmt.Errorf("unsupported source_format %q; use yaml or json", value)
+		return "", "", errors.New("one of definition or yaml is required")
 	}
 }
 
-func (s *Server) compileAgentConfigBodyForProject(
+func (s *Server) compileAgentConfigSourceForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
-	sourceFormatRaw, source string,
+	definition *json.RawMessage,
+	yamlSource *string,
 ) (agentconfigcompile.Body, error) {
-	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	sourceFormat, source, err := agentConfigSourceInput(definition, yamlSource)
 	if err != nil {
 		return agentconfigcompile.Body{}, err
 	}
-	body, err := agentconfigcompile.Compile(
+	return agentconfigcompile.Compile(
 		ctx,
 		s.store,
 		project.OrgID,
@@ -1173,10 +1191,6 @@ func (s *Server) compileAgentConfigBodyForProject(
 		sourceFormat,
 		source,
 	)
-	if err != nil {
-		return agentconfigcompile.Body{}, err
-	}
-	return body, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {

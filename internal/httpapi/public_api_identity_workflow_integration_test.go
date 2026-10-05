@@ -768,7 +768,7 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/config",
-		`{"source_format":"yaml","source":`+quotedJSONString(changedYAML)+`}`,
+		`{"yaml":`+quotedJSONString(changedYAML)+`}`,
 		"idem-operator-change-agent-config",
 		http.StatusForbidden,
 		authHeaders(operatorToken),

@@ -464,7 +464,7 @@ mcp:
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/config",
-		`{"source_format":"yaml","source":`+quotedJSONString(changedYAML)+`}`,
+		`{"yaml":`+quotedJSONString(changedYAML)+`}`,
 		"idem-config-policy-mcp-change",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
@@ -526,7 +526,7 @@ func TestPublicAgentProfilesRejectSourceAuthoring(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/config",
-		`{"source_format":"yaml","source":`+quotedJSONString(
+		`{"yaml":`+quotedJSONString(
 			sourceYAML,
 		)+`,"expected_current_config_id":"`+testutil.RequireType[string](t, config["id"])+`"}`,
 		"idem-agent-profile-old-retarget",
@@ -710,11 +710,76 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	if config["source_format"] != "json" || config["source"] != sourceJSON {
-		t.Fatalf("JSON-authored config source was not preserved: %+v", config)
+	canonicalJSON := `{"instruction":"Configured from JSON.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
+	if config["source_format"] != "json" || config["source"] != canonicalJSON {
+		t.Fatalf("JSON-authored config source was not stored canonicalized: %+v", config)
+	}
+	definition := testutil.RequireType[map[string]any](t, config["definition"])
+	if definition["instruction"] != "Configured from JSON." {
+		t.Fatalf("JSON-authored config definition was not returned: %+v", config)
+	}
+	reordered := createPublicHTTPAgentConfig(
+		t,
+		handler,
+		project,
+		"agent-config-json-source-reordered",
+		"json",
+		`{ "model": {"name": "gpt-test", "provider_config": "openai-prod"}, "instruction": "Configured from JSON." }`,
+		project.AdminToken,
+		http.StatusOK,
+	)
+	if reordered["id"] != config["id"] {
+		t.Fatalf("reordered JSON definition should dedupe to %v, got %+v", config["id"], reordered)
 	}
 	model := testutil.RequireType[map[string]any](t, config["model"])
 	if model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" || config["instruction_hash"] == "" {
 		t.Fatalf("JSON-authored config did not compile into runtime projection: %+v", config)
+	}
+}
+
+func TestPublicAgentConfigSourceRequiresExactlyOneForm(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-source-forms")
+	sourceYAML := "instruction: Configured from YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	for name, body := range map[string]string{
+		"neither": `{}`,
+		"both": `{"yaml":` + quotedJSONString(sourceYAML) +
+			`,"definition":{"instruction":"x","model":{"provider_config":"openai-prod","name":"gpt-test"}}}`,
+		"legacy fields":         `{"source_format":"yaml","source":` + quotedJSONString(sourceYAML) + `}`,
+		"non-object definition": `{"definition":"instruction: x"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			requestJSONWithHeaders(
+				t, handler, http.MethodPost, project.ProjectPath+"/agent-configs", body,
+				"", http.StatusBadRequest, authHeaders(project.AdminToken),
+			)
+		})
+	}
+
+	invalid := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/agent-configs",
+		`{"definition":{"instruction":"x","model":{"provider_config":"openai-prod","name":"gpt-test"},"tools":{"run_command":{"enabled":"nope"}}}}`,
+		"", http.StatusBadRequest, authHeaders(project.AdminToken),
+	)
+	issues := testutil.RequireType[[]any](t, invalid["issues"])
+	if len(issues) == 0 || testutil.RequireType[map[string]any](t, issues[0])["path"] != "/tools/run_command/enabled" {
+		t.Fatalf("invalid definition should report compiler issues by path: %+v", invalid)
+	}
+
+	yamlConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-config-source-forms-yaml", "yaml", sourceYAML,
+		project.AdminToken, http.StatusCreated,
+	)
+	if yamlConfig["source"] != sourceYAML || yamlConfig["source_format"] != "yaml" {
+		t.Fatalf("YAML source should be stored verbatim: %+v", yamlConfig)
+	}
+	definition := testutil.RequireType[map[string]any](t, yamlConfig["definition"])
+	if definition["instruction"] != "Configured from YAML." {
+		t.Fatalf("YAML config should also return its JSON definition: %+v", yamlConfig)
 	}
 }

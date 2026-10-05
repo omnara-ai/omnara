@@ -10,7 +10,7 @@ npx omnara profiles create --name machine-assistant --file agent.yaml
 
 ```bash REST
 export CONFIG="$(
-  jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
+  jq -n --rawfile src agent.yaml '{yaml: $src}' |
   curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
     -H "Authorization: Bearer $OMNARA_TOKEN" \
     -H "Content-Type: application/json" \
@@ -39,7 +39,7 @@ const source = await readFile('agent.yaml', 'utf8')
 const config = await sdk.createAgentConfig({
   client,
   path: { orgID, projectID },
-  body: { source, source_format: 'yaml' },
+  body: { yaml: source },
 })
 
 const launched = await sdk.createAgent({

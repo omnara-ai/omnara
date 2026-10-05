@@ -21,18 +21,24 @@ function writeTemp(name: string, content: string): string {
 describe('renderConfigSource', () => {
   it('reads a yaml file', () => {
     const file = writeTemp('agent.yaml', 'instruction: hi\n')
-    expect(renderConfigSource({ file })).toEqual({
-      source: 'instruction: hi\n',
-      source_format: 'yaml',
-    })
+    expect(renderConfigSource({ file })).toEqual({ yaml: 'instruction: hi\n' })
   })
 
   it('reads a json file', () => {
     const file = writeTemp('agent.json', '{"instruction":"hi"}\n')
-    expect(renderConfigSource({ file })).toEqual({
-      source: '{"instruction":"hi"}\n',
-      source_format: 'json',
-    })
+    expect(renderConfigSource({ file })).toEqual({ definition: { instruction: 'hi' } })
+  })
+
+  it('rejects a json file with invalid JSON', () => {
+    const file = writeTemp('broken.json', '{"instruction":')
+    expect(() => renderConfigSource({ file })).toThrow(
+      /broken\.json is not a valid JSON agent config/,
+    )
+  })
+
+  it('rejects a json file that is not an object', () => {
+    const file = writeTemp('list.json', '["instruction"]')
+    expect(() => renderConfigSource({ file })).toThrow(/expected a JSON object/)
   })
 
   it('rejects a file with an unknown extension', () => {
@@ -45,16 +51,12 @@ describe('renderConfigSource', () => {
 
   it('detects inline json', () => {
     expect(renderConfigSource({ source: '{"instruction": "hi"}' })).toEqual({
-      source: '{"instruction": "hi"}',
-      source_format: 'json',
+      definition: { instruction: 'hi' },
     })
   })
 
   it('detects inline yaml', () => {
-    expect(renderConfigSource({ source: 'instruction: hi' })).toEqual({
-      source: 'instruction: hi',
-      source_format: 'yaml',
-    })
+    expect(renderConfigSource({ source: 'instruction: hi' })).toEqual({ yaml: 'instruction: hi' })
   })
 
   it('rejects an empty attachment', () => {

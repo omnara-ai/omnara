@@ -1844,7 +1844,7 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachine(
 		ctx,
 		http.MethodPost,
 		p.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": sourceYAML},
+		map[string]any{"yaml": sourceYAML},
 		"",
 		p.adminToken,
 		http.StatusCreated,

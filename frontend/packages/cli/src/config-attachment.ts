@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 
-import { type OmnaraClient, sdk } from '@omnara/sdk'
+import {
+  type AgentConfigDefinition,
+  type AgentConfigSource,
+  type OmnaraClient,
+  sdk,
+  zJsonText,
+} from '@omnara/sdk'
 import { zAgentConfigId } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -24,11 +30,6 @@ export const zConfigAttachment = z.object({
 
 export type ConfigAttachment = z.output<typeof zConfigAttachment>
 
-export interface ConfigSource {
-  source: string
-  source_format: 'yaml' | 'json'
-}
-
 const ATTACHMENT_HINT = 'pass exactly one of --config, --file, or --source'
 const SOURCE_HINT = 'pass exactly one of --file or --source'
 
@@ -44,16 +45,30 @@ function fileFormat(filePath: string): 'yaml' | 'json' {
   throw new CliInputError(`config file must end in .yaml, .yml, or .json: ${filePath}`)
 }
 
-function inlineFormat(source: string): 'yaml' | 'json' {
-  try {
-    JSON.parse(source)
-    return 'json'
-  } catch {
-    return 'yaml'
+// The server validates definitions fully when compiling them, so only the object shape is checked here.
+const zDefinitionText = zJsonText.pipe(
+  z.custom<AgentConfigDefinition>(
+    (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
+    'expected a JSON object',
+  ),
+)
+
+function jsonDefinition(text: string, label: string): AgentConfigDefinition {
+  const parsed = zDefinitionText.safeParse(text)
+  if (!parsed.success) {
+    throw new CliInputError(
+      `${label} is not a valid JSON agent config: ${parsed.error.issues[0]?.message}`,
+    )
   }
+  return parsed.data
 }
 
-export function renderConfigSource(attachment: ConfigSourceAttachment): ConfigSource {
+function inlineSource(source: string): AgentConfigSource {
+  if (!zJsonText.safeParse(source).success) return { yaml: source }
+  return { definition: jsonDefinition(source, 'inline config source') }
+}
+
+export function renderConfigSource(attachment: ConfigSourceAttachment): AgentConfigSource {
   requireExactlyOne([attachment.file, attachment.source], SOURCE_HINT)
   if (attachment.file !== undefined) {
     const format = fileFormat(attachment.file)
@@ -63,11 +78,10 @@ export function renderConfigSource(attachment: ConfigSourceAttachment): ConfigSo
     } catch {
       throw new CliInputError(`could not read config file: ${attachment.file}`)
     }
-    return { source, source_format: format }
+    if (format === 'yaml') return { yaml: source }
+    return { definition: jsonDefinition(source, `config file ${attachment.file}`) }
   }
-  if (attachment.source !== undefined) {
-    return { source: attachment.source, source_format: inlineFormat(attachment.source) }
-  }
+  if (attachment.source !== undefined) return inlineSource(attachment.source)
   throw new CliInputError(SOURCE_HINT)
 }
 

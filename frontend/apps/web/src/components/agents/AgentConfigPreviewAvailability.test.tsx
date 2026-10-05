@@ -226,7 +226,7 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   const request = schemas.zResolveAgentConfigToolsRequest.parse(requests[0])
-  expect(JSON.parse(request.source)).toHaveProperty('subagents.worker', {
+  expect(request.definition).toHaveProperty('subagents.worker', {
     type: 'profile',
     profile: 'helper',
   })
@@ -240,10 +240,7 @@ it('does not refetch tool previews for subagent instruction, description, or mod
 })
 
 function ToolPreviewHarness({ source }: { source: string }) {
-  const query = useAgentConfigTools('org-test', 'project-test', {
-    source_format: 'yaml',
-    source,
-  })
+  const query = useAgentConfigTools('org-test', 'project-test', { yaml: source })
   return (
     <output data-status={query.status} data-fetching={query.isFetching}>
       {query.data?.tools.map((tool) => tool.name).join(',')}
@@ -268,7 +265,7 @@ it('does not seed a new editor from another editor in the same project', async (
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) =>
-        schemas.zResolveAgentConfigToolsRequest.parse(body).source === original
+        schemas.zResolveAgentConfigToolsRequest.parse(body).yaml === original
           ? previewResponse(['run_command'])
           : jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500),
     },
@@ -300,7 +297,7 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) => {
-        const { source } = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        const { yaml: source = '' } = schemas.zResolveAgentConfigToolsRequest.parse(body)
         requests.push(source)
         if (source === original) return previewResponse(['read_file'])
         if (source === updated) return previewResponse(['read_file', 'run_command'])

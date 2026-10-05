@@ -449,6 +449,14 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ResolvedAgentConfigTool.name":                            "",
 		"ToolPermissionMode.name":                                 "",
 		"UpdateMachinePoolRequest.provider_config":                "",
+		// Config definitions reference existing resources by name; the
+		// agent config compiler resolves and validates these.
+		"AgentConfigDefinitionMachineSource.machine_name":      "",
+		"AgentConfigDefinitionMachineSource.machine_pool_name": "",
+		"AgentConfigDefinitionModel.name":                      "",
+		"AgentConfigDefinitionModel.provider_config":           "",
+		"AgentConfigDefinitionSubagentModel.name":              "",
+		"AgentConfigDefinitionSubagentModel.provider_config":   "",
 	}
 
 	var failures []string

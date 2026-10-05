@@ -50,7 +50,7 @@ func TestSubagentConfigReadOnly(t *testing.T) {
 		before := child.CurrentConfigID
 		requestJSONWithHeaders(t, handler, http.MethodPost,
 			project.ProjectPath+"/agents/"+testPublicID(t, publicid.KindAgent, child.ID)+"/config",
-			`{"source_format":"yaml","source":`+quotedJSONString(base.Source)+`}`,
+			`{"yaml":`+quotedJSONString(base.Source)+`}`,
 			"", http.StatusBadRequest, authHeaders(project.AdminToken))
 		updated, err := store.Execution().GetAgentInProject(ctx, project.ProjectUUID, child.ID)
 		require.NoError(t, err)
@@ -76,7 +76,7 @@ subagents: {helper: {type: self}}
 tools: {skill: {enabled: false}}
 `, kind)
 			created := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agent-configs",
-				`{"source_format":"yaml","source":`+quotedJSONString(source)+`}`, "", http.StatusCreated,
+				`{"yaml":`+quotedJSONString(source)+`}`, "", http.StatusCreated,
 				authHeaders(project.AdminToken))
 			require.Equal(t, source, created["source"])
 			createdID, ok := created["id"].(string)

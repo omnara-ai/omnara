@@ -351,7 +351,7 @@ func bootstrapFixture(baseURL, token string, log *runLog) (*fixture, error) {
 
 	config, err := f.jsonStep(ctx, "create shared agent config",
 		http.MethodPost, f.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": agentConfigYAML()},
+		map[string]any{"yaml": agentConfigYAML()},
 		"", http.StatusCreated)
 	if err != nil {
 		return f, fmt.Errorf("create agent config: %w", err)
@@ -490,7 +490,7 @@ func (f *fixture) bootstrapLiveModel(ctx context.Context, runID string) error {
 
 	config, err := f.jsonStep(ctx, "create live agent config",
 		http.MethodPost, f.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": liveAgentConfigYAML()},
+		map[string]any{"yaml": liveAgentConfigYAML()},
 		"", http.StatusCreated)
 	if err != nil {
 		return fmt.Errorf("create live agent config: %w", err)

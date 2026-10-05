@@ -36,9 +36,9 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	jsonSource := `{"machine_sources":[{"machine_pool_name":"not-created-yet"}],` +
 		`"subagents":{"worker":{"type":"profile","profile":"not-created-yet"}},` +
 		`"tools":{"run_command":{"enabled":false,"permission":{"mode":"always_ask"}}}}`
-	preview := request(map[string]any{"source": yaml, "source_format": "yaml"}, project.AdminToken, http.StatusOK)
+	preview := request(map[string]any{"yaml": yaml}, project.AdminToken, http.StatusOK)
 	jsonPreview := request(
-		map[string]any{"source": jsonSource, "source_format": "json"}, project.AdminToken, http.StatusOK,
+		map[string]any{"definition": json.RawMessage(jsonSource)}, project.AdminToken, http.StatusOK,
 	)
 	if diff := cmp.Diff(preview, jsonPreview); diff != "" {
 		t.Fatal(diff)
@@ -58,11 +58,11 @@ func TestResolveAgentConfigTools(t *testing.T) {
 			}
 		}
 	}
-	empty := map[string]any{"source": `{"instruction":"","model":{}}`, "source_format": "json"}
+	empty := map[string]any{"definition": map[string]any{"instruction": "", "model": map[string]any{}}}
 	response := request(empty, project.AdminToken, http.StatusOK)
 	require.Empty(t, testutil.RequireType[[]any](t, response["tools"]), "ordinary configs grant no interaction tools")
 	mcp := request(map[string]any{
-		"source": `{"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}}`, "source_format": "json",
+		"definition": json.RawMessage(`{"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}}`),
 	}, project.AdminToken, http.StatusOK)
 	var mcpToolNames []string
 	for _, item := range testutil.RequireType[[]any](t, mcp["tools"]) {
@@ -73,11 +73,12 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 	}, mcpToolNames)
 	for _, body := range []map[string]any{
-		{}, {"source": "{}"}, {"source_format": "json"},
-		{"source": "tools: {run_command: {enabled: nope}}", "source_format": "yaml"},
-		{"source": "{}", "source_format": "xml"},
-		{"source": "{}", "source_format": "json", "config_id": "unused"},
-		{"source": "{}", "source_format": "json", "agent_id": "unused"},
+		{}, {"source": "{}"}, {"source": "{}", "source_format": "json"},
+		{"yaml": "tools: {run_command: {enabled: nope}}"},
+		{"definition": "{}"},
+		{"definition": map[string]any{}, "yaml": "{}"},
+		{"definition": map[string]any{}, "config_id": "unused"},
+		{"definition": map[string]any{}, "agent_id": "unused"},
 	} {
 		request(body, project.AdminToken, http.StatusBadRequest)
 	}

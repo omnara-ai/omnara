@@ -42,7 +42,7 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
     const result = await settleSubmission(async () => {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
-        const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
+        const config = await createAgentConfig.mutateAsync({ yaml })
         if (profile?.name === name) {
           await updateAgentProfile.mutateAsync({
             agentProfileID: profile.profileId,

@@ -127,3 +127,9 @@ Typed daemon file transfers replace artifact routes: GET /daemon/tool-calls/{too
 Overview usage moved to the usage timeseries endpoint: GET /orgs/{orgID}/overview removed the required property `usage` from the response with the `200` status
 Overview today activity is no longer shown: GET /orgs/{orgID}/overview removed the required property `today` from the response with the `200` status
 Overview today activity is no longer shown: GET /orgs/{orgID}/overview deleted the `query` request parameter `timezone`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agent-configs removed the request property `source`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agent-configs removed the request property `source_format`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agent-configs/tools removed the request property `source`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agent-configs/tools removed the request property `source_format`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the request property `source`
+Agent config requests take a typed definition object or yaml text: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the request property `source_format`
