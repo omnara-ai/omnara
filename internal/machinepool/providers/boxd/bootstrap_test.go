@@ -6,38 +6,27 @@ import (
 )
 
 func TestBootPayloadExportsEnvBeforeBootScript(t *testing.T) {
-	payload, err := bootPayload(map[string]string{
+	text := string(bootPayload(map[string]string{
 		"ZETA":  "last",
 		"ALPHA": "it's $HOME `x`",
 		"_OK1":  "",
-	})
-	if err != nil {
-		t.Fatalf("build boot payload: %v", err)
-	}
-	text := string(payload)
+	}, "boot-script"))
 	exports := "export ALPHA='it'\\''s $HOME `x`'\nexport ZETA='last'\nexport _OK1=''\n"
-	if !strings.HasPrefix(text, "#!/bin/sh\n"+exports) {
-		t.Fatalf("payload exports = %q", text[:min(len(text), 200)])
-	}
-	if !strings.Contains(text, "start --no-service") {
-		t.Fatalf("payload is missing the managed boot script:\n%s", text)
-	}
-	if strings.Index(text, exports) > strings.Index(text, "set -eu") {
-		t.Fatal("env exports must precede the boot script")
+	if text != "#!/bin/sh\n"+exports+"\nboot-script\n" {
+		t.Fatalf("payload = %q", text)
 	}
 }
 
-func TestBootPayloadRejectsInvalidEnv(t *testing.T) {
-	for _, env := range []map[string]string{
-		{"1BAD": "value"},
-		{"BAD-KEY": "value"},
-		{"BAD KEY": "value"},
-		{"": "value"},
-		{"NUL": "a\x00b"},
-	} {
-		if _, err := bootPayload(env); err == nil {
-			t.Fatalf("expected env %v to be rejected", env)
-		}
+func TestBootPayloadSkipsNamesTheShellCannotExport(t *testing.T) {
+	text := string(bootPayload(map[string]string{
+		"GOOD":    "kept",
+		"1BAD":    "dropped",
+		"BAD-KEY": "dropped",
+		"BAD KEY": "dropped",
+		"":        "dropped",
+	}, ""))
+	if !strings.Contains(text, "export GOOD='kept'\n") || strings.Contains(text, "dropped") {
+		t.Fatalf("payload exports = %q", text[:min(len(text), 200)])
 	}
 }
 

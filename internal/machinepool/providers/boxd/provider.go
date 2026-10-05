@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"google.golang.org/grpc/codes"
 
@@ -20,22 +19,13 @@ import (
 )
 
 const (
-	// A fresh boxd machine boots in a few seconds, but org-scoped creates go
-	// through the control plane's consensus path and the in-VM agent needs a
-	// moment before exec is reachable.
 	provisioningTimeout    = 90 * time.Second
 	vmStatusPollInterval   = 500 * time.Millisecond
 	bootstrapRetryInterval = time.Second
 	mebibyte               = 1024 * 1024
-	// reasonOutputLimit bounds how much bootstrap stderr reaches the lifecycle
-	// reason message that surfaces in the UI.
-	reasonOutputLimit = 512
-	// capacityRetryDelay is the hint attached to a capacity refusal. It is
-	// longer than any provisioning deadline on purpose, so the caller's
-	// immediate retries stop and reconciliation's backoff owns the retry.
-	capacityRetryDelay = 10 * time.Minute
+	wakeTimeout            = 10 * time.Second
+	runtimeListTimeout     = 10 * time.Second
 
-	// boxd machine statuses follow the CLI's `machine get` output.
 	vmStatusPending     vmStatus = "pending"
 	vmStatusStarting    vmStatus = "starting"
 	vmStatusRunning     vmStatus = "running"
@@ -63,10 +53,6 @@ func (*provider) ProvisioningTimeout() time.Duration {
 	return provisioningTimeout
 }
 
-// PrepareProvisioning resolves the machine size. A snapshot fixes it, because
-// boxd restores at the size the snapshot was captured at, so a configured
-// size must agree with it. Otherwise a configured size wins, then the boxd
-// org default.
 func (p *provider) PrepareProvisioning(
 	ctx context.Context,
 	machineProvisioning executionstore.MachineProvisioningConfig,
@@ -75,34 +61,14 @@ func (p *provider) PrepareProvisioning(
 	if err != nil {
 		return executionstore.MachineResourceFacts{}, err
 	}
-	if err := validateConfiguredSize(
-		"boxd machine config",
-		machineProvisioning.CPU,
-		machineProvisioning.MemoryMB,
-	); err != nil {
-		return executionstore.MachineResourceFacts{}, err
+	if machineProvisioning.CPU != nil && machineProvisioning.MemoryMB != nil {
+		return executionstore.MachineResourceFacts{
+			CPU:      machineProvisioning.CPU,
+			MemoryMB: machineProvisioning.MemoryMB,
+		}, nil
 	}
-	configured := configuredSizeFacts(machineProvisioning)
 	if options.Snapshot != "" {
-		facts, err := p.snapshotResourceFacts(ctx, options.Snapshot)
-		if err != nil {
-			return executionstore.MachineResourceFacts{}, err
-		}
-		if configured != nil && (*configured.CPU != *facts.CPU || *configured.MemoryMB != *facts.MemoryMB) {
-			return executionstore.MachineResourceFacts{}, fmt.Errorf(
-				"boxd machine config cpu=%d memory_mb=%d does not match snapshot %q, "+
-					"which restores at cpu=%d memory_mb=%d; omit the size or match it",
-				*configured.CPU,
-				*configured.MemoryMB,
-				options.Snapshot,
-				*facts.CPU,
-				*facts.MemoryMB,
-			)
-		}
-		return facts, nil
-	}
-	if configured != nil {
-		return *configured, nil
+		return p.snapshotResourceFacts(ctx, options.Snapshot)
 	}
 	size, err := p.api.GetOrgMachineDefaults(ctx)
 	if err != nil {
@@ -111,8 +77,6 @@ func (p *provider) PrepareProvisioning(
 			err,
 		)
 	}
-	// boxd reports the effective default, which is the org quota ceiling when
-	// no explicit default is stored, so the size is always usable when present.
 	return machineSizeFacts("boxd org default", size.VCPU, size.MemoryBytes)
 }
 
@@ -157,70 +121,12 @@ func machineSizeFacts(what string, vcpu int, memoryBytes uint64) (executionstore
 	return resourceFacts(vcpu, int(memoryBytes/mebibyte)), nil
 }
 
-// configuredSizeFacts resolves a configured size to its full class, or nil
-// when the pool leaves the size to the snapshot or the org default.
-func configuredSizeFacts(
-	machineProvisioning executionstore.MachineProvisioningConfig,
-) *executionstore.MachineResourceFacts {
-	var facts executionstore.MachineResourceFacts
-	switch {
-	case machineProvisioning.CPU != nil && machineProvisioning.MemoryMB != nil:
-		facts = resourceFacts(*machineProvisioning.CPU, *machineProvisioning.MemoryMB)
-	case machineProvisioning.CPU != nil:
-		facts = resourceFacts(*machineProvisioning.CPU, supportedSizeClasses[*machineProvisioning.CPU])
-	case machineProvisioning.MemoryMB != nil:
-		cpu, _ := sizeClassForMemory(*machineProvisioning.MemoryMB)
-		facts = resourceFacts(cpu, *machineProvisioning.MemoryMB)
-	default:
-		return nil
-	}
-	return &facts
-}
-
 func resourceFacts(cpu, memoryMB int) executionstore.MachineResourceFacts {
 	return executionstore.MachineResourceFacts{CPU: &cpu, MemoryMB: &memoryMB}
 }
 
-func (p *provider) ValidateMachineConfig(
-	machineProvisioning executionstore.MachineProvisioningConfig,
-	machineEnv map[string]string,
-) error {
-	options, err := providerOptionsFromProvisioning(machineProvisioning)
-	if err != nil {
-		return err
-	}
-	_, err = p.machineBootPayload(options, "", machineEnv)
-	return err
-}
-
-func (p *provider) machineBootPayload(
-	options providerOptions,
-	machineToken string,
-	machineEnv map[string]string,
-) ([]byte, error) {
-	env, err := providers.BuildManagedMachineEnv(
-		p.omnaraAPIURL,
-		machineToken,
-		options.StartupScript,
-		machineEnv,
-	)
-	if err != nil {
-		return nil, err
-	}
-	// With a sleep window the daemon parks itself when idle and announces it,
-	// which stops the heartbeat and lets boxd's idle clock run down. The daemon
-	// wakes again on the wall-clock jump a resume produces, so boxd needs no
-	// wake listener exposed.
-	//
-	// No sleep platform is set on purpose. boxd's idle clock is driven by the
-	// guest traffic the daemon already produces, so parking and resuming need
-	// no platform call, and an unset name is the one value every released
-	// daemon understands. Naming a platform a daemon does not know is fatal to
-	// it, so a new name would strand pools until every machine image caught up.
-	if options.SleepAfterMS > 0 {
-		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
-	}
-	return bootPayload(env)
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
 }
 
 func (p *provider) ProvisionMachine(
@@ -240,13 +146,21 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	payload, err := p.machineBootPayload(options, machineToken, machineEnv)
+	env, err := providers.BuildManagedMachineEnv(
+		p.omnaraAPIURL,
+		machineToken,
+		options.StartupScript,
+		machineEnv,
+	)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	script := providers.ManagedBootScript()
+	if options.SleepAfterMS > 0 {
+		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
+		script = bootstrapKeepAwakeScript + script
+	}
 	api := p.api
-	// Names are unique across boxd, so an existing machine with the
-	// allocation name is this machine from an earlier attempt.
 	target, found, err := api.GetVM(ctx, name)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
@@ -318,7 +232,6 @@ func (p *provider) ProvisionMachine(
 		return result, errors.New("boxd machine is missing its id")
 	}
 	if target.VCPU == 0 || target.MemoryBytes == 0 {
-		// Create responses omit the effective size; read it back.
 		refreshed, found, err := api.GetVM(ctx, result.ProviderResourceID)
 		if err != nil {
 			return result, err
@@ -331,55 +244,25 @@ func (p *provider) ProvisionMachine(
 	if err := validateVMResources(target, machineProvisioning); err != nil {
 		return result, err
 	}
-	// Omnara stores this as the machine's sandbox url and treats its presence
-	// as the machine being wake capable, which is what lets the daemon park.
-	result.SandboxURL = target.url()
-	if result.SandboxURL == "" {
-		return result, fmt.Errorf("boxd machine %q is missing its access domain", name)
+	if options.SleepAfterMS > 0 {
+		result.SandboxURL = target.url()
+		if result.SandboxURL == "" {
+			return result, fmt.Errorf("boxd machine %q is missing its access domain", name)
+		}
 	}
-	if err := ensureDaemon(ctx, api, target, payload); err != nil {
+	if err := ensureDaemon(ctx, api, target, bootPayload(env, script)); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-// describeCreateFailure turns a refused create into the error the operator
-// sees on the machine. A capacity refusal carries boxd's own sentence, which
-// names the limit and what to do about it, wrapped so the caller's retry
-// loop stops instead of burning its budget on a condition that only clears
-// when someone frees a machine.
-//
-// A refusal boxd answered synchronously, as opposed to a transport failure,
-// also proves no machine was created, and says so with ErrResourceNotCreated
-// so cleanup can finalize at once rather than hold the machine for the
-// grace period that guards a create whose outcome was never observed.
 func describeCreateFailure(name string, err error) error {
-	if isCapacityRefusal(err) {
-		var apiErr apiError
-		message := err.Error()
-		if errors.As(err, &apiErr) && apiErr.Message != "" {
-			message = apiErr.Message
-		}
-		return providers.WithRetryDelay(
-			fmt.Errorf(
-				"create boxd machine %q: %w: %w: %s",
-				name,
-				ErrCapacityRefused,
-				providers.ErrResourceNotCreated,
-				message,
-			),
-			capacityRetryDelay,
-		)
-	}
 	if isRejectedRequest(err) {
-		return fmt.Errorf("create boxd machine %q: %w: %w", name, providers.ErrResourceNotCreated, err)
+		return fmt.Errorf("create boxd machine %q: %w: %w", name, err, providers.ErrPermanent)
 	}
 	return fmt.Errorf("create boxd machine %q: %w", name, err)
 }
 
-// ensureDaemon starts the managed daemon bootstrap through boxd exec. The
-// launcher is idempotent, so the exec is retried while the freshly booted
-// machine's agent is still unreachable.
 func ensureDaemon(ctx context.Context, api apiClient, target vm, payload []byte) error {
 	result, err := execWithRetry(ctx, api, target.ID, launcherCommand(), payload)
 	if err != nil {
@@ -387,17 +270,14 @@ func ensureDaemon(ctx context.Context, api apiClient, target vm, payload []byte)
 	}
 	if result.ExitCode != 0 {
 		return fmt.Errorf(
-			"boxd daemon bootstrap on machine %q exited with status %d: %s",
+			"boxd daemon bootstrap on machine %q exited with status %d",
 			target.Name,
 			result.ExitCode,
-			tailForReason(result.Stderr),
 		)
 	}
 	return nil
 }
 
-// execWithRetry runs a command in the machine, retrying while the guest agent
-// is unreachable, which is the case for a moment after boot and after a resume.
 func execWithRetry(
 	ctx context.Context,
 	api apiClient,
@@ -420,54 +300,26 @@ func execWithRetry(
 	}
 }
 
-// tailForReason keeps the end of a command's output, which is where a shell
-// reports what failed, and bounds it for the lifecycle reason message. The
-// reason is stored as Postgres text, which refuses NUL and invalid UTF-8, so
-// the output is made valid first and the cut lands on a character boundary;
-// a bootstrap failure must never become a failure to record the failure.
-func tailForReason(output string) string {
-	output = strings.ToValidUTF8(strings.TrimSpace(output), "?")
-	output = strings.ReplaceAll(output, "\x00", "?")
-	if len(output) <= reasonOutputLimit {
-		return output
-	}
-	cut := len(output) - reasonOutputLimit
-	for cut < len(output) && !utf8.RuneStart(output[cut]) {
-		cut++
-	}
-	return "..." + output[cut:]
-}
-
-// wakePokeCommand connects to the daemon's wake listener from inside the
-// machine. The daemon answers 204 and leaves its parked state; curl's exit
-// status reports whether anything was listening.
 func wakePokeCommand() string {
 	return "curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:" +
 		strconv.Itoa(daemonprotocol.WakeListenerPort) + "/"
 }
 
-// WakeMachine reconnects a parked daemon. The poke is delivered as an exec
-// because that is the one signal that reaches the daemon in every state it can
-// be in: parked on a machine boxd has not suspended yet, where a resume would
-// be a no-op, and parked on a suspended or hibernated machine, which boxd
-// brings back before running the command. Reaching the listener through the
-// authenticated API also keeps it off the machine's public address.
-//
-// The exec is retried while the guest agent is unreachable, and the poke is
-// idempotent, so a wake retried after an ambiguous failure is safe.
 func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineInput) error {
 	if input.ProviderResourceID == "" {
 		return errors.New("boxd wake requires a provider resource id")
 	}
+	ctx, cancel := context.WithTimeout(ctx, wakeTimeout)
+	defer cancel()
 	result, err := execWithRetry(ctx, p.api, input.ProviderResourceID, wakePokeCommand(), nil)
 	if err != nil {
 		return fmt.Errorf("wake boxd machine %q: %w", input.ProviderResourceID, err)
 	}
 	if result.ExitCode != 0 {
 		return fmt.Errorf(
-			"wake boxd machine %q: the daemon wake listener did not answer: %s",
+			"wake boxd machine %q: the daemon wake listener exited with status %d",
 			input.ProviderResourceID,
-			tailForReason(result.Stderr),
+			result.ExitCode,
 		)
 	}
 	return nil
@@ -531,8 +383,6 @@ func vmOwnedBy(target vm, name string) bool {
 	return target.Name == name
 }
 
-// vmUsable reports statuses where exec succeeds: boxd wakes a suspended or
-// hibernated machine on its first exec.
 func vmUsable(value vmStatus) bool {
 	switch normalizeVMStatus(value) {
 	case vmStatusRunning, vmStatusSuspended, vmStatusStandby, vmStatusHibernated:
@@ -563,9 +413,6 @@ func validateVMResources(
 	target vm,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 ) error {
-	if machineProvisioning.CPU == nil || machineProvisioning.MemoryMB == nil {
-		return errors.New("boxd resolved machine size is required")
-	}
 	if target.VCPU <= 0 || target.MemoryBytes == 0 || target.MemoryBytes%mebibyte != 0 {
 		return fmt.Errorf("boxd machine %q reports an unusable size", target.Name)
 	}

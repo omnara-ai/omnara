@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -34,13 +35,6 @@ func testSleepOptions(t *testing.T, sleepAfterMS int) map[string]json.RawMessage
 	t.Helper()
 	options := testOptions(t, "", "")
 	options["sleep_after_ms"] = mustRawJSON(t, sleepAfterMS)
-	return options
-}
-
-func testSleepOptionsWithWindow(t *testing.T, sleepAfterMS, autoSuspendSecs int) map[string]json.RawMessage {
-	t.Helper()
-	options := testSleepOptions(t, sleepAfterMS)
-	options["auto_suspend_secs"] = mustRawJSON(t, autoSuspendSecs)
 	return options
 }
 
@@ -94,8 +88,6 @@ func newTestProvider(api apiClient) *provider {
 	}
 }
 
-// fakeAPI models one boxd machine. It is absent until CreateVM runs unless
-// exists is set, and GetVM walks through statuses before settling on vm.Status.
 type fakeAPI struct {
 	vm       vm
 	exists   bool
@@ -106,30 +98,26 @@ type fakeAPI struct {
 	getLookups []string
 	missing    map[string]bool
 
-	createErr     error
-	createCalls   int
-	createRequest createVMRequest
-	// existsAfterCreateErr makes a failed create look like a name conflict
-	// with a machine created by an earlier attempt.
+	createErr            error
+	createCalls          int
+	createRequest        createVMRequest
 	existsAfterCreateErr bool
 
-	listVMs   []vm
-	listErr   error
-	listCalls int
+	listVMs      []vm
+	listErr      error
+	listCalls    int
+	listDeadline time.Time
 
-	destroyErr   error
 	destroyCalls int
 	destroyedRef string
 
-	execErrs    []error
-	execResult  execResult
-	execCalls   int
-	execRef     string
-	execCommand string
-	execStdin   []byte
-	// execCommands records every command in order, so a test can tell a
-	// bootstrap launch from a wake poke.
-	execCommands []string
+	execErrs     []error
+	execResult   execResult
+	execCalls    int
+	execRef      string
+	execCommand  string
+	execStdin    []byte
+	execDeadline time.Time
 
 	snapshot      snapshotInfo
 	snapshotFound bool
@@ -149,7 +137,6 @@ func newFakeAPI() *fakeAPI {
 			MemoryBytes:  8192 * mebibyte,
 			AccessDomain: "boxd.sh",
 		},
-		execResult: execResult{Stdout: "omnara daemon bootstrap started (pid 42)\n"},
 	}
 }
 
@@ -169,8 +156,9 @@ func (a *fakeAPI) GetVM(_ context.Context, ref string) (vm, bool, error) {
 	return a.vm, true, nil
 }
 
-func (a *fakeAPI) ListVMs(context.Context) ([]vm, error) {
+func (a *fakeAPI) ListVMs(ctx context.Context) ([]vm, error) {
 	a.listCalls++
+	a.listDeadline, _ = ctx.Deadline()
 	if a.listErr != nil {
 		return nil, a.listErr
 	}
@@ -199,20 +187,20 @@ func (a *fakeAPI) CreateVM(_ context.Context, request createVMRequest) (vm, erro
 func (a *fakeAPI) DestroyVM(_ context.Context, ref string) error {
 	a.destroyCalls++
 	a.destroyedRef = ref
-	return a.destroyErr
+	return nil
 }
 
 func (a *fakeAPI) Exec(
-	_ context.Context,
+	ctx context.Context,
 	ref string,
 	command string,
 	stdin []byte,
 ) (execResult, error) {
 	a.execCalls++
+	a.execDeadline, _ = ctx.Deadline()
 	a.execRef = ref
 	a.execCommand = command
 	a.execStdin = stdin
-	a.execCommands = append(a.execCommands, command)
 	if len(a.execErrs) > 0 {
 		err := a.execErrs[0]
 		a.execErrs = a.execErrs[1:]

@@ -12461,25 +12461,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona]
-                max_total_cpu:
-                  type: integer
-                  format: int32
-                max_total_memory_mb:
-                  type: integer
-                  format: int32
-                max_machine_cpu:
-                  type: integer
-                  format: int32
-                max_machine_memory_mb:
-                  type: integer
-                  format: int32
-            - type: object
-              required: [provider, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb]
-              properties:
-                provider:
-                  type: string
-                  enum: [boxd]
+                  enum: [daytona, boxd]
                 max_total_cpu:
                   type: integer
                   format: int32

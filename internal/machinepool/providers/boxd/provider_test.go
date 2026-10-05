@@ -3,11 +3,9 @@ package boxd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -35,8 +33,7 @@ func TestBoxdProviderProvisionCreatesMachineAndStartsDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision boxd machine: %v", err)
 	}
-	if result.ProviderResourceID != "vm-123" ||
-		result.SandboxURL != "https://"+name+".boxd.sh/" {
+	if result.ProviderResourceID != "vm-123" || result.SandboxURL != "" {
 		t.Fatalf("result = %+v", result)
 	}
 	if api.createCalls != 1 || api.createRequest.Name != name || api.createRequest.Snapshot != "" ||
@@ -64,10 +61,14 @@ func TestBoxdProviderProvisionCreatesMachineAndStartsDaemon(t *testing.T) {
 
 func TestBoxdProviderProvisionEnablesSleepBetweenTurns(t *testing.T) {
 	api := newFakeAPI()
-	_, err := newTestProvider(api).ProvisionMachine(
+	installationID := uuid.New()
+	machineID := uuid.New()
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	require.NoError(t, err)
+	result, err := newTestProvider(api).ProvisionMachine(
 		context.Background(),
-		uuid.New(),
-		uuid.New(),
+		installationID,
+		machineID,
 		testSleepProvisioning(t, 45_000),
 		"machine-token",
 		nil,
@@ -76,41 +77,25 @@ func TestBoxdProviderProvisionEnablesSleepBetweenTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision sleeping boxd machine: %v", err)
 	}
-	if api.createRequest.AutoSuspendTimeoutSecs != defaultAutoSuspendSecs {
-		t.Fatalf("auto suspend = %d, want %d", api.createRequest.AutoSuspendTimeoutSecs, defaultAutoSuspendSecs)
+	if result.SandboxURL != "https://"+name+".boxd.sh/" {
+		t.Fatalf("sandbox url = %q", result.SandboxURL)
+	}
+	if api.createRequest.AutoSuspendTimeoutSecs != autoSuspendTimeoutSecs {
+		t.Fatalf("auto suspend = %d, want %d", api.createRequest.AutoSuspendTimeoutSecs, autoSuspendTimeoutSecs)
 	}
 	payload := string(api.execStdin)
 	if !strings.Contains(payload, "export OMNARA_DAEMON_SLEEP_AFTER_MS='45000'\n") {
 		t.Fatalf("boot payload is missing the sleep window:\n%s", payload)
 	}
-	// Naming a sleep platform a released daemon does not know is fatal to it,
-	// and boxd needs none, so the pool must never set one.
 	if strings.Contains(payload, "OMNARA_DAEMON_SLEEP_PLATFORM") {
 		t.Fatalf("boot payload set a sleep platform:\n%s", payload)
 	}
-}
-
-func TestBoxdProviderProvisionUsesTheConfiguredSuspendWindow(t *testing.T) {
-	api := newFakeAPI()
-	provisioning := testSleepProvisioning(t, 45_000)
-	provisioning.ProviderOptions = testSleepOptionsWithWindow(t, 45_000, 300)
-	if _, err := newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		provisioning,
-		"machine-token",
-		nil,
-		true,
-	); err != nil {
-		t.Fatalf("provision with a tuned suspend window: %v", err)
-	}
-	if api.createRequest.AutoSuspendTimeoutSecs != 300 {
-		t.Fatalf("auto suspend = %d, want 300", api.createRequest.AutoSuspendTimeoutSecs)
+	if !strings.Contains(payload, "'\n\n"+bootstrapKeepAwakeScript+"set -eu\n") {
+		t.Fatalf("boot payload must stay awake between the env exports and the boot script:\n%s", payload)
 	}
 }
 
-func TestBoxdProviderProvisionLeavesIdleTimeoutsAloneWithoutSleep(t *testing.T) {
+func TestBoxdProviderProvisionDisablesAutoSuspendWithoutSleep(t *testing.T) {
 	api := newFakeAPI()
 	_, err := newTestProvider(api).ProvisionMachine(
 		context.Background(),
@@ -122,9 +107,10 @@ func TestBoxdProviderProvisionLeavesIdleTimeoutsAloneWithoutSleep(t *testing.T) 
 		true,
 	)
 	if err != nil || api.createRequest.AutoSuspendTimeoutSecs != 0 {
-		t.Fatalf("auto suspend = %d, error %v, want boxd's own setting", api.createRequest.AutoSuspendTimeoutSecs, err)
+		t.Fatalf("auto suspend = %d, error %v, want it off", api.createRequest.AutoSuspendTimeoutSecs, err)
 	}
-	if strings.Contains(string(api.execStdin), "OMNARA_DAEMON_SLEEP") {
+	if strings.Contains(string(api.execStdin), "OMNARA_DAEMON_SLEEP") ||
+		strings.Contains(string(api.execStdin), bootstrapKeepAwakeScript) {
 		t.Fatalf("boot payload enabled sleep without a sleep window:\n%s", api.execStdin)
 	}
 }
@@ -136,7 +122,7 @@ func TestBoxdProviderProvisionRequiresAnAccessDomain(t *testing.T) {
 		context.Background(),
 		uuid.New(),
 		uuid.New(),
-		testMachineProvisioning(t, "", ""),
+		testSleepProvisioning(t, 45_000),
 		"machine-token",
 		nil,
 		true,
@@ -170,7 +156,6 @@ func TestBoxdProviderWakeMachinePokesTheDaemon(t *testing.T) {
 	if !strings.Contains(api.execCommand, "127.0.0.1:8377") {
 		t.Fatalf("wake poke does not target the daemon wake listener: %q", api.execCommand)
 	}
-	// A wake is retried after an ambiguous failure; the poke is idempotent.
 	if err := provider.WakeMachine(
 		context.Background(),
 		providers.WakeMachineInput{ProviderResourceID: "vm-123"},
@@ -210,34 +195,26 @@ func TestBoxdProviderWakeMachineRetriesWhileTheGuestResumes(t *testing.T) {
 
 func TestBoxdProviderWakeMachineReportsAnUnansweredListener(t *testing.T) {
 	api := newFakeAPI()
-	api.execResult = execResult{ExitCode: 7, Stderr: "curl: (7) Failed to connect to 127.0.0.1 port 8377\n"}
+	api.execResult = execResult{ExitCode: 7}
 	err := newTestProvider(api).WakeMachine(
 		context.Background(),
 		providers.WakeMachineInput{ProviderResourceID: "vm-123"},
 	)
-	if err == nil || !strings.Contains(err.Error(), "wake listener did not answer") ||
-		!strings.Contains(err.Error(), "port 8377") {
+	if err == nil || !strings.Contains(err.Error(), "wake listener exited with status 7") {
 		t.Fatalf("unanswered wake = %v", err)
 	}
 }
 
-func TestBoxdProviderProvisionReportsOnlyTheTailOfBootstrapOutput(t *testing.T) {
+func TestBoxdProviderWakeMachineIsBounded(t *testing.T) {
 	api := newFakeAPI()
-	api.execResult = execResult{
-		ExitCode: 1,
-		Stderr:   strings.Repeat("noise\n", 400) + "sh: curl: not found\n",
-	}
-	_, err := newTestProvider(api).ProvisionMachine(
+	if err := newTestProvider(api).WakeMachine(
 		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		nil,
-		true,
-	)
-	if err == nil || !strings.Contains(err.Error(), "curl: not found") || len(err.Error()) > reasonOutputLimit+200 {
-		t.Fatalf("bootstrap failure reason = %d bytes: %v", len(fmt.Sprint(err)), err)
+		providers.WakeMachineInput{ProviderResourceID: "vm-123"},
+	); err != nil {
+		t.Fatalf("wake: %v", err)
+	}
+	if api.execDeadline.IsZero() || api.execDeadline.After(time.Now().Add(wakeTimeout)) {
+		t.Fatalf("wake exec deadline = %v, want within %v", api.execDeadline, wakeTimeout)
 	}
 }
 
@@ -316,128 +293,48 @@ func TestBoxdProviderProvisionConvergesAfterCreateConflict(t *testing.T) {
 		nil,
 		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "machine limit reached") || api.execCalls != 0 {
+	if err == nil || !strings.Contains(err.Error(), "machine limit reached") || api.execCalls != 0 ||
+		errors.Is(err, providers.ErrPermanent) {
 		t.Fatalf("create failure = error %v execs %d", err, api.execCalls)
 	}
 }
 
-func TestBoxdProviderProvisionKeepsTheGraceWhenTheNameIsHeldButUnseen(t *testing.T) {
-	// boxd says the name is taken, yet the lookup that follows does not see
-	// the holder. That is a resource that may well exist, so the error must
-	// not claim otherwise; cleanup then keeps its missing-resource grace
-	// period instead of finalizing the row and leaving the machine behind.
-	api := newFakeAPI()
-	api.createErr = apiError{Code: codes.AlreadyExists, Message: "name is already taken"}
-	result, err := newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		nil,
-		true,
-	)
-	if err == nil || !strings.Contains(err.Error(), "already taken") {
-		t.Fatalf("held name = %v, want the create error", err)
-	}
-	if errors.Is(err, providers.ErrResourceNotCreated) {
-		t.Fatalf("held name = %v, must not claim the resource was never created", err)
-	}
-	if result.ProviderResourceID != "" || api.execCalls != 0 || api.destroyCalls != 0 {
-		t.Fatalf("held name side effects = result %+v execs %d destroys %d", result, api.execCalls, api.destroyCalls)
-	}
-	// A refusal that does prove nothing exists still says so.
-	api = newFakeAPI()
-	api.createErr = apiError{Code: codes.InvalidArgument, Message: "sizing above the org ceiling"}
-	_, err = newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		nil,
-		true,
-	)
-	if !errors.Is(err, providers.ErrResourceNotCreated) {
-		t.Fatalf("invalid argument = %v, want ErrResourceNotCreated", err)
-	}
-}
-
-func TestTailForReasonStaysValidText(t *testing.T) {
-	// The reason lands in a Postgres text column, which refuses NUL and
-	// invalid UTF-8. A tail cut on a byte count would split a multi-byte
-	// character and turn valid output into a write that fails.
-	long := strings.Repeat("€", reasonOutputLimit)
-	for name, input := range map[string]string{
-		"nul":            "curl: \x00 not found",
-		"invalid utf8":   "sh: \xe2\x82 bad",
-		"long multibyte": long,
+func TestBoxdProviderProvisionMarksOnlyRejectedCreatesPermanent(t *testing.T) {
+	for _, test := range []struct {
+		code      codes.Code
+		permanent bool
+	}{
+		{code: codes.InvalidArgument, permanent: true},
+		{code: codes.NotFound, permanent: true},
+		{code: codes.PermissionDenied, permanent: true},
+		{code: codes.AlreadyExists, permanent: false},
+		{code: codes.Unauthenticated, permanent: false},
+		{code: codes.FailedPrecondition, permanent: false},
+		{code: codes.ResourceExhausted, permanent: false},
+		{code: codes.Unavailable, permanent: false},
 	} {
-		out := tailForReason(input)
-		if !utf8.ValidString(out) || strings.Contains(out, "\x00") {
-			t.Fatalf("%s: tail %q is not valid text", name, out)
-		}
-		if len(out) > reasonOutputLimit+len("...") {
-			t.Fatalf("%s: tail is %d bytes, want at most %d", name, len(out), reasonOutputLimit+len("..."))
-		}
-	}
-	if out := tailForReason(long); !strings.HasPrefix(out, "...€") || !strings.HasSuffix(out, "€") {
-		t.Fatalf("long multibyte tail = %q", out)
-	}
-	if out := tailForReason("sh: curl: not found\n"); out != "sh: curl: not found" {
-		t.Fatalf("short tail = %q", out)
-	}
-}
-
-func TestBoxdProviderProvisionSurfacesCapacityRefusals(t *testing.T) {
-	api := newFakeAPI()
-	api.createErr = apiError{
-		Code:    codes.ResourceExhausted,
-		Message: "Org VM limit reached (100/100). Destroy an org VM first.",
-	}
-	result, err := newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		nil,
-		true,
-	)
-	if err == nil || !errors.Is(err, ErrCapacityRefused) {
-		t.Fatalf("capacity refusal = %v, want ErrCapacityRefused", err)
-	}
-	// boxd's own sentence reaches the operator: it names the limit and the fix.
-	if !strings.Contains(err.Error(), "Org VM limit reached (100/100). Destroy an org VM first.") {
-		t.Fatalf("capacity refusal lost boxd's message: %v", err)
-	}
-	// Nothing was created, so no resource id and no bootstrap.
-	if result.ProviderResourceID != "" || api.execCalls != 0 || api.destroyCalls != 0 {
-		t.Fatalf("capacity refusal side effects = result %+v execs %d destroys %d", result, api.execCalls, api.destroyCalls)
-	}
-	// The retry hint outlasts any provisioning deadline, which is what stops
-	// the caller's immediate retries and hands the retry to reconciliation.
-	delay, ok := providers.RetryAfter(err)
-	if !ok || delay < provisioningTimeout {
-		t.Fatalf("capacity refusal retry hint = %v ok %v, want at least %v", delay, ok, provisioningTimeout)
-	}
-	// Other refusals stay ordinary errors with no hint.
-	api = newFakeAPI()
-	api.createErr = apiError{Code: codes.InvalidArgument, Message: "sizing above the org ceiling"}
-	_, err = newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		nil,
-		true,
-	)
-	if err == nil || errors.Is(err, ErrCapacityRefused) || !strings.Contains(err.Error(), "org ceiling") {
-		t.Fatalf("invalid argument = %v, want a plain create error", err)
-	}
-	if _, ok := providers.RetryAfter(err); ok {
-		t.Fatal("a rejected request must not carry a retry hint")
+		t.Run(test.code.String(), func(t *testing.T) {
+			api := newFakeAPI()
+			api.createErr = apiError{Code: test.code, Message: "create refused"}
+			result, err := newTestProvider(api).ProvisionMachine(
+				context.Background(),
+				uuid.New(),
+				uuid.New(),
+				testMachineProvisioning(t, "", ""),
+				"machine-token",
+				nil,
+				true,
+			)
+			if err == nil || !strings.Contains(err.Error(), "create refused") {
+				t.Fatalf("create error = %v", err)
+			}
+			if errors.Is(err, providers.ErrPermanent) != test.permanent {
+				t.Fatalf("create error %v permanent = %t, want %t", err, !test.permanent, test.permanent)
+			}
+			if result.ProviderResourceID != "" || api.execCalls != 0 || api.destroyCalls != 0 {
+				t.Fatalf("refused create side effects = result %+v execs %d destroys %d", result, api.execCalls, api.destroyCalls)
+			}
+		})
 	}
 }
 
@@ -598,7 +495,7 @@ func TestBoxdProviderProvisionRetriesBootstrapWhileAgentUnavailable(t *testing.T
 
 func TestBoxdProviderProvisionReportsBootstrapFailure(t *testing.T) {
 	api := newFakeAPI()
-	api.execResult = execResult{ExitCode: 1, Stderr: "omnara daemon bootstrap exited early\nsh: curl: not found\n"}
+	api.execResult = execResult{ExitCode: 1}
 	result, err := newTestProvider(api).ProvisionMachine(
 		context.Background(),
 		uuid.New(),
@@ -608,42 +505,8 @@ func TestBoxdProviderProvisionReportsBootstrapFailure(t *testing.T) {
 		nil,
 		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "exited with status 1") ||
-		!strings.Contains(err.Error(), "curl: not found") || result.ProviderResourceID != "vm-123" {
+	if err == nil || !strings.Contains(err.Error(), "exited with status 1") || result.ProviderResourceID != "vm-123" {
 		t.Fatalf("bootstrap failure = result %+v error %v", result, err)
-	}
-}
-
-func TestBoxdProviderValidateMachineConfigChecksMachineEnv(t *testing.T) {
-	machineProvider := newTestProvider(newFakeAPI())
-	if err := machineProvider.ValidateMachineConfig(
-		testMachineProvisioning(t, "", ""),
-		map[string]string{"APP_ENV": "production"},
-	); err != nil {
-		t.Fatalf("valid env: %v", err)
-	}
-	err := machineProvider.ValidateMachineConfig(
-		testMachineProvisioning(t, "", ""),
-		map[string]string{"BAD-KEY": "value"},
-	)
-	if err == nil || !strings.Contains(err.Error(), "not a valid shell identifier") {
-		t.Fatalf("invalid env error = %v", err)
-	}
-}
-
-func TestBoxdProviderProvisionRejectsInvalidMachineEnv(t *testing.T) {
-	api := newFakeAPI()
-	_, err := newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "", ""),
-		"machine-token",
-		map[string]string{"BAD-KEY": "value"},
-		true,
-	)
-	if err == nil || !strings.Contains(err.Error(), "not a valid shell identifier") || api.createCalls != 0 {
-		t.Fatalf("invalid env = error %v creates %d", err, api.createCalls)
 	}
 }
 

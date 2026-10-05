@@ -3,6 +3,7 @@ package boxd
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,9 @@ func TestBoxdObserveRuntimeStatesNormalizesMatches(t *testing.T) {
 	}
 	if api.listCalls != 1 || api.getCalls != 0 {
 		t.Fatalf("list calls = %d get calls = %d", api.listCalls, api.getCalls)
+	}
+	if api.listDeadline.IsZero() || api.listDeadline.After(time.Now().Add(runtimeListTimeout)) {
+		t.Fatalf("list deadline = %v, want within %v", api.listDeadline, runtimeListTimeout)
 	}
 }
 

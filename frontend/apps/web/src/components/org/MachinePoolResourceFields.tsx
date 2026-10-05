@@ -1,6 +1,5 @@
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { type MachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
-import { MachinePoolSizeSelect } from './MachinePoolSizeSelect'
 
 export function MachinePoolResourceFields({
   provider,
@@ -40,17 +39,7 @@ export function MachinePoolResourceFields({
             onValueChange={onLocationChange}
           />
         )}
-        {definition.sizes && (
-          <MachinePoolSizeSelect
-            provider={provider}
-            drafts={{ cpu, memoryGb }}
-            onChange={(drafts) => {
-              onCpuChange(drafts.cpu)
-              onMemoryGbChange(drafts.memoryGb)
-            }}
-          />
-        )}
-        {!definition.sizes && definition.resources.cpu !== 'unsupported' && (
+        {definition.resources.cpu !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-cpu"
             label={
@@ -66,7 +55,7 @@ export function MachinePoolResourceFields({
             onValueChange={onCpuChange}
           />
         )}
-        {!definition.sizes && definition.resources.memoryMb !== 'unsupported' && (
+        {definition.resources.memoryMb !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-memory"
             label={

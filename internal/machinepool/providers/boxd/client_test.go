@@ -37,7 +37,6 @@ type fakeServer struct {
 	execCommand    string
 	execExitCode   int32
 	execFail       error
-	unauthorized   bool
 }
 
 func newFakeServer() *fakeServer {
@@ -49,17 +48,6 @@ func (s *fakeServer) record(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.authorizations = append(s.authorizations, strings.Join(md.Get("authorization"), ","))
-}
-
-// reject returns Unauthenticated when the server has been told to stop
-// accepting the current session token.
-func (s *fakeServer) reject() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.unauthorized {
-		return status.Error(codes.Unauthenticated, "token revoked")
-	}
-	return nil
 }
 
 func (s *fakeServer) lookup(ref string) (*boxdv1.GetVmResponse, bool) {
@@ -136,9 +124,6 @@ func (s *fakeServer) ListVms(
 	_ *boxdv1.ListVmsRequest,
 ) (*boxdv1.ListVmsResponse, error) {
 	s.record(ctx)
-	if err := s.reject(); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	response := &boxdv1.ListVmsResponse{}
@@ -190,8 +175,6 @@ func (s *fakeServer) Exec(stream grpc.BidiStreamingServer[boxdv1.ExecChunk, boxd
 	if err := stream.Send(&boxdv1.ExecChunk{Data: []byte("warning\n"), IsStderr: true}); err != nil {
 		return err
 	}
-	// Fold the exit code into the final data chunk, which boxd's SDKs treat as
-	// within contract, so the client must read the code from every chunk.
 	return stream.Send(&boxdv1.ExecChunk{Data: []byte("done\n"), ExitCode: exitCode})
 }
 
@@ -233,7 +216,7 @@ func newExchangeServer(t *testing.T) *exchangeServer {
 	t.Helper()
 	exchange := &exchangeServer{
 		status:   http.StatusOK,
-		response: map[string]any{"token": "jwt-1", "expires_at": time.Now().Add(time.Hour).Unix()},
+		response: map[string]any{"token": "jwt-1"},
 	}
 	exchange.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -280,7 +263,6 @@ func newTestClient(t *testing.T, server *fakeServer, exchange *exchangeServer) *
 		grpcServer.Stop()
 	})
 	return &grpcClient{
-		apiURL:     "bufconn",
 		authURL:    exchange.URL,
 		apiKey:     "bxd_test_key",
 		httpClient: exchange.Client(),
@@ -301,7 +283,7 @@ func TestBoxdGRPCClientExchangesAPIKeyOnceAndAuthenticatesCalls(t *testing.T) {
 	}
 	request := server.created[0]
 	if request.GetConfig().GetVcpu() != 2 || request.GetConfig().GetMemoryBytes() != 8192*mebibyte ||
-		request.GetConfig().GetSrf().GetAutoSuspendTimeoutSecs() != 0 {
+		request.GetConfig().GetSrf().GetAutoSuspendTimeoutSecs() != 0 || !request.GetIsolated() {
 		t.Fatalf("create request = %+v", request)
 	}
 	current, found, err := client.GetVM(ctx, "omnara-mch-a")
@@ -319,11 +301,8 @@ func TestBoxdGRPCClientExchangesAPIKeyOnceAndAuthenticatesCalls(t *testing.T) {
 	}
 	restored, err := client.CreateVM(ctx, createVMRequest{Name: "omnara-mch-b", Snapshot: "team-workspace"})
 	if err != nil || restored.ID != "vm-restored" || server.restored[0].GetSnapshot() != "team-workspace" ||
-		server.restored[0].GetConfig().GetSrf().AutoSuspendTimeoutSecs == nil {
+		server.restored[0].GetConfig().GetSrf().AutoSuspendTimeoutSecs == nil || !server.restored[0].GetIsolated() {
 		t.Fatalf("restore = %+v, error %v, request %+v", restored, err, server.restored)
-	}
-	if _, err := client.CreateVM(ctx, createVMRequest{Name: "x", Snapshot: "s", VCPU: 1}); err == nil {
-		t.Fatal("expected sized snapshot restore to be rejected")
 	}
 	snapshot, found, err := client.GetSnapshot(ctx, "team-workspace")
 	if err != nil || !found || snapshot.VCPU != 4 || snapshot.MemoryBytes != 16384*mebibyte || snapshot.Status != "ready" {
@@ -352,7 +331,7 @@ func TestBoxdGRPCClientExchangesAPIKeyOnceAndAuthenticatesCalls(t *testing.T) {
 	}
 }
 
-func TestBoxdGRPCClientExecStreamsStdinAndCollectsOutput(t *testing.T) {
+func TestBoxdGRPCClientExecStreamsStdinAndReportsExitCode(t *testing.T) {
 	server := newFakeServer()
 	server.vms["vm-1"] = &boxdv1.GetVmResponse{VmId: "vm-1", Name: "omnara-mch-a", Status: "running"}
 	client := newTestClient(t, server, newExchangeServer(t))
@@ -361,7 +340,7 @@ func TestBoxdGRPCClientExecStreamsStdinAndCollectsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
-	if result.ExitCode != 0 || result.Stdout != "read bytes\ndone\n" || result.Stderr != "warning\n" {
+	if result.ExitCode != 0 {
 		t.Fatalf("exec result = %+v", result)
 	}
 	if server.execCommand != "sh -c 'cat >/dev/null'" || string(server.execStdin) != string(payload) {
@@ -387,22 +366,71 @@ func TestBoxdGRPCClientExecStreamsStdinAndCollectsOutput(t *testing.T) {
 func TestBoxdGRPCClientRefreshesExpiringSessionTokens(t *testing.T) {
 	server := newFakeServer()
 	exchange := newExchangeServer(t)
-	exchange.response = map[string]any{"token": "jwt-short", "expires_at": time.Now().Add(time.Minute).Unix()}
 	client := newTestClient(t, server, exchange)
+	now := time.Now()
+	client.tokens.now = func() time.Time { return now }
 	if _, err := client.ListVMs(context.Background()); err != nil {
 		t.Fatalf("first list: %v", err)
 	}
-	exchange.mu.Lock()
-	exchange.response = map[string]any{"token": "jwt-fresh", "expires_at": time.Now().Add(time.Hour).Unix()}
-	exchange.mu.Unlock()
-	if _, err := client.ListVMs(context.Background()); err != nil {
-		t.Fatalf("second list: %v", err)
+	now = now.Add(sessionTokenLifetime - sessionTokenRefreshSkew - time.Second)
+	if _, err := client.ListVMs(context.Background()); err != nil || exchange.calls != 1 {
+		t.Fatalf("second list = error %v exchange calls %d, want cached token", err, exchange.calls)
 	}
-	if exchange.calls != 2 || server.authorizations[1] != "Bearer jwt-fresh" {
+	exchange.mu.Lock()
+	exchange.response = map[string]any{"token": "jwt-fresh"}
+	exchange.mu.Unlock()
+	now = now.Add(time.Second)
+	if _, err := client.ListVMs(context.Background()); err != nil {
+		t.Fatalf("third list: %v", err)
+	}
+	if exchange.calls != 2 || server.authorizations[2] != "Bearer jwt-fresh" {
 		t.Fatalf("exchange calls = %d authorizations %v", exchange.calls, server.authorizations)
 	}
-	if _, err := client.ListVMs(context.Background()); err != nil || exchange.calls != 2 {
-		t.Fatalf("third list = error %v exchange calls %d, want cached token", err, exchange.calls)
+}
+
+func TestBoxdSessionTokenRefreshDoesNotBlockOtherCredentials(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	releaseExchange := sync.OnceFunc(func() { close(release) })
+	exchange := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			APIKey string `json:"api_key"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.APIKey == "bxd_slow" {
+			close(started)
+			<-release
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": "jwt-" + body.APIKey})
+	}))
+	t.Cleanup(exchange.Close)
+	t.Cleanup(releaseExchange)
+	cache := newSessionTokenCache()
+	token := func(apiKey string) chan error {
+		done := make(chan error, 1)
+		go func() {
+			_, err := cache.token(
+				context.Background(),
+				&grpcClient{authURL: exchange.URL, apiKey: apiKey, httpClient: exchange.Client()},
+			)
+			done <- err
+		}()
+		return done
+	}
+
+	slow := token("bxd_slow")
+	<-started
+	select {
+	case err := <-token("bxd_fast"):
+		if err != nil {
+			t.Fatalf("fast credential token: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("token for one credential waited on another credential's exchange")
+	}
+	releaseExchange()
+	if err := <-slow; err != nil {
+		t.Fatalf("slow credential token: %v", err)
 	}
 }
 
@@ -423,10 +451,15 @@ func TestBoxdGRPCClientReportsExchangeFailures(t *testing.T) {
 		t.Fatalf("rate limited exchange error = %v retry after %v ok %v", err, retryAfter, ok)
 	}
 	exchange.status = http.StatusOK
-	exchange.response = map[string]any{"expires_at": 1}
+	exchange.response = map[string]any{}
 	client.tokens = newSessionTokenCache()
 	if _, err := client.ListVMs(context.Background()); err == nil || !strings.Contains(err.Error(), "missing the token") {
 		t.Fatalf("empty token error = %v", err)
+	}
+	exchange.Close()
+	client.tokens = newSessionTokenCache()
+	if _, err := client.ListVMs(context.Background()); !isTransient(err) {
+		t.Fatalf("unreachable exchange error = %v, want transient", err)
 	}
 	if len(server.authorizations) != 0 {
 		t.Fatalf("server saw %d calls without a session token", len(server.authorizations))
@@ -449,14 +482,8 @@ func TestBoxdErrorClassification(t *testing.T) {
 			t.Fatalf("%s must not be transient", code)
 		}
 	}
-	// ResourceExhausted is a rate limit on reads and the exchange, which is
-	// transient, and a full org on a create, which the create path tells apart.
-	full := apiError{Code: codes.ResourceExhausted, Message: "Org VM limit reached (100/100)"}
-	if !isTransient(full) || !isCapacityRefusal(full) {
-		t.Fatalf("resource exhausted = transient %t capacity %t", isTransient(full), isCapacityRefusal(full))
-	}
-	if isCapacityRefusal(apiError{Code: codes.Unavailable}) {
-		t.Fatal("unavailable must not read as a capacity refusal")
+	if !isTransient(apiError{Code: codes.ResourceExhausted}) {
+		t.Fatal("resource exhausted must be transient")
 	}
 	if isTransient(errors.New("not an api error")) {
 		t.Fatal("non-API errors must not be transient")
@@ -470,8 +497,6 @@ func TestBoxdGRPCClientAlwaysSendsAnExplicitIdleWindow(t *testing.T) {
 	if _, err := client.CreateVM(ctx, createVMRequest{Name: "plain", VCPU: 1, MemoryBytes: 4096 * mebibyte}); err != nil {
 		t.Fatalf("create without a sleep window: %v", err)
 	}
-	// Unset would let boxd apply a cluster default or a snapshot's inherited
-	// window, so a pool without a sleep window must send an explicit zero.
 	srf := server.created[0].GetConfig().GetSrf()
 	if srf == nil || srf.AutoSuspendTimeoutSecs == nil || srf.GetAutoSuspendTimeoutSecs() != 0 {
 		t.Fatalf("create without a sleep window sent %+v, want an explicit 0", srf)
@@ -486,69 +511,6 @@ func TestBoxdGRPCClientAlwaysSendsAnExplicitIdleWindow(t *testing.T) {
 	}
 	if server.created[1].GetConfig().GetSrf().GetAutoSuspendTimeoutSecs() != 60 {
 		t.Fatalf("create with a sleep window sent %+v", server.created[1].GetConfig().GetSrf())
-	}
-}
-
-func TestBoxdGRPCClientDecodesFractionalExpiryAndCapsTheLifetime(t *testing.T) {
-	server := newFakeServer()
-	exchange := newExchangeServer(t)
-	// boxd's SDKs read expires_at as a float, so a fractional value must decode.
-	exchange.response = map[string]any{
-		"token":      "jwt-frac",
-		"expires_at": float64(time.Now().Add(30*time.Minute).Unix()) + 0.5,
-	}
-	client := newTestClient(t, server, exchange)
-	if _, err := client.ListVMs(context.Background()); err != nil {
-		t.Fatalf("list with a fractional expiry: %v", err)
-	}
-	// A claimed lifetime beyond the documented hour cannot pin a token in the
-	// cache: after an hour it must be exchanged again.
-	exchange.mu.Lock()
-	exchange.response = map[string]any{"token": "jwt-long", "expires_at": time.Now().Add(240 * time.Hour).Unix()}
-	exchange.mu.Unlock()
-	client.tokens = newSessionTokenCache()
-	base := time.Now()
-	client.tokens.now = func() time.Time { return base }
-	if _, err := client.ListVMs(context.Background()); err != nil {
-		t.Fatalf("list with a long expiry: %v", err)
-	}
-	client.tokens.now = func() time.Time { return base.Add(sessionTokenLifetime) }
-	if _, err := client.ListVMs(context.Background()); err != nil {
-		t.Fatalf("list after the capped lifetime: %v", err)
-	}
-	if exchange.calls != 3 {
-		t.Fatalf("exchange calls = %d, want a re-exchange after the capped lifetime", exchange.calls)
-	}
-}
-
-func TestBoxdGRPCClientDropsATokenTheServerStopsAccepting(t *testing.T) {
-	server := newFakeServer()
-	exchange := newExchangeServer(t)
-	client := newTestClient(t, server, exchange)
-	ctx := context.Background()
-	if _, err := client.ListVMs(ctx); err != nil {
-		t.Fatalf("first list: %v", err)
-	}
-	server.mu.Lock()
-	server.unauthorized = true
-	server.mu.Unlock()
-	exchange.mu.Lock()
-	exchange.response = map[string]any{"token": "jwt-rotated", "expires_at": time.Now().Add(time.Hour).Unix()}
-	exchange.mu.Unlock()
-	if _, err := client.ListVMs(ctx); !isCode(err, codes.Unauthenticated) {
-		t.Fatalf("list with a revoked token = %v, want unauthenticated", err)
-	}
-	// The rejected token is gone from the cache, so the next call exchanges
-	// again instead of failing until the recorded expiry.
-	server.mu.Lock()
-	server.unauthorized = false
-	server.mu.Unlock()
-	if _, err := client.ListVMs(ctx); err != nil {
-		t.Fatalf("list after rotation: %v", err)
-	}
-	last := server.authorizations[len(server.authorizations)-1]
-	if exchange.calls != 2 || last != "Bearer jwt-rotated" {
-		t.Fatalf("exchange calls = %d, last authorization = %q", exchange.calls, last)
 	}
 }
 
@@ -576,26 +538,5 @@ func TestBoxdGRPCClientExchangesOnceUnderConcurrency(t *testing.T) {
 	}
 	if exchange.calls != 1 {
 		t.Fatalf("exchange calls = %d, want one exchange shared by %d callers", exchange.calls, callers)
-	}
-}
-
-func TestBoxdExchangeStatusMapping(t *testing.T) {
-	for statusCode, want := range map[int]codes.Code{
-		http.StatusUnauthorized:        codes.Unauthenticated,
-		http.StatusForbidden:           codes.PermissionDenied,
-		http.StatusNotFound:            codes.NotFound,
-		http.StatusTooManyRequests:     codes.ResourceExhausted,
-		http.StatusBadRequest:          codes.InvalidArgument,
-		http.StatusUnprocessableEntity: codes.InvalidArgument,
-		http.StatusInternalServerError: codes.Unavailable,
-		http.StatusBadGateway:          codes.Unavailable,
-	} {
-		if got := codeForHTTPStatus(statusCode); got != want {
-			t.Fatalf("status %d = %s, want %s", statusCode, got, want)
-		}
-	}
-	// A rejected key is a configuration error, not something to retry.
-	if isTransient(apiError{Code: codeForHTTPStatus(http.StatusBadRequest)}) {
-		t.Fatal("a 400 from the exchange must not be transient")
 	}
 }

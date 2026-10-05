@@ -25,9 +25,9 @@ func (p *provider) ObserveRuntimeStates(
 	if len(requestedResourceIDs) == 0 {
 		return observationsForMatches(targets, nil), nil
 	}
-	// ListVMs returns the whole org fleet in one response; boxd exposes no
-	// pagination or state filters.
-	vms, err := p.api.ListVMs(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, runtimeListTimeout)
+	vms, err := p.api.ListVMs(listCtx)
+	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("list boxd machines for runtime observation: %w", err)
 	}

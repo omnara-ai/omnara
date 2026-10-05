@@ -2,11 +2,6 @@ import type { CreateMachinePoolRequest, MachinePool } from '@omnara/sdk'
 
 import { providerOptionStrings } from '@/lib/provider-options'
 
-export interface MachineSizeClass {
-  cpu: number
-  memoryMb: number
-}
-
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
@@ -43,15 +38,6 @@ interface MachinePoolProviderDefinition {
     memoryMb: MachinePoolResourceMode
     defaultCpu?: string
     defaultMemoryGb?: string
-  }
-  /**
-   * Set for providers that only offer fixed machine shapes. The form then
-   * picks one of these instead of free CPU and memory numbers, and
-   * providerDefault lets a pool leave the size to the provider entirely.
-   */
-  sizes?: {
-    classes: MachineSizeClass[]
-    providerDefault?: { label: string; description: string }
   }
 }
 
@@ -234,32 +220,18 @@ const boxd: MachinePoolProviderDefinition = {
   label: 'boxd',
   resource: {
     key: 'snapshot',
-    label: 'Snapshot (optional)',
-    placeholder: 'Leave empty for the boxd base image',
-    description:
-      'Machines boot the boxd base image unless a snapshot saved with `boxd snapshots save` is named. Sizes must be 1 vCPU with 4 GB, 2 with 8 GB, or 4 with 16 GB.',
-    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+    label: 'Snapshot',
+    placeholder: 'boxd base image',
     optional: true,
+    description:
+      "Leave empty to use the boxd base image, or enter a saved snapshot's name. Machines take the snapshot's size, or your boxd org's default size without one.",
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
   },
-  credential: {
-    label: 'boxd API key',
-    placeholder: 'Search secrets for your boxd API key…',
-    emptyDescription: 'No secrets yet — use New secret to store your boxd API key.',
-    defaultSecretName: 'boxd-api-key',
-    secretValuePlaceholder: 'bxd_...',
-  },
-  resources: { cpu: 'configured', memoryMb: 'configured', defaultCpu: '1', defaultMemoryGb: '4' },
-  sizes: {
-    classes: [
-      { cpu: 1, memoryMb: 4096 },
-      { cpu: 2, memoryMb: 8192 },
-      { cpu: 4, memoryMb: 16384 },
-    ],
-    providerDefault: {
-      label: 'Snapshot or org default',
-      description:
-        'Machines take the size captured in the snapshot, or the boxd org default without one. Set the per-machine limits under Advanced to cap what that can be.',
-    },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '8',
   },
 }
 

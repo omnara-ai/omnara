@@ -19,27 +19,21 @@ import {
   optionalPositiveInt32Valid,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
-import { memoryGbDraft, memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
+import {
+  memoryGbDraft,
+  memoryGbDraftValid,
+  memoryGbToMb,
+  memoryGbToMbPreservingOriginal,
+} from '@/lib/machine-memory'
 import { providerOptionStrings } from '@/lib/provider-options'
 import { resourceNameValid } from '@/lib/resource-name'
 
-import {
-  memoryMbFromDraft,
-  optionalMemoryMb,
-  optionalMemoryMbOrNull,
-  optionalMemoryMbPreservingOriginal,
-} from './machinePoolFormHelpers'
 import {
   isMachinePoolProvider,
   machinePoolCoreProviderOptions,
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from './machinePoolProviders'
-import {
-  effectiveMachineSizeDrafts,
-  machineSizeOmitted,
-  machineSizeValid,
-} from './machinePoolSizes'
 
 export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions).map(
   ([value, definition]) => ({ value, label: definition.label }),
@@ -183,23 +177,21 @@ export function machinePoolFormValid(
   const provider = machinePoolProviderDefinitions[values.provider]
   const clusterEdit = mode === 'cluster-edit'
   const maxMachinesValid = clusterEdit || nonNegativeInt32(values.maxMachines)
-  // With the size left to the provider, the per-machine caps stand in for it.
-  const { cpu, memoryGb } = effectiveMachineSizeDrafts(values.provider, values)
   const cpuValid =
     provider.resources.cpu === 'unsupported' ||
-    (positiveInt32(cpu) &&
+    (positiveInt32(values.cpu) &&
       (clusterEdit ||
         (maxMachinesValid &&
-          (values.maxTotalCpu.trim() !== '' || aggregateFitsInt32(cpu, values.maxMachines)))))
+          (values.maxTotalCpu.trim() !== '' ||
+            aggregateFitsInt32(values.cpu, values.maxMachines)))))
   const memoryValid =
     provider.resources.memoryMb === 'unsupported' ||
-    (memoryGbDraftValid(memoryGb) &&
+    (memoryGbDraftValid(values.memoryGb) &&
       (clusterEdit ||
         (maxMachinesValid &&
           (values.maxTotalMemoryGb.trim() !== '' ||
-            memoryAggregateFitsInt32(memoryGb, values.maxMachines)))))
+            memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
   return (
-    machineSizeValid(values.provider, values) &&
     (clusterEdit ||
       (resourceNameValid(values.name) &&
         (provider.resource.optional === true || values.image.trim() !== '') &&
@@ -223,13 +215,9 @@ export function machinePoolFormValid(
 }
 
 export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateMachinePoolRequest {
-  const sizeOmitted = machineSizeOmitted(values.provider, values)
-  const size = effectiveMachineSizeDrafts(values.provider, values)
-  const cpu = Number(size.cpu)
-  const memoryMb = memoryGbToMb(size.memoryGb)
+  const cpu = Number(values.cpu)
+  const memoryMb = memoryGbToMb(values.memoryGb)
   const maxMachines = Number(values.maxMachines)
-  const startupScript =
-    values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   const common = {
     name: values.name,
     description: stringOrUndefined(values.description),
@@ -237,24 +225,12 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     max_total_machines: maxMachines,
     default_machine_env: recordFromTextRows(values.envRows),
     default_machine_secret_env: recordFromSecretRows(values.secretEnvRows),
-    default_machine_provider_options: {
-      ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
-      ...startupScript,
-    },
     default_cwd: stringOrUndefined(values.cwd),
     runtime_protection_enabled: values.runtimeProtectionEnabled,
     delete_after_idle_minutes: optionalInt(values.deleteAfterIdleMinutes),
   }
-  const cpuCaps = {
-    max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
-    min_machine_cpu: optionalInt(values.minMachineCpu),
-    max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
-  }
-  const memoryCaps = {
-    max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
-    min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
-    max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
-  }
+  const startupScript =
+    values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
     case 'unikraft':
     case 'freestyle':
@@ -268,29 +244,47 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           values.provider === 'modal' ? { app: values.providerScope.trim() } : undefined,
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
-        ...cpuCaps,
-        ...memoryCaps,
-      }
-    case 'boxd':
-      // An omitted size is left to the snapshot or the boxd org default.
-      return {
-        ...common,
-        provider: 'boxd',
-        default_machine_cpu: sizeOmitted ? undefined : cpu,
-        default_machine_memory_mb: sizeOmitted ? undefined : memoryMb,
-        ...cpuCaps,
-        ...memoryCaps,
+        default_machine_provider_options: {
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
+          ...startupScript,
+        },
+        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
+        min_machine_cpu: optionalInt(values.minMachineCpu),
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
+        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'blaxel':
       return {
         ...common,
         provider: 'blaxel',
         default_machine_memory_mb: memoryMb,
+        default_machine_provider_options: {
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
+          ...startupScript,
+        },
         provider_config: { workspace: values.providerScope.trim() },
-        ...memoryCaps,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'daytona':
-      return { ...common, provider: 'daytona', ...cpuCaps, ...memoryCaps }
+    case 'boxd':
+      return {
+        ...common,
+        provider: values.provider,
+        default_machine_provider_options: {
+          ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
+          ...startupScript,
+        },
+        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
+        min_machine_cpu: optionalInt(values.minMachineCpu),
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
+        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
+      }
   }
 }
 
@@ -307,8 +301,6 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     definition.resources.memoryMb === 'provider-resolved'
       ? pool.max_machine_memory_mb
       : pool.default_machine_memory_mb
-  const sizeLeftToProvider =
-    definition.sizes?.providerDefault !== undefined && cpuValue == null && memoryValue == null
   return {
     name: pool.name,
     description: pool.description,
@@ -323,10 +315,8 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     cwd: pool.default_cwd,
     envRows: textRowsFromRecord(pool.default_machine_env),
     secretEnvRows: secretRowsFromRecord(pool.default_machine_secret_env),
-    cpu: sizeLeftToProvider ? '' : numberDraft(cpuValue) || machinePoolFormDefaults.cpu,
-    memoryGb: sizeLeftToProvider
-      ? ''
-      : memoryGbDraft(memoryValue) || machinePoolFormDefaults.memoryGb,
+    cpu: numberDraft(cpuValue) || machinePoolFormDefaults.cpu,
+    memoryGb: memoryGbDraft(memoryValue) || machinePoolFormDefaults.memoryGb,
     maxMachines: numberDraft(pool.max_total_machines),
     maxTotalCpu: numberDraft(pool.max_total_cpu),
     maxTotalMemoryGb: memoryGbDraft(pool.max_total_memory_mb),
@@ -368,7 +358,12 @@ export function machinePoolUpdateRequest(
   if (values.startupScript.trim() !== '') {
     defaultMachineProviderOptions.startup_script = values.startupScript
   }
-  const { sizeOmitted, cpu, memoryMb } = machineSizeForUpdate(pool, values)
+  const cpu = Number(values.cpu)
+  const originalMemoryMb =
+    definition.resources.memoryMb === 'provider-resolved'
+      ? pool.max_machine_memory_mb
+      : pool.default_machine_memory_mb
+  const memoryMb = memoryMbFromDraft(values.memoryGb, originalMemoryMb)
   const maxMachines = Number(values.maxMachines)
   const common = {
     name: values.name,
@@ -388,15 +383,14 @@ export function machinePoolUpdateRequest(
     case 'modal':
     case 'tenki':
     case 'arker':
-    case 'boxd':
       return {
         ...common,
         provider_config:
           values.provider === 'modal'
             ? { ...pool.provider_config, app: values.providerScope.trim() }
             : undefined,
-        default_machine_cpu: sizeOmitted ? null : cpu,
-        default_machine_memory_mb: sizeOmitted ? null : memoryMb,
+        default_machine_cpu: cpu,
+        default_machine_memory_mb: memoryMb,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
         max_total_memory_mb:
           optionalMemoryMbPreservingOriginal(values.maxTotalMemoryGb, pool.max_total_memory_mb) ??
@@ -432,6 +426,7 @@ export function machinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
+    case 'boxd':
       return {
         ...common,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -457,7 +452,13 @@ function clusterMachinePoolUpdateRequest(
   pool: MachinePool,
   values: MachinePoolFormValues,
 ): UpdateMachinePoolRequest {
-  const { sizeOmitted, cpu, memoryMb } = machineSizeForUpdate(pool, values)
+  const definition = machinePoolProviderDefinitions[values.provider]
+  const cpu = Number(values.cpu)
+  const originalMemoryMb =
+    definition.resources.memoryMb === 'provider-resolved'
+      ? pool.max_machine_memory_mb
+      : pool.default_machine_memory_mb
+  const memoryMb = memoryMbFromDraft(values.memoryGb, originalMemoryMb)
   const common = {
     default_machine_env: recordFromTextRows(values.envRows) ?? {},
     default_machine_secret_env: recordFromSecretRows(values.secretEnvRows) ?? {},
@@ -473,11 +474,10 @@ function clusterMachinePoolUpdateRequest(
     case 'modal':
     case 'tenki':
     case 'arker':
-    case 'boxd':
       return {
         ...common,
-        default_machine_cpu: sizeOmitted ? null : cpu,
-        default_machine_memory_mb: sizeOmitted ? null : memoryMb,
+        default_machine_cpu: cpu,
+        default_machine_memory_mb: memoryMb,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb:
@@ -497,6 +497,7 @@ function clusterMachinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
+    case 'boxd':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
@@ -506,18 +507,20 @@ function clusterMachinePoolUpdateRequest(
   }
 }
 
-/** The machine size an update carries, converted against the pool's stored value. */
-function machineSizeForUpdate(pool: MachinePool, values: MachinePoolFormValues) {
-  const definition = machinePoolProviderDefinitions[values.provider]
-  const sizeOmitted = machineSizeOmitted(values.provider, values)
-  const size = effectiveMachineSizeDrafts(values.provider, values)
-  const originalMemoryMb =
-    sizeOmitted || definition.resources.memoryMb === 'provider-resolved'
-      ? pool.max_machine_memory_mb
-      : pool.default_machine_memory_mb
-  return {
-    sizeOmitted,
-    cpu: Number(size.cpu),
-    memoryMb: memoryMbFromDraft(size.memoryGb, originalMemoryMb),
-  }
+function memoryMbFromDraft(value: string, originalMemoryMb: number | null) {
+  return originalMemoryMb === null
+    ? memoryGbToMb(value)
+    : memoryGbToMbPreservingOriginal(value, originalMemoryMb)
+}
+
+function optionalMemoryMb(value: string) {
+  return value.trim() === '' ? undefined : memoryGbToMb(value)
+}
+
+function optionalMemoryMbPreservingOriginal(value: string, originalMemoryMb: number | null) {
+  return value.trim() === '' ? undefined : memoryMbFromDraft(value, originalMemoryMb)
+}
+
+function optionalMemoryMbOrNull(value: string, originalMemoryMb: number | null) {
+  return optionalMemoryMbPreservingOriginal(value, originalMemoryMb) ?? null
 }

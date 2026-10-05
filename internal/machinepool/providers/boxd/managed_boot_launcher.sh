@@ -19,9 +19,6 @@ setsid /bin/sh -c 'echo $$ >"$1/pid" && exec /bin/sh "$1/boot"' omnara-boot "$b"
 sleep 1
 p=$(cat "$b/pid" 2>/dev/null)
 if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
-  # The boot script carries the machine's secrets. The running shell holds
-  # the inode, so unlinking it keeps the payload out of snapshots and forks
-  # without disturbing the bootstrap.
   rm -f "$b/boot"
   echo "omnara daemon bootstrap started (pid $p)"
   exit 0
