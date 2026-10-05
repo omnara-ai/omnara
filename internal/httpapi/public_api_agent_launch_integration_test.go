@@ -315,12 +315,26 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		archivedReplayAgent["state"] != "archived" {
 		t.Fatalf("archived agent launch replay = %+v, want current archived agent", archivedReplay)
 	}
-	requestJSONWithHeaders(
+	profileOnly := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
 		`{"profile":"`+profileID+`"}`,
+		"idem-agent-launch-profile-only",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	profileOnlyAgent := testutil.RequireType[map[string]any](t, profileOnly["agent"])
+	if profileOnlyAgent["current_config_id"] != retargetedConfigID || profileOnlyAgent["agent_profile_id"] != profileID {
+		t.Fatalf("profile-only launch should run the profile's current config: %+v", profileOnlyAgent)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		`{}`,
 		"idem-agent-launch-missing-config",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -781,5 +795,80 @@ func TestPublicAgentConfigSourceRequiresExactlyOneForm(t *testing.T) {
 	definition := testutil.RequireType[map[string]any](t, yamlConfig["definition"])
 	if definition["instruction"] != "Configured from YAML." {
 		t.Fatalf("YAML config should also return its JSON definition: %+v", yamlConfig)
+	}
+}
+
+func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-launch-profile-combos")
+	profileConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-launch-profile-combos-profile", "yaml",
+		"instruction: Profile default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated,
+	)
+	profile := createPublicHTTPAgentProfile(
+		t, handler, project, "agent-launch-profile-combos", "Profile Combos",
+		testutil.RequireType[string](t, profileConfig["id"]), project.AdminToken, http.StatusCreated,
+	)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	unrelatedConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-launch-profile-combos-unrelated", "yaml",
+		"instruction: Not a profile version.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated,
+	)
+	unrelatedConfigID := testutil.RequireType[string](t, unrelatedConfig["id"])
+	launch := func(body, idempotencyKey string, status int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/agents", body,
+			idempotencyKey, status, authHeaders(project.AdminToken),
+		)
+	}
+
+	custom := testutil.RequireType[map[string]any](t, launch(
+		`{"profile":"`+profileID+`","config":"`+unrelatedConfigID+`"}`, "idem-combo-custom", http.StatusCreated,
+	)["agent"])
+	if custom["agent_profile_id"] != profileID || custom["current_config_id"] != unrelatedConfigID {
+		t.Fatalf("profile + unrelated config should attribute to profile and run that config: %+v", custom)
+	}
+
+	inline := launch(
+		`{"profile":"`+profileID+`","config_source":{"definition":`+
+			`{"instruction":"Inline override.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}}`,
+		"idem-combo-inline", http.StatusCreated,
+	)
+	inlineAgent := testutil.RequireType[map[string]any](t, inline["agent"])
+	inlineConfig := testutil.RequireType[map[string]any](t, inline["agent_config"])
+	if inlineAgent["agent_profile_id"] != profileID ||
+		inlineAgent["current_config_id"] == profileConfig["id"] ||
+		inlineAgent["current_config_id"] != inlineConfig["id"] ||
+		testutil.RequireType[map[string]any](t, inlineConfig["definition"])["instruction"] != "Inline override." {
+		t.Fatalf("profile + config_source should launch a new config attributed to the profile: %+v", inline)
+	}
+
+	yamlOnly := testutil.RequireType[map[string]any](t, launch(
+		`{"config_source":{"yaml":`+quotedJSONString(
+			"instruction: Inline YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		)+`}}`,
+		"idem-combo-yaml-only", http.StatusCreated,
+	)["agent"])
+	if _, ok := yamlOnly["agent_profile_id"]; ok {
+		t.Fatalf("config_source-only launch should not be attributed to a profile: %+v", yamlOnly)
+	}
+
+	launch(
+		`{"config":"`+unrelatedConfigID+`","config_source":{"yaml":"instruction: x"}}`,
+		"idem-combo-both", http.StatusBadRequest,
+	)
+	invalid := launch(
+		`{"profile":"`+profileID+`","config_source":{"definition":{"instruction":"x"}}}`,
+		"idem-combo-invalid", http.StatusBadRequest,
+	)
+	if _, ok := invalid["issues"]; !ok {
+		t.Fatalf("invalid config_source should report compiler issues: %+v", invalid)
 	}
 }

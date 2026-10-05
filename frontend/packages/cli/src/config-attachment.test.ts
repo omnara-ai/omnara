@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { renderConfigSource } from './config-attachment.ts'
+import { renderConfigSource, renderLaunchConfig } from './config-attachment.ts'
 import { CliInputError } from './output.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'omnara-config-attachment-'))
@@ -66,5 +66,31 @@ describe('renderConfigSource', () => {
   it('rejects a file and inline source together', () => {
     const file = writeTemp('agent.yaml', 'instruction: hi\n')
     expect(() => renderConfigSource({ file, source: 'instruction: hi' })).toThrow(CliInputError)
+  })
+})
+
+describe('renderLaunchConfig', () => {
+  it('runs the profile config when no config is given', () => {
+    expect(renderLaunchConfig('apf_1', {})).toEqual({})
+  })
+
+  it('passes an existing config ID', () => {
+    expect(renderLaunchConfig('apf_1', { config: 'apc_1' })).toEqual({ config: 'apc_1' })
+  })
+
+  it('sends an inline source as config_source', () => {
+    expect(renderLaunchConfig(undefined, { source: 'instruction: hi' })).toEqual({
+      config_source: { yaml: 'instruction: hi' },
+    })
+  })
+
+  it('requires a profile or a config', () => {
+    expect(() => renderLaunchConfig(undefined, {})).toThrow(CliInputError)
+  })
+
+  it('rejects a config ID and a source together', () => {
+    expect(() =>
+      renderLaunchConfig('apf_1', { config: 'apc_1', source: 'instruction: hi' }),
+    ).toThrow(CliInputError)
   })
 })

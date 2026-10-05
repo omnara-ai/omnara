@@ -240,9 +240,9 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 	}
 	command := executionstore.LaunchSubagentForToolCall(
 		executionstore.LaunchAgentInput{
-			ProjectID:     parent.ProjectID,
-			ProfileID:     launchConfig.profileID,
-			DerivedConfig: &launchConfig.derived,
+			ProjectID: parent.ProjectID,
+			ProfileID: launchConfig.profileID,
+			NewConfig: &launchConfig.derived,
 			LaunchedBy: identitystore.PrincipalRecord{
 				Type: identitystore.PrincipalTypeSystem,
 				ID:   parent.ID,

@@ -425,17 +425,6 @@ WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND deleted_at IS NULL;
 
--- name: AgentProfileVersionExistsForConfig :one
--- @sqlc-vet-disable agent-profile-versions-deleted-at
--- Config lineage check spans soft-deleted profile versions.
-SELECT EXISTS (
-  SELECT 1
-FROM agent_profile_versions
-WHERE project_id = sqlc.arg(project_id)
-  AND profile_id = sqlc.arg(profile_id)
-  AND agent_config_id = sqlc.arg(agent_config_id)
-);
-
 -- name: ListProjectLastActivity :many
 -- When each project last had an active top-level agent or a live profile updated,
 -- matching what the overview's recent agents and profiles count as activity.

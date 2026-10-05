@@ -51,7 +51,7 @@ func TestDerivedLaunchRequiresProfileBase(t *testing.T) {
 			input := LaunchAgentInput{
 				ProjectID:     uuid.New(),
 				LaunchedBy:    identitystore.NewUserPrincipal(uuid.New()),
-				DerivedConfig: &CreateAgentConfigInput{},
+				NewConfig: &CreateAgentConfigInput{},
 			}
 			if test.profile {
 				input.ProfileID = uuid.New()

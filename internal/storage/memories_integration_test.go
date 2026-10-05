@@ -526,7 +526,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 		t.Fatalf("read-only store blocked instruction change: %v", err)
 	}
 	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID: testProjectID, DerivedConfig: &derived, LaunchedBy: userPrincipal(admin.ID),
+		ProjectID: testProjectID, NewConfig: &derived, LaunchedBy: userPrincipal(admin.ID),
 	}); err != nil {
 		t.Fatalf("read-only store blocked inherited attachment: %v", err)
 	}

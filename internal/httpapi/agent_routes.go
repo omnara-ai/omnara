@@ -608,12 +608,30 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid profile")
 		}
 	}
-	if request.Body.Config == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
+	configID := uuid.Nil
+	if request.Body.Config != nil {
+		configID, ok = parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.Config)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+		}
 	}
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.Config)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+	var newConfig *executionstore.CreateAgentConfigInput
+	if source := request.Body.ConfigSource; source != nil {
+		if configID != uuid.Nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
+		}
+		compiled, err := s.server.compileAgentConfigSourceForProject(ctx, project, source.Definition, source.Yaml)
+		if err != nil {
+			return nil, agentConfigCompileError(err)
+		}
+		input := compiled.CreateInput(project.ID)
+		newConfig = &input
+	}
+	if profileID == uuid.Nil && configID == uuid.Nil && newConfig == nil {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"one of profile, config, or config_source is required",
+		)
 	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
@@ -627,6 +645,7 @@ func (s strictOpenAPIServer) createAgent(
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
+		NewConfig:      newConfig,
 		LaunchedBy:     principal,
 		Name:           request.Body.Name,
 		Message:        message,

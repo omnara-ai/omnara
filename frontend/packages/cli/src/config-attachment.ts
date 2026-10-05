@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import {
   type AgentConfigDefinition,
   type AgentConfigSource,
+  type CreateAgentRequest,
   type OmnaraClient,
   sdk,
   zJsonText,
@@ -107,6 +108,23 @@ export async function resolveConfigId(
     body: renderConfigSource(attachment),
   })
   return data.id
+}
+
+const LAUNCH_HINT = 'pass --profile or one of --config, --file, or --source'
+const LAUNCH_CONFIG_HINT = 'pass at most one of --config, --file, or --source'
+
+export function renderLaunchConfig(
+  profile: string | undefined,
+  attachment: ConfigAttachment,
+): Pick<CreateAgentRequest, 'config' | 'config_source'> {
+  const provided = [attachment.config, attachment.file, attachment.source].filter(
+    (value) => value !== undefined,
+  )
+  if (provided.length > 1) throw new CliInputError(LAUNCH_CONFIG_HINT)
+  if (attachment.config !== undefined) return { config: attachment.config }
+  if (provided.length === 1) return { config_source: renderConfigSource(attachment) }
+  if (profile === undefined) throw new CliInputError(LAUNCH_HINT)
+  return {}
 }
 
 export async function currentProfileConfigId(

@@ -30,7 +30,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	f := newIntegrationActivationFixture(t)
 	definition := f.definition(t, "Initial origin")
 	input := f.launchInput(uuid.Nil, "initial-origin")
-	input.DerivedConfig = &definition
+	input.NewConfig = &definition
 	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 	input.InitialInput = &executionstore.LaunchInitialInput{
 		ContentBlocks: json.RawMessage(
@@ -96,7 +96,7 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 			f := newIntegrationActivationFixture(t)
 			definition := f.definition(t, "Failed initial input")
 			input := f.launchInput(uuid.Nil, "invalid-initial")
-			input.DerivedConfig = &definition
+			input.NewConfig = &definition
 			input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"test"}]`),
@@ -254,7 +254,7 @@ func newInboxLaunchFixtureForIntegration(
 		require.NoError(t, err)
 		definition := f.definition(t, "Frozen initial config "+key)
 		launch := f.launchInput(uuid.Nil, "inbox-launch-"+key)
-		launch.DerivedConfig, launch.ProfileID = &definition, f.profile.ID
+		launch.NewConfig, launch.ProfileID = &definition, f.profile.ID
 		launch.DerivedBaseConfigID = f.profile.CurrentConfigID
 		subscription := f.attachment()
 		subscription.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"123.456"}`)
@@ -322,7 +322,7 @@ func (f integrationActivationFixture) freezeLaunch(
 	t *testing.T, launch executionstore.LaunchAgentInput,
 ) executionstore.InboxLaunchPlan {
 	t.Helper()
-	config, err := f.store.Execution().CreateAgentConfig(f.ctx, *launch.DerivedConfig)
+	config, err := f.store.Execution().CreateAgentConfig(f.ctx, *launch.NewConfig)
 	require.NoError(t, err)
 	return executionstore.InboxLaunchPlan{
 		ProfileID: launch.ProfileID, AgentConfigID: config.ID, DerivedBaseConfigID: launch.DerivedBaseConfigID,

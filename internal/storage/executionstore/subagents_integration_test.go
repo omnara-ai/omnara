@@ -51,7 +51,7 @@ func TestSubagentConfigChangesAreRejected(t *testing.T) {
 		}
 		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
 			"readonly-child", "readonly-child-"+fmt.Sprint(len(source)), nil,
-			func(input *executionstore.LaunchAgentInput) { input.DerivedConfig = &config })
+			func(input *executionstore.LaunchAgentInput) { input.NewConfig = &config })
 		require.NoError(t, err)
 		_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 			CreateAgentConfigInput: config, AgentID: child.Agent.ID,
@@ -278,7 +278,7 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 		t, ctx, store, parent, uuid.Nil, "worker", "subagent-derived-child", nil,
 		func(input *executionstore.LaunchAgentInput) {
 			input.ProfileID = parent.AgentProfileID
-			input.DerivedConfig = &derived
+			input.NewConfig = &derived
 		},
 	)
 	if err != nil {
@@ -297,14 +297,17 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	unrelated := mustCreateAgentConfigFromYAML(
 		t, ctx, store, strings.Replace(subagentParentYAML, "Coordinate helpers.", "Coordinate helpers alone.", 1),
 	)
-	_, err = spawnSubagentForTest(
+	outside, err := spawnSubagentForTest(
 		t, ctx, store, parent, unrelated.ID, "worker-2", "subagent-derived-child-2", nil,
 		func(input *executionstore.LaunchAgentInput) {
 			input.ProfileID = profile.ID
 		},
 	)
-	if !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("existing config outside the profile history: err = %v, want not found", err)
+	if err != nil {
+		t.Fatalf("existing config outside the profile history: %v", err)
+	}
+	if outside.Agent.AgentProfileID != profile.ID || outside.Agent.CurrentConfigID != unrelated.ID {
+		t.Fatalf("config outside the profile history should keep profile attribution: %+v", outside.Agent)
 	}
 }
 
@@ -366,7 +369,7 @@ tools:
 			require.NoError(t, err)
 			input := derived.CreateInput(testProjectID)
 			child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil, "child", "model-child", nil,
-				func(launch *executionstore.LaunchAgentInput) { launch.DerivedConfig = &input })
+				func(launch *executionstore.LaunchAgentInput) { launch.NewConfig = &input })
 			switch scenario {
 			case "tool-free leaf":
 				require.NoError(t, err)

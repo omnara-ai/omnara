@@ -13,31 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const agentProfileVersionExistsForConfig = `-- name: AgentProfileVersionExistsForConfig :one
-SELECT EXISTS (
-  SELECT 1
-FROM agent_profile_versions
-WHERE project_id = $1
-  AND profile_id = $2
-  AND agent_config_id = $3
-)
-`
-
-type AgentProfileVersionExistsForConfigParams struct {
-	ProjectID     uuid.UUID
-	ProfileID     uuid.UUID
-	AgentConfigID uuid.UUID
-}
-
-// @sqlc-vet-disable agent-profile-versions-deleted-at
-// Config lineage check spans soft-deleted profile versions.
-func (q *Queries) AgentProfileVersionExistsForConfig(ctx context.Context, arg AgentProfileVersionExistsForConfigParams) (bool, error) {
-	row := q.db.QueryRow(ctx, agentProfileVersionExistsForConfig, arg.ProjectID, arg.ProfileID, arg.AgentConfigID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const captureAgentConfigForEventWatermark = `-- name: CaptureAgentConfigForEventWatermark :one
 WITH existing_agent AS MATERIALIZED (
   SELECT agent.id, agent.project_id

@@ -29,7 +29,7 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T
 	}
 	definition = f.encodedDefinition(t, compiled)
 	input := f.launchInput(uuid.Nil, "selected-integration")
-	input.DerivedConfig = &definition
+	input.NewConfig = &definition
 	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)

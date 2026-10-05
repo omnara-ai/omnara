@@ -77,7 +77,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	}
 	config := derived.CreateInput(project.ID)
 	input.DerivedBaseConfigID = base.ID
-	input.AgentConfigID, input.DerivedConfig = uuid.Nil, &config
+	input.AgentConfigID, input.NewConfig = uuid.Nil, &config
 	return input, nil
 }
 

@@ -180,7 +180,7 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 	)
 	definition := f.withSendingTools(t, f.definition(t, "Parent may send"))
 	input := f.launchInput(uuid.Nil, "subscription-parent")
-	input.DerivedConfig = &definition
+	input.NewConfig = &definition
 	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 	parent, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)

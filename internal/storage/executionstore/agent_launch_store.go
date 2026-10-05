@@ -22,7 +22,10 @@ import (
 )
 
 type LaunchAgentInput struct {
-	ProjectID     uuid.UUID
+	ProjectID uuid.UUID
+	// ProfileID attributes the agent to a profile. With no AgentConfigID or
+	// NewConfig, the agent runs the profile's current config; otherwise it
+	// runs the given config, which need not be one of the profile's versions.
 	ProfileID     uuid.UUID
 	AgentConfigID uuid.UUID
 	LaunchedBy    identitystore.PrincipalRecord
@@ -34,12 +37,14 @@ type LaunchAgentInput struct {
 	MessageActor            *ActorParams
 	IdempotencyKey          string
 	ArchiveAfterIdleMinutes *int
-	DerivedConfig           *CreateAgentConfigInput
-	DerivedBaseConfigID     uuid.UUID
-	Subagent                *SubagentLaunch
-	InitialInput            *LaunchInitialInput
-	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
-	admission               *launchAdmission
+	// NewConfig is saved during the launch and used instead of
+	// AgentConfigID.
+	NewConfig           *CreateAgentConfigInput
+	DerivedBaseConfigID uuid.UUID
+	Subagent            *SubagentLaunch
+	InitialInput        *LaunchInitialInput
+	Subscriptions       []integrationstore.IntegrationSubscriptionAttachment
+	admission           *launchAdmission
 }
 
 type LaunchAgentResult struct {
@@ -74,10 +79,13 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 	if input.ProjectID == uuid.Nil || input.LaunchedBy.ID == uuid.Nil {
 		return LaunchAgentInput{}, errors.New("project and launching principal are required")
 	}
-	if (input.AgentConfigID == uuid.Nil) == (input.DerivedConfig == nil) {
-		return LaunchAgentInput{}, errors.New("exactly one of agent config or derived config is required")
+	if input.AgentConfigID != uuid.Nil && input.NewConfig != nil {
+		return LaunchAgentInput{}, errors.New("only one of agent config or new config may be given")
 	}
-	if input.DerivedConfig != nil && input.ProfileID != uuid.Nil &&
+	if input.AgentConfigID == uuid.Nil && input.NewConfig == nil && input.ProfileID == uuid.Nil {
+		return LaunchAgentInput{}, errors.New("an agent profile, agent config, or new config is required")
+	}
+	if input.NewConfig != nil && input.ProfileID != uuid.Nil &&
 		input.Subagent == nil && input.DerivedBaseConfigID == uuid.Nil {
 		return LaunchAgentInput{}, storeerr.InvalidRequest(
 			errors.New("profile-attributed derived launch requires a base config"),
@@ -215,29 +223,26 @@ func (s *Store) launchAgentTx(
 	agentName := launchAgentName(input.Name, profile)
 	configID := input.AgentConfigID
 	if input.DerivedBaseConfigID != uuid.Nil {
-		if _, _, err := launchConfigTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			profile,
-			input.DerivedBaseConfigID,
-			false,
-		); err != nil {
+		if _, _, err := launchConfigTx(ctx, qtx, input.ProjectID, input.DerivedBaseConfigID); err != nil {
 			return LaunchAgentResult{}, err
 		}
 	}
-	if input.DerivedConfig != nil {
-		derived := *input.DerivedConfig
-		derived.OrgID = project.OrgID
-		derived.ProjectID = input.ProjectID
-		created, err := insertAgentConfigTx(ctx, qtx, derived)
+	switch {
+	case input.NewConfig != nil:
+		newConfig := *input.NewConfig
+		newConfig.OrgID = project.OrgID
+		newConfig.ProjectID = input.ProjectID
+		created, err := insertAgentConfigTx(ctx, qtx, newConfig)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
 		configID = created.ID
+	case configID == uuid.Nil && profile != nil:
+		// The profile row is locked, so a concurrent retarget cannot slip in
+		// between reading the current config and launching with it.
+		configID = profile.CurrentConfigID
 	}
-	derivedConfig := input.DerivedConfig != nil || input.DerivedBaseConfigID != uuid.Nil
-	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID, derivedConfig)
+	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, configID)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -489,37 +494,12 @@ func launchConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID uuid.UUID,
-	profile *AgentProfileRecord,
 	configID uuid.UUID,
-	derived bool,
 ) (AgentConfigRecord, agentconfig.RuntimeContract, error) {
 	if configID == uuid.Nil {
 		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, errors.New(
 			"agent config is required",
 		)
-	}
-	if profile != nil && !derived && configID != profile.CurrentConfigID {
-		matched, err := qtx.AgentProfileVersionExistsForConfig(
-			ctx,
-			dbsqlc.AgentProfileVersionExistsForConfigParams{
-				ProjectID:     projectID,
-				ProfileID:     profile.ID,
-				AgentConfigID: configID,
-			},
-		)
-		if err != nil {
-			return AgentConfigRecord{}, agentconfig.RuntimeContract{}, fmt.Errorf(
-				"check agent config belongs to agent profile: %w",
-				err,
-			)
-		}
-		if !matched {
-			return AgentConfigRecord{}, agentconfig.RuntimeContract{}, fmt.Errorf(
-				"agent config does not belong to agent profile %q: %w",
-				profile.Name,
-				storeerr.ErrNotFound,
-			)
-		}
 	}
 	config, err := loadAgentConfigTx(ctx, qtx, projectID, configID)
 	if err != nil {

@@ -34,7 +34,7 @@ func TestIntegrationSubscriptionLaunchBatchRejectsInvalidAttachment(t *testing.T
 			}
 			definition := f.definition(t, "Invalid attachment batch")
 			input := f.launchInput(uuid.Nil, "invalid-batch")
-			input.DerivedConfig = &definition
+			input.NewConfig = &definition
 			input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{first, second}
 			input.Message = "Must not be admitted"
 			_, err := f.store.Execution().LaunchAgent(f.ctx, input)

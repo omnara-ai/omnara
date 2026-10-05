@@ -166,7 +166,7 @@ func TestIntegrationSubscriptionsDetachAndReattachIndependentOfConfig(t *testing
 	f := newIntegrationActivationFixture(t)
 	definition := f.withSendingTools(t, f.definition(t, "Listen and send"))
 	input := f.launchInput(uuid.Nil, "subscription-launch")
-	input.DerivedConfig = &definition
+	input.NewConfig = &definition
 	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestIntegrationCapabilitiesLockIntegrationsBeforeLaunchKeyAndProfile(t *tes
 	f := newIntegrationActivationFixture(t)
 	definition := f.definition(t, "Lock order launch")
 	input := f.launchInput(uuid.Nil, "lock-order-launch")
-	input.DerivedConfig, input.ProfileID = &definition, f.profile.ID
+	input.NewConfig, input.ProfileID = &definition, f.profile.ID
 	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
 	input.DerivedBaseConfigID = f.profile.CurrentConfigID
 	control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
@@ -742,7 +742,7 @@ func TestIntegrationSubscriptionLaunchBatchQuotaRollbackAndDeduplication(t *test
 	require.NoError(t, err)
 	definition := f.definition(t, "Atomic attachment batch")
 	input := f.launchInput(uuid.Nil, "subscription-batch")
-	input.DerivedConfig = &definition
+	input.NewConfig = &definition
 	input.Message = "Atomic initial input"
 	second := f.attachment()
 	second.Conversation = json.RawMessage(`{"channel_id":"C456"}`)
