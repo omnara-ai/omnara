@@ -8867,7 +8867,7 @@ components:
           type: [string, "null"]
     MemoryStoreAccess:
       type: string
-      enum: [read_only, read_write]
+      enum: [read, read_write]
     MemoryStore:
       type: object
       additionalProperties: false

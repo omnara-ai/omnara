@@ -598,11 +598,11 @@ func TestMemoryCleanupFailed(t *testing.T) {
 func TestWorkerFileToolsUnavailable(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
-	WorkerFileToolsUnavailable(ctx, errors.New("file launcher unavailable"))
+	WorkerFileToolsUnavailable(ctx, errors.New("sandbox launcher unavailable"))
 	record := oneRecord(t, &buf)
 	require.Equal(t, "worker.file_tools_unavailable", record["event.name"])
 	require.Equal(t, "warn", record["level"])
-	require.Equal(t, "file launcher unavailable", record["error.message"])
+	require.Equal(t, "sandbox launcher unavailable", record["error.message"])
 }
 
 func testLogger(buf *bytes.Buffer) *slog.Logger {

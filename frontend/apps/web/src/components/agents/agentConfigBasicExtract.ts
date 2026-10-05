@@ -135,7 +135,7 @@ export type SubagentEntry = z.infer<typeof subagentEntry>
 
 const memoryStoreEntry = z.strictObject({
   name: z.string(),
-  access: z.enum(['read_only', 'read_write']),
+  access: z.enum(['read', 'read_write']),
 })
 export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
 

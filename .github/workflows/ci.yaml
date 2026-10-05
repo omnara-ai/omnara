@@ -213,7 +213,7 @@ jobs:
         if: matrix.target == 'test-integration-runtime'
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
-          make install-file-edit
+          make install-chroot-sandbox
 
       - uses: ./.github/actions/setup-test-db
 
@@ -259,7 +259,7 @@ jobs:
       - name: Install file tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
-          make install-file-edit
+          make install-chroot-sandbox
 
       - uses: ./.github/actions/setup-test-db
 

@@ -1,4 +1,4 @@
-package fileexec
+package sandbox
 
 import (
 	"errors"
@@ -32,11 +32,11 @@ func Run(args []string) error {
 
 func run(args []string, edit bool) error {
 	if len(args) < 3 || !filepath.IsAbs(args[1]) {
-		return errors.New("invalid file-exec arguments")
+		return errors.New("invalid sandbox arguments")
 	}
 	rootCount, err := strconv.Atoi(args[0])
 	if err != nil || rootCount < 0 || rootCount > MaxStoreRoots {
-		return errors.New("invalid file-exec root count")
+		return errors.New("invalid sandbox root count")
 	}
 	args = args[1:]
 	roots := make([]string, rootCount)
@@ -91,7 +91,7 @@ func run(args []string, edit bool) error {
 	case "arm64":
 		triplet, loader = "aarch64-linux-gnu", "ld-linux-aarch64.so.1"
 	default:
-		return errors.New("unsupported file-exec architecture")
+		return errors.New("unsupported sandbox architecture")
 	}
 	allowedLibraries := []string{
 		loader, "libc.so.6", "libm.so.6", "libpthread.so.0", "libgcc_s.so.1",

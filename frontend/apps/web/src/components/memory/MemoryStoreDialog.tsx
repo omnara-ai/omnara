@@ -30,7 +30,7 @@ export function MemoryStoreDialog({
 }) {
   const [name, setName] = useState(store?.name ?? '')
   const [description, setDescription] = useState(store?.description ?? '')
-  const [readOnly, setReadOnly] = useState(store?.agent_access === 'read_only')
+  const [readOnly, setReadOnly] = useState(store?.agent_access === 'read')
   const create = useCreateMemoryStore(orgId, projectId)
   const scope = { orgID: orgId, projectID: projectId, memoryStoreID: store?.id ?? '' }
   const update = useUpdateMemoryStore(scope)
@@ -41,7 +41,7 @@ export function MemoryStoreDialog({
   const error = saveMutation.error ?? remove.error
   function save() {
     remove.reset()
-    const agentAccess = readOnly ? 'read_only' : 'read_write'
+    const agentAccess = readOnly ? 'read' : 'read_write'
     if (store) update.mutate({ description, agent_access: agentAccess }, { onSuccess: onClose })
     else create.mutate({ name, description, agent_access: agentAccess }, { onSuccess: onClose })
   }

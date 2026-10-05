@@ -10,7 +10,7 @@ memory_stores:
   - name: notes
     access: read_write
   - name: unavailable
-    access: read_only
+    access: read
 tools:
   write_file: {enabled: false}
   read_file: {permission: {mode: always_ask}}
@@ -31,7 +31,7 @@ describe('memory attachments in the builder', () => {
     expect(parse(updated)).toMatchObject({
       memory_stores: [
         { name: 'notes', access: 'read_write' },
-        { name: 'unavailable', access: 'read_only' },
+        { name: 'unavailable', access: 'read' },
         { name: 'new-store', access: 'read_write' },
       ],
       tools: { write_file: { enabled: false }, read_file: { permission: { mode: 'always_ask' } } },

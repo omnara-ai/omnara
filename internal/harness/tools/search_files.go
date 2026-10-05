@@ -351,7 +351,7 @@ func newSearchCommand(
 	if err != nil {
 		return nil, err
 	}
-	command := exec.CommandContext(ctx, "omnara-file-exec",
+	command := exec.CommandContext(ctx, "omnara-sandbox",
 		append([]string{strconv.Itoa(len(source.stores)), binary}, args...)...)
 	command.ExtraFiles = roots
 	if len(source.stores) == 0 {

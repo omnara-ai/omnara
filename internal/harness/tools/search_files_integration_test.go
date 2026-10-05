@@ -85,7 +85,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	}
 	temporary := t.TempDir()
 	t.Setenv("TMPDIR", temporary)
-	setupFileExec(t)
+	setupSandbox(t)
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-search", toolFixtureOptions{withMemory: true})
 	scope := memorystore.Scope{
@@ -105,7 +105,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := fixture.AgentConfig.Source + "  - name: secondary\n    access: read_only\n"
+	source := fixture.AgentConfig.Source + "  - name: secondary\n    access: read\n"
 	for i := range searchStoreBatchSize + 1 {
 		name := fmt.Sprintf("batch-%02d", i)
 		store, err := fixture.Store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
@@ -117,7 +117,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		source += "  - name: " + name + "\n    access: read_only\n"
+		source += "  - name: " + name + "\n    access: read\n"
 	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, fixture.Store, fixture.User.ID, source)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{

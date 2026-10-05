@@ -90,7 +90,7 @@ func TestCompiledConfigEnums(t *testing.T) {
 		{"CompiledAgentModel", "cache_retention", []any{"none", "short", "long"}},
 		{"CompiledSubagentModel", "cache_retention", []any{"none", "short", "long"}},
 		{"CompiledTool", "type", []any{"built_in", "custom"}},
-		{"CompiledMemoryStore", "access", []any{"read_only", "read_write"}},
+		{"CompiledMemoryStore", "access", []any{"read", "read_write"}},
 	} {
 		t.Run(test.schema+"/"+test.field, func(t *testing.T) {
 			t.Parallel()

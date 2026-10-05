@@ -89,10 +89,10 @@ function cli(reply: (request: Request) => Response | Promise<Response>) {
 describe('memory store commands', () => {
   it.each([
     {
-      args: ['create', '--name', 'engineering', '--agent-access', 'read_only'],
+      args: ['create', '--name', 'engineering', '--agent-access', 'read'],
       method: 'POST',
       suffix: '',
-      body: { name: 'engineering', agent_access: 'read_only' },
+      body: { name: 'engineering', agent_access: 'read' },
     },
     { args: ['get', storeID], method: 'GET', suffix: `/${storeID}`, body: undefined },
     {

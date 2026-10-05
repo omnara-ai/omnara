@@ -70,7 +70,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		t.Fatalf("character read result = %s", content)
 	}
 	t.Run("search", func(t *testing.T) {
-		setupFileExec(t)
+		setupSandbox(t)
 		call.Call = model.ToolCall{
 			Name:  toolcatalog.ToolNameSearchFiles,
 			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
@@ -201,7 +201,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			t.Fatalf("non-text read: %v", err)
 		}
 		t.Run(fmt.Sprintf("search binary=%t", test.binary), func(t *testing.T) {
-			setupFileExec(t)
+			setupSandbox(t)
 			call.Call = model.ToolCall{
 				Name:  toolcatalog.ToolNameSearchFiles,
 				Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),

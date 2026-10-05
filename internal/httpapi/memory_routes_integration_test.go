@@ -83,19 +83,19 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		`{"agent_access":"read_only","description":"Reference"}`,
+		`{"agent_access":"read","description":"Reference"}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if got["agent_access"] != "read_only" || got["description"] != "Reference" {
+	if got["agent_access"] != "read" || got["description"] != "Reference" {
 		t.Fatalf("update: %+v", got)
 	}
 	got = requestJSONWithHeaders(
 		t, handler, http.MethodPatch, path+"/"+id, `{"description":"Updated reference"}`,
 		"", http.StatusOK, authHeaders(project.AdminToken),
 	)
-	if got["agent_access"] != "read_only" {
+	if got["agent_access"] != "read" {
 		t.Fatalf("description update changed agent access: %+v", got)
 	}
 	requestJSONWithHeaders(

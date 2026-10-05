@@ -263,10 +263,10 @@ func (e *serviceE2EEnvironment) startWorker(
 		t.Fatalf("build worker: %v\n%s", err, output)
 	}
 	build = exec.CommandContext(ctx, goBin(e.repoRoot), "build",
-		"-o", filepath.Join(e.root, "omnara-file-exec"), "./cmd/file-exec")
+		"-o", filepath.Join(e.root, "omnara-sandbox"), "./cmd/sandbox")
 	build.Dir = e.repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build file launcher: %v\n%s", err, output)
+		t.Fatalf("build sandbox launcher: %v\n%s", err, output)
 	}
 	cmd := exec.Command(workerPath)
 	cmd.Dir = e.repoRoot

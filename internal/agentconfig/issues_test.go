@@ -144,8 +144,8 @@ model:
   provider_config: a
   name: b
 memory_stores:
-  - {name: notes, access: read_only}
-  - {name: other, access: read_only}
+  - {name: notes, access: read}
+  - {name: other, access: read}
 `, CompileOptions{ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
 				if name == "notes" {
 					return id, nil

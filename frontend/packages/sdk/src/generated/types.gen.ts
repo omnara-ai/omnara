@@ -871,7 +871,7 @@ export type ListSkillGrantsResponse = {
     next_cursor: string | null;
 };
 
-export type MemoryStoreAccess = 'read_only' | 'read_write';
+export type MemoryStoreAccess = 'read' | 'read_write';
 
 export type MemoryStore = {
     id: MemoryStoreId;

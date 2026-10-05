@@ -179,9 +179,9 @@ func TestDefaultMemoryTools(t *testing.T) {
 		stores   string
 		writable bool
 	}{
-		{"read only", "[{name: notes, access: read_only}]", false},
+		{"read only", "[{name: notes, access: read}]", false},
 		{"read write", "[{name: notes, access: read_write}]", true},
-		{"mixed", "[{name: reference, access: read_only}, {name: notes, access: read_write}]", true},
+		{"mixed", "[{name: reference, access: read}, {name: notes, access: read_write}]", true},
 	} {
 		defaults := []string{"list_files", "read_file", "search_files"}
 		if attachment.writable {

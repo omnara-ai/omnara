@@ -360,7 +360,7 @@ func TestIntegrationSendToolUploadsFilesWithSafeRetries(t *testing.T) {
 					require.NoError(t, err)
 					memoryDigest = written.Digest
 					if tt.readOnly {
-						agentAccess := agentconfig.MemoryStoreAccessReadOnly
+						agentAccess := agentconfig.MemoryStoreAccessRead
 						_, err = fixture.Store.Memories().Update(ctx, memoryInput.Scope, resource.ID, nil, &agentAccess)
 						require.NoError(t, err)
 					}
@@ -2262,7 +2262,7 @@ tools:
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(userID),
 		}, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
 		require.NoError(t, err)
-		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read_only\n"
+		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read\n"
 	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{

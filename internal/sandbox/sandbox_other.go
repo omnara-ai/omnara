@@ -1,6 +1,6 @@
 //go:build !linux
 
-package fileexec
+package sandbox
 
 import "errors"
 
@@ -9,6 +9,6 @@ func Run(_ []string) error {
 		"use the Docker worker")
 }
 
-func RunEdit(args []string) error {
+func RunChroot(args []string) error {
 	return Run(args)
 }

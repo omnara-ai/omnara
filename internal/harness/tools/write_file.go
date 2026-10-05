@@ -123,7 +123,7 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 func editFileText(ctx context.Context, content []byte, script string) ([]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	command := exec.CommandContext(ctx, "omnara-file-edit", script)
+	command := exec.CommandContext(ctx, "omnara-chroot-sandbox", script)
 	command.Stdin = bytes.NewReader(content)
 	command.Env = []string{}
 	command.WaitDelay = time.Second

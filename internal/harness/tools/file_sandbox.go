@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const fileExecStderrLimitBytes = 4 * 1024
+const sandboxStderrLimitBytes = 4 * 1024
 
 func CheckFileToolSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -56,6 +56,6 @@ type boundedStderrBuffer struct{ data []byte }
 
 func (b *boundedStderrBuffer) Write(data []byte) (int, error) {
 	n := len(data)
-	b.data = append(b.data, data[:min(n, fileExecStderrLimitBytes-len(b.data))]...)
+	b.data = append(b.data, data[:min(n, sandboxStderrLimitBytes-len(b.data))]...)
 	return n, nil
 }

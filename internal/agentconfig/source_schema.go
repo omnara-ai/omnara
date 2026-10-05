@@ -50,12 +50,12 @@ type AgentConfigSource struct {
 type MemoryStoreAccess string
 
 const (
-	MemoryStoreAccessReadOnly  MemoryStoreAccess = "read_only"
+	MemoryStoreAccessRead      MemoryStoreAccess = "read"
 	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
 )
 
 func (access MemoryStoreAccess) Valid() bool {
-	return access == MemoryStoreAccessReadOnly || access == MemoryStoreAccessReadWrite
+	return access == MemoryStoreAccessRead || access == MemoryStoreAccessReadWrite
 }
 
 type MemoryStoreSource struct {
@@ -376,7 +376,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.MaxLength(64),
 				kjsonschema.Pattern(`^[a-z0-9]+(-[a-z0-9]+)*$`),
 			)),
-			kjsonschema.Prop("access", kjsonschema.Enum(MemoryStoreAccessReadOnly, MemoryStoreAccessReadWrite)),
+			kjsonschema.Prop("access", kjsonschema.Enum(MemoryStoreAccessRead, MemoryStoreAccessReadWrite)),
 			kjsonschema.Required("name", "access"),
 			kjsonschema.AdditionalProps(false),
 		)))),

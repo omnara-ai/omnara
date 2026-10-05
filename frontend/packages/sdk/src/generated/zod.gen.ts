@@ -599,7 +599,7 @@ export const zSkillGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zMemoryStoreAccess = z.enum(['read_only', 'read_write']);
+export const zMemoryStoreAccess = z.enum(['read', 'read_write']);
 
 export const zMemoryStore = z.object({
     id: zMemoryStoreId,

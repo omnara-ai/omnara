@@ -39,8 +39,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 	for _, source := range []string{
 		"",
 		"memory_stores: [{name: notes, access: read_write}]\n",
-		"memory_stores: [{name: notes, access: read_only}]\n",
-		"memory_stores: [{name: notes, access: read_only}]\ntools: {write_file: {enabled: false}, list_files: {permission: {mode: always_ask}}}\n",
+		"memory_stores: [{name: notes, access: read}]\n",
+		"memory_stores: [{name: notes, access: read}]\ntools: {write_file: {enabled: false}, list_files: {permission: {mode: always_ask}}}\n",
 		"mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
 		"machine_sources: [{machine_name: build-box}]\n",
 		"machine_sources: [{machine_pool_name: build-pool, max_machines: 0, initial_num_machines: 0}]\n",

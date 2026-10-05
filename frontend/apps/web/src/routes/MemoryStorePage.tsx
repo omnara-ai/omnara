@@ -101,7 +101,7 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
           <p className="text-muted-foreground mt-1 line-clamp-2 max-w-2xl break-words text-sm">
             {store.description || 'Files shared with agents in this project.'}
           </p>
-          {store.agent_access === 'read_only' && (
+          {store.agent_access === 'read' && (
             <p className="text-muted-foreground mt-2 text-xs">Read-only for agents</p>
           )}
         </div>

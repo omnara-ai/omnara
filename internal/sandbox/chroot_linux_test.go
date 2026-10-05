@@ -1,4 +1,4 @@
-package fileexec
+package sandbox
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestFileEditWithoutPrivileges(t *testing.T) {
+func TestChrootSandboxWithoutPrivileges(t *testing.T) {
 	index := slices.Index(os.Args, "--")
 	if index < 0 {
 		return
@@ -32,10 +32,10 @@ func TestFileEditWithoutPrivileges(t *testing.T) {
 	}
 }
 
-func TestFileEditConfinement(t *testing.T) {
-	launcher := os.Getenv("OMNARA_TEST_FILE_EDIT")
+func TestChrootSandboxConfinement(t *testing.T) {
+	launcher := os.Getenv("OMNARA_TEST_CHROOT_SANDBOX")
 	if launcher == "" {
-		t.Skip("run with the installed editor in test-worker-image")
+		t.Skip("run with the installed chroot sandbox in test-worker-image")
 	}
 	if os.Getuid() == 0 {
 		t.Fatal("confinement must be tested from a non-root parent")
@@ -86,7 +86,7 @@ func TestFileEditConfinement(t *testing.T) {
 	})
 	t.Run("privilege required", func(t *testing.T) {
 		command := exec.CommandContext(t.Context(), os.Args[0],
-			"-test.run=^TestFileEditWithoutPrivileges$", "--", launcher, "s/foo/bar/")
+			"-test.run=^TestChrootSandboxWithoutPrivileges$", "--", launcher, "s/foo/bar/")
 		command.Stdin = strings.NewReader("foo")
 		output, err := command.CombinedOutput()
 		if err == nil || !strings.Contains(string(output), "chroot") || strings.Contains(string(output), "bar") {
@@ -151,7 +151,7 @@ func TestFileEditConfinement(t *testing.T) {
 			t.Fatalf("script memory limit changed: %s", lines[index])
 		}
 		root, err := os.Readlink(filepath.Join(proc, "root"))
-		if err != nil || root != editRoot {
+		if err != nil || root != chrootDir {
 			t.Fatalf("root = %q, error = %v", root, err)
 		}
 		cwd, err := os.Readlink(filepath.Join(proc, "cwd"))

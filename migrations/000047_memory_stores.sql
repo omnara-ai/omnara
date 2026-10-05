@@ -10,7 +10,8 @@ CREATE TABLE memory_stores (
     updated_at   timestamptz NOT NULL DEFAULT statement_timestamp(),
     deleted_at   timestamptz,
 
-    CHECK (agent_access IN ('read_only', 'read_write')),
+    CHECK (char_length(description) <= 1024),
+    CHECK (agent_access IN ('read', 'read_write')),
     CHECK (length(name) BETWEEN 1 AND 64 AND name ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
 );
 

@@ -126,7 +126,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("empty file: %q %v", empty, err)
 	}
-	agentAccess := agentconfig.MemoryStoreAccessReadOnly
+	agentAccess := agentconfig.MemoryStoreAccessRead
 	if _, err = store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: engineering\n    access: read_only\n"
+	source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: engineering\n    access: read\n"
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, source)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
@@ -267,7 +267,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		t.Fatalf("combined listing paths = %v, want %v", paths, wantPaths)
 	}
 	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 1, listing.Cursor{})
-	if err != nil || len(stores.Entries) != 1 || stores.Entries[0].Access != "read_only" {
+	if err != nil || len(stores.Entries) != 1 || stores.Entries[0].Access != "read" {
 		t.Fatalf("store listing: %+v %v", stores, err)
 	}
 	first, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 2, listing.Cursor{})
@@ -425,7 +425,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Access Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	resource, err := store.Memories().Create(ctx, scope, "engineering", "", agentconfig.MemoryStoreAccessReadOnly)
+	resource, err := store.Memories().Create(ctx, scope, "engineering", "", agentconfig.MemoryStoreAccessRead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	if _, err := createConfig("read_write"); err != nil {
 		t.Fatalf("read-write attachment to read-only store: %v", err)
 	}
-	if _, err := createConfig("read_only"); err != nil {
+	if _, err := createConfig("read"); err != nil {
 		t.Fatalf("read-only attachment: %v", err)
 	}
 	agentAccess := agentconfig.MemoryStoreAccessReadWrite
@@ -477,7 +477,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	agentAccess = agentconfig.MemoryStoreAccessReadOnly
+	agentAccess = agentconfig.MemoryStoreAccessRead
 	if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 		t.Fatalf("existing config bypassed read-only store: %v", err)
 	}
 	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 10, listing.Cursor{})
-	if err != nil || len(listed.Entries) != 1 || listed.Entries[0].Access != "read_only" {
+	if err != nil || len(listed.Entries) != 1 || listed.Entries[0].Access != "read" {
 		t.Fatalf("read-only store effective access: %+v %v", listed, err)
 	}
 	var base agentconfig.Compiled
@@ -549,7 +549,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 		}
 		stores[name] = record
 		if name != "unattached" {
-			source += "  - name: " + name + "\n    access: read_only\n"
+			source += "  - name: " + name + "\n    access: read\n"
 		}
 	}
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, source)
@@ -966,7 +966,7 @@ func collectFileListing(
 
 func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 	t.Parallel()
-	for _, operation := range []string{"read_only", "store_delete", "project_delete", "org_delete"} {
+	for _, operation := range []string{"read", "store_delete", "project_delete", "org_delete"} {
 		t.Run(operation, func(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -993,7 +993,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeScope := scope
-			if operation == "read_only" {
+			if operation == "read" {
 				source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: race\n    access: read_write\n"
 				model := ensureTestConfiguredModelForSource(t, ctx, store, source)
 				compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
@@ -1058,8 +1058,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			}
 			deleted := make(chan error, 1)
 			switch operation {
-			case "read_only":
-				agentAccess := agentconfig.MemoryStoreAccessReadOnly
+			case "read":
+				agentAccess := agentconfig.MemoryStoreAccessRead
 				if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 					t.Fatal(err)
 				}
@@ -1099,7 +1099,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			select {
 			case err := <-written:
 				want := storeerr.ErrNotFound
-				if operation == "read_only" {
+				if operation == "read" {
 					want = storeerr.ErrConflict
 				}
 				if !errors.Is(err, want) {

@@ -78,7 +78,7 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.name == "search_files" {
-				setupFileExec(t)
+				setupSandbox(t)
 			}
 			call.Call = model.ToolCall{Name: test.name, Input: json.RawMessage(test.input)}
 			dispatch, err := test.run(ctx, call)

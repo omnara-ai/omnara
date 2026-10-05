@@ -67,7 +67,7 @@ func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {
 		memory, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
 		require.NoError(t, err)
 		attachments = append(attachments, agentconfig.MemoryStoreCompiled{
-			ID: memory.ID, Access: agentconfig.MemoryStoreAccessReadOnly,
+			ID: memory.ID, Access: agentconfig.MemoryStoreAccessRead,
 		})
 	}
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, testAgentConfigYAML())

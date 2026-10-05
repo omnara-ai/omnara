@@ -1,4 +1,4 @@
-package fileexec
+package sandbox
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestFileExecWithoutLandlock(t *testing.T) {
+func TestSandboxWithoutLandlock(t *testing.T) {
 	index := slices.Index(os.Args, "--")
 	if index < 0 {
 		return
@@ -35,21 +35,21 @@ func TestFileExecWithoutLandlock(t *testing.T) {
 	}
 }
 
-func fileExecLauncher(t *testing.T) string {
+func sandboxLauncher(t *testing.T) string {
 	t.Helper()
-	launcher := os.Getenv("OMNARA_TEST_FILE_EXEC")
+	launcher := os.Getenv("OMNARA_TEST_SANDBOX")
 	if launcher == "" {
-		launcher = filepath.Join(t.TempDir(), "omnara-file-exec")
-		build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, "../../cmd/file-exec")
+		launcher = filepath.Join(t.TempDir(), "omnara-sandbox")
+		build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, "../../cmd/sandbox")
 		if output, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build file launcher: %s, %v", output, err)
+			t.Fatalf("build sandbox launcher: %s, %v", output, err)
 		}
 	}
 	return launcher
 }
 
-func TestFileExecSeccomp(t *testing.T) {
-	launcher := fileExecLauncher(t)
+func TestSandboxSeccomp(t *testing.T) {
+	launcher := sandboxLauncher(t)
 	probe := filepath.Join(t.TempDir(), "seccomp-probe")
 	if compiled := os.Getenv("OMNARA_TEST_SECCOMP_PROBE"); compiled != "" {
 		content, err := os.ReadFile(compiled)
@@ -103,8 +103,8 @@ func TestFileExecSeccomp(t *testing.T) {
 	}
 }
 
-func TestFileExecArtifactConfinement(t *testing.T) {
-	launcher := fileExecLauncher(t)
+func TestSandboxArtifactConfinement(t *testing.T) {
+	launcher := sandboxLauncher(t)
 	rg, err := exec.LookPath("rg")
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestFileExecArtifactConfinement(t *testing.T) {
 	}
 	t.Run("confinement required", func(t *testing.T) {
 		command := exec.CommandContext(t.Context(), os.Args[0],
-			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "0", rg, "-e", "TARGET", "--", "-")
+			"-test.run=^TestSandboxWithoutLandlock$", "--", launcher, "0", rg, "-e", "TARGET", "--", "-")
 		command.Stdin = strings.NewReader(content)
 		output, err := command.CombinedOutput()
 		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") ||
@@ -153,8 +153,8 @@ func TestFileExecArtifactConfinement(t *testing.T) {
 	})
 }
 
-func TestFileExecConfinement(t *testing.T) {
-	launcher := fileExecLauncher(t)
+func TestSandboxConfinement(t *testing.T) {
+	launcher := sandboxLauncher(t)
 	rg, err := exec.LookPath("rg")
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestFileExecConfinement(t *testing.T) {
 	})
 	t.Run("confinement required", func(t *testing.T) {
 		command := exec.CommandContext(t.Context(), os.Args[0],
-			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "1", rg, "-e", "TARGET", "memory/allowed")
+			"-test.run=^TestSandboxWithoutLandlock$", "--", launcher, "1", rg, "-e", "TARGET", "memory/allowed")
 		command.ExtraFiles = []*os.File{view, root}
 		command.Env = []string{"LANG=C.UTF-8"}
 		output, err := command.CombinedOutput()

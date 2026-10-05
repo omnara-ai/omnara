@@ -34,7 +34,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := strings.ReplaceAll(fixture.AgentConfig.Source, "access: read_only", "access: read_write")
+	source := strings.ReplaceAll(fixture.AgentConfig.Source, "access: read\n", "access: read_write\n")
 	compiled := compileToolsAgentYAMLResolved(t, ctx, fixture.Store, fixture.User.ID, source)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: scope.ProjectID, Source: source, SourceFormat: "yaml",
@@ -176,7 +176,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		t.Fatalf("read-only attachment write: %v", err)
 	}
 	call.Turn.AgentID = agent.ID
-	agentAccess := agentconfig.MemoryStoreAccessReadOnly
+	agentAccess := agentconfig.MemoryStoreAccessRead
 	if _, err := memories.Update(ctx, scope, store.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 }
 
 func TestEditFileTextLimits(t *testing.T) {
-	setupFileExec(t)
+	setupSandbox(t)
 	if err := CheckFileToolSupport(t.Context()); err != nil {
 		t.Fatalf("file tool support: %v", err)
 	}
