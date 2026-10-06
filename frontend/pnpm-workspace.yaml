@@ -7,8 +7,14 @@ allowBuilds:
 
 minimumReleaseAge: 14400
 
+minimumReleaseAgeExclude:
+  # Security fix for GHSA-68fv-2mgg-jv7q, released within the 10-day waiting period.
+  - source-map-js@1.2.2
+
 overrides:
   # @hey-api/json-schema-ref-parser pins the vulnerable js-yaml 4.2.0 release.
   '@hey-api/json-schema-ref-parser@1.4.4>js-yaml': 4.3.2
+  # Patch the legacy brace-expansion used by ESLint's minimatch dependency.
+  'brace-expansion@<1.1.21': 1.1.21
   react: 19.3.0-canary-eb8feb71-20260814
   react-dom: 19.3.0-canary-eb8feb71-20260814
