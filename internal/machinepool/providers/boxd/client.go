@@ -10,9 +10,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -29,6 +31,8 @@ const (
 	apiURL                  = "boxd.sh:9443"
 	authURL                 = "https://app.boxd.sh/api/v1/auth/token"
 	sessionTokenRefreshSkew = 5 * time.Minute
+	maxSessionTokens        = 1_024
+	bearerPrefix            = "Bearer "
 	dialTimeout             = 10 * time.Second
 	execStdinChunkBytes     = 32 * 1024
 )
@@ -192,7 +196,18 @@ func (c *grpcClient) session(ctx context.Context) (boxdv1.BoxdApiClient, context
 	if err != nil {
 		return nil, nil, err
 	}
-	return api, metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token), nil
+	return api, metadata.AppendToOutgoingContext(ctx, "authorization", bearerPrefix+token), nil
+}
+
+func (c *grpcClient) rpcError(ctx context.Context, err error) error {
+	err = fromGRPC(err)
+	if isCode(err, codes.Unauthenticated) {
+		md, _ := metadata.FromOutgoingContext(ctx)
+		for _, authorization := range md.Get("authorization") {
+			c.tokens.evict(c, strings.TrimPrefix(authorization, bearerPrefix))
+		}
+	}
+	return err
 }
 
 func (c *grpcClient) GetVM(ctx context.Context, ref string) (vm, bool, error) {
@@ -202,7 +217,7 @@ func (c *grpcClient) GetVM(ctx context.Context, ref string) (vm, bool, error) {
 	}
 	response, err := api.GetVm(ctx, &boxdv1.GetVmRequest{VmId: ref})
 	if err != nil {
-		err = fromGRPC(err)
+		err = c.rpcError(ctx, err)
 		if isNotFound(err) {
 			return vm{}, false, nil
 		}
@@ -218,7 +233,7 @@ func (c *grpcClient) ListVMs(ctx context.Context) ([]vm, error) {
 	}
 	response, err := api.ListVms(ctx, &boxdv1.ListVmsRequest{})
 	if err != nil {
-		return nil, fromGRPC(err)
+		return nil, c.rpcError(ctx, err)
 	}
 	vms := make([]vm, 0, len(response.GetVms()))
 	for _, item := range response.GetVms() {
@@ -253,7 +268,7 @@ func (c *grpcClient) CreateVM(ctx context.Context, request createVMRequest) (vm,
 		})
 	}
 	if err != nil {
-		return vm{}, fromGRPC(err)
+		return vm{}, c.rpcError(ctx, err)
 	}
 	return vm{
 		ID:     response.GetVmId(),
@@ -268,7 +283,7 @@ func (c *grpcClient) DestroyVM(ctx context.Context, ref string) error {
 		return err
 	}
 	if _, err := api.DestroyVm(ctx, &boxdv1.DestroyVmRequest{VmId: ref}); err != nil {
-		err = fromGRPC(err)
+		err = c.rpcError(ctx, err)
 		if isNotFound(err) {
 			return nil
 		}
@@ -291,10 +306,10 @@ func (c *grpcClient) Exec(
 	defer cancel()
 	stream, err := api.Exec(ctx)
 	if err != nil {
-		return execResult{}, fromGRPC(err)
+		return execResult{}, c.rpcError(ctx, err)
 	}
 	if err := sendExecInput(stream, ref, command, stdin); err != nil {
-		return execResult{}, fromGRPC(err)
+		return execResult{}, c.rpcError(ctx, err)
 	}
 	var result execResult
 	received := false
@@ -304,10 +319,12 @@ func (c *grpcClient) Exec(
 			break
 		}
 		if err != nil {
-			return execResult{}, fromGRPC(err)
+			return execResult{}, c.rpcError(ctx, err)
 		}
 		received = true
-		result.ExitCode = int(chunk.GetExitCode())
+		if exitCode := chunk.GetExitCode(); exitCode != 0 {
+			result.ExitCode = int(exitCode)
+		}
 	}
 	if !received {
 		return execResult{}, errors.New("boxd exec ended without a response")
@@ -344,7 +361,7 @@ func (c *grpcClient) GetSnapshot(ctx context.Context, name string) (snapshotInfo
 	}
 	response, err := api.GetSnapshot(ctx, &boxdv1.GetSnapshotRequest{Name: name})
 	if err != nil {
-		err = fromGRPC(err)
+		err = c.rpcError(ctx, err)
 		if isNotFound(err) {
 			return snapshotInfo{}, false, nil
 		}
@@ -368,7 +385,7 @@ func (c *grpcClient) GetOrgMachineDefaults(ctx context.Context) (machineSize, er
 	}
 	response, err := api.GetOrgMachineDefaults(ctx, &boxdv1.GetOrgMachineDefaultsRequest{})
 	if err != nil {
-		return machineSize{}, fromGRPC(err)
+		return machineSize{}, c.rpcError(ctx, err)
 	}
 	return machineSize{VCPU: int(response.GetVcpu()), MemoryBytes: response.GetMemoryBytes()}, nil
 }
@@ -428,24 +445,43 @@ type sessionToken struct {
 
 type sessionTokenCache struct {
 	mu     sync.Mutex
-	tokens map[string]*sessionToken
+	tokens *simplelru.LRU[string, *sessionToken]
 	now    func() time.Time
 }
 
 var sharedSessionTokens = newSessionTokenCache()
 
 func newSessionTokenCache() *sessionTokenCache {
-	return &sessionTokenCache{tokens: map[string]*sessionToken{}, now: time.Now}
+	tokens, _ := simplelru.NewLRU[string, *sessionToken](maxSessionTokens, nil)
+	return &sessionTokenCache{tokens: tokens, now: time.Now}
+}
+
+func sessionTokenKey(client *grpcClient) string {
+	sum := sha256.Sum256([]byte(client.authURL + "\n" + client.apiKey))
+	return hex.EncodeToString(sum[:])
+}
+
+func (c *sessionTokenCache) evict(client *grpcClient, rejected string) {
+	c.mu.Lock()
+	entry, ok := c.tokens.Peek(sessionTokenKey(client))
+	c.mu.Unlock()
+	if !ok {
+		return
+	}
+	entry.mu.Lock()
+	if entry.value == rejected {
+		entry.value, entry.expiresAt = "", time.Time{}
+	}
+	entry.mu.Unlock()
 }
 
 func (c *sessionTokenCache) token(ctx context.Context, client *grpcClient) (string, error) {
-	sum := sha256.Sum256([]byte(client.authURL + "\n" + client.apiKey))
-	key := hex.EncodeToString(sum[:])
+	key := sessionTokenKey(client)
 	c.mu.Lock()
-	entry, ok := c.tokens[key]
+	entry, ok := c.tokens.Get(key)
 	if !ok {
 		entry = &sessionToken{}
-		c.tokens[key] = entry
+		c.tokens.Add(key, entry)
 	}
 	c.mu.Unlock()
 	entry.mu.Lock()

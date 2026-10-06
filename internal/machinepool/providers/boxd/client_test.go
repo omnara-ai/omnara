@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -37,6 +38,7 @@ type fakeServer struct {
 	execCommand    string
 	execExitCode   int32
 	execFail       error
+	rejectedToken  string
 }
 
 func newFakeServer() *fakeServer {
@@ -126,6 +128,10 @@ func (s *fakeServer) ListVms(
 	s.record(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if md, _ := metadata.FromIncomingContext(ctx); s.rejectedToken != "" &&
+		strings.Join(md.Get("authorization"), ",") == "Bearer "+s.rejectedToken {
+		return nil, status.Error(codes.Unauthenticated, "invalid token")
+	}
 	response := &boxdv1.ListVmsResponse{}
 	for _, current := range s.vms {
 		response.Vms = append(response.Vms, current)
@@ -390,6 +396,67 @@ func TestBoxdGRPCClientRefreshesExpiringSessionTokens(t *testing.T) {
 	}
 }
 
+func TestBoxdGRPCClientEvictsRejectedSessionTokens(t *testing.T) {
+	server := newFakeServer()
+	exchange := newExchangeServer(t)
+	client := newTestClient(t, server, exchange)
+	if _, err := client.ListVMs(context.Background()); err != nil {
+		t.Fatalf("first list: %v", err)
+	}
+	server.mu.Lock()
+	server.rejectedToken = "jwt-1"
+	server.mu.Unlock()
+	exchange.mu.Lock()
+	exchange.response = map[string]any{"token": "jwt-2", "expires_at": time.Now().Add(time.Hour).Unix()}
+	exchange.mu.Unlock()
+	if _, err := client.ListVMs(context.Background()); !isCode(err, codes.Unauthenticated) {
+		t.Fatalf("rejected token error = %v", err)
+	}
+	if _, err := client.ListVMs(context.Background()); err != nil {
+		t.Fatalf("list after eviction: %v", err)
+	}
+	if exchange.calls != 2 || server.authorizations[2] != "Bearer jwt-2" {
+		t.Fatalf("exchange calls = %d authorizations %v", exchange.calls, server.authorizations)
+	}
+	client.tokens.evict(client, "jwt-1")
+	if _, err := client.ListVMs(context.Background()); err != nil || exchange.calls != 2 {
+		t.Fatalf("late rejection of the old token = error %v exchange calls %d, want the new token kept", err, exchange.calls)
+	}
+}
+
+func TestBoxdSessionTokenCacheEvictsLeastRecentlyUsed(t *testing.T) {
+	exchange := newExchangeServer(t)
+	cache := newSessionTokenCache()
+	token := func(apiKey string) {
+		t.Helper()
+		client := &grpcClient{authURL: exchange.URL, apiKey: apiKey, httpClient: exchange.Client()}
+		if _, err := cache.token(context.Background(), client); err != nil {
+			t.Fatalf("token for %q: %v", apiKey, err)
+		}
+	}
+	token("first")
+	token("second")
+	for i := range maxSessionTokens - 2 {
+		token(fmt.Sprintf("filler-%d", i))
+	}
+	token("first")
+	token("one-more")
+	if exchange.calls != maxSessionTokens+1 {
+		t.Fatalf("exchange calls = %d, want %d", exchange.calls, maxSessionTokens+1)
+	}
+	token("first")
+	if exchange.calls != maxSessionTokens+1 {
+		t.Fatal("recently used credential was evicted")
+	}
+	token("second")
+	if exchange.calls != maxSessionTokens+2 {
+		t.Fatal("least recently used credential was not evicted")
+	}
+	if got := cache.tokens.Len(); got != maxSessionTokens {
+		t.Fatalf("cache entries = %d, want %d", got, maxSessionTokens)
+	}
+}
+
 func TestBoxdSessionTokenRefreshDoesNotBlockOtherCredentials(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -456,7 +523,7 @@ func TestBoxdGRPCClientReportsExchangeFailures(t *testing.T) {
 		t.Fatalf("rate limited exchange error = %v retry after %v ok %v", err, retryAfter, ok)
 	}
 	exchange.status = http.StatusOK
-	exchange.response = map[string]any{}
+	exchange.response = map[string]any{"expires_at": time.Now().Add(time.Hour).Unix()}
 	client.tokens = newSessionTokenCache()
 	if _, err := client.ListVMs(context.Background()); err == nil || !strings.Contains(err.Error(), "missing the token") {
 		t.Fatalf("empty token error = %v", err)
