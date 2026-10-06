@@ -8,7 +8,13 @@ import {
   useModelProviders,
   useProjectModelGrants,
 } from '@omnara/react'
-import { ApiError, type ModelProviderConfig, type ProjectModelGrantListItem } from '@omnara/sdk'
+import {
+  type AgentProfileSummary,
+  ApiError,
+  type ConfiguredModel,
+  type ModelProviderConfig,
+  type ProjectModelGrantListItem,
+} from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 
@@ -85,21 +91,14 @@ export function ProjectModelsView({
   const [editing, setEditing] = useState<ProjectModelGrantListItem | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)
 
-  const profileCounts = new Map<string, number>()
-  for (const profile of profiles.items) {
-    const { name, provider_config: providerConfig } = profile.current_config.model
-    const key = profileModelKey(providerConfig, name)
-    profileCounts.set(key, (profileCounts.get(key) ?? 0) + 1)
-  }
-
+  const profileCounts = countProfilesByModel(profiles.items)
   const listAvailable = canManageAccess && showAvailable && !list.isFiltering
   const allGroups = groupByProvider(
     grants.items,
     providers.items,
     providerId !== undefined || listAvailable,
   )
-  const groups =
-    providerId === undefined ? allGroups : allGroups.filter((group) => group.id === providerId)
+  const groups = allGroups.filter((group) => providerId === undefined || group.id === providerId)
   const isPending = grants.isPending || providers.isPending
 
   async function share(modelId: string) {
@@ -112,12 +111,14 @@ export function ProjectModelsView({
     setSharingId(null)
   }
 
+  const isOverview = providerId === undefined
+
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title={providerId === undefined ? 'Shared models' : 'Models'}
+        title={isOverview ? 'Shared models' : 'Models'}
         description={
-          providerId === undefined
+          isOverview
             ? 'Models agents in this project can use, grouped by provider'
             : 'Models from this provider that agents in this project can use'
         }
@@ -133,16 +134,12 @@ export function ProjectModelsView({
         }
       >
         {canManageAccess && (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-pressed={showAvailable}
-            onClick={() => {
+          <ShowAvailableToggle
+            pressed={showAvailable}
+            onToggle={() => {
               setShowAvailable((value) => !value)
             }}
-          >
-            {showAvailable ? 'Hide available' : 'Show available'}
-          </Button>
+          />
         )}
         <GrantModelButton />
       </SearchHeader>
@@ -159,22 +156,7 @@ export function ProjectModelsView({
           </EmptyHeader>
         </Empty>
       ) : groups.length === 0 ? (
-        <Empty className="rounded-xl border">
-          <EmptyHeader>
-            <EmptyDescription>
-              {list.isFiltering
-                ? 'No results.'
-                : canManageAccess
-                  ? 'No shared models. Share an organization model so agents in this project can use it.'
-                  : 'No models are shared with this project yet. Ask a project admin to share one.'}
-            </EmptyDescription>
-          </EmptyHeader>
-          {!list.isFiltering && (
-            <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-              <GrantModelButton />
-            </EmptyContent>
-          )}
-        </Empty>
+        <SharedModelsEmpty isFiltering={list.isFiltering} canManage={canManageAccess} />
       ) : (
         <ul className="flex flex-col gap-5">
           {groups.map((group) => (
@@ -183,7 +165,7 @@ export function ProjectModelsView({
                 orgId={orgId}
                 projectId={projectId}
                 group={group}
-                limit={providerId === undefined ? previewLimit : undefined}
+                limit={isOverview ? previewLimit : undefined}
                 pricing={pricing}
                 showAvailable={listAvailable}
                 sharingId={sharingId}
@@ -191,16 +173,11 @@ export function ProjectModelsView({
                   profileCounts.get(profileModelKey(item.model.provider_config, item.model.name)) ??
                   0
                 }
-                onEdit={canManageAccess ? setEditing : undefined}
-                onStopSharing={
-                  canManageAccess
-                    ? (item) => {
-                        if (!window.confirm(`Stop sharing ${item.model.name} with this project?`))
-                          return
-                        deleteGrant.mutate(item.grant.id)
-                      }
-                    : undefined
-                }
+                canManage={canManageAccess}
+                onEdit={setEditing}
+                onStopSharing={(item) => {
+                  deleteGrant.mutate(item.grant.id)
+                }}
                 onShare={(modelId) => {
                   void share(modelId)
                 }}
@@ -222,6 +199,49 @@ export function ProjectModelsView({
         />
       )}
     </div>
+  )
+}
+
+function countProfilesByModel(profiles: AgentProfileSummary[]) {
+  const counts = new Map<string, number>()
+  for (const profile of profiles) {
+    const { name, provider_config: providerConfig } = profile.current_config.model
+    const key = profileModelKey(providerConfig, name)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
+function ShowAvailableToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+  return (
+    <Button size="sm" variant="ghost" aria-pressed={pressed} onClick={onToggle}>
+      {pressed ? 'Hide available' : 'Show available'}
+    </Button>
+  )
+}
+
+function SharedModelsEmpty({
+  isFiltering,
+  canManage,
+}: {
+  isFiltering: boolean
+  canManage: boolean
+}) {
+  let message = 'No models are shared with this project yet. Ask a project admin to share one.'
+  if (isFiltering) message = 'No results.'
+  else if (canManage)
+    message = 'No shared models. Share an organization model so agents in this project can use it.'
+  return (
+    <Empty className="rounded-xl border">
+      <EmptyHeader>
+        <EmptyDescription>{message}</EmptyDescription>
+      </EmptyHeader>
+      {!isFiltering && (
+        <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+          <GrantModelButton />
+        </EmptyContent>
+      )}
+    </Empty>
   )
 }
 
@@ -263,6 +283,7 @@ function ProjectProviderCard({
   showAvailable,
   sharingId,
   profileCount,
+  canManage,
   onEdit,
   onStopSharing,
   onShare,
@@ -276,101 +297,39 @@ function ProjectProviderCard({
   showAvailable: boolean
   sharingId: string | null
   profileCount: (item: ProjectModelGrantListItem) => number
-  onEdit?: (item: ProjectModelGrantListItem) => void
-  onStopSharing?: (item: ProjectModelGrantListItem) => void
+  canManage: boolean
+  onEdit: (item: ProjectModelGrantListItem) => void
+  onStopSharing: (item: ProjectModelGrantListItem) => void
   onShare: (modelId: string) => void
 }) {
   const { config } = group
   const orgModels = useAllPages(
     useConfiguredModels(orgId, group.id, { enabled: config !== undefined }),
   )
-  const orgModelById = new Map(orgModels.items.map((model) => [model.id, model]))
-  const sharedIds = new Set(group.items.map((item) => item.grant.configured_model_id))
-  const available = showAvailable
-    ? clusterFirst(
-        orgModels.items
-          .filter((model) => !sharedIds.has(model.id))
-          .sort((left, right) => left.name.localeCompare(right.name)),
-      )
-    : []
-  const shownShared = limit === undefined ? group.items : group.items.slice(0, limit)
-  const shownAvailable =
-    limit === undefined ? available : available.slice(0, Math.max(limit - shownShared.length, 0))
-  const hiddenCount =
-    group.items.length - shownShared.length + (available.length - shownAvailable.length)
   const [expanded, setExpanded] = useState(true)
   const expansionId = useId()
   const kind = config ? modelProviderKind(config) : 'custom'
   const orgTotal = config && !orgModels.isPending && !orgModels.isError ? orgModels.items.length : 0
-  const countValue =
-    orgTotal > 0
-      ? `${formatCount(group.items.length)} / ${formatCount(orgTotal)}`
-      : formatCount(group.items.length)
+  const sharedCount = formatCount(group.items.length)
   const expansion = {
     id: expansionId,
     open: expanded,
     content: (
-      <div className="flex flex-col gap-1 border-t px-2 py-2">
-        {group.items.length === 0 && available.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-1.5 text-sm">
-            {orgModels.isPending ? 'Loading models…' : 'No models on this provider yet.'}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {shownShared.map((item) => (
-              <SharedModelRow
-                key={item.grant.id}
-                item={item}
-                orgModel={orgModelById.get(item.grant.configured_model_id)}
-                pricing={pricing.pricingFor(
-                  item.model.model_provider_config_id,
-                  item.model.provider_model_slug,
-                )}
-                profileCount={profileCount(item)}
-                onEdit={
-                  onEdit &&
-                  (() => {
-                    onEdit(item)
-                  })
-                }
-                onStopSharing={
-                  onStopSharing &&
-                  (() => {
-                    onStopSharing(item)
-                  })
-                }
-              />
-            ))}
-            {shownAvailable.length > 0 && (
-              <li className="text-muted-foreground px-2 pb-1 pt-2 text-xs font-medium">
-                Available to share
-              </li>
-            )}
-            {shownAvailable.map((model) => (
-              <AvailableModelRow
-                key={model.id}
-                model={model}
-                pricing={pricing.pricingFor(group.id, model.provider_model_slug)}
-                sharing={sharingId === model.id}
-                onShare={() => {
-                  onShare(model.id)
-                }}
-              />
-            ))}
-          </ul>
-        )}
-        {hiddenCount > 0 && (
-          <div className="flex justify-end px-1">
-            <Link
-              to="/projects/$projectId/models/providers/$providerId"
-              params={{ projectId, providerId: group.id }}
-              className={agentCardMoreLinkClass}
-            >
-              View all ({formatCount(hiddenCount)} more) →
-            </Link>
-          </div>
-        )}
-      </div>
+      <ProviderModelRows
+        projectId={projectId}
+        group={group}
+        orgModels={orgModels.items}
+        orgModelsPending={orgModels.isPending}
+        limit={limit}
+        pricing={pricing}
+        showAvailable={showAvailable}
+        sharingId={sharingId}
+        profileCount={profileCount}
+        canManage={canManage}
+        onEdit={onEdit}
+        onStopSharing={onStopSharing}
+        onShare={onShare}
+      />
     ),
   }
   const toggle = () => {
@@ -386,22 +345,7 @@ function ProjectProviderCard({
           </ManagedLogo>
         </AgentCardGlyph>
       }
-      title={
-        <>
-          {limit === undefined ? (
-            <h1 className="truncate font-medium">{group.name}</h1>
-          ) : (
-            <Link
-              to="/projects/$projectId/models/providers/$providerId"
-              params={{ projectId, providerId: group.id }}
-              className={agentCardLinkClass}
-            >
-              {group.name}
-            </Link>
-          )}
-          {config?.management_kind === 'cluster' && <OmnaraManagedTag />}
-        </>
-      }
+      title={<ProviderCardTitle projectId={projectId} group={group} linked={limit !== undefined} />}
       subtitle={
         config ? (
           <>
@@ -424,13 +368,157 @@ function ProjectProviderCard({
       stats={
         <AgentCardStatToggle
           icon={Box}
-          label={orgTotal > 0 ? 'shared' : group.items.length === 1 ? 'model' : 'models'}
-          value={countValue}
+          label={sharedCountLabel(orgTotal, group.items.length)}
+          value={orgTotal > 0 ? `${sharedCount} / ${formatCount(orgTotal)}` : sharedCount}
           expansion={expansion}
           onToggle={toggle}
         />
       }
       expansion={expansion}
     />
+  )
+}
+
+function sharedCountLabel(orgTotal: number, sharedCount: number) {
+  if (orgTotal > 0) return 'shared'
+  return sharedCount === 1 ? 'model' : 'models'
+}
+
+function ProviderCardTitle({
+  projectId,
+  group,
+  linked,
+}: {
+  projectId: string
+  group: ProviderGroup
+  linked: boolean
+}) {
+  return (
+    <>
+      {linked ? (
+        <Link
+          to="/projects/$projectId/models/providers/$providerId"
+          params={{ projectId, providerId: group.id }}
+          className={agentCardLinkClass}
+        >
+          {group.name}
+        </Link>
+      ) : (
+        <h1 className="truncate font-medium">{group.name}</h1>
+      )}
+      {group.config?.management_kind === 'cluster' && <OmnaraManagedTag />}
+    </>
+  )
+}
+
+function ProviderModelRows({
+  projectId,
+  group,
+  orgModels,
+  orgModelsPending,
+  limit,
+  pricing,
+  showAvailable,
+  sharingId,
+  profileCount,
+  canManage,
+  onEdit,
+  onStopSharing,
+  onShare,
+}: {
+  projectId: string
+  group: ProviderGroup
+  orgModels: ConfiguredModel[]
+  orgModelsPending: boolean
+  limit?: number
+  pricing: PricingLookup
+  showAvailable: boolean
+  sharingId: string | null
+  profileCount: (item: ProjectModelGrantListItem) => number
+  canManage: boolean
+  onEdit: (item: ProjectModelGrantListItem) => void
+  onStopSharing: (item: ProjectModelGrantListItem) => void
+  onShare: (modelId: string) => void
+}) {
+  const orgModelById = new Map(orgModels.map((model) => [model.id, model]))
+  const sharedIds = new Set(group.items.map((item) => item.grant.configured_model_id))
+  const available = showAvailable
+    ? clusterFirst(
+        orgModels
+          .filter((model) => !sharedIds.has(model.id))
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      )
+    : []
+  const shownShared = group.items.slice(0, limit)
+  const shownAvailable = available.slice(0, limit && Math.max(limit - shownShared.length, 0))
+  const hiddenCount =
+    group.items.length - shownShared.length + (available.length - shownAvailable.length)
+
+  return (
+    <div className="flex flex-col gap-1 border-t px-2 py-2">
+      {group.items.length === 0 && available.length === 0 ? (
+        <p className="text-muted-foreground px-2 py-1.5 text-sm">
+          {orgModelsPending ? 'Loading models…' : 'No models on this provider yet.'}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {shownShared.map((item) => (
+            <SharedModelRow
+              key={item.grant.id}
+              item={item}
+              orgModel={orgModelById.get(item.grant.configured_model_id)}
+              pricing={pricing.pricingFor(
+                item.model.model_provider_config_id,
+                item.model.provider_model_slug,
+              )}
+              profileCount={profileCount(item)}
+              onEdit={
+                canManage
+                  ? () => {
+                      onEdit(item)
+                    }
+                  : undefined
+              }
+              onStopSharing={
+                canManage
+                  ? () => {
+                      if (!window.confirm(`Stop sharing ${item.model.name} with this project?`))
+                        return
+                      onStopSharing(item)
+                    }
+                  : undefined
+              }
+            />
+          ))}
+          {shownAvailable.length > 0 && (
+            <li className="text-muted-foreground px-2 pb-1 pt-2 text-xs font-medium">
+              Available to share
+            </li>
+          )}
+          {shownAvailable.map((model) => (
+            <AvailableModelRow
+              key={model.id}
+              model={model}
+              pricing={pricing.pricingFor(group.id, model.provider_model_slug)}
+              sharing={sharingId === model.id}
+              onShare={() => {
+                onShare(model.id)
+              }}
+            />
+          ))}
+        </ul>
+      )}
+      {hiddenCount > 0 && (
+        <div className="flex justify-end px-1">
+          <Link
+            to="/projects/$projectId/models/providers/$providerId"
+            params={{ projectId, providerId: group.id }}
+            className={agentCardMoreLinkClass}
+          >
+            View all ({formatCount(hiddenCount)} more) →
+          </Link>
+        </div>
+      )}
+    </div>
   )
 }
