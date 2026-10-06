@@ -152,8 +152,6 @@ func acceptDaemonSocket(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
 		return nil, err
 	}
-	// Accept can block while flushing the HTTP upgrade response, before it
-	// returns a socket we can close. Interrupt that write on shutdown as well.
 	interrupted := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		_ = controller.SetWriteDeadline(time.Now())
@@ -163,8 +161,7 @@ func acceptDaemonSocket(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if !stop() {
 		<-interrupted
 	}
-	// Join the cancellation callback before clearing the deadline so it cannot
-	// install an expired deadline on a successfully upgraded connection.
+	// Join cancellation before clearing the deadline so it cannot expire the live socket.
 	deadlineErr := controller.SetWriteDeadline(time.Time{})
 	if err != nil {
 		return nil, err

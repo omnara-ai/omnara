@@ -146,8 +146,6 @@ func TestDaemonSocketShutdownDuringUpgrade(t *testing.T) {
 	waitDaemonSocketLifecycle(t, ctx, finished)
 }
 
-// These operations simulate Redis accepting a write before cancellation or a
-// failed response. Cleanup must cover both keys even when setup returns an error.
 type socketSetupPresence struct {
 	notifications.DaemonPresenceStore
 	setupStarted   chan context.Context
@@ -332,8 +330,7 @@ type socketUpgradeBarrierConn struct {
 func (c socketUpgradeBarrierConn) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
 	if err == nil {
-		// The client sees HTTP 101 while the server is still in Hijack,
-		// before net/http stops watching the connection for disconnects.
+		// Keep net/http's disconnect watcher active after the client receives HTTP 101.
 		<-c.release
 	}
 	return n, err

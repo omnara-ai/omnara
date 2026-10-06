@@ -65,9 +65,8 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = conn.CloseNow() }()
-			// Dial can receive the upgrade response before the server finishes
-			// hijacking the connection. Closing then can cancel the HTTP context
-			// before the socket records its own cancellation cause.
+			// Dial can finish before Hijack; closing then lets HTTP cancellation
+			// win over the socket's own cancellation cause.
 			select {
 			case <-ready:
 			case err := <-finished:

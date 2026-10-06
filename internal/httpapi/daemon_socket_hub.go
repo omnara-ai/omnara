@@ -56,8 +56,6 @@ type daemonSocketHub struct {
 	pendingSkillReports map[skillReportKey]skillReportPending
 }
 
-// A handler is owned from before the upgrade until its socket work and
-// presence cleanup finish, including time spent setting up the connection.
 type daemonSocketHandler struct {
 	cancel context.CancelCauseFunc
 }
@@ -195,10 +193,6 @@ func (h *daemonSocketHub) Close() {
 		}
 		h.mu.Unlock()
 
-		// Cancel every handler before waiting for any one connection or
-		// subscription. In-flight work must be able to exit during shutdown.
-		// Cancellation may close the transport before its close frame is sent;
-		// the daemon reconnects on either close frames or transport failures.
 		for _, handler := range handlers {
 			handler.cancel(logpkg.ErrSocketClosed)
 		}
