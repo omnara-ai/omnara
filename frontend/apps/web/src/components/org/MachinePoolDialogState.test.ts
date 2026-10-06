@@ -7,9 +7,9 @@ import {
   machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
-  machinePoolFormValid,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
+import { machinePoolFormValid } from './machinePoolValidation'
 
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {

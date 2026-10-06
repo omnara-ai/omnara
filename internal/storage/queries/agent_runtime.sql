@@ -105,7 +105,7 @@ LEFT JOIN model_provider_configs model_provider_config
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = $1 AND agent.id = $2;
 
--- name: ListAgentsForProject :many
+-- name: ListAgentsForProjects :many
 WITH listed AS (
 SELECT agent.id,
        agent.org_id,
@@ -161,7 +161,7 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = sqlc.arg(project_id)
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
@@ -193,7 +193,7 @@ ORDER BY sort_is_null ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: ListAgentsForProjectByCreatedAtDesc :many
+-- name: ListAgentsForProjectsByCreatedAtDesc :many
 SELECT agent.id,
        agent.org_id,
        agent.project_id,
@@ -235,7 +235,7 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = sqlc.arg(project_id)
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))

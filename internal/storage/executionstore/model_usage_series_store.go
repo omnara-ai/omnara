@@ -1,7 +1,6 @@
 package executionstore
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,251 +8,258 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type SumOrgModelUsageSeriesInput struct {
-	OrgID      uuid.UUID
+type UsageInterval string
+
+const (
+	UsageIntervalHour  UsageInterval = "hour"
+	UsageIntervalDay   UsageInterval = "day"
+	UsageIntervalWeek  UsageInterval = "week"
+	UsageIntervalMonth UsageInterval = "month"
+)
+
+type ModelUsageSeriesFilter struct {
+	OrgIDs     []uuid.UUID
 	ProjectIDs []uuid.UUID
-	DayStarts  []time.Time
-	GroupLimit int
+	// AllProjects reads every project in OrgIDs, deleted ones included, in place
+	// of ProjectIDs.
+	AllProjects             bool
+	AgentProfileIDs         []uuid.UUID
+	IncludeProfileSubagents bool
+	Since                   *time.Time
+	Until                   time.Time
 }
 
 type ModelUsageSeries struct {
+	BucketStarts []time.Time
+	Rows         []ModelUsageSeriesRow
 	Totals       ModelUsageTotals
 	ActiveAgents int64
-	Models       []ModelUsageSeriesGroup
-	Profiles     []ModelUsageSeriesGroup
-	Days         []ModelUsageSeriesDay
 }
 
-type ModelUsageSeriesGroup struct {
-	ID     uuid.UUID
-	Name   string
-	Totals ModelUsageTotals
+// ModelUsageSeriesRow is the usage of one configured model by agents of one
+// profile within one bucket. ProfileID is uuid.Nil for agents without a profile.
+type ModelUsageSeriesRow struct {
+	Bucket       int
+	ModelID      uuid.UUID
+	ModelName    string
+	ProviderName string
+	ProfileID    uuid.UUID
+	ProfileName  string
+	ProjectName  string
+	Totals       ModelUsageTotals
 }
 
-type ModelUsageSeriesDay struct {
-	Start    time.Time
-	Totals   ModelUsageTotals
-	Models   []ModelUsageSeriesGroupTokens
-	Profiles []ModelUsageSeriesGroupTokens
-}
-
-type ModelUsageSeriesGroupTokens struct {
-	GroupID uuid.UUID
-	Tokens  int64
-}
-
-type modelUsageSeriesRow struct {
-	dayNumber   int32
-	modelID     uuid.UUID
-	modelName   string
-	profileID   uuid.UUID
-	profileName string
-	totals      ModelUsageTotals
-}
-
-func UsageDayStarts(now time.Time, days int, location *time.Location) []time.Time {
-	local := now.In(location)
-	starts := make([]time.Time, days)
-	for index := range starts {
-		starts[index] = usageDayStart(local, index-days+1)
+// UsageBucketStarts returns the start of every interval in location from the
+// one containing since up to until. It reports false when there would be more
+// than limit buckets.
+func UsageBucketStarts(
+	since, until time.Time,
+	interval UsageInterval,
+	location *time.Location,
+	limit int,
+) ([]time.Time, bool) {
+	local := since.In(location)
+	year, month, day := local.Date()
+	switch interval {
+	case UsageIntervalHour:
+		return usageHourStarts(local, until, limit)
+	case UsageIntervalDay:
+	case UsageIntervalWeek:
+		day -= (int(local.Weekday()) + 6) % 7
+	case UsageIntervalMonth:
+		day = 1
 	}
-	return starts
+	starts := []time.Time{}
+	for {
+		start := usageDayStart(year, month, day, location)
+		if len(starts) > 0 && !start.Before(until) {
+			return starts, true
+		}
+		if len(starts) == limit {
+			return nil, false
+		}
+		starts = append(starts, start)
+		switch interval {
+		case UsageIntervalWeek:
+			day += 7
+		case UsageIntervalMonth:
+			month++
+		default:
+			day++
+		}
+	}
 }
 
-func usageDayStart(local time.Time, offset int) time.Time {
-	year, month, day := time.Date(local.Year(), local.Month(), local.Day()+offset, 12, 0, 0, 0, time.UTC).Date()
-	start := time.Date(year, month, day, 0, 0, 0, 0, local.Location())
+// usageHourStarts steps whole elapsed hours from the local hour containing
+// since, so repeated and skipped daylight-saving hours stay one hour wide.
+func usageHourStarts(since, until time.Time, limit int) ([]time.Time, bool) {
+	start := since.Add(-time.Duration(since.Minute())*time.Minute -
+		time.Duration(since.Second())*time.Second -
+		time.Duration(since.Nanosecond()))
+	starts := []time.Time{}
+	for len(starts) == 0 || start.Before(until) {
+		if len(starts) == limit {
+			return nil, false
+		}
+		starts = append(starts, start)
+		start = start.Add(time.Hour)
+	}
+	return starts, true
+}
+
+func usageDayStart(year int, month time.Month, day int, location *time.Location) time.Time {
+	year, month, day = time.Date(year, month, day, 12, 0, 0, 0, time.UTC).Date()
+	start := time.Date(year, month, day, 0, 0, 0, 0, location)
 	if startYear, startMonth, startDay := start.Date(); startYear != year || startMonth != month || startDay != day {
-		return time.Date(year, month, day, 1, 0, 0, 0, local.Location())
+		return time.Date(year, month, day, 1, 0, 0, 0, location)
 	}
 	return start
 }
 
-func (input SumOrgModelUsageSeriesInput) validate() error {
-	if input.OrgID == uuid.Nil {
-		return errors.New("org is required")
+func (filter ModelUsageSeriesFilter) validate() error {
+	// With no projects there is nothing to read, so a caller without any
+	// memberships gets an empty series rather than an error.
+	if len(filter.OrgIDs) == 0 && (len(filter.ProjectIDs) > 0 || filter.AllProjects) {
+		return errors.New("usage series orgs are required")
 	}
-	if len(input.DayStarts) == 0 {
-		return errors.New("usage series days are required")
+	if filter.AllProjects && len(filter.ProjectIDs) > 0 {
+		return errors.New("usage series cannot combine all projects with project ids")
 	}
-	for index := 1; index < len(input.DayStarts); index++ {
-		if !input.DayStarts[index].After(input.DayStarts[index-1]) {
-			return errors.New("usage series day starts must ascend")
-		}
+	if filter.Until.IsZero() {
+		return errors.New("usage series until is required")
 	}
-	if input.GroupLimit <= 0 {
-		return errors.New("usage series group limit must be positive")
+	if filter.Since != nil && !filter.Until.After(*filter.Since) {
+		return errors.New("usage series until must be after since")
 	}
 	return nil
 }
 
-func (s *Store) SumOrgModelUsageSeries(
+// empty reports whether the filter can match nothing, so the store skips the query.
+func (filter ModelUsageSeriesFilter) empty() bool {
+	return !filter.AllProjects && len(filter.ProjectIDs) == 0
+}
+
+// projectIDs is the query's project filter, where nil reads every project.
+func (filter ModelUsageSeriesFilter) projectIDs() []uuid.UUID {
+	if filter.AllProjects {
+		return nil
+	}
+	return filter.ProjectIDs
+}
+
+// FirstModelUsageAt returns when the earliest model call matching filter was
+// made, or false when none match.
+func (s *Store) FirstModelUsageAt(ctx context.Context, filter ModelUsageSeriesFilter) (time.Time, bool, error) {
+	if err := filter.validate(); err != nil {
+		return time.Time{}, false, err
+	}
+	if filter.empty() {
+		return time.Time{}, false, nil
+	}
+	first, err := s.q.FirstModelCallUsageAt(ctx, dbsqlc.FirstModelCallUsageAtParams{
+		OrgIds:                  filter.OrgIDs,
+		ProjectIds:              filter.projectIDs(),
+		Since:                   filter.Since,
+		Until:                   filter.Until,
+		AgentProfileIds:         filter.AgentProfileIDs,
+		IncludeProfileSubagents: filter.IncludeProfileSubagents,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("first model usage: %w", err)
+	}
+	return first, true, nil
+}
+
+func (s *Store) SumModelUsageSeries(
 	ctx context.Context,
-	input SumOrgModelUsageSeriesInput,
+	filter ModelUsageSeriesFilter,
+	bucketStarts []time.Time,
 ) (ModelUsageSeries, error) {
-	if err := input.validate(); err != nil {
+	if err := filter.validate(); err != nil {
 		return ModelUsageSeries{}, err
 	}
-	if len(input.ProjectIDs) == 0 {
-		return assembleModelUsageSeries(input.DayStarts, nil, input.GroupLimit)
+	if len(bucketStarts) == 0 {
+		return ModelUsageSeries{}, errors.New("usage series buckets are required")
 	}
-	rows, err := s.q.SumModelCallUsageByDay(ctx, dbsqlc.SumModelCallUsageByDayParams{
-		DayStarts:  input.DayStarts,
-		OrgID:      input.OrgID,
-		ProjectIds: input.ProjectIDs,
-		Since:      input.DayStarts[0],
+	if !slices.IsSortedFunc(bucketStarts, time.Time.Compare) || !bucketStarts[len(bucketStarts)-1].Before(filter.Until) {
+		return ModelUsageSeries{}, errors.New("usage series buckets must ascend and start before until")
+	}
+	series := ModelUsageSeries{BucketStarts: bucketStarts, Rows: []ModelUsageSeriesRow{}}
+	if filter.empty() {
+		totals, err := sumModelUsageTotals(nil)
+		series.Totals = totals
+		return series, err
+	}
+	rows, err := s.q.SumModelCallUsageByBucket(ctx, dbsqlc.SumModelCallUsageByBucketParams{
+		BucketStarts:            bucketStarts,
+		OrgIds:                  filter.OrgIDs,
+		ProjectIds:              filter.projectIDs(),
+		Since:                   filter.Since,
+		Until:                   filter.Until,
+		AgentProfileIds:         filter.AgentProfileIDs,
+		IncludeProfileSubagents: filter.IncludeProfileSubagents,
 	})
 	if err != nil {
-		return ModelUsageSeries{}, fmt.Errorf("sum model usage by day: %w", err)
+		return ModelUsageSeries{}, fmt.Errorf("sum model usage by bucket: %w", err)
 	}
-	seriesRows := make([]modelUsageSeriesRow, 0, len(rows))
+	totals := make([]ModelUsageTotals, 0, len(rows))
 	for _, row := range rows {
+		bucket := int(row.BucketNumber) - 1
+		if bucket < 0 || bucket >= len(bucketStarts) {
+			return ModelUsageSeries{}, fmt.Errorf("sum model usage by bucket: bucket %d out of range", row.BucketNumber)
+		}
 		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
 		if !ok {
-			return ModelUsageSeries{}, fmt.Errorf("sum model usage by day: invalid cost total %q", row.ProviderReportedCostUsd)
+			return ModelUsageSeries{}, fmt.Errorf(
+				"sum model usage by bucket: invalid cost total %q", row.ProviderReportedCostUsd,
+			)
 		}
-		seriesRows = append(seriesRows, modelUsageSeriesRow{
-			dayNumber:   row.DayNumber,
-			modelID:     row.ConfiguredModelID,
-			modelName:   row.ConfiguredModelName,
-			profileID:   storeutil.IDFromPtr(row.AgentProfileID),
-			profileName: row.AgentProfileName,
-			totals: ModelUsageTotals{
-				ModelCalls:                 row.ModelCalls,
-				ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
-				InputTokensTotal:           row.InputTokensTotal,
-				UncachedInputTokens:        row.UncachedInputTokens,
-				CacheReadInputTokens:       row.CacheReadInputTokens,
-				CacheWriteInputTokens:      row.CacheWriteInputTokens,
-				OutputTokensTotal:          row.OutputTokensTotal,
-				ReasoningOutputTokens:      row.ReasoningOutputTokens,
-				ProviderReportedCostUSD:    cost,
-			},
+		rowTotals := ModelUsageTotals{
+			ModelCalls:                 row.ModelCalls,
+			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
+			InputTokensTotal:           row.InputTokensTotal,
+			UncachedInputTokens:        row.UncachedInputTokens,
+			CacheReadInputTokens:       row.CacheReadInputTokens,
+			CacheWriteInputTokens:      row.CacheWriteInputTokens,
+			OutputTokensTotal:          row.OutputTokensTotal,
+			ReasoningOutputTokens:      row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:    cost,
+		}
+		totals = append(totals, rowTotals)
+		series.Rows = append(series.Rows, ModelUsageSeriesRow{
+			Bucket:       bucket,
+			ModelID:      row.ConfiguredModelID,
+			ModelName:    row.ConfiguredModelName,
+			ProviderName: row.ModelProviderConfigName,
+			ProfileID:    storeutil.IDFromPtr(row.AgentProfileID),
+			ProfileName:  row.AgentProfileName,
+			ProjectName:  row.ProjectName,
+			Totals:       rowTotals,
 		})
 	}
-	series, err := assembleModelUsageSeries(input.DayStarts, seriesRows, input.GroupLimit)
+	series.Totals, err = sumModelUsageTotals(totals)
 	if err != nil {
 		return ModelUsageSeries{}, err
 	}
 	series.ActiveAgents, err = s.q.CountAgentsWithModelCalls(ctx, dbsqlc.CountAgentsWithModelCallsParams{
-		OrgID:      input.OrgID,
-		ProjectIds: input.ProjectIDs,
-		Since:      input.DayStarts[0],
+		OrgIds:                  filter.OrgIDs,
+		ProjectIds:              filter.projectIDs(),
+		Since:                   filter.Since,
+		Until:                   filter.Until,
+		AgentProfileIds:         filter.AgentProfileIDs,
+		IncludeProfileSubagents: filter.IncludeProfileSubagents,
 	})
 	if err != nil {
 		return ModelUsageSeries{}, fmt.Errorf("count agents with model calls: %w", err)
 	}
 	return series, nil
-}
-
-func assembleModelUsageSeries(
-	dayStarts []time.Time,
-	rows []modelUsageSeriesRow,
-	groupLimit int,
-) (ModelUsageSeries, error) {
-	dayRows := make([][]ModelUsageTotals, len(dayStarts))
-	for _, row := range rows {
-		index := int(row.dayNumber) - 1
-		if index < 0 || index >= len(dayStarts) {
-			return ModelUsageSeries{}, fmt.Errorf("sum model usage by day: day %d out of range", row.dayNumber)
-		}
-		dayRows[index] = append(dayRows[index], row.totals)
-	}
-	series := ModelUsageSeries{Days: make([]ModelUsageSeriesDay, len(dayStarts))}
-	dayTotals := make([]ModelUsageTotals, len(dayStarts))
-	for index, start := range dayStarts {
-		totals, err := sumModelUsageTotals(dayRows[index])
-		if err != nil {
-			return ModelUsageSeries{}, err
-		}
-		dayTotals[index] = totals
-		series.Days[index] = ModelUsageSeriesDay{Start: start, Totals: totals}
-	}
-	totals, err := sumModelUsageTotals(dayTotals)
-	if err != nil {
-		return ModelUsageSeries{}, err
-	}
-	series.Totals = totals
-	models, modelDays, err := usageBreakdown(rows, len(dayStarts), groupLimit, usageSeriesModel)
-	if err != nil {
-		return ModelUsageSeries{}, err
-	}
-	profiles, profileDays, err := usageBreakdown(rows, len(dayStarts), groupLimit, usageSeriesProfile)
-	if err != nil {
-		return ModelUsageSeries{}, err
-	}
-	series.Models, series.Profiles = models, profiles
-	for index := range series.Days {
-		series.Days[index].Models, series.Days[index].Profiles = modelDays[index], profileDays[index]
-	}
-	return series, nil
-}
-
-func usageSeriesModel(row modelUsageSeriesRow) (uuid.UUID, string) {
-	return row.modelID, row.modelName
-}
-
-func usageSeriesProfile(row modelUsageSeriesRow) (uuid.UUID, string) {
-	return row.profileID, row.profileName
-}
-
-func usageBreakdown(
-	rows []modelUsageSeriesRow,
-	days, groupLimit int,
-	group func(modelUsageSeriesRow) (uuid.UUID, string),
-) ([]ModelUsageSeriesGroup, [][]ModelUsageSeriesGroupTokens, error) {
-	order := []uuid.UUID{}
-	names := map[uuid.UUID]string{}
-	groupRows := map[uuid.UUID][]ModelUsageTotals{}
-	dayGroupTokens := make([]map[uuid.UUID]int64, days)
-	for _, row := range rows {
-		id, name := group(row)
-		if _, seen := groupRows[id]; !seen {
-			order = append(order, id)
-			names[id] = name
-		}
-		groupRows[id] = append(groupRows[id], row.totals)
-		index := int(row.dayNumber) - 1
-		if dayGroupTokens[index] == nil {
-			dayGroupTokens[index] = map[uuid.UUID]int64{}
-		}
-		dayGroupTokens[index][id] += row.totals.tokens()
-	}
-	groups := make([]ModelUsageSeriesGroup, 0, len(order))
-	for _, id := range order {
-		totals, err := sumModelUsageTotals(groupRows[id])
-		if err != nil {
-			return nil, nil, err
-		}
-		groups = append(groups, ModelUsageSeriesGroup{ID: id, Name: names[id], Totals: totals})
-	}
-	slices.SortStableFunc(groups, func(left, right ModelUsageSeriesGroup) int {
-		return cmp.Or(
-			cmp.Compare(right.Totals.tokens(), left.Totals.tokens()),
-			cmp.Compare(left.Name, right.Name),
-			cmp.Compare(left.ID.String(), right.ID.String()),
-		)
-	})
-	groups = groups[:min(len(groups), groupLimit)]
-	perDay := make([][]ModelUsageSeriesGroupTokens, days)
-	for index := range perDay {
-		perDay[index] = []ModelUsageSeriesGroupTokens{}
-		for _, kept := range groups {
-			tokens, ok := dayGroupTokens[index][kept.ID]
-			if !ok {
-				continue
-			}
-			perDay[index] = append(perDay[index], ModelUsageSeriesGroupTokens{GroupID: kept.ID, Tokens: tokens})
-		}
-	}
-	return groups, perDay, nil
-}
-
-func (t ModelUsageTotals) tokens() int64 {
-	return t.InputTokensTotal + t.OutputTokensTotal
 }

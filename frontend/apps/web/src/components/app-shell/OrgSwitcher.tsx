@@ -1,9 +1,8 @@
-import { usePendingInvitationsQuery } from '@omnara/react'
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
-import { Check, ChevronsUpDown, Mail, Plus, SettingsIcon } from '@/components/icons'
+import { Check, ChevronsUpDown, Plus, SettingsIcon } from '@/components/icons'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
 import {
   DropdownMenu,
@@ -15,7 +14,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -24,15 +22,9 @@ import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrgSwitcher() {
   const navigate = useNavigate()
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
   const { setOpenMobile } = useSidebar()
-  const { data: pendingInvitations } = usePendingInvitationsQuery()
   const [newOrgOpen, setNewOrgOpen] = useState(false)
-  const pendingCount = pendingInvitations?.data.length ?? 0
-  const pendingCountLabel = pendingInvitations?.next_cursor
-    ? `${pendingCount}+`
-    : String(pendingCount)
 
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
@@ -49,7 +41,7 @@ export function OrgSwitcher() {
             <DropdownMenuTrigger asChild>
               <SidebarMenuButton
                 size="lg"
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground h-10 py-1"
               >
                 <BrandMark className="aspect-square size-8" />
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -105,19 +97,6 @@ export function OrgSwitcher() {
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>
-        {pendingCount > 0 && (
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === '/invitations'}>
-              <Link to="/invitations" aria-label={`Pending invitations, ${pendingCountLabel}`}>
-                <Mail />
-                <span>Pending invitations</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuBadge aria-hidden="true" className="bg-primary text-primary-foreground">
-              {pendingCountLabel}
-            </SidebarMenuBadge>
-          </SidebarMenuItem>
-        )}
       </SidebarMenu>
 
       <CreateOrgDialog

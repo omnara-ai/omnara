@@ -137,6 +137,7 @@ const (
 	operationGetProjectUsage               operationID = "GetProjectUsage"
 	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
 	operationGetAgentUsage                 operationID = "GetAgentUsage"
+	operationGetOrgUsageTimeseries         operationID = "GetOrgUsageTimeseries"
 	operationGetMachinePool                operationID = "GetMachinePool"
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
@@ -171,6 +172,8 @@ const (
 	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
 	operationListOrgAPIKeys                operationID = "ListOrgAPIKeys"
+	operationListOrgAgents                 operationID = "ListOrgAgents"
+	operationListOrgAgentProfiles          operationID = "ListOrgAgentProfiles"
 	operationListOrgInvitations            operationID = "ListOrgInvitations"
 	operationListOrgMembers                operationID = "ListOrgMembers"
 	operationListSkills                    operationID = "ListSkills"
@@ -304,10 +307,13 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListOrgAgents:              accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationListOrgAgentProfiles:       accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentUsage:              accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetOrgUsageTimeseries:      accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),
@@ -378,12 +384,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRemoveMemberProjectAccess:     accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationListProjectAvailableSecrets:   accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
 	operationGetProjectAvailableSecret:     accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
-	operationListProjectModelGrants:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectModelGrants:        accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationUpdateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationDeleteProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectMachineGrants:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectMachinePoolGrants:  accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationGetProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectMachineGrants:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListProjectMachinePoolGrants:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationUpdateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationDeleteProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),

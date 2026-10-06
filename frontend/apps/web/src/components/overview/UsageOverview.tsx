@@ -1,107 +1,64 @@
-import type { OrgOverviewUsage } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
-import { type ReactNode, useState } from 'react'
+import type { UsageTimeseries } from '@omnara/sdk'
+import type { ReactNode } from 'react'
 
-import { ArrowRight } from '@/components/icons'
-import { panelHintClass, tabTriggerClass } from '@/components/overview/CodeBlock'
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
-import {
-  formatUsageValue,
-  type UsageBreakdown,
-  usageChartData,
-  usageMeasureValue,
-} from '@/components/overview/usage-overview-data'
-import { UsageChart } from '@/components/overview/UsageChart'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ReportedCost } from '@/components/usage/ReportedCost'
+import { formatUsageValue, usageMeasureValue } from '@/components/usage/usage-chart-data'
+import { lastDaysUsageWindow } from '@/components/usage/usage-date-range'
+import { UsageStats } from '@/components/usage/UsageStats'
+import {
+  UsageTimeseriesPanel,
+  type UsageTimeseriesScope,
+} from '@/components/usage/UsageTimeseriesPanel'
 import { formatCount } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
-const breakdowns: { value: UsageBreakdown; label: string }[] = [
-  { value: 'model', label: 'Model' },
-  { value: 'profile', label: 'Profile' },
-]
+const usageDays = 30
 
 export function UsageOverview({
-  usage,
-  canViewReport,
+  orgId,
+  filters = {},
+  reportLink,
 }: {
-  usage: OrgOverviewUsage
-  canViewReport: boolean
+  orgId: string
+  filters?: UsageTimeseriesScope
+  reportLink?: ReactNode
 }) {
-  const [breakdown, setBreakdown] = useState<UsageBreakdown>('model')
-
   return (
-    <section>
-      <Tabs
-        value={breakdown}
-        onValueChange={(value) => {
-          const next = breakdowns.find((option) => option.value === value)
-          if (next) setBreakdown(next.value)
-        }}
-        className="gap-6"
-      >
-        <OverviewSectionHeader
-          title="Usage"
-          subtitle={`Last ${usage.days.length} days`}
-          action={
-            <div className="flex items-center gap-4">
-              <TabsList variant="line" aria-label="Break usage down by" className="gap-1 p-0">
-                {breakdowns.map((option) => (
-                  <TabsTrigger key={option.value} value={option.value} className={tabTriggerClass}>
-                    {option.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              {canViewReport && (
-                <Link to="/usage" className={cn(panelHintClass, 'inline-flex hover:underline')}>
-                  Usage report
-                  <ArrowRight className="size-3.5" aria-hidden="true" />
-                </Link>
-              )}
-            </div>
-          }
-        />
-        <TabsContent value={breakdown} className="flex flex-col gap-6">
-          <UsageFigures usage={usage} />
-          <UsageChart
-            data={usageChartData(usage, breakdown)}
-            label={`Tokens per day by ${breakdown} over the last ${usage.days.length} days`}
-          />
-        </TabsContent>
-      </Tabs>
+    <section className="flex flex-col gap-6">
+      <OverviewSectionHeader
+        title="Usage"
+        subtitle={`Last ${usageDays} days`}
+        action={reportLink}
+      />
+      <UsageTimeseriesPanel
+        orgId={orgId}
+        filters={{ ...filters, ...lastDaysUsageWindow(usageDays), interval: 'day' }}
+        summary={(timeseries) => <UsageFigures timeseries={timeseries} />}
+        showControls={false}
+      />
     </section>
   )
 }
 
-function UsageFigures({ usage }: { usage: OrgOverviewUsage }) {
+function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
+  const { totals } = timeseries
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3 pb-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">
-      <UsageFigure
-        value={formatUsageValue('tokens', usageMeasureValue(usage.totals, 'tokens'))}
-        label="tokens"
-      />
-      <UsageFigure
-        value={
-          <ReportedCost
-            modelCalls={usage.totals.model_calls}
-            cost={usage.totals.cost}
-            format={(decimal) => formatUsageValue('cost', Number(decimal))}
-          />
-        }
-        label="cost"
-      />
-      <UsageFigure value={formatCount(usage.totals.model_calls)} label="model calls" />
-      <UsageFigure value={formatCount(usage.active_agents)} label="active agents" />
-    </div>
-  )
-}
-
-function UsageFigure({ value, label }: { value: ReactNode; label: string }) {
-  return (
-    <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-      <span className="text-xl font-semibold tracking-[-0.03em] sm:text-3xl">{value}</span>
-      <span className="text-muted-foreground text-sm">{label}</span>
-    </p>
+    <UsageStats
+      stats={[
+        { label: 'Tokens', value: formatUsageValue('tokens', usageMeasureValue(totals, 'tokens')) },
+        {
+          label: 'Cost',
+          value: (
+            <ReportedCost
+              modelCalls={totals.model_calls}
+              cost={totals.cost}
+              format={(decimal) => formatUsageValue('cost', Number(decimal))}
+            />
+          ),
+        },
+        { label: 'Model calls', value: formatCount(totals.model_calls) },
+        { label: 'Active agents', value: formatCount(timeseries.active_agents) },
+      ]}
+    />
   )
 }

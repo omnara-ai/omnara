@@ -1,11 +1,14 @@
 import { type ProjectAvailableSecretListSort, useProjectAvailableSecrets } from '@omnara/react'
 import type { ProjectSecretAccess } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
+import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -28,10 +31,16 @@ export function ProjectSecretGrantsTable({
   orgId,
   projectId,
   projectName,
+  canManage,
+  actions,
 }: {
   orgId: string
   projectId: string
   projectName: string
+  /** Whether the viewer may stop sharing (requires managing the target project). */
+  canManage: boolean
+  /** Header controls, e.g. tabs. */
+  actions?: ReactNode
 }) {
   const list = useResourceList<ProjectAvailableSecretListSort>('-updated_at')
   const query = useProjectAvailableSecrets(orgId, projectId, {
@@ -44,18 +53,21 @@ export function ProjectSecretGrantsTable({
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title="Secret grants"
+        title="Shared secrets"
+        description="List of secrets accessible to agents in your current project"
         guide={guides.secrets}
         toolbar={
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
             sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
-            placeholder="Search secret grants by name…"
+            placeholder="Search shared secrets by name…"
             showSearch={showToolbar}
           />
         }
-      />
+      >
+        {actions}
+      </SearchHeader>
       <DataTable
         columns={[
           {
@@ -87,7 +99,7 @@ export function ProjectSecretGrantsTable({
                 secret={access.secret}
                 availability={access.availability}
                 projectName={projectName}
-                canDelete
+                canDelete={canManage}
               />
             ),
           },
@@ -113,7 +125,14 @@ export function ProjectSecretGrantsTable({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No secrets granted. Grant one from the Organization tab on the Secrets page."
+        emptyMessage="No shared secrets. Share one from the Organization tab on the Secrets page."
+        emptyAction={
+          <Button asChild size="sm" variant="outline">
+            <Link to="/secrets" search={{ owner: 'organization' }}>
+              Go to secrets
+            </Link>
+          </Button>
+        }
       />
     </div>
   )

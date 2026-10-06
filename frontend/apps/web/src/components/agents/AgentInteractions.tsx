@@ -45,6 +45,100 @@ function subagentSourceLabel(interaction: AgentInteraction): string | null {
   return `From subagent ${interaction.agent_name}`
 }
 
+/**
+ * A permission request answered in one click. Options render as buttons, the first
+ * (Allow) as the primary action; an option that accepts text (Deny) can carry a reason.
+ */
+function PermissionActions({
+  interaction,
+  resolve,
+  pending,
+  canOperate,
+}: {
+  interaction: AgentInteraction
+  resolve: Resolve
+  pending: boolean
+  canOperate: boolean
+}) {
+  const [reason, setReason] = useState('')
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [chosen, setChosen] = useState<number | null>(null)
+  const options = interaction.request.questions[0]?.options ?? []
+  const reasonIndex = options.findIndex((option) => option.allows_text === true)
+  const reasonId = `${interaction.id}-reason`
+  const disabled = !canOperate || pending
+
+  function answer(optionIndex: number) {
+    const text = reason.trim()
+    const selection: InteractionAnswer = { option_indices: [optionIndex] }
+    if (optionIndex === reasonIndex && text !== '') selection.text = text
+    setChosen(optionIndex)
+    void resolve(interaction, { answers: [selection] }).catch(() => undefined)
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      {reasonOpen && reasonIndex !== -1 && (
+        <>
+          <Label htmlFor={reasonId} className="sr-only">
+            Reason for denying (optional)
+          </Label>
+          <Input
+            id={reasonId}
+            className="h-8 sm:h-8"
+            value={reason}
+            placeholder="Reason for denying (optional)"
+            disabled={disabled}
+            autoComplete="off"
+            onChange={(event) => {
+              setReason(event.target.value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing && !disabled) {
+                event.preventDefault()
+                answer(reasonIndex)
+              }
+            }}
+          />
+        </>
+      )}
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {reasonIndex !== -1 && !reasonOpen && (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground mr-auto text-xs underline-offset-2 hover:underline disabled:opacity-50"
+            disabled={disabled}
+            onClick={() => {
+              setReasonOpen(true)
+            }}
+          >
+            Add a reason
+          </button>
+        )}
+        {options
+          .map((option, optionIndex) => ({ option, optionIndex }))
+          .reverse()
+          .map(({ option, optionIndex }) => (
+            <Button
+              key={optionIndex}
+              type="button"
+              size="sm"
+              variant={optionIndex === 0 ? 'default' : 'outline'}
+              className="min-w-20"
+              disabled={disabled}
+              loading={pending && chosen === optionIndex}
+              onClick={() => {
+                answer(optionIndex)
+              }}
+            >
+              {option.label}
+            </Button>
+          ))}
+      </div>
+    </div>
+  )
+}
+
 function InteractionFormCard({
   interaction,
   resolve,
@@ -67,6 +161,7 @@ function InteractionFormCard({
       break
     }
   }
+  const directPermission = isPermission && questions.length === 1 && questions[0]?.multiple !== true
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
   const subagentLabel = subagentSourceLabel(interaction)
@@ -129,103 +224,115 @@ function InteractionFormCard({
             ))}
           </dl>
         )}
-        {questions.map((question, questionIndex) => {
-          const optionIndices = selections[questionIndex] ?? []
-          const optionIndexSet = new Set(optionIndices)
-          const allowsText = selectedOptions(question.options, optionIndices).some(
-            (option) => option.allows_text === true,
-          )
-          const isLast = questionIndex === questions.length - 1
-          const responseId = `${interaction.id}-${questionIndex}-response`
-          const responseLabel = isPermission ? 'Reason (optional)' : 'Details (optional)'
-          return (
-            <fieldset key={questionIndex} className="grid min-w-0 gap-3">
-              <legend
-                className={cn('wrap-anywhere mb-3 text-sm font-medium', isPermission && 'sr-only')}
-              >
-                {question.prompt}
-              </legend>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                {question.options.map((candidate, optionIndex) => (
-                  <Button
-                    key={optionIndex}
-                    type="button"
-                    size="sm"
-                    variant={optionIndexSet.has(optionIndex) ? 'default' : 'outline'}
-                    className="wrap-anywhere h-auto min-h-8 max-w-full whitespace-normal text-left"
-                    disabled={!canOperate || pending}
-                    onClick={() => {
-                      const nextOptionIndices =
-                        question.multiple === true
-                          ? optionIndexSet.has(optionIndex)
-                            ? optionIndices.filter((index) => index !== optionIndex)
-                            : [...optionIndices, optionIndex]
-                          : [optionIndex]
-                      const nextOptionIndexSet = new Set(nextOptionIndices)
-                      setSelections((current) => ({
-                        ...current,
-                        [questionIndex]: nextOptionIndices,
-                      }))
-                      const nextAllowsText = question.options.some(
-                        (option, index) =>
-                          option.allows_text === true && nextOptionIndexSet.has(index),
-                      )
-                      if (!nextAllowsText) {
-                        setResponses((current) => ({
-                          ...current,
-                          [questionIndex]: '',
-                        }))
-                      }
-                    }}
-                  >
-                    {candidate.label}
-                  </Button>
-                ))}
-                {allowsText && (
-                  <>
-                    <Label htmlFor={responseId} className="sr-only">
-                      {responseLabel}
-                    </Label>
-                    <Input
-                      id={responseId}
-                      className="h-8 min-w-40 flex-1 sm:h-8"
-                      value={responses[questionIndex] ?? ''}
-                      placeholder={responseLabel}
+        {directPermission && (
+          <PermissionActions
+            interaction={interaction}
+            resolve={resolve}
+            pending={pending}
+            canOperate={canOperate}
+          />
+        )}
+        {!directPermission &&
+          questions.map((question, questionIndex) => {
+            const optionIndices = selections[questionIndex] ?? []
+            const optionIndexSet = new Set(optionIndices)
+            const allowsText = selectedOptions(question.options, optionIndices).some(
+              (option) => option.allows_text === true,
+            )
+            const isLast = questionIndex === questions.length - 1
+            const responseId = `${interaction.id}-${questionIndex}-response`
+            const responseLabel = isPermission ? 'Reason (optional)' : 'Details (optional)'
+            return (
+              <fieldset key={questionIndex} className="grid min-w-0 gap-3">
+                <legend
+                  className={cn(
+                    'wrap-anywhere mb-3 text-sm font-medium',
+                    isPermission && 'sr-only',
+                  )}
+                >
+                  {question.prompt}
+                </legend>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  {question.options.map((candidate, optionIndex) => (
+                    <Button
+                      key={optionIndex}
+                      type="button"
+                      size="sm"
+                      variant={optionIndexSet.has(optionIndex) ? 'default' : 'outline'}
+                      className="wrap-anywhere h-auto min-h-8 max-w-full whitespace-normal text-left"
                       disabled={!canOperate || pending}
-                      onChange={(event) => {
-                        setResponses((current) => ({
+                      onClick={() => {
+                        const nextOptionIndices =
+                          question.multiple === true
+                            ? optionIndexSet.has(optionIndex)
+                              ? optionIndices.filter((index) => index !== optionIndex)
+                              : [...optionIndices, optionIndex]
+                            : [optionIndex]
+                        const nextOptionIndexSet = new Set(nextOptionIndices)
+                        setSelections((current) => ({
                           ...current,
-                          [questionIndex]: event.target.value,
+                          [questionIndex]: nextOptionIndices,
                         }))
-                      }}
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === 'Enter' &&
-                          !event.nativeEvent.isComposing &&
-                          complete &&
-                          !pending
-                        ) {
-                          event.preventDefault()
-                          submit()
+                        const nextAllowsText = question.options.some(
+                          (option, index) =>
+                            option.allows_text === true && nextOptionIndexSet.has(index),
+                        )
+                        if (!nextAllowsText) {
+                          setResponses((current) => ({
+                            ...current,
+                            [questionIndex]: '',
+                          }))
                         }
                       }}
-                    />
-                  </>
-                )}
-                {isLast && (
-                  <Button
-                    size="sm"
-                    className="ml-auto"
-                    disabled={!canOperate || pending || !complete}
-                    onClick={submit}
-                  >
-                    Submit
-                  </Button>
-                )}
-              </div>
-            </fieldset>
-          )
-        })}
+                    >
+                      {candidate.label}
+                    </Button>
+                  ))}
+                  {allowsText && (
+                    <>
+                      <Label htmlFor={responseId} className="sr-only">
+                        {responseLabel}
+                      </Label>
+                      <Input
+                        id={responseId}
+                        className="h-8 min-w-40 flex-1 sm:h-8"
+                        value={responses[questionIndex] ?? ''}
+                        placeholder={responseLabel}
+                        disabled={!canOperate || pending}
+                        onChange={(event) => {
+                          setResponses((current) => ({
+                            ...current,
+                            [questionIndex]: event.target.value,
+                          }))
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === 'Enter' &&
+                            !event.nativeEvent.isComposing &&
+                            complete &&
+                            !pending
+                          ) {
+                            event.preventDefault()
+                            submit()
+                          }
+                        }}
+                      />
+                    </>
+                  )}
+                  {isLast && (
+                    <Button
+                      size="sm"
+                      className="ml-auto"
+                      disabled={!canOperate || pending || !complete}
+                      onClick={submit}
+                    >
+                      Submit
+                    </Button>
+                  )}
+                </div>
+              </fieldset>
+            )
+          })}
       </CardContent>
     </Card>
   )

@@ -1,12 +1,12 @@
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -16,12 +16,10 @@ import (
 
 const (
 	orgOverviewRecentLimit = 5
-	// orgOverviewMaxProjects caps how many visible projects the overview
-	// considers (and returns); recents and usage beyond this cap are best-effort omitted.
+	// orgOverviewMaxProjects caps how many projects the overview returns. Recents
+	// and activity still cover every visible project, and the most recently
+	// active projects are the ones returned.
 	orgOverviewMaxProjects = 200
-
-	orgOverviewUsageDays       = 30
-	orgOverviewUsageGroupLimit = 8
 )
 
 func (s strictOpenAPIServer) GetOrgOverview(
@@ -32,30 +30,13 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	location, err := orgOverviewLocation(request.Params.Timezone)
+	visible, err := s.listAllVisibleProjects(ctx, org.ID)
 	if err != nil {
 		return nil, err
 	}
-	principal, _ := principalFromContext(ctx)
-	page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
-		ctx,
-		identitystore.ListVisibleProjectsForPrincipalInput{
-			OrgID: org.ID, Principal: principal, Limit: orgOverviewMaxProjects,
-		},
-	)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	visible := page.Projects
-	projects := make([]openapi.VisibleProject, 0, len(visible))
 	agentProjectIDs := make([]uuid.UUID, 0, len(visible))
 	readableProjectIDs := make([]uuid.UUID, 0, len(visible))
 	for _, record := range visible {
-		response, err := visibleProjectResponse(record)
-		if err != nil {
-			return nil, err
-		}
-		projects = append(projects, response)
 		if identitystore.ProjectRolesAllow(record.Roles, identitystore.AgentActionRead) {
 			agentProjectIDs = append(agentProjectIDs, record.Project.ID)
 		}
@@ -103,37 +84,59 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	dayStarts := executionstore.UsageDayStarts(time.Now(), orgOverviewUsageDays, location)
-	activity, err := s.server.store.Execution().CountOrgActivity(ctx, executionstore.CountOrgActivityInput{
-		ProjectIDs: agentProjectIDs, Window: executionstore.UsageWindow{Since: &dayStarts[len(dayStarts)-1]},
-	})
+	activity, err := s.server.store.Execution().ListProjectLastActivity(
+		ctx,
+		executionstore.ListProjectLastActivityInput{
+			AgentProjectIDs: agentProjectIDs, ProfileProjectIDs: readableProjectIDs,
+		},
+	)
 	if err != nil {
-		return nil, apierror.OrgScoped(err)
+		return nil, apierror.ProjectScoped(err)
 	}
-	series, err := s.server.store.Execution().SumOrgModelUsageSeries(ctx, executionstore.SumOrgModelUsageSeriesInput{
-		OrgID:      org.ID,
-		ProjectIDs: readableProjectIDs,
-		DayStarts:  dayStarts,
-		GroupLimit: orgOverviewUsageGroupLimit,
-	})
-	if err != nil {
-		return nil, apierror.OrgScoped(err)
-	}
-	usage, err := orgOverviewUsageResponse(series)
-	if err != nil {
-		return nil, err
+	listed := mostRecentlyActiveProjects(visible, activity, orgOverviewMaxProjects)
+	projects := make([]openapi.VisibleProject, 0, len(listed))
+	projectActivity := make([]openapi.OrgOverviewProjectActivity, 0, len(listed))
+	for _, record := range listed {
+		response, err := visibleProjectResponse(record)
+		if err != nil {
+			return nil, err
+		}
+		projects = append(projects, response)
+		lastActiveAt, ok := activity[record.Project.ID]
+		if !ok {
+			continue
+		}
+		projectActivity = append(projectActivity, openapi.OrgOverviewProjectActivity{
+			ProjectId: response.Id, LastActiveAt: lastActiveAt.UTC(),
+		})
 	}
 	return openapi.GetOrgOverview200JSONResponse(openapi.OrgOverviewResponse{
 		Projects:                projects,
+		ProjectActivity:         projectActivity,
 		RecentAgents:            recentAgents,
 		RecentAgentProfiles:     recentProfiles,
 		ReferencedAgentProfiles: referencedProfiles,
-		Today: openapi.OrgOverviewToday{
-			AgentsCreated: activity.AgentsCreated,
-			MessagesSent:  activity.MessagesSent,
-		},
-		Usage: usage,
 	}), nil
+}
+
+// mostRecentlyActiveProjects returns up to limit projects, most recently
+// active first, counting a project's own updates as activity too.
+func mostRecentlyActiveProjects(
+	visible []identitystore.VisibleProjectRecord,
+	activity map[uuid.UUID]time.Time,
+	limit int,
+) []identitystore.VisibleProjectRecord {
+	activeAt := func(record identitystore.VisibleProjectRecord) time.Time {
+		if at, ok := activity[record.Project.ID]; ok && at.After(record.Project.UpdatedAt) {
+			return at
+		}
+		return record.Project.UpdatedAt
+	}
+	sorted := slices.Clone(visible)
+	slices.SortStableFunc(sorted, func(left, right identitystore.VisibleProjectRecord) int {
+		return cmp.Compare(activeAt(right).UnixNano(), activeAt(left).UnixNano())
+	})
+	return sorted[:min(limit, len(sorted))]
 }
 
 func (s strictOpenAPIServer) referencedAgentProfiles(
@@ -174,72 +177,4 @@ func (s strictOpenAPIServer) referencedAgentProfiles(
 		})
 	}
 	return references, nil
-}
-
-func orgOverviewLocation(timezone *string) (*time.Location, error) {
-	if timezone == nil {
-		return time.UTC, nil
-	}
-	location, err := cronschedule.LoadLocation(*timezone)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid timezone")
-	}
-	return location, nil
-}
-
-func orgOverviewUsageResponse(series executionstore.ModelUsageSeries) (openapi.OrgOverviewUsage, error) {
-	modelIDs := make(map[uuid.UUID]string, len(series.Models))
-	models := make([]openapi.OrgOverviewUsageModel, 0, len(series.Models))
-	for _, model := range series.Models {
-		id, err := publicID(publicid.KindConfiguredModel, model.ID)
-		if err != nil {
-			return openapi.OrgOverviewUsage{}, err
-		}
-		modelIDs[model.ID] = id
-		models = append(models, openapi.OrgOverviewUsageModel{
-			Id: id, Name: model.Name, Totals: usageTotalsResponse(model.Totals),
-		})
-	}
-	profileIDs := make(map[uuid.UUID]*string, len(series.Profiles))
-	profiles := make([]openapi.OrgOverviewUsageProfile, 0, len(series.Profiles))
-	for _, profile := range series.Profiles {
-		response := openapi.OrgOverviewUsageProfile{Totals: usageTotalsResponse(profile.Totals)}
-		if profile.ID != uuid.Nil {
-			id, err := publicID(publicid.KindAgentProfile, profile.ID)
-			if err != nil {
-				return openapi.OrgOverviewUsage{}, err
-			}
-			response.Id, response.Name = new(id), new(profile.Name)
-		}
-		profileIDs[profile.ID] = response.Id
-		profiles = append(profiles, response)
-	}
-	days := make([]openapi.OrgOverviewUsageDay, 0, len(series.Days))
-	for _, day := range series.Days {
-		dayModels := make([]openapi.OrgOverviewUsageDayModel, 0, len(day.Models))
-		for _, model := range day.Models {
-			dayModels = append(dayModels, openapi.OrgOverviewUsageDayModel{
-				Id: modelIDs[model.GroupID], Tokens: model.Tokens,
-			})
-		}
-		dayProfiles := make([]openapi.OrgOverviewUsageDayProfile, 0, len(day.Profiles))
-		for _, profile := range day.Profiles {
-			dayProfiles = append(dayProfiles, openapi.OrgOverviewUsageDayProfile{
-				Id: profileIDs[profile.GroupID], Tokens: profile.Tokens,
-			})
-		}
-		days = append(days, openapi.OrgOverviewUsageDay{
-			Start:    day.Start.UTC(),
-			Totals:   usageTotalsResponse(day.Totals),
-			Models:   dayModels,
-			Profiles: dayProfiles,
-		})
-	}
-	return openapi.OrgOverviewUsage{
-		Totals:       usageTotalsResponse(series.Totals),
-		ActiveAgents: series.ActiveAgents,
-		Models:       models,
-		Profiles:     profiles,
-		Days:         days,
-	}, nil
 }

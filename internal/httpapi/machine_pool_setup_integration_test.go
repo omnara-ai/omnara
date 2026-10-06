@@ -832,6 +832,37 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if got := len(testutil.RequireType[[]any](t, poolGrants["data"])); got != 1 {
 		t.Fatalf("listed pool grants = %d, want 1: %+v", got, poolGrants)
 	}
+	// Project developers and viewers can read the project's shared pools (the
+	// agent builder lists them), but cannot create, change, or remove grants.
+	poolGrantDeveloperToken := createHTTPProjectMemberToken(
+		t, ctx, pool, project, "machine-pool-grant-developer", "developer",
+	)
+	poolGrantViewerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "machine-pool-grant-viewer", "viewer")
+	for _, token := range []string{poolGrantDeveloperToken, poolGrantViewerToken} {
+		readerPoolGrants := requestJSONWithHeaders(
+			t, handler, http.MethodGet, project.ProjectPath+"/machine-pool-grants", "", "", http.StatusOK,
+			authHeaders(token),
+		)
+		if got := len(testutil.RequireType[[]any](t, readerPoolGrants["data"])); got != 1 {
+			t.Fatalf("reader listed pool grants = %d, want 1: %+v", got, readerPoolGrants)
+		}
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, project.ProjectPath+"/machine-pool-grants/"+poolGrantID, "", "",
+			http.StatusOK, authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/machine-pool-grants",
+			`{"machine_pool_id":"`+poolID+`"}`, "", http.StatusForbidden, authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodPatch, project.ProjectPath+"/machine-pool-grants/"+poolGrantID,
+			`{"description":"reader cannot edit"}`, "", http.StatusForbidden, authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodDelete, project.ProjectPath+"/machine-pool-grants/"+poolGrantID, "", "",
+			http.StatusForbidden, authHeaders(token),
+		)
+	}
 
 	patchedPoolGrant := requestJSONWithHeaders(
 		t,

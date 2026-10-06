@@ -1,191 +1,360 @@
 import {
   type AgentListFilters,
   type AgentListSort,
+  isAgentActive,
+  useAgentProfileQuery,
   useAgents,
   useArchiveAgent,
+  useOrgAgents,
 } from '@omnara/react'
-import { type Agent, ApiError } from '@omnara/sdk'
-import { useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { type Agent, ApiError, type VisibleProject } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
+import { type ReactNode, useState } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
-import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { SectionTitle } from '@/components/layout/SectionTitle'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
-import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
-  resourceSortOptions,
-  useListToolbarVisibility,
-  useResourceList,
-} from '@/hooks/use-resource-list'
-import { type Guide, guides } from '@/lib/docs'
+  AgentCard,
+  agentCardLinkClass,
+  AgentCardList,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
+import { AgentIcon } from '@/components/agents/AgentIcon'
+import { AgentOrigin } from '@/components/agents/AgentOrigin'
+import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { Ellipsis, SettingsIcon } from '@/components/icons'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { ReportedCost } from '@/components/usage/ReportedCost'
+import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
+import { useProjectDirectory } from '@/hooks/use-project-directory'
+import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { agentIcon, profileIcon } from '@/lib/agent-icon'
+import { agentStatusLabel } from '@/lib/agent-status'
+
+type AgentListControls = ReturnType<typeof useAgentListControls>
+
+function useAgentListControls() {
+  const list = useResourceList<AgentListSort>('-updated_at')
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const [includeArchived, setIncludeArchived] = useState(false)
+  // Each card's cost, with its subagents, comes with the list rather than a request per card.
+  const filters: AgentListFilters = { ...list.apiFilters, include_usage: true }
+  if (includeSubagents) filters.include_subagents = true
+  if (includeArchived) filters.include_archived = true
+  return {
+    list,
+    filters,
+    includeSubagents,
+    setIncludeSubagents,
+    includeArchived,
+    setIncludeArchived,
+    resetKey: `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
+  }
+}
 
 export function AgentsSection({
   orgId,
   projectId,
   canManage,
-}: {
-  orgId: string
-  projectId: string
-  canManage: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <AgentsTable
-        orgId={orgId}
-        projectId={projectId}
-        canManage={canManage}
-        title="Agents"
-        guide={guides.agents}
-        emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
-      />
-    </div>
-  )
-}
-
-/** One page of a project's agents, optionally narrowed to one profile's launches. */
-export function AgentsTable({
-  orgId,
-  projectId,
-  canManage,
   profileId,
-  title,
-  guide,
   emptyMessage,
+  emptyAction,
 }: {
   orgId: string
   projectId: string
   canManage: boolean
   profileId?: string
-  title?: string
-  guide?: Guide
   emptyMessage: string
+  emptyAction?: ReactNode
 }) {
-  const list = useResourceList<AgentListSort>('-updated_at')
-  const [includeSubagents, setIncludeSubagents] = useState(false)
-  const [includeArchived, setIncludeArchived] = useState(false)
-  const filters: AgentListFilters = { ...list.apiFilters }
-  if (profileId) filters.agent_profile_id = profileId
-  if (includeSubagents) filters.include_subagents = true
-  if (includeArchived) filters.include_archived = true
-  const query = useAgents(orgId, projectId, { filters, sort: list.sort })
-  const paged = usePagedQuery(
-    query,
-    `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
+  const controls = useAgentListControls()
+  const filters = profileId
+    ? { ...controls.filters, agent_profile_id: profileId }
+    : controls.filters
+  const query = useAgents(orgId, projectId, { filters, sort: controls.list.sort })
+  const paged = usePagedQuery(query, controls.resetKey)
+  return (
+    <AgentList
+      orgId={orgId}
+      controls={controls}
+      rows={paged.rows}
+      pagination={paged.pagination}
+      isPending={query.isPending}
+      isError={query.isError}
+      onRetry={() => {
+        void query.refetch()
+      }}
+      showProfile={profileId === undefined}
+      canManage={() => canManage}
+      emptyMessage={emptyMessage}
+      emptyAction={emptyAction}
+    />
   )
-  const showSearch = useListToolbarVisibility(
-    list,
-    paged.pagination,
-    query.isSuccess && !query.isPlaceholderData,
-  )
-  const archiveAgent = useArchiveAgent(orgId, projectId)
-  const navigate = useNavigate()
+}
 
+export function OrgAgentsSection({
+  orgId,
+  emptyMessage,
+  emptyAction,
+}: {
+  orgId: string
+  emptyMessage: string
+  emptyAction?: ReactNode
+}) {
+  const controls = useAgentListControls()
+  const query = useOrgAgents(orgId, { filters: controls.filters, sort: controls.list.sort })
+  const paged = usePagedQuery(query, controls.resetKey)
+  const { loaded, isLoaded } = useProjectDirectory(orgId)
+  return (
+    <AgentList
+      orgId={orgId}
+      controls={controls}
+      rows={paged.rows}
+      pagination={paged.pagination}
+      isPending={query.isPending}
+      isError={query.isError}
+      onRetry={() => {
+        void query.refetch()
+      }}
+      showProfile
+      // Listed agents are in projects the viewer can read, so show actions until their
+      // project loads (or if the list fails); the API still enforces access.
+      canManage={(agent) => loaded.get(agent.project_id)?.access.can_manage ?? !isLoaded}
+      projectOf={(agent) => loaded.get(agent.project_id)}
+      emptyMessage={emptyMessage}
+      emptyAction={emptyAction}
+    />
+  )
+}
+
+function AgentList({
+  orgId,
+  controls,
+  rows,
+  pagination,
+  isPending,
+  isError,
+  onRetry,
+  showProfile,
+  canManage,
+  projectOf,
+  emptyMessage,
+  emptyAction,
+}: {
+  orgId: string
+  controls: AgentListControls
+  rows: Agent[]
+  pagination: PaginationControls
+  isPending: boolean
+  isError: boolean
+  onRetry: () => void
+  showProfile: boolean
+  canManage: (agent: Agent) => boolean
+  projectOf?: (agent: Agent) => VisibleProject | undefined
+  emptyMessage: string
+  emptyAction?: ReactNode
+}) {
+  const { list } = controls
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {title && (
-          <div className="shrink-0 sm:mr-80">
-            <SectionTitle title={title} guide={guide} />
-          </div>
-        )}
-        <div className="flex min-w-0 flex-1 justify-end">
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            placeholder="Search agents by name…"
-            showSearch={showSearch}
-            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
-            filters={{
-              subagents: { checked: includeSubagents, onChange: setIncludeSubagents },
-              archived: { checked: includeArchived, onChange: setIncludeArchived },
-            }}
-          />
-        </div>
+      <div className="flex">
+        <ResourceListToolbar
+          search={list.search}
+          onSearchChange={list.setSearch}
+          placeholder="Search agents by name…"
+          showSearch
+          sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+          filters={{
+            subagents: {
+              checked: controls.includeSubagents,
+              onChange: controls.setIncludeSubagents,
+            },
+            archived: { checked: controls.includeArchived, onChange: controls.setIncludeArchived },
+          }}
+        />
       </div>
-      <DataTable
-        columns={[
-          {
-            id: 'name',
-            header: 'Name',
-            cell: (agent) => (
-              <span className="flex items-baseline gap-2.5 overflow-hidden">
-                <span className="font-medium">{agent.name || 'Agent'}</span>
-                {agent.parent_agent_id && (
-                  <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
-                    subagent
-                  </Badge>
-                )}
-                <span className="text-muted-foreground/70 truncate font-mono text-xs">
-                  {agent.id}
-                </span>
-              </span>
-            ),
-          },
-          {
-            id: 'model',
-            header: 'Model',
-            cell: (agent) =>
-              agent.model ? (
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-mono text-xs">{agent.model.name}</span>
-                  <span className="text-muted-foreground truncate text-xs">
-                    {agent.model.provider_config}
-                  </span>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              ),
-          },
-          { id: 'target', header: 'Target', cell: (agent) => <TargetCell agent={agent} /> },
-          {
-            id: 'state',
-            header: 'State',
-            className: 'w-28',
-            cell: (agent) => <span className="capitalize">{agent.state}</span>,
-          },
-          {
-            id: 'actions',
-            header: '',
-            className: 'w-14',
-            isActions: true,
-            cell: (agent) =>
-              canManage ? (
-                <ResourceRowActions
-                  deleteLabel="Archive"
-                  onDelete={() => {
-                    if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
-                    archiveAgent.mutate(agent.id, {
-                      onError: (error) => {
-                        window.alert(
-                          error instanceof ApiError ? error.message : 'Could not archive agent',
-                        )
-                      },
-                    })
-                  }}
-                />
-              ) : null,
-          },
-        ]}
-        data={paged.rows}
+      <AgentCardList
+        items={rows}
+        getId={(agent) => agent.id}
+        renderCard={(agent) => (
+          <AgentInstanceCard
+            orgId={orgId}
+            agent={agent}
+            project={projectOf?.(agent)}
+            showProfile={showProfile}
+            canManage={canManage(agent)}
+          />
+        )}
         isFiltered={list.isFiltering}
-        pagination={paged.pagination}
-        getRowId={(agent) => agent.id}
-        onRowClick={(agent) => {
-          void navigate({
-            to: '/projects/$projectId/agents/$agentId',
-            params: { projectId, agentId: agent.id },
-          })
-        }}
-        isPending={query.isPending}
-        isError={query.isError}
-        onRetry={() => {
-          void query.refetch()
-        }}
+        pagination={pagination}
+        isPending={isPending}
+        isError={isError}
+        onRetry={onRetry}
         emptyMessage={emptyMessage}
+        emptyAction={emptyAction}
       />
     </div>
+  )
+}
+
+function AgentInstanceCard({
+  orgId,
+  agent,
+  project,
+  showProfile,
+  canManage,
+}: {
+  orgId: string
+  agent: Agent
+  project?: VisibleProject
+  showProfile: boolean
+  canManage: boolean
+}) {
+  const projectId = agent.project_id
+  const archiveAgent = useArchiveAgent(orgId, projectId)
+
+  function archive() {
+    if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
+    archiveAgent.mutate(agent.id, {
+      onError: (error) => {
+        window.alert(error instanceof ApiError ? error.message : 'Could not archive agent')
+      },
+    })
+  }
+
+  const target = agent.integration_target && <TargetCell key="target" agent={agent} />
+  const subtitle = (
+    <AgentOrigin
+      orgId={orgId}
+      agent={agent}
+      project={project}
+      showProfile={showProfile}
+      after={target}
+    />
+  )
+  return (
+    <AgentCard
+      icon={agentIcon(agent.agent_profile_id, agent.id)}
+      animated={isAgentActive(agent)}
+      title={
+        <>
+          <Link
+            to="/projects/$projectId/agents/$agentId"
+            params={{ projectId, agentId: agent.id }}
+            className={agentCardLinkClass}
+          >
+            {agent.name || 'Agent'}
+          </Link>
+          {agent.parent_agent_id && (
+            <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
+              subagent
+            </Badge>
+          )}
+        </>
+      }
+      subtitle={subtitle}
+      meta={
+        <>
+          {agent.usage && (
+            <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
+              <ReportedCost modelCalls={agent.usage.model_calls} cost={agent.usage.cost} />
+              <span className="ml-0.5" aria-hidden="true">
+                ·
+              </span>
+            </span>
+          )}
+          <AgentCardTime
+            label="Last active"
+            value={agent.activity?.last_activity_at ?? agent.updated_at}
+            status={agent.activity?.state === 'idle' ? undefined : agentStatusLabel(agent)}
+          />
+          <AgentActionsMenu
+            orgId={orgId}
+            projectId={projectId}
+            agent={agent}
+            showProfile={showProfile}
+            onArchive={canManage ? archive : undefined}
+          />
+        </>
+      }
+    />
+  )
+}
+
+function AgentActionsMenu({
+  orgId,
+  projectId,
+  agent,
+  showProfile,
+  onArchive,
+}: {
+  orgId: string
+  projectId: string
+  agent: Agent
+  showProfile: boolean
+  onArchive?: () => void
+}) {
+  const profileId = showProfile ? agent.agent_profile_id : undefined
+  const canEditConfig = agent.current_config_id !== undefined
+  const hasLinks = profileId !== undefined || canEditConfig
+  if (!hasLinks && !onArchive) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Agent actions">
+          <Ellipsis />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {profileId && <ProfileMenuItem orgId={orgId} projectId={projectId} profileId={profileId} />}
+        {canEditConfig && (
+          <DropdownMenuItem asChild>
+            <Link
+              to="/projects/$projectId/agents/$agentId/events"
+              params={{ projectId, agentId: agent.id }}
+              search={{ config: true }}
+            >
+              <SettingsIcon />
+              Edit config
+            </Link>
+          </DropdownMenuItem>
+        )}
+        {onArchive && (
+          <>
+            {hasLinks && <DropdownMenuSeparator />}
+            <DropdownMenuItem variant="destructive" onSelect={onArchive}>
+              Archive
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ProfileMenuItem({
+  orgId,
+  projectId,
+  profileId,
+}: {
+  orgId: string
+  projectId: string
+  profileId: string
+}) {
+  const { data: profile } = useAgentProfileQuery(orgId, projectId, profileId)
+  return (
+    <DropdownMenuItem asChild>
+      <Link to="/projects/$projectId/agent-profiles/$profileId" params={{ projectId, profileId }}>
+        <AgentIcon icon={profileIcon(profileId)} className="size-4 rounded-[2px]" />
+        <span className="truncate">{profile?.name ?? 'Agent profile'}</span>
+      </Link>
+    </DropdownMenuItem>
   )
 }
 
@@ -199,7 +368,7 @@ function TargetCell({ agent }: { agent: Agent }) {
       href={target.provider_uri}
       target="_blank"
       rel="noreferrer"
-      className="text-muted-foreground hover:text-foreground hover:underline"
+      className="text-muted-foreground hover:text-foreground relative truncate hover:underline"
       onClick={(event) => {
         event.stopPropagation()
       }}

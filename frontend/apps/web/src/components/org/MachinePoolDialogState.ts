@@ -5,18 +5,13 @@ import {
   recordFromTextRows,
   type SecretRow,
   secretRowsFromRecord,
-  secretRowsValid,
   type TextRow,
   textRowsFromRecord,
-  textRowsValid,
 } from '@/components/key-value/keyValueRows'
 import {
   numberDraft,
   optionalInt,
   optionalIntOrNull,
-  optionalNonNegativeInt32Valid,
-  optionalPoolIdleDeletionMinutesValid,
-  optionalPositiveInt32Valid,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import {
@@ -26,7 +21,6 @@ import {
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
 import { providerOptionStrings } from '@/lib/provider-options'
-import { resourceNameValid } from '@/lib/resource-name'
 
 import {
   isMachinePoolProvider,
@@ -34,6 +28,12 @@ import {
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from './machinePoolProviders'
+import {
+  aggregateFitsInt32,
+  memoryAggregateFitsInt32,
+  nonNegativeInt32,
+  positiveInt32,
+} from './machinePoolValidation'
 
 export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions).map(
   ([value, definition]) => ({ value, label: definition.label }),
@@ -73,6 +73,11 @@ export interface MachinePoolFormValues {
 
 export type MachinePoolFormMode = 'create' | 'tenant-edit' | 'cluster-edit'
 
+export type MachinePoolFormSetValue = <K extends keyof MachinePoolFormValues>(
+  key: K,
+  value: MachinePoolFormValues[K],
+) => void
+
 export const machinePoolFormDefaults: MachinePoolFormValues = {
   name: '',
   description: '',
@@ -97,26 +102,6 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
-}
-
-const maxInt32 = 2_147_483_647
-
-function positiveInt32(value: string) {
-  return value.trim() !== '' && optionalPositiveInt32Valid(value)
-}
-
-function nonNegativeInt32(value: string) {
-  return value.trim() !== '' && optionalNonNegativeInt32Valid(value)
-}
-
-function aggregateFitsInt32(perMachine: string, maxMachines: string) {
-  const perMachineValue = Number(perMachine)
-  const maxMachinesValue = Number(maxMachines)
-  return perMachineValue <= Math.floor(maxInt32 / maxMachinesValue)
-}
-
-function memoryAggregateFitsInt32(perMachineGb: string, maxMachines: string) {
-  return memoryGbToMb(perMachineGb) <= Math.floor(maxInt32 / Number(maxMachines))
 }
 
 /** Placeholder for an aggregate cap input: machine size × max machines. */
@@ -166,50 +151,6 @@ export function machinePoolFormAfterProviderChange(
     maxMachineMemoryGb: '',
     secretId: '',
   }
-}
-
-export function machinePoolFormValid(
-  values: MachinePoolFormValues,
-  mode: MachinePoolFormMode = 'create',
-) {
-  const provider = machinePoolProviderDefinitions[values.provider]
-  const clusterEdit = mode === 'cluster-edit'
-  const maxMachinesValid = clusterEdit || nonNegativeInt32(values.maxMachines)
-  const cpuValid =
-    provider.resources.cpu === 'unsupported' ||
-    (positiveInt32(values.cpu) &&
-      (clusterEdit ||
-        (maxMachinesValid &&
-          (values.maxTotalCpu.trim() !== '' ||
-            aggregateFitsInt32(values.cpu, values.maxMachines)))))
-  const memoryValid =
-    provider.resources.memoryMb === 'unsupported' ||
-    (memoryGbDraftValid(values.memoryGb) &&
-      (clusterEdit ||
-        (maxMachinesValid &&
-          (values.maxTotalMemoryGb.trim() !== '' ||
-            memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
-  return (
-    (clusterEdit ||
-      (resourceNameValid(values.name) &&
-        (provider.resource.optional === true || values.image.trim() !== '') &&
-        (!provider.location?.required || values.location.trim() !== '') &&
-        (!provider.scope?.required || values.providerScope.trim() !== '') &&
-        values.secretId !== '')) &&
-    maxMachinesValid &&
-    cpuValid &&
-    memoryValid &&
-    textRowsValid(values.envRows) &&
-    secretRowsValid(values.secretEnvRows) &&
-    optionalPositiveInt32Valid(values.maxMachineCpu) &&
-    optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes) &&
-    memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
-    (clusterEdit || optionalNonNegativeInt32Valid(values.maxTotalCpu)) &&
-    optionalNonNegativeInt32Valid(values.minMachineCpu) &&
-    (clusterEdit ||
-      memoryGbDraftValid(values.maxTotalMemoryGb, { optional: true, allowZero: true })) &&
-    memoryGbDraftValid(values.minMachineMemoryGb, { optional: true, allowZero: true })
-  )
 }
 
 export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateMachinePoolRequest {

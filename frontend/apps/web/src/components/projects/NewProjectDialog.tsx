@@ -1,4 +1,5 @@
 import { useCreateProject } from '@omnara/react'
+import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,7 @@ export function NewProjectDialog({
   orgId: string
 }) {
   const createProject = useCreateProject(orgId)
+  const navigate = useNavigate()
   const [state, setState] = useState<NewProjectState>({ name: '', status: idle })
   const errorMessage = statusError(state.status)
 
@@ -39,9 +41,11 @@ export function NewProjectDialog({
     event.preventDefault()
     setState((prev) => ({ ...prev, status: idle }))
     try {
-      await createProject.mutateAsync({ name: state.name })
+      const project = await createProject.mutateAsync({ name: state.name })
       setState((prev) => ({ ...prev, name: '' }))
       onOpenChange(false)
+      // Opening the new project is the sign creating it worked, as creating an org does.
+      void navigate({ to: '/projects/$projectId', params: { projectId: project.id } })
     } catch (err) {
       const status = submitError(err, 'Could not create project')
       setState((prev) => ({

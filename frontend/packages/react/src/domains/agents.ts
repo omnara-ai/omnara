@@ -1,11 +1,22 @@
-import { ApiError, type GetAgentResponse, type ListAgentsData, sdk } from '@omnara/sdk'
+import {
+  type Agent,
+  ApiError,
+  type GetAgentResponse,
+  type ListAgentsData,
+  type ListOrgAgentsData,
+  sdk,
+} from '@omnara/sdk'
 import {
   getAgentConfigOptions,
   getAgentOptions,
   getAgentQueryKey,
   getOrgOverviewQueryKey,
+  listAgentProfilesQueryKey,
   listAgentsInfiniteOptions,
   listAgentsQueryKey,
+  listOrgAgentProfilesQueryKey,
+  listOrgAgentsInfiniteOptions,
+  listOrgAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
   keepPreviousData,
@@ -17,6 +28,7 @@ import {
 } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { activeAgentsRefetchInterval } from './agent-activity'
 import {
   type ListFilters,
   type ListSort,
@@ -29,6 +41,22 @@ import { useScopedMutation } from './scoped-mutation'
 export type AgentListFilters = ListFilters<ListAgentsData>
 export type AgentListSort = ListSort<ListAgentsData>
 export type AgentListOptions = PaginatedListOptions<ListAgentsData>
+
+/** Polls a list while any agent loaded so far is active. */
+const agentListRefetchInterval = activeAgentsRefetchInterval(
+  (data: { pages: { data: Agent[] }[] } | undefined) =>
+    data?.pages.flatMap((page) => page.data) ?? [],
+)
+
+/** Polls one agent while it is active. */
+function agentRefetchInterval(
+  refetchInterval?: (data: GetAgentResponse | undefined) => number | false,
+) {
+  return activeAgentsRefetchInterval(
+    (data: GetAgentResponse | undefined) => (data ? [data.agent] : []),
+    refetchInterval,
+  )
+}
 
 export function useAgents(orgID: string, projectID: string, options?: AgentListOptions) {
   const client = useOmnaraClient()
@@ -43,6 +71,26 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
+    refetchInterval: agentListRefetchInterval,
+  })
+}
+
+export type OrgAgentListOptions = PaginatedListOptions<ListOrgAgentsData>
+
+export function useOrgAgents(orgID: string, options?: OrgAgentListOptions) {
+  const client = useOmnaraClient()
+  const list = paginatedListOptions<ListOrgAgentsData>(options)
+  return useInfiniteQuery({
+    ...cursorPaginated(
+      listOrgAgentsInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
+    enabled: list.enabled,
+    placeholderData: keepPreviousData,
+    refetchInterval: agentListRefetchInterval,
   })
 }
 
@@ -53,11 +101,18 @@ export function useAgent(
   options?: { refetchInterval?: (data: GetAgentResponse | undefined) => number | false },
 ) {
   const client = useOmnaraClient()
-  const refetchInterval = options?.refetchInterval
   return useSuspenseQuery({
     ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
-    refetchInterval:
-      refetchInterval == null ? undefined : (query) => refetchInterval(query.state.data),
+    refetchInterval: agentRefetchInterval(options?.refetchInterval),
+  })
+}
+
+export function useAgentQuery(orgID: string, projectID: string, agentID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentOptions({ path: { orgID, projectID, agentID: agentID ?? '' }, client }),
+    enabled: agentID !== undefined,
+    refetchInterval: agentRefetchInterval(),
   })
 }
 
@@ -111,7 +166,17 @@ export function useCreateAgent(orgID: string, projectID: string) {
             queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
           }),
           queryClient.invalidateQueries({
+            queryKey: listOrgAgentsQueryKey({ path: { orgID }, client }),
+          }),
+          queryClient.invalidateQueries({
             queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+          }),
+          // Profile lists carry each profile's agent count.
+          queryClient.invalidateQueries({
+            queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
           }),
         ])
       },
@@ -138,7 +203,16 @@ export function useArchiveAgent(orgID: string, projectID: string) {
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
         }),
         queryClient.invalidateQueries({
+          queryKey: listOrgAgentsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
           queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
         }),
       ])
     },

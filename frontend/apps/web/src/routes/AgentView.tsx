@@ -1,4 +1,5 @@
 import {
+  isAgentActive,
   useAgent,
   useAgentChat,
   useAgentConfig,
@@ -8,13 +9,15 @@ import {
   useCurrentActorId,
   useMe,
 } from '@omnara/react'
-import { useMatchRoute, useNavigate, useParams } from '@tanstack/react-router'
+import { useMatchRoute, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { type ComponentProps, useRef, useState } from 'react'
 
+import { agentPaneWidth } from '@/components/agents/agent-pane'
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
 import { AgentEventLog } from '@/components/agents/AgentEventLog'
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import {
@@ -29,13 +32,14 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import { agentIcon, profileIcon } from '@/lib/agent-icon'
 import type { CssVariables } from '@/lib/css'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
 const agentDetailPollInterval = 5_000
-const agentSidebarStyle: CssVariables = { '--sidebar-width': '20rem' }
+const agentSidebarStyle: CssVariables = { '--sidebar-width': agentPaneWidth }
 
 type AgentViewMode = 'events' | 'chat'
 
@@ -75,7 +79,10 @@ export function AgentView() {
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
-  const [configOpen, setConfigOpen] = useState(hasPendingMcpBuilderOAuthOutcome)
+  const search = useSearch({ strict: false })
+  const [configOpen, setConfigOpen] = useState(
+    () => search.config === true || hasPendingMcpBuilderOAuthOutcome(),
+  )
   const configDirty = useRef(false)
   const canSendNow =
     canOperate &&
@@ -85,6 +92,17 @@ export function AgentView() {
   function closeConfig() {
     configDirty.current = false
     setConfigOpen(false)
+    if (search.config) {
+      void navigate({
+        to:
+          view === 'chat'
+            ? '/projects/$projectId/agents/$agentId/chat'
+            : '/projects/$projectId/agents/$agentId/events',
+        params: { projectId, agentId },
+        search: {},
+        replace: true,
+      })
+    }
   }
 
   function toggleConfig() {
@@ -121,18 +139,42 @@ export function AgentView() {
             <div className="flex min-w-0 items-center justify-between gap-2">
               <PageBreadcrumb
                 items={[
-                  { id: 'organization', label: activeOrg.name, to: '/' },
-                  ...(project ? [{ id: 'project', label: project.name }] : []),
                   {
                     id: 'agents',
                     label: 'Agents',
                     to: '/projects/$projectId/agents' as const,
                     params: { projectId },
                   },
-                  { id: 'agent', label: agent.name || 'Agent' },
+                  ...(profile
+                    ? [
+                        {
+                          id: 'profile',
+                          label: profile.name,
+                          to: '/projects/$projectId/agent-profiles/$profileId' as const,
+                          params: { projectId, profileId: profile.id },
+                          icon: (
+                            <AgentIcon
+                              icon={profileIcon(profile.id)}
+                              className="size-4 rounded-[2px]"
+                            />
+                          ),
+                        },
+                      ]
+                    : []),
+                  {
+                    id: 'agent',
+                    label: agent.name || 'Agent',
+                    icon: (
+                      <AgentIcon
+                        icon={agentIcon(agent.agent_profile_id, agent.id)}
+                        animated={isAgentActive(agent)}
+                        className="size-4 rounded-[2px]"
+                      />
+                    ),
+                  },
                 ]}
               />
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 <PillTabs
                   value={view}
                   tabs={viewTabs}

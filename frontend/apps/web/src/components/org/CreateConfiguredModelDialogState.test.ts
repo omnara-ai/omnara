@@ -1,138 +1,85 @@
-import type { ModelProviderConfig } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
-  configuredModelFormDefaults,
-  configuredModelFormValid,
+  configuredModelDraft,
+  configuredModelDraftError,
+  configuredModelDraftRequest,
   configuredModelSuggestedName,
   configuredModelTokenLimitsError,
-  discoveredModelPrefill,
-  providerChangeReset,
+  discoveredModelMatches,
 } from './CreateConfiguredModelDialogState'
 
-const discoveredModel = {
+const discovered = {
   slug: 'nvidia/nemotron-3.5-light',
+  display_name: 'NVIDIA Nemotron 3.5 Light',
   context_window_tokens: 262_144,
   max_output_tokens: 16_384,
 }
 
-describe('generated configured model names', () => {
-  it('uses the model slug when it is a valid name', () => {
-    expect(discoveredModelPrefill(configuredModelFormDefaults, discoveredModel)).toContainEqual([
-      'name',
-      discoveredModel.slug,
-    ])
+describe('configured model drafts', () => {
+  it('names a discovered model after its slug and keeps its reported limits', () => {
+    const draft = configuredModelDraft(discovered)
+    expect(draft).toEqual({
+      id: draft.id,
+      slug: discovered.slug,
+      name: discovered.slug,
+      contextWindowTokens: '262144',
+      maxOutputTokens: '16384',
+    })
+    expect(configuredModelDraftError(draft)).toBe('')
+    expect(configuredModelDraftRequest(draft)).toEqual({
+      name: discovered.slug,
+      provider_model_slug: discovered.slug,
+      context_window_tokens: 262_144,
+      max_output_tokens: 16_384,
+      supports_tools: true,
+      supports_reasoning: false,
+    })
   })
 
-  it('recognizes shortened suggestions and refreshes them with a new model', () => {
-    const firstSlug = `first-model-${'a'.repeat(50)}`
-    const secondSlug = `second-model-${'b'.repeat(49)}`
-    const values = {
-      ...configuredModelFormDefaults,
-      name: configuredModelSuggestedName(firstSlug),
-      providerModelSlug: firstSlug,
-    }
-
-    const updates = discoveredModelPrefill(values, { slug: secondSlug })
-    expect(updates).toContainEqual(['name', configuredModelSuggestedName(secondSlug)])
-    expect(providerChangeReset(values)).toContainEqual(['name', ''])
+  it('gives each draft its own id, so a slug can be picked twice', () => {
+    expect(configuredModelDraft(discovered).id).not.toBe(configuredModelDraft(discovered).id)
   })
 
-  it('preserves custom and whitespace-only input', () => {
-    const generatedValues = {
-      ...configuredModelFormDefaults,
-      name: configuredModelSuggestedName('old-model'),
-      providerModelSlug: 'old-model',
-    }
-    const customValues = { ...generatedValues, name: 'My model' }
-    const whitespaceValues = { ...generatedValues, name: '   ' }
+  it('shortens names for slugs too long to be resource names', () => {
+    const slug = `vendor/${'a'.repeat(80)}`
+    const draft = configuredModelDraft({ slug })
+    expect(draft.name).toBe(configuredModelSuggestedName(slug))
+    expect(draft.name.length).toBeLessThanOrEqual(64)
+  })
 
-    expect(discoveredModelPrefill(customValues, discoveredModel)).not.toContainEqual([
-      'name',
-      configuredModelSuggestedName(discoveredModel.slug),
-    ])
-    expect(discoveredModelPrefill(whitespaceValues, discoveredModel)).not.toContainEqual([
-      'name',
-      configuredModelSuggestedName(discoveredModel.slug),
-    ])
-    expect(providerChangeReset(customValues)).not.toContainEqual(['name', ''])
+  it('numbers the suggested name past names already taken and rejects a taken name', () => {
+    const taken = new Set([discovered.slug, `${discovered.slug}-2`])
+    const draft = configuredModelDraft(discovered, taken)
+    expect(draft.name).toBe(`${discovered.slug}-3`)
+    expect(configuredModelDraftError(draft, taken)).toBe('')
+    expect(configuredModelDraftError({ ...draft, name: discovered.slug }, taken)).toContain(
+      'already uses this name',
+    )
+  })
+
+  it('requires a context window for models without reported limits', () => {
+    const draft = configuredModelDraft({ slug: 'custom-model' })
+    expect(configuredModelDraftError(draft)).toContain('Enter the context window')
+    const completed = { ...draft, contextWindowTokens: '100000' }
+    expect(configuredModelDraftError(completed)).toBe('')
+    expect(configuredModelDraftRequest(completed)).not.toHaveProperty('max_output_tokens')
+  })
+
+  it('rejects an empty name and out-of-range token limits', () => {
+    const draft = configuredModelDraft(discovered)
+    expect(configuredModelDraftError({ ...draft, name: '' })).not.toBe('')
+    expect(configuredModelDraftError({ ...draft, maxOutputTokens: '262144' })).toContain(
+      'Max output must be',
+    )
+    expect(configuredModelDraftError({ ...draft, contextWindowTokens: '1' })).toContain(
+      'Context window must be',
+    )
   })
 })
 
 describe('configured model token limits', () => {
-  const provider: ModelProviderConfig = {
-    id: 'provider',
-    org_id: 'org',
-    management_kind: 'tenant',
-    name: 'custom',
-    api_format: 'openai-chat-completions',
-    api_variant: 'default',
-    base_url: 'https://api.example.com',
-    endpoint_path: '/messages',
-    request_timeout_ms: 120000,
-    idle_timeout_ms: 300000,
-    auth_kind: 'bearer_token',
-    auth_options: {},
-    credential_secret_id: 'secret',
-    headers: {},
-    secret_headers: {},
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  }
-  const values = {
-    ...configuredModelFormDefaults,
-    name: 'custom',
-    providerModelSlug: 'custom',
-    contextWindowTokens: '100000',
-  }
-
-  it.each(['anthropic-messages', 'openai-chat-completions', 'openai-responses'] as const)(
-    'accepts unknown capacity for %s',
-    (apiFormat) => {
-      const selectedProvider = { ...provider, api_format: apiFormat }
-      expect(configuredModelFormValid(values, selectedProvider)).toBe(true)
-      expect(
-        configuredModelFormValid({ ...values, defaultMaxOutputTokens: '1000' }, selectedProvider),
-      ).toBe(true)
-      expect(
-        configuredModelFormValid({ ...values, maxOutputTokens: '64000' }, selectedProvider),
-      ).toBe(true)
-    },
-  )
-
-  it.each(['', '1000', '20000'])(
-    'preserves explicit default %s on discovery selection',
-    (allowance) => {
-      const before = { ...values, defaultMaxOutputTokens: allowance }
-      const updates = discoveredModelPrefill(before, discoveredModel)
-      expect(updates.filter(([field]) => field === 'defaultMaxOutputTokens')).toEqual([])
-      const selected = { ...before, ...Object.fromEntries(updates) }
-      expect(configuredModelFormValid(selected, provider)).toBe(allowance !== '20000')
-      if (allowance === '20000') {
-        expect(configuredModelTokenLimitsError(selected)).toContain('Default output must be')
-      }
-    },
-  )
-
-  it('accepts an unknown capacity and a separately chosen request allowance', () => {
-    expect(configuredModelFormValid(values, provider)).toBe(true)
-    expect(configuredModelFormValid({ ...values, defaultMaxOutputTokens: '64000' }, provider)).toBe(
-      true,
-    )
-    expect(discoveredModelPrefill(values, { slug: 'custom' })).toContainEqual([
-      'maxOutputTokens',
-      '',
-    ])
-  })
-
-  it.each(['0', '-1', '1.5', '100000', '100001'])(
-    'rejects invalid request allowance %s even without a capacity',
-    (allowance) => {
-      expect(
-        configuredModelFormValid({ ...values, defaultMaxOutputTokens: allowance }, provider),
-      ).toBe(false)
-    },
-  )
+  const values = { contextWindowTokens: '100000', maxOutputTokens: '', defaultMaxOutputTokens: '' }
 
   it.each(['0', '-1', '1.5', '100000', '100001'])('rejects invalid capacity %s', (capacity) => {
     expect(configuredModelTokenLimitsError({ ...values, maxOutputTokens: capacity })).toContain(
@@ -140,19 +87,31 @@ describe('configured model token limits', () => {
     )
   })
 
-  it('bounds explicit allowance by a known capacity and reserves input space', () => {
+  it.each(['0', '-1', '1.5', '100000', '100001'])(
+    'rejects invalid request allowance %s',
+    (allowance) => {
+      expect(
+        configuredModelTokenLimitsError({ ...values, defaultMaxOutputTokens: allowance }),
+      ).toContain('Default output must be')
+    },
+  )
+
+  it('rejects a default allowance above max output', () => {
     expect(
-      configuredModelFormValid(
-        { ...values, maxOutputTokens: '64000', defaultMaxOutputTokens: '64000' },
-        provider,
-      ),
-    ).toBe(true)
-    expect(
-      configuredModelFormValid(
-        { ...values, maxOutputTokens: '64000', defaultMaxOutputTokens: '64001' },
-        provider,
-      ),
-    ).toBe(false)
-    expect(configuredModelFormValid({ ...values, contextWindowTokens: '1' }, provider)).toBe(false)
+      configuredModelTokenLimitsError({
+        ...values,
+        maxOutputTokens: '1000',
+        defaultMaxOutputTokens: '2000',
+      }),
+    ).toContain('Default output must be')
+  })
+})
+
+describe('discoveredModelMatches', () => {
+  it('matches slugs and display names case-insensitively', () => {
+    expect(discoveredModelMatches(discovered, 'NEMOTRON')).toBe(true)
+    expect(discoveredModelMatches(discovered, 'light')).toBe(true)
+    expect(discoveredModelMatches(discovered, 'qwen')).toBe(false)
+    expect(discoveredModelMatches(discovered, '  ')).toBe(true)
   })
 })

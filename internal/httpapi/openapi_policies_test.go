@@ -172,3 +172,41 @@ func TestModelPricingLookupsRequireOnlyOrganizationRead(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectGrantReadsRequireOnlyProjectRead(t *testing.T) {
+	// Project developers build agent configs from the project's shared models
+	// and pools, so listing grants must not require access management.
+	for _, operation := range []operationID{
+		operationListProjectModelGrants,
+		operationListProjectMachineGrants,
+		operationListProjectMachinePoolGrants,
+		operationGetProjectMachinePoolGrant,
+	} {
+		policy := openAPIOperationPolicies[operation]
+		if policy.principal != principalKindAccount {
+			t.Fatalf("%s principal = %v, want account", operation, policy.principal)
+		}
+		if policy.scope.kind != scopeKindProject || policy.scope.action != identitystore.ProjectActionRead {
+			t.Fatalf("%s scope = %+v, want project read", operation, policy.scope)
+		}
+	}
+}
+
+func TestProjectGrantMutationsRequireProjectAccessManage(t *testing.T) {
+	for _, operation := range []operationID{
+		operationCreateProjectModelGrant,
+		operationUpdateProjectModelGrant,
+		operationDeleteProjectModelGrant,
+		operationCreateProjectMachinePoolGrant,
+		operationUpdateProjectMachinePoolGrant,
+		operationDeleteProjectMachinePoolGrant,
+	} {
+		policy := openAPIOperationPolicies[operation]
+		if policy.principal != principalKindAccount {
+			t.Fatalf("%s principal = %v, want account", operation, policy.principal)
+		}
+		if policy.scope.kind != scopeKindProject || policy.scope.action != identitystore.ProjectActionAccessManage {
+			t.Fatalf("%s scope = %+v, want project access manage", operation, policy.scope)
+		}
+	}
+}
