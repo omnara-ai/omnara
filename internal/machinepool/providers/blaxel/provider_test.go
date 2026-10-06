@@ -98,7 +98,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	if result.SandboxURL == "" {
 		t.Fatal("sleeping blaxel machine omitted sandbox url")
 	}
-	if provider.ProvisioningTimeout() != 15*time.Second {
+	if provider.ProvisioningTimeout() != time.Minute {
 		t.Fatalf("provisioning timeout = %s", provider.ProvisioningTimeout())
 	}
 	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
@@ -432,6 +432,85 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 	}
 }
 
+func TestBlaxelProviderProvisionWaitsForDeployingSandbox(t *testing.T) {
+	savedPollInterval := sandboxDeploymentPollInterval
+	sandboxDeploymentPollInterval = time.Millisecond
+	t.Cleanup(func() { sandboxDeploymentPollInterval = savedPollInterval })
+	machineID := uuid.New()
+	sandboxName, err := providers.MachineAllocationName(testInstallationID(), machineID)
+	if err != nil {
+		t.Fatalf("blaxel sandbox name: %v", err)
+	}
+	for _, test := range []struct {
+		name           string
+		nextStatuses   []sandboxDeploymentStatus
+		timeout        time.Duration
+		wantErr        error
+		wantResourceID string
+		wantDeleted    []string
+		wantProcesses  int
+	}{
+		{
+			name:           "deployed",
+			nextStatuses:   []sandboxDeploymentStatus{"DEPLOYING", "DEPLOYED"},
+			wantResourceID: sandboxName,
+			wantProcesses:  1,
+		},
+		{
+			name:         "failed",
+			nextStatuses: []sandboxDeploymentStatus{"FAILED"},
+			wantErr:      providers.ErrResourceReplaced,
+			wantDeleted:  []string{sandboxName},
+		},
+		{
+			name:           "timeout",
+			timeout:        10 * time.Millisecond,
+			wantErr:        context.DeadlineExceeded,
+			wantResourceID: sandboxName,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			api := newFakeAPI()
+			api.nextStatuses = test.nextStatuses
+			api.sandboxesByName[sandboxName] = sandbox{
+				Metadata: resourceMetadata{
+					Name: sandboxName, URL: "https://sbx-deploying.test.bl.run",
+					Labels: mustSandboxOwnershipLabels(t, testInstallationID(), machineID),
+				},
+				Status: "DEPLOYING",
+			}
+			ctx := context.Background()
+			if test.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, test.timeout)
+				defer cancel()
+			}
+
+			result, err := newTestProvider(api).ProvisionMachine(
+				ctx,
+				testInstallationID(),
+				machineID,
+				testMachineProvisioning(t, nil),
+				"machine-token",
+				nil,
+				true,
+			)
+			if !errors.Is(err, test.wantErr) || result.ProviderResourceID != test.wantResourceID ||
+				len(api.nextStatuses) != 0 || !slices.Equal(api.deletedNames, test.wantDeleted) ||
+				len(api.processRequests) != test.wantProcesses {
+				t.Fatalf(
+					"provision error = %v resource = %q unread statuses = %v deleted = %v process requests = %d",
+					err,
+					result.ProviderResourceID,
+					api.nextStatuses,
+					api.deletedNames,
+					len(api.processRequests),
+				)
+			}
+		})
+	}
+}
+
 func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -440,7 +519,6 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 		{name: "uploading", status: "UPLOADING"},
 		{name: "building", status: "BUILDING"},
 		{name: "built", status: "BUILT"},
-		{name: "deploying", status: "DEPLOYING"},
 		{name: "deleting", status: "DELETING"},
 		{name: "deactivating", status: "DEACTIVATING"},
 		{name: "empty", status: ""},
@@ -685,6 +763,7 @@ type fakeAPI struct {
 	createRequests   []createSandboxRequest
 	processRequests  []processRequest
 	wakeTarget       sandbox
+	nextStatuses     []sandboxDeploymentStatus
 	deletedNames     []string
 	createErr        error
 	startProcessErr  error
@@ -738,6 +817,10 @@ func (f *fakeAPI) GetSandbox(
 	name string,
 ) (sandbox, bool, error) {
 	target, found := f.sandboxesByName[name]
+	if found && len(f.nextStatuses) > 0 {
+		target.Status, f.nextStatuses = f.nextStatuses[0], f.nextStatuses[1:]
+		f.sandboxesByName[name] = target
+	}
 	return target, found, nil
 }
 
