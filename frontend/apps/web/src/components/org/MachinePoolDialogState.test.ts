@@ -119,6 +119,44 @@ describe('Tenki machine pools', () => {
   })
 })
 
+describe('boxd machine pools', () => {
+  it('creates a base-image pool limited to the default boxd size', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'boxd'),
+      name: 'boxd-pool',
+      secretId: 'sec_boxd',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'boxd',
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 8192,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request).not.toHaveProperty('default_machine_memory_mb')
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a snapshot while preserving the sleep window when editing', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { snapshot: 'agent-box', sleep_after_ms: 300000 },
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected boxd pool form')
+    expect(values).toMatchObject({ image: 'agent-box', cpu: '4', memoryGb: '16' })
+    const request = machinePoolUpdateRequest(pool, { ...values, image: '' })
+    expect(request.default_machine_provider_options).toEqual({ sleep_after_ms: 300000 })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 16384 })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',

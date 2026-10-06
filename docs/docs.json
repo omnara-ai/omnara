@@ -136,6 +136,7 @@
                   "machines/providers/overview",
                   "machines/providers/arker",
                   "machines/providers/blaxel",
+                  "machines/providers/boxd",
                   "machines/providers/daytona",
                   "machines/providers/freestyle",
                   "machines/providers/modal",

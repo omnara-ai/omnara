@@ -50,8 +50,8 @@ var Tools = []Tool{
 		Title:       "Create machine pool",
 		OperationID: "createMachinePool",
 		Description: "Creates a machine pool in the organization. The body carries the pool name, the provider " +
-			"(unikraft, modal, daytona, blaxel, freestyle, tenki, or arker), the provider auth secret, default machine settings, and " +
-			"the per-machine and total CPU, memory, and machine-count limits the provider supports; the " +
+			"(unikraft, modal, daytona, blaxel, freestyle, tenki, arker, or boxd), the provider auth secret, default " +
+			"machine settings, and the per-machine and total CPU, memory, and machine-count limits the provider supports; the " +
 			"required fields depend on the provider. See the createMachinePool operation in the Omnara API " +
 			"reference at https://docs.omnara.com/api-reference for the full request schema.",
 	},

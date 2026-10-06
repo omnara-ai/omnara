@@ -270,9 +270,10 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'daytona':
+    case 'boxd':
       return {
         ...common,
-        provider: 'daytona',
+        provider: values.provider,
         default_machine_provider_options: {
           ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
@@ -425,6 +426,7 @@ export function machinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
+    case 'boxd':
       return {
         ...common,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -495,6 +497,7 @@ function clusterMachinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
+    case 'boxd':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),

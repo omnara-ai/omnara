@@ -216,6 +216,25 @@ const arker: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
+const boxd: MachinePoolProviderDefinition = {
+  label: 'boxd',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot',
+    placeholder: 'boxd base image',
+    optional: true,
+    description:
+      "Leave empty to use the boxd base image, or enter a saved snapshot's name. Machines take the snapshot's size, or your boxd org's default size without one.",
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '8',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -224,6 +243,7 @@ export const machinePoolProviderDefinitions = {
   freestyle,
   tenki,
   arker,
+  boxd,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
