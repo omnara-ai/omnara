@@ -1,13 +1,9 @@
 import { useOrgUsage } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  defaultUsageDays,
-  defaultUsageRange,
-  isDefaultUsageRange,
-} from '@/components/usage/usage-date-range'
+import { defaultUsageDays, isDefaultUsageRange } from '@/components/usage/usage-date-range'
+import { updateUsageViewState, useUsageViewState } from '@/components/usage/usage-view-state'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
@@ -15,7 +11,8 @@ import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrganizationUsagePage() {
   const { activeOrg } = useActiveOrg()
-  const [range, setRange] = useState(defaultUsageRange)
+  const view = useUsageViewState()
+  const range = view.range
   const query = useOrgUsage(activeOrg.id, range.window)
   const filtered = !isDefaultUsageRange(range)
 
@@ -24,7 +21,12 @@ export function OrganizationUsagePage() {
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="type-title">Usage</h1>
-          <UsageDateRangeMenu value={range} onChange={setRange} />
+          <UsageDateRangeMenu
+            value={range}
+            onChange={(next) => {
+              updateUsageViewState({ range: next })
+            }}
+          />
         </div>
         <UsageReportView
           query={query}
@@ -32,6 +34,8 @@ export function OrganizationUsagePage() {
             <UsageTimeseriesPanel
               orgId={activeOrg.id}
               filters={{ ...range.window, interval: range.interval }}
+              selection={view}
+              onSelectionChange={updateUsageViewState}
             />
           }
           emptyMessage={

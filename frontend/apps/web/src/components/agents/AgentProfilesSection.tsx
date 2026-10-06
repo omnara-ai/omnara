@@ -39,6 +39,7 @@ import { agentStatusLabel } from '@/lib/agent-status'
 import { formatCount, formatTimeAgo } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { canManageOrg } from '@/lib/permissions'
+import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -301,6 +302,24 @@ function ProfileCard({
     open: expanded,
     content: instances.isPending ? (
       <p className="text-muted-foreground border-t px-4 py-3 text-xs">Loading…</p>
+    ) : instances.isError ? (
+      <div className="flex items-center justify-between gap-3 border-t px-4 py-2">
+        <p className="text-destructive text-xs" role="alert">
+          {errorMessage(instances.error, 'Could not load recent instances.')}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2"
+          loading={instances.isFetching}
+          onClick={() => {
+            void instances.refetch()
+          }}
+        >
+          Retry
+        </Button>
+      </div>
     ) : (
       <RecentAgentList
         projectId={projectId}
@@ -367,7 +386,9 @@ function ProfileCard({
               }}
               onToggle={() => {
                 setWantsRecent(true)
-                setExpanded((open) => !open)
+                // Reopening after a failed load tries again.
+                if (!expanded && instances.isError) void instances.refetch()
+                setExpanded(!expanded)
               }}
             />
           ) : (

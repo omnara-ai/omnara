@@ -22,6 +22,11 @@ export type UsageTimeseriesScope = Omit<
   'timezone' | 'metric' | 'groupBy' | 'groupLimit'
 >
 
+export interface UsageChartSelection {
+  measure: UsageMeasure
+  breakdown: UsageBreakdown
+}
+
 const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const breakdowns: { value: UsageBreakdown; label: string }[] = [
@@ -40,15 +45,27 @@ export function UsageTimeseriesPanel({
   filters,
   summary,
   showControls = true,
+  selection,
+  onSelectionChange,
 }: {
   orgId: string
   filters: UsageTimeseriesScope
   summary?: (timeseries: UsageTimeseries) => ReactNode
   /** Measure and breakdown toggles; without them the chart shows tokens by model. */
   showControls?: boolean
+  /** Controls the measure and breakdown from outside, so they outlive this panel. */
+  selection?: UsageChartSelection
+  onSelectionChange?: (patch: Partial<UsageChartSelection>) => void
 }) {
-  const [breakdown, setBreakdown] = useState<UsageBreakdown>('model')
-  const [measure, setMeasure] = useState<UsageMeasure>('tokens')
+  const [localSelection, setLocalSelection] = useState<UsageChartSelection>({
+    measure: 'tokens',
+    breakdown: 'model',
+  })
+  const { measure, breakdown } = selection ?? localSelection
+  function select(patch: Partial<UsageChartSelection>) {
+    if (onSelectionChange) onSelectionChange(patch)
+    else setLocalSelection((current) => ({ ...current, ...patch }))
+  }
   const query = useUsageTimeseries(orgId, {
     ...filters,
     timezone: browserTimezone,
@@ -86,13 +103,17 @@ export function UsageTimeseriesPanel({
               label="Usage measure"
               value={measure}
               options={measures}
-              onChange={setMeasure}
+              onChange={(next) => {
+                select({ measure: next })
+              }}
             />
             <UsageToggle
               label="Break usage down by"
               value={breakdown}
               options={breakdowns}
-              onChange={setBreakdown}
+              onChange={(next) => {
+                select({ breakdown: next })
+              }}
             />
           </div>
         )}

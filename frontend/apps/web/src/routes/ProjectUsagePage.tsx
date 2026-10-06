@@ -1,14 +1,10 @@
 import { useProjectUsage } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
-import {
-  defaultUsageDays,
-  defaultUsageRange,
-  isDefaultUsageRange,
-} from '@/components/usage/usage-date-range'
+import { defaultUsageDays, isDefaultUsageRange } from '@/components/usage/usage-date-range'
+import { updateUsageViewState, useUsageViewState } from '@/components/usage/usage-view-state'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
@@ -16,20 +12,29 @@ import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
 export function ProjectUsagePage() {
   return (
     <ProjectPageFrame>
-      {({ activeOrg, projectId }) => <ProjectUsage orgId={activeOrg.id} projectId={projectId} />}
+      {({ activeOrg, projectId }) => (
+        // Keyed so a project switch shows a loading state, not the last project's usage.
+        <ProjectUsage key={projectId} orgId={activeOrg.id} projectId={projectId} />
+      )}
     </ProjectPageFrame>
   )
 }
 
 function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }) {
-  const [range, setRange] = useState(defaultUsageRange)
+  const view = useUsageViewState()
+  const range = view.range
   const query = useProjectUsage(orgId, projectId, range.window)
   const filtered = !isDefaultUsageRange(range)
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="type-title">Usage</h1>
-        <UsageDateRangeMenu value={range} onChange={setRange} />
+        <UsageDateRangeMenu
+          value={range}
+          onChange={(next) => {
+            updateUsageViewState({ range: next })
+          }}
+        />
       </div>
       <UsageReportView
         query={query}
@@ -41,6 +46,8 @@ function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }
               interval: range.interval,
               projectIDs: [projectId],
             }}
+            selection={view}
+            onSelectionChange={updateUsageViewState}
           />
         }
         emptyMessage={
