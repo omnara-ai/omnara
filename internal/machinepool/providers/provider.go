@@ -16,6 +16,7 @@ import (
 const (
 	Arker     = "arker"
 	Blaxel    = "blaxel"
+	Boxd      = "boxd"
 	Daytona   = "daytona"
 	Freestyle = "freestyle"
 	Modal     = "modal"

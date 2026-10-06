@@ -13228,7 +13228,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona]
+                  enum: [daytona, boxd]
                 max_total_cpu:
                   type: integer
                   format: int32

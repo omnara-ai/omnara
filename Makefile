@@ -528,12 +528,13 @@ test-live-sandbox-providers:
 	$(GO) test -count=1 -v \
 		./internal/machinepool/providers/arker \
 		./internal/machinepool/providers/blaxel \
+		./internal/machinepool/providers/boxd \
 		./internal/machinepool/providers/daytona \
 		./internal/machinepool/providers/freestyle \
 		./internal/machinepool/providers/modal \
 		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Arker|Blaxel|Daytona|Freestyle|Modal|Tenki|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Arker|Blaxel|Boxd|Daytona|Freestyle|Modal|Tenki|Unikraft)ProviderLiveSmoke$$'
 
 test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 

@@ -14,6 +14,7 @@ img[src*="/logo/providers/"] {
 
 img[src*="/logo/providers/arker."] { --provider-logo: url("/logo/providers/arker.svg"); }
 img[src*="/logo/providers/blaxel."] { --provider-logo: url("/logo/providers/blaxel.svg"); }
+img[src*="/logo/providers/boxd."] { --provider-logo: url("/logo/providers/boxd.svg"); }
 img[src*="/logo/providers/daytona."] { --provider-logo: url("/logo/providers/daytona.svg"); }
 img[src*="/logo/providers/freestyle."] { --provider-logo: url("/logo/providers/freestyle.svg"); }
 img[src*="/logo/providers/modal."] { --provider-logo: url("/logo/providers/modal.svg"); }
