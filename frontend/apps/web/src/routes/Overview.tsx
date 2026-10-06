@@ -18,62 +18,78 @@ import { cn } from '@/lib/utils'
 export function Overview() {
   const { activeOrg } = useActiveOrg()
   const overviewQuery = useOrgOverview(activeOrg.id)
-  const overview = overviewQuery.data
-
-  const manageableProject = overview && onboardingProject(overview)
-  const needsOnboarding =
-    overview != null && manageableProject != null && overview.recent_agents.length === 0
-
-  // Keyed by org and project so a profile seen during one org's onboarding doesn't keep
-  // onboarding up after switching to another org.
-  const onboardingKey = manageableProject && `${activeOrg.id}:${manageableProject.id}`
-  const [profileSeenKey, setProfileSeenKey] = useState<string>()
-  const profileSeen = onboardingKey !== undefined && profileSeenKey === onboardingKey
-  if (needsOnboarding && !profileSeen && overview.recent_agent_profiles.length > 0) {
-    setProfileSeenKey(onboardingKey)
-  }
-  const showOnboarding =
-    overview != null && manageableProject != null && (needsOnboarding || profileSeen)
+  const onboarding = useOverviewOnboarding(activeOrg.id, overviewQuery.data)
 
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
-      ) : showOnboarding ? (
+      ) : onboarding ? (
         <div className="flex min-h-0 flex-1 justify-center pb-8 sm:pb-16">
-          <AgentOnboarding key={onboardingKey} orgId={activeOrg.id} project={manageableProject} />
+          <AgentOnboarding key={onboarding.key} orgId={activeOrg.id} project={onboarding.project} />
         </div>
-      ) : overview ? (
-        <>
-          <OverviewSummary overview={overview} />
-          <UsageOverview
-            orgId={activeOrg.id}
-            reportLink={
-              canManageOrg(activeOrg.role) && (
-                <Link to="/usage" className={cn(panelHintClass, 'inline-flex hover:underline')}>
-                  Usage report
-                  <ArrowRight className="size-3.5" aria-hidden="true" />
-                </Link>
-              )
-            }
-          />
-        </>
+      ) : overviewQuery.data ? (
+        <OverviewContent orgId={activeOrg.id} overview={overviewQuery.data} />
       ) : (
-        <div className="flex flex-col items-start gap-3">
-          <p className="text-destructive text-sm" role="alert">
-            {errorMessage(overviewQuery.error, 'Could not load the overview.')}
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void overviewQuery.refetch()
-            }}
-          >
-            Retry
-          </Button>
-        </div>
+        <OverviewError
+          error={overviewQuery.error}
+          onRetry={() => {
+            void overviewQuery.refetch()
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+/**
+ * The project to onboard in, while the org has no agents yet. Once a profile shows up
+ * during onboarding it stays up, so creating the profile doesn't close it before launch.
+ */
+function useOverviewOnboarding(orgId: string, overview: OrgOverviewResponse | undefined) {
+  const project = overview && onboardingProject(overview)
+  const needsOnboarding = project != null && overview?.recent_agents.length === 0
+
+  // Keyed by org and project so a profile seen during one org's onboarding doesn't keep
+  // onboarding up after switching to another org.
+  const key = project && `${orgId}:${project.id}`
+  const [profileSeenKey, setProfileSeenKey] = useState<string>()
+  const profileSeen = key !== undefined && profileSeenKey === key
+  if (needsOnboarding && !profileSeen && overview.recent_agent_profiles.length > 0) {
+    setProfileSeenKey(key)
+  }
+  return project && (needsOnboarding || profileSeen) ? { project, key } : undefined
+}
+
+function OverviewContent({ orgId, overview }: { orgId: string; overview: OrgOverviewResponse }) {
+  const { activeOrg } = useActiveOrg()
+  return (
+    <>
+      <OverviewSummary overview={overview} />
+      <UsageOverview
+        orgId={orgId}
+        reportLink={
+          canManageOrg(activeOrg.role) && (
+            <Link to="/usage" className={cn(panelHintClass, 'inline-flex hover:underline')}>
+              Usage report
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          )
+        }
+      />
+    </>
+  )
+}
+
+function OverviewError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <p className="text-destructive text-sm" role="alert">
+        {errorMessage(error, 'Could not load the overview.')}
+      </p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        Retry
+      </Button>
     </div>
   )
 }

@@ -17,7 +17,12 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
-import { currentSection, organizationPaths, projectPaths } from './scoped-sections'
+import {
+  currentSection,
+  hasOrganizationPath,
+  organizationPaths,
+  projectPaths,
+} from './scoped-sections'
 
 export function ProjectSwitcher() {
   const { activeOrg } = useActiveOrg()
@@ -50,7 +55,7 @@ export function ProjectSwitcher() {
             className="gap-2"
             onClick={() => {
               void navigate({
-                to: section ? organizationPaths[section] : '/',
+                to: section && hasOrganizationPath(section) ? organizationPaths[section] : '/',
                 search: section === 'agents' && tab ? { tab } : {},
               })
             }}

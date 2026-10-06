@@ -1,4 +1,12 @@
-const scopedSections = ['agents', 'usage', 'models', 'machines', 'secrets', 'skills'] as const
+const scopedSections = [
+  'agents',
+  'usage',
+  'models',
+  'machines',
+  'secrets',
+  'skills',
+  'memory',
+] as const
 type ScopedSection = (typeof scopedSections)[number]
 
 export const projectPaths = {
@@ -8,6 +16,7 @@ export const projectPaths = {
   machines: '/projects/$projectId/machines',
   secrets: '/projects/$projectId/secrets',
   skills: '/projects/$projectId/skills',
+  memory: '/projects/$projectId/memory',
 } as const satisfies Record<ScopedSection, string>
 
 export const organizationPaths = {
@@ -17,7 +26,14 @@ export const organizationPaths = {
   machines: '/machines',
   secrets: '/secrets',
   skills: '/skills',
-} as const satisfies Record<ScopedSection, string>
+} as const satisfies Partial<Record<ScopedSection, string>>
+
+/** Whether the section also has an all-projects page; memory is project-only. */
+export function hasOrganizationPath(
+  section: ScopedSection,
+): section is keyof typeof organizationPaths {
+  return section in organizationPaths
+}
 
 /** The section a path belongs to, so switching scope can stay in the same section. */
 export function currentSection(pathname: string): ScopedSection | undefined {

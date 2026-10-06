@@ -13,6 +13,11 @@ describe('currentSection', () => {
     expect(currentSection('/projects/proj_x/agent-profiles/aprf_y')).toBe('agents')
   })
 
+  it('keeps memory pages in the Memory section', () => {
+    expect(currentSection('/projects/proj_x/memory')).toBe('memory')
+    expect(currentSection('/projects/proj_x/memory/mem_y')).toBe('memory')
+  })
+
   it('has no section for overviews', () => {
     expect(currentSection('/')).toBeUndefined()
     expect(currentSection('/projects/proj_x')).toBeUndefined()

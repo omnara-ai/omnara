@@ -34,11 +34,11 @@ import {
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
+import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { profileIcon } from '@/lib/agent-icon'
 import { formatCount } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
-import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
 type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
@@ -75,11 +75,12 @@ export function AgentProfileView() {
 
 function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId: string }) {
   const { activeOrg } = useActiveOrg()
-  const { project } = useProjectPage()
-  // Show actions while the project list is still loading (or failed) rather than
-  // waiting on it; the API still enforces access, and they hide once access says no.
-  const canOperate = project?.access.can_operate ?? true
-  const canManage = project?.access.can_manage ?? true
+  const { loaded, isLoaded } = useProjectDirectory(activeOrg.id)
+  const project = loaded.get(projectId)
+  // Show actions while the project list is still loading (or failed) rather than waiting
+  // on it; once every project has loaded, a project missing from it means no access.
+  const canOperate = project?.access.can_operate ?? !isLoaded
+  const canManage = project?.access.can_manage ?? !isLoaded
 
   const navigate = useNavigate()
   const pathname = useLocation({ select: (location) => location.pathname })
