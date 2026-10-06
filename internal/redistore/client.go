@@ -22,6 +22,9 @@ func Connect(rawURL string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse redis url: %w", err)
 	}
+	// Operation deadlines must also bound network I/O, including detached
+	// presence cleanup during shutdown. go-redis otherwise drops that deadline.
+	opts.ContextTimeoutEnabled = true
 	client := redis.NewClient(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()

@@ -82,13 +82,33 @@ func (s *Server) socketMachineDaemonRuntime(
 	runtimeID uuid.UUID,
 ) {
 	orgID, machineID, tokenID := scope.OrgID, scope.MachineID, scope.DaemonTokenID
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	ctx, finish, ok := s.daemonHub.beginHandler(r.Context())
+	if !ok {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
+		return
+	}
+	defer finish()
+	conn, err := acceptDaemonSocket(ctx, w, r)
 	if err != nil {
 		return
 	}
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(ctx, func() {
+		_ = conn.CloseNow()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+		_ = conn.CloseNow()
+	}()
 	conn.SetReadLimit(daemonSocketReadLimitBytes)
 	connectionID := uuid.New()
-	if err := s.putDaemonRuntimePresence(r, orgID, machineID, runtimeID, tokenID, connectionID); err != nil {
+	defer s.cleanupDaemonRuntimePresence(ctx, machineID, runtimeID, connectionID)
+	setupCtx, setupCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer setupCancel()
+	if err := s.putDaemonRuntimePresence(setupCtx, orgID, machineID, runtimeID, tokenID, connectionID); err != nil {
 		if errors.Is(err, notifications.ErrPresenceNotOwned) {
 			_ = conn.Close(websocket.StatusNormalClosure, "presence replaced")
 			return
@@ -97,39 +117,67 @@ func (s *Server) socketMachineDaemonRuntime(
 		return
 	}
 	daemonVersion, registered, err := s.store.Execution().RegisteredDaemonRuntimeVersion(
-		r.Context(),
+		setupCtx,
 		executionstore.DaemonRuntimeAuthority{
 			OrgID: orgID, MachineID: machineID, DaemonRuntimeID: runtimeID, DaemonTokenID: tokenID,
 		},
 	)
 	if err != nil {
-		_ = s.deleteDaemonRuntimePresence(context.WithoutCancel(r.Context()), machineID, runtimeID, connectionID)
 		_ = conn.Close(websocket.StatusInternalError, "runtime registration unavailable")
 		return
 	}
 	if !registered {
-		_ = s.deleteDaemonRuntimePresence(context.WithoutCancel(r.Context()), machineID, runtimeID, connectionID)
 		_ = conn.Close(websocket.StatusNormalClosure, "runtime ended")
 		return
 	}
 	online, err := s.store.Execution().OnlineDaemonRuntimeExists(
-		r.Context(),
+		setupCtx,
 		executionstore.DaemonRuntimeAuthority{
 			OrgID: orgID, MachineID: machineID, DaemonRuntimeID: runtimeID, DaemonTokenID: tokenID,
 		},
 	)
 	if err != nil {
-		_ = s.deleteDaemonRuntimePresence(context.WithoutCancel(r.Context()), machineID, runtimeID, connectionID)
 		_ = conn.Close(websocket.StatusInternalError, "runtime registration unavailable")
 		return
 	}
+	setupCancel()
 	wire := daemonprotocol.NewBackendSocket(conn, daemonVersion)
 	socket := newDaemonSocket(s, wire, connectionID, orgID, machineID, runtimeID, tokenID, !online)
-	socket.run(r.Context())
+	socket.run(ctx)
+}
+
+func acceptDaemonSocket(ctx context.Context, w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
+		return nil, err
+	}
+	// Accept can block while flushing the HTTP upgrade response, before it
+	// returns a socket we can close. Interrupt that write on shutdown as well.
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = controller.SetWriteDeadline(time.Now())
+		close(interrupted)
+	})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if !stop() {
+		<-interrupted
+	}
+	// Join the cancellation callback before clearing the deadline so it cannot
+	// install an expired deadline on a successfully upgraded connection.
+	deadlineErr := controller.SetWriteDeadline(time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	if deadlineErr != nil {
+		_ = conn.CloseNow()
+		return nil, deadlineErr
+	}
+	return conn, nil
 }
 
 func (s *Server) putDaemonRuntimePresence(
-	r *http.Request,
+	ctx context.Context,
 	orgID, machineID, runtimeID, tokenID uuid.UUID,
 	connectionID uuid.UUID,
 ) error {
@@ -141,25 +189,25 @@ func (s *Server) putDaemonRuntimePresence(
 		},
 	}
 	presenceTTL := s.daemonRuntimePresenceTTL()
-	err := s.putDaemonRuntimePresenceRecords(r.Context(), machineID, runtimeID, presence, presenceTTL)
+	err := s.putDaemonRuntimePresenceRecords(ctx, machineID, runtimeID, presence, presenceTTL)
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, notifications.ErrPresenceNotOwned) {
 		return err
 	}
-	current, ok, getErr := s.daemonHub.presence.Get(r.Context(), machineID)
+	current, ok, getErr := s.daemonHub.presence.Get(ctx, machineID)
 	if getErr != nil {
 		return getErr
 	}
 	if !ok {
-		return s.putDaemonRuntimePresenceRecords(r.Context(), machineID, runtimeID, presence, presenceTTL)
+		return s.putDaemonRuntimePresenceRecords(ctx, machineID, runtimeID, presence, presenceTTL)
 	}
 	if current.RuntimeID == runtimeID {
-		return s.putDaemonRuntimePresenceRecords(r.Context(), machineID, runtimeID, presence, presenceTTL)
+		return s.putDaemonRuntimePresenceRecords(ctx, machineID, runtimeID, presence, presenceTTL)
 	}
 	registered, checkErr := s.store.Execution().RegisteredDaemonRuntimeExists(
-		r.Context(),
+		ctx,
 		executionstore.DaemonRuntimeAuthority{
 			OrgID:           orgID,
 			MachineID:       machineID,
@@ -174,7 +222,7 @@ func (s *Server) putDaemonRuntimePresence(
 		return notifications.ErrPresenceNotOwned
 	}
 	if err := s.daemonHub.presence.DeleteIfOwned(
-		context.WithoutCancel(r.Context()),
+		ctx,
 		machineID,
 		current.PresenceOwner,
 	); err != nil {
@@ -184,7 +232,7 @@ func (s *Server) putDaemonRuntimePresence(
 	// expiry. A runtime-ended wakeup may already be queued and still needs this
 	// runtime-scoped routing hint; the machine key is the only key that blocks
 	// the replacement runtime from connecting.
-	return s.putDaemonRuntimePresenceRecords(r.Context(), machineID, runtimeID, presence, presenceTTL)
+	return s.putDaemonRuntimePresenceRecords(ctx, machineID, runtimeID, presence, presenceTTL)
 }
 
 func (s *Server) putDaemonRuntimePresenceRecords(
@@ -197,10 +245,15 @@ func (s *Server) putDaemonRuntimePresenceRecords(
 		return err
 	}
 	if err := s.daemonHub.presence.PutRuntime(ctx, runtimeID, presence, ttl); err != nil {
-		_ = s.daemonHub.presence.DeleteIfOwned(context.WithoutCancel(ctx), machineID, presence.PresenceOwner)
 		return err
 	}
 	return nil
+}
+
+func (s *Server) cleanupDaemonRuntimePresence(ctx context.Context, machineID, runtimeID, connectionID uuid.UUID) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = s.deleteDaemonRuntimePresence(cleanupCtx, machineID, runtimeID, connectionID)
 }
 
 func (s *Server) deleteDaemonRuntimePresence(
