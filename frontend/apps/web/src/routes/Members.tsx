@@ -3,7 +3,6 @@ import type { OrgMember } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
-import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
@@ -29,8 +28,6 @@ export function Members() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ id: 'members', label: 'Members' }]} />
-
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
           <SectionTitle title="Members" guide={guides.members} />

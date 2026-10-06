@@ -7,7 +7,6 @@ import {
   useProjectMachinePoolGrants,
 } from '@omnara/react'
 import { type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -18,7 +17,6 @@ import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { GrantMachinePoolButton } from '@/components/projects/GrantMachinePoolButton'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
@@ -29,7 +27,7 @@ import {
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
-import { canManageOrg } from '@/lib/permissions'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { type ProviderOptions, providerOptionSummaries } from '@/lib/provider-options'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -91,7 +89,9 @@ export function ProjectMachineGrantsTables({
   const deleteMachineGrant = useDeleteProjectMachineGrant(orgId, projectId)
   const [editing, setEditing] = useState<ProjectMachinePoolGrantListItem | null>(null)
   const { activeOrg } = useActiveOrg()
-  const canManageGrants = canManageAccess && canManageOrg(activeOrg.role)
+  const canManageGrants = canManageMachineGrants(activeOrg.role, {
+    can_manage_access: canManageAccess,
+  })
 
   return (
     <>
@@ -114,14 +114,7 @@ export function ProjectMachineGrantsTables({
             />
           }
         >
-          {
-            <>
-              <Button asChild size="sm" variant="ghost">
-                <Link to="/machines">Organization machines</Link>
-              </Button>
-              <GrantMachinePoolButton />
-            </>
-          }
+          <GrantMachinePoolButton />
         </SearchHeader>
         <DataTable
           columns={[

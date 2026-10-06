@@ -22,7 +22,7 @@ export function ConfiguredModelPickerList({
   search,
   drafts,
   draftError,
-  expandedSlug,
+  expandedId,
   availableModels,
   addedModels,
   customSlug,
@@ -45,16 +45,16 @@ export function ConfiguredModelPickerList({
   search: string
   drafts: ConfiguredModelDraft[]
   draftError: (draft: ConfiguredModelDraft) => string
-  expandedSlug: string | null
+  expandedId: string | null
   availableModels: DiscoveredProviderModel[]
-  /** Slugs the provider already has, which can be configured again with other settings. */
+  /** Slugs the provider already has or that are picked, which can be configured again with other settings. */
   addedModels: DiscoveredProviderModel[]
   customSlug: string
   canAddCustom: boolean
   disabled: boolean
-  onToggleExpanded: (slug: string) => void
+  onToggleExpanded: (id: string) => void
   onDraftChange: (draft: ConfiguredModelDraft) => void
-  onRemoveDraft: (slug: string) => void
+  onRemoveDraft: (id: string) => void
   onSelect: (model: DiscoveredProviderModel) => void
   onAddCustom: () => void
   onRowKeyDown: (event: KeyboardEvent<HTMLElement>) => void
@@ -86,19 +86,19 @@ export function ConfiguredModelPickerList({
           <>
             {drafts.map((draft, index) => (
               <SelectedModelRow
-                key={draft.slug}
+                key={draft.id}
                 draft={draft}
                 error={draftError(draft)}
                 index={index}
-                expanded={expandedSlug === draft.slug}
+                expanded={expandedId === draft.id}
                 disabled={disabled}
                 onToggleExpanded={() => {
-                  onToggleExpanded(draft.slug)
+                  onToggleExpanded(draft.id)
                 }}
                 onChange={onDraftChange}
                 onRowKeyDown={onRowKeyDown}
                 onRemove={() => {
-                  onRemoveDraft(draft.slug)
+                  onRemoveDraft(draft.id)
                 }}
               />
             ))}

@@ -118,7 +118,8 @@ func TestGetOrgUsageTimeseries(t *testing.T) {
 	}
 	model := testutil.RequireType[map[string]any](t, models[0])
 	if _, err := publicid.Decode(publicid.KindConfiguredModel, testutil.RequireType[string](t, model["id"])); err != nil ||
-		model["kind"] != "model" || model["name"] != "http-test" {
+		model["kind"] != "model" || model["name"] != "http-test" ||
+		model["model_provider_config_name"] != "openai-prod" {
 		t.Fatalf("model series = %+v (%v), want http-test", model, err)
 	}
 	assertUsageSeriesValues(t, model, 30, expectedTokens(all))
@@ -129,6 +130,13 @@ func TestGetOrgUsageTimeseries(t *testing.T) {
 		{kind: "profile", id: secondProfileID, name: "usage-series-second", total: expectedTokens(secondOnly)},
 		{kind: "no_profile", total: expectedTokens(childOnly)},
 	})
+	profileSeries := testutil.RequireType[[]any](t, byProfile["series"])
+	for index, want := range []string{"Default", "Usage Series Second", ""} {
+		item := testutil.RequireType[map[string]any](t, profileSeries[index])
+		if projectName, ok := item["project_name"]; want == "" && ok || want != "" && projectName != want {
+			t.Fatalf("profile series[%d] project_name = %v, want %q", index, projectName, want)
+		}
+	}
 	limited := get(project.AdminToken, window(url.Values{"group_by": {"profile"}, "group_limit": {"1"}}), http.StatusOK)
 	assertUsageSeries(t, limited["series"], []usageSeriesExpectation{
 		{kind: "profile", id: firstProfileID, name: "usage-series-first", total: expectedTokens(firstOnly)},
@@ -218,6 +226,18 @@ func TestGetOrgUsageTimeseries(t *testing.T) {
 	assertUsageSeries(t, scoped["series"], []usageSeriesExpectation{
 		{kind: "profile", id: secondProfileID, name: "usage-series-second", total: expectedTokens(secondOnly)},
 	})
+
+	// A deleted project's past usage still counts for org admins, but no longer
+	// for members who could read it.
+	if _, err := store.Organizations().DeleteProject(
+		ctx, project.OrgUUID, secondProjectUUID, httpUserPrincipal(project.AdminUserUUID),
+	); err != nil {
+		t.Fatalf("delete second project: %v", err)
+	}
+	afterDelete := get(project.AdminToken, window(nil), http.StatusOK)
+	assertUsageTotals(t, "admin after delete", overviewUsageObject(t, afterDelete, "totals"), all)
+	viewerAfterDelete := get(viewerPAT.Token, window(nil), http.StatusOK)
+	assertUsageTotals(t, "viewer after delete", overviewUsageObject(t, viewerAfterDelete, "totals"), nothing)
 
 	for _, query := range []url.Values{
 		{"timezone": {"Mars/Olympus_Mons"}},

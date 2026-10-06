@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -704,6 +705,11 @@ func (s strictOpenAPIServer) listAgents(
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeUsage) {
+		if err := s.addAgentUsage(ctx, page.Agents, data); err != nil {
+			return openapi.ListAgentsResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "agents", scope.key, publicid.KindAgent, extra,
 	)
@@ -711,6 +717,34 @@ func (s strictOpenAPIServer) listAgents(
 		return openapi.ListAgentsResponse{}, err
 	}
 	return openapi.ListAgentsResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentUsage fills in each listed agent's usage, batched across the page so
+// a list doesn't need a request per agent.
+func (s strictOpenAPIServer) addAgentUsage(
+	ctx context.Context,
+	agents []executionstore.AgentRecord,
+	data []openapi.Agent,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(agents))
+	agentIDs := make([]uuid.UUID, 0, len(agents))
+	for _, agent := range agents {
+		if !slices.Contains(projectIDs, agent.ProjectID) {
+			projectIDs = append(projectIDs, agent.ProjectID)
+		}
+		agentIDs = append(agentIDs, agent.ID)
+	}
+	totals, err := s.server.store.Execution().AgentUsageTotals(ctx, executionstore.AgentUsageTotalsInput{
+		ProjectIDs: projectIDs, AgentIDs: agentIDs,
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, agent := range agents {
+		usage := usageTotalsResponse(totals[agent.ID])
+		data[index].Usage = &usage
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) ListAgentProfiles(
@@ -764,6 +798,11 @@ func (s strictOpenAPIServer) listAgentProfiles(
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeStats) {
+		if err := s.addAgentProfileStats(ctx, page.Profiles, params.StatsSince, data); err != nil {
+			return openapi.ListAgentProfilesResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "agent_profiles", scope.key, publicid.KindAgentProfile, nil,
 	)
@@ -771,6 +810,39 @@ func (s strictOpenAPIServer) listAgentProfiles(
 		return openapi.ListAgentProfilesResponse{}, err
 	}
 	return openapi.ListAgentProfilesResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentProfileStats fills in each listed profile's stats, batched across the
+// page so a list doesn't need a request per profile.
+func (s strictOpenAPIServer) addAgentProfileStats(
+	ctx context.Context,
+	profiles []executionstore.AgentProfileRecord,
+	since *time.Time,
+	data []openapi.AgentProfileSummary,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(profiles))
+	profileIDs := make([]uuid.UUID, 0, len(profiles))
+	for _, profile := range profiles {
+		if !slices.Contains(projectIDs, profile.ProjectID) {
+			projectIDs = append(projectIDs, profile.ProjectID)
+		}
+		profileIDs = append(profileIDs, profile.ID)
+	}
+	stats, err := s.server.store.Execution().AgentProfileStats(ctx, executionstore.AgentProfileStatsInput{
+		ProjectIDs: projectIDs, AgentProfileIDs: profileIDs,
+		Window: executionstore.UsageWindow{Since: since},
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, profile := range profiles {
+		entry := stats[profile.ID]
+		data[index].Stats = &openapi.AgentProfileStats{
+			AgentCount: entry.AgentCount,
+			Usage:      usageTotalsResponse(entry.Usage),
+		}
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) CreateAgent(

@@ -24,8 +24,11 @@ const (
 )
 
 type ModelUsageSeriesFilter struct {
-	OrgIDs                  []uuid.UUID
-	ProjectIDs              []uuid.UUID
+	OrgIDs     []uuid.UUID
+	ProjectIDs []uuid.UUID
+	// AllProjects reads every project in OrgIDs, deleted ones included, in place
+	// of ProjectIDs.
+	AllProjects             bool
 	AgentProfileIDs         []uuid.UUID
 	IncludeProfileSubagents bool
 	Since                   *time.Time
@@ -42,12 +45,14 @@ type ModelUsageSeries struct {
 // ModelUsageSeriesRow is the usage of one configured model by agents of one
 // profile within one bucket. ProfileID is uuid.Nil for agents without a profile.
 type ModelUsageSeriesRow struct {
-	Bucket      int
-	ModelID     uuid.UUID
-	ModelName   string
-	ProfileID   uuid.UUID
-	ProfileName string
-	Totals      ModelUsageTotals
+	Bucket       int
+	ModelID      uuid.UUID
+	ModelName    string
+	ProviderName string
+	ProfileID    uuid.UUID
+	ProfileName  string
+	ProjectName  string
+	Totals       ModelUsageTotals
 }
 
 // UsageBucketStarts returns the start of every interval in location from the
@@ -120,8 +125,11 @@ func usageDayStart(year int, month time.Month, day int, location *time.Location)
 func (filter ModelUsageSeriesFilter) validate() error {
 	// With no projects there is nothing to read, so a caller without any
 	// memberships gets an empty series rather than an error.
-	if len(filter.OrgIDs) == 0 && len(filter.ProjectIDs) > 0 {
+	if len(filter.OrgIDs) == 0 && (len(filter.ProjectIDs) > 0 || filter.AllProjects) {
 		return errors.New("usage series orgs are required")
+	}
+	if filter.AllProjects && len(filter.ProjectIDs) > 0 {
+		return errors.New("usage series cannot combine all projects with project ids")
 	}
 	if filter.Until.IsZero() {
 		return errors.New("usage series until is required")
@@ -132,18 +140,31 @@ func (filter ModelUsageSeriesFilter) validate() error {
 	return nil
 }
 
+// empty reports whether the filter can match nothing, so the store skips the query.
+func (filter ModelUsageSeriesFilter) empty() bool {
+	return !filter.AllProjects && len(filter.ProjectIDs) == 0
+}
+
+// projectIDs is the query's project filter, where nil reads every project.
+func (filter ModelUsageSeriesFilter) projectIDs() []uuid.UUID {
+	if filter.AllProjects {
+		return nil
+	}
+	return filter.ProjectIDs
+}
+
 // FirstModelUsageAt returns when the earliest model call matching filter was
 // made, or false when none match.
 func (s *Store) FirstModelUsageAt(ctx context.Context, filter ModelUsageSeriesFilter) (time.Time, bool, error) {
 	if err := filter.validate(); err != nil {
 		return time.Time{}, false, err
 	}
-	if len(filter.ProjectIDs) == 0 {
+	if filter.empty() {
 		return time.Time{}, false, nil
 	}
 	first, err := s.q.FirstModelCallUsageAt(ctx, dbsqlc.FirstModelCallUsageAtParams{
 		OrgIds:                  filter.OrgIDs,
-		ProjectIds:              filter.ProjectIDs,
+		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,
 		AgentProfileIds:         filter.AgentProfileIDs,
@@ -173,7 +194,7 @@ func (s *Store) SumModelUsageSeries(
 		return ModelUsageSeries{}, errors.New("usage series buckets must ascend and start before until")
 	}
 	series := ModelUsageSeries{BucketStarts: bucketStarts, Rows: []ModelUsageSeriesRow{}}
-	if len(filter.ProjectIDs) == 0 {
+	if filter.empty() {
 		totals, err := sumModelUsageTotals(nil)
 		series.Totals = totals
 		return series, err
@@ -181,7 +202,7 @@ func (s *Store) SumModelUsageSeries(
 	rows, err := s.q.SumModelCallUsageByBucket(ctx, dbsqlc.SumModelCallUsageByBucketParams{
 		BucketStarts:            bucketStarts,
 		OrgIds:                  filter.OrgIDs,
-		ProjectIds:              filter.ProjectIDs,
+		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,
 		AgentProfileIds:         filter.AgentProfileIDs,
@@ -215,12 +236,14 @@ func (s *Store) SumModelUsageSeries(
 		}
 		totals = append(totals, rowTotals)
 		series.Rows = append(series.Rows, ModelUsageSeriesRow{
-			Bucket:      bucket,
-			ModelID:     row.ConfiguredModelID,
-			ModelName:   row.ConfiguredModelName,
-			ProfileID:   storeutil.IDFromPtr(row.AgentProfileID),
-			ProfileName: row.AgentProfileName,
-			Totals:      rowTotals,
+			Bucket:       bucket,
+			ModelID:      row.ConfiguredModelID,
+			ModelName:    row.ConfiguredModelName,
+			ProviderName: row.ModelProviderConfigName,
+			ProfileID:    storeutil.IDFromPtr(row.AgentProfileID),
+			ProfileName:  row.AgentProfileName,
+			ProjectName:  row.ProjectName,
+			Totals:       rowTotals,
 		})
 	}
 	series.Totals, err = sumModelUsageTotals(totals)
@@ -229,7 +252,7 @@ func (s *Store) SumModelUsageSeries(
 	}
 	series.ActiveAgents, err = s.q.CountAgentsWithModelCalls(ctx, dbsqlc.CountAgentsWithModelCallsParams{
 		OrgIds:                  filter.OrgIDs,
-		ProjectIds:              filter.ProjectIDs,
+		ProjectIds:              filter.projectIDs(),
 		Since:                   filter.Since,
 		Until:                   filter.Until,
 		AgentProfileIds:         filter.AgentProfileIDs,

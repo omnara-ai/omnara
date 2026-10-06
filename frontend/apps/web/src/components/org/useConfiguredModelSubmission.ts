@@ -1,6 +1,6 @@
 import { useCreateConfiguredModel, useCreateProjectModelGrant } from '@omnara/react'
 import { useMutation } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useProjectShares } from '@/hooks/use-project-shares'
 import { errorMessage } from '@/lib/submit-status'
@@ -25,6 +25,18 @@ export function useConfiguredModelSubmission(orgId: string, onDone: () => void) 
   })
   const [addedCount, setAddedCount] = useState(0)
   const [createError, setCreateError] = useState('')
+  // Closing the dialog mid-request unmounts this view while the request runs on, so
+  // finishing it then must not close a dialog opened since.
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  function done() {
+    if (mounted.current) onDone()
+  }
 
   // The batch fans out to many concurrent calls of one mutation, whose own isPending
   // only tracks the latest call, so the batch itself is the mutation the UI waits on.
@@ -56,14 +68,14 @@ export function useConfiguredModelSubmission(orgId: string, onDone: () => void) 
           `Added ${String(created.length)} of ${String(batch.length)} models. ` +
             errorMessage(firstFailure?.reason, 'The remaining models could not be added.'),
         )
-      } else if (shared) onDone()
+      } else if (shared) done()
       return failed
     },
   })
 
   const retryShares = useMutation({
     mutationFn: async (remainingDrafts: number) => {
-      if ((await shares.retry()) && remainingDrafts === 0) onDone()
+      if ((await shares.retry()) && remainingDrafts === 0) done()
     },
   })
 

@@ -47,26 +47,40 @@ func (s strictOpenAPIServer) orgListScope(ctx context.Context, action string) (r
 	if err != nil {
 		return resourceListScope{}, err
 	}
-	principal, _ := principalFromContext(ctx)
+	visible, err := s.listAllVisibleProjects(ctx, org.ID)
+	if err != nil {
+		return resourceListScope{}, err
+	}
 	projectIDs := []uuid.UUID{}
+	for _, record := range visible {
+		if identitystore.ProjectRolesAllow(record.Roles, action) {
+			projectIDs = append(projectIDs, record.Project.ID)
+		}
+	}
+	return resourceListScope{key: org.ID.String(), projectIDs: projectIDs}, nil
+}
+
+// listAllVisibleProjects pages through every project in the org the caller can see.
+func (s strictOpenAPIServer) listAllVisibleProjects(
+	ctx context.Context,
+	orgID uuid.UUID,
+) ([]identitystore.VisibleProjectRecord, error) {
+	principal, _ := principalFromContext(ctx)
+	visible := []identitystore.VisibleProjectRecord{}
 	after := listing.KeysetCursor{}
 	for {
 		page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
 			ctx,
 			identitystore.ListVisibleProjectsForPrincipalInput{
-				OrgID: org.ID, Principal: principal, Limit: orgListProjectPageSize, After: after,
+				OrgID: orgID, Principal: principal, Limit: orgListProjectPageSize, After: after,
 			},
 		)
 		if err != nil {
-			return resourceListScope{}, apierror.OrgScoped(err)
+			return nil, apierror.OrgScoped(err)
 		}
-		for _, record := range page.Projects {
-			if identitystore.ProjectRolesAllow(record.Roles, action) {
-				projectIDs = append(projectIDs, record.Project.ID)
-			}
-		}
+		visible = append(visible, page.Projects...)
 		if !page.HasMore || len(page.Projects) == 0 {
-			return resourceListScope{key: org.ID.String(), projectIDs: projectIDs}, nil
+			return visible, nil
 		}
 		last := page.Projects[len(page.Projects)-1].Project
 		after = listing.KeysetCursor{Set: true, CreatedAt: last.CreatedAt, ID: last.ID}

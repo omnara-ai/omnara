@@ -15,7 +15,7 @@ import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
 
 export function ProjectUsagePage() {
   return (
-    <ProjectPageFrame title="Usage">
+    <ProjectPageFrame>
       {({ activeOrg, projectId }) => <ProjectUsage orgId={activeOrg.id} projectId={projectId} />}
     </ProjectPageFrame>
   )

@@ -2,7 +2,6 @@ import { useOrgUsage } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import {
   defaultUsageDays,
@@ -22,7 +21,6 @@ export function OrganizationUsagePage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ id: 'usage', label: 'Usage' }]} />
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="type-title">Usage</h1>

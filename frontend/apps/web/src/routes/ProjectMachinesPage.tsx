@@ -3,7 +3,7 @@ import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 
 export function ProjectMachinesPage() {
   return (
-    <ProjectPageFrame title="Machines">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) =>
         project?.access.can_read ? (
           <div className="flex flex-col gap-8">

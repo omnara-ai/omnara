@@ -4,6 +4,8 @@ import { resourceNameError, resourceNameSuggestion } from '@/lib/resource-name'
 
 /** A model selected for creation, with editable fields kept as input drafts. */
 export interface ConfiguredModelDraft {
+  /** Tells drafts apart, since one slug can be picked more than once with other settings. */
+  id: string
   slug: string
   name: string
   contextWindowTokens: string
@@ -27,11 +29,15 @@ function uniqueConfiguredModelName(providerModelSlug: string, takenNames: Readon
  * A draft prefilled from the provider's catalog or an existing configuration of the same
  * slug: a name not already taken and the reported token limits.
  */
+let draftCount = 0
+
 export function configuredModelDraft(
   model: Pick<DiscoveredProviderModel, 'slug' | 'context_window_tokens' | 'max_output_tokens'>,
   takenNames: ReadonlySet<string> = new Set(),
 ): ConfiguredModelDraft {
+  draftCount += 1
   return {
+    id: `draft-${String(draftCount)}`,
     slug: model.slug,
     name: uniqueConfiguredModelName(model.slug, takenNames),
     contextWindowTokens:

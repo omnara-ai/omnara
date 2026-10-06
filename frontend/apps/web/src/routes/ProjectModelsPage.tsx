@@ -3,7 +3,7 @@ import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 
 export function ProjectModelsPage() {
   return (
-    <ProjectPageFrame title="Models">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) =>
         project?.access.can_read ? (
           <ProjectModelGrantsTable

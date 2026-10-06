@@ -8,7 +8,8 @@ export function ProjectPageFrame({
   title,
   children,
 }: {
-  title: string
+  /** Top-bar title, for pages without a heading of their own. */
+  title?: string
   children: (context: ReturnType<typeof useProjectPage>) => ReactNode
 }) {
   const context = useProjectPage()
@@ -28,7 +29,7 @@ export function ProjectPageFrame({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ id: 'page', label: title }]} />
+      {title && <PageBreadcrumb items={[{ id: 'page', label: title }]} />}
       {children(context)}
     </div>
   )

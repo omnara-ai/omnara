@@ -20,6 +20,7 @@ describe('configured model drafts', () => {
   it('names a discovered model after its slug and keeps its reported limits', () => {
     const draft = configuredModelDraft(discovered)
     expect(draft).toEqual({
+      id: draft.id,
       slug: discovered.slug,
       name: discovered.slug,
       contextWindowTokens: '262144',
@@ -34,6 +35,10 @@ describe('configured model drafts', () => {
       supports_tools: true,
       supports_reasoning: false,
     })
+  })
+
+  it('gives each draft its own id, so a slug can be picked twice', () => {
+    expect(configuredModelDraft(discovered).id).not.toBe(configuredModelDraft(discovered).id)
   })
 
   it('shortens names for slugs too long to be resource names', () => {

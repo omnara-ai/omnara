@@ -234,7 +234,8 @@ function AgentUsageGroup({
   projectId: string
   agentId: string
 }) {
-  const [includeSubagents, setIncludeSubagents] = useState(false)
+  // Includes subagents by default, matching the cost on the agent's card.
+  const [includeSubagents, setIncludeSubagents] = useState(true)
   const query = useAgentUsage(orgId, projectId, agentId, includeSubagents)
   return (
     <SidebarGroup>

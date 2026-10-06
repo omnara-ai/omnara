@@ -1,4 +1,5 @@
 export { projectActorsQueryPredicate, useCurrentActorId } from './domains/actors'
+export { isAgentActive } from './domains/agent-activity'
 export {
   type AgentChatAttachmentInput,
   type AgentChatData,

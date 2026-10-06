@@ -39,6 +39,8 @@ export function usageMeasureForMetric(metric: UsageTimeseriesMetric): UsageMeasu
 export interface UsageSeries {
   key: string
   name: string
+  /** The project or provider that tells this series apart from a same-named one. */
+  detail?: string
   color: string
   total: number
   icon?: AgentIconSpec
@@ -79,6 +81,7 @@ function usageSeries(entry: UsageTimeseriesSeries, index: number): UsageSeries {
       ...base,
       key: entry.id,
       name: entry.name ?? entry.id,
+      detail: entry.project_name,
       color: tintColor(icon.tint),
       icon,
     }
@@ -87,12 +90,22 @@ function usageSeries(entry: UsageTimeseriesSeries, index: number): UsageSeries {
     ...base,
     key: entry.id ?? allSeriesKey,
     name: entry.name ?? 'Total',
+    detail: entry.model_provider_config_name,
     color: seriesColors[index] ?? otherSeriesColor,
   }
 }
 
+/** Keeps a series' detail only where another series shares its name, so labels stay short. */
+function distinguishSameNames(series: UsageSeries[]) {
+  const counts = new Map<string, number>()
+  for (const entry of series) counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1)
+  return series.map((entry) =>
+    (counts.get(entry.name) ?? 0) > 1 ? entry : { ...entry, detail: undefined },
+  )
+}
+
 export function usageChartData(timeseries: UsageTimeseries, measure: UsageMeasure): UsageChartData {
-  const series = timeseries.series.map(usageSeries)
+  const series = distinguishSameNames(timeseries.series.map(usageSeries))
   const columns = timeseries.bucket_starts.map((start, index) => {
     const values = new Map<string, number>()
     for (const [seriesIndex, entry] of timeseries.series.entries()) {

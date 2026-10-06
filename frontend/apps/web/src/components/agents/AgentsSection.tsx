@@ -1,9 +1,9 @@
 import {
   type AgentListFilters,
   type AgentListSort,
+  isAgentActive,
   useAgentProfileQuery,
   useAgents,
-  useAgentUsage,
   useArchiveAgent,
   useOrgAgents,
 } from '@omnara/react'
@@ -35,20 +35,16 @@ import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { agentStatusLabel, isAgentActive } from '@/lib/agent-status'
+import { agentStatusLabel } from '@/lib/agent-status'
 
 type AgentListControls = ReturnType<typeof useAgentListControls>
-
-/** Polls while any listed agent is working, so its status settles once it finishes. */
-function activeAgentPollInterval(agents: Agent[]) {
-  return agents.some(isAgentActive) ? 5_000 : false
-}
 
 function useAgentListControls() {
   const list = useResourceList<AgentListSort>('-updated_at')
   const [includeSubagents, setIncludeSubagents] = useState(false)
   const [includeArchived, setIncludeArchived] = useState(false)
-  const filters: AgentListFilters = { ...list.apiFilters }
+  // Each card's cost, with its subagents, comes with the list rather than a request per card.
+  const filters: AgentListFilters = { ...list.apiFilters, include_usage: true }
   if (includeSubagents) filters.include_subagents = true
   if (includeArchived) filters.include_archived = true
   return {
@@ -81,11 +77,7 @@ export function AgentsSection({
   const filters = profileId
     ? { ...controls.filters, agent_profile_id: profileId }
     : controls.filters
-  const query = useAgents(orgId, projectId, {
-    filters,
-    sort: controls.list.sort,
-    refetchInterval: activeAgentPollInterval,
-  })
+  const query = useAgents(orgId, projectId, { filters, sort: controls.list.sort })
   const paged = usePagedQuery(query, controls.resetKey)
   return (
     <AgentList
@@ -116,13 +108,9 @@ export function OrgAgentsSection({
   emptyAction?: ReactNode
 }) {
   const controls = useAgentListControls()
-  const query = useOrgAgents(orgId, {
-    filters: controls.filters,
-    sort: controls.list.sort,
-    refetchInterval: activeAgentPollInterval,
-  })
+  const query = useOrgAgents(orgId, { filters: controls.filters, sort: controls.list.sort })
   const paged = usePagedQuery(query, controls.resetKey)
-  const { projects } = useProjectDirectory(orgId)
+  const { loaded, isLoaded } = useProjectDirectory(orgId)
   return (
     <AgentList
       orgId={orgId}
@@ -135,8 +123,10 @@ export function OrgAgentsSection({
         void query.refetch()
       }}
       showProfile
-      canManage={(agent) => projects.get(agent.project_id)?.access.can_manage ?? false}
-      projectOf={(agent) => projects.get(agent.project_id)}
+      // Listed agents are in projects the viewer can read, so show actions until their
+      // project loads (or if the list fails); the API still enforces access.
+      canManage={(agent) => loaded.get(agent.project_id)?.access.can_manage ?? !isLoaded}
+      projectOf={(agent) => loaded.get(agent.project_id)}
       emptyMessage={emptyMessage}
       emptyAction={emptyAction}
     />
@@ -227,7 +217,6 @@ function AgentInstanceCard({
   canManage: boolean
 }) {
   const projectId = agent.project_id
-  const usage = useAgentUsage(orgId, projectId, agent.id, true)
   const archiveAgent = useArchiveAgent(orgId, projectId)
 
   function archive() {
@@ -272,12 +261,9 @@ function AgentInstanceCard({
       subtitle={subtitle}
       meta={
         <>
-          {usage.data && (
+          {agent.usage && (
             <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-              <ReportedCost
-                modelCalls={usage.data.totals.model_calls}
-                cost={usage.data.totals.cost}
-              />
+              <ReportedCost modelCalls={agent.usage.model_calls} cost={agent.usage.cost} />
               <span className="ml-0.5" aria-hidden="true">
                 ·
               </span>

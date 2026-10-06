@@ -5,7 +5,6 @@ import {
   useProjectModelGrants,
 } from '@omnara/react'
 import { type ProjectModelGrantListItem } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -16,7 +15,6 @@ import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
@@ -67,16 +65,6 @@ export function ProjectModelGrantsTable({
           />
         }
       >
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/models" hash="model-providers">
-            Providers
-          </Link>
-        </Button>
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/models" hash="configured-models">
-            Organization models
-          </Link>
-        </Button>
         <GrantModelButton />
       </SearchHeader>
       <DataTable

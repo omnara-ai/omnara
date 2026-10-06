@@ -1,9 +1,8 @@
-import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 
 import { SkillsSection } from '@/components/overview/SkillsSection'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { ProjectSkillGrantsTable } from '@/components/projects/ProjectSkillGrantsTable'
-import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function ProjectSkillsPage() {
@@ -14,21 +13,14 @@ export function ProjectSkillsPage() {
   const navigate = useNavigate({ from: '/projects/$projectId/skills' })
 
   const sourceTabs = (
-    <>
-      <Button asChild size="sm" variant="ghost">
-        <Link to="/skills" search={{ owner: 'organization' }}>
-          Organization skills
-        </Link>
-      </Button>
-      <TabsList aria-label="Skill source">
-        <TabsTrigger value="project">Project</TabsTrigger>
-        <TabsTrigger value="shared">Shared</TabsTrigger>
-      </TabsList>
-    </>
+    <TabsList aria-label="Skill source">
+      <TabsTrigger value="project">Project</TabsTrigger>
+      <TabsTrigger value="shared">Shared</TabsTrigger>
+    </TabsList>
   )
 
   return (
-    <ProjectPageFrame title="Skills">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) => (
         <Tabs
           value={tab}

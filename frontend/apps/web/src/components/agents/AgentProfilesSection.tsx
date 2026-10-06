@@ -1,7 +1,7 @@
 import {
   type AgentProfileListSort,
+  isAgentActive,
   useAgentProfiles,
-  useAgentProfileUsage,
   useAgents,
   useCreateAgent,
   useOrgAgentProfiles,
@@ -35,7 +35,7 @@ import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { agentStatusLabel, isAgentActive } from '@/lib/agent-status'
+import { agentStatusLabel } from '@/lib/agent-status'
 import { formatCount, formatTimeAgo } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { canManageOrg } from '@/lib/permissions'
@@ -57,7 +57,7 @@ export function AgentProfilesSection({
 }) {
   const list = useResourceList<AgentProfileListSort>('-updated_at')
   const query = useAgentProfiles(orgId, projectId, {
-    filters: list.apiFilters,
+    filters: { ...list.apiFilters, ...profileStatsFilters() },
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
@@ -80,9 +80,12 @@ export function AgentProfilesSection({
 
 export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
   const list = useResourceList<AgentProfileListSort>('-updated_at')
-  const query = useOrgAgentProfiles(orgId, { filters: list.apiFilters, sort: list.sort })
+  const query = useOrgAgentProfiles(orgId, {
+    filters: { ...list.apiFilters, ...profileStatsFilters() },
+    sort: list.sort,
+  })
   const paged = usePagedQuery(query, list.queryKey)
-  const { projects } = useProjectDirectory(orgId)
+  const { loaded, isLoaded } = useProjectDirectory(orgId)
   const { activeOrg } = useActiveOrg()
   return (
     <AgentProfileList
@@ -95,8 +98,10 @@ export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
       onRetry={() => {
         void query.refetch()
       }}
-      canOperate={(profile) => projects.get(profile.project_id)?.access.can_operate ?? false}
-      projectOf={(profile) => projects.get(profile.project_id)}
+      // Listed profiles are in projects the viewer can read, so show actions until their
+      // project loads (or if the list fails); the API still enforces access.
+      canOperate={(profile) => loaded.get(profile.project_id)?.access.can_operate ?? !isLoaded}
+      projectOf={(profile) => loaded.get(profile.project_id)}
       emptyAction={
         <OrgCreateAgentProfileButton orgId={orgId} offerNewProject={canManageOrg(activeOrg.role)} />
       }
@@ -256,8 +261,15 @@ function LaunchProfileButton({
   )
 }
 
-const instanceCountPageSize = 100
 const recentAgentLimit = 5
+
+/**
+ * Card stats come with the list rather than a request per card, over the same window
+ * and subagent default as the profile's Usage tab so the numbers match.
+ */
+function profileStatsFilters() {
+  return { include_stats: true, stats_since: lastDaysUsageWindow(defaultUsageDays).since }
+}
 
 function ProfileCard({
   orgId,
@@ -271,41 +283,35 @@ function ProfileCard({
   action: ReactNode
 }) {
   const projectId = profile.project_id
-  // The same window and subagent default as the profile's Usage tab, so the numbers match.
-  const usage = useAgentProfileUsage(orgId, projectId, profile.id, {
-    ...lastDaysUsageWindow(defaultUsageDays),
-    includeSubagents: true,
-  })
+  const agentCount = profile.stats?.agent_count
+  const [expanded, setExpanded] = useState(false)
+  // Recent instances load once the card is expanded, or about to be on hover or focus.
+  const [wantsRecent, setWantsRecent] = useState(false)
   const instances = useAgents(orgId, projectId, {
     filters: { agent_profile_id: profile.id },
     sort: '-updated_at',
-    pageSize: instanceCountPageSize,
+    pageSize: recentAgentLimit,
+    enabled: wantsRecent,
   })
-  const [expanded, setExpanded] = useState(false)
   const expansionId = useId()
-  const firstPage = instances.data?.pages[0]
-  const recentAgents = firstPage?.data.slice(0, recentAgentLimit) ?? []
-  const instanceLabel =
-    firstPage?.data.length === 1 && !firstPage.next_cursor ? 'instance' : 'instances'
-  const instanceValue =
-    firstPage && `${formatCount(firstPage.data.length)}${firstPage.next_cursor ? '+' : ''}`
-  const hiddenAgentCount = (firstPage?.data.length ?? 0) - recentAgents.length
-  const moreLabel =
-    hiddenAgentCount > 0 || firstPage?.next_cursor
-      ? `${formatCount(hiddenAgentCount)}${firstPage?.next_cursor ? '+' : ''} more`
-      : undefined
+  const recentAgents = instances.data?.pages[0]?.data ?? []
+  const hiddenAgentCount = (agentCount ?? 0) - recentAgents.length
   const expansion = {
     id: expansionId,
-    open: expanded && recentAgents.length > 0,
-    content: (
+    open: expanded,
+    content: instances.isPending ? (
+      <p className="text-muted-foreground border-t px-4 py-3 text-xs">Loading…</p>
+    ) : (
       <RecentAgentList
         projectId={projectId}
         profileId={profile.id}
         agents={recentAgents}
-        moreLabel={moreLabel}
+        moreLabel={hiddenAgentCount > 0 ? `${formatCount(hiddenAgentCount)} more` : undefined}
       />
     ),
   }
+  const instanceLabel = agentCount === 1 ? 'instance' : 'instances'
+  const instanceValue = agentCount === undefined ? undefined : formatCount(agentCount)
   return (
     <AgentCard
       icon={profileIcon(profile.id)}
@@ -342,21 +348,25 @@ function ProfileCard({
           <AgentCardStat
             label={`cost, last ${String(defaultUsageDays)} days`}
             value={
-              usage.data && (
+              profile.stats && (
                 <ReportedCost
-                  modelCalls={usage.data.totals.model_calls}
-                  cost={usage.data.totals.cost}
+                  modelCalls={profile.stats.usage.model_calls}
+                  cost={profile.stats.usage.cost}
                 />
               )
             }
           />
-          {recentAgents.length > 0 ? (
+          {agentCount ? (
             <AgentCardStatToggle
               icon={Users}
               label={instanceLabel}
               value={instanceValue}
               expansion={expansion}
+              onPrefetch={() => {
+                setWantsRecent(true)
+              }}
               onToggle={() => {
+                setWantsRecent(true)
                 setExpanded((open) => !open)
               }}
             />

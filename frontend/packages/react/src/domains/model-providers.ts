@@ -5,6 +5,7 @@ import {
   type DiscoveredModelPricing,
   type DiscoveredProviderModel,
   type ListModelProviderConfigsData,
+  type ModelCatalog,
   type ModelProviderConfig,
   type OmnaraClient,
   sdk,
@@ -58,13 +59,16 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
   })
 }
 
+// Probing a catalog calls the provider, so a fetched or seeded catalog is reused for a while.
+// A failed probe goes stale quickly, so fixing the credential clears the warning on the next look.
+function modelCatalogStaleTime(query: { state: { data?: ModelCatalog } }) {
+  return query.state.data?.status === 'failed' ? 15 * 1000 : 5 * 60 * 1000
+}
+
 /**
  * The provider's live model catalog. Every fetch probes the provider's /models
  * endpoint, so keep it disabled until the catalog is actually needed.
  */
-// Probing a catalog calls the provider, so a fetched or seeded catalog is reused for a while.
-const modelCatalogStaleTime = 5 * 60 * 1000
-
 export function useModelCatalog(
   orgID: string,
   modelProviderConfigID: string,

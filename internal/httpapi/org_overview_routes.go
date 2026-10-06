@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -14,8 +16,9 @@ import (
 
 const (
 	orgOverviewRecentLimit = 5
-	// orgOverviewMaxProjects caps how many visible projects the overview
-	// considers (and returns); recents beyond this cap are best-effort omitted.
+	// orgOverviewMaxProjects caps how many projects the overview returns. Recents
+	// and activity still cover every visible project, and the most recently
+	// active projects are the ones returned.
 	orgOverviewMaxProjects = 200
 )
 
@@ -27,26 +30,13 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	principal, _ := principalFromContext(ctx)
-	page, err := s.server.store.Identity().ListVisibleProjectsForPrincipal(
-		ctx,
-		identitystore.ListVisibleProjectsForPrincipalInput{
-			OrgID: org.ID, Principal: principal, Limit: orgOverviewMaxProjects,
-		},
-	)
+	visible, err := s.listAllVisibleProjects(ctx, org.ID)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return nil, err
 	}
-	visible := page.Projects
-	projects := make([]openapi.VisibleProject, 0, len(visible))
 	agentProjectIDs := make([]uuid.UUID, 0, len(visible))
 	readableProjectIDs := make([]uuid.UUID, 0, len(visible))
 	for _, record := range visible {
-		response, err := visibleProjectResponse(record)
-		if err != nil {
-			return nil, err
-		}
-		projects = append(projects, response)
 		if identitystore.ProjectRolesAllow(record.Roles, identitystore.AgentActionRead) {
 			agentProjectIDs = append(agentProjectIDs, record.Project.ID)
 		}
@@ -94,12 +84,59 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
+	activity, err := s.server.store.Execution().ListProjectLastActivity(
+		ctx,
+		executionstore.ListProjectLastActivityInput{
+			AgentProjectIDs: agentProjectIDs, ProfileProjectIDs: readableProjectIDs,
+		},
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	listed := mostRecentlyActiveProjects(visible, activity, orgOverviewMaxProjects)
+	projects := make([]openapi.VisibleProject, 0, len(listed))
+	projectActivity := make([]openapi.OrgOverviewProjectActivity, 0, len(listed))
+	for _, record := range listed {
+		response, err := visibleProjectResponse(record)
+		if err != nil {
+			return nil, err
+		}
+		projects = append(projects, response)
+		lastActiveAt, ok := activity[record.Project.ID]
+		if !ok {
+			continue
+		}
+		projectActivity = append(projectActivity, openapi.OrgOverviewProjectActivity{
+			ProjectId: response.Id, LastActiveAt: lastActiveAt.UTC(),
+		})
+	}
 	return openapi.GetOrgOverview200JSONResponse(openapi.OrgOverviewResponse{
 		Projects:                projects,
+		ProjectActivity:         projectActivity,
 		RecentAgents:            recentAgents,
 		RecentAgentProfiles:     recentProfiles,
 		ReferencedAgentProfiles: referencedProfiles,
 	}), nil
+}
+
+// mostRecentlyActiveProjects returns up to limit projects, most recently
+// active first, counting a project's own updates as activity too.
+func mostRecentlyActiveProjects(
+	visible []identitystore.VisibleProjectRecord,
+	activity map[uuid.UUID]time.Time,
+	limit int,
+) []identitystore.VisibleProjectRecord {
+	activeAt := func(record identitystore.VisibleProjectRecord) time.Time {
+		if at, ok := activity[record.Project.ID]; ok && at.After(record.Project.UpdatedAt) {
+			return at
+		}
+		return record.Project.UpdatedAt
+	}
+	sorted := slices.Clone(visible)
+	slices.SortStableFunc(sorted, func(left, right identitystore.VisibleProjectRecord) int {
+		return cmp.Compare(activeAt(right).UnixNano(), activeAt(left).UnixNano())
+	})
+	return sorted[:min(limit, len(sorted))]
 }
 
 func (s strictOpenAPIServer) referencedAgentProfiles(

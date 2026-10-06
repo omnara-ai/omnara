@@ -1,5 +1,5 @@
 import { useGrantSkillToProject } from '@omnara/react'
-import type { Skill } from '@omnara/sdk'
+import { ApiError, type Skill } from '@omnara/sdk'
 
 import { useProjectShares } from '@/hooks/use-project-shares'
 
@@ -10,7 +10,14 @@ import { useProjectShares } from '@/hooks/use-project-shares'
 export function useSkillShares(orgId: string) {
   const grantSkill = useGrantSkillToProject(orgId)
   const shares = useProjectShares(async ({ resourceId, projectId }) => {
-    await grantSkill.mutateAsync({ skillID: resourceId, projectID: projectId })
+    try {
+      await grantSkill.mutateAsync({ skillID: resourceId, projectID: projectId })
+    } catch (error) {
+      // A skill updated by this upload may already be shared with the project, which
+      // answers 409; that share is already done.
+      if (error instanceof ApiError && error.status === 409) return
+      throw error
+    }
   })
   return {
     ...shares,

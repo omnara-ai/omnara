@@ -141,7 +141,7 @@ export function AgentCard({
           <div className="text-muted-foreground relative flex min-w-0 items-center gap-3">
             {footer}
           </div>
-          <dl className="flex shrink-0 items-center gap-4">{stats}</dl>
+          <dl className="relative flex shrink-0 items-center gap-4">{stats}</dl>
         </div>
       )}
       {expansion && (
@@ -185,12 +185,15 @@ export function AgentCardStatToggle({
   value,
   expansion,
   onToggle,
+  onPrefetch,
 }: {
   icon: ComponentType<SVGProps<SVGSVGElement>>
   label: string
   value: string | undefined
   expansion: AgentCardExpansion
   onToggle: () => void
+  /** Called when the toggle is hovered or focused, so the expansion can start loading. */
+  onPrefetch?: () => void
 }) {
   return (
     <div>
@@ -202,6 +205,8 @@ export function AgentCardStatToggle({
           aria-controls={expansion.id}
           className="hover:text-foreground relative -mx-1.5 -my-1 flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors"
           onClick={onToggle}
+          onPointerEnter={onPrefetch}
+          onFocus={onPrefetch}
         >
           <Icon className="text-muted-foreground size-4" aria-hidden="true" />
           <span className="font-medium tabular-nums">{value ?? '—'}</span>

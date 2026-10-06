@@ -3,6 +3,7 @@ import {
   type CurrentUser,
   type ListOrgInvitationsData,
   type ListOrgMembersData,
+  type OrgOverviewResponse,
   sdk,
 } from '@omnara/sdk'
 import {
@@ -15,6 +16,7 @@ import {
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { activeAgentsRefetchInterval } from './agent-activity'
 import {
   type ListFilters,
   type ListSort,
@@ -69,14 +71,18 @@ export function useDeleteOrganization() {
   })
 }
 
+/** Polls while any recent agent is active, or while the caller's interval asks to. */
 export function useOrgOverview(
   orgID: string,
-  options?: Pick<ReturnType<typeof getOrgOverviewOptions>, 'refetchInterval'>,
+  options?: { refetchInterval?: (data: OrgOverviewResponse | undefined) => number | false },
 ) {
   const client = useOmnaraClient()
   return useQuery({
     ...getOrgOverviewOptions({ path: { orgID }, client }),
-    refetchInterval: options?.refetchInterval,
+    refetchInterval: activeAgentsRefetchInterval(
+      (data: OrgOverviewResponse | undefined) => data?.recent_agents ?? [],
+      options?.refetchInterval,
+    ),
   })
 }
 

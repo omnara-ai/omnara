@@ -1515,6 +1515,21 @@ export type AgentProfileSummary = {
     created_at: Timestamp;
     updated_at: Timestamp;
     current_config: AgentConfigSummary;
+    stats?: AgentProfileStats;
+};
+
+/**
+ * Present when the list was requested with `include_stats`.
+ */
+export type AgentProfileStats = {
+    /**
+     * Unarchived top-level agents launched from the profile.
+     */
+    agent_count: number;
+    /**
+     * Model usage by the profile's agents and their subagents since `stats_since`.
+     */
+    usage: UsageTotals;
 };
 
 export type AgentProfile = {
@@ -1673,6 +1688,10 @@ export type Agent = {
      * Current activity, present on list responses.
      */
     activity?: AgentActivity;
+    /**
+     * All-time model usage by the agent and its subagents. Present when the list was requested with `include_usage`.
+     */
+    usage?: UsageTotals;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
@@ -3466,9 +3485,13 @@ export type ListProjectsResponse = {
 
 export type OrgOverviewResponse = {
     /**
-     * Projects visible to the caller, newest first (capped).
+     * Projects visible to the caller, most recently active first, capped at 200. Recents and activity still cover every visible project.
      */
     projects: Array<VisibleProject>;
+    /**
+     * When each listed project last had an active top-level agent or an agent profile updated, among those the caller can read. Projects with neither are omitted.
+     */
+    project_activity: Array<OrgOverviewProjectActivity>;
     /**
      * Most recently active agents across the caller's readable projects, ordered by updated_at descending.
      */
@@ -3481,6 +3504,11 @@ export type OrgOverviewResponse = {
      * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
      */
     referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
+};
+
+export type OrgOverviewProjectActivity = {
+    project_id: ProjectId;
+    last_active_at: Timestamp;
 };
 
 export type OrgOverviewAgentProfileReference = {
@@ -3544,6 +3572,14 @@ export type UsageTimeseriesSeries = {
      * Configured model or agent profile name, resolved even if it has since been deleted. Present with `id`.
      */
     name?: ResourceName;
+    /**
+     * Name of the configured model's provider config, so same-named models can be told apart. Present on `model` series.
+     */
+    model_provider_config_name?: ResourceName;
+    /**
+     * Name of the agent profile's project, so same-named profiles in different projects can be told apart. Present on `profile` series.
+     */
+    project_name?: ResourceName;
     /**
      * Metric over the whole window.
      */
@@ -3697,6 +3733,21 @@ export type ProjectMembershipGrant = {
 export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
+
+/**
+ * Include each agent's `usage`, so a list can show costs without a request per agent.
+ */
+export type AgentIncludeUsage = boolean;
+
+/**
+ * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+ */
+export type AgentProfileIncludeStats = boolean;
+
+/**
+ * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+ */
+export type AgentProfileStatsSince = string;
 
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
@@ -4912,6 +4963,10 @@ export type ListOrgAgentsData = {
          * Include archived agents. Defaults to false.
          */
         include_archived?: boolean;
+        /**
+         * Include each agent's `usage`, so a list can show costs without a request per agent.
+         */
+        include_usage?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -4989,6 +5044,14 @@ export type ListOrgAgentProfilesData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+         */
+        include_stats?: boolean;
+        /**
+         * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+         */
+        stats_since?: string;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -9230,6 +9293,14 @@ export type ListAgentProfilesData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+         */
+        include_stats?: boolean;
+        /**
+         * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+         */
+        stats_since?: string;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -10259,6 +10330,10 @@ export type ListAgentsData = {
          * Include archived agents. Defaults to false.
          */
         include_archived?: boolean;
+        /**
+         * Include each agent's `usage`, so a list can show costs without a request per agent.
+         */
+        include_usage?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

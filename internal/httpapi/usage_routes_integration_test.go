@@ -84,6 +84,70 @@ func TestUsageRoutes(t *testing.T) {
 
 	nothing := expectedUsage{cost: "0"}
 	window := "since=2000-01-01T00:00:00Z&until=2100-01-01T00:00:00Z"
+
+	// Profile lists carry each profile's stats on request, matching its usage
+	// report with subagents.
+	profileID := testPublicID(t, publicid.KindAgentProfile, parent.AgentProfileID)
+	profileStats := func(path string) map[string]any {
+		t.Helper()
+		for _, raw := range testutil.RequireType[[]any](t, get(path)["data"]) {
+			row := testutil.RequireType[map[string]any](t, raw)
+			if row["id"] != profileID {
+				continue
+			}
+			stats, ok := row["stats"]
+			if !ok {
+				return nil
+			}
+			return testutil.RequireType[map[string]any](t, stats)
+		}
+		t.Fatalf("%s did not list profile %s", path, profileID)
+		return nil
+	}
+	if stats := profileStats(project.ProjectPath + "/agent-profiles"); stats != nil {
+		t.Fatalf("stats without include_stats = %+v, want none", stats)
+	}
+	for _, path := range []string{
+		project.ProjectPath + "/agent-profiles?include_stats=true",
+		"/api/v1/orgs/" + project.OrgID + "/agent-profiles?include_stats=true&stats_since=2000-01-01T00:00:00Z",
+	} {
+		stats := profileStats(path)
+		if stats["agent_count"] != float64(1) {
+			t.Fatalf("%s agent_count = %v, want 1", path, stats["agent_count"])
+		}
+		assertUsageTotals(t, path, testutil.RequireType[map[string]any](t, stats["usage"]), wholeTree)
+	}
+	future := profileStats(project.ProjectPath + "/agent-profiles?include_stats=true&stats_since=2100-01-01T00:00:00Z")
+	assertUsageTotals(t, "future stats", testutil.RequireType[map[string]any](t, future["usage"]), nothing)
+
+	// Agent lists carry each agent's usage with its subagents on request.
+	agentUsage := func(path string) map[string]map[string]any {
+		t.Helper()
+		usage := map[string]map[string]any{}
+		for _, raw := range testutil.RequireType[[]any](t, get(path)["data"]) {
+			row := testutil.RequireType[map[string]any](t, raw)
+			if totals, ok := row["usage"]; ok {
+				usage[testutil.RequireType[string](t, row["id"])] = testutil.RequireType[map[string]any](t, totals)
+			}
+		}
+		return usage
+	}
+	if usage := agentUsage(project.ProjectPath + "/agents?include_subagents=true"); len(usage) != 0 {
+		t.Fatalf("usage without include_usage = %+v, want none", usage)
+	}
+	parentID := testPublicID(t, publicid.KindAgent, parent.ID)
+	childID := testPublicID(t, publicid.KindAgent, child.ID)
+	childTree := expectedUsage{
+		modelCalls: 2, withCost: 1, cost: "0.0005", input: 57, uncached: 57, output: 13,
+	}
+	for _, path := range []string{
+		project.ProjectPath + "/agents?include_subagents=true&include_usage=true",
+		"/api/v1/orgs/" + project.OrgID + "/agents?include_subagents=true&include_usage=true",
+	} {
+		usage := agentUsage(path)
+		assertUsageTotals(t, path+" parent", usage[parentID], wholeTree)
+		assertUsageTotals(t, path+" child", usage[childID], childTree)
+	}
 	for _, scope := range []struct {
 		path string
 		want expectedUsage
@@ -176,6 +240,17 @@ func TestUsageRoutes(t *testing.T) {
 		t, handler, http.MethodGet, missingProfilePath, "", "", http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
+
+	// A deleted project's past usage still counts for org admins, who see the
+	// whole org, but no longer for members who could read it.
+	if _, err := store.Organizations().DeleteProject(
+		ctx, project.OrgUUID, project.ProjectUUID, httpUserPrincipal(project.AdminUserUUID),
+	); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	assertUsageReport(t, get(orgUsagePath), wholeTree)
+	assertUsageReport(t, get(orgUsagePath+"?exclude_project_ids="+emptyProjectID), wholeTree)
+	assertUsageReport(t, getAs(viewer, orgUsagePath, http.StatusOK), nothing)
 }
 
 type expectedUsage struct {

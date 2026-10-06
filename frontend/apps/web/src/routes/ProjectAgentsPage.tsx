@@ -31,7 +31,7 @@ export function ProjectAgentsPage() {
   const navigate = useNavigate()
 
   return (
-    <ProjectPageFrame title="Agents">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) => (
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-3">

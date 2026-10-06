@@ -40,7 +40,7 @@ export function AddConfiguredModelsView({
   const [providerId, setProviderId] = useState(defaultProviderId ?? providers[0]?.id ?? '')
   const [search, setSearch] = useState('')
   const [drafts, setDrafts] = useState<ConfiguredModelDraft[]>([])
-  const [expandedSlug, setExpandedSlug] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const provider = providers.find((candidate) => candidate.id === providerId)
   const {
     catalog,
@@ -62,14 +62,14 @@ export function AddConfiguredModelsView({
   const locked = submitting || retrying
 
   /** Names a draft must not reuse: the provider's models and the other drafts. */
-  function takenNames(except?: string) {
+  function takenNames(exceptId?: string) {
     const names = new Set(existingNames)
-    for (const draft of drafts) if (draft.slug !== except) names.add(draft.name)
+    for (const draft of drafts) if (draft.id !== exceptId) names.add(draft.name)
     return names
   }
 
   function draftError(draft: ConfiguredModelDraft) {
-    return configuredModelDraftError(draft, takenNames(draft.slug))
+    return configuredModelDraftError(draft, takenNames(draft.id))
   }
 
   function newDraft(model: DiscoveredProviderModel) {
@@ -81,7 +81,7 @@ export function AddConfiguredModelsView({
   function switchProvider(nextProviderId: string) {
     setProviderId(nextProviderId)
     setDrafts([])
-    setExpandedSlug(null)
+    setExpandedId(null)
     submission.clearError()
   }
 
@@ -120,10 +120,10 @@ export function AddConfiguredModelsView({
   function select(draft: ConfiguredModelDraft) {
     holdFocusedRow()
     setDrafts((previous) => [...previous, draft])
-    // Open the fields for a missing limit, or for a slug the provider already has, whose
-    // second configuration is only worth adding with a different name or limits.
-    const configured = addedModels.some((model) => model.slug === draft.slug)
-    if (configured || draftError(draft)) setExpandedSlug(draft.slug)
+    // Open the fields for a missing limit, or for a slug the provider already has or that is
+    // already picked, whose next configuration is only worth adding with other settings.
+    const repeated = addedModels.some((model) => model.slug === draft.slug)
+    if (repeated || draftError(draft)) setExpandedId(draft.id)
   }
 
   function addCustom() {
@@ -136,7 +136,7 @@ export function AddConfiguredModelsView({
   async function addModels() {
     const failed = await submission.add(providerId, drafts)
     setDrafts(failed)
-    setExpandedSlug(null)
+    setExpandedId(null)
   }
 
   function retrySharing() {
@@ -167,24 +167,24 @@ export function AddConfiguredModelsView({
         search={search}
         drafts={drafts}
         draftError={draftError}
-        expandedSlug={expandedSlug}
+        expandedId={expandedId}
         availableModels={availableModels}
         addedModels={addedModels}
         customSlug={customSlug}
         canAddCustom={canAddCustom}
         disabled={locked}
-        onToggleExpanded={(slug) => {
-          setExpandedSlug((current) => (current === slug ? null : slug))
+        onToggleExpanded={(id) => {
+          setExpandedId((current) => (current === id ? null : id))
         }}
         onDraftChange={(next) => {
           setDrafts((previous) =>
-            previous.map((candidate) => (candidate.slug === next.slug ? next : candidate)),
+            previous.map((candidate) => (candidate.id === next.id ? next : candidate)),
           )
         }}
-        onRemoveDraft={(slug) => {
+        onRemoveDraft={(id) => {
           holdFocusedRow()
-          setDrafts((previous) => previous.filter((candidate) => candidate.slug !== slug))
-          setExpandedSlug((current) => (current === slug ? null : current))
+          setDrafts((previous) => previous.filter((candidate) => candidate.id !== id))
+          setExpandedId((current) => (current === id ? null : current))
         }}
         onSelect={(model) => {
           select(newDraft(model))

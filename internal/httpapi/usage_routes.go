@@ -41,22 +41,23 @@ func (s strictOpenAPIServer) GetOrgUsage(
 	if err != nil {
 		return nil, err
 	}
-	projectIDs, err := s.usageReadableProjects(ctx, includeProjectIDs)
+	projects, err := s.usageProjects(ctx, org, includeProjectIDs)
 	if err != nil {
 		return nil, err
 	}
-	projectIDs = slices.DeleteFunc(projectIDs, func(id uuid.UUID) bool {
-		return slices.Contains(excludeProjectIDs, id)
-	})
-	// The store reads an empty project filter as every project, so no readable
-	// projects skips the query and reports nothing.
-	var records []executionstore.ModelUsageRecord
-	if len(projectIDs) > 0 {
-		records, err = s.server.store.Execution().SumOrgModelUsage(ctx, executionstore.SumOrgModelUsageInput{
-			OrgID:             org.ID,
-			Window:            window,
-			IncludeProjectIDs: projectIDs,
+	input := executionstore.SumOrgModelUsageInput{OrgID: org.ID, Window: window}
+	if projects.all {
+		input.ExcludeProjectIDs = excludeProjectIDs
+	} else {
+		input.IncludeProjectIDs = slices.DeleteFunc(projects.projectIDs, func(id uuid.UUID) bool {
+			return slices.Contains(excludeProjectIDs, id)
 		})
+	}
+	// The store reads an empty project filter as every project, so a report
+	// scoped to no projects skips the query and reports nothing.
+	var records []executionstore.ModelUsageRecord
+	if projects.all || len(input.IncludeProjectIDs) > 0 {
+		records, err = s.server.store.Execution().SumOrgModelUsage(ctx, input)
 		if err != nil {
 			return nil, apierror.OrgScoped(err)
 		}

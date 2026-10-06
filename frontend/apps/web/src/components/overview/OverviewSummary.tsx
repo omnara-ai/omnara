@@ -1,3 +1,4 @@
+import { isAgentActive } from '@omnara/react'
 import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
@@ -16,7 +17,6 @@ import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHead
 import { NewProjectButton } from '@/components/projects/NewProjectButton'
 import { Button } from '@/components/ui/button'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { isAgentActive } from '@/lib/agent-status'
 import { formatCount } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -71,9 +71,7 @@ function recentProjects(overview: OrgOverviewResponse) {
     if (time > (activity.get(projectId) ?? Number.NEGATIVE_INFINITY)) activity.set(projectId, time)
   }
   for (const project of overview.projects) record(project.id, project.updated_at)
-  for (const agent of overview.recent_agents) record(agent.project_id, agent.updated_at)
-  for (const profile of overview.recent_agent_profiles)
-    record(profile.project_id, profile.updated_at)
+  for (const entry of overview.project_activity) record(entry.project_id, entry.last_active_at)
   return overview.projects
     .map((project) => ({ project, time: activity.get(project.id) ?? 0 }))
     .sort((left, right) => right.time - left.time)

@@ -116,6 +116,43 @@ describe('usageChartData', () => {
     })
   })
 
+  it('names the project or provider only where series share a name', () => {
+    const data = usageChartData(
+      timeseries([
+        {
+          kind: 'profile',
+          id: reviewer,
+          name: 'Support',
+          project_name: 'Web',
+          total: 3,
+          values: [1, 1, 1],
+        },
+        {
+          kind: 'profile',
+          id: opus,
+          name: 'Support',
+          project_name: 'API',
+          total: 2,
+          values: [1, 1, 0],
+        },
+        {
+          kind: 'model',
+          id: sonnet,
+          name: 'Sonnet',
+          model_provider_config_name: 'Anthropic',
+          total: 1,
+          values: [1, 0, 0],
+        },
+      ]),
+      'tokens',
+    )
+    expect(data.series.map((series) => [series.name, series.detail])).toEqual([
+      ['Support', 'Web'],
+      ['Support', 'API'],
+      ['Sonnet', undefined],
+    ])
+  })
+
   it('plots an ungrouped series as a single total', () => {
     const data = usageChartData(
       timeseries([{ kind: 'all', total: 1.5, values: [1, 0, 0.5] }]),

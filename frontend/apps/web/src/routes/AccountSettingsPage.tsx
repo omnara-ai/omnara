@@ -61,7 +61,7 @@ function AccountSettingsContent({ breadcrumb }: { breadcrumb: Crumb[] }) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={breadcrumb} />
+      {breadcrumb.length > 1 && <PageBreadcrumb items={breadcrumb} />}
       <section className="flex flex-col gap-3">
         <SectionTitle title="Account" />
         <DetailList

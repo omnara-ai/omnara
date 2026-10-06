@@ -4,7 +4,6 @@ import { OrgAgentProfilesSection } from '@/components/agents/AgentProfilesSectio
 import { OrgAgentsSection } from '@/components/agents/AgentsSection'
 import { OrgCreateAgentProfileButton } from '@/components/agents/CreateAgentProfileButton'
 import { PillTabs } from '@/components/agents/PillTabs'
-import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { type Guide, guides } from '@/lib/docs'
 import { canManageOrg } from '@/lib/permissions'
@@ -32,7 +31,6 @@ export function OrgAgentsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb items={[{ id: 'agents', label: 'Agents' }]} />
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SectionTitle title={heading.title} guide={heading.guide} />

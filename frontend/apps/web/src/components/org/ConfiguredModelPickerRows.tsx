@@ -214,7 +214,10 @@ function DraftInput({
   )
 }
 
-/** A model to pick; added marks a slug the provider already has, picked to configure again. */
+/**
+ * A model to pick; added marks a slug the provider already has or that is already picked,
+ * picked to configure again.
+ */
 export function DiscoveredModelRow({
   model,
   added = false,

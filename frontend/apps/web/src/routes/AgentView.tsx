@@ -1,4 +1,5 @@
 import {
+  isAgentActive,
   useAgent,
   useAgentChat,
   useAgentConfig,
@@ -32,7 +33,6 @@ import { Button } from '@/components/ui/button'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { isAgentActive } from '@/lib/agent-status'
 import type { CssVariables } from '@/lib/css'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'

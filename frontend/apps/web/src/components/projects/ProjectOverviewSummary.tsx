@@ -1,4 +1,4 @@
-import { useAgentProfileQuery, useAgentProfiles, useAgents } from '@omnara/react'
+import { isAgentActive, useAgentProfileQuery, useAgentProfiles, useAgents } from '@omnara/react'
 import type { Agent } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { isAgentActive } from '@/lib/agent-status'
 import { errorMessage } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 

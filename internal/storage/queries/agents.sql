@@ -438,3 +438,31 @@ WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND agent_config_id = sqlc.arg(agent_config_id)
 );
+
+-- name: ListProjectLastActivity :many
+-- When each project last had an active top-level agent or a live profile updated,
+-- matching what the overview's recent agents and profiles count as activity.
+SELECT activity.project_id, max(activity.active_at)::timestamptz AS last_active_at
+FROM (
+  SELECT agent.project_id, agent.updated_at AS active_at
+  FROM agents agent
+  WHERE agent.project_id = ANY(sqlc.arg(agent_project_ids)::uuid[])
+    AND agent.state = 'active'
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT profile.project_id, profile.updated_at AS active_at
+  FROM agent_profiles profile
+  WHERE profile.project_id = ANY(sqlc.arg(profile_project_ids)::uuid[])
+    AND profile.deleted_at IS NULL
+) activity
+GROUP BY activity.project_id;
+
+-- name: CountActiveAgentsByProfile :many
+-- Unarchived top-level agents launched from each profile, for a page of profiles at once.
+SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
+FROM agents agent
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND agent.agent_profile_id = ANY(sqlc.arg(agent_profile_ids)::uuid[])
+  AND agent.parent_agent_id IS NULL
+  AND agent.state = 'active'
+GROUP BY agent.agent_profile_id;

@@ -452,6 +452,37 @@ func (s *Store) ListRecentAgentProfilesForProjects(
 	return records, nil
 }
 
+type ListProjectLastActivityInput struct {
+	// AgentProjectIDs are the projects whose agents count, ProfileProjectIDs
+	// those whose agent profiles do.
+	AgentProjectIDs   []uuid.UUID
+	ProfileProjectIDs []uuid.UUID
+}
+
+// ListProjectLastActivity returns when each project last had an active
+// top-level agent or a live agent profile updated. Projects with neither are
+// omitted.
+func (s *Store) ListProjectLastActivity(
+	ctx context.Context,
+	input ListProjectLastActivityInput,
+) (map[uuid.UUID]time.Time, error) {
+	activity := map[uuid.UUID]time.Time{}
+	if len(input.AgentProjectIDs) == 0 && len(input.ProfileProjectIDs) == 0 {
+		return activity, nil
+	}
+	rows, err := s.q.ListProjectLastActivity(ctx, dbsqlc.ListProjectLastActivityParams{
+		AgentProjectIds:   input.AgentProjectIDs,
+		ProfileProjectIds: input.ProfileProjectIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list project last activity: %w", err)
+	}
+	for _, row := range rows {
+		activity[row.ProjectID] = row.LastActiveAt
+	}
+	return activity, nil
+}
+
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {
 	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and agent profile are required")

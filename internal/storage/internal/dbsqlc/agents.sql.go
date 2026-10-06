@@ -214,6 +214,47 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 	return i, err
 }
 
+const countActiveAgentsByProfile = `-- name: CountActiveAgentsByProfile :many
+SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
+FROM agents agent
+WHERE agent.project_id = ANY($1::uuid[])
+  AND agent.agent_profile_id = ANY($2::uuid[])
+  AND agent.parent_agent_id IS NULL
+  AND agent.state = 'active'
+GROUP BY agent.agent_profile_id
+`
+
+type CountActiveAgentsByProfileParams struct {
+	ProjectIds      []uuid.UUID
+	AgentProfileIds []uuid.UUID
+}
+
+type CountActiveAgentsByProfileRow struct {
+	AgentProfileID uuid.UUID
+	AgentCount     int64
+}
+
+// Unarchived top-level agents launched from each profile, for a page of profiles at once.
+func (q *Queries) CountActiveAgentsByProfile(ctx context.Context, arg CountActiveAgentsByProfileParams) ([]CountActiveAgentsByProfileRow, error) {
+	rows, err := q.db.Query(ctx, countActiveAgentsByProfile, arg.ProjectIds, arg.AgentProfileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountActiveAgentsByProfileRow{}
+	for rows.Next() {
+		var i CountActiveAgentsByProfileRow
+		if err := rows.Scan(&i.AgentProfileID, &i.AgentCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteAgentProfile = `-- name: DeleteAgentProfile :execrows
 UPDATE agent_profiles
 SET deleted_at = statement_timestamp(),
@@ -846,6 +887,55 @@ func (q *Queries) ListAgentProfilesWithAgentCounts(ctx context.Context, arg List
 	for rows.Next() {
 		var i ListAgentProfilesWithAgentCountsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.AgentCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectLastActivity = `-- name: ListProjectLastActivity :many
+SELECT activity.project_id, max(activity.active_at)::timestamptz AS last_active_at
+FROM (
+  SELECT agent.project_id, agent.updated_at AS active_at
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.state = 'active'
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT profile.project_id, profile.updated_at AS active_at
+  FROM agent_profiles profile
+  WHERE profile.project_id = ANY($2::uuid[])
+    AND profile.deleted_at IS NULL
+) activity
+GROUP BY activity.project_id
+`
+
+type ListProjectLastActivityParams struct {
+	AgentProjectIds   []uuid.UUID
+	ProfileProjectIds []uuid.UUID
+}
+
+type ListProjectLastActivityRow struct {
+	ProjectID    uuid.UUID
+	LastActiveAt time.Time
+}
+
+// When each project last had an active top-level agent or a live profile updated,
+// matching what the overview's recent agents and profiles count as activity.
+func (q *Queries) ListProjectLastActivity(ctx context.Context, arg ListProjectLastActivityParams) ([]ListProjectLastActivityRow, error) {
+	rows, err := q.db.Query(ctx, listProjectLastActivity, arg.AgentProjectIds, arg.ProfileProjectIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectLastActivityRow{}
+	for rows.Next() {
+		var i ListProjectLastActivityRow
+		if err := rows.Scan(&i.ProjectID, &i.LastActiveAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

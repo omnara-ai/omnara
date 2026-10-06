@@ -65,13 +65,14 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 	if err != nil {
 		return nil, err
 	}
-	projectIDs, err = s.usageReadableProjects(ctx, projectIDs)
+	projects, err := s.usageProjects(ctx, org, projectIDs)
 	if err != nil {
 		return nil, err
 	}
 	filter := executionstore.ModelUsageSeriesFilter{
 		OrgIDs:                  []uuid.UUID{org.ID},
-		ProjectIDs:              projectIDs,
+		ProjectIDs:              projects.projectIDs,
+		AllProjects:             projects.all,
 		AgentProfileIDs:         profileIDs,
 		IncludeProfileSubagents: profileIDs != nil && valueOrZero(params.IncludeSubagents),
 		Since:                   params.Since,
@@ -103,6 +104,38 @@ func (s strictOpenAPIServer) GetOrgUsageTimeseries(
 	response.Timezone = location.String()
 	response.Until = until.UTC()
 	return openapi.GetOrgUsageTimeseries200JSONResponse(response), nil
+}
+
+// usageProjectScope is the projects an org usage report covers.
+type usageProjectScope struct {
+	// all covers every project in the org, deleted ones included.
+	all        bool
+	projectIDs []uuid.UUID
+}
+
+// usageProjects scopes an org usage report, narrowed to projectIDs when given.
+// Org admins see the whole org, so a deleted project's past usage still counts;
+// other members see only the projects they can read.
+func (s strictOpenAPIServer) usageProjects(
+	ctx context.Context,
+	org identitystore.OrgRecord,
+	projectIDs []uuid.UUID,
+) (usageProjectScope, error) {
+	principal, _ := principalFromContext(ctx)
+	admin, err := s.server.store.Identity().AuthorizeOrg(ctx, identitystore.AuthorizeOrgInput{
+		Principal: principal, OrgID: org.ID, Action: identitystore.OrgActionManage,
+	})
+	if err != nil {
+		return usageProjectScope{}, authorizationAPIError(ctx, err)
+	}
+	if admin {
+		return usageProjectScope{all: projectIDs == nil, projectIDs: projectIDs}, nil
+	}
+	readable, err := s.usageReadableProjects(ctx, projectIDs)
+	if err != nil {
+		return usageProjectScope{}, err
+	}
+	return usageProjectScope{projectIDs: readable}, nil
 }
 
 // usageReadableProjects returns the projects the caller can read in the
@@ -182,8 +215,11 @@ type usageTimeseriesGroupKey struct {
 }
 
 type usageTimeseriesGroup struct {
-	key    usageTimeseriesGroupKey
-	name   string
+	key  usageTimeseriesGroupKey
+	name string
+	// parent names what the group belongs to: a model's provider config or a
+	// profile's project.
+	parent string
 	total  float64
 	values []float64
 }
@@ -202,10 +238,10 @@ func usageTimeseriesResponse(
 		if err != nil {
 			return openapi.UsageTimeseries{}, err
 		}
-		key, name := usageTimeseriesRowGroup(row, groupBy)
+		key, name, parent := usageTimeseriesRowGroup(row, groupBy)
 		group, ok := groups[key]
 		if !ok {
-			group = &usageTimeseriesGroup{key: key, name: name, values: make([]float64, buckets)}
+			group = &usageTimeseriesGroup{key: key, name: name, parent: parent, values: make([]float64, buckets)}
 			groups[key] = group
 			order = append(order, group)
 		}
@@ -247,6 +283,16 @@ func usageTimeseriesResponse(
 			}
 			item.Id, item.Name = new(id), new(group.name)
 		}
+		switch group.key.kind {
+		case openapi.UsageTimeseriesSeriesKindModel:
+			item.ModelProviderConfigName = new(group.parent)
+		case openapi.UsageTimeseriesSeriesKindProfile:
+			item.ProjectName = new(group.parent)
+		case openapi.UsageTimeseriesSeriesKindAll,
+			openapi.UsageTimeseriesSeriesKindNoProfile,
+			openapi.UsageTimeseriesSeriesKindOther:
+			// These series have no parent to name.
+		}
 		responseSeries = append(responseSeries, item)
 	}
 	bucketStarts := make([]openapi.Timestamp, 0, buckets)
@@ -266,16 +312,18 @@ func usageTimeseriesResponse(
 func usageTimeseriesRowGroup(
 	row executionstore.ModelUsageSeriesRow,
 	groupBy *openapi.UsageTimeseriesGroupBy,
-) (usageTimeseriesGroupKey, string) {
+) (key usageTimeseriesGroupKey, name, parent string) {
 	switch {
 	case groupBy == nil:
-		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindAll}, ""
+		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindAll}, "", ""
 	case *groupBy == openapi.UsageTimeseriesGroupByModel:
-		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindModel, id: row.ModelID}, row.ModelName
+		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindModel, id: row.ModelID},
+			row.ModelName, row.ProviderName
 	case row.ProfileID == uuid.Nil:
-		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindNoProfile}, ""
+		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindNoProfile}, "", ""
 	default:
-		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindProfile, id: row.ProfileID}, row.ProfileName
+		return usageTimeseriesGroupKey{kind: openapi.UsageTimeseriesSeriesKindProfile, id: row.ProfileID},
+			row.ProfileName, row.ProjectName
 	}
 }
 

@@ -1,10 +1,9 @@
-import { useAgentQuery } from '@omnara/react'
+import { isAgentActive, useAgentQuery } from '@omnara/react'
 import type { Agent } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
 import { AgentIcon } from '@/components/agents/AgentIcon'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { isAgentActive } from '@/lib/agent-status'
 import { cn } from '@/lib/utils'
 
 const referenceLinkClass = 'flex min-w-0 items-center gap-1.5 hover:underline'

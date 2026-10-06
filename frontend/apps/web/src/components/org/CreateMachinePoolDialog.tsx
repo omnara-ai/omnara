@@ -41,6 +41,8 @@ const stepTitles: Record<MachinePoolCreateStepId, string> = {
 }
 
 const lastStep = machinePoolCreateSteps.length - 1
+// Capacity's fields are prefilled, so skipping ahead only creates once they've been seen.
+const capacityStep = machinePoolCreateSteps.indexOf('capacity')
 
 const stepFieldSelector =
   '[aria-current="step"] :is(input:not([type="hidden"]), textarea, button[role="combobox"])'
@@ -160,36 +162,7 @@ export function CreateMachinePoolDialog({
     onOpenChange(nextOpen)
   }
 
-  const summaries: Record<MachinePoolCreateStepId, ReactNode> = {
-    provider: (
-      <>
-        {values.name} · {machinePoolProviderLabel(values.provider)}
-        {secret.data && (
-          <>
-            {' · '}
-            <span className="font-mono">{secret.data.name}</span>
-          </>
-        )}
-      </>
-    ),
-    image: (
-      <>
-        {values.image.trim() ? (
-          <span className="font-mono">{values.image.trim()}</span>
-        ) : (
-          `Default ${machinePoolProviderDefinitions[values.provider].resource.label.toLowerCase()}`
-        )}
-        {values.providerScope.trim() && ` · ${values.providerScope.trim()}`}
-      </>
-    ),
-    capacity: (
-      <>
-        {values.location.trim() && `${values.location.trim()} · `}
-        up to {values.maxMachines} × {machinePoolMachineSizeLabel(values)}
-      </>
-    ),
-    environment: environmentSummary(values),
-  }
+  const summaries = stepSummaries(values, secret.data?.name)
 
   const primaryLabel =
     phase.kind === 'retry-grants' ? 'Retry sharing' : isLast ? 'Create pool' : 'Continue'
@@ -259,7 +232,7 @@ export function CreateMachinePoolDialog({
                 Step {current + 1} of {machinePoolCreateSteps.length}
               </span>
               <div className="flex gap-2">
-                {phase.kind === 'form' && !isLast && valid && (
+                {phase.kind === 'form' && !isLast && reached >= capacityStep && valid && (
                   <Button
                     type="button"
                     variant="outline"
@@ -281,6 +254,43 @@ export function CreateMachinePoolDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** The one-line summary each step shows once it's folded away. */
+function stepSummaries(
+  values: MachinePoolFormValues,
+  secretName: string | undefined,
+): Record<MachinePoolCreateStepId, ReactNode> {
+  return {
+    provider: (
+      <>
+        {values.name} · {machinePoolProviderLabel(values.provider)}
+        {secretName && (
+          <>
+            {' · '}
+            <span className="font-mono">{secretName}</span>
+          </>
+        )}
+      </>
+    ),
+    image: (
+      <>
+        {values.image.trim() ? (
+          <span className="font-mono">{values.image.trim()}</span>
+        ) : (
+          `Default ${machinePoolProviderDefinitions[values.provider].resource.label.toLowerCase()}`
+        )}
+        {values.providerScope.trim() && ` · ${values.providerScope.trim()}`}
+      </>
+    ),
+    capacity: (
+      <>
+        {values.location.trim() && `${values.location.trim()} · `}
+        up to {values.maxMachines} × {machinePoolMachineSizeLabel(values)}
+      </>
+    ),
+    environment: environmentSummary(values),
+  }
 }
 
 /** What step 4 adds to each machine, e.g. "Startup script · 2 variables". */

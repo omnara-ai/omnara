@@ -128,7 +128,9 @@ export function ProjectSecretGrantsTable({
         emptyMessage="No shared secrets. Share one from the Organization tab on the Secrets page."
         emptyAction={
           <Button asChild size="sm" variant="outline">
-            <Link to="/secrets">Go to secrets</Link>
+            <Link to="/secrets" search={{ owner: 'organization' }}>
+              Go to secrets
+            </Link>
           </Button>
         }
       />

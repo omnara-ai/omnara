@@ -1,9 +1,8 @@
-import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 
 import { SecretsSection } from '@/components/overview/SecretsSection'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { ProjectSecretGrantsTable } from '@/components/projects/ProjectSecretGrantsTable'
-import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function ProjectSecretsPage() {
@@ -14,21 +13,14 @@ export function ProjectSecretsPage() {
   const navigate = useNavigate({ from: '/projects/$projectId/secrets' })
 
   const sourceTabs = (
-    <>
-      <Button asChild size="sm" variant="ghost">
-        <Link to="/secrets" search={{ owner: 'organization' }}>
-          Organization secrets
-        </Link>
-      </Button>
-      <TabsList aria-label="Secret source">
-        <TabsTrigger value="project">Project</TabsTrigger>
-        <TabsTrigger value="shared">Shared</TabsTrigger>
-      </TabsList>
-    </>
+    <TabsList aria-label="Secret source">
+      <TabsTrigger value="project">Project</TabsTrigger>
+      <TabsTrigger value="shared">Shared</TabsTrigger>
+    </TabsList>
   )
 
   return (
-    <ProjectPageFrame title="Secrets">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) => (
         <Tabs
           value={tab}

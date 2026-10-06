@@ -1117,18 +1117,6 @@ export const zRenameAgentProfileRequest = z.object({
     name: zResourceName
 });
 
-export const zAgentProfileSummary = z.object({
-    id: zAgentProfileId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    current_config_id: zAgentConfigId,
-    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    current_config: zAgentConfigSummary
-});
-
 export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
@@ -1139,11 +1127,6 @@ export const zAgentProfile = z.object({
     created_at: zTimestamp,
     updated_at: zTimestamp,
     current_config: zAgentConfig
-});
-
-export const zListAgentProfilesResponse = z.object({
-    data: z.array(zAgentProfileSummary),
-    next_cursor: z.string().nullable()
 });
 
 export const zAgentProfileCronTriggerTarget = z.object({
@@ -1258,24 +1241,6 @@ export const zIntegrationTarget = z.object({
     provider_uri: z.url().optional()
 });
 
-export const zAgent = z.object({
-    id: zAgentId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_profile_id: zAgentProfileId.optional(),
-    state: z.enum(['active', 'archived']),
-    name: zAgentName,
-    integration_target: zIntegrationTarget.optional(),
-    current_config_id: zAgentConfigId.optional(),
-    model: zAgentModel.optional(),
-    parent_agent_id: zAgentId.optional(),
-    subagent_key: z.string().optional(),
-    activity: zAgentActivity.optional(),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    archived_at: zTimestamp.optional()
-});
-
 export const zAgentMcpConnection = z.object({
     server_key: z.string(),
     endpoint_url: z.string(),
@@ -1289,21 +1254,6 @@ export const zAgentMcpConnection = z.object({
     initialize_error: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
-});
-
-export const zCurrentAgentResponse = z.object({
-    agent: zAgent
-});
-
-export const zGetAgentResponse = z.object({
-    agent: zAgent,
-    machine_ids: z.array(zMachineId),
-    mcp_connections: z.array(zAgentMcpConnection)
-});
-
-export const zListAgentsResponse = z.object({
-    data: z.array(zAgent),
-    next_cursor: z.string().nullable()
 });
 
 export const zAgentInputKind = z.enum([
@@ -1519,13 +1469,6 @@ export const zAgentInput = z.object({
     input_idempotency_key: z.string().optional(),
     content_blocks: z.array(zAgentInputContentBlock).optional(),
     queued_at: zTimestamp
-});
-
-export const zLaunchAgentResponse = z.object({
-    agent: zAgent,
-    agent_config: zAgentConfig,
-    machine_bindings: z.array(zAgentMachineBinding),
-    agent_input: zAgentInput.optional()
 });
 
 export const zUpdateAgentConfigResponse = z.object({
@@ -2870,17 +2813,15 @@ export const zListProjectsResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zOrgOverviewProjectActivity = z.object({
+    project_id: zProjectId,
+    last_active_at: zTimestamp
+});
+
 export const zOrgOverviewAgentProfileReference = z.object({
     id: zAgentProfileId,
     name: zResourceName,
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
-});
-
-export const zOrgOverviewResponse = z.object({
-    projects: z.array(zVisibleProject),
-    recent_agents: z.array(zAgent),
-    recent_agent_profiles: z.array(zAgentProfileSummary),
-    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference)
 });
 
 export const zUsageTimeseriesInterval = z.enum([
@@ -2913,6 +2854,8 @@ export const zUsageTimeseriesSeries = z.object({
     ]),
     id: z.string().optional(),
     name: zResourceName.optional(),
+    model_provider_config_name: zResourceName.optional(),
+    project_name: zResourceName.optional(),
     total: z.number().gte(0),
     values: z.array(z.number().gte(0))
 });
@@ -2938,6 +2881,81 @@ export const zUsageTotals = z.object({
     model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     tokens: zUsageTokenTotals,
     cost: zUsageCostTotals
+});
+
+/**
+ * Present when the list was requested with `include_stats`.
+ */
+export const zAgentProfileStats = z.object({
+    agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    usage: zUsageTotals
+});
+
+export const zAgentProfileSummary = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfigSummary,
+    stats: zAgentProfileStats.optional()
+});
+
+export const zListAgentProfilesResponse = z.object({
+    data: z.array(zAgentProfileSummary),
+    next_cursor: z.string().nullable()
+});
+
+export const zAgent = z.object({
+    id: zAgentId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_profile_id: zAgentProfileId.optional(),
+    state: z.enum(['active', 'archived']),
+    name: zAgentName,
+    integration_target: zIntegrationTarget.optional(),
+    current_config_id: zAgentConfigId.optional(),
+    model: zAgentModel.optional(),
+    parent_agent_id: zAgentId.optional(),
+    subagent_key: z.string().optional(),
+    activity: zAgentActivity.optional(),
+    usage: zUsageTotals.optional(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    archived_at: zTimestamp.optional()
+});
+
+export const zCurrentAgentResponse = z.object({
+    agent: zAgent
+});
+
+export const zGetAgentResponse = z.object({
+    agent: zAgent,
+    machine_ids: z.array(zMachineId),
+    mcp_connections: z.array(zAgentMcpConnection)
+});
+
+export const zListAgentsResponse = z.object({
+    data: z.array(zAgent),
+    next_cursor: z.string().nullable()
+});
+
+export const zLaunchAgentResponse = z.object({
+    agent: zAgent,
+    agent_config: zAgentConfig,
+    machine_bindings: z.array(zAgentMachineBinding),
+    agent_input: zAgentInput.optional()
+});
+
+export const zOrgOverviewResponse = z.object({
+    projects: z.array(zVisibleProject),
+    project_activity: z.array(zOrgOverviewProjectActivity),
+    recent_agents: z.array(zAgent),
+    recent_agent_profiles: z.array(zAgentProfileSummary),
+    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference)
 });
 
 export const zUsageTimeseries = z.object({
@@ -3030,6 +3048,21 @@ export const zProjectMembershipGrant = z.object({
 export const zListProjectMembershipGrantsResponse = z.object({
     data: z.array(zProjectMembershipGrant)
 });
+
+/**
+ * Include each agent's `usage`, so a list can show costs without a request per agent.
+ */
+export const zAgentIncludeUsage = z.boolean();
+
+/**
+ * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+ */
+export const zAgentProfileIncludeStats = z.boolean();
+
+/**
+ * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+ */
+export const zAgentProfileStatsSince = z.iso.datetime({ offset: true });
 
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
@@ -3312,6 +3345,7 @@ export const zListOrgAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -3328,6 +3362,8 @@ export const zListOrgAgentProfilesPath = z.object({
 
 export const zListOrgAgentProfilesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4079,6 +4115,8 @@ export const zListAgentProfilesPath = z.object({
 
 export const zListAgentProfilesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4281,6 +4319,7 @@ export const zListAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

@@ -249,7 +249,10 @@ function UsageTooltip({
                   <span className="h-3.5 w-1 rounded-full" style={{ backgroundColor: row.color }} />
                 </span>
               )}
-              <span className="min-w-0 flex-1 truncate">{row.name}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {row.name}
+                {row.detail && <span className="text-muted-foreground"> · {row.detail}</span>}
+              </span>
               <span className="tabular-nums">{formatUsageValue(data.measure, row.value)}</span>
             </li>
           ))}

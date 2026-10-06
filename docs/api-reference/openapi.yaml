@@ -783,6 +783,7 @@ paths:
           description: Include archived agents. Defaults to false.
           schema:
             type: boolean
+        - $ref: '#/components/parameters/AgentIncludeUsage'
         - name: sort
           in: query
           schema:
@@ -827,6 +828,8 @@ paths:
         descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/AgentProfileIncludeStats'
+        - $ref: '#/components/parameters/AgentProfileStatsSince'
         - name: sort
           in: query
           schema:
@@ -3379,6 +3382,8 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/AgentProfileIncludeStats'
+        - $ref: '#/components/parameters/AgentProfileStatsSince'
         - name: sort
           in: query
           schema:
@@ -4064,6 +4069,7 @@ paths:
           description: Include archived agents. Defaults to false.
           schema:
             type: boolean
+        - $ref: '#/components/parameters/AgentIncludeUsage'
         - name: sort
           in: query
           schema:
@@ -7526,6 +7532,34 @@ components:
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
+    AgentIncludeUsage:
+      name: include_usage
+      in: query
+      required: false
+      schema:
+        type: boolean
+      description: >-
+        Include each agent's `usage`, so a list can show costs without a
+        request per agent.
+    AgentProfileIncludeStats:
+      name: include_stats
+      in: query
+      required: false
+      schema:
+        type: boolean
+      description: >-
+        Include each profile's `stats`, so a list can show instance counts and
+        usage without a request per profile.
+    AgentProfileStatsSince:
+      name: stats_since
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Start of the window `stats.usage` tallies, with `include_stats`. Omit to
+        tally from the earliest recorded call.
     UsageSince:
       name: since
       in: query
@@ -10314,6 +10348,24 @@ components:
           $ref: '#/components/schemas/Timestamp'
         current_config:
           $ref: '#/components/schemas/AgentConfigSummary'
+        stats:
+          $ref: '#/components/schemas/AgentProfileStats'
+    AgentProfileStats:
+      type: object
+      additionalProperties: false
+      description: Present when the list was requested with `include_stats`.
+      required: [agent_count, usage]
+      properties:
+        agent_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unarchived top-level agents launched from the profile.
+        usage:
+          $ref: '#/components/schemas/UsageTotals'
+          description: >-
+            Model usage by the profile's agents and their subagents since
+            `stats_since`.
     AgentProfile:
       type: object
       additionalProperties: false
@@ -10559,6 +10611,11 @@ components:
         activity:
           description: Current activity, present on list responses.
           $ref: '#/components/schemas/AgentActivity'
+        usage:
+          description: >-
+            All-time model usage by the agent and its subagents. Present when
+            the list was requested with `include_usage`.
+          $ref: '#/components/schemas/UsageTotals'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -13945,13 +14002,23 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles]
+      required: [projects, project_activity, recent_agents, recent_agent_profiles, referenced_agent_profiles]
       properties:
         projects:
           type: array
-          description: Projects visible to the caller, newest first (capped).
+          description: >-
+            Projects visible to the caller, most recently active first, capped
+            at 200. Recents and activity still cover every visible project.
           items:
             $ref: '#/components/schemas/VisibleProject'
+        project_activity:
+          type: array
+          description: >-
+            When each listed project last had an active top-level agent or an
+            agent profile updated, among those the caller can read. Projects
+            with neither are omitted.
+          items:
+            $ref: '#/components/schemas/OrgOverviewProjectActivity'
         recent_agents:
           type: array
           description: >-
@@ -13974,6 +14041,15 @@ components:
             since deleted are omitted.
           items:
             $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
+    OrgOverviewProjectActivity:
+      type: object
+      additionalProperties: false
+      required: [project_id, last_active_at]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        last_active_at:
+          $ref: '#/components/schemas/Timestamp'
     OrgOverviewAgentProfileReference:
       type: object
       additionalProperties: false
@@ -14077,6 +14153,16 @@ components:
           description: >-
             Configured model or agent profile name, resolved even if it has since
             been deleted. Present with `id`.
+        model_provider_config_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Name of the configured model's provider config, so same-named models
+            can be told apart. Present on `model` series.
+        project_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Name of the agent profile's project, so same-named profiles in different
+            projects can be told apart. Present on `profile` series.
         total:
           type: number
           format: double
