@@ -64,6 +64,10 @@ func TestDaemonSocketHubRegistrationDuringShutdown(t *testing.T) {
 				byRuntime: map[uuid.UUID]*daemonSocket{},
 			}
 			socket := newTestDaemonSocket(t, &daemonSocket{machineID: uuid.New(), runtimeID: uuid.New()})
+			prior := newTestDaemonSocket(t, &daemonSocket{machineID: socket.machineID, runtimeID: socket.runtimeID})
+			if !hub.register(prior) {
+				t.Fatal("initial registration rejected")
+			}
 			switch order {
 			case "before":
 				if !hub.register(socket) {
@@ -87,6 +91,11 @@ func TestDaemonSocketHubRegistrationDuringShutdown(t *testing.T) {
 			case <-socket.done:
 			default:
 				t.Fatal("shutdown missed socket")
+			}
+			select {
+			case <-prior.done:
+			default:
+				t.Fatal("shutdown missed replaced socket")
 			}
 		})
 	}

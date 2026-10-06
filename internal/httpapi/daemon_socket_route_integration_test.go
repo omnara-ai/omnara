@@ -399,6 +399,7 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 		t,
 		store,
 		WithDaemonNotifications(testBus, presence, daemonSocketRouteReplicaID),
+		WithHTTPRecorder(metrics.NewHTTPRecorder(metrics.New(), metrics.SubsystemAPI)),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	httpServer := httptest.NewServer(handler)
@@ -1731,6 +1732,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		shutdown      bool
 	}{
 		{name: "api shutdown", shutdown: true, source: "socket_closed"},
+		{name: "api shutdown during message", shutdown: true, queuedMessage: true, source: "socket_closed"},
 		{name: "transport failure", source: "socket_failure"},
 		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
 		{name: "local policy failure during message", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},

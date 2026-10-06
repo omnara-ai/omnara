@@ -197,6 +197,8 @@ func (h *daemonSocketHub) Close() {
 
 		// Cancel every handler before waiting for any one connection or
 		// subscription. In-flight work must be able to exit during shutdown.
+		// Cancellation may close the transport before its close frame is sent;
+		// the daemon reconnects on either close frames or transport failures.
 		for _, handler := range handlers {
 			handler.cancel(logpkg.ErrSocketClosed)
 		}
