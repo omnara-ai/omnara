@@ -1,7 +1,7 @@
 import { useRouterState } from '@tanstack/react-router'
 
 import { NavSection } from '@/components/app-shell/NavSection'
-import { Bot, Box, ChartBar, House, KeyRound, Server, Sparkles } from '@/components/icons'
+import { Bot, Box, Brain, ChartBar, House, KeyRound, Server, Sparkles } from '@/components/icons'
 
 export function ProjectNav({ projectId }: { projectId: string }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -78,6 +78,14 @@ export function ProjectNav({ projectId }: { projectId: string }) {
             to: '/projects/$projectId/skills',
             params,
             isActive: within('skills'),
+          },
+          {
+            id: 'memory',
+            label: 'Memory',
+            icon: Brain,
+            to: '/projects/$projectId/memory',
+            params,
+            isActive: within('memory'),
           },
         ]}
       />

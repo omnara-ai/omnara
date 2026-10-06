@@ -1,9 +1,9 @@
 import { useOrgOverview } from '@omnara/react'
+import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { ArrowRight } from '@/components/icons'
-import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
 import { panelHintClass } from '@/components/overview/CodeBlock'
 import { OverviewSummary } from '@/components/overview/OverviewSummary'
@@ -20,10 +20,7 @@ export function Overview() {
   const overviewQuery = useOrgOverview(activeOrg.id)
   const overview = overviewQuery.data
 
-  const manageableProject = overview?.projects
-    .slice()
-    .reverse()
-    .find((project) => project.access.can_manage)
+  const manageableProject = overview && onboardingProject(overview)
   const needsOnboarding =
     overview != null && manageableProject != null && overview.recent_agents.length === 0
 
@@ -40,8 +37,6 @@ export function Overview() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
-      <PageBreadcrumb items={[{ id: 'overview', label: 'Overview' }]} />
-
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
@@ -81,4 +76,20 @@ export function Overview() {
       )}
     </div>
   )
+}
+
+/**
+ * The project onboarding runs in: the one with the latest edited profile, so a profile
+ * already made is where the first agent launches, or else the oldest project the caller
+ * manages, which is the org's first. Projects are listed by activity, not creation.
+ */
+function onboardingProject(overview: OrgOverviewResponse) {
+  const manageable = overview.projects.filter((project) => project.access.can_manage)
+  const started = overview.recent_agent_profiles.find((profile) =>
+    manageable.some((project) => project.id === profile.project_id),
+  )
+  if (started) return manageable.find((project) => project.id === started.project_id)
+  return manageable
+    .slice()
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))[0]
 }

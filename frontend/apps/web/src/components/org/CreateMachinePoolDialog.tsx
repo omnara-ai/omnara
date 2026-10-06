@@ -158,6 +158,8 @@ export function CreateMachinePoolDialog({
       setPhase({ kind: 'form', error: '' })
       setCurrent(0)
       setCollapsed(false)
+      // The draft survives closing, but its steps must be seen again before skipping ahead.
+      setReached(0)
     }
     onOpenChange(nextOpen)
   }

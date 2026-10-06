@@ -15,7 +15,7 @@ import { formatDateTime } from '@/lib/format'
 
 export function ProjectMemoryPage() {
   return (
-    <ProjectPageFrame title="Memory">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) =>
         project?.access.can_read ? (
           <MemoryStores
