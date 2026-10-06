@@ -9,7 +9,7 @@ import {
 } from '@omnara/react'
 import { ApiError, type MachinePool, type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { type ReactNode, useId, useState } from 'react'
+import { useId, useState } from 'react'
 
 import {
   AgentCard,
@@ -138,22 +138,7 @@ export function ProjectMachinesView({
           </EmptyHeader>
         </Empty>
       ) : shared.length === 0 && available.length === 0 ? (
-        <Empty className="rounded-xl border">
-          <EmptyHeader>
-            <EmptyDescription>
-              {list.isFiltering
-                ? 'No results.'
-                : canManageGrants
-                  ? 'No shared machine pools. Share a pool so agents in this project can run.'
-                  : 'No machine pools are shared with this project yet.'}
-            </EmptyDescription>
-          </EmptyHeader>
-          {!list.isFiltering && (
-            <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-              <GrantMachinePoolButton />
-            </EmptyContent>
-          )}
-        </Empty>
+        <SharedPoolsEmpty isFiltering={list.isFiltering} canManage={canManageGrants} />
       ) : (
         <ul className="flex flex-col gap-5">
           {shared.map((item) => (
@@ -163,31 +148,11 @@ export function ProjectMachinesView({
                 projectId={projectId}
                 item={item}
                 pool={poolById.get(item.grant.machine_pool_id)}
-                actions={
-                  <ResourceRowActions
-                    deleteLabel="Stop sharing"
-                    onEdit={
-                      canManageGrants
-                        ? () => {
-                            setEditing(item)
-                          }
-                        : undefined
-                    }
-                    onDelete={
-                      canManageGrants
-                        ? () => {
-                            if (
-                              !window.confirm(
-                                `Stop sharing ${item.machine_pool.name} with this project?`,
-                              )
-                            )
-                              return
-                            deleteGrant.mutate(item.grant.id)
-                          }
-                        : undefined
-                    }
-                  />
-                }
+                canManage={canManageGrants}
+                onEdit={setEditing}
+                onStopSharing={(grant) => {
+                  deleteGrant.mutate(grant.grant.id)
+                }}
               />
             </li>
           ))}
@@ -220,18 +185,73 @@ export function ProjectMachinesView({
   )
 }
 
+function SharedPoolsEmpty({
+  isFiltering,
+  canManage,
+}: {
+  isFiltering: boolean
+  canManage: boolean
+}) {
+  let message = 'No machine pools are shared with this project yet.'
+  if (isFiltering) message = 'No results.'
+  else if (canManage)
+    message = 'No shared machine pools. Share a pool so agents in this project can run.'
+  return (
+    <Empty className="rounded-xl border">
+      <EmptyHeader>
+        <EmptyDescription>{message}</EmptyDescription>
+      </EmptyHeader>
+      {!isFiltering && (
+        <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+          <GrantMachinePoolButton />
+        </EmptyContent>
+      )}
+    </Empty>
+  )
+}
+
+function SharedPoolActions({
+  item,
+  canManage,
+  onEdit,
+  onStopSharing,
+}: {
+  item: ProjectMachinePoolGrantListItem
+  canManage: boolean
+  onEdit: (item: ProjectMachinePoolGrantListItem) => void
+  onStopSharing: (item: ProjectMachinePoolGrantListItem) => void
+}) {
+  if (!canManage) return null
+  return (
+    <ResourceRowActions
+      deleteLabel="Stop sharing"
+      onEdit={() => {
+        onEdit(item)
+      }}
+      onDelete={() => {
+        if (!window.confirm(`Stop sharing ${item.machine_pool.name} with this project?`)) return
+        onStopSharing(item)
+      }}
+    />
+  )
+}
+
 function SharedPoolCard({
   orgId,
   projectId,
   item,
   pool,
-  actions,
+  canManage,
+  onEdit,
+  onStopSharing,
 }: {
   orgId: string
   projectId: string
   item: ProjectMachinePoolGrantListItem
   pool: MachinePool | undefined
-  actions: ReactNode
+  canManage: boolean
+  onEdit: (item: ProjectMachinePoolGrantListItem) => void
+  onStopSharing: (item: ProjectMachinePoolGrantListItem) => void
 }) {
   const summary = item.machine_pool
   const machines = useAllPages(
@@ -300,7 +320,14 @@ function SharedPoolCard({
           )}
         </>
       }
-      meta={actions}
+      meta={
+        <SharedPoolActions
+          item={item}
+          canManage={canManage}
+          onEdit={onEdit}
+          onStopSharing={onStopSharing}
+        />
+      }
       footer={
         pool && (
           <span className="truncate tabular-nums">Org pool: {formatPoolMachines(pool)} in use</span>
