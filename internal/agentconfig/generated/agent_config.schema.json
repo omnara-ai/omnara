@@ -54,13 +54,20 @@
       "type": "string"
     },
     "AgentConfigDefinitionInteractionHandlers": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigDefinitionIntegrationCapability"
-      },
-      "propertyNames": {
-        "$ref": "#/$defs/AgentConfigDefinitionIntegrationName"
-      },
-      "type": "object"
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionIntegrationCapability"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/AgentConfigDefinitionIntegrationName"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "AgentConfigDefinitionMCPAuth": {
       "additionalProperties": false,
@@ -135,14 +142,21 @@
       "type": "object"
     },
     "AgentConfigDefinitionMCPServers": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigDefinitionMCPServer"
-      },
-      "propertyNames": {
-        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
-        "type": "string"
-      },
-      "type": "object"
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionMCPServer"
+          },
+          "propertyNames": {
+            "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "AgentConfigDefinitionMCPTool": {
       "additionalProperties": false,
@@ -328,10 +342,17 @@
       "type": "object"
     },
     "AgentConfigDefinitionMemoryStores": {
-      "items": {
-        "$ref": "#/$defs/AgentConfigDefinitionMemoryStore"
-      },
-      "type": "array"
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentConfigDefinitionMemoryStore"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "AgentConfigDefinitionModel": {
       "additionalProperties": false,
@@ -513,14 +534,21 @@
       "type": "object"
     },
     "AgentConfigDefinitionSubagents": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigDefinitionSubagent"
-      },
-      "propertyNames": {
-        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-        "type": "string"
-      },
-      "type": "object"
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionSubagent"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "AgentConfigDefinitionTool": {
       "additionalProperties": false,
@@ -634,33 +662,40 @@
       "type": "object"
     },
     "AgentConfigDefinitionTools": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigDefinitionTool"
-      },
-      "propertyNames": {
-        "allOf": [
-          {
-            "anyOf": [
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionTool"
+          },
+          "propertyNames": {
+            "allOf": [
               {
-                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-                "type": "string"
+                "anyOf": [
+                  {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                    "type": "string"
+                  },
+                  {
+                    "maxLength": 64,
+                    "pattern": "^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
+                    "type": "string"
+                  }
+                ]
               },
               {
-                "maxLength": 64,
-                "pattern": "^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
-                "type": "string"
+                "not": {
+                  "pattern": "^mcp__",
+                  "type": "string"
+                }
               }
             ]
           },
-          {
-            "not": {
-              "pattern": "^mcp__",
-              "type": "string"
-            }
-          }
-        ]
-      },
-      "type": "object"
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "EnvironmentVariableName": {
       "minLength": 1,

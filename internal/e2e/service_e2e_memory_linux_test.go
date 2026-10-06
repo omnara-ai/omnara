@@ -44,7 +44,7 @@ func TestServiceE2EMemoryFileRoundTrip(t *testing.T) {
 	written := doServiceJSONRequest(t, upload, http.StatusOK)
 	digest := testutil.RequireType[string](t, written["digest"])
 	config := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/agent-configs",
-		map[string]any{"source_format": "yaml", "source": `instruction: Read, search, and edit the attached memory.
+		map[string]any{"yaml": `instruction: Read, search, and edit the attached memory.
 model:
   provider_config: openai-prod
   name: service-e2e-local

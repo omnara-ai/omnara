@@ -8541,11 +8541,13 @@ components:
       type: string
       pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
     AgentConfigDefinitionInteractionHandlers:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/AgentConfigDefinitionIntegrationCapability'
-      propertyNames:
-        $ref: '#/components/schemas/AgentConfigDefinitionIntegrationName'
+      anyOf:
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionIntegrationCapability'
+          propertyNames:
+            $ref: '#/components/schemas/AgentConfigDefinitionIntegrationName'
+        - type: 'null'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPAuth:
       type: object
@@ -8592,12 +8594,14 @@ components:
           minLength: 1
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPServers:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
-      propertyNames:
-        type: string
-        pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
+      anyOf:
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionMCPServer'
+          propertyNames:
+            type: string
+            pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
+        - type: 'null'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPTool:
       type: object
@@ -8698,9 +8702,11 @@ components:
           enum: [read, read_write]
       x-go-type: json.RawMessage
     AgentConfigDefinitionMemoryStores:
-      type: array
-      items:
-        $ref: '#/components/schemas/AgentConfigDefinitionMemoryStore'
+      anyOf:
+        - type: array
+          items:
+            $ref: '#/components/schemas/AgentConfigDefinitionMemoryStore'
+        - type: 'null'
       x-go-type: json.RawMessage
     AgentConfigDefinitionModel:
       type: object
@@ -8811,12 +8817,14 @@ components:
               pattern: '\S'
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagents:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
-      propertyNames:
-        type: string
-        pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
+      anyOf:
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionSubagent'
+          propertyNames:
+            type: string
+            pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
+        - type: 'null'
       x-go-type: json.RawMessage
     AgentConfigDefinitionTool:
       type: object
@@ -8882,20 +8890,22 @@ components:
           type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionTools:
-      type: object
-      additionalProperties:
-        $ref: '#/components/schemas/AgentConfigDefinitionTool'
-      propertyNames:
-        allOf:
-          - anyOf:
-              - type: string
-                pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
-              - type: string
-                maxLength: 64
-                pattern: '^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$'
-          - not:
-              type: string
-              pattern: '^mcp__'
+      anyOf:
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AgentConfigDefinitionTool'
+          propertyNames:
+            allOf:
+              - anyOf:
+                  - type: string
+                    pattern: '^[A-Za-z_][A-Za-z0-9_]{0,63}$'
+                  - type: string
+                    maxLength: 64
+                    pattern: '^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$'
+              - not:
+                  type: string
+                  pattern: '^mcp__'
+        - type: 'null'
       x-go-type: json.RawMessage
     EnvironmentVariableName:
       type: string

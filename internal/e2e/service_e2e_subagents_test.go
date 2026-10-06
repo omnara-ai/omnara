@@ -420,8 +420,7 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 		http.MethodPost,
 		project.projectPath+"/agent-configs",
 		map[string]any{
-			"source_format": "yaml",
-			"source": strings.Join([]string{
+			"yaml": strings.Join([]string{
 				"instruction: You are the helper profile.",
 				"model:",
 				"  provider_config: openai-prod",

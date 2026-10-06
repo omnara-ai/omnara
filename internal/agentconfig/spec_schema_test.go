@@ -24,11 +24,11 @@ func TestSpecSchemaMatchesGoConstants(t *testing.T) {
 		t.Fatalf("decode definition schema: %v", err)
 	}
 	for pointer, want := range map[string]any{
-		"/$defs/AgentConfigDefinitionTools/propertyNames/allOf/0/anyOf/0/pattern":      toolcatalog.ToolNamePattern,
-		"/$defs/AgentConfigDefinitionTools/propertyNames/allOf/1/not/pattern":          "^" + toolcatalog.MCPRuntimeToolPrefix,
-		"/$defs/AgentConfigDefinitionSubagents/propertyNames/pattern":                  toolcatalog.ToolNamePattern,
-		"/$defs/AgentConfigDefinitionMCPServers/propertyNames/pattern":                 toolcatalog.MCPServerKeyPattern,
-		"/$defs/AgentConfigDefinitionMCPServer/properties/tools/propertyNames/pattern": toolcatalog.MCPRemoteToolNamePattern,
+		"/$defs/AgentConfigDefinitionTools/anyOf/0/propertyNames/allOf/0/anyOf/0/pattern": toolcatalog.ToolNamePattern,
+		"/$defs/AgentConfigDefinitionTools/anyOf/0/propertyNames/allOf/1/not/pattern":     "^" + toolcatalog.MCPRuntimeToolPrefix,
+		"/$defs/AgentConfigDefinitionSubagents/anyOf/0/propertyNames/pattern":             toolcatalog.ToolNamePattern,
+		"/$defs/AgentConfigDefinitionMCPServers/anyOf/0/propertyNames/pattern":            toolcatalog.MCPServerKeyPattern,
+		"/$defs/AgentConfigDefinitionMCPServer/properties/tools/propertyNames/pattern":    toolcatalog.MCPRemoteToolNamePattern,
 		"/$defs/AgentConfigDefinitionTool/properties/type/enum": []any{
 			toolcatalog.ToolTypeBuiltIn, toolcatalog.ToolTypeCustom,
 		},

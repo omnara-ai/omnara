@@ -25,7 +25,7 @@ export const zAgentConfigDefinitionGitCredentials = z.object({
     integration: zAgentConfigDefinitionIntegrationName
 });
 
-export const zAgentConfigDefinitionInteractionHandlers = z.record(z.string(), zAgentConfigDefinitionIntegrationCapability);
+export const zAgentConfigDefinitionInteractionHandlers = z.record(z.string(), zAgentConfigDefinitionIntegrationCapability).nullable();
 
 export const zAgentConfigDefinitionMcpAuth = z.object({
     region: z.string().min(1).optional(),
@@ -70,7 +70,7 @@ export const zAgentConfigDefinitionMcpServer = z.object({
     url: z.string().min(1)
 });
 
-export const zAgentConfigDefinitionMcpServers = z.record(z.string(), zAgentConfigDefinitionMcpServer);
+export const zAgentConfigDefinitionMcpServers = z.record(z.string(), zAgentConfigDefinitionMcpServer).nullable();
 
 export const zAgentConfigDefinitionTool = z.object({
     deferred: z.boolean().optional(),
@@ -81,7 +81,7 @@ export const zAgentConfigDefinitionTool = z.object({
     type: z.enum(['built_in', 'custom']).optional()
 });
 
-export const zAgentConfigDefinitionTools = z.record(z.string(), zAgentConfigDefinitionTool);
+export const zAgentConfigDefinitionTools = z.record(z.string(), zAgentConfigDefinitionTool).nullable();
 
 export const zEnvironmentVariableName = z.string().min(1).regex(/^[^=\x00]+$/);
 
@@ -153,7 +153,7 @@ export const zAgentConfigDefinitionSubagent = z.object({
     type: z.enum(['profile', 'self'])
 });
 
-export const zAgentConfigDefinitionSubagents = z.record(z.string(), zAgentConfigDefinitionSubagent);
+export const zAgentConfigDefinitionSubagents = z.record(z.string(), zAgentConfigDefinitionSubagent).nullable();
 
 /**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
@@ -180,7 +180,7 @@ export const zAgentConfigDefinitionMemoryStore = z.object({
     access: z.enum(['read', 'read_write'])
 });
 
-export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinitionMemoryStore);
+export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinitionMemoryStore).nullable();
 
 /**
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.

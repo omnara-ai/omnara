@@ -59,7 +59,7 @@ export type AgentConfigDefinitionIntegrationName = string;
 
 export type AgentConfigDefinitionInteractionHandlers = {
     [key in AgentConfigDefinitionIntegrationName]?: AgentConfigDefinitionIntegrationCapability;
-};
+} | null;
 
 export type AgentConfigDefinitionMcpAuth = {
     region?: string;
@@ -81,7 +81,7 @@ export type AgentConfigDefinitionMcpServer = {
 
 export type AgentConfigDefinitionMcpServers = {
     [key: string]: AgentConfigDefinitionMcpServer;
-};
+} | null;
 
 export type AgentConfigDefinitionMcpTool = {
     deferred?: boolean | null;
@@ -121,7 +121,7 @@ export type AgentConfigDefinitionMemoryStore = {
     access: 'read' | 'read_write';
 };
 
-export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore>;
+export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore> | null;
 
 export type AgentConfigDefinitionModel = {
     cache_retention?: 'none' | 'short' | 'long';
@@ -163,7 +163,7 @@ export type AgentConfigDefinitionSubagentModel = {
 
 export type AgentConfigDefinitionSubagents = {
     [key: string]: AgentConfigDefinitionSubagent;
-};
+} | null;
 
 export type AgentConfigDefinitionTool = {
     deferred?: boolean;
@@ -193,7 +193,7 @@ export type AgentConfigDefinitionToolPermission = {
 
 export type AgentConfigDefinitionTools = {
     [key: string]: AgentConfigDefinitionTool;
-};
+} | null;
 
 export type EnvironmentVariableName = string;
 

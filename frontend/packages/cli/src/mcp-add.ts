@@ -61,7 +61,7 @@ function prepareJsonConfig(
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  if (definition.mcp !== undefined && Object.hasOwn(definition.mcp, serverName)) {
+  if (definition.mcp != null && Object.hasOwn(definition.mcp, serverName)) {
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
   }
   return {
