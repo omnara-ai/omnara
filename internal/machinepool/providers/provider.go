@@ -17,6 +17,7 @@ const (
 	Arker     = "arker"
 	Blaxel    = "blaxel"
 	Boxd      = "boxd"
+	CreateOS  = "createos"
 	Daytona   = "daytona"
 	Freestyle = "freestyle"
 	Modal     = "modal"

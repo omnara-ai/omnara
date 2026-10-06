@@ -102,13 +102,11 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
 const maxInt32 = 2_147_483_647
 
 function positiveInt32(value: string) {
-  const parsed = Number(value)
-  return value.trim() !== '' && Number.isInteger(parsed) && parsed > 0 && parsed <= maxInt32
+  return value.trim() !== '' && optionalPositiveInt32Valid(value)
 }
 
 function nonNegativeInt32(value: string) {
-  const parsed = Number(value)
-  return value.trim() !== '' && Number.isInteger(parsed) && parsed >= 0 && parsed <= maxInt32
+  return value.trim() !== '' && optionalNonNegativeInt32Valid(value)
 }
 
 function aggregateFitsInt32(perMachine: string, maxMachines: string) {
@@ -271,6 +269,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
       }
     case 'daytona':
     case 'boxd':
+    case 'createos':
       return {
         ...common,
         provider: values.provider,
@@ -427,6 +426,7 @@ export function machinePoolUpdateRequest(
       }
     case 'daytona':
     case 'boxd':
+    case 'createos':
       return {
         ...common,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -498,6 +498,7 @@ function clusterMachinePoolUpdateRequest(
       }
     case 'daytona':
     case 'boxd':
+    case 'createos':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
