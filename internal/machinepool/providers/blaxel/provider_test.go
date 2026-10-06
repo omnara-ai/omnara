@@ -433,6 +433,9 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 }
 
 func TestBlaxelProviderProvisionWaitsForDeployingSandbox(t *testing.T) {
+	savedPollInterval := sandboxDeploymentPollInterval
+	sandboxDeploymentPollInterval = time.Millisecond
+	t.Cleanup(func() { sandboxDeploymentPollInterval = savedPollInterval })
 	machineID := uuid.New()
 	sandboxName, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {
@@ -490,6 +493,7 @@ func TestBlaxelProviderProvisionWaitsForDeployingSandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if !errors.Is(err, test.wantErr) || result.ProviderResourceID != test.wantResourceID ||
 				len(api.nextStatuses) != 0 || !slices.Equal(api.deletedNames, test.wantDeleted) ||

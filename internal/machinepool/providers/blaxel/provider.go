@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,8 @@ const (
 	installationLabel               = "omnara-installation"
 	machineLabel                    = "omnara-machine"
 )
+
+var sandboxDeploymentPollInterval = time.Second
 
 type sandboxDeploymentStatus string
 type sandboxRuntimeState string
@@ -172,12 +175,14 @@ func (p *provider) ProvisionMachine(
 		)
 	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: name}
+	pollInterval := sandboxDeploymentPollInterval
 	for normalizeSandboxDeploymentStatus(target.Status) == sandboxDeploymentDeploying {
 		select {
 		case <-ctx.Done():
 			return result, fmt.Errorf("wait for blaxel sandbox %q to deploy: %w", name, ctx.Err())
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(pollInterval - rand.N(pollInterval)/4):
 		}
+		pollInterval = min(2*pollInterval, 5*time.Second)
 		refreshed, found, err := api.GetSandbox(ctx, name)
 		if err != nil {
 			return result, err
