@@ -11,8 +11,6 @@ import {
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
 
-const createOSSizeKey = 'shape'
-
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {
     const values = {
@@ -171,7 +169,7 @@ describe('CreateOS machine pools', () => {
     expect(machinePoolFormValid(values)).toBe(true)
     expect(machinePoolCreateRequest(values)).toMatchObject({
       provider: 'createos',
-      default_machine_provider_options: { [createOSSizeKey]: 's-2vcpu-4gb', rootfs: 'devbox:1' },
+      default_machine_provider_options: { ['shape']: 's-2vcpu-4gb', rootfs: 'devbox:1' },
       max_total_cpu: 6,
       max_total_memory_mb: 12288,
       max_machine_cpu: 2,
@@ -185,7 +183,7 @@ describe('CreateOS machine pools', () => {
       default_machine_cpu: null,
       default_machine_memory_mb: null,
       default_machine_provider_options: {
-        [createOSSizeKey]: 's-2vcpu-4gb',
+        ['shape']: 's-2vcpu-4gb',
         rootfs: 'devbox:1',
         startup_script: 'echo ready',
       },
@@ -208,7 +206,7 @@ describe('CreateOS machine pools', () => {
       memoryGb: '8',
     })
     expect(request.default_machine_provider_options).toEqual({
-      [createOSSizeKey]: 's-4vcpu-8gb',
+      ['shape']: 's-4vcpu-8gb',
       rootfs: 'ubuntu:26.04',
       startup_script: 'echo ready',
     })
