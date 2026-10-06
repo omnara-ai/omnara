@@ -78,12 +78,12 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 	text := func() map[string]any { return map[string]any{"type": "string", "minLength": 1} }
 	positive := func() map[string]any { return map[string]any{"type": "integer", "minimum": 1} }
 	limit := func() map[string]any { return map[string]any{"type": "integer", "minimum": 1, "maximum": 100} }
-	artifacts := func(maxItems int) map[string]any {
+	filePaths := func(maxItems int) map[string]any {
 		return map[string]any{
-			"type":        "array",
-			"items":       map[string]any{"type": "string", "pattern": `^art_[a-z2-7]{26}$`},
-			"uniqueItems": true,
-			"maxItems":    maxItems,
+			"type": "array", "items": text(), "maxItems": maxItems,
+			"description": "Exact file paths: /artifacts/<artifact_id> or /memory/<store>/<file>. " +
+				"Directories and glob expansion are not supported. " +
+				"Omit this field or use an empty array for text-only messages.",
 		}
 	}
 	return []IntegrationToolDefinition{
@@ -105,8 +105,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 			Description:     "Post a message to this agent's assigned Slack conversation.",
 			required:        []string{"text"},
 			properties: map[string]any{
-				"text":         text(),
-				"artifact_ids": artifacts(20),
+				"text":  text(),
+				"paths": filePaths(20),
 			},
 		},
 		{
@@ -225,8 +225,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 			Description:     "Post a message to this agent's assigned Discord thread. Content must be at most 2000 characters.",
 			required:        []string{"content"},
 			properties: map[string]any{
-				"content":      map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
-				"artifact_ids": artifacts(10),
+				"content": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+				"paths":   filePaths(10),
 			},
 		},
 	}

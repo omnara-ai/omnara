@@ -16,9 +16,11 @@ const (
 	SleepPlatformEnvVar                = "OMNARA_DAEMON_SLEEP_PLATFORM"
 	SleepPlatformBlaxel                = "blaxel"
 	SleepPlatformUnikraft              = "unikraft"
+	SleepPlatformArker                 = "arker"
 	BlaxelLocalAPIURL                  = "http://127.0.0.1:8080"
 	BlaxelAwakeProcessNamePrefix       = "omnara-awake-"
 	UnikraftScaleToZeroControlFilePath = "/uk/libukp/scale_to_zero_disable"
+	ArkerAwakeControlFilePath          = "/tmp/arker-awake"
 )
 
 func SleepAfterDuration(milliseconds int) (time.Duration, error) {

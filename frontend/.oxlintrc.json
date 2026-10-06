@@ -302,7 +302,7 @@
       }
     },
     {
-      "files": ["packages/cli/src/manifest.ts"],
+      "files": ["**/packages/cli/src/manifest.ts"],
       "rules": {
         "max-lines": "off"
       }

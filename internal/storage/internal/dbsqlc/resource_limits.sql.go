@@ -308,6 +308,8 @@ SELECT
     max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project,
+    max_active_memory_stores_per_project,
+    max_memories_per_store,
     max_active_integrations_per_project,
     max_active_integration_subscriptions_per_agent
 FROM effective_resource_limits
@@ -338,6 +340,8 @@ func (q *Queries) GetEffectiveResourceLimits(ctx context.Context, arg GetEffecti
 		&i.MaxActiveByoDaemonTokensPerMachine,
 		&i.MaxNonTerminalProcessesPerAgent,
 		&i.MaxActiveCronTriggersPerProject,
+		&i.MaxActiveMemoryStoresPerProject,
+		&i.MaxMemoriesPerStore,
 		&i.MaxActiveIntegrationsPerProject,
 		&i.MaxActiveIntegrationSubscriptionsPerAgent,
 	)

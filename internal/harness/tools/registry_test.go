@@ -55,7 +55,10 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"web_search", "web_fetch", "skill", "read_file", "search_files"},
+		[]string{
+			"web_search", "web_fetch", "skill",
+			"list_files", "read_file", "write_file", "search_files",
+		},
 		expectedTopology{async: true},
 	)
 
@@ -164,6 +167,19 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 	}
 }
 
+func TestListFilesImplementationValidatorBinding(t *testing.T) {
+	for _, limit := range []int{-1, 0, 1, 100, 101} {
+		input := json.RawMessage(fmt.Sprintf(`{"pattern":"/memory/*","limit":%d}`, limit))
+		err := validateRegisteredToolInput("list_files", input)
+		if valid := limit >= 1 && limit <= 100; (err == nil) != valid {
+			t.Fatalf("limit %d: %v", limit, err)
+		}
+	}
+	if err := validateRegisteredToolInput("list_files", json.RawMessage(`{"pattern":"/memory/*"}`)); err != nil {
+		t.Fatalf("omitted limit rejected: %v", err)
+	}
+}
+
 func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	if err := validateRegisteredToolInput(
 		"ask_question",
@@ -199,40 +215,52 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestIntegrationMessageArtifactArguments(t *testing.T) {
-	definition, ok := toolcatalog.LookupIntegrationTool(
-		integrationdefinition.SlackThread,
-		toolcatalog.IntegrationOperationPostMessage,
-	)
-	require.True(t, ok)
-	entry, err := definition.Prepare(toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage))
-	require.NoError(t, err)
-	artifactIDs := make([]string, 21)
-	for index := range artifactIDs {
-		id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
-		require.NoError(t, err)
-		artifactIDs[index] = id
-	}
-	for _, input := range []string{
-		`{"text":"hello","artifact_ids":["` + artifactIDs[0] + `"]}`,
-		`{"text":"hello","artifact_ids":[]}`,
+func TestIntegrationMessageFileArguments(t *testing.T) {
+	for _, test := range []struct {
+		kind     integrationdefinition.Kind
+		textKey  string
+		maxFiles int
+	}{
+		{integrationdefinition.SlackThread, "text", 20},
+		{integrationdefinition.DiscordThread, "content", 10},
 	} {
-		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
-		require.NoError(t, err)
-	}
-	for _, input := range []string{`{"text":"hello","artifact_ids":null}`, `{"text":"hello","artifact_ids":[""]}`} {
-		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
-		require.Error(t, err)
-	}
-	for _, count := range []int{20, 21} {
-		input, err := json.Marshal(map[string]any{"text": "hello", "artifact_ids": artifactIDs[:count]})
-		require.NoError(t, err)
-		err = jsonschema.Validate(entry.InputSchema, input)
-		if count == 20 {
+		t.Run(string(test.kind), func(t *testing.T) {
+			definition, ok := toolcatalog.LookupIntegrationTool(test.kind, toolcatalog.IntegrationOperationPostMessage)
+			require.True(t, ok)
+			name := toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage)
+			entry, err := definition.Prepare(name)
 			require.NoError(t, err)
-		} else {
-			require.Error(t, err, "more than 20 distinct artifact IDs must fail")
-		}
+			paths := make([]string, test.maxFiles+1)
+			for index := range paths {
+				id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
+				require.NoError(t, err)
+				paths[index] = "/artifacts/" + id
+			}
+			for _, testPaths := range []struct {
+				paths any
+				valid bool
+			}{
+				{[]string{paths[0]}, true},
+				{[]string{}, true},
+				{[]string{"/memory/engineering/report.pdf"}, true},
+				{paths[:test.maxFiles], true},
+				{paths, false},
+				{nil, false},
+				{[]string{""}, false},
+			} {
+				input, err := json.Marshal(map[string]any{test.textKey: "hello", "paths": testPaths.paths})
+				require.NoError(t, err)
+				err = jsonschema.Validate(entry.InputSchema, input)
+				if testPaths.valid {
+					require.NoError(t, err, string(input))
+				} else {
+					require.Error(t, err, string(input))
+				}
+			}
+			input, err := json.Marshal(map[string]any{test.textKey: "hello"})
+			require.NoError(t, err)
+			require.NoError(t, jsonschema.Validate(entry.InputSchema, input))
+		})
 	}
 }
 

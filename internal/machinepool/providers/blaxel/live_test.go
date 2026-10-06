@@ -94,6 +94,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		machineProvisioning,
 		bootstrap,
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision live blaxel sandbox: %v", err)
@@ -115,6 +116,7 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 		machineProvisioning,
 		bootstrap,
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("reprovision live blaxel sandbox: %v", err)

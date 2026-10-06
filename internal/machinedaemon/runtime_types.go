@@ -132,10 +132,8 @@ type ProcessAssignment struct {
 }
 
 type Process struct {
-	Command       string                   `json:"command"`
-	ShellSelector processcmd.ShellSelector `json:"shell_selector"`
+	ExecutionSpec processcmd.ExecutionSpec `json:"execution_spec"`
 	Cwd           string                   `json:"cwd"`
-	IOMode        processcmd.IOMode        `json:"io_mode"`
 }
 
 type ProcessAction struct {
@@ -207,6 +205,9 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
+	fileTransfer        *processcmd.FileTransfer
+	transferReader      *os.File
+	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd
 	startErr            error
 	containment         atomic.Pointer[processContainment]

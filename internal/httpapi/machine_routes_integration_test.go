@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
@@ -20,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -1596,9 +1598,8 @@ func TestMachineDaemonRuntimeRegistrationReportsTerminalAndUnknownProcesses(
 			RuntimeLockID: terminal.RuntimeLock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
 			AgentMachineBindingID: terminal.BindingUUID,
-			Command:               "sleep 60",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -2924,6 +2925,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 	toolName string,
 	additionalToolCalls []model.ToolCall,
 	primaryToolInputBuilder func(uuid.UUID) json.RawMessage,
+	executionOverride ...processcmd.ExecutionSpec,
 ) daemonProcessFixture {
 	t.Helper()
 	_, err := storagetest.CreateVerifiedUser(
@@ -2998,6 +3000,53 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 		additionalToolCalls,
 		primaryToolInputBuilder,
 	)
+	spec := processcmd.ForShell("echo ok", "sh", "pipe")
+	if toolName == "upload_file" || toolName == "download_file" {
+		var input struct {
+			Path           string  `json:"path"`
+			Source         string  `json:"source"`
+			Destination    string  `json:"destination"`
+			ExpectedDigest *string `json:"expected_digest"`
+		}
+		if err := json.Unmarshal(toolCall.Input, &input); err != nil {
+			t.Fatal(err)
+		}
+		transfer := processcmd.FileTransfer{Direction: processcmd.FileTransferUpload, LocalPath: input.Source}
+		if toolName == "download_file" {
+			transfer.Direction, transfer.LocalPath = processcmd.FileTransferDownload, input.Destination
+		}
+		if strings.HasPrefix(input.Path, "/memory/") {
+			parts := strings.SplitN(strings.TrimPrefix(input.Path, "/memory/"), "/", 2)
+			if len(parts) != 2 {
+				t.Fatal("memory fixture path requires a file")
+			}
+			var id uuid.UUID
+			err := pool.QueryRow(ctx,
+				`SELECT id FROM memory_stores WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL`,
+				project.ProjectUUID, parts[0]).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				id = uuid.New()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: parts[1], ExpectedDigest: input.ExpectedDigest}
+			spec = processcmd.ForFileTransfer(transfer)
+		} else if input.Path == "/artifacts" || strings.HasPrefix(input.Path, "/artifacts/") {
+			target := &processcmd.ArtifactTarget{}
+			if transfer.Direction == processcmd.FileTransferDownload {
+				id, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(input.Path, "/artifacts/"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				target.ID = id
+			}
+			transfer.Target.Artifact = target
+			spec = processcmd.ForFileTransfer(transfer)
+		}
+	}
+	if len(executionOverride) > 0 {
+		spec = executionOverride[0]
+	}
 	process, err := storagetest.StartProcessForToolCall(
 		ctx,
 		store,
@@ -3008,9 +3057,8 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 			RuntimeLockID: lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         spec,
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo ok",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)

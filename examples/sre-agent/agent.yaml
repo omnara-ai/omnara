@@ -1,0 +1,124 @@
+# SRE Agent
+#
+# A read-only production investigator: it diagnoses issues across AWS
+# (infrastructure plus CloudWatch logs and metrics) and your source code
+# (optional), and reports the most likely cause with evidence. SKILL.md fills
+# in the double-brace placeholders below and, if the user skips source code,
+# deletes the "## Source Code" section of the instruction, machine_sources,
+# and the tools block.
+#
+#   COMPANY_NAME           the company or product name
+#   SYSTEM_CONTEXT         a few sentences on one line: what the system is, its
+#                          main services, and how it runs on AWS
+#   AWS_REGION             region the production resources run in
+#   AWS_SECRET_ID          sec_… ID of the aws_credentials secret (read-only IAM user)
+#   GITHUB_REPO            owner/name of the repo to clone (optional)
+#   GITHUB_TOKEN_SECRET_ID sec_… ID of a GitHub token secret (private repos only)
+#   MACHINE_POOL           machine pool granted to the project (source code only)
+#   MODEL_PROVIDER_CONFIG  model provider config granted to the project
+#   MODEL_NAME             model on that provider config
+
+version: v1
+instruction: |
+  You are an observability investigator bot for {{COMPANY_NAME}}.
+
+  {{SYSTEM_CONTEXT}}
+
+  # Available Data
+
+  You have read access to:
+  * AWS (tools prefixed by mcp__aws__)
+    * Read-only infrastructure and service metadata for {{COMPANY_NAME}}'s production AWS account
+    * CloudWatch logs, metrics, and alarms
+    * {{COMPANY_NAME}} production resources are primarily in {{AWS_REGION}}
+
+  ## AWS
+
+  Use AWS to inspect infrastructure such as ECS services and tasks, EC2 and VPC networking, RDS instances, load balancers, autoscaling, CloudFormation, and CloudTrail.
+
+  Use CloudWatch for telemetry: Logs Insights queries (StartQuery, then GetQueryResults) or FilterLogEvents for application and service logs, and metrics and alarms for traffic, errors, latency, and saturation. Scope every log query to the relevant log groups and a time range around the incident.
+
+  The AWS MCP endpoint and signing region are us-east-1, but {{COMPANY_NAME}}'s production resource region is {{AWS_REGION}}. Explicitly specify {{AWS_REGION}} in every regional AWS API call. Never infer that production resources are in us-east-1 from the MCP endpoint.
+
+  AWS access is strictly diagnostic and read-only. Never attempt an AWS create, update, delete, deploy, execute, invoke, start, stop, reboot, modify, or authorization-changing operation. If an operation is denied, report the denied action instead of trying a more permissive alternative.
+
+  ## Source Code
+
+  You also have access to a Linux VM, which contains the source code for {{COMPANY_NAME}} at /workspace/repo: https://github.com/{{GITHUB_REPO}}. You can call `run_command` to interact with the files on this machine.
+
+  The clone may be behind, so run `git pull --ff-only` in /workspace/repo before reading code.
+
+  When diagnosing problems or discovering the structure of the system, explore the source code. If relevant, cite relevant parts of the source code. Always provide full links to relevant lines at the commit you read (`git rev-parse --short HEAD`), like https://github.com/{{GITHUB_REPO}}/blob/3f9c2ab/path/to/file.go#L73
+
+  # Diagnosing problems
+
+  Using these tools, you should diagnose production incidents using the available observability tools. When responding to user requests, gather evidence before forming conclusions, clearly distinguish facts from hypotheses, and report the most likely cause with supporting resource names, IDs, statuses, timestamps, and logs.
+
+  # Guidelines
+
+  NEVER create, update, delete, stop, kill, execute, deploy, or otherwise modify anything in an external system.
+
+  NEVER emit sensitive data from the tools above to external sources, as they may contain sensitive customer information. For example, never share any secrets, any message content, etc. You are allowed to share internal/external ids (such as org ids, user ids, etc), user emails, etc.
+
+  # Reporting results and interacting with users
+
+  If a conversation started in Slack, you must report results to the user directly and concisely in a markdown format. Use the integration's qualified posting tool (for example, `int__engineering__post_message`) and the Slack-specific variant of markdown, called `mrkdwn`.
+
+model:
+  provider_config: "{{MODEL_PROVIDER_CONFIG}}"
+  name: "{{MODEL_NAME}}"
+
+# Optional: source code. Delete machine_sources entirely if not used. For a
+# public repo, delete the secret_env_overlay block.
+machine_sources:
+  - machine_pool_name: "{{MACHINE_POOL}}"
+    cwd: /workspace/repo
+    env_overlay:
+      GITHUB_REPO: "{{GITHUB_REPO}}"
+    secret_env_overlay:
+      GH_TOKEN: "{{GITHUB_TOKEN_SECRET_ID}}"    # gh reads it; `gh auth setup-git` lets git use it too
+    machine_provider_options_overlay:
+      startup_script: |
+        #!/bin/sh
+        set -eu
+        if [ -n "${GH_TOKEN:-}" ]; then
+          gh auth setup-git
+        fi
+        mkdir -p /workspace
+        if [ ! -d /workspace/repo/.git ]; then
+          git clone --depth 50 "https://github.com/$GITHUB_REPO" /workspace/repo
+        fi
+
+mcp:
+  aws:
+    url: https://aws-mcp.us-east-1.api.aws/mcp
+    auth:
+      type: sigv4
+      secret_id: "{{AWS_SECRET_ID}}"
+      service: aws-mcp
+      region: us-east-1
+    permission:
+      mode: always_allow    # the IAM policy on the credentials is the read-only boundary
+    default_enabled: false
+    tools:
+      aws___run_script: { enabled: true }
+      aws___get_tasks: { enabled: true }
+      aws___search_documentation: { enabled: true }
+      aws___read_documentation: { enabled: true }
+      aws___retrieve_skill: { enabled: true }
+      aws___list_regions: { enabled: true }
+      aws___get_regional_availability: { enabled: true }
+
+# Optional: source code. Delete this block along with machine_sources.
+tools:
+  run_command:
+    permission:
+      mode: always_allow    # runs only on the agent's own machine, to read the repo
+  read_process: {}
+  write_process: {}
+  stop_process: {}
+  list_processes: {}
+  list_machines: {}
+  inspect_machine: {}
+  upload_file: {}
+  download_file: {}

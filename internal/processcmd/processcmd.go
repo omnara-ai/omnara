@@ -30,8 +30,9 @@ const (
 )
 
 type ShellCommand struct {
-	Command string
-	Shell   ShellSelector
+	Command string        `json:"command"`
+	Shell   ShellSelector `json:"shell_selector"`
+	IOMode  IOMode        `json:"io_mode"`
 }
 
 func NormalizeShellCommand(command string, shell ShellSelector) (ShellCommand, error) {

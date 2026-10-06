@@ -19,8 +19,8 @@ type slackReadInput struct {
 }
 
 type slackPostInput struct {
-	Text        string   `json:"text,omitempty"`
-	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+	Text  string   `json:"text,omitempty"`
+	Paths []string `json:"paths,omitempty"`
 }
 
 func runSlackTool(
@@ -90,8 +90,16 @@ func runSlackTool(
 	if err := decodeSingleStrictJSON(record.Input, &input, "Slack post"); err != nil {
 		return integrationToolFailure(err)
 	}
-	if len(input.ArtifactIDs) > 0 {
-		content, err := e.sendSlackArtifacts(ctx, call.Turn, target, input)
+	if strings.TrimSpace(input.Text) == "" {
+		return integrationToolFailure(errors.New("text is required"))
+	}
+	for _, filePath := range input.Paths {
+		if err := validateFilePath(filePath); err != nil {
+			return integrationToolFailure(err)
+		}
+	}
+	if len(input.Paths) > 0 {
+		content, err := e.sendSlackFiles(ctx, call.Turn, target, input)
 		if err != nil {
 			return failAsynchronously(content, err), nil
 		}
@@ -179,7 +187,7 @@ func slackIntegrationFailureContent(resource string, result slack.APIResult) (to
 	content, err := structuredToolResultContent(
 		map[string]any{
 			"integration":         resource,
-			"code":                code,
+			"error_code":          code,
 			"message":             result.Message,
 			"retry_after_seconds": result.RetryAfter.Seconds(),
 		},

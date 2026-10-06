@@ -27,6 +27,7 @@ func TestUnikraftProviderProvisionCreatesDisposableInstance(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -108,6 +109,7 @@ func TestUnikraftProviderProvisionTrimsImage(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -133,6 +135,7 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 		),
 		"opaque-machine-token",
 		map[string]string{"USER_TOKEN": strings.Repeat("b", 256)},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -180,6 +183,7 @@ func TestUnikraftProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -210,6 +214,7 @@ func TestUnikraftProviderAcceptsFutureMetroSlug(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("expected future metro slug to pass local validation: %v", err)
@@ -229,6 +234,7 @@ func TestUnikraftProviderRejectsInvalidMetroSlug(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "valid DNS label") {
 		t.Fatalf("expected invalid metro slug error, got %v", err)
@@ -253,6 +259,7 @@ func TestUnikraftProviderRequiresMetro(t *testing.T) {
 		},
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "requires metro") {
 		t.Fatalf("expected missing metro error, got %v", err)
@@ -273,6 +280,7 @@ func TestUnikraftProviderRejectsRestartPolicyProviderOption(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "restart_policy"`) {
 		t.Fatalf("expected restart_policy to be rejected as a config field, got %v", err)
@@ -293,6 +301,7 @@ func TestUnikraftProviderRejectsUserArgsUntilStartupScriptsAreSupported(t *testi
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "args"`) {
 		t.Fatalf("expected args to be rejected, got %v", err)
@@ -312,6 +321,7 @@ func TestUnikraftProviderRejectsInvalidStartupScriptShape(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "cannot unmarshal array") {
 		t.Fatalf("expected non-string startup_script error, got %v", err)
@@ -328,6 +338,7 @@ func TestUnikraftProviderRejectsInvalidStartupScriptShape(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "startup_script must be at most") {
 		t.Fatalf("expected startup_script size error, got %v", err)
@@ -350,6 +361,7 @@ func TestUnikraftProviderProvisionRecoversFromCreateErrorWhenInstanceExists(t *t
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision should recover by inspecting existing instance: %v", err)
@@ -376,6 +388,7 @@ func TestUnikraftProviderProvisionRetriesDoNotCreateCompetingInstances(t *testin
 		machineProvisioning,
 		"machine-token-a",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("first provision: %v", err)
@@ -387,6 +400,7 @@ func TestUnikraftProviderProvisionRetriesDoNotCreateCompetingInstances(t *testin
 		machineProvisioning,
 		"machine-token-b",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("second provision: %v", err)

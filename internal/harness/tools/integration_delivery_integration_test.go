@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
@@ -882,6 +883,7 @@ func newIntegrationToolFixtureWithMCP(
 type toolFixtureOptions struct {
 	withMCP                bool
 	withSubagents          bool
+	withMemory             bool
 	withSlackIntegration   bool
 	withDiscordIntegration bool
 	withGitHubIntegration  bool
@@ -906,6 +908,12 @@ func newIntegrationToolFixtureWithOptions(
 		storage.WithMachinePoolProviders(toolsTestMachinePoolProviders{}),
 	}
 	options = append(options, storeOptions...)
+	if fixtureOptions.withMemory {
+		files, err := memorystore.OpenFilesystem(t.TempDir())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = files.Close() })
+		options = append(options, storage.WithMemoryFilesystem(files))
+	}
 	store := storage.NewStore(pool, options...)
 	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	user, err := storagetest.CreateVerifiedUser(
@@ -1296,6 +1304,13 @@ tools:
       append: You are a fork.
 `
 	}
+	if fixtureOptions.withMemory {
+		_, err := store.Memories().Create(ctx, memorystore.Scope{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(userID),
+		}, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
+		require.NoError(t, err)
+		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read\n"
+	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
@@ -1337,6 +1352,13 @@ func compileToolsAgentYAMLResolved(
 	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), toolsTestProjectID,
 		storagefixture.DefaultModelInput(toolsTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
+		ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
+			resource, err := store.Memories().Resolve(ctx, toolsTestProjectID, name)
+			if err != nil {
+				return uuid.Nil, err
+			}
+			return resource.ID, nil
+		},
 		ResolveIntegrationName: func(name string) (agentconfig.IntegrationResolution, error) {
 			return resolveToolsIntegrationName(ctx, store, name)
 		},

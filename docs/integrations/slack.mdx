@@ -10,6 +10,18 @@ import SlackExistingApp from '/snippets/slack-existing-app.mdx'
 Create a Slack integration from your project's **Integrations** page to start agents from
 mentions and continue conversations in Slack threads.
 
+```mermaid
+graph LR
+    P["Agent profile"] -->|launches| A1["Agent 1"]
+    P -->|launches| A2["Agent 2"]
+    P -->|launches| A3["Agent 3"]
+    A1 <--> T1["Thread A"]
+    A2 <--> T2["Thread B"]
+    A3 <--> DM["DM with bot"]
+```
+
+For complete examples you can deploy, see [Coding agent in Slack](/examples/slack-coding-agent), which answers in threads and opens pull requests, and the [X signal agent](/examples/x-signal-agent), which posts a daily digest to a channel.
+
 ## Connect Slack
 
 Choose **Slack bot** and enter an Omnara integration name such as `engineering`.
@@ -91,8 +103,11 @@ for setup, template variables and recovery behavior.
 ## Thread tools and subscriptions
 
 A mention or scheduled launch supplies `read` and `post_message` for its assigned
-thread. `read` accepts `cursor` and `limit`; `post_message` accepts `text` and up to
-20 `artifact_ids`. For example, `{"text":"Update"}` posts directly to that thread.
+thread. `read` accepts `cursor` and `limit`; `post_message` accepts `text` and an
+optional `paths` array of up to 20 files. Use exact `/artifacts/<artifact_id>` or
+`/memory/<store>/<file>` paths; directories and globs are not supported. For example,
+`{"text":"Update","paths":["/memory/reports/weekly.pdf"]}` posts the message and file
+directly to that thread. Omit `paths` for a text-only message.
 Thread reads start at the oldest messages. Pass `next_cursor` back as `cursor`
 to reach later replies; the first page may not include recent activity.
 The model cannot choose another channel or thread. Adding these tools to an agent

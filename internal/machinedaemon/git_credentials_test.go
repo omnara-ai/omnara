@@ -67,7 +67,10 @@ func TestGitCredentialHelperWithRealGit(t *testing.T) {
 	stop, err := client.startGitCredentialServer(ctx)
 	require.NoError(t, err)
 	defer stop()
-	assignment := ProcessAssignment{ID: processID, GitCredentials: true}
+	assignment := ProcessAssignment{
+		ID: processID, GitCredentials: true,
+		Process: Process{ExecutionSpec: processcmd.ForShell("git clone", processcmd.ShellSH, processcmd.IOModePipe)},
+	}
 	client.prepareGitCredentials(&assignment, "supervisor-secret")
 	require.Empty(t, assignment.PreparationError)
 	alias := filepath.Join(t.TempDir(), "helper's path !")
@@ -184,8 +187,11 @@ func testGitCredentialsRunningShellRestart(t *testing.T, mode processcmd.IOMode)
 		Config{APIURL: upstream.URL, MachineToken: "old-machine-token"}, ProcessAssignment{
 			ID: processID, GitCredentials: true, TimeoutSeconds: 25,
 			Process: Process{
-				Command:       fill + "; while ! test -f " + gitShellQuote(gate) + "; do sleep 0.05; done; " + fill,
-				ShellSelector: processcmd.ShellSH, IOMode: mode, Cwd: t.TempDir(),
+				ExecutionSpec: processcmd.ForShell(
+					fill+"; while ! test -f "+gitShellQuote(gate)+"; do sleep 0.05; done; "+fill,
+					processcmd.ShellSH, mode,
+				),
+				Cwd: t.TempDir(),
 			},
 			Env: map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"},
 		})
@@ -213,11 +219,12 @@ func testGitCredentialsRunningShellRestart(t *testing.T, mode processcmd.IOMode)
 
 func TestGitCredentialPreparationHonorsMachineOptOut(t *testing.T) {
 	client := New(Config{GitCredentialsDisabled: true}, nil, nil)
-	assignment := ProcessAssignment{GitCredentials: true}
+	process := Process{ExecutionSpec: processcmd.ForShell("git clone", processcmd.ShellSH, processcmd.IOModePipe)}
+	assignment := ProcessAssignment{GitCredentials: true, Process: process}
 	client.prepareGitCredentials(&assignment, "unused")
 	require.Contains(t, assignment.PreparationError, "disabled")
 	require.Nil(t, assignment.GitCredentialHelper)
-	assignment = ProcessAssignment{}
+	assignment = ProcessAssignment{Process: process}
 	client.prepareGitCredentials(&assignment, "unused")
 	require.Empty(t, assignment.PreparationError)
 	client.cfg.GitCredentialsDisabled = false

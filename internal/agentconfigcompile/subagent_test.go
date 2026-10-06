@@ -18,7 +18,12 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		Tools: map[string]agentconfig.ToolCompiled{
 			"spawn_agent": {Enabled: true},
 			"read_agent":  {Enabled: true},
+			"write_file":  {Enabled: true},
 			"skill":       {Enabled: false},
+		},
+		MemoryStores: []agentconfig.MemoryStoreCompiled{
+			{ID: uuid.New(), Access: "read"},
+			{ID: uuid.New(), Access: "read_write"},
 		},
 		Subagents: map[string]agentconfig.SubagentCompiled{"worker": {Type: agentconfig.SubagentTypeSelf}},
 	}
@@ -27,21 +32,24 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 	for _, source := range []string{"", "not valid authored config"} {
 		body, err := DeriveSubagentConfig(executionstore.AgentConfigRecord{
 			Source: source, SourceFormat: "yaml", CompiledDefinition: raw,
-		}, agentconfig.SubagentCompiled{InstructionAppend: "Investigate."},
+		}, agentconfig.SubagentCompiled{Type: agentconfig.SubagentTypeSelf, InstructionAppend: "Investigate."},
 			agentconfig.SubagentDepth{Depth: 1, MaxDepth: &maxDepth})
 		require.NoError(t, err)
 		require.Empty(t, body.Source)
 		require.Empty(t, body.SourceFormat)
 		leaf, err := DeriveSubagentConfig(executionstore.AgentConfigRecord{
 			CompiledDefinition: body.CompiledDefinition,
-		}, agentconfig.SubagentCompiled{}, agentconfig.SubagentDepth{Depth: 2, MaxDepth: &maxDepth})
+		}, agentconfig.SubagentCompiled{Type: agentconfig.SubagentTypeSelf},
+			agentconfig.SubagentDepth{Depth: 2, MaxDepth: &maxDepth})
 		require.NoError(t, err)
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(leaf.CompiledDefinition, &compiled))
 		require.Equal(t, "Help.\n\nInvestigate.", compiled.Instruction)
+		require.Equal(t, base.MemoryStores, compiled.MemoryStores)
 		require.Empty(t, compiled.Subagents)
 		require.NotContains(t, compiled.Tools, "spawn_agent")
 		require.Equal(t, base.Tools["read_agent"], compiled.Tools["read_agent"])
+		require.Equal(t, base.Tools["write_file"], compiled.Tools["write_file"])
 		require.Equal(t, base.Tools["skill"], compiled.Tools["skill"])
 	}
 }

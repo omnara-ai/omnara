@@ -1,0 +1,52 @@
+---
+title: Sandbox providers
+sidebarTitle: Overview
+icon: "cubes"
+description: Compare the sandbox providers you can use with Omnara
+---
+
+Omnara supports seven sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
+
+On Omnara's hosted service, every organization starts with a default pool on Blaxel. Omnara manages it for you, so there's nothing to set up: agents can use it right away. To use another provider, or your own Blaxel account, create a [custom pool](/machines/pools#create-a-pool).
+
+## Compare providers
+
+| Provider | Machine type | Custom environment | Locations | Sizing | Can sleep when idle |
+| --- | --- | --- | --- | --- | --- |
+| [Arker](/machines/providers/arker) | Full VM | Fork of an Arker VM, memory included | US, EU | CPU and memory | Yes |
+| [Blaxel](/machines/providers/blaxel) | microVM | Dockerfile that includes Blaxel's `sandbox-api` | US, UK, Germany | Memory; CPU scales with it | Yes |
+| [Daytona](/machines/providers/daytona) | Container | Snapshot from a registry image or Dockerfile | US, EU | Set by the snapshot | No |
+| [Freestyle](/machines/providers/freestyle) | Full VM | Snapshot of a Freestyle VM | Chosen by Freestyle | CPU and memory | Yes |
+| [Modal](/machines/providers/modal) | Container (gVisor) | Public registry image | US, EU, Asia-Pacific, and more | CPU and memory | No |
+| [Tenki](/machines/providers/tenki) | Full VM | Tenki template | Chosen by Tenki | CPU and memory | No |
+| [Unikraft Cloud](/machines/providers/unikraft) | microVM | Dockerfile built with the Unikraft CLI | US, Germany, Singapore | CPU and memory | Yes |
+
+## Choosing a provider
+
+- **Arker** runs hyper-elastic, durable virtual machines for agents at extreme scale. Its custom hypervisor spins machines up, down, and resizes them in milliseconds, and every machine is a faithful fork of a source VM, memory and running processes included.
+- **Blaxel** runs each machine in its own microVM that boots in milliseconds and [resumes](#sleep-when-idle) in about 25 ms with its memory intact. It's also the quickest way to start, since the default pool already runs on it.
+- **Daytona** creates sandboxes in under 90 ms and runs AI-generated code in isolation from your infrastructure. It fits teams with existing Docker images, and you can open a terminal on any machine to work alongside your agents.
+- **Freestyle** gives agents full Linux VMs, ready in about 65 ms, for tasks that run for hours, days, or weeks. Nested virtualization runs Docker and VMs inside each machine, and idle VMs pause with their state intact.
+- **Modal** is trusted infrastructure for untrusted agents. It scales to a million sandboxes in under a minute and runs public registry images in the region you choose.
+- **Tenki** gives coding agents full Linux computers that start in under a second, with Claude Code, Codex, and common languages already installed, on hardware Tenki owns end to end.
+- **Unikraft Cloud** is the millisecond compute layer, with VM-grade isolation and scale to zero in under 10 ms. It's built for agents that spend most of their time waiting, and it can run on your own infrastructure.
+
+## Sleep when idle
+
+On Arker, Blaxel, Freestyle, and Unikraft Cloud, a machine can sleep while it's idle and wake the next time an agent uses it. A sleeping machine keeps its memory, files, and running processes.
+
+To turn on sleep, set `sleep_after_ms` in the pool's `default_machine_provider_options` to how long a machine must be idle before it sleeps, in milliseconds (at least `30000`). A machine is idle when no command or process started by an agent is running on it.
+
+The default Blaxel pool has sleep turned on already, so its machines stop using compute between turns, which keeps costs down. Turn it on for your custom pools to get the same savings.
+
+## Allowlists
+
+By default, project grants and agent configs can only use the image, snapshot, and location set in the pool's `default_machine_provider_options`. To let them choose others, list every allowed value, including the default, in the matching `provider_config` allowlist, such as `allowed_images`. Use `["*"]` to allow any value.
+
+## Custom image requirements
+
+Omnara installs and starts the daemon on each new machine. A custom image or snapshot must provide:
+
+- A writable `HOME` or `OMNARA_HOME`.
+- A POSIX shell and standard Unix utilities, including `base64`, `curl`, and `sha256sum` or `shasum`.
+- Outbound HTTPS and WebSocket access to your Omnara API. For a self-hosted deployment, `OMNARA_PUBLIC_API_URL` must be reachable from the provider's network.

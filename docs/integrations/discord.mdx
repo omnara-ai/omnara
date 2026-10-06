@@ -113,10 +113,13 @@ for setup, template variables and recovery behavior.
 ## Thread tools and subscriptions
 
 A mention or scheduled launch supplies `read` and `post_message` for its assigned
-thread. `read` supports `before` and `limit`; `post_message` takes `content` and up
-to 10 `artifact_ids`. The model supplies neither channel nor thread IDs. Adding
-these tools to an agent without an assigned conversation is insufficient; calls
-fail before contacting Discord.
+thread. `read` supports `before` and `limit`; `post_message` takes `content` and an
+optional `paths` array of up to 10 files. Use exact `/artifacts/<artifact_id>` or
+`/memory/<store>/<file>` paths; directories and globs are not supported. For example,
+`{"content":"Update","paths":["/memory/reports/weekly.pdf"]}` posts the message and
+file directly to that thread. Omit `paths` for a text-only message. The model supplies
+neither channel nor thread IDs. Adding these tools to an agent without an assigned
+conversation is insufficient; calls fail before contacting Discord.
 
 `post_message` returns the message's actual `channel_id` (the thread ID when
 posting in a thread), along with `message_id` and `thread_id`.

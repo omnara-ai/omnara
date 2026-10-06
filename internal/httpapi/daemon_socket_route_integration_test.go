@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -485,9 +486,8 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 				RuntimeLockID: process.RuntimeLock.ID,
 			},
 			executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("echo "+name, "sh", ""),
 				AgentMachineBindingID: process.BindingUUID,
-				Command:               "echo " + name,
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			},
 		)

@@ -22,8 +22,10 @@ const (
 )
 
 const (
-	ArtifactPageBytes        = 4 * 1024
+	FilePageBytes            = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
+	ListFilesDefaultLimit    = 50
+	ListFilesMaxLimit        = 100
 	ReadFileDefaultLines     = 100
 	ReadFileMaxLines         = 200
 	ReadFileDefaultChars     = 512
@@ -32,7 +34,10 @@ const (
 	SearchMaxMatches         = 100
 	SearchMaxContextLines    = 5
 	SearchMaxPatternBytes    = 1024
+	SearchMaxArgs            = 64
 )
+
+const fileDigestPattern = `^sha256:[0-9a-f]{64}$`
 
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
@@ -58,22 +63,20 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	readFileToolDescription = "Read a text or image file in Omnara's virtual filesystem. " +
-		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
+	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
+	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
-		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
-		"Returns matching lines with line numbers and optional surrounding lines. " +
-		"Use read_file to read more around a match."
-	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
-		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
-		"Successful uploads return the created file's path."
-	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
-		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
-		"If the download is still running after the initial wait, use the returned process_id with the process tools."
-	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
+	searchFilesToolDescription = "Search text in Omnara files. " +
+		"Returns matching lines with context, matching file paths, or counts. " +
+		"Narrow the query when truncated. Use read_file to read more around a match."
+	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
+		"Returns paths and metadata without file contents, with next_cursor to continue listing."
+	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
+		"Returns path and digest."
+	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest."
+	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
 	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
@@ -258,6 +261,34 @@ func buildDefaultCatalog() (Catalog, error) {
 	); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameListFiles], err = toolEntry(
+		ToolNameListFiles,
+		listFilesToolDescription,
+		[]string{"pattern"},
+		map[string]any{
+			"pattern": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Pattern under literal /memory or /artifacts. Memory patterns match paths: " +
+					"/memory/* lists attached stores; /memory/** lists recursively. " +
+					"Artifact patterns match filenames, which can repeat, and return /artifacts/<artifact_id> paths for read/download. " +
+					"An exact artifact ID selects one artifact; wildcards match filenames, not IDs. " +
+					"* matches within a segment, ** spans directory levels, and ? matches one character.",
+			},
+			"cursor": map[string]any{
+				"type": "string", "maxLength": ListFilesMaxCursorLength,
+				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ListFilesMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListFilesDefaultLimit),
+			},
+		},
+	); err != nil {
+		return Catalog{}, err
+	}
 	if entries[ToolNameListMachines], err = toolEntry(
 		ToolNameListMachines,
 		listMachinesToolDescription,
@@ -287,6 +318,9 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameWriteFile], err = writeFileTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
@@ -520,7 +554,13 @@ func readFileTool() (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact VFS path /artifacts/<artifact_id>.",
+				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
+			},
+			"expected_digest": map[string]any{
+				"type":    "string",
+				"pattern": fileDigestPattern,
+				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
+					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
 			},
 			"offset_line": map[string]any{
 				"type":    "integer",
@@ -552,43 +592,68 @@ func readFileTool() (Entry, error) {
 	)
 }
 
-func searchFilesTool() (Entry, error) {
+func writeFileTool() (Entry, error) {
 	return toolEntry(
-		ToolNameSearchFiles,
-		searchFilesToolDescription,
-		[]string{"path", "pattern"},
+		ToolNameWriteFile,
+		writeFileToolDescription,
+		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact VFS path /artifacts/<artifact_id>.",
+				"pattern":     "^/memory/[^/]+/.+$",
+				"description": "Exact /memory/<store>/<file> destination. Requires write access.",
 			},
-			"pattern": map[string]any{
+			"content": map[string]any{
+				"type":        "string",
+				"description": "UTF-8 text to create or replace the file with, at most 10 MiB, without NUL bytes. Empty text is allowed. Supply exactly one of content or script.",
+			},
+			"script": map[string]any{
+				"type":        "string",
+				"description": "GNU sed script using extended regex, at most 64 KiB, to transform an existing text file. File reads, file writes, and command execution are disabled. Output must be UTF-8 without NUL bytes, at most 10 MiB.",
+			},
+			"append": map[string]any{
+				"type":        "boolean",
+				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
+			},
+			"expected_digest": map[string]any{
+				"type":        "string",
+				"pattern":     fileDigestPattern,
+				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
+			},
+		},
+	)
+}
+
+func searchFilesTool() (Entry, error) {
+	return toolEntry(
+		ToolNameSearchFiles,
+		searchFilesToolDescription,
+		[]string{"path", "args"},
+		map[string]any{
+			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"maxLength":   SearchMaxPatternBytes,
-				"description": "RE2 regex, at most 1024 UTF-8 bytes. Case-sensitive by default; use (?i) for case-insensitive matching.",
+				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported.",
 			},
-			"max_matches": map[string]any{
+			"args": map[string]any{
+				"type":        "array",
+				"minItems":    1,
+				"maxItems":    SearchMaxArgs,
+				"items":       map[string]any{"type": "string"},
+				"description": "Ripgrep arguments: -e PATTERN (repeatable), -F literal, -i ignore case, -w whole word, -x whole line, -v invert, -U multiline, -l matching paths, -c counts, and -A/-B/-C context (0–5 lines). Supply patterns with -e, totaling at most 1024 UTF-8 bytes. No other options or file operands. Example: [\"-i\", \"-C\", \"2\", \"-e\", \"deploy\"].",
+			},
+			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
 				"maximum":     SearchMaxMatches,
 				"default":     SearchDefaultMatches,
-				"description": "Maximum matching lines, not occurrences.",
+				"description": "Maximum entries across all files: matching lines or multiline blocks, or files in -l/-c modes. Context does not count toward this limit. A separate response budget also applies; counts are not capped by limit.",
 			},
 			"offset_line": map[string]any{
-				"type":    "integer",
-				"minimum": 1,
-				"default": 1,
-				"description": "Line number to start searching from, starting at 1. " +
-					"To continue, use next_offset_line from the previous result with the same pattern.",
-			},
-			"context_lines": map[string]any{
 				"type":        "integer",
-				"minimum":     0,
-				"maximum":     SearchMaxContextLines,
-				"default":     0,
-				"description": "Lines before and after each matching line.",
+				"minimum":     1,
+				"description": "Starting line, default 1, for exact-file content searches. Cannot be combined with globs, -l, or -c.",
 			},
 		},
 	)
@@ -601,18 +666,26 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "Destination path in Omnara's virtual filesystem. Currently supports /artifacts, which creates a new artifact.",
-				"enum":        []string{ArtifactVFSRoot},
+				"type":      "string",
+				"minLength": 1,
+				"pattern":   "^(/artifacts|/memory/[^/]+/.+)$",
+				"description": "Destination path in Omnara: /artifacts creates an artifact; " +
+					"/memory/<store>/<path> creates or replaces a memory file. " +
+					"Memory files may be empty; artifacts must be non-empty.",
 			},
 			"source": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Path to a regular file on the selected machine. " +
+				"description": "Path to a regular file of any type on the selected machine, at most 10 MiB. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,
+			"expected_digest": map[string]any{
+				"type":    "string",
+				"pattern": fileDigestPattern,
+				"description": "To replace changed memory content, use digest from download_file. " +
+					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
+			},
 		},
 	)
 }
@@ -626,8 +699,7 @@ func downloadFileTool(machineID map[string]any) (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
-				"pattern":     "^" + ArtifactVFSRoot + "/art_[a-z2-7]{26}$",
+				"description": "Source path in Omnara: /artifacts/<artifact_id> or /memory/<store>/<path>.",
 			},
 			"destination": map[string]any{
 				"type":      "string",

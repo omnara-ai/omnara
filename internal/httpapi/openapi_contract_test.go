@@ -311,8 +311,8 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/daemon/runtimes/{runtimeID}/sleep", "post"},
 		{"/daemon/processes/{processID}/git-credentials", "post"},
 		{"/daemon/skills/{skillID}/archive", "get"},
-		{"/daemon/tool-calls/{toolCallID}/artifact", "post"},
-		{"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", "get"},
+		{"/daemon/processes/{processID}/file", "post"},
+		{"/daemon/processes/{processID}/file", "get"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -353,7 +353,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"post /daemon/runtimes":                              true,
 		"post /daemon/runtimes/{runtimeID}/end":              true,
 		"post /daemon/runtimes/{runtimeID}/sleep":            true,
-		"post /daemon/tool-calls/{toolCallID}/artifact":      true,
+		"post /daemon/processes/{processID}/file":            true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -412,6 +412,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
+		"MemoryStore.name":                                        "#/components/schemas/MemoryStoreName",
+		"CreateMemoryStore.name":                                  "#/components/schemas/MemoryStoreName",
 		"Integration.name":                                        "#/components/schemas/IntegrationName",
 		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
 		"Agent.name":                                              "#/components/schemas/AgentName",
@@ -479,6 +481,41 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 func openAPINameProperty(property string) bool {
 	return property == "name" || property == "display_name" || property == "provider_config" ||
 		strings.HasSuffix(property, "_name")
+}
+
+func TestOpenAPIErrorCodesContract(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Enum           []string       `yaml:"enum"`
+				ExtensibleEnum []string       `yaml:"x-extensible-enum"`
+				Properties     map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+	code := openAPIPropertySchema(t, doc.Components.Schemas["Error"].Properties, "code")
+	if _, closed := code["enum"]; closed || code["x-go-type"] != "ErrorCode" {
+		t.Fatal("Error.code must be extensible and use the Go ErrorCode type")
+	}
+	values, ok := code["x-extensible-enum"].([]any)
+	known := doc.Components.Schemas["ErrorCode"].Enum
+	if !ok || len(known) == 0 || !slices.Equal(openAPIStringSlice(values), known) {
+		t.Fatal("Error.code extensible values must match the known ErrorCode enum")
+	}
+	for _, name := range []string{"ClientErrorCode", "ServerErrorCode"} {
+		schema := doc.Components.Schemas[name]
+		if len(schema.Enum) != 0 || len(schema.ExtensibleEnum) == 0 {
+			t.Fatalf("%s must be extensible", name)
+		}
+		for _, value := range schema.ExtensibleEnum {
+			if !slices.Contains(known, value) {
+				t.Fatalf("%s contains unknown code %q", name, value)
+			}
+		}
+	}
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
@@ -931,6 +968,34 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "tenki",
+			body: `{"provider":"tenki",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "tenki missing cpu",
+			body: `{"provider":"tenki",` + common +
+				`,"default_machine_memory_mb":1024,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "arker",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "arker missing cpu",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_memory_mb":1024,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "daytona without resource defaults",
 			body: `{"provider":"daytona",` + common +
 				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
@@ -1352,7 +1417,7 @@ func (*trackingReadCloser) Close() error {
 	return nil
 }
 
-func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+func TestOpenAPIRequestValidatorDoesNotPreReadDaemonFileBody(t *testing.T) {
 	t.Parallel()
 	validator, err := newOpenAPIRequestValidator()
 	if err != nil {
@@ -1362,7 +1427,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	source := &trackingReadCloser{reader: bytes.NewReader(body)}
 	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if source.bytesRead != 0 {
-			t.Errorf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+			t.Errorf("file body was read before reaching handler: %d bytes", source.bytesRead)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
@@ -1381,7 +1446,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	}))
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		"/api/v1/daemon/processes/prc_"+strings.Repeat("a", 26)+"/file?filename=shot.png",
 		source,
 	)
 	req.ContentLength = int64(len(body))

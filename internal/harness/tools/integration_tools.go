@@ -49,7 +49,7 @@ func runIntegrationTool(ctx context.Context, call asyncToolContext) (asyncPhaseR
 
 func integrationToolPreparationFailure(err error) error {
 	content, marshalErr := structuredToolResultContent(map[string]string{
-		"code": "integration_tool_failed", "message": err.Error(),
+		"error_code": "integration_tool_failed", "message": err.Error(),
 	})
 	if marshalErr != nil {
 		return marshalErr

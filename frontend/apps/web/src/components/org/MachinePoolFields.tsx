@@ -87,7 +87,7 @@ export function MachinePoolFields({
           <MachinePoolInputField
             id="mpool-image"
             label={definition.resource.label}
-            required
+            required={!definition.resource.optional}
             value={values.image}
             placeholder={definition.resource.placeholder}
             autoComplete="off"

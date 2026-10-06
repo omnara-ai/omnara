@@ -120,3 +120,5 @@ Composable integrations cutover replaces encoded provider references with conver
 Composable integrations cutover replaces encoded provider references with conversation: GET /orgs/{orgID}/projects/{projectID}/agents/{agentID} removed the required property `agent/integration_target/provider_ref_kind` from the response with the `200` status
 Composable integrations cutover replaces encoded provider references with conversation: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive removed the required property `agent/integration_target/provider_ref` from the response with the `200` status
 Composable integrations cutover replaces encoded provider references with conversation: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive removed the required property `agent/integration_target/provider_ref_kind` from the response with the `200` status
+Typed daemon file transfers replace artifact routes: POST /daemon/tool-calls/{toolCallID}/artifact api path removed without deprecation
+Typed daemon file transfers replace artifact routes: GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content api path removed without deprecation

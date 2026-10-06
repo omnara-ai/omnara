@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/metrics"
@@ -37,6 +38,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -121,6 +123,7 @@ func main() {
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
+		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
@@ -129,6 +132,16 @@ func main() {
 			os.Exit(1)
 		}
 		storeOpts = append(storeOpts, storage.WithBlobStore(blobs))
+	}
+	memoryFS, err := memorystore.OpenFilesystem(cfg.MemoryDir)
+	if err != nil {
+		log.Error("configure memory storage", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = memoryFS.Close() }()
+	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
+	if err := tools.CheckFileToolSupport(ctx); err != nil {
+		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	store := storage.NewStore(db, storeOpts...)
 	healthErr := metrics.Serve(

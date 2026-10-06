@@ -143,7 +143,7 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 				require.Equal(t, "malformed", body["error_code"])
 				require.Contains(t, body["error"], test.message)
 			} else {
-				require.Equal(t, "integration_tool_failed", body["code"])
+				require.Equal(t, "integration_tool_failed", body["error_code"])
 				require.Contains(t, body["message"], test.message)
 			}
 			require.NoError(t, executor.PrepareToolCallPermission(ctx, f.turn(), call), "terminal failure replay must finish")
@@ -406,7 +406,7 @@ func TestAsyncFailurePreservesProviderEvidenceOnTimeout(t *testing.T) {
 			var content toolResultContent
 			if code != "" {
 				var err error
-				content, err = structuredToolResultContent(map[string]any{"code": code, "message_id": "222.1"})
+				content, err = structuredToolResultContent(map[string]any{"error_code": code, "message_id": "222.1"})
 				require.NoError(t, err)
 			}
 			executor := Executor{Store: f.Store}
@@ -418,9 +418,9 @@ func TestAsyncFailurePreservesProviderEvidenceOnTimeout(t *testing.T) {
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, record.ResultContentParts)
 			if code == "" {
-				require.Equal(t, "async_tool_interrupted", body["code"])
+				require.Equal(t, "async_tool_interrupted", body["error_code"])
 			} else {
-				require.Equal(t, code, body["code"])
+				require.Equal(t, code, body["error_code"])
 				require.Equal(t, "222.1", body["message_id"])
 			}
 		})
@@ -531,7 +531,7 @@ func TestIntegrationToolMissingContextBeforeProviderIO(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
 			body := toolResultMapFromTestParts(t, record.ResultContentParts)
-			require.Equal(t, "integration_tool_failed", body["code"])
+			require.Equal(t, "integration_tool_failed", body["error_code"])
 			require.Contains(t, body["message"], `integration "chat" has no assigned conversation`)
 			require.Zero(t, requests.Load(), "missing context fails before provider I/O, including identity checks")
 		})

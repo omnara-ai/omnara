@@ -209,7 +209,7 @@ func (e Executor) githubToolClient(
 
 func integrationToolFailure(err error) (asyncPhaseResult, error) {
 	result := struct {
-		Code              string `json:"code"`
+		Code              string `json:"error_code"`
 		Message           string `json:"message"`
 		RetryAfterSeconds int64  `json:"retry_after_seconds,omitempty"`
 	}{Code: "integration_tool_failed", Message: err.Error()}

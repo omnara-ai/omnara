@@ -14,7 +14,11 @@ export default defineConfig({
       definitions: true,
       $resolvers: {
         string: (ctx) => {
-          if (ctx.schema['x-omnara-unicode-normalization'] !== 'NFC') return
+          if (ctx.schema.format === 'binary') {
+            return ctx.chain.current.attr('instanceof').call('Blob')
+          }
+          const normalize = ctx.schema['x-omnara-unicode-normalization'] === 'NFC'
+          if (!normalize && ctx.schema['x-omnara-unicode-length'] !== true) return
 
           ctx.chain.current = ctx.nodes.base(ctx)
           const minLength = ctx.nodes.minLength(ctx)
@@ -41,10 +45,11 @@ export default defineConfig({
                 '<=',
                 ctx.$.literal(ctx.schema.maxLength),
               ),
-              `Resource name cannot exceed ${ctx.schema.maxLength} Unicode characters`,
+              `${normalize ? 'Resource name' : 'String'} cannot exceed ${ctx.schema.maxLength} Unicode characters`,
             )
           }
           enforceMaxCodePoints()
+          if (!normalize) return ctx.chain.current
           ctx.chain.current = ctx.chain.current.attr('transform').call(
             ctx.$.func()
               .param('value')

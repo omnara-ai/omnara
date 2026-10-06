@@ -24,7 +24,7 @@ func TestIntegrationOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *test
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 47))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
 	var integrationKindHasDefault bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT column_default IS NOT NULL
         FROM information_schema.columns WHERE table_schema='public'
@@ -178,7 +178,7 @@ func TestIntegrationActorMigrationPreservesLegacySlackAttribution(t *testing.T) 
 	require.NoError(t, tx.Commit(ctx))
 	var before, after []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&before))
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 49))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&after))
 	var expected, actual map[string]any
 	require.NoError(t, json.Unmarshal(before, &expected))

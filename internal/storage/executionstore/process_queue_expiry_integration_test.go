@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -37,9 +38,8 @@ func startQueuedExpiryProcessForTool(
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, ToolCallID: toolID, RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("true", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "true",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	require.NoError(t, err)

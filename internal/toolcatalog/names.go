@@ -20,6 +20,8 @@ const (
 	ToolNameAskQuestion        = "ask_question"
 	ToolNameWebSearch          = "web_search"
 	ToolNameWebFetch           = "web_fetch"
+	ToolNameListFiles          = "list_files"
+	ToolNameWriteFile          = "write_file"
 	ToolNameReadFile           = "read_file"
 	ToolNameSearchFiles        = "search_files"
 	ToolNameUploadFile         = "upload_file"
@@ -33,6 +35,7 @@ const (
 	ToolNameToolSearch         = "tool_search"
 	ToolNameCallDeferredTool   = "call_deferred_tool"
 	ToolSearchMaxPatternLength = 200
+	ListFilesMaxCursorLength   = 4096
 	ToolSearchDefaultResults   = 5
 	ToolSearchMaxResults       = 50
 )
@@ -77,8 +80,8 @@ func implicit(name string) bool {
 	return UsesIntegrationToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
 		slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill ||
-		name == ToolNameReadFile || name == ToolNameSearchFiles ||
-		name == ToolNameToolSearch
+		name == ToolNameListFiles || name == ToolNameReadFile || name == ToolNameSearchFiles ||
+		name == ToolNameWriteFile || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

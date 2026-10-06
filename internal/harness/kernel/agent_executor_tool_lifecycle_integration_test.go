@@ -105,7 +105,7 @@ skills:
 		t.Fatalf("expected one skill-enabled model prepare, got %d", modelClient.preparedCount())
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 		toolcatalog.ToolNameSkill)
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
 	<-scope.Done()

@@ -8,27 +8,31 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 5 {
-		t.Fatalf("default catalog providers = %d, want 5", len(catalog.definitions))
+	if len(catalog.definitions) != 7 {
+		t.Fatalf("default catalog providers = %d, want 7", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
 		definition any
 	}{
+		{name: "arker", definition: arker.Definition{}},
 		{name: "blaxel", definition: blaxel.Definition{}},
 		{name: "daytona", definition: daytona.Definition{}},
 		{name: "freestyle", definition: freestyle.Definition{}},
 		{name: "modal", definition: modal.Definition{}},
+		{name: "tenki", definition: tenki.Definition{}},
 		{name: "unikraft", definition: unikraft.Definition{}},
 	} {
 		definition, ok := catalog.definition(test.name)
@@ -121,8 +125,8 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 		provider    string
 		cpu, memory bool
 	}{
-		{"unikraft", true, true}, {"modal", true, true}, {"freestyle", true, true},
-		{"blaxel", false, true}, {"daytona", false, false},
+		{"unikraft", true, true}, {"modal", true, true}, {"freestyle", true, true}, {"tenki", true, true},
+		{"arker", true, true}, {"blaxel", false, true}, {"daytona", false, false},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)

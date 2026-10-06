@@ -149,7 +149,7 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			} else {
 				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
 				require.Zero(t, posts)
-				require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
+				require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["error_code"])
 			}
 		})
 	}

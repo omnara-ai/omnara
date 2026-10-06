@@ -94,7 +94,7 @@ func TestGitHubIntegrationAuthorityBeforeEveryRequest(t *testing.T) {
 				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Equal(t, "integration_tool_failed", toolResultMapFromTestParts(t, record.ResultContentParts)["code"])
+				require.Equal(t, "integration_tool_failed", toolResultMapFromTestParts(t, record.ResultContentParts)["error_code"])
 				if scenario == "removed-before-dispatch" {
 					require.Zero(t, requests.Load())
 				} else {
@@ -127,7 +127,7 @@ func TestGitHubIntegrationReplyRejectsForeignPullRequest(t *testing.T) {
 	result, err := dispatchAsyncToolToTerminal(t, ctx,
 		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 	require.NoError(t, err)
-	require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
+	require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["error_code"])
 	require.EqualValues(t, 1, reads.Load())
 	require.Zero(t, posts.Load(), "a comment ID from another PR must not redirect the reply")
 }

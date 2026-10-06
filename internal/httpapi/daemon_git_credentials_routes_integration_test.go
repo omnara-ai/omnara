@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -111,6 +112,15 @@ func (f *daemonGitCredentialsFixture) launchProcess(
 	t *testing.T, config executionstore.AgentConfigRecord,
 ) daemonProcessFixture {
 	t.Helper()
+	return f.launchProcessForTool(t, config, model.ToolCall{
+		ID: "git-command", Name: toolcatalog.ToolNameRunCommand, Input: json.RawMessage(`{"command":"git clone"}`),
+	}, processcmd.ForShell("git clone", processcmd.ShellSH, processcmd.IOModePipe))
+}
+
+func (f *daemonGitCredentialsFixture) launchProcessForTool(
+	t *testing.T, config executionstore.AgentConfigRecord, tool model.ToolCall, spec processcmd.ExecutionSpec,
+) daemonProcessFixture {
+	t.Helper()
 	ctx, store := t.Context(), f.project.Store
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: f.project.ProjectUUID, AgentConfigID: config.ID, LaunchedBy: httpUserPrincipal(f.project.AdminUserUUID),
@@ -133,16 +143,14 @@ func (f *daemonGitCredentialsFixture) launchProcess(
 	identity := loadModelCallProviderIdentityForHTTPTest(t, ctx, store, f.project.ProjectUUID, modelCall.Context)
 	response, err := model.NewResponseEnvelopeForStorage(identity.Slug, identity.APIFormat, identity.APIVariant,
 		model.Response{ID: "git-model-response", StopReason: model.StopReasonToolUse,
-			Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
-				{ID: "git-command", Name: "run_command", Input: json.RawMessage(`{"command":"git clone"}`)},
-			})})
+			Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{tool})})
 	require.NoError(t, err)
 	_, calls, err := store.Execution().RecordToolCallSourceAndCompleteContext(ctx,
 		executionstore.RecordToolCallSourceAndCompleteContextInput{
 			ProjectID: f.project.ProjectUUID, AgentID: launch.Agent.ID, RuntimeLockID: claim.RuntimeLock.ID,
 			ModelCallContextID: modelCall.Context.ID, ProviderResponse: response,
 			ToolCallBindings: []executionstore.ToolCallBindingInput{
-				{ProviderCallID: "git-command", Type: toolcatalog.ToolTypeBuiltIn},
+				{ProviderCallID: tool.ID, Type: toolcatalog.ToolTypeBuiltIn},
 			},
 		})
 	require.NoError(t, err)
@@ -154,7 +162,7 @@ func (f *daemonGitCredentialsFixture) launchProcess(
 	process, err := storagetest.StartProcessForToolCall(ctx, store, executionstore.ExecuteToolCallInput{
 		ProjectID: f.project.ProjectUUID, AgentID: launch.Agent.ID, ToolCallID: call.ID, RuntimeLockID: claim.RuntimeLock.ID,
 	}, executionstore.CreateProcessInput{AgentMachineBindingID: launch.MachineBindings[0].ID,
-		Command: "git clone", ShellSelector: "sh"})
+		ExecutionSpec: spec})
 	require.NoError(t, err)
 	fixture := f.disabled
 	fixture.AgentUUID, fixture.BindingUUID = launch.Agent.ID, launch.MachineBindings[0].ID
@@ -204,6 +212,45 @@ func (f *daemonGitCredentialsFixture) changeConfig(
 		Reason: "Git credential test", IdempotencyKey: uuid.NewString(),
 	})
 	require.NoError(t, err)
+}
+
+func TestDaemonGitCredentialsExcludeFileTransfers(t *testing.T) {
+	t.Parallel()
+	f := newDaemonGitCredentialsFixture(t)
+	transfer := f.launchProcessForTool(t, f.enabled, model.ToolCall{
+		ID: "upload", Name: toolcatalog.ToolNameUploadFile,
+		Input: json.RawMessage(`{"path":"/artifacts","source":"report.txt"}`),
+	}, processcmd.ForFileTransfer(processcmd.FileTransfer{
+		Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+		Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+	}))
+	execution := f.project.Store.Execution()
+	offers, err := execution.ListDaemonProcessOffers(t.Context(), executionstore.DaemonWorkInput{
+		Authority: transfer.authority(), Limit: 10,
+	})
+	require.NoError(t, err)
+	var offered bool
+	for _, offer := range offers {
+		if offer.Process.ID == transfer.ProcessUUID {
+			offered = true
+			require.False(t, offer.GitCredentials)
+			require.False(t, daemonProcessOfferMessage(transfer.ProcessID, offer).ProcessOffer.GitCredentials)
+		}
+	}
+	require.True(t, offered)
+	f.accept(t, transfer)
+	_, found, err := execution.GetDaemonGitCredentialsScope(
+		t.Context(), f.project.OrgUUID, transfer.MachineUUID, transfer.ProcessUUID,
+	)
+	require.NoError(t, err)
+	require.False(t, found)
+	_, found, err = execution.GetDaemonFileProcessScope(
+		t.Context(), f.project.OrgUUID, transfer.MachineUUID, transfer.ProcessUUID, processcmd.FileTransferUpload,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	f.request(t, transfer.Token, transfer.ProcessID, http.StatusNotFound)
+	require.Zero(t, f.minted.Load())
 }
 
 func TestDaemonGitCredentialsOriginalConfigOffersAndLiveAuthorization(t *testing.T) {

@@ -214,7 +214,7 @@ func TestSlackIntegrationSendSafeRetriesAndUncertainPublication(t *testing.T) {
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
 			case "rate-limit-exhausted":
 				require.Equal(t, 3, posts)
-				require.Equal(t, "rate_limited", body["code"])
+				require.Equal(t, "rate_limited", body["error_code"])
 			case "unknown-found":
 				require.Equal(t, 1, posts)
 				require.Equal(t, 1, reads)
@@ -222,7 +222,7 @@ func TestSlackIntegrationSendSafeRetriesAndUncertainPublication(t *testing.T) {
 			case "unknown-missing":
 				require.Equal(t, 1, posts)
 				require.Equal(t, 1, reads)
-				require.Equal(t, "delivery_unknown", body["code"])
+				require.Equal(t, "delivery_unknown", body["error_code"])
 			case "revoked-during-retry", "config-removed-during-retry":
 				require.Equal(t, 1, posts)
 				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
@@ -422,7 +422,7 @@ func TestSlackIntegrationRotatedTokenKeepsVerifiedIdentity(t *testing.T) {
 					name, input = "post_message", `{"text":"hello"}`
 				}
 				if operation == "upload" {
-					input = `{"text":"report","artifact_ids":["art_aeaqcaibaeaqcaibaeaqcaibae"]}`
+					input = `{"text":"report","paths":["/artifacts/art_aeaqcaibaeaqcaibaeaqcaibae"]}`
 				}
 				call := f.recordToolCall(t, ctx, "rotated", toolcatalog.IntegrationToolName("chat", name), input, f.Now)
 				_, err = dispatchAsyncToolToTerminal(t, ctx,

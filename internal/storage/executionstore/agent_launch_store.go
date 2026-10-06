@@ -242,9 +242,9 @@ func (s *Store) launchAgentTx(
 		return LaunchAgentResult{}, err
 	}
 	if input.DerivedBaseConfigID != uuid.Nil {
-		err = validateSavedAgentConfigModelContractTx(ctx, qtx, config)
+		err = validateSavedAgentConfigContractTx(ctx, qtx, config)
 	} else {
-		err = lockAgentConfigModelForUseTx(ctx, qtx, config)
+		err = lockAgentConfigForUseTx(ctx, qtx, config)
 	}
 	if err != nil {
 		return LaunchAgentResult{}, err

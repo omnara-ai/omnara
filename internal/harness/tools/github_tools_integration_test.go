@@ -296,7 +296,7 @@ func TestGitHubIntegrationReviewThreadFailures(t *testing.T) {
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
-			require.Equal(t, code, body["code"])
+			require.Equal(t, code, body["error_code"])
 			require.NotContains(t, body["message"], "may have accepted")
 			require.NotContains(t, string(result.ContentParts), "private-provider-details")
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
@@ -437,7 +437,7 @@ func TestGitHubIntegrationProviderFailureDoesNotResend(t *testing.T) {
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
-			require.Equal(t, tt.code, body["code"])
+			require.Equal(t, tt.code, body["error_code"])
 			if tt.status == http.StatusTooManyRequests {
 				require.Equal(t, float64(23), body["retry_after_seconds"])
 			} else if tt.status == http.StatusUnprocessableEntity {

@@ -103,6 +103,26 @@ func DeriveWithIntegrationCapabilities(
 		derived.Tools = map[string]ToolCompiled{}
 	}
 	maps.Copy(derived.Tools, additions.Tools)
+	for _, tool := range additions.Tools {
+		if !tool.Enabled {
+			continue
+		}
+		catalog, err := toolcatalog.Default()
+		if err != nil {
+			return Compiled{}, err
+		}
+		for _, name := range fileRetrievalToolNames() {
+			if _, configured := derived.Tools[name]; configured {
+				continue
+			}
+			entry, err := compileBuiltInTool(name, AgentConfigToolSource{}, true, catalog)
+			if err != nil {
+				return Compiled{}, err
+			}
+			derived.Tools[name] = entry
+		}
+		break
+	}
 	if len(additions.InteractionHandlers) > 0 && derived.InteractionHandlers == nil {
 		derived.InteractionHandlers = map[string]IntegrationCapabilityCompiled{}
 	}

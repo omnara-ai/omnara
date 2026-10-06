@@ -100,6 +100,57 @@ func TestIntegrationSourceValidation(t *testing.T) {
 	require.ErrorContains(t, err, "integration ID")
 }
 
+func TestMemoryAndIntegrationCapabilitiesCompileAndPreviewTogether(t *testing.T) {
+	opts, integrations := integrationTestOptions(t)
+	resolveIntegration := opts.ResolveIntegrationName
+	gitID, memoryID := publicidTestID(160), publicidTestID(161)
+	opts.ResolveIntegrationName = func(name string) (IntegrationResolution, error) {
+		if name == "reviews" {
+			return IntegrationResolution{IntegrationID: gitID, IntegrationKind: integrationdefinition.GitHubPR}, nil
+		}
+		return resolveIntegration(name)
+	}
+	opts.ResolveMemoryStoreName = func(name string) (uuid.UUID, error) {
+		require.Equal(t, "notes", name)
+		return memoryID, nil
+	}
+	result := compileIntegrationTest(t, `memory_stores:
+  - name: notes
+    access: read_write
+tools:
+  int__engineering-team__post_message: {deferred: true}
+interaction_handlers:
+  engineering-team: {}
+git_credentials: {integration: reviews}`, opts)
+	require.Equal(t,
+		[]MemoryStoreCompiled{{ID: memoryID, Access: MemoryStoreAccessReadWrite}},
+		result.Compiled.MemoryStores,
+	)
+	require.Equal(t, gitID, result.Compiled.GitCredentials.IntegrationID)
+	require.Equal(t, publicidTestID(120), result.Compiled.InteractionHandlers["engineering-team"].IntegrationID)
+	for _, name := range []string{"list_files", "read_file", "search_files", "write_file", "tool_search"} {
+		require.True(t, result.Compiled.Tools[name].Enabled, name)
+	}
+	preview, err := ToolsFromSourceWithOptions(SourceFormatYAML, []byte(result.Source), opts)
+	require.NoError(t, err)
+	require.Len(t, preview, len(result.Compiled.Tools))
+	for _, tool := range preview {
+		compiled, found := result.Compiled.Tools[tool.Name]
+		require.True(t, found, tool.Name)
+		require.Equal(t, compiled.Enabled, tool.Enabled, tool.Name)
+		require.Equal(t, compiled.Permission, tool.Permission, tool.Name)
+	}
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
+	require.NoError(t, err)
+	require.Equal(t, result.Compiled.GitCredentials, contract.GitCredentials)
+	require.Equal(t, result.Compiled.InteractionHandlers, contract.InteractionHandlers)
+	prepared, err := PrepareIntegrationTools(result.Compiled, integrations)
+	require.NoError(t, err)
+	require.Len(t, prepared, 1)
+	require.Equal(t, "int__engineering-team__post_message", prepared[0].Name)
+	require.True(t, prepared[0].Deferred)
+}
+
 func TestIntegrationCompiledRejectsForgedStructuralAuthority(t *testing.T) {
 	opts, _ := integrationTestOptions(t)
 	result := compileIntegrationTest(t, `tools: {int__engineering-team__read: {}}
@@ -193,6 +244,9 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 			URL: "https://example.com/mcp", Auth: &MCPAuthCompiled{Type: "bearer", SecretID: secretID},
 		}},
 		Skills: []SkillCompiled{{ID: publicidTestID(143)}},
+		MemoryStores: []MemoryStoreCompiled{{
+			ID: publicidTestID(146), Access: MemoryStoreAccessRead,
+		}},
 		Subagents: map[string]SubagentCompiled{"worker": {
 			Type: SubagentTypeProfile, ProfileID: publicidTestID(144),
 			Model: &ModelCompiled{ConfiguredModelID: publicidTestID(145)},
@@ -223,7 +277,11 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	require.NotContains(t, stored.Tools["list_interaction_handlers"], "integration_id")
 
 	child := SubagentCompiledFrom(derived, derived.Subagents["worker"], SubagentDepth{})
-	require.Empty(t, child.Tools)
+	require.Equal(t, base.MemoryStores, child.MemoryStores)
+	require.Len(t, child.Tools, 3)
+	for _, name := range []string{"list_files", "read_file", "search_files"} {
+		require.True(t, child.Tools[name].Enabled, name)
+	}
 	require.Empty(t, child.InteractionHandlers)
 	childModel := *base.Subagents["worker"].Model
 	childModel.Reasoning = base.Model.Reasoning
@@ -234,6 +292,34 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	require.Equal(t, base.Skills, child.Skills)
 	derived.EventWebhook.Events[0] = "tool_call_update"
 	require.Equal(t, []string{"model_output"}, base.EventWebhook.Events)
+}
+
+func TestIntegrationCompositionAddsRetrievalDefaultsWithoutOverridingPolicy(t *testing.T) {
+	opts, _ := integrationTestOptions(t)
+	for _, source := range []string{
+		"",
+		`tools:
+  list_files: {enabled: false}
+  read_file: {enabled: false}
+  search_files: {permission: {mode: always_ask}}`,
+	} {
+		t.Run(source, func(t *testing.T) {
+			base := compileIntegrationTest(t, source, opts).Compiled
+			derived, err := DeriveWithIntegrationCapabilities(base, IntegrationCapabilitiesSource{
+				Tools: map[string]AgentConfigToolSource{"int__engineering-team__read": {}},
+			}, opts)
+			require.NoError(t, err)
+			for _, name := range []string{"list_files", "read_file", "search_files"} {
+				if configured, exists := base.Tools[name]; exists {
+					require.Equal(t, configured, derived.Tools[name], name)
+				} else {
+					require.True(t, derived.Tools[name].Enabled, name)
+					require.Equal(t, toolpermission.ModeAlwaysAllow, derived.Tools[name].Permission.Mode, name)
+				}
+			}
+			require.NotContains(t, base.Tools, "int__engineering-team__read")
+		})
+	}
 }
 
 func TestPendingIntegrationToolIdentityAndPermission(t *testing.T) {

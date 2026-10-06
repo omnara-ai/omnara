@@ -6,8 +6,6 @@ import (
 	"errors"
 
 	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -19,8 +17,8 @@ type discordReadInput struct {
 }
 
 type discordPostInput struct {
-	Content     string   `json:"content"`
-	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+	Content string   `json:"content"`
+	Paths   []string `json:"paths,omitempty"`
 }
 
 func runDiscordTool(
@@ -73,13 +71,8 @@ func runDiscordTool(
 	}
 	args := discord.MessageArgs{Content: input.Content, Nonce: base64.RawURLEncoding.EncodeToString(record.ID[:])}
 	var total int
-	for _, encoded := range input.ArtifactIDs {
-		id, err := publicid.Decode(publicid.KindArtifact, encoded)
-		if err != nil {
-			return integrationToolFailure(err)
-		}
-		content, artifact, err := call.Executor.Store.Artifacts().
-			GetArtifactBlob(ctx, call.Turn.ProjectID, call.Turn.AgentID, id)
+	for _, filePath := range input.Paths {
+		filename, content, err := call.Executor.loadIntegrationFile(ctx, call.Turn, filePath)
 		if err != nil {
 			return integrationToolFailure(err)
 		}
@@ -90,7 +83,7 @@ func runDiscordTool(
 		args.Files = append(
 			args.Files,
 			discord.Upload{
-				Filename: modelcontext.MediaFilename(artifact.Filename, artifact.ContentType),
+				Filename: filename,
 				Content:  content,
 			},
 		)
@@ -120,7 +113,7 @@ func discordToolFailure(err error) (asyncPhaseResult, error) {
 	}
 	content, marshalErr := structuredToolResultContent(
 		map[string]any{
-			"code":                apiErr.Code,
+			"error_code":          apiErr.Code,
 			"message":             apiErr.Error(),
 			"retry_after_seconds": apiErr.RetryAfter.Seconds(),
 		},

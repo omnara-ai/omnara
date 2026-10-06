@@ -16,6 +16,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -42,6 +43,11 @@ func (c *Client) gitCredentialEndpoint() (string, error) {
 }
 
 func (c *Client) prepareGitCredentials(assignment *ProcessAssignment, supervisorToken string) {
+	if assignment.Process.ExecutionSpec.Kind != processcmd.KindShell {
+		assignment.GitCredentials = false
+		assignment.GitCredentialHelper = nil
+		return
+	}
 	if !assignment.GitCredentials || assignment.PreparationError != "" {
 		return
 	}

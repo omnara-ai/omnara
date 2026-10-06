@@ -24,8 +24,7 @@ const sampleHTML = `<!DOCTYPE html>
 <body>
 <article>
 <h1>Sample Heading</h1>
-<p>This is the first paragraph of readable article content with enough words to satisfy readability extraction
-heuristics in a small test fixture document.</p>
+<p>This is the first paragraph of readable article content in a small test fixture document.</p>
 <p>Second paragraph mentions <a href="https://example.org/link">a link</a> and some <code>inline code</code> for the
 markdown converter to handle properly.</p>
 </article>
@@ -52,7 +51,6 @@ const articleLikeHTML = `<!DOCTYPE html>
         readable.</li>
       </ul>
       <pre><code>web_fetch({"url":"https://example.com/docs"})</code></pre>
-      <p>Footer-like article text keeps the document long enough for readability to prefer the main article.</p>
     </article>
   </main>
   <aside>Related posts that should not dominate extraction</aside>
@@ -134,8 +132,173 @@ func TestFetchTextFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if strings.Contains(result.Content, "#") || !strings.Contains(result.Content, "first paragraph") {
+	if strings.Contains(result.Content, "#") || strings.Contains(result.Content, "](") ||
+		!strings.Contains(result.Content, "first paragraph") || !strings.Contains(result.Content, "a link") {
 		t.Fatalf("unexpected text content: %q", result.Content[:min(120, len(result.Content))])
+	}
+}
+
+const styledCodeHTML = `<!DOCTYPE html>
+<html><head><title>Install</title></head>
+<body>
+<main>
+<p>Install the CLI:</p>
+<div class="code-block not-prose overflow-hidden">
+<div class="overflow-y-hidden scroll-area" style="overflow:scroll"><pre><code>npm i omnara</code></pre></div>
+</div>
+<p>Then describe the agent:</p>
+<div class="code-block print:hidden"><div class="scroll-area"><pre><code>model:
+  name: claude</code></pre></div></div>
+</main>
+</body></html>`
+
+func TestFetchKeepsCodeBlocksInStyledWrappers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(styledCodeHTML))
+	}))
+	defer server.Close()
+
+	for _, format := range []string{"markdown", "text"} {
+		result, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL, Format: format})
+		if err != nil {
+			t.Fatalf("%s fetch: %v", format, err)
+		}
+		for _, want := range []string{"npm i omnara", "model:\n  name: claude"} {
+			if !strings.Contains(result.Content, want) {
+				t.Fatalf("%s content missing %q:\n%s", format, want, result.Content)
+			}
+		}
+	}
+}
+
+const landmarkHTML = `<!DOCTYPE html>
+<html><head><title>Guide
+    - Example Docs</title></head>
+<body>
+<header><a href="/">Example Docs</a></header>
+<nav><a href="/pricing">Pricing</a></nav>
+<main hidden><p>Stale draft</p></main>
+<main>
+<h1>Guide</h1>
+<p>Read the <a href="quickstart">quickstart</a>.</p>
+<template><p>template payload</p></template>
+</main>
+<footer>Copyright Example</footer>
+</body></html>`
+
+func TestFetchConvertsMainElement(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(landmarkHTML))
+	}))
+	defer server.Close()
+
+	result, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL + "/docs/guide"})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if result.Title != "Guide - Example Docs" {
+		t.Fatalf("title = %q", result.Title)
+	}
+	for _, want := range []string{"# Guide", "[quickstart](" + server.URL + "/docs/quickstart)"} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("markdown missing %q:\n%s", want, result.Content)
+		}
+	}
+	for _, unwanted := range []string{"Example Docs", "Pricing", "Stale draft", "Copyright", "template payload"} {
+		if strings.Contains(result.Content, unwanted) {
+			t.Fatalf("markdown retained %q:\n%s", unwanted, result.Content)
+		}
+	}
+}
+
+func TestExtractKeepsLoneHiddenMain(t *testing.T) {
+	const page = `<html><body><main hidden><p>Hydrated later</p></main></body></html>`
+	result, err := extractContent([]byte(page), "text/html", "https://example.com/", "markdown")
+	if err != nil || !strings.Contains(result.Content, "Hydrated later") {
+		t.Fatalf("content = %q, err = %v", result.Content, err)
+	}
+}
+
+func TestExtractHandlesDocumentWithoutBody(t *testing.T) {
+	const frameset = `<html><head><title>Frames</title></head><frameset><frame src="a.html"></frameset></html>`
+	for _, format := range []string{"markdown", "text"} {
+		result, err := extractContent([]byte(frameset), "text/html", "https://example.com/", format)
+		if providerErr, ok := AsProviderError(err); err != nil && (!ok || providerErr.Code != ErrorCodeFetchFailed) {
+			t.Fatalf("%s extract error = %v, want nil or fetch failed", format, err)
+		}
+		if err == nil && result.Title != "Frames" {
+			t.Fatalf("%s title = %q", format, result.Title)
+		}
+	}
+}
+
+func TestFetchPrefersServedMarkdown(t *testing.T) {
+	const served = "# Served\n\n```sh\nnpm i omnara\n```"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Header.Get("Accept"), "text/markdown") {
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			_, _ = w.Write([]byte(served))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(sampleHTML))
+	}))
+	defer server.Close()
+
+	markdown, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+	if err != nil {
+		t.Fatalf("markdown fetch: %v", err)
+	}
+	if markdown.Content != served {
+		t.Fatalf("markdown content = %q, want served markdown", markdown.Content)
+	}
+	text, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL, Format: "text"})
+	if err != nil {
+		t.Fatalf("text fetch: %v", err)
+	}
+	if !strings.Contains(text.Content, "first paragraph") || strings.Contains(text.Content, "```") {
+		t.Fatalf("text content = %q, want extracted HTML text", text.Content)
+	}
+}
+
+func TestFetchDecodesHTMLCharset(t *testing.T) {
+	cases := []struct {
+		name        string
+		contentType string
+		body        string
+		want        string
+	}{
+		{
+			name:        "content type charset",
+			contentType: "text/html; charset=windows-1252",
+			body:        "<html><body><p>caf\xe9</p></body></html>",
+			want:        "café",
+		},
+		{
+			name:        "meta charset",
+			contentType: "text/html",
+			body:        `<html><head><meta charset="windows-1252"></head><body><p>caf` + "\xe9" + `</p></body></html>`,
+			want:        "café",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+
+			result, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+			if !strings.Contains(result.Content, tc.want) {
+				t.Fatalf("content = %q, want %q", result.Content, tc.want)
+			}
+		})
 	}
 }
 

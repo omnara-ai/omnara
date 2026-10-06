@@ -1,12 +1,14 @@
 package executionstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -206,6 +208,9 @@ func insertAgentConfigTx(
 	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}
+	if err := validateMemoryStoresTx(ctx, qtx, input.ProjectID, input.CompiledDefinition); err != nil {
+		return AgentConfigRecord{}, err
+	}
 	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
@@ -345,11 +350,14 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
-func validateSavedAgentConfigModelContractTx(
+func validateSavedAgentConfigContractTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	config AgentConfigRecord,
 ) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
 	return lockAndValidateAgentConfigModelContractTx(ctx, qtx, CreateAgentConfigInput{
 		OrgID:                   config.OrgID,
 		ProjectID:               config.ProjectID,
@@ -359,11 +367,14 @@ func validateSavedAgentConfigModelContractTx(
 	})
 }
 
-func lockAgentConfigModelForUseTx(
+func lockAgentConfigForUseTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	config AgentConfigRecord,
 ) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
 	_, err := qtx.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
 		OrgID: config.OrgID,
 		ID:    config.ConfiguredModelID,
@@ -653,4 +664,43 @@ func (s *Store) ResolveAgentConfigProfileName(
 		return uuid.Nil, fmt.Errorf("resolve agent profile name: %w", err)
 	}
 	return id, nil
+}
+
+func validateMemoryStoresTx(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID uuid.UUID,
+	raw json.RawMessage,
+) error {
+	var config struct {
+		Stores []agentconfig.MemoryStoreCompiled `json:"memory_stores"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return fmt.Errorf("validate memory stores: %w", err)
+	}
+	sort.Slice(config.Stores, func(i, j int) bool {
+		return bytes.Compare(config.Stores[i].ID[:], config.Stores[j].ID[:]) < 0
+	})
+	for i, store := range config.Stores {
+		if !store.Access.Valid() {
+			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
+		}
+		if store.ID == uuid.Nil {
+			return storeerr.InvalidRequest(errors.New("invalid memory store id"))
+		}
+		if i > 0 && store.ID == config.Stores[i-1].ID {
+			return storeerr.InvalidRequest(errors.New("duplicate memory store id"))
+		}
+		_, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+			ProjectID: projectID,
+			ID:        store.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+			}
+			return fmt.Errorf("validate memory stores: %w", err)
+		}
+	}
+	return nil
 }

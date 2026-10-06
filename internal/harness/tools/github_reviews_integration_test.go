@@ -258,7 +258,7 @@ func TestGitHubReviewSelectorsRejectAmbiguousArguments(t *testing.T) {
 		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 		require.NoError(t, err)
 		body := toolResultMapFromTestParts(t, result.ContentParts)
-		require.Equal(t, "integration_tool_failed", body["code"])
+		require.Equal(t, "integration_tool_failed", body["error_code"])
 		if call.Name == "int__chat__read" {
 			require.Contains(t, body["message"], "review_id is only supported")
 		} else {
@@ -302,7 +302,7 @@ func TestGitHubDraftCommentFailureGuidance(t *testing.T) {
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
-			require.Equal(t, scenario.code, body["code"])
+			require.Equal(t, scenario.code, body["error_code"])
 			require.Contains(t, body["message"], scenario.hint)
 			require.NotContains(t, body["message"], "private-detail")
 			if scenario.code == "delivery_unknown" {

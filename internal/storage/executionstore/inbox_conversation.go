@@ -104,7 +104,7 @@ func (s *Store) CheckInboxConversationAuthority(
 		if err != nil {
 			return err
 		}
-		if err := validateSavedAgentConfigModelContractTx(ctx, q, config); err != nil {
+		if err := validateSavedAgentConfigContractTx(ctx, q, config); err != nil {
 			return err
 		}
 	} else {

@@ -177,6 +177,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameWriteFile,
+			semanticInputValidator: validateWriteFileInput,
+			handler:                toolHandler{Async: runWriteFileAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameSearchFiles,
 			semanticInputValidator: validateSearchFilesInput,
 			handler:                toolHandler{Async: runSearchFilesAsync},
@@ -248,6 +254,12 @@ func builtInToolRegistrations() []toolRegistration {
 				Background:    deleteMachineInBackground,
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameListFiles,
+			semanticInputValidator: validateListFiles,
+			handler:                toolHandler{Async: runListFiles},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameListMachines,

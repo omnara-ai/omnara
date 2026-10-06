@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -731,6 +733,86 @@ func TestSavedDerivedLaunchRejectsForeignProjectConfig(t *testing.T) {
 	input.ProfileID, input.DerivedBaseConfigID = f.profile.ID, f.profile.CurrentConfigID
 	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
 	require.True(t, storeerr.IsNotFound(err), "%v", err)
+}
+
+func saveIntegrationConfigWithMemory(
+	t *testing.T, f integrationActivationFixture,
+) (executionstore.AgentConfigRecord, uuid.UUID) {
+	t.Helper()
+	memory, err := f.store.Memories().Create(f.ctx, memorystore.Scope{
+		OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(f.user.ID),
+	}, "integration-memory", "", agentconfig.MemoryStoreAccessReadWrite)
+	require.NoError(t, err)
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(f.profile.CurrentConfig.CompiledDefinition, &compiled))
+	require.Empty(t, compiled.MemoryStores)
+	compiled.MemoryStores = []agentconfig.MemoryStoreCompiled{{
+		ID: memory.ID, Access: agentconfig.MemoryStoreAccessRead,
+	}}
+	config, err := f.store.Execution().CreateAgentConfig(f.ctx, f.encodedDefinition(t, compiled))
+	require.NoError(t, err)
+	require.NotEqual(t, f.profile.CurrentConfigID, config.ID)
+	return config, memory.ID
+}
+
+func TestSavedDerivedLaunchRechecksMemoryStore(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationActivationFixture(t)
+	config, memoryID := saveIntegrationConfigWithMemory(t, f)
+	input := f.launchInput(config.ID, "saved-derived-memory")
+	input.ProfileID, input.DerivedBaseConfigID = f.profile.ID, f.profile.CurrentConfigID
+	input.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{f.attachment()}
+	result, err := f.store.Execution().LaunchAgent(f.ctx, input)
+	require.NoError(t, err)
+	require.True(t, result.Created)
+	require.Equal(t, config.ID, result.Agent.CurrentConfigID)
+	require.Len(t, f.subscriptions(t, result.Agent.ID), 1)
+
+	_, err = f.store.pool.Exec(f.ctx,
+		`UPDATE memory_stores SET deleted_at=statement_timestamp() WHERE id=$1`, memoryID)
+	require.NoError(t, err)
+	input.IdempotencyKey = "saved-derived-deleted-memory"
+	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.ErrorContains(t, err, "memory store is unavailable")
+	var count int
+	require.NoError(t, f.store.pool.QueryRow(f.ctx,
+		`SELECT count(*) FROM agents WHERE project_id=$1 AND idempotency_key=$2`,
+		testProjectID, input.IdempotencyKey).Scan(&count))
+	require.Zero(t, count, "a rejected saved-config launch must not create an agent")
+}
+
+func TestInboxConversationAuthorityRechecksSavedMemoryStore(t *testing.T) {
+	t.Parallel()
+	integration := newIntegrationActivationFixture(t)
+	config, memoryID := saveIntegrationConfigWithMemory(t, integration)
+	var err error
+	integration.profile, err = integration.store.Execution().RetargetAgentProfile(integration.ctx,
+		executionstore.RetargetAgentProfileInput{
+			ProjectID: testProjectID, ProfileID: integration.profile.ID,
+			ExpectedCurrentConfigID: integration.profile.CurrentConfigID, ConfigID: config.ID,
+		})
+	require.NoError(t, err)
+	f := newInboxLaunchFixtureForIntegration(t, integration, true, time.Minute, "a")
+	recipient := f.recipients["a"]
+	require.Equal(t, config.ID, recipient.Launch.DerivedBaseConfigID)
+	require.NotEqual(t, config.ID, recipient.Launch.AgentConfigID)
+	require.NoError(t, f.store.Execution().CheckInboxConversationAuthority(
+		f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address,
+	))
+	f.assertAbsent(t, "a")
+
+	_, err = f.store.pool.Exec(f.ctx,
+		`UPDATE memory_stores SET deleted_at=statement_timestamp() WHERE id=$1`, memoryID)
+	require.NoError(t, err)
+	err = f.store.Execution().CheckInboxConversationAuthority(f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.ErrorContains(t, err, "memory store is unavailable")
+	f.assertAbsent(t, "a")
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.ErrorContains(t, err, "memory store is unavailable")
+	f.assertAbsent(t, "a")
 }
 
 func TestInboxConversationAuthorityRechecksSavedModel(t *testing.T) {

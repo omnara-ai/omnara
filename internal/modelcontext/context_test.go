@@ -650,7 +650,7 @@ func TestBuildUsesAgentConfigEnabledToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 3 || !HasTool(bundle.ToolSpecs, "run_command") {
+	if len(bundle.ToolSpecs) != 4 || !HasTool(bundle.ToolSpecs, "run_command") {
 		t.Fatalf("expected run_command and retrieval tools from config, got %+v", bundle.ToolSpecs)
 	}
 }
@@ -806,7 +806,7 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 3 {
+	if len(bundle.ToolSpecs) != 4 {
 		t.Fatalf("expected mcp and retrieval tool specs, got %+v", bundle.ToolSpecs)
 	}
 	spec := requireToolSpec(t, bundle.ToolSpecs, "mcp__docs__greet")
@@ -898,7 +898,7 @@ skills:
 		t.Fatalf("build runtime tool specs: %v", err)
 	}
 	skill := requireToolSpec(t, specs, "skill")
-	if len(specs) != 3 ||
+	if len(specs) != 4 ||
 		skill.Permission.Mode != toolpermission.ModeAlwaysAsk ||
 		!strings.Contains(skill.Description, "available_skills catalog") {
 		t.Fatalf("runtime tool specs = %+v, want one explicit skill tool", specs)

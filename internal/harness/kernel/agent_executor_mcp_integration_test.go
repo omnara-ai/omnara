@@ -116,7 +116,7 @@ mcp:
 		t.Fatalf("expected one model prepare after mcp init, got %d", modelClient.preparedCount())
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil {
@@ -309,7 +309,7 @@ mcp:
 	require.Equal(t, 2, modelClient.preparedCount())
 	for _, prepared := range modelClient.prepared {
 		requireKernelToolNames(t, prepared.ToolSpecs,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
@@ -407,7 +407,7 @@ mcp:
 	}
 	require.Equal(t, 1, modelClient.preparedCount())
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load mcp connection: found=%t err=%v", found, err)
@@ -778,11 +778,11 @@ mcp:
 		t.Fatalf("prepared %d requests, want tool call and two continuation attempts", modelClient.preparedCount())
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	for _, prepared := range modelClient.prepared[1:] {
 		requireKernelToolNames(t, prepared.ToolSpecs,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	}
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
@@ -911,7 +911,7 @@ mcp:
 		t.Fatalf("expected model generation to continue, got %d prepares", modelClient.preparedCount())
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 		toolcatalog.MCPRuntimeToolName("good", "greet"))
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
@@ -1099,7 +1099,7 @@ mcp:
 	}
 	require.Equal(t, 1, secondModel.preparedCount())
 	requireKernelToolNames(t, secondModel.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
 	if err != nil || !found {
@@ -1180,7 +1180,7 @@ mcp:
 		}
 		require.Equal(t, 1, modelClient.preparedCount(), name)
 		requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
 			toolcatalog.MCPRuntimeToolName("docs", "greet"))
 		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 		if err != nil || !found {

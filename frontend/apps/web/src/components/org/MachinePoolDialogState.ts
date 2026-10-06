@@ -194,7 +194,7 @@ export function machinePoolFormValid(
   return (
     (clusterEdit ||
       (resourceNameValid(values.name) &&
-        values.image.trim() !== '' &&
+        (provider.resource.optional === true || values.image.trim() !== '') &&
         (!provider.location?.required || values.location.trim() !== '') &&
         (!provider.scope?.required || values.providerScope.trim() !== '') &&
         values.secretId !== '')) &&
@@ -235,6 +235,8 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     case 'unikraft':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'arker':
       return {
         ...common,
         provider: values.provider,
@@ -346,7 +348,9 @@ export function machinePoolUpdateRequest(
       ([key]) => !editableOptionKeys.has(key),
     ),
   )
-  defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  if (values.image.trim() !== '') {
+    defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  }
   if (definition.location && values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
@@ -376,6 +380,8 @@ export function machinePoolUpdateRequest(
     case 'unikraft':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'arker':
       return {
         ...common,
         provider_config:
@@ -464,6 +470,8 @@ function clusterMachinePoolUpdateRequest(
     case 'unikraft':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'arker':
       return {
         ...common,
         default_machine_cpu: cpu,

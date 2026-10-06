@@ -71,9 +71,11 @@ func setOrgResourceLimitOverrides(
     max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project,
     max_active_integrations_per_project,
-    max_active_integration_subscriptions_per_agent
+    max_active_integration_subscriptions_per_agent,
+    max_active_memory_stores_per_project,
+    max_memories_per_store
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
 )
 ON CONFLICT (org_id) DO UPDATE SET
     max_active_projects_per_org = EXCLUDED.max_active_projects_per_org,
@@ -92,7 +94,9 @@ ON CONFLICT (org_id) DO UPDATE SET
     max_non_terminal_processes_per_agent = EXCLUDED.max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project = EXCLUDED.max_active_cron_triggers_per_project,
     max_active_integrations_per_project = EXCLUDED.max_active_integrations_per_project,
-    max_active_integration_subscriptions_per_agent = EXCLUDED.max_active_integration_subscriptions_per_agent`,
+    max_active_integration_subscriptions_per_agent = EXCLUDED.max_active_integration_subscriptions_per_agent,
+    max_active_memory_stores_per_project = EXCLUDED.max_active_memory_stores_per_project,
+    max_memories_per_store = EXCLUDED.max_memories_per_store`,
 		testOrgID,
 		value("max_active_projects_per_org"),
 		value("max_pending_org_invitations_per_org"),
@@ -111,6 +115,8 @@ ON CONFLICT (org_id) DO UPDATE SET
 		value("max_active_cron_triggers_per_project"),
 		value("max_active_integrations_per_project"),
 		value("max_active_integration_subscriptions_per_agent"),
+		value("max_active_memory_stores_per_project"),
+		value("max_memories_per_store"),
 	); err != nil {
 		t.Fatalf("set resource limit overrides: %v", err)
 	}
@@ -147,6 +153,8 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveCronTriggersPerProject:           1_000,
 		MaxActiveIntegrationsPerProject:           1_000,
 		MaxActiveIntegrationSubscriptionsPerAgent: 1_024,
+		MaxActiveMemoryStoresPerProject:           10_000,
+		MaxMemoriesPerStore:                       10_000,
 	}
 	if limits != wantDefaults {
 		t.Fatalf("default resource limits = %+v, want %+v", limits, wantDefaults)
@@ -170,6 +178,8 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		"max_active_cron_triggers_per_project":             14,
 		"max_active_integrations_per_project":              16,
 		"max_active_integration_subscriptions_per_agent":   17,
+		"max_active_memory_stores_per_project":             15,
+		"max_memories_per_store":                           16,
 	}
 	setOrgResourceLimitOverrides(t, ctx, pool, overrides)
 	limits, err = resourceguard.ResolveLimits(ctx, q, testOrgID)
@@ -195,6 +205,8 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveCronTriggersPerProject:           14,
 		MaxActiveIntegrationsPerProject:           16,
 		MaxActiveIntegrationSubscriptionsPerAgent: 17,
+		MaxActiveMemoryStoresPerProject:           15,
+		MaxMemoriesPerStore:                       16,
 	}
 	if limits != wantOverrides {
 		t.Fatalf("overridden resource limits = %+v, want %+v", limits, wantOverrides)

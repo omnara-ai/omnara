@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,59 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, authored.ID)
 	require.Equal(t, source, authored.Source)
+}
+
+func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "Memory Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	var attachments []agentconfig.MemoryStoreCompiled
+	for _, name := range []string{"first", "second"} {
+		memory, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
+		require.NoError(t, err)
+		attachments = append(attachments, agentconfig.MemoryStoreCompiled{
+			ID: memory.ID, Access: agentconfig.MemoryStoreAccessRead,
+		})
+	}
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, testAgentConfigYAML())
+	var definition agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(compiled.CanonicalJSON, &definition))
+	writable := attachments[0]
+	writable.Access = agentconfig.MemoryStoreAccessReadWrite
+	for _, test := range []struct {
+		name        string
+		attachments []agentconfig.MemoryStoreCompiled
+		invalid     bool
+	}{
+		{name: "distinct", attachments: attachments},
+		{
+			name: "duplicate", invalid: true,
+			attachments: []agentconfig.MemoryStoreCompiled{attachments[0], attachments[1], attachments[0]},
+		},
+		{
+			name: "conflicting access", invalid: true,
+			attachments: []agentconfig.MemoryStoreCompiled{attachments[0], attachments[1], writable},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			definition.MemoryStores = test.attachments
+			encoded, err := agentconfig.EncodeCompiled(definition)
+			require.NoError(t, err)
+			_, err = store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+				CompiledDefinition: encoded.CanonicalJSON, EffectiveDefinitionHash: encoded.Hash,
+			})
+			if test.invalid {
+				require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+				require.ErrorContains(t, err, "duplicate memory store id")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestCreateAgentConfigRejectsInvalidSource(t *testing.T) {

@@ -1,5 +1,5 @@
 import { schemas } from '@omnara/sdk'
-import { type Cookie, expect, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 import {
@@ -14,6 +14,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
+import { signIn, signInThroughLoginForm } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -31,40 +32,10 @@ const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
 const onboardingEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ONBOARDING_EMAIL')
-const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 const ungrantedModelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_UNGRANTED_MODEL')
 const createAgentPath = `/projects/${projectID}/agents/new`
-
-const sessionCookies = new Map<string, Cookie[]>()
-
-async function signInThroughLoginForm(page: Page, email: string, returnTo: string) {
-  await page.goto(returnTo)
-
-  await expect(page).toHaveURL((url) => {
-    return url.pathname === '/login' && url.searchParams.get('return_to') === returnTo
-  })
-  await expect(page.getByRole('heading', { name: 'Sign in to Omnara' })).toBeVisible()
-
-  await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-
-  await expect(page).toHaveURL(returnTo)
-  sessionCookies.set(email, await page.context().cookies())
-}
-
-async function signIn(page: Page, email: string, returnTo: string) {
-  const cookies = sessionCookies.get(email)
-  if (cookies) {
-    await page.context().addCookies(cookies)
-    await page.goto(returnTo)
-    await expect(page).toHaveURL(returnTo)
-    return
-  }
-  await signInThroughLoginForm(page, email, returnTo)
-}
 
 async function selectConfiguredModel(page: Page) {
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })

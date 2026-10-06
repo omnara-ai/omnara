@@ -77,7 +77,7 @@ For servers that take a static token, store the token as a generic secret and re
 
 The response's `id` (`sec_…`) goes in `auth.secret_id` with `type: bearer`. Rotation is a [new secret version](/organization/secrets#rotate-a-secret) — configs keep referencing the same ID.
 
-For a complete runnable example — PostHog's MCP server with Slack delivery and a daily cron trigger — see [`examples/posthog-pulse-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/posthog-pulse-agent).
+For a complete example you can deploy, using PostHog's MCP server with tool filtering and optional Slack delivery and daily schedule, see the [PostHog analytics agent](/examples/posthog-analytics-agent).
 
 ## AWS Signature Version 4 auth
 

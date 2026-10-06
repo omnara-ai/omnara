@@ -72,7 +72,7 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 	outcomes := make(chan outcome, 2)
 	for range 2 {
 		go func() {
-			result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil)
+			result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil, true)
 			outcomes <- outcome{result, err}
 		}()
 	}
@@ -81,7 +81,7 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 		t.Fatalf("concurrent provision: %+v, %+v", first, second)
 	}
 	created := first.result
-	adopted, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil)
+	adopted, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil, true)
 	if err != nil || adopted.ProviderResourceID != created.ProviderResourceID {
 		t.Fatalf("adopt: %+v, %v", adopted, err)
 	}
@@ -144,7 +144,7 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 		}
 	}
 	t.Logf("termination observed after %s", time.Since(terminationStarted).Round(time.Millisecond))
-	recreated, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil)
+	recreated, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "live-smoke-token", nil, true)
 	if err != nil || recreated.ProviderResourceID == "" || recreated.ProviderResourceID == id {
 		t.Fatalf("reprovision terminated sandbox: %+v, %v", recreated, err)
 	}

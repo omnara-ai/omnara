@@ -44,8 +44,8 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		t.Fatal(diff)
 	}
 	tools := testutil.RequireType[[]any](t, preview["tools"])
-	if len(tools) != 18 {
-		t.Fatalf("expected 11 pool tools, 5 subagent tools, and 2 retrieval tools, got %v", tools)
+	if len(tools) != 19 {
+		t.Fatalf("expected 11 pool tools, 5 subagent tools, and 3 retrieval tools, got %v", tools)
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)
@@ -69,7 +69,9 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		tool := testutil.RequireType[map[string]any](t, item)
 		mcpToolNames = append(mcpToolNames, testutil.RequireType[string](t, tool["name"]))
 	}
-	require.ElementsMatch(t, []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles}, mcpToolNames)
+	require.ElementsMatch(t, []string{
+		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+	}, mcpToolNames)
 	for _, body := range []map[string]any{
 		{}, {"source": "{}"}, {"source_format": "json"},
 		{"source": "tools: {run_command: {enabled: nope}}", "source_format": "yaml"},

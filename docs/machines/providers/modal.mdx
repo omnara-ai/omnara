@@ -1,0 +1,75 @@
+---
+title: Modal
+description: Trusted infrastructure for untrusted agents, at the scale they demand
+icon: "/logo/providers/modal.svg"
+---
+
+[Modal](https://modal.com) is trusted infrastructure for untrusted agents: high-performance sandboxes that give agents the computers they need at the scale they demand. Each machine runs in a Modal Sandbox, a container isolated with gVisor. Connect your Modal workspace with a custom pool.
+
+## Why Modal
+
+- **Scale to a million in under a minute.** Modal's infrastructure scales to the parallelism production agent systems demand.
+- **Fast on your own image.** Bring a public `linux/amd64` image and your setup scripts, with no Modal-specific build. Modal caches each image after its first pull, so later machines start quickly.
+- **Your choice of region.** Pick a Modal region in the US, Europe, Asia-Pacific, and elsewhere, or let Modal place machines wherever it has capacity.
+- **One home for your AI workloads.** Teams already running inference or training on Modal keep agent machines in the same workspace, with their logs and resource charts in the Modal dashboard.
+
+## Set up a Modal pool
+
+<Steps>
+  <Step title="Create a token">
+    On Team and Enterprise plans, create a [service user](https://modal.com/settings/tokens/service-users), copy its token ID and secret, and grant it **Contributor** on the environment the pool will use. On other plans, create an API token under **Settings > API Tokens** or with `modal token new`.
+
+    Store the token as an org-owned [secret](/organization/secrets) whose value is a JSON object with both parts:
+
+    ```json
+    {"token_id":"ak-...","token_secret":"as-..."}
+    ```
+  </Step>
+  <Step title="Choose an image">
+    Pick a public `linux/amd64` image that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements). If it lacks `curl`, a startup script can install it.
+
+    - Use a versioned tag or a digest. Modal caches an image the first time it pulls it, so later changes to a tag such as `latest` aren't picked up.
+    - The image's `ENTRYPOINT`, if it has one, must run the command it's given. Omnara starts the daemon as the sandbox's command.
+    - Machines run on gVisor, Modal's default runtime, so pick an image that doesn't need Docker or systemd.
+    - Each sandbox runs for up to 24 hours, so put setup in the image or startup script rather than on the machine.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Modal**. Enter the credential, image, CPU and memory, and capacity limits. Leave **Region** empty for automatic placement, and leave **App** empty to use `omnara`, which Omnara creates on first use.
+
+    Environment variable names can use only letters, digits, and underscores and can't start with a digit. Modal rejects other names, so machines that use them fail to start.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard uses the `main` environment; to use another, create it in Modal and set `environment` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "modal-pool",
+  "provider": "modal",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "app": "omnara", // optional
+    "environment": "main" // optional
+  },
+  "default_machine_provider_options": {
+    "image": "buildpack-deps:24.04-curl"
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `app` defaults to `omnara`, which Omnara creates on first use. `environment` defaults to `main`, and other environments must already exist.
+- `image` is a public `linux/amd64` registry image.
+- `region` is a Modal region, such as `us` or `eu-west`. Omit it for automatic placement.
+- CPU is in vCPU. Omnara converts it to Modal's physical cores at two vCPU per core.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_images` and `allowed_regions` in `provider_config` are [allowlists](/machines/providers/overview#allowlists).

@@ -145,7 +145,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			err = applyProductionPostgresMigrations(ctx, db)
 			if invalidLiveCredentials {
 				require.ErrorContains(t, err, liveID.String())
-				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				var state string
 				var credential sql.NullString
 				require.NoError(
@@ -166,7 +166,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, int64(48), currentPostgresMigrationVersion(t, ctx, db))
+			require.Equal(t, int64(49), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted integration history grants receive routes at cutover")
