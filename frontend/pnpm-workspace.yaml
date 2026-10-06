@@ -7,11 +7,6 @@ allowBuilds:
 
 minimumReleaseAge: 14400
 
-minimumReleaseAgeExclude:
-  # Security fix for GHSA-68fv-2mgg-jv7q, released within the 10-day waiting period.
-  # This exception can be removed after 2026-10-10 14:09 UTC.
-  - source-map-js@1.2.2
-
 overrides:
   # @hey-api/json-schema-ref-parser pins the vulnerable js-yaml 4.2.0 release.
   '@hey-api/json-schema-ref-parser@1.4.4>js-yaml': 4.3.2
