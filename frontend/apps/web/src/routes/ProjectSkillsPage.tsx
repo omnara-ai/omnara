@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 
 import { SkillsSection } from '@/components/overview/SkillsSection'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
-import { ProjectSkillGrantsTable } from '@/components/projects/ProjectSkillGrantsTable'
+import { ProjectSharedSkills } from '@/components/projects/ProjectSharedSkills'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function ProjectSkillsPage() {
@@ -39,7 +39,7 @@ export function ProjectSkillsPage() {
           </TabsContent>
           <TabsContent value="shared">
             {project?.access.can_read ? (
-              <ProjectSkillGrantsTable
+              <ProjectSharedSkills
                 actions={sourceTabs}
                 orgId={activeOrg.id}
                 projectId={projectId}

@@ -26,7 +26,14 @@ export function OrganizationNav() {
     icon: ComponentType<{ className?: string }>,
     emphasized = false,
   ): NavItem {
-    return { id: to, to, label, icon, emphasized, isActive: pathname === to }
+    return {
+      id: to,
+      to,
+      label,
+      icon,
+      emphasized,
+      isActive: pathname === to || (to !== '/' && pathname.startsWith(`${to}/`)),
+    }
   }
 
   return (

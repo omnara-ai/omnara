@@ -138,7 +138,14 @@ const secretsRoute = createRoute({
 const skillsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/skills',
+  validateSearch: z.object({ owner: z.enum(['organization']).optional().catch(undefined) }),
   component: lazyRouteComponent(() => import('@/routes/SkillsPage'), 'SkillsPage'),
+})
+
+const skillRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/skills/$skillId',
+  component: lazyRouteComponent(() => import('@/routes/SkillPage'), 'SkillPage'),
 })
 
 const apiTokensRoute = createRoute({
@@ -282,6 +289,12 @@ const projectSkillsRoute = createRoute({
   path: '/projects/$projectId/skills',
   validateSearch: projectSharingSearch,
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
+})
+
+const projectSkillRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/skills/$skillId',
+  component: lazyRouteComponent(() => import('@/routes/ProjectSkillPage'), 'ProjectSkillPage'),
 })
 
 const projectMemoryRoute = createRoute({
@@ -466,6 +479,7 @@ const routeTree = rootRoute.addChildren([
       organizationUsageRoute,
       secretsRoute,
       skillsRoute,
+      skillRoute,
       apiTokensRoute,
       organizationSettingsRoute,
       projectRoute,
@@ -481,6 +495,7 @@ const routeTree = rootRoute.addChildren([
       projectMachinePoolRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectSkillRoute,
       projectMemoryRoute,
       memoryStoreRoute,
       projectUsageRoute,

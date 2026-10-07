@@ -21,6 +21,28 @@ export interface ModelActions {
   onDelete?: (provider: ModelProviderConfig, model: ConfiguredModel) => void
 }
 
+/** Opens the add-model dialog for a provider; shown above its full model list. */
+export function AddModelButton({
+  providerId,
+  onCreate,
+}: {
+  providerId: string
+  onCreate: (providerId: string) => void
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => {
+        onCreate(providerId)
+      }}
+    >
+      <Plus aria-hidden="true" />
+      Add model
+    </Button>
+  )
+}
+
 export function ProviderModelList({
   provider,
   models,

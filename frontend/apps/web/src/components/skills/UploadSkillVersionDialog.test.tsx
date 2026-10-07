@@ -8,7 +8,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { UpdateSkillDialog } from '@/components/skills/UpdateSkillDialog'
+import { UploadSkillVersionDialog } from '@/components/skills/UploadSkillVersionDialog'
 import { bundleSource, type SkillSource } from '@/lib/skill-bundles'
 import { jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
@@ -63,23 +63,19 @@ async function render() {
   client.setConfig({
     fetch: async (input, init) => {
       const request = new Request(input, init)
-      if (request.method === 'GET') {
-        return jsonResponse({ ...current, skill_md: skillMd(current.name) })
-      }
       const archive = (await request.formData()).get('archive')
       archives.push(archive instanceof File ? archive.name : '')
       return jsonResponse({ ...current, revision: current.revision + 1 })
     },
   })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const onOpenChange = vi.fn()
+  const onClose = vi.fn()
   await act(async () => {
     root.render(
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
-          <UpdateSkillDialog
-            open
-            onOpenChange={onOpenChange}
+          <UploadSkillVersionDialog
+            onClose={onClose}
             orgId={orgId}
             skill={current}
             readSource={readSource}
@@ -89,13 +85,7 @@ async function render() {
     )
     await Promise.resolve()
   })
-  const trigger = [...document.querySelectorAll('[role="tab"]')].find(
-    (tab) => tab.textContent === 'Upload',
-  )
-  act(() => {
-    trigger?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
-  })
-  return { archives, onOpenChange }
+  return { archives, onClose }
 }
 
 async function chooseFolder(files: Record<string, string>) {
@@ -143,18 +133,18 @@ it('uploads a picked folder as a new revision, whatever the folder is called', a
   expect(alert()).toBeUndefined()
 
   await act(async () => {
-    button('Save').click()
+    button('Upload').click()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
   expect(ctx.archives).toEqual(['deploy.zip'])
-  expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
+  expect(ctx.onClose).toHaveBeenCalled()
 })
 
 it('rejects an upload whose SKILL.md names a different skill', async () => {
   const ctx = await render()
   await chooseZip({ 'other/SKILL.md': skillMd('other') }, 'other.zip')
   expect(alert()).toBe('SKILL.md frontmatter `name` must stay `deploy`.')
-  expect(button('Save').disabled).toBe(true)
+  expect(button('Upload').disabled).toBe(true)
   expect(ctx.archives).toEqual([])
 })
 
@@ -165,5 +155,5 @@ it('rejects an upload containing more than one skill', async () => {
     'set.zip',
   )
   expect(alert()).toBe('set.zip contains 2 skills. Choose a single skill.')
-  expect(button('Save').disabled).toBe(true)
+  expect(button('Upload').disabled).toBe(true)
 })

@@ -2,13 +2,20 @@ import {
   useDeleteProjectMachinePoolGrant,
   useMachinePool,
   useProjectMachinePoolGrants,
+  useProjectMachines,
 } from '@omnara/react'
 import type { ProjectMachinePoolGrantListItem } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { AgentCard, AgentCardGlyph } from '@/components/agents/AgentCardList'
+import {
+  AgentCard,
+  AgentCardGlyph,
+  AgentCardStat,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
 import { ManagedLogo, OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
+import { Server } from '@/components/icons'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { MachinePoolProviderLogo } from '@/components/org/MachinePoolProviderLogo'
@@ -23,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAllPages } from '@/hooks/use-all-pages'
+import { formatCount } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -130,31 +138,25 @@ function SharedPoolView({
           </>
         }
         meta={
-          <ResourceRowActions
-            deleteLabel="Stop sharing"
-            onEdit={
-              canManageGrants
-                ? () => {
-                    setEditing(true)
-                  }
-                : undefined
-            }
-            onDelete={
-              canManageGrants
-                ? () => {
-                    if (!window.confirm(`Stop sharing ${summary.name} with this project?`)) return
-                    deleteGrant.mutate(item.grant.id, {
-                      onSuccess: () => {
-                        void navigate({
-                          to: '/projects/$projectId/machines',
-                          params: { projectId },
-                        })
-                      },
-                    })
-                  }
-                : undefined
-            }
-          />
+          <>
+            <AgentCardTime label="Updated" value={item.grant.updated_at} />
+            {canManageGrants && (
+              <ResourceRowActions
+                deleteLabel="Stop sharing"
+                onEdit={() => {
+                  setEditing(true)
+                }}
+                onDelete={() => {
+                  if (!window.confirm(`Stop sharing ${summary.name} with this project?`)) return
+                  deleteGrant.mutate(item.grant.id, {
+                    onSuccess: () => {
+                      void navigate({ to: '/projects/$projectId/machines', params: { projectId } })
+                    },
+                  })
+                }}
+              />
+            )}
+          </>
         }
         footer={
           pool && (
@@ -162,6 +164,14 @@ function SharedPoolView({
               Org pool: {formatPoolMachines(pool)} in use
             </span>
           )
+        }
+        stats={
+          <ProjectPoolMachinesStat
+            orgId={orgId}
+            projectId={projectId}
+            poolId={summary.id}
+            quota={item.grant.max_total_machines ?? pool?.max_total_machines}
+          />
         }
       />
       {overrides.length > 0 && (
@@ -191,4 +201,27 @@ function SharedPoolView({
       )}
     </>
   )
+}
+
+/** Machines the pool has running for this project, against the project's quota when set. */
+function ProjectPoolMachinesStat({
+  orgId,
+  projectId,
+  poolId,
+  quota,
+}: {
+  orgId: string
+  projectId: string
+  poolId: string
+  quota: number | null | undefined
+}) {
+  const machines = useAllPages(
+    useProjectMachines(orgId, projectId, { filters: { machine_pool_id: poolId } }),
+  )
+  const inUse = machines.isPending || machines.isError ? undefined : machines.items.length
+  let value: string | undefined
+  if (inUse !== undefined) {
+    value = quota == null ? formatCount(inUse) : `${formatCount(inUse)} / ${formatCount(quota)}`
+  }
+  return <AgentCardStat icon={Server} label="in this project" value={value} />
 }
