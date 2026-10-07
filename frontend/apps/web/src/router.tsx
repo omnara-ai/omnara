@@ -16,7 +16,7 @@ import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
 import { queryClient } from '@/lib/query'
 import { requireOrganization } from '@/lib/require-organization'
-import { markStaleChunkReload, staleChunkReloadDue } from '@/lib/stale-chunk'
+import { claimStaleChunkReload } from '@/lib/stale-chunk'
 import { RootError } from '@/routes/RootError'
 import { omnaraClient } from '@/transport'
 
@@ -425,9 +425,7 @@ export const router = createRouter({
   defaultPendingComponent: FullPageSpinner,
   defaultErrorComponent: RootError,
   defaultOnCatch: (error) => {
-    if (!(error instanceof Error) || !staleChunkReloadDue(error, window)) return
-    markStaleChunkReload(window)
-    window.location.reload()
+    if (error instanceof Error && claimStaleChunkReload(error, window)) window.location.reload()
   },
 })
 
