@@ -18,7 +18,7 @@ func (s strictOpenAPIServer) ResolveAgentConfigTools(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	sourceFormat, source, err := agentConfigSourceInput(request.Body.Definition, request.Body.Yaml)
+	sourceFormat, source, err := agentConfigSourceInput(string(request.Body.SourceFormat), request.Body.Source)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
 	}

@@ -1280,12 +1280,12 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
-/**
- * Send exactly one of definition or yaml.
- */
 export type ResolveAgentConfigToolsRequest = {
-    definition?: AgentConfigToolsDefinition;
-    yaml?: AgentConfigYamlSource;
+    /**
+     * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object. Only the fields that determine tools are read.
+     */
+    source: string | AgentConfigToolsDefinition;
+    source_format: 'yaml' | 'json';
 };
 
 export type ResolvedAgentConfigTools = {
@@ -1299,24 +1299,24 @@ export type ResolvedAgentConfigTool = {
 };
 
 /**
- * An agent config to compile. Send exactly one of definition, a JSON object, or yaml, YAML text that is stored verbatim so comments and formatting survive.
+ * An agent config to compile. Text sources are stored verbatim, so YAML comments and formatting survive; JSON object sources are stored canonicalized.
  */
-export type AgentConfigSource = {
-    definition?: AgentConfigDefinition;
-    yaml?: AgentConfigYamlSource;
+export type CreateAgentConfigRequest = {
+    source: AgentConfigSourceInput;
+    source_format: 'yaml' | 'json';
 };
 
 /**
- * Agent config source as YAML text.
+ * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
  */
-export type AgentConfigYamlSource = string;
+export type AgentConfigSourceInput = string | AgentConfigDefinition;
 
 /**
- * Replaces a live agent's config. Send exactly one of definition or yaml. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export type UpdateAgentConfigRequest = {
-    definition?: AgentConfigDefinition;
-    yaml?: AgentConfigYamlSource;
+    source: AgentConfigSourceInput;
+    source_format: 'yaml' | 'json';
     expected_current_config_id?: AgentConfigId;
 };
 
@@ -1986,7 +1986,7 @@ export type ListCronTriggersResponse = {
 export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config?: AgentConfigId;
-    config_source?: AgentConfigSource;
+    config_source?: CreateAgentConfigRequest;
     /**
      * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
@@ -9485,7 +9485,7 @@ export type ResolveAgentConfigToolsResponses = {
 export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
 
 export type CreateAgentConfigData = {
-    body: AgentConfigSource;
+    body: CreateAgentConfigRequest;
     path: {
         orgID: string;
         projectID: string;

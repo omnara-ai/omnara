@@ -5,14 +5,14 @@ omnara profiles create --name "Support triage" --file agent.yaml
 ```
 
 ```bash REST
-jq -n --rawfile src agent.yaml '{yaml: $src}' |
+jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
 curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \
   -H "Content-Type: application/json" \
   -d @-
 
-# or send a JSON config as a definition object:
-jq '{definition: .}' agent.json |
+# or send a JSON config as an object:
+jq '{source: ., source_format: "json"}' agent.json |
 curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \
   -H "Content-Type: application/json" \
@@ -27,7 +27,7 @@ const source = await readFile('agent.yaml', 'utf8')
 const config = await sdk.createAgentConfig({
   client,
   path: { orgID, projectID },
-  body: { yaml: source },
+  body: { source, source_format: 'yaml' },
 })
 console.log(config.data.id)
 
@@ -36,10 +36,11 @@ await sdk.createAgentConfig({
   client,
   path: { orgID, projectID },
   body: {
-    definition: {
+    source: {
       instruction: 'You are a support triage assistant.',
       model: { provider_config: 'omnara-openrouter', name: 'anthropic/claude-fable-5.1' },
     },
+    source_format: 'json',
   },
 })
 ```

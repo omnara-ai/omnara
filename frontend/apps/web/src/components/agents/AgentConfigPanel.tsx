@@ -142,7 +142,8 @@ function AgentConfigPanelEditor({
     setError(noConfigError)
     try {
       await updateConfig.mutateAsync({
-        yaml: editor.yaml,
+        source: editor.yaml,
+        source_format: 'yaml',
         expected_current_config_id: configId,
       })
       onClose()

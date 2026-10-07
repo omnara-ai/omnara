@@ -932,33 +932,36 @@ export const zCreateSlackSetupRequest = z.object({
     return_to: z.string().optional()
 });
 
-/**
- * Agent config source as YAML text.
- */
-export const zAgentConfigYamlSource = z.string().min(1);
-
-/**
- * Send exactly one of definition or yaml.
- */
 export const zResolveAgentConfigToolsRequest = z.object({
-    definition: zAgentConfigToolsDefinition.optional(),
-    yaml: zAgentConfigYamlSource.optional()
+    source: z.union([
+        z.string().min(1),
+        zAgentConfigToolsDefinition
+    ]),
+    source_format: z.enum(['yaml', 'json'])
 });
 
 /**
- * An agent config to compile. Send exactly one of definition, a JSON object, or yaml, YAML text that is stored verbatim so comments and formatting survive.
+ * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
  */
-export const zAgentConfigSource = z.object({
-    definition: zAgentConfigDefinition.optional(),
-    yaml: zAgentConfigYamlSource.optional()
+export const zAgentConfigSourceInput = z.union([
+    z.string().min(1),
+    zAgentConfigDefinition
+]);
+
+/**
+ * An agent config to compile. Text sources are stored verbatim, so YAML comments and formatting survive; JSON object sources are stored canonicalized.
+ */
+export const zCreateAgentConfigRequest = z.object({
+    source: zAgentConfigSourceInput,
+    source_format: z.enum(['yaml', 'json'])
 });
 
 /**
- * Replaces a live agent's config. Send exactly one of definition or yaml. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
+ * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export const zUpdateAgentConfigRequest = z.object({
-    definition: zAgentConfigDefinition.optional(),
-    yaml: zAgentConfigYamlSource.optional(),
+    source: zAgentConfigSourceInput,
+    source_format: z.enum(['yaml', 'json']),
     expected_current_config_id: zAgentConfigId.optional()
 });
 
@@ -3458,7 +3461,7 @@ export const zIntegrationSubscriptionAttachment = z.object({
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId.optional(),
-    config_source: zAgentConfigSource.optional(),
+    config_source: zCreateAgentConfigRequest.optional(),
     name: zAgentName.optional(),
     message: z.string().optional(),
     tools: z.record(z.string(), zConfigToolSource).optional(),
@@ -4517,7 +4520,7 @@ export const zResolveAgentConfigToolsPath = z.object({
  */
 export const zResolveAgentConfigToolsResponse = zResolvedAgentConfigTools;
 
-export const zCreateAgentConfigBody = zAgentConfigSource;
+export const zCreateAgentConfigBody = zCreateAgentConfigRequest;
 
 export const zCreateAgentConfigPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

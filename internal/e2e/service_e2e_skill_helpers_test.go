@@ -156,7 +156,7 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachineAndSkill(
 	sum := sha256.Sum256([]byte(sourceYAML))
 	config := p.env.requestJSON(
 		t, ctx, http.MethodPost, p.projectPath+"/agent-configs",
-		map[string]any{"yaml": sourceYAML}, "", p.adminToken, http.StatusCreated,
+		map[string]any{"source_format": "yaml", "source": sourceYAML}, "", p.adminToken, http.StatusCreated,
 	)
 	updated := p.env.requestJSON(
 		t,

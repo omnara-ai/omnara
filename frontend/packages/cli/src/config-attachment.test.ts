@@ -21,12 +21,18 @@ function writeTemp(name: string, content: string): string {
 describe('renderConfigSource', () => {
   it('reads a yaml file', () => {
     const file = writeTemp('agent.yaml', 'instruction: hi\n')
-    expect(renderConfigSource({ file })).toEqual({ yaml: 'instruction: hi\n' })
+    expect(renderConfigSource({ file })).toEqual({
+      source: 'instruction: hi\n',
+      source_format: 'yaml',
+    })
   })
 
   it('reads a json file', () => {
     const file = writeTemp('agent.json', '{"instruction":"hi"}\n')
-    expect(renderConfigSource({ file })).toEqual({ definition: { instruction: 'hi' } })
+    expect(renderConfigSource({ file })).toEqual({
+      source: '{"instruction":"hi"}\n',
+      source_format: 'json',
+    })
   })
 
   it('rejects a json file with invalid JSON', () => {
@@ -51,12 +57,16 @@ describe('renderConfigSource', () => {
 
   it('detects inline json', () => {
     expect(renderConfigSource({ source: '{"instruction": "hi"}' })).toEqual({
-      definition: { instruction: 'hi' },
+      source: '{"instruction": "hi"}',
+      source_format: 'json',
     })
   })
 
   it('detects inline yaml', () => {
-    expect(renderConfigSource({ source: 'instruction: hi' })).toEqual({ yaml: 'instruction: hi' })
+    expect(renderConfigSource({ source: 'instruction: hi' })).toEqual({
+      source: 'instruction: hi',
+      source_format: 'yaml',
+    })
   })
 
   it('rejects an empty attachment', () => {
@@ -80,7 +90,7 @@ describe('renderLaunchConfig', () => {
 
   it('sends an inline source as config_source', () => {
     expect(renderLaunchConfig(undefined, { source: 'instruction: hi' })).toEqual({
-      config_source: { yaml: 'instruction: hi' },
+      config_source: { source: 'instruction: hi', source_format: 'yaml' },
     })
   })
 

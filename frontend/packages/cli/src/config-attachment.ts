@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import {
   type AgentConfigDefinition,
-  type AgentConfigSource,
+  type CreateAgentConfigRequest,
   type CreateAgentRequest,
   type OmnaraClient,
   sdk,
@@ -54,22 +54,23 @@ const zDefinitionText = zJsonText.pipe(
   ),
 )
 
-function jsonDefinition(text: string, label: string): AgentConfigDefinition {
+// JSON text is sent as written, so the saved source keeps its formatting.
+function jsonSource(text: string, label: string): CreateAgentConfigRequest {
   const parsed = zDefinitionText.safeParse(text)
   if (!parsed.success) {
     throw new CliInputError(
       `${label} is not a valid JSON agent config: ${parsed.error.issues[0]?.message}`,
     )
   }
-  return parsed.data
+  return { source: text, source_format: 'json' }
 }
 
-function inlineSource(source: string): AgentConfigSource {
-  if (!zJsonText.safeParse(source).success) return { yaml: source }
-  return { definition: jsonDefinition(source, 'inline config source') }
+function inlineSource(source: string): CreateAgentConfigRequest {
+  if (!zJsonText.safeParse(source).success) return { source, source_format: 'yaml' }
+  return jsonSource(source, 'inline config source')
 }
 
-export function renderConfigSource(attachment: ConfigSourceAttachment): AgentConfigSource {
+export function renderConfigSource(attachment: ConfigSourceAttachment): CreateAgentConfigRequest {
   requireExactlyOne([attachment.file, attachment.source], SOURCE_HINT)
   if (attachment.file !== undefined) {
     const format = fileFormat(attachment.file)
@@ -79,8 +80,8 @@ export function renderConfigSource(attachment: ConfigSourceAttachment): AgentCon
     } catch {
       throw new CliInputError(`could not read config file: ${attachment.file}`)
     }
-    if (format === 'yaml') return { yaml: source }
-    return { definition: jsonDefinition(source, `config file ${attachment.file}`) }
+    if (format === 'yaml') return { source, source_format: 'yaml' }
+    return jsonSource(source, `config file ${attachment.file}`)
   }
   if (attachment.source !== undefined) return inlineSource(attachment.source)
   throw new CliInputError(SOURCE_HINT)

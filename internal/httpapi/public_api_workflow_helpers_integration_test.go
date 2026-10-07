@@ -563,16 +563,14 @@ func createPublicHTTPAgentConfig(
 	wantStatus int,
 ) map[string]any {
 	t.Helper()
-	body := `{"yaml":` + quotedJSONString(source) + `}`
-	if sourceFormat == "json" {
-		body = `{"definition":` + source + `}`
-	}
 	return requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agent-configs",
-		body,
+		`{"source_format":"`+sourceFormat+`","source":`+quotedJSONString(
+			source,
+		)+`}`,
 		"",
 		wantStatus,
 		authHeaders(token),

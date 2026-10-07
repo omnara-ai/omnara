@@ -175,7 +175,10 @@ function CliProfileOptions({
     onPendingChange(true)
     setError(null)
     try {
-      const config = await createAgentConfig.mutateAsync({ definition: spec.definition })
+      const config = await createAgentConfig.mutateAsync({
+        source: spec.definition,
+        source_format: 'json',
+      })
       await createAgentProfile.mutateAsync({ name: spec.name, config: config.id })
     } catch (err) {
       setError(errorMessage(err, 'Could not create profile'))

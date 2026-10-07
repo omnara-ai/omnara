@@ -207,7 +207,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 			handler,
 			http.MethodPost,
 			project.ProjectPath+"/agent-configs",
-			`{"yaml":`+quotedJSONString(source)+`}`,
+			`{"source_format":"yaml","source":`+quotedJSONString(source)+`}`,
 			"",
 			http.StatusCreated,
 			authHeaders(project.AdminToken),

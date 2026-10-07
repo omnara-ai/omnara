@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -49,8 +51,8 @@ func (s strictOpenAPIServer) createAgentConfig(
 	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
-		request.Body.Definition,
-		request.Body.Yaml,
+		string(request.Body.SourceFormat),
+		request.Body.Source,
 	)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
@@ -620,7 +622,9 @@ func (s strictOpenAPIServer) createAgent(
 		if configID != uuid.Nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
 		}
-		compiled, err := s.server.compileAgentConfigSourceForProject(ctx, project, source.Definition, source.Yaml)
+		compiled, err := s.server.compileAgentConfigSourceForProject(
+			ctx, project, string(source.SourceFormat), source.Source,
+		)
 		if err != nil {
 			return nil, agentConfigCompileError(err)
 		}
@@ -720,8 +724,8 @@ func (s strictOpenAPIServer) updateAgentConfig(
 	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
-		request.Body.Definition,
-		request.Body.Yaml,
+		string(request.Body.SourceFormat),
+		request.Body.Source,
 	)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
@@ -1173,31 +1177,57 @@ func instructionHash(instruction string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// agentConfigSourceInput resolves the definition-or-yaml pair carried by every
-// config-accepting request into compiler input.
-func agentConfigSourceInput(
-	definition *json.RawMessage,
-	yamlSource *string,
-) (agentconfig.SourceFormat, string, error) {
-	switch {
-	case definition != nil && yamlSource != nil:
-		return "", "", errors.New("send only one of definition or yaml")
-	case definition != nil:
-		return agentconfig.SourceFormatJSON, string(agentconfig.CanonicalDefinitionJSON(*definition)), nil
-	case yamlSource != nil:
-		return agentconfig.SourceFormatYAML, *yamlSource, nil
+func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(agentconfig.SourceFormatYAML):
+		return agentconfig.SourceFormatYAML, nil
+	case string(agentconfig.SourceFormatJSON):
+		return agentconfig.SourceFormatJSON, nil
+	case "":
+		return "", fmt.Errorf("source_format is required")
 	default:
-		return "", "", errors.New("one of definition or yaml is required")
+		return "", fmt.Errorf("unsupported source_format %q; use yaml or json", value)
+	}
+}
+
+// agentConfigSourceInput resolves the source and source_format carried by
+// every config-accepting request into compiler input. A text source is kept
+// verbatim; a JSON object source is canonicalized.
+func agentConfigSourceInput(
+	sourceFormatRaw string,
+	source json.RawMessage,
+) (agentconfig.SourceFormat, string, error) {
+	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	if err != nil {
+		return "", "", err
+	}
+	trimmed := bytes.TrimSpace(source)
+	switch {
+	case len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")):
+		return "", "", errors.New("source is required")
+	case trimmed[0] == '"':
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return "", "", fmt.Errorf("source must be a string or JSON object: %w", err)
+		}
+		return sourceFormat, text, nil
+	case trimmed[0] == '{':
+		if sourceFormat != agentconfig.SourceFormatJSON {
+			return "", "", errors.New("a JSON object source requires source_format json")
+		}
+		return sourceFormat, string(agentconfig.CanonicalDefinitionJSON(trimmed)), nil
+	default:
+		return "", "", errors.New("source must be a string or JSON object")
 	}
 }
 
 func (s *Server) compileAgentConfigSourceForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
-	definition *json.RawMessage,
-	yamlSource *string,
+	sourceFormatRaw string,
+	rawSource json.RawMessage,
 ) (agentconfigcompile.Body, error) {
-	sourceFormat, source, err := agentConfigSourceInput(definition, yamlSource)
+	sourceFormat, source, err := agentConfigSourceInput(sourceFormatRaw, rawSource)
 	if err != nil {
 		return agentconfigcompile.Body{}, err
 	}

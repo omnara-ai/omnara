@@ -3058,7 +3058,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AgentConfigSource'
+              $ref: '#/components/schemas/CreateAgentConfigRequest'
       responses:
         '200':
           description: Existing agent config returned.
@@ -10620,14 +10620,23 @@ components:
         expires_at:
           $ref: '#/components/schemas/Timestamp'
     ResolveAgentConfigToolsRequest:
-      description: Send exactly one of definition or yaml.
       type: object
       additionalProperties: false
+      required: [source, source_format]
       properties:
-        definition:
-          $ref: '#/components/schemas/AgentConfigToolsDefinition'
-        yaml:
-          $ref: '#/components/schemas/AgentConfigYAMLSource'
+        source:
+          description: >-
+            Agent config source as YAML or JSON text, or, with source_format
+            json, as a JSON object. Only the fields that determine tools are
+            read.
+          oneOf:
+            - type: string
+              minLength: 1
+            - $ref: '#/components/schemas/AgentConfigToolsDefinition'
+          x-go-type: json.RawMessage
+        source_format:
+          type: string
+          enum: [yaml, json]
     ResolvedAgentConfigTools:
       type: object
       additionalProperties: false
@@ -10648,35 +10657,44 @@ components:
           type: boolean
         permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
-    AgentConfigSource:
+    CreateAgentConfigRequest:
       description: >-
-        An agent config to compile. Send exactly one of definition, a JSON
-        object, or yaml, YAML text that is stored verbatim so comments and
-        formatting survive.
+        An agent config to compile. Text sources are stored verbatim, so YAML
+        comments and formatting survive; JSON object sources are stored
+        canonicalized.
       type: object
       additionalProperties: false
+      required: [source, source_format]
       properties:
-        definition:
-          $ref: '#/components/schemas/AgentConfigDefinition'
-        yaml:
-          $ref: '#/components/schemas/AgentConfigYAMLSource'
-    AgentConfigYAMLSource:
-      type: string
-      minLength: 1
-      description: Agent config source as YAML text.
+        source:
+          $ref: '#/components/schemas/AgentConfigSourceInput'
+        source_format:
+          type: string
+          enum: [yaml, json]
+    AgentConfigSourceInput:
+      description: >-
+        Agent config source as YAML or JSON text, or, with source_format json,
+        as a JSON object.
+      oneOf:
+        - type: string
+          minLength: 1
+        - $ref: '#/components/schemas/AgentConfigDefinition'
+      x-go-type: json.RawMessage
     UpdateAgentConfigRequest:
       description: >-
-        Replaces a live agent's config. Send exactly one of definition or yaml.
-        expected_current_config_id makes the change conditional on the agent
-        still running that config, so concurrent editors get a conflict instead
-        of silently overwriting each other.
+        Replaces a live agent's config. expected_current_config_id makes the
+        change conditional on the agent still running that config, so
+        concurrent editors get a conflict instead of silently overwriting each
+        other.
       type: object
       additionalProperties: false
+      required: [source, source_format]
       properties:
-        definition:
-          $ref: '#/components/schemas/AgentConfigDefinition'
-        yaml:
-          $ref: '#/components/schemas/AgentConfigYAMLSource'
+        source:
+          $ref: '#/components/schemas/AgentConfigSourceInput'
+        source_format:
+          type: string
+          enum: [yaml, json]
         expected_current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
     ToolPermissionSelection:
@@ -11851,7 +11869,7 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
         config_source:
-          $ref: '#/components/schemas/AgentConfigSource'
+          $ref: '#/components/schemas/CreateAgentConfigRequest'
         name:
           $ref: '#/components/schemas/AgentName'
           description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.

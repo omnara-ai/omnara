@@ -49,7 +49,8 @@ export function useAgentBuilderTools(
   scope: { orgId: string; projectId: string },
 ) {
   const query = useAgentConfigTools(scope.orgId, scope.projectId, {
-    definition: agentBuilderToolsDefinition(source),
+    source: agentBuilderToolsDefinition(source),
+    source_format: 'json',
   })
   const error = query.error
   const detail =

@@ -2,7 +2,7 @@ import {
   type AgentConfig,
   type AgentConfigDefinition,
   type AgentConfigDefinitionMcpServer,
-  type AgentConfigSource,
+  type CreateAgentConfigRequest,
   type McpoAuthStartRequest,
   type OmnaraClient,
   sdk,
@@ -26,7 +26,7 @@ interface ProjectScope {
 
 interface PreparedConfig {
   currentConfigId: string
-  render(secretId: string): AgentConfigSource
+  render(secretId: string): CreateAgentConfigRequest
 }
 
 const SERVER_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
@@ -68,10 +68,11 @@ function prepareJsonConfig(
     currentConfigId: configId,
     render(secretId) {
       return {
-        definition: {
+        source: {
           ...definition,
           mcp: { ...definition.mcp, [serverName]: serverEntry(mcpUrl, secretId) },
         },
+        source_format: 'json',
       }
     },
   }
@@ -106,7 +107,7 @@ function prepareYamlConfig(
       } else {
         doc.set('mcp', { [serverName]: serverEntry(mcpUrl, secretId) })
       }
-      return { yaml: doc.toString() }
+      return { source: doc.toString(), source_format: 'yaml' }
     },
   }
 }

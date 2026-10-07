@@ -1278,7 +1278,7 @@ func TestGetModelCatalog(t *testing.T) {
 }
 
 func agentConfigSourceBody(source string) string {
-	raw, err := json.Marshal(map[string]string{"yaml": source})
+	raw, err := json.Marshal(map[string]string{"source_format": "yaml", "source": source})
 	if err != nil {
 		panic(err)
 	}

@@ -11,7 +11,7 @@ npx omnara profiles create --name machine-assistant --file agent.yaml
 ```bash REST
 export AGENT="$(
   jq -n --rawfile src agent.yaml '{
-    config_source: {yaml: $src},
+    config_source: {source: $src, source_format: "yaml"},
     name: "Machine assistant",
     message: "Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version."
   }' |
@@ -32,7 +32,7 @@ const launched = await sdk.createAgent({
   client,
   path: { orgID, projectID },
   body: {
-    config_source: { yaml: source },
+    config_source: { source, source_format: 'yaml' },
     name: 'Machine assistant',
     message: 'Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version.',
   },

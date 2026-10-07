@@ -57,7 +57,7 @@ export function ProfileDraftStep({
     setError('')
     try {
       const yaml = createBasicConfigSession('').apply(current.config)
-      const config = await createAgentConfig.mutateAsync({ yaml })
+      const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
       await createAgentProfile.mutateAsync({ name: current.name, config: config.id })
     } catch (err) {
       setError(errorMessage(err, 'Could not create profile'))
