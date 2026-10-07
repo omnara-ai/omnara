@@ -274,12 +274,7 @@ func (s *Store) attachAgentActivity(
 	}
 	activity := make(map[uuid.UUID]AgentActivity, len(rows))
 	for _, row := range rows {
-		activity[row.ID] = AgentActivity{
-			State: agentActivityState(
-				row.State == string(AgentStateArchived), row.HasOpenQuestion, row.HasOpenPermission, row.IsRunning,
-			),
-			LastActivityAt: row.LastActivityAt,
-		}
+		activity[row.ID] = agentActivityFromRow(row)
 	}
 	for i := range result.Agents {
 		if value, ok := activity[result.Agents[i].ID]; ok {
@@ -287,6 +282,29 @@ func (s *Store) attachAgentActivity(
 		}
 	}
 	return result, nil
+}
+
+func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UUID) (AgentActivity, error) {
+	rows, err := s.q.ListAgentActivityForAgents(
+		ctx,
+		dbsqlc.ListAgentActivityForAgentsParams{ProjectIds: []uuid.UUID{projectID}, AgentIds: []uuid.UUID{agentID}},
+	)
+	if err != nil {
+		return AgentActivity{}, fmt.Errorf("get agent activity: %w", err)
+	}
+	if len(rows) == 0 {
+		return AgentActivity{}, storeerr.ErrNotFound
+	}
+	return agentActivityFromRow(rows[0]), nil
+}
+
+func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
+	return AgentActivity{
+		State: agentActivityState(
+			row.State == string(AgentStateArchived), row.HasOpenQuestion, row.HasOpenPermission, row.IsRunning,
+		),
+		LastActivityAt: row.LastActivityAt,
+	}
 }
 
 func (s *Store) listAgentsForProjectsByCreatedAtDesc(
