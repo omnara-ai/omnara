@@ -2,11 +2,15 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 )
 
 const launchUnavailableMessage = "The Omnara agent is unavailable. Please contact the integration owner."
+const launchNotSetUpMessage = "This bot isn't available for requests. Ask its owner for help."
+
+var errIntegrationMentionUnrouted = errors.New("mention matched no agent or launcher")
 
 type integrationLaunchFeedback struct {
 	input IntegrationLaunchContext
@@ -31,9 +35,13 @@ func (w *IntegrationLaunchWorkflow) launchUnavailable(
 	if !ok {
 		return
 	}
+	message := launchUnavailableMessage
+	if errors.Is(cause, errIntegrationMentionUnrouted) {
+		message = launchNotSetUpMessage
+	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := provider.NotifyLaunchUnavailable(ctx, input, launchUnavailableMessage); err != nil {
+	if err := provider.NotifyLaunchUnavailable(ctx, input, message); err != nil {
 		log.WarnContext(ctx, "notify unavailable integration launch", "integration_id", input.Integration.ID, "error", err)
 	}
 }

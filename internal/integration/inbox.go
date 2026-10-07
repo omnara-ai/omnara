@@ -90,6 +90,7 @@ type IntegrationRoutingStore interface {
 		integrationstore.ConversationAddress,
 		[]integrationstore.ConversationAddress,
 	) (integrationstore.IntegrationRoutingCandidates, error)
+	SharesProviderIdentity(context.Context, integrationstore.IntegrationRecord) (bool, error)
 }
 
 type IntegrationRouter struct {

@@ -174,6 +174,7 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 		}
 		if expanded == nil {
 			unrouted := false
+			var unroutedEvent IntegrationEvent
 			if provider, ok := adapter.(IntegrationInboxRoutingProvider); ok {
 				expansion, err = provider.ExpandRouted(
 					ctx,
@@ -182,6 +183,7 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 					func(event IntegrationEvent) (bool, error) {
 						var err error
 						unrouted, err = c.router.freezeEmptyIfUnrouted(ctx, lease, integrationSetup, event)
+						unroutedEvent = event
 						return !unrouted, err
 					},
 				)
@@ -192,6 +194,17 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 				return nil, err
 			}
 			if unrouted {
+				if c.launchers != nil && unroutedEvent.Event.Mentioned &&
+					integrationSetup.Provider != integrationdefinition.ProviderGitHub {
+					shared, err := c.inbox.SharesProviderIdentity(ctx, integrationSetup)
+					if err != nil {
+						log.WarnContext(ctx, "check shared integration bot", "integration_id", integrationSetup.ID, "error", err)
+					} else if !shared {
+						c.launchers.launchUnavailable(ctx, IntegrationLaunchContext{
+							Receipt: receipt, Integration: integrationSetup, Event: unroutedEvent,
+						}, errIntegrationMentionUnrouted)
+					}
+				}
 				return c.router.Admit(ctx, lease, nil)
 			}
 			if c.launchers == nil {
