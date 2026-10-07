@@ -82,6 +82,7 @@ COPY --from=file-tools /out/ /
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 
 FROM runtime AS maintenance
+COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
 COPY --from=maintenance-build /out/omnara-maintenance /usr/local/bin/omnara-maintenance
 ENTRYPOINT ["/usr/local/bin/omnara-maintenance"]
 

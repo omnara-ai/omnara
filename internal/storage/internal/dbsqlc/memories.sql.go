@@ -33,7 +33,7 @@ func (q *Queries) CountMemoryStores(ctx context.Context, arg CountMemoryStoresPa
 const createMemoryStore = `-- name: CreateMemoryStore :one
 INSERT INTO memory_stores(id, project_id, name, description, agent_access)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 `
 
 type CreateMemoryStoreParams struct {
@@ -62,6 +62,7 @@ func (q *Queries) CreateMemoryStore(ctx context.Context, arg CreateMemoryStorePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.FilesRemovedAt,
 	)
 	return i, err
 }
@@ -122,7 +123,7 @@ func (q *Queries) GetAgentMemoryConfig(ctx context.Context, arg GetAgentMemoryCo
 }
 
 const getMemoryStore = `-- name: GetMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -146,12 +147,13 @@ func (q *Queries) GetMemoryStore(ctx context.Context, arg GetMemoryStoreParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.FilesRemovedAt,
 	)
 	return i, err
 }
 
 const getMemoryStoreByName = `-- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = $1
   AND name = $2
@@ -175,6 +177,7 @@ func (q *Queries) GetMemoryStoreByName(ctx context.Context, arg GetMemoryStoreBy
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.FilesRemovedAt,
 	)
 	return i, err
 }
@@ -262,7 +265,7 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 }
 
 const listMemoryStores = `-- name: ListMemoryStores :many
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = $1
   AND deleted_at IS NULL
@@ -302,6 +305,56 @@ func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresPara
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.FilesRemovedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMemoryStoresPendingFileRemoval = `-- name: ListMemoryStoresPendingFileRemoval :many
+SELECT s.id, s.project_id, p.org_id, s.name,
+       (p.deleted_at IS NOT NULL)::boolean AS project_deleted,
+       (o.deleted_at IS NOT NULL)::boolean AS org_deleted
+FROM memory_stores s
+JOIN projects p ON p.id = s.project_id
+JOIN orgs o ON o.id = p.org_id
+WHERE s.deleted_at IS NOT NULL
+  AND (s.files_removed_at IS NULL
+       OR s.files_removed_at < p.deleted_at
+       OR s.files_removed_at < o.deleted_at)
+`
+
+type ListMemoryStoresPendingFileRemovalRow struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	OrgID          uuid.UUID
+	Name           string
+	ProjectDeleted bool
+	OrgDeleted     bool
+}
+
+func (q *Queries) ListMemoryStoresPendingFileRemoval(ctx context.Context) ([]ListMemoryStoresPendingFileRemovalRow, error) {
+	rows, err := q.db.Query(ctx, listMemoryStoresPendingFileRemoval)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMemoryStoresPendingFileRemovalRow{}
+	for rows.Next() {
+		var i ListMemoryStoresPendingFileRemovalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.OrgID,
+			&i.Name,
+			&i.ProjectDeleted,
+			&i.OrgDeleted,
 		); err != nil {
 			return nil, err
 		}
@@ -334,7 +387,7 @@ func (q *Queries) LockAgentForMemoryWrite(ctx context.Context, arg LockAgentForM
 }
 
 const lockMemoryStore = `-- name: LockMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -359,6 +412,7 @@ func (q *Queries) LockMemoryStore(ctx context.Context, arg LockMemoryStoreParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.FilesRemovedAt,
 	)
 	return i, err
 }
@@ -382,6 +436,23 @@ func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStore
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const markMemoryStoreFilesRemoved = `-- name: MarkMemoryStoreFilesRemoved :exec
+UPDATE memory_stores
+SET files_removed_at = statement_timestamp()
+WHERE project_id = $1
+  AND id = $2
+`
+
+type MarkMemoryStoreFilesRemovedParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) MarkMemoryStoreFilesRemoved(ctx context.Context, arg MarkMemoryStoreFilesRemovedParams) error {
+	_, err := q.db.Exec(ctx, markMemoryStoreFilesRemoved, arg.ProjectID, arg.ID)
+	return err
 }
 
 const resolveAgentMemoryStore = `-- name: ResolveAgentMemoryStore :one
@@ -417,7 +488,7 @@ SET description = $1,
 WHERE project_id = $3
   AND id = $4
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 `
 
 type UpdateMemoryStoreParams struct {
@@ -444,6 +515,7 @@ func (q *Queries) UpdateMemoryStore(ctx context.Context, arg UpdateMemoryStorePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.FilesRemovedAt,
 	)
 	return i, err
 }

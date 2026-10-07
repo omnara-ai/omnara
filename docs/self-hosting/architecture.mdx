@@ -31,6 +31,7 @@ flowchart LR
   worker -- "model calls" --> providers["Model providers"]
   maintenance --> pg
   maintenance --> redis
+  maintenance --> memory
   maintenance -- "provision / clean up" --> mp["Machine providers"]
 ```
 
@@ -42,7 +43,7 @@ flowchart LR
 
 **worker** (`cmd/worker`) executes agent turns: it claims ready agent work, builds the model context, calls the model provider, and runs tools. Workers are stateless and scale horizontally.
 
-**maintenance** (`cmd/maintenance`) reaps expired locks and runtimes, times out stuck work, and reconciles machine pools toward their targets
+**maintenance** (`cmd/maintenance`) reaps expired locks and runtimes, times out stuck work, reconciles machine pools toward their targets, and removes the memory files of deleted stores, projects, and organizations
 
 **migrate** (`cmd/migrate`) applies the release's schema migrations and exits. Run it successfully before starting or updating the long-running services.
 
@@ -56,7 +57,7 @@ flowchart LR
 
 **Blob storage** holds artifact content, like file attachments and tool outputs.
 
-**Memory filesystem** stores memory files on a persistent filesystem shared by API and workers.
+**Memory filesystem** stores memory files on a persistent filesystem shared by API, workers, and maintenance.
 
 ## Next steps
 

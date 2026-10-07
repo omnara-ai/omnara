@@ -13,12 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
-	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -331,19 +329,6 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
 	}
-	row, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
-	if err != nil {
-		return mapped(err)
-	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, row.ID, row.Name)
-	if err != nil {
-		return err
-	}
-	lock, err := s.files.Lock(ctx, ref)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Close() }()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
@@ -362,9 +347,6 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
-	}
-	if err := s.files.RemoveStore(ref); err != nil {
-		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteStore, scope.OrgID, scope.ProjectID, id, err)
 	}
 	return nil
 }

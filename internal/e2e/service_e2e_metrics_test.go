@@ -47,6 +47,7 @@ func TestServiceE2EMetricsEndpoints(t *testing.T) {
 	assertMetrics(t, ctx, env.maintenanceURL+"/metrics",
 		"go_goroutines",
 		"omnara_db_query_duration_seconds",
+		"omnara_memory_cleanup_duration_seconds",
 	)
 }
 

@@ -147,7 +147,10 @@ services:
     image: ghcr.io/omnara-ai/omnara-maintenance:${OMNARA_RELEASE:-latest}
     environment:
       <<: *app-env
+      OMNARA_MEMORY_DIR: /var/lib/omnara/memory
       OMNARA_MAINTENANCE_INTERVAL: ${OMNARA_MAINTENANCE_INTERVAL:-1s}
+    volumes:
+      - memory-data:/var/lib/omnara/memory
     depends_on:
       migrate:
         condition: service_completed_successfully

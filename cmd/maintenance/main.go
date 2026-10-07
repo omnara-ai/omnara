@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
@@ -31,6 +32,7 @@ const (
 	providerRuntimeDiscoveryInterval = 5 * time.Minute
 	providerRuntimeRecheckInterval   = 30 * time.Second
 	idleMachineReconcileInterval     = time.Minute
+	memoryCleanupInterval            = time.Hour
 )
 
 type maintenanceOutcome struct {
@@ -118,10 +120,18 @@ func main() {
 		logger.Error("configure secret encryption", "error", err)
 		os.Exit(1)
 	}
+	memoryFS, err := memorystore.OpenUnpreparedFilesystem(cfg.MemoryDir)
+	if err != nil {
+		logger.Error("configure memory storage", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = memoryFS.Close() }()
 	store := storage.NewStore(
 		db,
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
+		storage.WithMemoryFilesystem(memoryFS),
+		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 	)
 	healthErr := metrics.Serve(
@@ -150,6 +160,11 @@ func main() {
 	go func() {
 		defer close(idleAgentArchiveLoopDone)
 		runIdleAgentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
+	}()
+	memoryCleanupDone := make(chan struct{})
+	go func() {
+		defer close(memoryCleanupDone)
+		runMemoryCleanupLoop(ctx, logger, memoryCleanupInterval, store.Memories().CleanupFiles)
 	}()
 	runtimeDiscoveryDone := make(chan struct{})
 	go func() {
@@ -225,6 +240,7 @@ func main() {
 	cancel()
 	<-machineLoopDone
 	<-idleAgentArchiveLoopDone
+	<-memoryCleanupDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-discordRuntimeDone
@@ -589,5 +605,53 @@ func runIdleAgentArchiveTick(
 	}
 	if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
 		log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
+	}
+}
+
+func runMemoryCleanupLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	interval time.Duration,
+	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
+) {
+	for {
+		runMemoryCleanupTick(ctx, log, cleanup)
+		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runMemoryCleanupTick(
+	ctx context.Context,
+	log *slog.Logger,
+	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
+) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Error("memory cleanup tick panicked", "error", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	result, err := cleanup(ctx)
+	outcome := completedMaintenanceOutcome(ctx, err)
+	if outcome.err != nil {
+		log.Error(
+			"cleanup memory files",
+			"removed_stores", result.RemovedStores,
+			"discarded_staged_files", result.DiscardedStagedFiles,
+			"error", outcome.err,
+		)
+	} else if !outcome.interrupted && result != (memorystore.FileCleanupResult{}) {
+		log.Info(
+			"cleaned memory files",
+			"removed_stores", result.RemovedStores,
+			"discarded_staged_files", result.DiscardedStagedFiles,
+		)
 	}
 }

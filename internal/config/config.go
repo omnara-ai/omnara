@@ -778,6 +778,9 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
+	}
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err
 	}

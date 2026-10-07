@@ -336,6 +336,7 @@ func (e *serviceE2EEnvironment) startMaintenance(t *testing.T, ctx context.Conte
 		"OMNARA_MAINTENANCE_METRICS_ADDR="+e.maintenanceListenAddr,
 		"OMNARA_DATABASE_URL="+e.databaseURL,
 		"OMNARA_REDIS_URL="+e.redisURL,
+		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
 		"OMNARA_MAINTENANCE_INTERVAL=10s",
 		"OMNARA_LOG_LEVEL=error",
 	)

@@ -226,10 +226,6 @@ func TestSharedLock(t *testing.T) {
 	if _, err := files.Lock(ctx, ref); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cross-process lock: %v", err)
 	}
-	inode, err := files.root.Stat(".locks/" + ref.path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := command.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
@@ -239,19 +235,6 @@ func TestSharedLock(t *testing.T) {
 	lock, err := files.Lock(ctx, ref)
 	if err != nil {
 		t.Fatalf("lock after child termination: %v (%s)", err, output.String())
-	}
-	if err := files.RemoveStore(ref); err != nil {
-		t.Fatal(err)
-	}
-	after, err := files.root.Stat(".locks/" + ref.path)
-	if err != nil || !os.SameFile(inode, after) {
-		t.Fatalf("purge changed lock inode: %v", err)
-	}
-	ctx, cancel = context.WithTimeout(t.Context(), 60*time.Millisecond)
-	defer cancel()
-	replacement := testStoreRef(t, "shared")
-	if _, err := files.Lock(ctx, replacement); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("replacement bypassed existing lock: %v", err)
 	}
 	if err := lock.Close(); err != nil {
 		t.Fatal(err)
@@ -566,11 +549,6 @@ func TestNFSMissingPaths(t *testing.T) {
 				}
 				return
 			case "store-cleanup":
-				lockB, lockErr := b.Lock(t.Context(), ref)
-				if lockErr != nil {
-					t.Fatal(lockErr)
-				}
-				defer func() { _ = lockB.Close() }()
 				err = b.RemoveStore(ref)
 			case "project-cleanup":
 				err = b.RemoveScope(orgID, &projectID)
@@ -585,6 +563,34 @@ func TestNFSMissingPaths(t *testing.T) {
 				t.Fatalf("cleanup left old contents on server: %v", err)
 			}
 		})
+	}
+}
+
+func TestOpenUnpreparedFilesystem(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "memory")
+	files, err := OpenUnpreparedFilesystem(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	if err := files.CheckPrepared(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("unprepared directory check: %v", err)
+	}
+	discarded, err := files.DiscardStagedBefore(t.Context(), time.Now())
+	if err != nil || discarded != 0 {
+		t.Fatalf("discarded %d in an unprepared directory: %v", discarded, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("unprepared directory entries = %v, %v", entries, err)
+	}
+	prepared, err := OpenFilesystem(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = prepared.Close() }()
+	if err := files.CheckPrepared(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -626,6 +632,74 @@ func TestDiscardStagedFile(t *testing.T) {
 	}
 	if _, err := files.root.Stat(replacement); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("replacement staged file remains: %v", err)
+	}
+}
+
+func TestDiscardStagedBefore(t *testing.T) {
+	dir := t.TempDir()
+	files, err := OpenFilesystem(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	stale, err := files.Stage(testStoreRef(t, "notes"), []byte("abandoned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := files.Stage(testStoreRef(t, "plans"), []byte("pending"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, stale), past, past); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{1, 0} {
+		discarded, err := files.DiscardStagedBefore(t.Context(), time.Now().Add(-time.Hour))
+		if err != nil || discarded != want {
+			t.Fatalf("discarded %d, want %d: %v", discarded, want, err)
+		}
+	}
+	if _, err := files.root.Stat(stale); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stale staged file remains: %v", err)
+	}
+	if _, err := files.root.Stat(fresh); err != nil {
+		t.Fatalf("fresh staged file was discarded: %v", err)
+	}
+}
+
+func TestDiscardStagedBeforeRejectsSymlinkedStaging(t *testing.T) {
+	dir := t.TempDir()
+	files, err := OpenFilesystem(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	ref := testStoreRef(t, "notes")
+	staged, err := files.Stage(ref, []byte("content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Publish(t.Context(), ref, nil, "note.md", staged); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(dir, ref.path, "note.md")
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(note, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, stagingDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".", filepath.Join(dir, stagingDir)); err != nil {
+		t.Fatal(err)
+	}
+	discarded, err := files.DiscardStagedBefore(t.Context(), time.Now().Add(-time.Hour))
+	if !errors.Is(err, storeerr.ErrConflict) || discarded != 0 {
+		t.Fatalf("discarded %d through a symlinked staging directory: %v", discarded, err)
+	}
+	if _, err := os.Stat(note); err != nil {
+		t.Fatalf("discard followed a symlink: %v", err)
 	}
 }
 

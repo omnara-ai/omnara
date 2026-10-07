@@ -25,6 +25,10 @@ type Filesystem = memoryops.Filesystem
 
 func OpenFilesystem(dir string) (*Filesystem, error) { return memoryops.OpenFilesystem(dir) }
 
+func OpenUnpreparedFilesystem(dir string) (*Filesystem, error) {
+	return memoryops.OpenUnpreparedFilesystem(dir)
+}
+
 type WriteInput struct {
 	Scope          Scope
 	StoreID        uuid.UUID
@@ -119,9 +123,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	}
 	defer func() {
 		if err := s.files.Discard(staged); err != nil {
-			logent.MemoryCleanupFailed(
-				ctx, logent.MemoryCleanupDiscardStagedFile, input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err,
-			)
+			logent.MemoryStagedFileDiscardFailed(ctx, input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err)
 		}
 	}()
 	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}

@@ -371,14 +371,15 @@ type McpServerCatalog struct {
 }
 
 type MemoryStore struct {
-	ID          uuid.UUID
-	ProjectID   uuid.UUID
-	Name        string
-	Description string
-	AgentAccess string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	Name           string
+	Description    string
+	AgentAccess    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      *time.Time
+	FilesRemovedAt *time.Time
 }
 
 type ModelProviderConfig struct {
