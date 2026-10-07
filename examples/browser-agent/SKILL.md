@@ -198,14 +198,19 @@ since everything it does appears under that account.
 
    With no sign-ins, delete the `LOGIN_` lines and the empty
    `secret_env_overlay:` key.
-4. Leave the machine settings alone except for one case. The machine is kept
+4. Leave the machine settings alone except in two cases. The machine is kept
    until the agent is archived (`delete_after_idle_minutes: 0`), so its
    browser and sign-ins carry over between tasks. It sleeps after two hours
    with no command running (`sleep_after_ms: 7200000`) and wakes in under a
    second with Chrome, memory, and files intact; a working agent runs
-   commands every few seconds, so it never sleeps mid-task. If any site sends
-   codes by text or email, set `sleep_after_ms: 0` instead, since a sign-in
-   after waking would need a person.
+   commands every few seconds, so it never sleeps mid-task.
+   - If any site sends codes by text or email, set `sleep_after_ms: 0`, since
+     a sign-in after waking would need a person.
+   - For a helper used through Slack, set `delete_after_idle_minutes: 1440`.
+     Every thread gets its own machine, and this removes a finished thread's
+     machine after a day idle instead of leaving it until someone archives
+     the agent. If the thread picks up again, the agent gets a new machine
+     and signs in again.
 5. Fill in `{{MACHINE_MEMORY_MB}}`, `{{MODEL_PROVIDER_CONFIG}}`,
    `{{MODEL_NAME}}`, and `{{MACHINE_POOL}}` from step 5.
    `grep -n '{{' browser-agent.yaml` must print nothing.
@@ -263,7 +268,8 @@ Otherwise archive it in the console once every sign-in works.
 Each mention in a new thread starts a new agent with its own machine, and
 replies in the thread go to the same agent. Kept machines count toward the
 pool's machine limit, so tell the user to archive a thread's agent in the
-console when its work is done.
+console when its work is done, unless step 6 set machines to be removed
+after a day idle.
 
 ## 9. Schedule it (if chosen)
 

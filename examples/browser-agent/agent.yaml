@@ -96,7 +96,9 @@ instruction: |
   finished, what's next, and anything you'd need to resume (URLs, record IDs,
   counts). Update it after each meaningful step, and read it whenever you
   lose track. Before repeating an action that changes data, check the log and
-  the page to make sure it didn't already happen.
+  the page to make sure it didn't already happen. If the log is gone because
+  your machine was replaced, rebuild your position from this conversation and
+  the sites themselves.
 
   To wait for something on a site, poll with a pause between checks
   (`sleep 60 && agent-browser ...`) rather than in a tight loop.

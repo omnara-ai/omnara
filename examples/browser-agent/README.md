@@ -60,8 +60,9 @@ access the job needs.
 
 **Two-factor sign-in.** If a site uses an authenticator app, store the
 account's setup key as `LOGIN_<KEY>_TOTP`, and the agent gets the current
-code from `/workspace/bin/totp <name>`, so it can sign in unattended. Codes by
-text or email need a person each time. All sign-ins share one browser
+code from `/workspace/bin/totp <name>`, so it can sign in unattended. That
+puts both factors on the agent's machine, so use it with accounts made for
+the agent. Codes by text or email need a person each time. All sign-ins share one browser
 profile, so the agent stays signed in to several sites at once; two accounts
 on the same site take turns.
 
@@ -70,7 +71,7 @@ on the same site take turns.
 | Setting | Default | In this agent |
 | --- | --- | --- |
 | `machine_memory_mb` | The pool's default size | `8192`, or the pool's maximum, for Chrome and Blaxel's in-memory file system |
-| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived |
+| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived. `1440` (a day idle) for a helper used through Slack, where every thread gets its own machine |
 | `sleep_after_ms` | A short idle period on the default pool | `7200000`: sleeps after two hours with no command running, and wakes in under a second with Chrome, memory, and files intact. `0` (never) when a site texts or emails codes |
 | `AGENT_BROWSER_IDLE_TIMEOUT_MS` | One hour: agent-browser closes the browser after an hour without commands | `0`: the browser stays open |
 
@@ -106,14 +107,13 @@ as [Kernel](https://www.kernel.sh) or
 - the signed-in session should outlive the machine, in a profile the
   provider stores
 
-agent-browser speaks to both, so the instruction and commands stay the same.
-For Kernel, in `machine_sources[0]`:
+agent-browser speaks to both, so the instruction, commands, and sign-ins stay
+the same. For Kernel, in `machine_sources[0]`, delete `AGENT_BROWSER_PROFILE`
+(the cloud browser keeps its own profile), keep the other lines, and add:
 
 ```yaml
 env_overlay:
-  # remove AGENT_BROWSER_PROFILE; the cloud browser keeps its own profile
   AGENT_BROWSER_PROVIDER: kernel
-  AGENT_BROWSER_IDLE_TIMEOUT_MS: "0"
   KERNEL_STEALTH: "true"
   KERNEL_PROFILE_NAME: browser-agent-acme
   KERNEL_PROFILE_SAVE_CHANGES: "true"
@@ -122,7 +122,9 @@ secret_env_overlay:
   KERNEL_API_KEY: sec_…             # a generic secret with your Kernel API key
 ```
 
-Also drop the instruction's paragraph about `/workspace/browser-profile`.
+Also drop the instruction's paragraph about `/workspace/browser-profile`, and
+note that downloads then happen in the cloud browser rather than in
+`/workspace/output`; see the provider's docs for fetching them.
 Kernel's [Managed Auth](https://www.kernel.sh/docs/auth/overview) can go
 further: it stores the credentials itself, keeps the profile signed in, and
 re-authenticates on its own, so the password never reaches the Omnara machine
