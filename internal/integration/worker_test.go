@@ -454,11 +454,11 @@ func TestIntegrationInboxWorkerProvisionsPartialSuccessAndDoesNotRewriteLostLeas
 	consumer := integrationWorkerConsumerFunc(
 		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			return []IntegrationRecipientAdmission{
-					{Launch: &executionstore.LaunchAgentResult{ProvisionMachineIDs: []uuid.UUID{machine}}},
-				}, errors.Join(
-					integrationstore.ErrIntegrationInboxLeaseLost,
-					errors.New("another recipient failed"),
-				)
+				{Launch: &executionstore.LaunchAgentResult{ProvisionMachineIDs: []uuid.UUID{machine}}},
+			}, errors.Join(
+				integrationstore.ErrIntegrationInboxLeaseLost,
+				errors.New("another recipient failed"),
+			)
 		},
 	)
 	provisioner := &integrationWorkerTestProvisioner{}

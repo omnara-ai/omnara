@@ -13,19 +13,19 @@ func DestinationProperties(provider Provider) (map[string]any, []string, error) 
 	switch provider {
 	case ProviderSlack:
 		return map[string]any{
-				"channel_id": text(slackChannel.String()),
-				"thread_ts":  text(slackTimestamp.String()),
-			}, []string{
-				"channel_id",
-			}, nil
+			"channel_id": text(slackChannel.String()),
+			"thread_ts":  text(slackTimestamp.String()),
+		}, []string{
+			"channel_id",
+		}, nil
 	case ProviderGitHub:
 		return map[string]any{
-				"repository_id": positive(),
-				"pull_request":  positive(),
-			}, []string{
-				"repository_id",
-				"pull_request",
-			}, nil
+			"repository_id": positive(),
+			"pull_request":  positive(),
+		}, []string{
+			"repository_id",
+			"pull_request",
+		}, nil
 	case ProviderDiscord:
 		return map[string]any{
 			"guild_id":   text(discordID.String()),
