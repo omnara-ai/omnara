@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
@@ -26,6 +27,7 @@ import {
 
 export function ProjectSwitcher() {
   const { activeOrg } = useActiveOrg()
+  const canManage = canManageOrg(activeOrg.role)
   const projectsQuery = useProjects(activeOrg.id)
   const projects = useInfiniteQueryItems(projectsQuery)
   const projectId = useParams({ strict: false, select: (params) => params.projectId })
@@ -97,18 +99,24 @@ export function ProjectSwitcher() {
               {projectsQuery.isFetchingNextPage ? 'Loading…' : 'Load more projects'}
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              setNewOpen(true)
-            }}
-          >
-            <Plus />
-            New project
-          </DropdownMenuItem>
+          {canManage && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setNewOpen(true)
+                }}
+              >
+                <Plus />
+                New project
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <NewProjectDialog open={newOpen} onOpenChange={setNewOpen} orgId={activeOrg.id} />
+      {canManage && (
+        <NewProjectDialog open={newOpen} onOpenChange={setNewOpen} orgId={activeOrg.id} />
+      )}
     </>
   )
 }

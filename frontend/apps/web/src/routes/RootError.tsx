@@ -2,8 +2,11 @@ import { ApiError } from '@omnara/sdk'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 
 import { Button } from '@/components/ui/button'
+import { staleChunkReloadDue } from '@/lib/stale-chunk'
 
 export function RootError({ error }: ErrorComponentProps) {
+  if (error instanceof Error && staleChunkReloadDue(error, window)) return null
+
   const message =
     error instanceof ApiError
       ? `${error.status}: ${error.message}`

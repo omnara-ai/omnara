@@ -111,6 +111,21 @@ describe('machinePoolFieldErrors', () => {
     expect(machinePoolFormValid(cluster, 'cluster-edit')).toBe(true)
   })
 
+  it('flags a per-machine max below the machine size', () => {
+    const memory = machinePoolFieldErrors({ ...blaxel, memoryGb: '8', maxMachineMemoryGb: '4' })
+    expect(memory).toEqual({
+      maxMachineMemoryGb: 'Enter a size of 8 GB or more, or leave it empty.',
+    })
+    expect(machinePoolFieldGroup.maxMachineMemoryGb).toBe('capacity')
+    const tenki = machinePoolFormAfterProviderChange(blaxel, 'tenki')
+    const cpu = machinePoolFieldErrors({ ...tenki, cpu: '4', maxMachineCpu: '2' })
+    expect(cpu.maxMachineCpu).toBe('Enter a whole number of 4 or more, or leave it empty.')
+    expect(
+      machinePoolFieldErrors({ ...tenki, cpu: '4', maxMachineCpu: '4' }).maxMachineCpu,
+    ).toBeUndefined()
+    expect(machinePoolFieldErrors({ ...blaxel, memoryGb: '8' }).maxMachineMemoryGb).toBeUndefined()
+  })
+
   it('flags a size whose derived pool total overflows', () => {
     const errors = machinePoolFieldErrors({ ...blaxel, memoryGb: '2000000', maxMachines: '2' })
     expect(errors.memoryGb).toMatch(/Too large for this many machines/)

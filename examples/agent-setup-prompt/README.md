@@ -56,7 +56,7 @@ and retry — don't skip ahead.
    for the coding agent, clone the repo using git (not the GitHub
    API) and tell me the latest commit and who made it; for the research assistant, the topic I gave, answered concisely. Stream
    its events, narrate what it's doing, and show me the final reply. Then give me the link to my agent:
-   https://app.omnara.com/projects/{project_id}/agents/{agent_id}
+   `https://app.omnara.com/projects/{project_id}/agents/{agent_id}`
    — the conversation lives there; I can keep using it in the browser
    anytime.
 

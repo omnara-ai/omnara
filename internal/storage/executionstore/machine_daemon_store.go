@@ -749,8 +749,16 @@ func (s *Store) CreateProjectMachineGrant(
 			}
 			return grant, machine, nil
 		}
+		if !errors.Is(replayErr, pgx.ErrNoRows) {
+			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
+				"get project machine grant by idempotency: %w",
+				replayErr,
+			)
+		}
 	}
-	return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
+	return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
+		"a grant for this machine already exists on this project",
+	))
 }
 
 func upsertExplicitProjectMachineGrantTx(
