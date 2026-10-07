@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -45,10 +46,18 @@ type daemonSocketHub struct {
 	mu                    sync.RWMutex
 	byMachine             map[uuid.UUID]*daemonSocket
 	byRuntime             map[uuid.UUID]*daemonSocket
+	closing               bool
+	closeOnce             sync.Once
+	handlers              map[*daemonSocketHandler]struct{}
+	handlersDone          sync.WaitGroup
 	subs                  []notifications.Subscription
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending
+}
+
+type daemonSocketHandler struct {
+	cancel context.CancelCauseFunc
 }
 
 type replyChannelPublisher interface {
@@ -171,24 +180,67 @@ func (h *daemonSocketHub) Close() {
 	if h == nil {
 		return
 	}
-	h.cancel()
-	for _, sub := range h.subs {
-		_ = sub.Unsubscribe()
-	}
-	h.mu.RLock()
-	sockets := make([]*daemonSocket, 0, len(h.byRuntime))
-	for _, socket := range h.byRuntime {
-		sockets = append(sockets, socket)
-	}
-	h.mu.RUnlock()
-	for _, socket := range sockets {
-		socket.close(websocket.StatusNormalClosure, "api shutting down")
-	}
+	h.closeOnce.Do(func() {
+		h.mu.Lock()
+		h.closing = true
+		handlers := make([]*daemonSocketHandler, 0, len(h.handlers))
+		for handler := range h.handlers {
+			handlers = append(handlers, handler)
+		}
+		sockets := make([]*daemonSocket, 0, len(h.byRuntime))
+		for _, socket := range h.byRuntime {
+			sockets = append(sockets, socket)
+		}
+		h.mu.Unlock()
+
+		for _, handler := range handlers {
+			handler.cancel(logpkg.ErrSocketClosed)
+		}
+		if h.cancel != nil {
+			h.cancel()
+		}
+		var closed sync.WaitGroup
+		for _, socket := range sockets {
+			closed.Go(func() { socket.close(websocket.StatusNormalClosure, "api shutting down") })
+		}
+		for _, sub := range h.subs {
+			_ = sub.Unsubscribe()
+		}
+		closed.Wait()
+		h.handlersDone.Wait()
+	})
 }
 
-func (h *daemonSocketHub) register(socket *daemonSocket) {
+func (h *daemonSocketHub) beginHandler(ctx context.Context) (context.Context, func(), bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closing {
+		return ctx, nil, false
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	handler := &daemonSocketHandler{cancel: cancel}
+	if h.handlers == nil {
+		h.handlers = make(map[*daemonSocketHandler]struct{})
+	}
+	h.handlers[handler] = struct{}{}
+	h.handlersDone.Add(1)
+	return ctx, func() {
+		cancel(nil)
+		h.mu.Lock()
+		delete(h.handlers, handler)
+		h.mu.Unlock()
+		h.handlersDone.Done()
+	}, true
+}
+
+func (h *daemonSocketHub) register(socket *daemonSocket) bool {
 	var replaced []*daemonSocket
 	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		socket.close(websocket.StatusNormalClosure, "api shutting down")
+		return false
+	}
 	if prior := h.byMachine[socket.machineID]; prior != nil && prior != socket {
 		replaced = append(replaced, prior)
 	}
@@ -210,6 +262,7 @@ func (h *daemonSocketHub) register(socket *daemonSocket) {
 	for _, prior := range replaced {
 		prior.close(websocket.StatusNormalClosure, "replaced")
 	}
+	return true
 }
 
 func (h *daemonSocketHub) unregister(socket *daemonSocket) {

@@ -399,6 +399,7 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 		t,
 		store,
 		WithDaemonNotifications(testBus, presence, daemonSocketRouteReplicaID),
+		WithHTTPRecorder(metrics.NewHTTPRecorder(metrics.New(), metrics.SubsystemAPI)),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	httpServer := httptest.NewServer(handler)
@@ -1728,7 +1729,10 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		queuedMessage bool
 		keepOpen      bool
 		keepSending   bool
+		shutdown      bool
 	}{
+		{name: "api shutdown", shutdown: true, source: "socket_closed"},
+		{name: "api shutdown during message", shutdown: true, queuedMessage: true, source: "socket_closed"},
 		{name: "transport failure", source: "socket_failure"},
 		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
 		{name: "local policy failure during message", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
@@ -1786,6 +1790,12 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			ready := make(chan *daemonSocket, 1)
 			finished := make(chan struct{})
 			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				socketCtx, finish, ok := hub.beginHandler(r.Context())
+				if !ok {
+					t.Error("socket handler rejected")
+					return
+				}
+				defer finish()
 				conn, err := websocket.Accept(w, r, nil)
 				if err != nil {
 					t.Error(err)
@@ -1794,11 +1804,12 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				defer func() { _ = conn.CloseNow() }()
 				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
 					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
+				defer backend.cleanupDaemonRuntimePresence(r.Context(), socket.machineID, socket.runtimeID, socket.connectionID)
 				if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
 					socket.send = make(chan daemonSocketOutbound)
 				}
 				ready <- socket
-				socket.run(r.Context())
+				socket.run(socketCtx)
 			}))
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(finished)
@@ -1869,7 +1880,10 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			if writeErrors != nil {
 				writeErrors.armed.Store(true)
 			}
-			if tt.localClose != 0 {
+			shutdownDone := make(chan struct{})
+			if tt.shutdown {
+				go func() { backend.Close(); close(shutdownDone) }()
+			} else if tt.localClose != 0 {
 				go func() { _, _, _ = conn.Read(ctx) }()
 				go socket.close(tt.localClose, "test close")
 			} else if tt.peerClose != 0 {
@@ -1930,6 +1944,13 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				require.EqualError(t, context.Cause(messageCtx), tt.source)
 			}
 			wait(tracer.canceled)
+			if tt.shutdown {
+				select {
+				case <-shutdownDone:
+					t.Fatal("shutdown returned before drain query completion")
+				default:
+				}
+			}
 			select {
 			case <-finished:
 				t.Fatal("request finished before drain query completion")
@@ -1937,6 +1958,9 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			}
 			release()
 			wait(finished)
+			if tt.shutdown {
+				wait(shutdownDone)
+			}
 			wait(trafficDone)
 			require.Empty(t, publisher.started, "message handler started after writer stopped")
 			event := decodeRequestEvent(t, buf)
