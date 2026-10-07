@@ -2,7 +2,7 @@ import { useUpdateIntegration } from '@omnara/react'
 import type { Integration, IntegrationKind } from '@omnara/sdk'
 import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
-import { errorMessage } from '@/lib/submit-status'
+import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
 import {
   integrationFormRequest,
@@ -111,23 +111,22 @@ export function useIntegrationFormDraft({
     if (!canSave || submitting.current) return
     submitting.current = true
     setError('')
-    try {
+    const result = await settleSubmission(async () => {
       const request = integrationFormRequest(integrationKind, values, base)
       const saved = await update.mutateAsync({ integrationID: base.id, ...request })
       if (mounted.current) {
         setEditor((previous) => acceptSave(previous, editor, saved, integrationKind))
         onSaved(saved)
       }
-    } catch (cause) {
-      if (mounted.current) {
-        setError(errorMessage(cause, 'Could not save integration.'))
-        setEditor((previous) => ({
-          ...previous,
-          stale: hasObservedChange(previous, editor),
-        }))
-      }
-    } finally {
+    }).finally(() => {
       submitting.current = false
+    })
+    if (!result.ok && mounted.current) {
+      setError(errorMessage(result.error, 'Could not save integration.'))
+      setEditor((previous) => ({
+        ...previous,
+        stale: hasObservedChange(previous, editor),
+      }))
     }
   }
   return { values, dirty, stale, busy, error, validationError, canSave, change, discard, submit }

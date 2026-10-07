@@ -509,7 +509,7 @@ it('keeps creation’s Skip for now action available without submitting an incom
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
 })
 
-it('keeps discard disabled during saving and ignores completion after unmount', async () => {
+it('prevents duplicate saves and discards while saving and ignores completion after unmount', async () => {
   const integration = integrationFixture({
     integration_kind: 'github_pr',
     bot_mention: '@reviewer',
@@ -547,7 +547,11 @@ it('keeps discard disabled during saving and ignores completion after unmount', 
   act(() => {
     field('PR opened').click()
   })
-  await submit()
+  act(() => {
+    const form = container.querySelector('form')
+    form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
   await waitForUI(() => {
     expect(api.requestsTo('PUT', path + '/integrations/' + integration.id)).toHaveLength(1)
   })
