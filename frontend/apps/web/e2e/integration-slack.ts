@@ -111,7 +111,8 @@ export async function exerciseSlackIntegrationSetup(
     .getByRole('combobox', { name: 'Profiles for mentions', exact: true })
     .fill(profileName)
   await page.getByRole('option', { name: profileName, exact: true }).click()
-  await mentions.getByRole('heading', { name: 'Mentions', exact: true }).click()
+  // Close the profile picker so the selection settles before saving.
+  await page.keyboard.press('Escape')
   await expect(
     mentions.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
   ).toBeVisible()

@@ -3,6 +3,7 @@ import {
   useDeleteProjectMachineGrant,
   useProjectMachineGrants,
 } from '@omnara/react'
+import { ApiError } from '@omnara/sdk'
 import { useParams } from '@tanstack/react-router'
 
 import { AgentCard, AgentCardGlyph } from '@/components/agents/AgentCardList'
@@ -15,8 +16,7 @@ import { machineStatusLabel } from '@/components/overview/machineFormat'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
-import { useAllPages } from '@/hooks/use-all-pages'
-import { useArrayPagination } from '@/hooks/use-array-pagination'
+import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
 import { formatDateTime, formatTimeAgo } from '@/lib/format'
@@ -66,14 +66,12 @@ function ProjectByoMachines({
   const { activeOrg } = useActiveOrg()
   const canStopSharing = canManageAccess && canManageOrg(activeOrg.role)
   const list = useResourceList<ProjectMachineGrantListSort>('-updated_at')
-  // Machine grants include pool-provisioned machines; those live on their pool's page.
+  // The machine-grants list holds only explicit (BYO) grants; pool machines live on their pool's page.
   const grantsQuery = useProjectMachineGrants(orgId, projectId, {
     filters: list.apiFilters,
     sort: list.sort,
   })
-  const grants = useAllPages(grantsQuery)
-  const explicit = grants.items.filter((item) => item.grant.source_kind === 'explicit')
-  const paged = useArrayPagination(explicit, (item) => item.grant.id)
+  const paged = usePagedQuery(grantsQuery, list.queryKey)
   const deleteGrant = useDeleteProjectMachineGrant(orgId, projectId)
 
   return (
@@ -155,7 +153,15 @@ function ProjectByoMachines({
                             )
                           )
                             return
-                          deleteGrant.mutate(item.grant.id)
+                          deleteGrant.mutate(item.grant.id, {
+                            onError: (error) => {
+                              window.alert(
+                                error instanceof ApiError
+                                  ? error.message
+                                  : 'Could not stop sharing machine',
+                              )
+                            },
+                          })
                         }
                       : undefined
                   }
@@ -177,8 +183,8 @@ function ProjectByoMachines({
               ]}
             />
           )}
-          isPending={grants.isPending}
-          isError={grants.isError}
+          isPending={grantsQuery.isPending}
+          isError={grantsQuery.isError}
           onRetry={() => {
             void grantsQuery.refetch()
           }}

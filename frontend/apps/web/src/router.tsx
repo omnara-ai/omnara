@@ -120,6 +120,15 @@ const organizationModelsRoute = createRoute({
   ),
 })
 
+const organizationIntegrationsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/integrations',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrgIntegrationsPage'),
+    'OrgIntegrationsPage',
+  ),
+})
+
 const organizationUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/usage',
@@ -243,15 +252,6 @@ const projectMachinesRoute = createRoute({
   component: lazyRouteComponent(
     () => import('@/routes/ProjectMachinesPage'),
     'ProjectMachinesPage',
-  ),
-})
-
-const projectModelProviderRoute = createRoute({
-  getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/models/providers/$providerId',
-  component: lazyRouteComponent(
-    () => import('@/routes/ProjectModelProviderPage'),
-    'ProjectModelProviderPage',
   ),
 })
 
@@ -482,6 +482,7 @@ const routeTree = rootRoute.addChildren([
       organizationModelsRoute,
       modelProviderRoute,
       organizationAgentsRoute,
+      organizationIntegrationsRoute,
       organizationUsageRoute,
       secretsRoute,
       skillsRoute,
@@ -496,7 +497,6 @@ const routeTree = rootRoute.addChildren([
       createIntegrationRoute,
       integrationDetailRoute,
       projectModelsRoute,
-      projectModelProviderRoute,
       projectMachinesRoute,
       projectByoMachinesRoute,
       projectMachinePoolRoute,

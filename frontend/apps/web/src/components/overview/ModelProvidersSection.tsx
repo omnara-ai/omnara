@@ -1,6 +1,9 @@
 import {
+  type ModelPricingLookup,
   type ModelProviderListSort,
   useClusterModelPricing,
+  useConfiguredModels,
+  useModelProvider,
   useModelProviders,
 } from '@omnara/react'
 import type { ModelProviderConfig } from '@omnara/sdk'
@@ -31,20 +34,13 @@ import {
   ModelDialogs,
   ProviderActions,
 } from '@/components/overview/ModelManagement'
-import {
-  type ModelActions,
-  type PricingLookup,
-  ProviderModelList,
-} from '@/components/overview/ProviderModelList'
+import { type ModelActions, ProviderModelList } from '@/components/overview/ProviderModelList'
 import { Button } from '@/components/ui/button'
-import { useAllPages } from '@/hooks/use-all-pages'
-import { useArrayPagination } from '@/hooks/use-array-pagination'
 import { useModelActions } from '@/hooks/use-model-actions'
-import { useProviderModels } from '@/hooks/use-provider-models'
+import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
 import { formatCount } from '@/lib/format'
-import { clusterFirst } from '@/lib/management-kind'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -55,24 +51,20 @@ export function ModelProvidersSection() {
   const canManage = canManageOrg(activeOrg.role)
   const list = useResourceList<ModelProviderListSort>('-created_at')
   const query = useModelProviders(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
-  // The API can't order by management kind, so load every provider page and
-  // pin cluster-managed providers above the org's own, keeping the server's
-  // search and sort within each group.
-  const providerPages = useAllPages(query)
-  const loadedProviders = clusterFirst(providerPages.items)
-  const paged = useArrayPagination(
-    providerPages.isPending ? [] : loadedProviders,
-    (provider) => provider.id,
-  )
+  const paged = usePagedQuery(query, list.queryKey)
   const pricing = useClusterModelPricing(activeOrg.id)
   const [activeDialog, setActiveDialog] = useState<ModelDialog>(null)
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
+  // `?provider=` deep-links to adding a model; that provider may not be on the current page.
+  const linkedProvider = useModelProvider(activeOrg.id, search.provider ?? '').data
+  const dialogProviders =
+    linkedProvider && !paged.rows.some((provider) => provider.id === linkedProvider.id)
+      ? [linkedProvider, ...paged.rows]
+      : paged.rows
   const dialog: ModelDialog =
     activeDialog ??
-    (search.provider && loadedProviders.length > 0
-      ? { kind: 'create-model', providerId: search.provider }
-      : null)
+    (linkedProvider ? { kind: 'create-model', providerId: linkedProvider.id } : null)
   const modelActions = useModelActions(activeOrg.id, canManage, setActiveDialog)
 
   const newProviderButton = () =>
@@ -131,8 +123,8 @@ export function ModelProvidersSection() {
           )}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
-          isPending={providerPages.isPending}
-          isError={providerPages.isError}
+          isPending={query.isPending}
+          isError={query.isError}
           onRetry={() => {
             void query.refetch()
           }}
@@ -143,7 +135,7 @@ export function ModelProvidersSection() {
       {canManage && (
         <ModelDialogs
           orgId={activeOrg.id}
-          providers={loadedProviders}
+          providers={dialogProviders}
           dialog={dialog}
           onClose={() => {
             setActiveDialog(null)
@@ -186,16 +178,22 @@ function ProviderCard({
 }: {
   orgId: string
   provider: ModelProviderConfig
-  pricing: PricingLookup
+  pricing: ModelPricingLookup
   modelActions: ModelActions
   defaultExpanded: boolean
   actions: ReactNode
 }) {
-  const { models, isPending, isError, refetch } = useProviderModels(orgId, provider.id)
+  // One small page: enough for the preview, and one extra row tells us whether there are more.
+  const preview = useConfiguredModels(orgId, provider.id, { pageSize: previewLimit + 1 })
+  const firstPage = preview.data?.pages[0]?.data ?? []
+  const hasMore = firstPage.length > previewLimit
+  const models = firstPage.slice(0, previewLimit)
+  const { isPending, isError } = preview
   const [expanded, setExpanded] = useState(defaultExpanded)
   const expansionId = useId()
-  const countValue = !isPending && !isError ? formatCount(models.length) : undefined
-  const countLabel = models.length === 1 ? 'model' : 'models'
+  const countValue =
+    !isPending && !isError ? `${formatCount(models.length)}${hasMore ? '+' : ''}` : undefined
+  const countLabel = models.length === 1 && !hasMore ? 'model' : 'models'
   const expandable = models.length > 0 || modelActions.onCreate !== undefined || isError
   const expansion = {
     id: expansionId,
@@ -206,18 +204,21 @@ function ProviderCard({
         models={models}
         isPending={isPending}
         isError={isError}
-        onRetry={refetch}
+        onRetry={() => {
+          void preview.refetch()
+        }}
         pricing={pricing}
         actions={modelActions}
-        limit={previewLimit}
         viewAll={
-          <Link
-            to="/models/providers/$providerId"
-            params={{ providerId: provider.id }}
-            className={agentCardMoreLinkClass}
-          >
-            View all {formatCount(models.length)} models →
-          </Link>
+          hasMore && (
+            <Link
+              to="/models/providers/$providerId"
+              params={{ providerId: provider.id }}
+              className={agentCardMoreLinkClass}
+            >
+              View all models →
+            </Link>
+          )
         }
       />
     ),

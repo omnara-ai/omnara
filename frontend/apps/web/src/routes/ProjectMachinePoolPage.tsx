@@ -2,9 +2,8 @@ import {
   useDeleteProjectMachinePoolGrant,
   useMachinePool,
   useProjectMachinePoolGrants,
-  useProjectMachines,
 } from '@omnara/react'
-import type { ProjectMachinePoolGrantListItem } from '@omnara/sdk'
+import { ApiError, type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -29,7 +28,6 @@ import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useAllPages } from '@/hooks/use-all-pages'
 import { formatCount } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -37,8 +35,12 @@ import { useActiveOrg } from '@/lib/use-active-org'
 export function ProjectMachinePoolPage() {
   const { activeOrg } = useActiveOrg()
   const { projectId = '', poolId = '' } = useParams({ strict: false })
-  const grants = useAllPages(useProjectMachinePoolGrants(activeOrg.id, projectId))
-  const item = grants.items.find((candidate) => candidate.grant.machine_pool_id === poolId)
+  const grants = useProjectMachinePoolGrants(activeOrg.id, projectId, {
+    filters: { machine_pool_id: poolId },
+    pageSize: 1,
+    enabled: poolId !== '',
+  })
+  const item = grants.data?.pages[0]?.data[0]
 
   return (
     <ProjectPageFrame
@@ -66,6 +68,28 @@ export function ProjectMachinePoolPage() {
           />
         ) : grants.isPending ? (
           <Skeleton className="h-[7.25rem] rounded-xl" />
+        ) : grants.isError ? (
+          <Empty className="rounded-xl border">
+            <EmptyHeader>
+              <EmptyDescription>Couldn&rsquo;t load this machine pool.</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent className="flex-row justify-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void grants.refetch()
+                }}
+              >
+                Retry
+              </Button>
+              <Button asChild size="sm" variant="ghost">
+                <Link to="/projects/$projectId/machines" params={{ projectId }}>
+                  Back to machines
+                </Link>
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : (
           <Empty className="rounded-xl border">
             <EmptyHeader>
@@ -107,6 +131,7 @@ function SharedPoolView({
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const overrides = poolGrantOverrides(item.grant, pool)
+  const quota = item.grant.max_total_machines ?? pool?.max_total_machines
   const description = item.grant.description || summary.description
 
   return (
@@ -152,6 +177,13 @@ function SharedPoolView({
                     onSuccess: () => {
                       void navigate({ to: '/projects/$projectId/machines', params: { projectId } })
                     },
+                    onError: (error) => {
+                      window.alert(
+                        error instanceof ApiError
+                          ? error.message
+                          : 'Could not stop sharing machine pool',
+                      )
+                    },
                   })
                 }}
               />
@@ -166,11 +198,10 @@ function SharedPoolView({
           )
         }
         stats={
-          <ProjectPoolMachinesStat
-            orgId={orgId}
-            projectId={projectId}
-            poolId={summary.id}
-            quota={item.grant.max_total_machines ?? pool?.max_total_machines}
+          <AgentCardStat
+            icon={Server}
+            label="machines"
+            value={quota === undefined ? undefined : `max ${formatCount(quota)}`}
           />
         }
       />
@@ -201,27 +232,4 @@ function SharedPoolView({
       )}
     </>
   )
-}
-
-/** Machines the pool has running for this project, against the project's quota when set. */
-function ProjectPoolMachinesStat({
-  orgId,
-  projectId,
-  poolId,
-  quota,
-}: {
-  orgId: string
-  projectId: string
-  poolId: string
-  quota: number | null | undefined
-}) {
-  const machines = useAllPages(
-    useProjectMachines(orgId, projectId, { filters: { machine_pool_id: poolId } }),
-  )
-  const inUse = machines.isPending || machines.isError ? undefined : machines.items.length
-  let value: string | undefined
-  if (inUse !== undefined) {
-    value = quota == null ? formatCount(inUse) : `${formatCount(inUse)} / ${formatCount(quota)}`
-  }
-  return <AgentCardStat icon={Server} label="in this project" value={value} />
 }

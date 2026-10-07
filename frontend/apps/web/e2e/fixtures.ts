@@ -294,18 +294,24 @@ export function expectSlackAuthorization(oauthURL: string, browserOrigin: string
   )
 }
 
+/** Switches the integration page to one of its settings tabs. */
+export async function openIntegrationTab(
+  page: Page,
+  name: 'Mentions' | 'Pull requests' | 'Schedules' | 'Conversations' | 'Advanced',
+) {
+  await page
+    .getByRole('group', { name: 'Integration settings', exact: true })
+    .getByRole('button', { name, exact: true })
+    .click()
+}
+
 export async function expectIntegrationCapabilities(page: Page, integration: Integration) {
+  await openIntegrationTab(page, 'Advanced')
   const capabilities = page.getByRole('region', { name: 'Advanced', exact: true })
-  const disclosure = capabilities.getByRole('button', { name: 'Advanced', exact: true })
-  await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
-  await disclosure.click()
   await expect(
-    capabilities.getByText(`int__${integration.name}__read`, { exact: true }),
-  ).toBeVisible()
+    capabilities.getByRole('link', { name: 'Tools added to the agent profile', exact: true }),
+  ).toHaveAttribute('href', /^https:\/\/docs\.omnara\.com\/integrations\//)
   expect(integration.capabilities.subscription).toBeDefined()
-  await expect(
-    capabilities.getByRole('heading', { name: 'Conversation subscriptions', exact: true }),
-  ).toBeVisible()
   if (integration.integration_kind !== 'github_pr')
     await expect(
       capabilities.getByText(/Listed under/).getByText(integration.name, { exact: true }),

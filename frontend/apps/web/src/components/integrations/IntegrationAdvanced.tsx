@@ -1,26 +1,23 @@
-import type { Integration } from '@omnara/sdk'
+import type { Integration, IntegrationKind } from '@omnara/sdk'
 
-import { ChevronRightIcon } from '@/components/icons'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ArrowUpRight } from '@/components/icons'
+import { docsUrl } from '@/lib/docs'
 
 import { useIntegrationSetupURLs } from './useIntegrationSetupURLs'
 
+/** Docs sections describing the tools each integration adds to the agents it launches. */
+const integrationToolDocs = {
+  slack_thread: 'integrations/slack#thread-tools-and-subscriptions',
+  discord_thread: 'integrations/discord#thread-tools-and-subscriptions',
+  github_pr: 'integrations/github#select-pr-tools',
+} satisfies Record<IntegrationKind, string>
+
 export function IntegrationAdvanced({ integration }: { integration: Integration }) {
   return (
-    <Collapsible asChild>
-      <section aria-label="Advanced" className="text-sm">
-        <h2>
-          <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring group flex items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2">
-            <ChevronRightIcon className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-            Advanced
-          </CollapsibleTrigger>
-        </h2>
-        <CollapsibleContent className="pl-5.5 flex flex-col gap-6 pt-4">
-          <IntegrationConnectionDetails integration={integration} />
-          <IntegrationAgentConfigurations integration={integration} />
-        </CollapsibleContent>
-      </section>
-    </Collapsible>
+    <section aria-label="Advanced" className="flex flex-col gap-6 text-sm">
+      <IntegrationConnectionDetails integration={integration} />
+      <IntegrationAgentConfigurations integration={integration} />
+    </section>
   )
 }
 
@@ -69,41 +66,21 @@ function IntegrationConnectionDetails({ integration }: { integration: Integratio
 }
 
 function IntegrationAgentConfigurations({ integration }: { integration: Integration }) {
-  const tools = Object.entries(integration.capabilities.tools)
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-medium">Agent configurations</h3>
+      <h3 className="font-medium">Agent configuration</h3>
       <p className="text-muted-foreground">
-        Nothing here needs to be set up by hand. Agents started from the agent profiles this
-        integration launches get these tools
-        {integration.capabilities.interaction_handler && ' and its interaction handler'}{' '}
-        automatically. The profile itself is not changed, and entries it already defines, including
-        disabled ones, are kept as they are. The names below are a reference for agent
-        configurations and the API. The integration name{' '}
-        <code className="text-foreground">{integration.name}</code> is permanent, and each
-        capability uses this integration’s account and credentials in the launched conversation.
+        Connected agents automatically get tools added to their profile. See the docs for more info.
       </p>
-      <ul className="flex flex-col gap-2">
-        {tools.map(([operation, capability]) => (
-          <li key={operation}>
-            <code className="break-all">
-              int__{integration.name}__{operation}
-            </code>
-            {capability.description && (
-              <p className="text-muted-foreground">{capability.description}</p>
-            )}
-          </li>
-        ))}
-      </ul>
-      {integration.capabilities.subscription && (
-        <>
-          <h4 className="pt-2 font-medium">Conversation subscriptions</h4>
-          <p className="text-muted-foreground">
-            Connect a conversation to an agent through this integration’s subscriptions API. The
-            integration determines which activity is forwarded.
-          </p>
-        </>
-      )}
+      <a
+        href={docsUrl(integrationToolDocs[integration.integration_kind])}
+        target="_blank"
+        rel="noreferrer"
+        className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 transition-colors"
+      >
+        Tools added to the agent profile
+        <ArrowUpRight className="size-3.5" aria-hidden="true" />
+      </a>
       {integration.capabilities.interaction_handler && (
         <>
           <h4 className="pt-2 font-medium">Interaction handler</h4>

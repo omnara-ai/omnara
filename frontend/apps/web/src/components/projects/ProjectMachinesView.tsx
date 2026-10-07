@@ -1,13 +1,12 @@
 import {
   type ProjectMachinePoolGrantListSort,
-  useCreateProjectMachinePoolGrant,
   useDeleteProjectMachinePoolGrant,
-  useMachinePools,
+  useMachinePool,
   useProjectMachineGrants,
   useProjectMachinePoolGrants,
   useProjectMachines,
 } from '@omnara/react'
-import { ApiError, type MachinePool, type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
+import { ApiError, type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 
@@ -15,12 +14,13 @@ import {
   AgentCard,
   AgentCardGlyph,
   agentCardLinkClass,
+  AgentCardList,
   agentCardMoreLinkClass,
   AgentCardStatToggle,
 } from '@/components/agents/AgentCardList'
 import { ManagedLogo, OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { Monitor, Plus, Server } from '@/components/icons'
+import { Monitor, Server } from '@/components/icons'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { MachinePoolProviderLogo } from '@/components/org/MachinePoolProviderLogo'
@@ -30,19 +30,11 @@ import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { poolGrantOverrides } from '@/components/projects/grant-override-diffs'
 import { GrantMachinePoolButton } from '@/components/projects/GrantMachinePoolButton'
-import {
-  emptyPoolGrantDraft,
-  poolGrantCreateRequest,
-} from '@/components/projects/GrantMachinePoolDialogState'
 import { OverrideChip } from '@/components/projects/GrantOverrides'
-import { Button } from '@/components/ui/button'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
-import { Skeleton } from '@/components/ui/skeleton'
-import { useAllPages } from '@/hooks/use-all-pages'
+import { usePagedQuery } from '@/hooks/use-paged-query'
 import { createdResourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
 import { formatCount } from '@/lib/format'
-import { clusterFirst } from '@/lib/management-kind'
 import { canManageMachineGrants } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -50,8 +42,8 @@ const previewLimit = 5
 
 /**
  * Machine pools and machines shared with the project. Anyone who can read the
- * project can view them; sharing, editing and revoking grants requires project
- * access management plus org management (the shared machines belong to the org).
+ * project can view them; editing and revoking grants requires project access
+ * management plus org management (the shared machines belong to the org).
  */
 export function ProjectMachinesView({
   orgId,
@@ -67,36 +59,13 @@ export function ProjectMachinesView({
     can_manage_access: canManageAccess,
   })
   const list = useResourceList<ProjectMachinePoolGrantListSort>('-created_at')
-  const grants = useAllPages(
-    useProjectMachinePoolGrants(orgId, projectId, { filters: list.apiFilters, sort: list.sort }),
-  )
-  const pools = useAllPages(useMachinePools(orgId))
-  const createGrant = useCreateProjectMachinePoolGrant(orgId, projectId)
+  const grantsQuery = useProjectMachinePoolGrants(orgId, projectId, {
+    filters: list.apiFilters,
+    sort: list.sort,
+  })
+  const paged = usePagedQuery(grantsQuery, list.queryKey)
   const deleteGrant = useDeleteProjectMachinePoolGrant(orgId, projectId)
-  const [showAvailable, setShowAvailable] = useState(false)
   const [editing, setEditing] = useState<ProjectMachinePoolGrantListItem | null>(null)
-  const [sharingId, setSharingId] = useState<string | null>(null)
-  const poolById = new Map(pools.items.map((pool) => [pool.id, pool]))
-  const shared = [...grants.items].sort(
-    (left, right) =>
-      Number(right.machine_pool.management_kind === 'cluster') -
-      Number(left.machine_pool.management_kind === 'cluster'),
-  )
-  const sharedPoolIds = new Set(grants.items.map((item) => item.grant.machine_pool_id))
-  const available =
-    canManageGrants && showAvailable && !list.isFiltering
-      ? clusterFirst(pools.items.filter((pool) => !sharedPoolIds.has(pool.id)))
-      : []
-
-  async function share(pool: MachinePool) {
-    setSharingId(pool.id)
-    try {
-      await createGrant.mutateAsync(poolGrantCreateRequest(pool, emptyPoolGrantDraft()))
-    } catch (error) {
-      window.alert(error instanceof ApiError ? error.message : 'Could not share machine pool')
-    }
-    setSharingId(null)
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -114,61 +83,46 @@ export function ProjectMachinesView({
           />
         }
       >
-        {canManageGrants && (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-pressed={showAvailable}
-            onClick={() => {
-              setShowAvailable((value) => !value)
-            }}
-          >
-            {showAvailable ? 'Hide available' : 'Show available'}
-          </Button>
-        )}
         <GrantMachinePoolButton />
       </SearchHeader>
       {!list.isFiltering && <ProjectByoCard orgId={orgId} projectId={projectId} />}
-      {grants.isPending ? (
-        <Skeleton className="h-[7.25rem] rounded-xl" />
-      ) : grants.isError ? (
-        <Empty className="rounded-xl border">
-          <EmptyHeader>
-            <EmptyDescription>Couldn&rsquo;t load shared machine pools.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : shared.length === 0 && available.length === 0 ? (
-        <SharedPoolsEmpty isFiltering={list.isFiltering} canManage={canManageGrants} />
-      ) : (
-        <ul className="flex flex-col gap-5">
-          {shared.map((item) => (
-            <li key={item.grant.id}>
-              <SharedPoolCard
-                orgId={orgId}
-                projectId={projectId}
-                item={item}
-                pool={poolById.get(item.grant.machine_pool_id)}
-                canManage={canManageGrants}
-                onEdit={setEditing}
-                onStopSharing={(grant) => {
-                  deleteGrant.mutate(grant.grant.id)
-                }}
-              />
-            </li>
-          ))}
-          {available.map((pool) => (
-            <li key={pool.id}>
-              <AvailablePoolCard
-                pool={pool}
-                sharing={sharingId === pool.id}
-                onShare={() => {
-                  void share(pool)
-                }}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <AgentCardList
+        items={paged.rows}
+        getId={(item) => item.grant.id}
+        renderCard={(item) => (
+          <SharedPoolCard
+            orgId={orgId}
+            projectId={projectId}
+            item={item}
+            canManage={canManageGrants}
+            onEdit={setEditing}
+            onStopSharing={(grant) => {
+              deleteGrant.mutate(grant.grant.id, {
+                onError: (error) => {
+                  window.alert(
+                    error instanceof ApiError
+                      ? error.message
+                      : 'Could not stop sharing machine pool',
+                  )
+                },
+              })
+            }}
+          />
+        )}
+        isFiltered={list.isFiltering}
+        pagination={paged.pagination}
+        isPending={grantsQuery.isPending}
+        isError={grantsQuery.isError}
+        onRetry={() => {
+          void grantsQuery.refetch()
+        }}
+        emptyMessage={
+          canManageGrants
+            ? 'No shared machine pools. Share a pool so agents in this project can run.'
+            : 'No machine pools are shared with this project yet.'
+        }
+        emptyAction={<GrantMachinePoolButton />}
+      />
       {canManageGrants && editing && (
         <EditMachinePoolGrantDialog
           key={editing.grant.id}
@@ -182,31 +136,6 @@ export function ProjectMachinesView({
         />
       )}
     </div>
-  )
-}
-
-function SharedPoolsEmpty({
-  isFiltering,
-  canManage,
-}: {
-  isFiltering: boolean
-  canManage: boolean
-}) {
-  let message = 'No machine pools are shared with this project yet.'
-  if (isFiltering) message = 'No results.'
-  else if (canManage)
-    message = 'No shared machine pools. Share a pool so agents in this project can run.'
-  return (
-    <Empty className="rounded-xl border">
-      <EmptyHeader>
-        <EmptyDescription>{message}</EmptyDescription>
-      </EmptyHeader>
-      {!isFiltering && (
-        <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-          <GrantMachinePoolButton />
-        </EmptyContent>
-      )}
-    </Empty>
   )
 }
 
@@ -240,7 +169,6 @@ function SharedPoolCard({
   orgId,
   projectId,
   item,
-  pool,
   canManage,
   onEdit,
   onStopSharing,
@@ -248,38 +176,44 @@ function SharedPoolCard({
   orgId: string
   projectId: string
   item: ProjectMachinePoolGrantListItem
-  pool: MachinePool | undefined
   canManage: boolean
   onEdit: (item: ProjectMachinePoolGrantListItem) => void
   onStopSharing: (item: ProjectMachinePoolGrantListItem) => void
 }) {
   const summary = item.machine_pool
-  const machines = useAllPages(
-    useProjectMachines(orgId, projectId, { filters: { machine_pool_id: summary.id } }),
-  )
+  // The org pool supplies the defaults the project overrides; it may be hidden from the viewer.
+  const { data: pool } = useMachinePool(orgId, summary.id)
   const overrides = poolGrantOverrides(item.grant, pool)
   const quota = item.grant.max_total_machines ?? pool?.max_total_machines
-  const inUse = machines.isPending || machines.isError ? undefined : machines.items.length
   const description = item.grant.description || summary.description
   const [expanded, setExpanded] = useState(false)
+  const [prefetch, setPrefetch] = useState(false)
   const expansionId = useId()
+  // Fetched only once opened (or hovered): one extra row tells us whether "View all" is needed.
+  const preview = useProjectMachines(orgId, projectId, {
+    filters: { machine_pool_id: summary.id },
+    sort: '-updated_at',
+    pageSize: previewLimit + 1,
+    enabled: expanded || prefetch,
+  })
+  const firstPage = preview.data?.pages[0]?.data ?? []
   const expansion = {
     id: expansionId,
     open: expanded,
     content: (
       <MachinePreviewList
-        machines={machines.items.slice(0, previewLimit)}
-        isPending={machines.isPending}
-        isError={machines.isError}
+        machines={firstPage.slice(0, previewLimit)}
+        isPending={preview.isPending}
+        isError={preview.isError}
         emptyMessage="No machines yet. The pool provisions machines as this project's agents need them."
         viewAll={
-          machines.items.length > previewLimit && (
+          firstPage.length > previewLimit && (
             <Link
               to="/projects/$projectId/machines/pools/$poolId"
               params={{ projectId, poolId: summary.id }}
               className={agentCardMoreLinkClass}
             >
-              View all {formatCount(machines.items.length)} machines →
+              View all machines →
             </Link>
           )
         }
@@ -336,17 +270,14 @@ function SharedPoolCard({
       stats={
         <AgentCardStatToggle
           icon={Server}
-          label="in this project"
-          value={
-            inUse === undefined
-              ? undefined
-              : quota === undefined
-                ? formatCount(inUse)
-                : `${formatCount(inUse)} / ${formatCount(quota)}`
-          }
+          label="machines"
+          value={quota === undefined ? undefined : `max ${formatCount(quota)}`}
           expansion={expansion}
           onToggle={() => {
             setExpanded((open) => !open)
+          }}
+          onPrefetch={() => {
+            setPrefetch(true)
           }}
         />
       }
@@ -355,60 +286,13 @@ function SharedPoolCard({
   )
 }
 
-function AvailablePoolCard({
-  pool,
-  sharing,
-  onShare,
-}: {
-  pool: MachinePool
-  sharing: boolean
-  onShare: () => void
-}) {
-  return (
-    <div className="opacity-70 transition-opacity hover:opacity-100">
-      <AgentCard
-        icon={
-          <AgentCardGlyph>
-            <ManagedLogo managed={pool.management_kind === 'cluster'}>
-              <MachinePoolProviderLogo provider={pool.provider} />
-            </ManagedLogo>
-          </AgentCardGlyph>
-        }
-        title={
-          <>
-            <span className="truncate font-medium">{pool.name}</span>
-            {pool.management_kind === 'cluster' && <OmnaraManagedTag />}
-          </>
-        }
-        subtitle={
-          <>
-            <span className="shrink-0">{machinePoolProviderLabel(pool.provider)}</span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">Not shared with this project</span>
-          </>
-        }
-        meta={
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-primary hover:text-primary h-9 px-2 sm:h-7"
-            loading={sharing}
-            onClick={onShare}
-          >
-            <Plus aria-hidden="true" />
-            Share
-          </Button>
-        }
-      />
-    </div>
-  )
-}
-
 function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string }) {
-  const grants = useAllPages(useProjectMachineGrants(orgId, projectId))
-  const explicit = grants.items.filter((item) => item.grant.source_kind === 'explicit')
-  const count = explicit.length
+  // The machine-grants list holds only explicit (BYO) grants. One small page covers the
+  // preview, and one extra row tells us whether there are more.
+  const preview = useProjectMachineGrants(orgId, projectId, { pageSize: previewLimit + 1 })
+  const firstPage = preview.data?.pages[0]?.data ?? []
+  const hasMore = firstPage.length > previewLimit
+  const machines = firstPage.slice(0, previewLimit).map((item) => item.machine)
   const [expanded, setExpanded] = useState(false)
   const expansionId = useId()
   const expansion = {
@@ -416,18 +300,18 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
     open: expanded,
     content: (
       <MachinePreviewList
-        machines={explicit.slice(0, previewLimit).map((item) => item.machine)}
-        isPending={grants.isPending}
-        isError={grants.isError}
+        machines={machines}
+        isPending={preview.isPending}
+        isError={preview.isError}
         emptyMessage="No individual machines shared with this project."
         viewAll={
-          count > previewLimit && (
+          hasMore && (
             <Link
               to="/projects/$projectId/machines/byo"
               params={{ projectId }}
               className={agentCardMoreLinkClass}
             >
-              View all {formatCount(count)} machines →
+              View all machines →
             </Link>
           )
         }
@@ -456,8 +340,12 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
       stats={
         <AgentCardStatToggle
           icon={Server}
-          label={count === 1 ? 'machine' : 'machines'}
-          value={grants.isPending || grants.isError ? undefined : formatCount(count)}
+          label={machines.length === 1 && !hasMore ? 'machine' : 'machines'}
+          value={
+            preview.isPending || preview.isError
+              ? undefined
+              : `${formatCount(machines.length)}${hasMore ? '+' : ''}`
+          }
           expansion={expansion}
           onToggle={() => {
             setExpanded((open) => !open)

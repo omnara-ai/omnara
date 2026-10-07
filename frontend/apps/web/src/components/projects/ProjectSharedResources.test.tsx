@@ -325,7 +325,6 @@ it('lets org admins with project access edit and stop sharing machine grants', a
     expect(buttonsLabelled('Row actions')).toHaveLength(1)
   })
   expect(hasButtonText('Share pool')).toBe(true)
-  expect(hasButtonText('Show available')).toBe(true)
 })
 
 it.each([

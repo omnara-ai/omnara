@@ -1,8 +1,9 @@
 import { useIntegration } from '@omnara/react'
 import { ApiError, type Integration } from '@omnara/sdk'
 import { Link, useParams } from '@tanstack/react-router'
-import { useCallback, useState } from 'react'
+import { type ReactNode, useCallback, useState } from 'react'
 
+import { PillTabs } from '@/components/agents/PillTabs'
 import { IntegrationAdvanced } from '@/components/integrations/IntegrationAdvanced'
 import { IntegrationConversations } from '@/components/integrations/IntegrationConversations'
 import { integrationCatalog } from '@/components/integrations/integrationDefinitions'
@@ -140,26 +141,137 @@ function IntegrationSettings({
       onRefresh={onRefresh}
       oauth={oauth}
     >
-      {!draft && (
+      {(removeAction) =>
+        draft ? (
+          <>
+            <DraftIntegrationSections
+              orgId={orgId}
+              projectId={projectId}
+              integration={integration}
+              canManage={canManage}
+            />
+            {removeAction}
+          </>
+        ) : (
+          <IntegrationTabs
+            removeAction={removeAction}
+            orgId={orgId}
+            projectId={projectId}
+            integration={integration}
+            canManage={canManage}
+            canSetUp={canSetUp}
+            initialSetup={initialSetup}
+            onSetupFinished={() => {
+              setConnected(false)
+              setInitialSetup(false)
+            }}
+          />
+        )
+      }
+    </IntegrationDetailLayout>
+  )
+}
+
+type IntegrationTab = 'launch' | 'schedules' | 'conversations' | 'advanced'
+
+/** A connected integration's settings, one concern per tab. */
+function IntegrationTabs({
+  orgId,
+  projectId,
+  integration,
+  canManage,
+  canSetUp,
+  initialSetup,
+  onSetupFinished,
+  removeAction,
+}: {
+  orgId: string
+  projectId: string
+  integration: Integration
+  canManage: boolean
+  canSetUp: boolean
+  initialSetup: boolean
+  onSetupFinished: () => void
+  /** Delete lives with the other rarely-needed settings. */
+  removeAction: ReactNode
+}) {
+  const [tab, setTab] = useState<IntegrationTab>('launch')
+  const tabs: { value: IntegrationTab; label: string }[] = [
+    {
+      value: 'launch',
+      label: integration.integration_kind === 'github_pr' ? 'Pull requests' : 'Mentions',
+    },
+    ...(integration.capabilities.schedule
+      ? [{ value: 'schedules' as const, label: 'Schedules' }]
+      : []),
+    { value: 'conversations', label: 'Conversations' },
+    { value: 'advanced', label: 'Advanced' },
+  ]
+  return (
+    <div className="flex flex-col gap-6">
+      <div role="group" aria-label="Integration settings">
+        <PillTabs value={tab} onValueChange={setTab} tabs={tabs} />
+      </div>
+      {/* Every tab stays mounted so unsaved edits survive switching tabs. */}
+      <div hidden={tab !== 'launch'}>
         <IntegrationLaunch
           orgId={orgId}
           projectId={projectId}
           integration={integration}
           canEdit={canSetUp}
           initialSetup={initialSetup}
-          onSetupFinished={() => {
-            setConnected(false)
-            setInitialSetup(false)
-          }}
+          onSetupFinished={onSetupFinished}
         />
+      </div>
+      {integration.capabilities.schedule && (
+        <div hidden={tab !== 'schedules'}>
+          <IntegrationSchedules
+            orgId={orgId}
+            projectId={projectId}
+            integration={integration}
+            canManage={canManage}
+            titled={false}
+          />
+        </div>
       )}
+      <div hidden={tab !== 'conversations'}>
+        <IntegrationConversations
+          orgId={orgId}
+          projectId={projectId}
+          integration={integration}
+          canManage={canManage}
+          titled={false}
+        />
+      </div>
+      <div hidden={tab !== 'advanced'} className="flex flex-col gap-8">
+        <IntegrationAdvanced integration={integration} />
+        {removeAction}
+      </div>
+    </div>
+  )
+}
+
+/** Before the first connection there's nothing to tab between; show only existing activity. */
+function DraftIntegrationSections({
+  orgId,
+  projectId,
+  integration,
+  canManage,
+}: {
+  orgId: string
+  projectId: string
+  integration: Integration
+  canManage: boolean
+}) {
+  return (
+    <>
       {integration.capabilities.schedule && (
         <IntegrationSchedules
           orgId={orgId}
           projectId={projectId}
           integration={integration}
           canManage={canManage}
-          hideWhenEmpty={draft}
+          hideWhenEmpty
         />
       )}
       <IntegrationConversations
@@ -167,9 +279,8 @@ function IntegrationSettings({
         projectId={projectId}
         integration={integration}
         canManage={canManage}
-        hideWhenEmpty={draft}
+        hideWhenEmpty
       />
-      {!draft && <IntegrationAdvanced integration={integration} />}
-    </IntegrationDetailLayout>
+    </>
   )
 }

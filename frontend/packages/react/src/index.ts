@@ -172,6 +172,7 @@ export {
   useDeleteConfiguredModel,
   useDeleteModelProvider,
   useModelCatalog,
+  useModelProvider,
   useModelProviders,
   useUpdateConfiguredModel,
   useUpdateModelProvider,
