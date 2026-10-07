@@ -213,17 +213,13 @@ export function useConfiguredModelOptions(orgID: string, providers: ModelProvide
 /**
  * Invalidate configured-model lists across every provider config in the org,
  * including aggregation caches shaped like generated listConfiguredModels
- * keys (useConfiguredModelOptions above and app-level equivalents), and the
- * project model grant lists that embed each model's settings.
+ * keys (useConfiguredModelOptions above and app-level equivalents).
  */
 function invalidateConfiguredModels(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
       const entry = generatedQueryKey(query)
-      return (
-        (entry?._id === 'listConfiguredModels' || entry?._id === 'listProjectModelGrants') &&
-        entry.path?.orgID === orgID
-      )
+      return entry?._id === 'listConfiguredModels' && entry.path?.orgID === orgID
     },
   })
 }

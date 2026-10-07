@@ -23,6 +23,8 @@ const catalogTestResponse = `{"data":[
 	 "top_provider":{"context_length":400000,"max_completion_tokens":128000}},
 	{"id":"maker-a/shared-slug","context_length":32768},
 	{"id":"maker-b/shared-slug","context_length":65536},
+	{"id":"maker-a/reasoning-slug","context_length":32768,"supported_parameters":["reasoning"]},
+	{"id":"maker-b/reasoning-slug","context_length":32768},
 	{"id":"maker/limitless"}
 ]}`
 
@@ -55,6 +57,7 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		{Slug: "gpt-test", MaxOutputTokens: new(128000)},
 		{Slug: "gpt-test", MaxOutputTokens: new(1024)},
 		{Slug: "gpt-test", SupportsReasoning: new(false)},
+		{Slug: "reasoning-slug"},
 	})
 
 	for _, index := range []int{0, 1, 3} {
@@ -73,6 +76,9 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 	}
 	if models[5].ContextWindowTokens != nil {
 		t.Fatalf("unknown model should stay unenriched: %+v", models[5])
+	}
+	if models[11].ContextWindowTokens != nil || models[11].SupportsReasoning != nil {
+		t.Fatalf("slug shared by models with different reasoning support should stay unenriched: %+v", models[11])
 	}
 	if *models[6].ContextWindowTokens != 4096 || *models[6].MaxOutputTokens != 1024 {
 		t.Fatalf("provider-reported limits must win over the catalog: %+v", models[6])

@@ -228,11 +228,13 @@ func mergeVariantCatalogEntries(
 }
 
 func sameCatalogLimits(a, b catalogLimits) bool {
-	return equalIntPtr(a.contextWindowTokens, b.contextWindowTokens) &&
-		equalIntPtr(a.maxOutputTokens, b.maxOutputTokens)
+	return equalPtr(a.contextWindowTokens, b.contextWindowTokens) &&
+		equalPtr(a.maxOutputTokens, b.maxOutputTokens) &&
+		equalPtr(a.supportsReasoning, b.supportsReasoning) &&
+		slices.Equal(a.supportedReasoningEfforts, b.supportedReasoningEfforts)
 }
 
-func equalIntPtr(a, b *int) bool {
+func equalPtr[T comparable](a, b *T) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
