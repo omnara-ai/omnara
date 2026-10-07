@@ -137,12 +137,14 @@ since everything it does appears under that account.
 2. Ask the user to put the missing values in a `.env` file in the current
    directory and tell you when it's saved. Discourage pasting passwords into
    the chat. `TOTP` is the authenticator setup key, only for sites that use
-   one.
+   one. The file is read by the shell, so wrap each value in single quotes;
+   otherwise spaces, `$`, or `#` in a value break it. Write a single quote
+   inside a value as `'\''`.
 
    ```sh
-   LOGIN_CRM_USERNAME=agent@acme.com
-   LOGIN_CRM_PASSWORD=...
-   LOGIN_CRM_TOTP=JBSW Y3DP EHPK 3PXP
+   LOGIN_CRM_USERNAME='agent@acme.com'
+   LOGIN_CRM_PASSWORD='...'
+   LOGIN_CRM_TOTP='JBSW Y3DP EHPK 3PXP'
    ```
 
 3. Create a secret for each value without printing it, and note each `id`
