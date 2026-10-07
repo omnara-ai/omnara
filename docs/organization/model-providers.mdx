@@ -88,7 +88,7 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 
 Token settings have separate roles:
 
-- `context_window_tokens` is the shared input and output window.
+- `context_window_tokens` is the working target for input and output tokens. It guides compaction; provider-accepted requests can exceed it.
 - `max_output_tokens` is the model's output capacity. It is optional; selecting a discovered model can prefill it.
 - `default_max_output_tokens` is an optional output allowance for each request. When omitted, Omnara uses the known output capacity.
 

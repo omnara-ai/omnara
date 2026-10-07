@@ -69,28 +69,6 @@ func kernelTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
-func compactionSourceStartForKernelTest(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	contextRow executionstore.ModelCallContextRecord,
-) int64 {
-	t.Helper()
-	checkpoint, found, err := store.Execution().GetLatestApplicableContextCheckpoint(
-		ctx,
-		contextRow.ProjectID,
-		contextRow.AgentID,
-		contextRow.InputEventSequence,
-	)
-	if err != nil {
-		t.Fatalf("load latest checkpoint for compaction source: %v", err)
-	}
-	if !found {
-		return 1
-	}
-	return checkpoint.SummarizedThroughEventSequence + 1
-}
-
 func kernelTestKeyWrapper(t *testing.T) secrets.KeyWrapper {
 	t.Helper()
 	wrapper, err := secrets.NewLocalKeyWrapper(

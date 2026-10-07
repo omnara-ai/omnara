@@ -8,6 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -23,8 +24,9 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 		MaxOutputTokens:        new(1_024),
 		DefaultMaxOutputTokens: 1_024,
 	}}
+	compactionInput := runInput(testPlan(1, 8, 8))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 8, 8)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run oversized source: %v", err)
 	}
@@ -46,43 +48,20 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	require.Equal(t, 1_024, sent.MaxOutputTokens)
 }
 
-func TestRunnerStopsBeforeSendWhenSmallestSourceDoesNotFit(t *testing.T) {
-	const summaryOutputTokens = 2_048
-	caps := model.Capabilities{
-		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputTokens,
-		MaxOutputTokens:        new(preferredSummaryOutputTokens),
-		DefaultMaxOutputTokens: summaryOutputTokens,
-	}
+func TestRunnerAttemptsSmallestSourceWhenOnlyEstimateRejects(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, "only closed semantic unit"),
+		textCompactionEvent(1, strings.Repeat("closed semantic unit ", 100)),
 	}}
-	client := &summaryModel{
-		caps:              caps,
-		sourceInputTokens: caps.ContextWindowTokens,
-	}
-
+	client := &summaryModel{sourceInputTokens: 300_000}
+	compactionInput := runInput(testPlan(1, 1, 2))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
-	if err != nil {
-		t.Fatalf("run irreducibly oversized source: %v", err)
-	}
-	if result.State != RunTerminal || len(store.terminalFailures) != 1 ||
-		store.terminalFailures[0].ErrorKind != model.ErrorKindContextWindow ||
-		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
-		len(client.requests) != 0 ||
-		len(store.replacements) != 0 || len(store.retryFailures) != 0 ||
-		len(store.publishInputs) != 0 {
-		t.Fatalf(
-			"irreducible result=%+v terminal=%+v prepares=%d requests=%d replacements=%+v retries=%+v publishes=%+v",
-			result,
-			store.terminalFailures,
-			len(client.preparedBundles),
-			len(client.requests),
-			store.replacements,
-			store.retryFailures,
-			store.publishInputs,
-		)
-	}
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
+	require.NoError(t, err)
+	require.Equal(t, RunCompleted, result.State)
+	require.Len(t, client.requests, 1)
+	require.Empty(t, store.terminalFailures)
+	require.Empty(t, store.replacements)
+	require.NotContains(t, string(client.requests[0].ProviderRequest), "OVERSIZED CLOSED HISTORY EXCERPT")
 }
 
 func TestRunnerRecordsBoundaryAdjustmentSeparatelyFromBudgetOverflow(t *testing.T) {
@@ -95,8 +74,9 @@ func TestRunnerRecordsBoundaryAdjustmentSeparatelyFromBudgetOverflow(t *testing.
 			json.RawMessage(`[]`),
 		),
 	}}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, &summaryModel{}).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run boundary adjustment: %v", err)
 	}
@@ -120,10 +100,9 @@ func TestRunnerReplansWhenPublishFindsUnsafeBoundary(t *testing.T) {
 		{response: completeSummaryResponse("Concise first summary.")},
 		{response: completeSummaryResponse("Concise replacement summary.")},
 	}}
-
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 2, 2)),
+	compactionInput := runInput(testPlan(1, 2, 2))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run publish-time boundary adjustment: %v", err)
@@ -161,8 +140,9 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 			return 500
 		},
 	}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run serialized oversized source: %v", err)
 	}
@@ -208,10 +188,9 @@ func TestRunnerKeepsLaterAnswerAsBoundaryWitnessWithoutSummarizingToolGroup(t *t
 	client := &summaryModel{results: []summaryResult{{
 		response: completeSummaryResponse("Concise checkpoint for the answered request."),
 	}}}
-
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 2, 4)),
+	compactionInput := runInput(testPlan(1, 2, 4))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run compaction with retained boundary witness: %v", err)
@@ -326,9 +305,15 @@ func TestRenderEventSourceReducesProjectionWithoutMutatingCanonicalOutput(t *tes
 }
 
 func TestRenderContentPartsLabelsMediaRefsAsArtifacts(t *testing.T) {
-	got := renderContentParts(json.RawMessage(`[{"type":"media_ref","artifact_id":"art_media"}]`))
-	if !strings.Contains(got, "Artifact: ") || !strings.Contains(got, "art_media") {
+	raw := json.RawMessage(`[{"type":"media_ref","artifact_id":"00000000-0000-0000-0000-000000000001"}]`)
+	original := string(raw)
+	got := renderContentParts(raw)
+	path := "/artifacts/" + modelcontext.ArtifactPublicID("00000000-0000-0000-0000-000000000001")
+	if !strings.Contains(got, "Artifact: ") || !strings.Contains(got, path) {
 		t.Fatalf("rendered content parts = %q", got)
+	}
+	if string(raw) != original {
+		t.Fatal("canonical attachment reference was mutated")
 	}
 	if strings.Contains(got, "Content: ") {
 		t.Fatalf("media_ref should not use generic content label: %q", got)
@@ -351,8 +336,9 @@ func TestRenderEventSourceIncludesToolOutcome(t *testing.T) {
 
 func TestRunnerDurablyRetriesOpenSourceRange(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "one")}}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, &summaryModel{}).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil || result.State != RunRetryScheduled || len(store.retryFailures) != 1 ||
 		store.retryFailures[0].ErrorKind != model.ErrorKindTransient ||
 		store.retryFailures[0].ErrorCode != "load_compaction_source_failed" ||
@@ -385,8 +371,9 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 				},
 				sourceInputTokens: tc.input,
 			}
+			compactionInput := runInput(testPlan(1, 1, 1))
 			result, err := testRunner(store, summaryModelWithExplicitCapabilities{client}).
-				Run(context.Background(), runInput(testPlan(1, 1, 1)))
+				RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 			require.NoError(t, err)
 			require.Equal(t, RunCompleted, result.State)
 			require.Len(t, client.requests, 1)
@@ -422,12 +409,14 @@ func TestCompactionAllowanceFitRespectsMinimumAndFinalInput(t *testing.T) {
 				minimum: tc.minimum,
 			}
 			prepared, err := largestFittingCompactionRequest(
-				context.Background(), runInput(testPlan(1, 1, 1)), "",
+				context.Background(), runInput(testPlan(1, 1, 1)), executionstore.ContextCheckpointRecord{},
 				[]executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
-				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction")
+				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", nil)
 			require.NoError(t, err)
 			if tc.wantOutput == 0 {
-				require.Zero(t, prepared.sourceEnd)
+				require.Equal(t, int64(1), prepared.sourceEnd)
+				require.True(t, prepared.prepared.InputBudget.OverBudget())
+				require.Equal(t, 16_000, prepared.prepared.MaxOutputTokens)
 				return
 			}
 			require.Equal(t, int64(1), prepared.sourceEnd)
@@ -466,8 +455,8 @@ func TestCompactionAllowanceFitPrefersWholeTurnAndPreservesPartialProgress(t *te
 				ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000),
 			}}}
 			prepared, err := largestFittingCompactionRequest(
-				context.Background(), runInput(testPlan(1, 2, 2)), "", source, source, nil,
-				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction")
+				context.Background(), runInput(testPlan(1, 2, 2)), executionstore.ContextCheckpointRecord{}, source, source, nil,
+				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", nil)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantEnd, prepared.sourceEnd)
 			require.True(t, prepared.prepared.InputBudget.Fits())

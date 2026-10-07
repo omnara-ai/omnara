@@ -27,7 +27,12 @@ const (
 
 	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
 	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
+	ModelCallRecoveryCompactOptional        ModelCallRecoveryKind = "compact_optional"
+	ModelCallRecoveryResumeNormal           ModelCallRecoveryKind = "resume_normal"
 	ModelCallRecoveryReduceCompactionSource ModelCallRecoveryKind = "reduce_compaction_source"
+
+	OptionalCompactionInterrupted OptionalCompactionOutcome = "interrupted"
+	OptionalCompactionIneffective OptionalCompactionOutcome = "ineffective"
 )
 
 type ModelCallOperation string
@@ -36,7 +41,20 @@ type ModelCallState string
 
 type ModelCallRecoveryKind string
 
+type OptionalCompactionOutcome string
+
 type ModelCallContextRecord struct {
+	ParentNormalModelCallContextID uuid.UUID `json:"parent_normal_model_call_context_id,omitempty"`
+	ReplacesCheckpointID           uuid.UUID `json:"replaces_checkpoint_id,omitempty"`
+
+	SourceExcerptBytes *int `json:"source_excerpt_bytes,omitempty"`
+
+	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
+
+	OptionalInputTargetTokens *int                                `json:"optional_input_target_tokens,omitempty"`
+	OptionalCompactionOutcome OptionalCompactionOutcome           `json:"optional_compaction_outcome,omitempty"`
+	RequestInputIdentity      *modelenvelope.RequestInputIdentity `json:"request_input_identity,omitempty"`
+
 	ID                        uuid.UUID                             `json:"id"`
 	OrgID                     uuid.UUID                             `json:"org_id"`
 	ProjectID                 uuid.UUID                             `json:"project_id"`
@@ -106,7 +124,9 @@ type ClaimNormalModelCallInput struct {
 	SourceModelOutputID      uuid.UUID
 }
 
-type ClaimCompactionModelCallInput struct {
+type claimCompactionContextInput struct {
+	ReplacesCheckpointID   uuid.UUID
+	SourceExcerptBytes     *int
 	ProjectID              uuid.UUID
 	AgentID                uuid.UUID
 	RuntimeLockID          uuid.UUID
@@ -123,6 +143,7 @@ type ClaimNextModelCallContextInput struct {
 }
 
 type ReplaceCompactionSourceInput struct {
+	NextSourceExcerptBytes     *int
 	ProjectID                  uuid.UUID
 	AgentID                    uuid.UUID
 	RuntimeLockID              uuid.UUID
@@ -142,26 +163,29 @@ type ReplaceCompactionSourceInput struct {
 }
 
 type RecordRecoverableModelCallFailureInput struct {
-	ProjectID               uuid.UUID
-	AgentID                 uuid.UUID
-	ModelCallContextID      uuid.UUID
-	RuntimeLockID           uuid.UUID
-	RecoveryKind            ModelCallRecoveryKind
-	APIFormat               modelprotocol.APIFormat
-	APIVariant              modelprotocol.APIVariant
-	ProviderRequestID       string
-	ProviderResponseID      string
-	ErrorKind               modelprotocol.ErrorKind
-	ErrorCode               string
-	ErrorMessage            string
-	ErrorDetails            json.RawMessage
-	RetryDelay              time.Duration
-	Usage                   modelenvelope.Usage
-	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
-	ProviderMetadata        modelenvelope.ProviderMetadata
+	RecoveryCheckpointRetainedBytes *int
+	OptionalInputTargetTokens       *int
+	ProjectID                       uuid.UUID
+	AgentID                         uuid.UUID
+	ModelCallContextID              uuid.UUID
+	RuntimeLockID                   uuid.UUID
+	RecoveryKind                    ModelCallRecoveryKind
+	APIFormat                       modelprotocol.APIFormat
+	APIVariant                      modelprotocol.APIVariant
+	ProviderRequestID               string
+	ProviderResponseID              string
+	ErrorKind                       modelprotocol.ErrorKind
+	ErrorCode                       string
+	ErrorMessage                    string
+	ErrorDetails                    json.RawMessage
+	RetryDelay                      time.Duration
+	Usage                           modelenvelope.Usage
+	ProviderReportedCostUSD         modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata                modelenvelope.ProviderMetadata
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {
+	ReplacesCheckpointID   uuid.UUID
 	ParentContextID        uuid.UUID
 	Failure                RecordRecoverableModelCallFailureInput
 	SourceEventSequenceEnd int64

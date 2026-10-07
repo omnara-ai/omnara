@@ -3,6 +3,8 @@ package route
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -276,12 +278,13 @@ func (t HTTPTransport) httpClient() *http.Client {
 }
 
 type Client struct {
-	ProviderModelSlug string
-	ModelCapabilities model.Capabilities
-	Endpoint          Endpoint
-	Auth              Auth
-	Transport         HTTPTransport
-	Protocol          Protocol
+	InputIdentityScope string
+	ProviderModelSlug  string
+	ModelCapabilities  model.Capabilities
+	Endpoint           Endpoint
+	Auth               Auth
+	Transport          HTTPTransport
+	Protocol           Protocol
 }
 
 func (c Client) RequestedProviderModelSlug() string {
@@ -351,7 +354,18 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	}
 	renderedMedia := c.Protocol.ProjectRenderedMedia(input.Context)
 	inputTokenEstimate := modelcontext.EstimatePreparedRequest(body, renderedMedia)
-	return model.PreparedRequest{Body: body, InputTokenEstimate: inputTokenEstimate}, nil
+	prepared := model.PreparedRequest{Body: body, InputTokenEstimate: inputTokenEstimate, RenderedMedia: renderedMedia}
+	if c.InputIdentityScope != "" {
+		identity, err := json.Marshal([]string{
+			c.InputIdentityScope, endpoint, string(c.APIFormat()), string(c.ModelAPIVariant()), c.ProviderModelSlug,
+		})
+		if err != nil {
+			return model.PreparedRequest{}, err
+		}
+		digest := sha256.Sum256(identity)
+		prepared.InputRouteFingerprint = hex.EncodeToString(digest[:])
+	}
+	return prepared, nil
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {

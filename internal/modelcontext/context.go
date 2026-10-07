@@ -195,7 +195,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			ContentParts:        parts,
 		})
 	}
-	if err := b.resolveMedia(ctx, &bundle, input.MediaProjector); err != nil {
+	if err := b.resolveMedia(ctx, &bundle, input.MediaProjector, input.TextAttachmentBudgetTokens); err != nil {
 		return Bundle{}, err
 	}
 	if input.MediaProjector != nil {

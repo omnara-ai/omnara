@@ -16,6 +16,7 @@ import (
 
 type Client struct {
 	ModelProviderConfigID string
+	InputIdentityScope    string
 	Auth                  route.Auth
 	BaseURL               string
 	EndpointPath          string
@@ -59,12 +60,13 @@ func (c Client) endpoint() route.StaticEndpoint {
 
 func (c Client) routeClient() route.Client {
 	return route.Client{
-		ProviderModelSlug: c.RequestedProviderModelSlug(),
-		ModelCapabilities: c.ModelCapabilities,
-		Endpoint:          c.endpoint(),
-		Auth:              c.Auth,
-		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
-		Protocol:          protocol{client: c},
+		ProviderModelSlug:  c.RequestedProviderModelSlug(),
+		InputIdentityScope: c.InputIdentityScope,
+		ModelCapabilities:  c.ModelCapabilities,
+		Endpoint:           c.endpoint(),
+		Auth:               c.Auth,
+		Transport:          route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
+		Protocol:           protocol{client: c},
 	}
 }
 

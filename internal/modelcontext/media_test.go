@@ -13,7 +13,104 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
+
+func TestTextAttachmentBudgetPreservesInputsAndReferencesWholeFiles(t *testing.T) {
+	first, second, large, imageID, pdfID := testIDN(201), testIDN(202), testIDN(203), testIDN(204), testIDN(205)
+	store := &fakeContextStore{artifacts: []artifactstore.ArtifactRecord{
+		mediaTestArtifact(first, "text/plain", 300),
+		mediaTestArtifact(second, "text/plain", 300),
+		mediaTestArtifact(large, "text/plain", 4_000_000),
+		mediaTestArtifact(imageID, "image/png", 500),
+		mediaTestArtifact(pdfID, "application/pdf", 500),
+	}}
+	store.artifacts[2].Filename = "archive.json"
+	input := contextFixtureJSON(t, []map[string]string{
+		{"type": "text", "text": "Read both files completely before answering."},
+		{"type": "media_ref", "artifact_id": first.String()},
+		{"type": "media_ref", "artifact_id": second.String()},
+		{"type": "media_ref", "artifact_id": large.String()},
+		{"type": "media_ref", "artifact_id": imageID.String()},
+		{"type": "media_ref", "artifact_id": pdfID.String()},
+	})
+	original := bytes.Clone(input)
+	bundle := Bundle{
+		ProjectID: testProjectID, AgentID: testAgentID,
+		OpeningInputIDs: []uuid.UUID{testInputID},
+		Messages:        []Message{{AgentInputID: testInputID.String(), Role: modelprotocol.RoleUser, Content: input}},
+		ToolSpecs: []ToolSpec{
+			{Name: toolcatalog.ToolNameReadFile, Type: toolcatalog.ToolTypeBuiltIn},
+			{Name: toolcatalog.ToolNameSearchFiles, Type: toolcatalog.ToolTypeBuiltIn},
+		},
+	}
+	require.NoError(t, (Builder{Store: store}).resolveMedia(t.Context(), &bundle, nil, 100))
+	require.ElementsMatch(t, []uuid.UUID{first, imageID, pdfID}, store.artifactBlobReads)
+	require.Equal(t, original, []byte(input))
+	var parts []map[string]string
+	require.NoError(t, json.Unmarshal(bundle.Messages[0].Content, &parts))
+	require.Equal(t, "Read both files completely before answering.", parts[0]["text"])
+	require.Equal(t, first.String(), parts[1]["artifact_id"])
+	require.Contains(t, parts[2]["text"], "/artifacts/"+ArtifactPublicID(second.String()))
+	require.Contains(t, parts[3]["text"], "archive.json")
+	require.Contains(t, parts[3]["text"], "4000000 bytes")
+	require.Contains(t, parts[3]["text"], "read_file")
+	require.Contains(t, parts[3]["text"], "search_files")
+	require.Equal(t, imageID.String(), parts[4]["artifact_id"])
+	require.Equal(t, pdfID.String(), parts[5]["artifact_id"])
+
+	projected := bytes.Clone(bundle.Messages[0].Content)
+	bundle.Messages[0].Content = original
+	bundle.OpeningInputIDs = nil
+	bundle.Messages = append(bundle.Messages, Message{
+		AgentInputID: testIDN(206).String(), Role: modelprotocol.RoleUser, Content: mediaRefContent(t, second),
+	})
+	bundle.ToolResults = []ToolResultRef{{ContentParts: mediaRefContent(t, large)}}
+	require.NoError(t, (Builder{Store: store}).resolveMedia(t.Context(), &bundle, nil, 100))
+	require.Equal(t, projected, []byte(bundle.Messages[0].Content))
+	require.JSONEq(t, string(mediaRefContent(t, second)), string(bundle.Messages[1].Content))
+	require.JSONEq(t, string(mediaRefContent(t, large)), string(bundle.ToolResults[0].ContentParts))
+	require.Contains(t, bundle.ResolvedMedia, large.String())
+}
+
+func TestTextAttachmentReferencesRequireCallableBuiltInReadFile(t *testing.T) {
+	id := testIDN(210)
+	for _, test := range []struct {
+		name          string
+		spec          ToolSpec
+		wantReference bool
+	}{
+		{name: "missing"},
+		{name: "custom", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeCustom}},
+		{name: "deferred", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn, Deferred: true}},
+		{name: "denied", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn,
+			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)}},
+		{name: "approval_required", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn,
+			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}, wantReference: true},
+		{name: "callable", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn}, wantReference: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeContextStore{artifacts: []artifactstore.ArtifactRecord{mediaTestArtifact(id, "text/plain", 1000)}}
+			input := mediaRefContent(t, id)
+			bundle := Bundle{
+				ProjectID: testProjectID, AgentID: testAgentID,
+				Messages:  []Message{{AgentInputID: testInputID.String(), Role: modelprotocol.RoleUser, Content: input}},
+				ToolSpecs: []ToolSpec{test.spec},
+			}
+			require.NoError(t, (Builder{Store: store}).resolveMedia(t.Context(), &bundle, nil, 100))
+			if test.wantReference {
+				require.Empty(t, store.artifactBlobReads)
+				require.Contains(t, string(bundle.Messages[0].Content), "/artifacts/")
+				require.NotContains(t, string(bundle.Messages[0].Content), "search_files")
+			} else {
+				require.Equal(t, input, bundle.Messages[0].Content)
+				require.Equal(t, []uuid.UUID{id}, store.artifactBlobReads)
+			}
+		})
+	}
+}
 
 func mediaTestArtifact(id uuid.UUID, contentType string, size int64) artifactstore.ArtifactRecord {
 	return artifactstore.ArtifactRecord{

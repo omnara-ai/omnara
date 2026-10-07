@@ -11,6 +11,8 @@ func SummaryPrompt(priorSummary, sourceText string) string {
 		"Produce a concise, complete cumulative continuation summary.",
 		"The summary will be stored as an append-only checkpoint and supplied to a future model call as continuation state.",
 		"Summarize state only. Do not continue the task, answer the user, call tools, expose hidden reasoning, or invent facts.",
+		"If a closed event or earlier checkpoint contains an oversized-history excerpt marker, preserve its stored ID and the fact that details were omitted. " +
+			"Do not infer omitted content or claim it is available in this summary.",
 		"Merge the earlier checkpoint with the newly closed events. Newer instructions and decisions supersede conflicting older ones; " +
 			"remove stale state while preserving still-valid constraints and rationale.",
 		"Preserve the current goal, durable user preferences, completed and active work, unresolved obligations and failures, " +

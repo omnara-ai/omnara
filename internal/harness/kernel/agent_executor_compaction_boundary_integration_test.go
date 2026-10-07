@@ -784,31 +784,20 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 	if retryingCompactionContext.SourceEventSequenceEnd == nil {
 		t.Fatalf("retrying compaction context has no source range: %+v", retryingCompactionContext)
 	}
-	replayedRetry, err := (compaction.Runner{
-		Store:          compaction.NewStore(fixture.Store.Execution()),
-		Resolver:       executor.ModelResolver,
-		ContextBuilder: executor.contextBuilder(),
-		Now:            executor.Now,
-	}).Run(ctx, compaction.RunInput{
-		Plan: compaction.Plan{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			InputEventSequence: retryingCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(t, ctx, fixture.Store, retryingCompactionContext),
-			EventSequenceEnd:   *retryingCompactionContext.SourceEventSequenceEnd,
+	replayedRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(
+		ctx,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID,
+			PredecessorModelCallContextID: retryingCompactionContext.ID,
+			RuntimeLockID:                 overflowTurn.RuntimeLockID,
 		},
-		TurnID:                   overflowTurn.TurnID,
-		OpeningInputIDs:          overflowTurn.InputIDs,
-		OpeningEventSequence:     overflowTurn.OpeningEventSequence,
-		RuntimeLockID:            overflowTurn.RuntimeLockID,
-		ParentModelCallContextID: blockedContextID,
-	})
+	)
 	if err != nil {
-		t.Fatalf("replay compaction before retry deadline: %v", err)
+		t.Fatalf("claim compaction before retry deadline: %v", err)
 	}
-	if replayedRetry.State != compaction.RunRetryScheduled || replayedRetry.RetryAt == nil ||
-		!replayedRetry.RetryAt.Equal(compactionRetryAt) {
-		t.Fatalf("replayed compaction retry = %+v, want deadline %s", replayedRetry, compactionRetryAt)
+	if replayedRetry.Created || replayedRetry.Claimed || replayedRetry.Context.ID != retryingCompactionContext.ID ||
+		replayedRetry.Context.RetryAt == nil || !replayedRetry.Context.RetryAt.Equal(compactionRetryAt) {
+		t.Fatalf("early compaction claim = %+v, want existing deadline %s", replayedRetry, compactionRetryAt)
 	}
 	if retryModel.respondedCount() != 2 {
 		t.Fatalf("early compaction replay made a provider request; prepared=%d", retryModel.respondedCount())

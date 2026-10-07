@@ -12,6 +12,15 @@ import (
 func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
 	providerMetadata := providerMetadataFromSQLC(row.ProviderMetadata)
 	return ModelCallContextRecord{
+		ParentNormalModelCallContextID:  storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
+		ReplacesCheckpointID:            storeutil.IDFromPtr(row.ReplacesCheckpointID),
+		SourceExcerptBytes:              intFromInt32Ptr(row.SourceExcerptBytes),
+		RecoveryCheckpointRetainedBytes: intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
+		OptionalInputTargetTokens:       intFromInt32Ptr(row.OptionalInputTargetTokens),
+		OptionalCompactionOutcome:       OptionalCompactionOutcome(stringFromSQLCText(row.OptionalCompactionOutcome)),
+		RequestInputIdentity: requestInputIdentityFromColumns(
+			row.RequestInputFingerprint, row.RequestInputItemCount,
+		),
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ProjectID:                 row.ProjectID,
@@ -55,4 +64,30 @@ func providerMetadataFromSQLC(raw json.RawMessage) modelenvelope.ProviderMetadat
 		return modelenvelope.ProviderMetadata{}
 	}
 	return metadata
+}
+
+func intFromInt32Ptr(value *int32) *int {
+	if value == nil {
+		return nil
+	}
+	converted := int(*value)
+	return &converted
+}
+
+func int32FromIntPtr(value *int) *int32 {
+	if value == nil {
+		return nil
+	}
+	converted := int32(*value)
+	return &converted
+}
+
+func requestInputIdentityFromColumns(
+	fingerprint *string,
+	count *int32,
+) *modelenvelope.RequestInputIdentity {
+	if fingerprint == nil {
+		return nil
+	}
+	return &modelenvelope.RequestInputIdentity{Fingerprint: *fingerprint, ItemCount: int(*count)}
 }

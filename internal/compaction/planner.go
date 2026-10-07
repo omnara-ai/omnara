@@ -39,11 +39,12 @@ type PlanInput struct {
 }
 
 type Plan struct {
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	InputEventSequence int64
-	EventSequenceStart int64
-	EventSequenceEnd   int64
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	ReplacesCheckpointID uuid.UUID
+	InputEventSequence   int64
+	EventSequenceStart   int64
+	EventSequenceEnd     int64
 }
 
 type RetainBoundaryInput struct {

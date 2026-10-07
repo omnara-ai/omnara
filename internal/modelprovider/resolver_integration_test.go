@@ -557,6 +557,10 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prepare canonical replay after credential rotation: %v", err)
 	}
+	if preparedWithOriginalCredential.InputRouteFingerprint == "" ||
+		preparedAfterRotation.InputRouteFingerprint == preparedWithOriginalCredential.InputRouteFingerprint {
+		t.Fatal("rotating the resolved credential must invalidate the measured input route")
+	}
 	if !strings.Contains(string(preparedAfterRotation.Body), "enc_old_credential") {
 		t.Fatalf("credential rotation discarded route-compatible provider replay: %s", preparedAfterRotation.Body)
 	}

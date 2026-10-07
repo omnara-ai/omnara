@@ -14,14 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (e AgentExecutor) compactionRunner(
-	resolver model.Resolver,
-	builder modelcontext.Builder,
-) compaction.Runner {
+func (e AgentExecutor) compactionRunner(resolver model.Resolver) compaction.Runner {
 	return compaction.Runner{
-		Store:           compaction.NewStore(e.Store.Execution()),
+		Store:           e.Store.Execution(),
 		Resolver:        resolver,
-		ContextBuilder:  builder,
 		Now:             e.Now,
 		ModelRetryDelay: e.ModelRetryDelay,
 	}
@@ -30,13 +26,20 @@ func (e AgentExecutor) compactionRunner(
 func (e AgentExecutor) resumeCompactionContext(
 	ctx context.Context,
 	input ModelWorkExecution,
-	builder modelcontext.Builder,
 	resolver model.Resolver,
 	contextRow executionstore.ModelCallContextRecord,
 ) error {
 	if contextRow.SourceEventSequenceEnd == nil {
 		return fmt.Errorf("active compaction context has no source range: %w", storeerr.ErrStateTransitionConflict)
 	}
+	claim, err := e.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID: contextRow.ProjectID, AgentID: contextRow.AgentID,
+		PredecessorModelCallContextID: contextRow.ID, RuntimeLockID: input.RuntimeLockID,
+	})
+	if err != nil || !claim.Created {
+		return err
+	}
+	contextRow = claim.Context
 	sourceStart := int64(1)
 	checkpoint, found, err := e.Store.Execution().GetLatestApplicableContextCheckpoint(
 		ctx,
@@ -50,34 +53,23 @@ func (e AgentExecutor) resumeCompactionContext(
 	if found {
 		sourceStart = checkpoint.SummarizedThroughEventSequence + 1
 	}
-	parent, found, err := e.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		contextRow.ProjectID,
-		contextRow.AgentID,
-		contextRow.InputEventSequence,
-	)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("active compaction context has no parent normal call: %w", storeerr.ErrStateTransitionConflict)
-	}
-	_, err = e.compactionRunner(resolver, builder).Run(
+	_, err = e.compactionRunner(resolver).RunClaimed(
 		ctx,
 		compaction.RunInput{
 			Plan: compaction.Plan{
-				ProjectID:          contextRow.ProjectID,
-				AgentID:            contextRow.AgentID,
-				InputEventSequence: contextRow.InputEventSequence,
-				EventSequenceStart: sourceStart,
-				EventSequenceEnd:   *contextRow.SourceEventSequenceEnd,
+				ProjectID:            contextRow.ProjectID,
+				AgentID:              contextRow.AgentID,
+				InputEventSequence:   contextRow.InputEventSequence,
+				EventSequenceStart:   sourceStart,
+				EventSequenceEnd:     *contextRow.SourceEventSequenceEnd,
+				ReplacesCheckpointID: contextRow.ReplacesCheckpointID,
 			},
-			TurnID:                   input.TurnID,
-			OpeningInputIDs:          input.InputIDs,
-			OpeningEventSequence:     input.OpeningEventSequence,
-			RuntimeLockID:            input.RuntimeLockID,
-			ParentModelCallContextID: parent.ID,
+			TurnID:               input.TurnID,
+			OpeningInputIDs:      input.InputIDs,
+			OpeningEventSequence: input.OpeningEventSequence,
+			RuntimeLockID:        input.RuntimeLockID,
 		},
+		claim,
 	)
 	return err
 }
@@ -103,7 +95,7 @@ func (e AgentExecutor) planCompactionForContext(
 		summarizedThrough = checkpoint.SummarizedThroughEventSequence
 	}
 	if frontier <= summarizedThrough+1 {
-		return compaction.Plan{}, false, nil
+		return checkpointRecompressionPlan(contextRow, checkpoint)
 	}
 	groups, err := e.Store.Execution().ListCompactionAtomicGroups(
 		ctx,
@@ -135,7 +127,7 @@ func (e AgentExecutor) planCompactionForContext(
 		return compaction.Plan{}, false, err
 	}
 	if len(events) < 2 {
-		return compaction.Plan{}, false, nil
+		return checkpointRecompressionPlan(contextRow, checkpoint)
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	requestPolicy, err := modelretry.RequestPolicyForModelCall(
@@ -173,15 +165,18 @@ func (e AgentExecutor) planCompactionForContext(
 		AtomicGroups:              atomicGroups,
 	}
 	retainFrom, ok, err := compaction.SelectRetainFromEventSequence(boundaryInput)
-	if err != nil || !ok {
+	if err != nil {
 		return compaction.Plan{}, false, err
+	}
+	if !ok {
+		return checkpointRecompressionPlan(contextRow, checkpoint)
 	}
 	boundaryInput.DesiredRetainFromSequence = retainFrom
 	projectionSummary := "[Earlier conversation compacted.]"
 	if hasCheckpoint {
 		projectionSummary = checkpoint.Summary + "\n\n[Additional closed history compacted.]"
 	}
-	retainFrom, ok, err = e.clampRetainFromToModelBudget(
+	budgetRetainFrom, fitsEstimate, err := e.clampRetainFromToModelBudget(
 		ctx,
 		contextRow,
 		client,
@@ -190,8 +185,11 @@ func (e AgentExecutor) planCompactionForContext(
 		projectionSummary,
 		requestPolicy,
 	)
-	if err != nil || !ok {
+	if err != nil {
 		return compaction.Plan{}, false, err
+	}
+	if fitsEstimate {
+		retainFrom = budgetRetainFrom
 	}
 	plan, ok, err := compaction.PlanCheckpoint(compaction.PlanInput{
 		ProjectID:                      contextRow.ProjectID,
@@ -201,7 +199,25 @@ func (e AgentExecutor) planCompactionForContext(
 		RetainFromEventSequence:        retainFrom,
 		AtomicGroups:                   atomicGroups,
 	})
+	if err == nil && !ok {
+		return checkpointRecompressionPlan(contextRow, checkpoint)
+	}
 	return plan, ok, err
+}
+
+func checkpointRecompressionPlan(
+	call executionstore.ModelCallContextRecord,
+	checkpoint executionstore.ContextCheckpointRecord,
+) (compaction.Plan, bool, error) {
+	if checkpoint.ID == uuid.Nil {
+		return compaction.Plan{}, false, nil
+	}
+	return compaction.Plan{
+		ProjectID: call.ProjectID, AgentID: call.AgentID, InputEventSequence: call.InputEventSequence,
+		EventSequenceStart:   checkpoint.SummarizedThroughEventSequence + 1,
+		EventSequenceEnd:     checkpoint.SummarizedThroughEventSequence,
+		ReplacesCheckpointID: checkpoint.ID,
+	}, true, nil
 }
 
 func (e AgentExecutor) clampRetainFromToModelBudget(
@@ -231,13 +247,14 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 		boundaryInput.DesiredRetainFromSequence,
 		func(retainFrom int64) (bool, error) {
 			bundle, buildErr := e.contextBuilder().Build(ctx, modelcontext.BuildInput{
-				ProjectID:           contextRow.ProjectID,
-				AgentID:             contextRow.AgentID,
-				TurnID:              input.TurnID,
-				OpeningInputIDs:     input.InputIDs,
-				Now:                 input.Now,
-				AgentConfigSnapshot: &snapshot,
-				MediaProjector:      model.MediaProjectorForClient(client),
+				ProjectID:                  contextRow.ProjectID,
+				AgentID:                    contextRow.AgentID,
+				TurnID:                     input.TurnID,
+				OpeningInputIDs:            input.InputIDs,
+				Now:                        input.Now,
+				AgentConfigSnapshot:        &snapshot,
+				MediaProjector:             model.MediaProjectorForClient(client),
+				TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 				CheckpointOverride: &modelcontext.CheckpointRef{
 					SummarizedThroughEventSequence: retainFrom - 1,
 					Summary:                        projectionSummary,

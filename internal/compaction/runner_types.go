@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -33,27 +32,10 @@ type ExecutionStore interface {
 		projectID, agentID uuid.UUID,
 		maxEventSequence int64,
 	) (executionstore.ContextCheckpointRecord, bool, error)
-	GetContextCheckpointByProducerContext(
+	GetModelCallRecoveryState(
 		ctx context.Context,
 		projectID, agentID, modelCallContextID uuid.UUID,
-	) (executionstore.ContextCheckpointRecord, bool, error)
-	CountConsecutiveContextCheckpointLineage(
-		ctx context.Context,
-		projectID, agentID uuid.UUID,
-		inputEventSequence int64,
-	) (int, error)
-	GetProviderReplaySuppressionCutoff(
-		ctx context.Context,
-		projectID, agentID, modelCallContextID uuid.UUID,
-	) (int64, error)
-	ClaimCompactionModelCall(
-		ctx context.Context,
-		input executionstore.ClaimCompactionModelCallInput,
-	) (executionstore.ModelCallClaim, error)
-	ClaimNextModelCallContext(
-		ctx context.Context,
-		input executionstore.ClaimNextModelCallContextInput,
-	) (executionstore.ModelCallClaim, error)
+	) (executionstore.ModelCallRecoveryState, error)
 	RecordRetryableModelCallFailure(
 		ctx context.Context,
 		input executionstore.RecordRecoverableModelCallFailureInput,
@@ -62,6 +44,10 @@ type ExecutionStore interface {
 		ctx context.Context,
 		input executionstore.RecordTerminalCompactionFailureInput,
 	) error
+	RecordCompactionFailureAndResumeNormal(
+		ctx context.Context,
+		input executionstore.RecordCompactionFailureAndResumeNormalInput,
+	) (executionstore.ModelCallContextRecord, error)
 	ReplaceCompactionSource(
 		ctx context.Context,
 		input executionstore.ReplaceCompactionSourceInput,
@@ -72,34 +58,19 @@ type ExecutionStore interface {
 	) (executionstore.ContextCheckpointRecord, error)
 }
 
-type Store interface {
-	ExecutionStore
-}
-
-func NewStore(execution ExecutionStore) Store {
-	return execution
-}
-
-type ContextBuilder interface {
-	Build(context.Context, modelcontext.BuildInput) (modelcontext.Bundle, error)
-}
-
 type Runner struct {
-	Store             Store
-	Resolver          model.Resolver
-	ContextBuilder    ContextBuilder
-	ProgressivePolicy ProgressiveCheckpointPolicy
-	Now               func() time.Time
-	ModelRetryDelay   func(time.Duration) time.Duration
+	Store           ExecutionStore
+	Resolver        model.Resolver
+	Now             func() time.Time
+	ModelRetryDelay func(time.Duration) time.Duration
 }
 
 type RunInput struct {
-	Plan                     Plan
-	TurnID                   uuid.UUID
-	OpeningInputIDs          []uuid.UUID
-	OpeningEventSequence     int64
-	RuntimeLockID            uuid.UUID
-	ParentModelCallContextID uuid.UUID
+	Plan                 Plan
+	TurnID               uuid.UUID
+	OpeningInputIDs      []uuid.UUID
+	OpeningEventSequence int64
+	RuntimeLockID        uuid.UUID
 }
 
 type RunState string
@@ -107,6 +78,7 @@ type RunState string
 const (
 	RunCompleted      RunState = "completed"
 	RunRetryScheduled RunState = "retry_scheduled"
+	RunResumeNormal   RunState = "resume_normal"
 	RunTerminal       RunState = "terminal"
 )
 
