@@ -85,10 +85,12 @@ omnara integrations update "$SLACK_INTEGRATION_ID" --body '{
 omnara integrations profiles "$SLACK_INTEGRATION_ID" --profile-ids "$PROFILE_ID" --profile-ids "$SECOND_PROFILE_ID"
 ```
 
-Slack can optionally restrict mentions with `launcher.channel_id`. Discord has no
-server or channel filter. Both take ordered, distinct public profile IDs: one starts
-immediately; several offer a menu selecting exactly one. `integrations profiles`
-preserves the integration's other settings.
+Slack and Discord launchers contain only ordered, distinct public profile IDs:
+one starts immediately; several offer a menu selecting exactly one. Slack launches
+from mentions wherever the bot can receive messages, and from DMs without a mention.
+Discord launches from mentions in servers where the bot has access; DMs do not launch.
+Manage channel access in Slack or Discord. `integrations profiles` preserves the
+integration's other settings.
 
 GitHub uses `launcher.profile`, `launcher.trigger` (`mention`, `pull_request_opened`, or `both`),
 and optional `launcher.repository_id`. PR-open launches, mention launches and comments

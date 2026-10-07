@@ -17,7 +17,7 @@ func (e Executor) sendSlackFiles(
 	var slept time.Duration
 	files := make([]slack.UploadedFile, 0, len(input.Paths))
 	for _, filePath := range input.Paths {
-		filename, content, err := e.loadIntegrationFile(ctx, turn, filePath)
+		filename, content, err := e.loadMessageAttachment(ctx, turn, filePath)
 		if err != nil {
 			return toolResultContent{}, err
 		}

@@ -12,9 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func (s strictOpenAPIServer) CreateIntegrationOAuthSetup(
@@ -46,7 +46,7 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	if err != nil {
 		return nil, err
 	}
-	if integration.Provider != integrationstore.IntegrationProviderSlack {
+	if integration.Provider != integrationdefinition.ProviderSlack {
 		return nil, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"this integration does not support Slack OAuth setup",
@@ -108,8 +108,8 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 		return nil, fmt.Errorf("state generation failed")
 	}
 	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
+	eventsURL := s.server.absolutePublicURL(slackEventsPath)
+	actionsURL := s.server.absolutePublicURL(slackActionsPath)
 	installURL, err := s.server.integrationOAuthAuthorizeURL(
 		provider,
 		clientID,
@@ -134,7 +134,7 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	return &openapi.IntegrationOAuthSetup{
 		IntegrationId: integrationRef,
 		SetupRevision: integration.SetupRevision,
-		Provider:      provider,
+		Provider:      string(provider),
 		FlowId:        publicFlowID,
 		OauthUrl:      installURL,
 		RedirectUri:   redirectURI,
@@ -176,7 +176,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err != nil {
 		return nil, err
 	}
-	if integration.Provider != integrationstore.IntegrationProviderSlack {
+	if integration.Provider != integrationdefinition.ProviderSlack {
 		return nil, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"this integration does not support Slack OAuth setup",
@@ -220,8 +220,8 @@ func (s strictOpenAPIServer) createSlackSetup(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
+	eventsURL := s.server.absolutePublicURL(slackEventsPath)
+	actionsURL := s.server.absolutePublicURL(slackActionsPath)
 	outboundCtx, cancel := context.WithTimeout(ctx, integrationOAuthTimeout)
 	defer cancel()
 	manifestApp, err := slack.CreateManifestApp(
@@ -266,7 +266,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 		IntegrationID:     integration.ID,
 		SetupRevision:     integration.SetupRevision,
 		InstalledByUserID: principal.ID,
-		Provider:          integrationstore.IntegrationProviderSlack,
+		Provider:          integrationdefinition.ProviderSlack,
 		ClientID:          manifestApp.ClientID,
 		ClientSecret:      manifestApp.ClientSecret,
 		SigningSecret:     manifestApp.SigningSecret,
@@ -285,7 +285,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 		return nil, fmt.Errorf("state generation failed")
 	}
 	installURL, err := s.server.integrationOAuthAuthorizeURL(
-		integrationstore.IntegrationProviderSlack,
+		integrationdefinition.ProviderSlack,
 		manifestApp.ClientID,
 		redirectURI,
 		stateToken,
@@ -308,7 +308,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 	return &openapi.SlackSetup{
 		IntegrationId: integrationRef,
 		SetupRevision: integration.SetupRevision,
-		Provider:      integrationstore.IntegrationProviderSlack,
+		Provider:      string(integrationdefinition.ProviderSlack),
 		FlowId:        publicFlowID,
 		SlackAppId:    manifestApp.AppID,
 		OauthUrl:      installURL,

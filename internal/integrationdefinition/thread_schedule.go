@@ -32,7 +32,7 @@ var (
 	discordThreadSchedule = newThreadScheduleDefinition(ProviderDiscord)
 )
 
-func newThreadScheduleDefinition(provider string) *ScheduleDefinition {
+func newThreadScheduleDefinition(provider Provider) *ScheduleDefinition {
 	channelPattern := "^[CG][A-Z0-9]+$"
 	channelDescription := "Use a Slack channel ID beginning with C or G. The bot must have access."
 	if provider == ProviderDiscord {
@@ -115,7 +115,7 @@ func parseThreadScheduleSettings(raw json.RawMessage) (ThreadScheduleSettings, u
 	return settings, profileID, nil
 }
 
-func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
+func validateThreadSchedulePlan(provider Provider, plan SchedulePlan) error {
 	data, err := plan.Occurrence.MessageData()
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
 	if err != nil {
 		return err
 	}
-	if len(plan.Launches) != 1 || plan.Launches[0].Key != "scheduled" {
+	if len(plan.Launches) != 1 || plan.Launches[0].Key != ScheduledLaunchKey {
 		return fmt.Errorf("thread schedule requires one launch")
 	}
 	launch := plan.Launches[0]
@@ -134,13 +134,15 @@ func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
 	if err := launch.Scope.Validate(provider); err != nil {
 		return err
 	}
-	matches := false
+	var matches bool
 	switch provider {
 	case ProviderSlack:
 		matches = launch.Scope.Slack.ThreadTS != "" && launch.Scope.Slack.ChannelID == settings.ChannelID
 	case ProviderDiscord:
 		matches = launch.Scope.Discord.ThreadID != "" && launch.Scope.Discord.GuildID != "" &&
 			launch.Scope.Discord.ChannelID == settings.ChannelID
+	default:
+		matches = false
 	}
 	if !matches {
 		return fmt.Errorf("scheduled thread differs from its configured parent")

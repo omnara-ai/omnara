@@ -422,18 +422,99 @@ it('blocks a stale edit until explicitly reloaded', async () => {
   const api = fakeApi([])
   const props = { orgId, projectId, integrationKind: 'github_pr' as const, onSaved: vi.fn() }
   const { rerender } = render(api, <IntegrationForm {...props} integration={integration} />)
+  act(() => {
+    field('PR opened').click()
+  })
+  expect(button('Save changes').disabled).toBe(true)
   rerender(<IntegrationForm {...props} integration={next} />)
+  expect(field('PR opened')).toHaveProperty('checked', true)
   expect(container.textContent).toContain('Integration changed. Reload settings')
   await submit()
-  expect(api.requests).toHaveLength(0)
+  expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
   act(() => {
     button('Reload settings').click()
   })
   expect(container.textContent).not.toContain('Integration changed.')
+  expect(field('PR opened')).toHaveProperty('checked', false)
+  expect(button('Save changes').disabled).toBe(true)
 })
 
-it('keeps cancellation disabled during saving and ignores completion after unmount', async () => {
-  const integration = integrationFixture()
+it('shows GitHub mention help only for mentions and explains disabling a restricted launcher', () => {
+  const integration = integrationFixture({
+    integration_kind: 'github_pr',
+    bot_mention: '@reviewer',
+    settings: { launcher: { profile: fakeId('aprf'), trigger: 'both', repository_id: '123' } },
+  })
+  const props = { orgId, projectId, integrationKind: 'github_pr' as const, onSaved: vi.fn() }
+  const { rerender } = render(fakeApi([]), <IntegrationForm {...props} integration={integration} />)
+  expect(button('Copy bot mention')).toBeDefined()
+  expect(container.textContent).toContain('@reviewer please review this PR')
+  act(() => {
+    field('Bot mentioned').click()
+  })
+  expect(() => button('Copy bot mention')).toThrow('Missing button')
+  expect(container.textContent).not.toContain('@reviewer please review this PR')
+  act(() => {
+    field('PR opened').click()
+  })
+  expect(container.textContent).toContain(
+    'Saving with both triggers off clears the profile and repository restriction.',
+  )
+  expect(container.querySelector<HTMLButtonElement>('button[role="combobox"]')?.disabled).toBe(true)
+  act(() => {
+    button('Discard changes').click()
+  })
+  expect(button('Copy bot mention')).toBeDefined()
+  expect(container.textContent).toContain('Restricted to repository 123.')
+  rerender(
+    <IntegrationForm
+      {...props}
+      integration={{ ...integration, settings: {}, updated_at: '2026-09-20T00:00:00Z' }}
+    />,
+  )
+  expect(container.textContent).toContain('Enable a trigger to choose a profile.')
+  expect(container.querySelector<HTMLButtonElement>('button[role="combobox"]')?.disabled).toBe(true)
+  expect(() => button('Copy bot mention')).toThrow('Missing button')
+  expect(button('Save changes').disabled).toBe(true)
+})
+
+it('keeps creation’s Skip for now action available without submitting an incomplete launcher', () => {
+  const integration = integrationFixture({ integration_kind: 'github_pr' })
+  const api = fakeApi([])
+  const onCancel = vi.fn(),
+    onDiscard = vi.fn(),
+    onSaved = vi.fn()
+  render(
+    api,
+    <IntegrationForm
+      orgId={orgId}
+      projectId={projectId}
+      integrationKind="github_pr"
+      integration={integration}
+      defaultLauncherEnabled
+      onCancel={onCancel}
+      cancelLabel="Skip for now"
+      onDiscard={onDiscard}
+      onSaved={onSaved}
+    />,
+  )
+  expect(button('Save changes').disabled).toBe(true)
+  expect(() => button('Discard changes')).toThrow('Missing button')
+  act(() => {
+    button('Skip for now').click()
+  })
+  expect(onCancel).toHaveBeenCalledOnce()
+  expect(onDiscard).not.toHaveBeenCalled()
+  expect(onSaved).not.toHaveBeenCalled()
+  expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+})
+
+it('keeps discard disabled during saving and ignores completion after unmount', async () => {
+  const integration = integrationFixture({
+    integration_kind: 'github_pr',
+    bot_mention: '@reviewer',
+    settings: { launcher: { profile: fakeId('aprf'), trigger: 'both' } },
+  })
   let release!: (response: Response) => void
   const api = fakeApi([
     {
@@ -451,32 +532,49 @@ it('keeps cancellation disabled during saving and ignores completion after unmou
     },
   ])
   const onSaved = vi.fn(),
-    onCancel = vi.fn()
+    onDiscard = vi.fn()
   const { rerender } = render(
     api,
     <IntegrationForm
       orgId={orgId}
       projectId={projectId}
-      integrationKind="slack_thread"
+      integrationKind="github_pr"
       integration={integration}
       onSaved={onSaved}
-      onCancel={onCancel}
+      onDiscard={onDiscard}
     />,
   )
+  act(() => {
+    field('PR opened').click()
+  })
   await submit()
   await waitForUI(() => {
     expect(api.requestsTo('PUT', path + '/integrations/' + integration.id)).toHaveLength(1)
   })
   await waitForUI(() => {
-    expect(button('Cancel').disabled).toBe(true)
+    expect(button('Discard changes').disabled).toBe(true)
   })
   act(() => {
-    button('Cancel').click()
+    button('Discard changes').click()
   })
-  expect(onCancel).not.toHaveBeenCalled()
+  expect(onDiscard).not.toHaveBeenCalled()
+  expect(field('PR opened').disabled).toBe(true)
+  expect(field('Bot mentioned').disabled).toBe(true)
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  await act(async () => {
+    button('Copy bot mention').click()
+    await Promise.resolve()
+  })
+  expect(copy).toHaveBeenCalledWith('@reviewer please review this PR')
   rerender(null)
   await act(async () => {
-    release(Response.json(integrationFixture(), { status: 201 }))
+    release(
+      Response.json({
+        ...integration,
+        settings: { launcher: { profile: fakeId('aprf'), trigger: 'mention' } },
+        updated_at: '2026-09-20T00:00:00Z',
+      }),
+    )
     await Promise.resolve()
   })
   expect(onSaved).not.toHaveBeenCalled()
@@ -515,7 +613,7 @@ it.each([false, true])(
     )
     if (creating)
       act(() => {
-        container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click()
+        button('Enter app details').click()
       })
     await enter('Client ID', 'client')
     await enter('Client secret', 'secret')

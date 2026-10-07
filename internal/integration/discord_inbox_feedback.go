@@ -121,3 +121,28 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 	_, err := client.CreateMessage(ctx, scope, discord.MessageArgs{Content: text, Nonce: nonce})
 	return err
 }
+
+func (p *DiscordIntegrationInboxProvider) NotifyLaunchUnavailable(
+	ctx context.Context, input IntegrationLaunchContext, message string,
+) error {
+	scope := input.Event.Event.Scope.Discord
+	if scope == nil {
+		return nil
+	}
+	var metadata DiscordEventMetadata
+	if err := json.Unmarshal(input.Event.Metadata, &metadata); err != nil {
+		return err
+	}
+	client, _, err := p.requestAccess(ctx, input.Integration, nil)
+	if err != nil {
+		return err
+	}
+	target := discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID}
+	if metadata.ThreadStarter {
+		target.ThreadID = ""
+	}
+	_, err = client.CreateMessage(ctx, target, discord.MessageArgs{
+		Content: message, Nonce: "u_" + base64.RawURLEncoding.EncodeToString(input.Receipt.ID[:]),
+	})
+	return err
+}

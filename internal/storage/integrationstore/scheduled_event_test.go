@@ -51,7 +51,7 @@ func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 			kind, ref, err := root.Conversation()
 			require.NoError(t, err)
 			claim := integrationstore.InboxLaunchClaim{
-				IntegrationID: receipt.IntegrationID, LaunchKey: "scheduled",
+				IntegrationID: receipt.IntegrationID, LaunchKey: integrationdefinition.ScheduledLaunchKey,
 				Address: integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 			}
 			switch scenario {
@@ -68,7 +68,7 @@ func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 				"launch_claim": claim,
 				"launch":       map[string]any{"profile_id": profileID},
 			}
-			plan := map[string]any{"scheduled": recipient}
+			plan := map[string]any{integrationdefinition.ScheduledLaunchKey: recipient}
 			if scenario == "extra recipient" {
 				plan["another"] = recipient
 			}

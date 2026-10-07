@@ -27,7 +27,7 @@ func slackSetupFixture(
 	)
 	return f, input, integrationstore.SaveIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, Name: "setup", IntegrationKind: integrationdefinition.SlackThread,
-		Settings: integrationtest.ChatSettings("", profileID),
+		Settings: integrationtest.ChatSettings(profileID),
 	}
 }
 

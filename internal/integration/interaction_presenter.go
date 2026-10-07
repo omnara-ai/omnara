@@ -36,9 +36,9 @@ type InteractionPresenter struct {
 }
 
 type InteractionReceipt struct {
-	Provider  string `json:"provider"`
-	ChannelID string `json:"channel_id"`
-	MessageID string `json:"message_id"`
+	Provider  integrationdefinition.Provider `json:"provider"`
+	ChannelID string                         `json:"channel_id"`
+	MessageID string                         `json:"message_id"`
 }
 
 func (p InteractionPresenter) DismissCanceled(
@@ -112,25 +112,8 @@ func (p InteractionPresenter) recheck(
 	if err := authority(ctx); err != nil {
 		return err
 	}
-	current, err := p.Store.Integrations().
-		GetIntegration(ctx, access.integrationSetup.ProjectID, access.integrationSetup.ID)
-	if err != nil {
-		return err
-	}
-	if current.State != integrationstore.IntegrationStateActive ||
-		current.SetupRevision != access.integrationSetup.SetupRevision {
-		return storeerr.ErrUnauthorized
-	}
-	secret, err := p.Store.Secrets().GetProjectAvailableSecret(
-		ctx, current.OrgID, current.ProjectID, current.CredentialSecretID,
-	)
-	if err != nil {
-		return err
-	}
-	if secret.Secret.CurrentVersionID != access.credential.CurrentVersionID {
-		return storeerr.ErrUnauthorized
-	}
-	return nil
+	return CheckCredentialAccess(ctx, p.Store.Integrations(), p.Store.Secrets(),
+		access.integrationSetup, access.credential.CurrentVersionID)
 }
 
 func (a interactionAccess) slackTarget(ctx context.Context, client *http.Client) (slack.MessageTarget, error) {
@@ -327,6 +310,8 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 		receipt = InteractionReceipt{
 			Provider: integrationdefinition.ProviderDiscord, ChannelID: message.ChannelID, MessageID: message.ID,
 		}
+	default:
+		return storeerr.ErrUnauthorized
 	}
 	raw, err := json.Marshal(receipt)
 	if err != nil {
@@ -576,6 +561,7 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 		}
 		_, err = client.EditMessage(ctx, scope, receipt.MessageID, interactionClosedText(record, 2000), nil)
 		return err
+	default:
+		return nil
 	}
-	return nil
 }

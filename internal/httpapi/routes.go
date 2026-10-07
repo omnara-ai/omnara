@@ -37,8 +37,8 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: githubManifestCallbackPath, Access: manualRouteAccessAuthRequired},
 	{Method: http.MethodGet, Pattern: mcpOAuthClientMetadataPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: mcpProtectedResourceMetadataPath, Access: manualRouteAccessStatic},
-	{Method: http.MethodPost, Pattern: integrationEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
-	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
+	{Method: http.MethodPost, Pattern: slackEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
+	{Method: http.MethodPost, Pattern: slackActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: discordInteractionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: GitHubEventsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
@@ -57,8 +57,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/integrations/github/manifest/callback", s.githubManifestCallbackRoute)
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.mcpProtectedResourceMetadataRoute)
-	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
-	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
+	mux.HandleFunc("POST /api/integrations/slack/events", s.slackEventsRoute)
+	mux.HandleFunc("POST /api/integrations/slack/actions", s.slackActionsRoute)
 	mux.HandleFunc("POST /api/integrations/discord/{application_id}/interactions", s.discordInteractionsRoute)
 	mux.Handle("POST /api/integrations/github/events", s.GitHubEventsHandler())
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)

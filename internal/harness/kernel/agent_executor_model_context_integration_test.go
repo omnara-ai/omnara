@@ -165,7 +165,7 @@ model:
 			IntegrationID:         integration.ID,
 			ExpectedSetupRevision: integration.SetupRevision,
 			InstalledByUserID:     kernelTestUserID,
-			Provider:              integrationstore.IntegrationProviderSlack,
+			Provider:              integrationdefinition.ProviderSlack,
 			ProviderTenantID:      "T_IMPLICIT_TOOL",
 			ProviderAccountRef:    "A_IMPLICIT_TOOL",
 			CredentialSecretID:    secret.ID,
@@ -485,7 +485,7 @@ func attachKernelSlackHandler(
 			IntegrationID:         integration.ID,
 			ExpectedSetupRevision: integration.SetupRevision,
 			InstalledByUserID:     kernelTestUserID,
-			Provider:              integrationstore.IntegrationProviderSlack,
+			Provider:              integrationdefinition.ProviderSlack,
 			ProviderTenantID:      "T_" + identifier,
 			ProviderAccountRef:    "A_" + identifier,
 			CredentialSecretID:    secret.ID,
@@ -596,7 +596,7 @@ func (f kernelFixture) admitSlackContentInputTurn(
 	actor, err := executionstore.IntegrationActorParams(handler.integration, "U_KERNEL_TEST", nil)
 	require.NoError(t, err)
 	event := integrationruntime.IntegrationEvent{
-		Event:         integrationdefinition.Event{Kind: "message", Scope: scope},
+		Event:         integrationdefinition.Event{Kind: integrationdefinition.EventMessage, Scope: scope},
 		SemanticKey:   "kernel-slack-input-" + agentID.String(),
 		ContentBlocks: mustKernelJSON([]map[string]string{{"type": "text", "text": text}}),
 		Actor:         actor,

@@ -602,7 +602,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
         `/api/integrations/discord/${integration.provider_tenant_id}/interactions`,
       )
       await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
-      await launch.getByRole('button', { name: 'Choose profiles', exact: true }).click()
       await exerciseDiscordIntegrationSchedule(
         page,
         integration,
@@ -611,6 +610,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
         apiProjectPath,
       )
     }
+    const save = launch.getByRole('button', { name: 'Save changes', exact: true })
+    await expect(save).toBeDisabled()
     if (integrationKind === 'github_pr') {
       await expect(launch.getByRole('checkbox', { name: 'PR opened', exact: true })).toBeChecked()
       await expect(
@@ -629,18 +630,18 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       .fill(profileName)
     await page.getByRole('option', { name: profileName, exact: true }).click()
     if (integrationKind === 'discord_thread') {
+      await launch.getByRole('heading').click()
       await expect(
         page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
       ).toBeVisible()
     }
-    if (integrationKind === 'github_pr')
-      await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
+    await expect(save).toBeEnabled()
     const savedLauncher = page.waitForResponse(
       (response) =>
         response.request().method() === 'PUT' &&
         new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
     )
-    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await save.click()
     const launched = schemas.zIntegration.parse(await (await savedLauncher).json())
     expect(launched.settings.launcher).toEqual(
       integrationKind === 'github_pr'
@@ -649,21 +650,38 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     )
     expect(launched.setup_revision).toBe(integration.setup_revision)
     await expect(page).toHaveURL(integrationPath)
-    await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
+    const selectedProfile =
+      integrationKind === 'github_pr'
+        ? launch.getByRole('combobox', { name: 'Agent profile', exact: true })
+        : launch.getByRole('button', { name: `Remove ${profileName}`, exact: true })
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
+    await expect(save).toBeDisabled()
     await page.reload()
     await expect(page.getByRole('heading', { name: integrationName, exact: true })).toBeVisible()
-    await launch.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
+    await expect(save).toBeDisabled()
     await expect(launch.getByLabel('Integration name', { exact: true })).toHaveCount(0)
+    let changedIntegration = launched
     if (integrationKind === 'github_pr') {
       await launch.getByRole('checkbox', { name: 'PR opened', exact: true }).uncheck()
+      const updated = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
+      )
+      await expect(save).toBeEnabled()
+      await save.click()
+      changedIntegration = schemas.zIntegration.parse(await (await updated).json())
+    } else {
+      await selectedProfile.click()
+      await page.keyboard.press('Escape')
+      await expect(save).toBeEnabled()
+      await launch.getByRole('button', { name: 'Discard changes', exact: true }).click()
+      await expect(selectedProfile).toBeVisible()
     }
-    const updated = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'PUT' &&
-        new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
-    )
-    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
-    const changedIntegration = schemas.zIntegration.parse(await (await updated).json())
+    await expect(save).toBeDisabled()
     expect(changedIntegration.name).toBe(integrationName)
     expect(changedIntegration.settings.launcher).toEqual(
       integrationKind === 'github_pr'
@@ -676,7 +694,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
         '/api/integrations/github/events',
       )
-    } else await expect(launch).toContainText('in any server where it has access')
+    } else await expect(launch).toContainText('without an Omnara account')
 
     await page.goto(profilePath)
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
@@ -794,7 +812,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
-    await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
     const reconnected = await readIntegration(page, apiProjectPath, integration.id)
     expect(reconnected).toMatchObject({
       state: 'active',
@@ -815,12 +834,19 @@ test('creates and connects Slack through a same-tab authorization return', async
   page,
   context,
 }) => {
-  await signIn(page, adminEmail, `/projects/${projectID}/integrations`)
+  test.setTimeout(60_000)
+  const profile = await createProfile(
+    page,
+    uniqueName('Slack Integration Profile'),
+    'Answer in the selected conversation.',
+  )
   await exerciseSlackIntegrationSetup(
     page,
     context,
     projectID,
     `slack-browser-${test.info().retry}`,
+    profile.id,
+    profile.name,
   )
 })
 

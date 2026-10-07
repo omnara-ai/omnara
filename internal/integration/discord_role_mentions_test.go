@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,7 +186,11 @@ func TestDiscordRoleMentionFailureFeedback(t *testing.T) {
 				expansion, expandErr := provider.Expand(t.Context(), f.integrationSetup, raw)
 				require.NoError(t, expandErr)
 				require.NotNil(t, expansion.Event)
-				workflow := &IntegrationLaunchWorkflow{providers: map[string]IntegrationInboxProvider{"discord": provider}}
+				workflow := &IntegrationLaunchWorkflow{
+					providers: map[integrationdefinition.Provider]IntegrationInboxProvider{
+						integrationdefinition.ProviderDiscord: provider,
+					},
+				}
 				workflow.launchUnavailable(t.Context(), IntegrationLaunchContext{
 					Integration: f.integrationSetup, Receipt: receipt, Event: *expansion.Event,
 				}, ErrIntegrationLaunchUnavailable)

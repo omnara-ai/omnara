@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -39,19 +40,19 @@ var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state excee
 var errIntegrationOAuthStateExpired = errors.New("integration oauth state has expired")
 
 type integrationOAuthState struct {
-	FlowID            uuid.UUID `json:"flow_id"`
-	OrgID             uuid.UUID `json:"org_id"`
-	ProjectID         uuid.UUID `json:"project_id"`
-	IntegrationID     uuid.UUID `json:"integration_id"`
-	SetupRevision     int64     `json:"setup_revision"`
-	InstalledByUserID uuid.UUID `json:"installed_by_user_id"`
-	Provider          string    `json:"provider"`
-	ClientID          string    `json:"client_id"`
-	ClientSecret      string    `json:"client_secret"`
-	SigningSecret     string    `json:"signing_secret"`
-	BotDisplayName    string    `json:"bot_display_name,omitempty"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	ReturnTo          string    `json:"return_to,omitempty"`
+	FlowID            uuid.UUID                      `json:"flow_id"`
+	OrgID             uuid.UUID                      `json:"org_id"`
+	ProjectID         uuid.UUID                      `json:"project_id"`
+	IntegrationID     uuid.UUID                      `json:"integration_id"`
+	SetupRevision     int64                          `json:"setup_revision"`
+	InstalledByUserID uuid.UUID                      `json:"installed_by_user_id"`
+	Provider          integrationdefinition.Provider `json:"provider"`
+	ClientID          string                         `json:"client_id"`
+	ClientSecret      string                         `json:"client_secret"`
+	SigningSecret     string                         `json:"signing_secret"`
+	BotDisplayName    string                         `json:"bot_display_name,omitempty"`
+	ExpiresAt         time.Time                      `json:"expires_at"`
+	ReturnTo          string                         `json:"return_to,omitempty"`
 }
 
 func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {

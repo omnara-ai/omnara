@@ -67,14 +67,14 @@ func (t capturedTestTransport) RoundTrip(r *http.Request) (*http.Response, error
 	return t.base.RoundTrip(request)
 }
 
-func newCapturedHTTPFixture(t *testing.T, provider, kind string) capturedHTTPFixture {
+func newCapturedHTTPFixture(t *testing.T, provider integrationdefinition.Provider, kind string) capturedHTTPFixture {
 	t.Helper()
 	return newCapturedHTTPFixtureWithDismiss(t, provider, kind, nil)
 }
 
 func newCapturedHTTPFixtureWithDismiss(
 	t *testing.T,
-	provider, kind string,
+	provider integrationdefinition.Provider, kind string,
 	dismiss http.HandlerFunc,
 	options ...capturedHTTPFixtureOptions,
 ) capturedHTTPFixture {
@@ -162,14 +162,14 @@ func newCapturedHTTPFixtureWithDismiss(
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool,
 		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithIntegrationHTTPClient(client))
-	project := bootstrapPublicHTTPProject(t, handler, "captured-"+provider+"-"+kind)
+	project := bootstrapPublicHTTPProject(t, handler, "captured-"+string(provider)+"-"+kind)
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
 	tenant, account, ref := "100", "200", "301"
 	config := json.RawMessage(`{"public_key":"` + hex.EncodeToString(publicKey) + `"}`)
 	identity := json.RawMessage(`{}`)
-	if provider == "slack" {
+	if provider == integrationdefinition.ProviderSlack {
 		material = secrets.SlackAppCredentialsMaterial{
 			AccessToken:   "xoxb-test",
 			ClientID:      "client",
@@ -269,7 +269,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: ref}
-	if provider == "slack" && opts.slackDM {
+	if provider == integrationdefinition.ProviderSlack && opts.slackDM {
 		address.Kind = "dm"
 	}
 	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, integration.ID))
@@ -445,7 +445,7 @@ func (f capturedHTTPFixture) slackRequest(
 	if status == 0 {
 		status = http.StatusOK
 	}
-	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", status, headers)
+	return requestJSONWithHeaders(t, f.handler, http.MethodPost, slackActionsPath, body, "", status, headers)
 }
 
 func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
@@ -509,7 +509,10 @@ func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
 
 func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"slack", "discord"} {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
 		for _, choice := range []struct {
 			kind, name, confirmation string
 			index                    int
@@ -518,7 +521,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 			{"permission", "allow", "Approved: run_command", toolpermission.AllowOptionIndex},
 			{"permission", "deny", "Denied: run_command", toolpermission.DenyOptionIndex},
 		} {
-			t.Run(provider+"/"+choice.kind+"/"+choice.name, func(t *testing.T) {
+			t.Run(string(provider)+"/"+choice.kind+"/"+choice.name, func(t *testing.T) {
 				t.Parallel()
 				f := newCapturedHTTPFixture(t, provider, choice.kind)
 				if choice.kind == "permission" {
@@ -532,7 +535,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 						}},
 					}}
 				}
-				if provider == "slack" {
+				if provider == integrationdefinition.ProviderSlack {
 					require.Equal(t, "ignored", f.slackRequest(t, true, slackChoice)["ok"])
 				} else {
 					require.Equal(t, float64(4), f.discordRequest(t, action, false, true)["type"])
@@ -548,7 +551,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
-				if provider == "slack" {
+				if provider == integrationdefinition.ProviderSlack {
 					response := f.slackRequest(t, false, slackChoice)
 					require.Equal(t, "resolved", response["ok"])
 					require.Equal(t, choice.confirmation, response["text"])
@@ -569,7 +572,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				resolution, err := interactionform.ParseResolution(form, current.Resolution)
 				require.NoError(t, err)
 				require.Equal(t, []interactionform.Answer{{OptionIndices: []int{choice.index}}}, resolution.Answers)
-				if provider == "slack" {
+				if provider == integrationdefinition.ProviderSlack {
 					require.Equal(t, "already_resolved", f.slackRequest(t, false, slackChoice)["ok"])
 				} else {
 					require.Equal(t, float64(4), f.discordRequest(t, action, false, false)["type"])
@@ -638,9 +641,12 @@ func TestCapturedDiscordModalTextAndReplay(t *testing.T) {
 }
 
 func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
-	for _, provider := range []string{"slack", "discord"} {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
 		for _, revoked := range []string{"integration", "assignment", "target"} {
-			t.Run(provider+"/"+revoked, func(t *testing.T) {
+			t.Run(string(provider)+"/"+revoked, func(t *testing.T) {
 				f := newCapturedHTTPFixture(t, provider, "question")
 				switch revoked {
 				case "integration":
@@ -672,7 +678,7 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 					require.NoError(t, err)
 					require.EqualValues(t, 1, changed.RowsAffected())
 				}
-				if provider == "slack" {
+				if provider == integrationdefinition.ProviderSlack {
 					response := f.slackRequest(t, false)
 					if revoked != "integration" {
 						require.Equal(t, "ignored", response["ok"])
@@ -895,9 +901,12 @@ func TestCapturedDiscordEndpointVerifiesPingSignatureAndApplication(t *testing.T
 
 func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"slack", "discord"} {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
 		for _, surface := range []string{"api", "dashboard"} {
-			t.Run(provider+"/"+surface, func(t *testing.T) {
+			t.Run(string(provider)+"/"+surface, func(t *testing.T) {
 				t.Parallel()
 				f := newCapturedHTTPFixture(t, provider, "permission")
 				token := customIntegrationHTTPKey(t, f.handler, f.project, "presenter", "operator")
@@ -918,7 +927,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				conversation := map[string]any{"thread_id": "301"}
-				if provider == "slack" {
+				if provider == integrationdefinition.ProviderSlack {
 					conversation = map[string]any{"channel_id": "C123", "thread_ts": "111.222"}
 				}
 				require.Equal(t, map[string]any{
@@ -1007,14 +1016,17 @@ func capturedSiblingIntegration(
 
 func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"slack", "discord"} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			f := newCapturedHTTPFixture(t, provider, "question")
 			sibling, key := capturedSiblingIntegration(t, f)
 			forged := f
 			forged.key, forged.signingSecret, forged.callbackStatus = key, "sibling-signing-secret", http.StatusUnauthorized
-			if provider == "slack" {
+			if provider == integrationdefinition.ProviderSlack {
 				forged.slackRequest(t, false)
 			} else {
 				forged.discordRequest(t, "c0", false, false)
@@ -1024,7 +1036,7 @@ func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
-			if provider == "slack" {
+			if provider == integrationdefinition.ProviderSlack {
 				require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
 			} else {
 				require.Equal(t, float64(6), f.discordRequest(t, "c0", false, false)["type"])
@@ -1169,8 +1181,11 @@ func TestCapturedDiscordPresentationRejectsInvalidReceipt(t *testing.T) {
 }
 
 func TestCapturedInteractionFailedSendLeavesDashboardAvailable(t *testing.T) {
-	for _, provider := range []string{"slack", "discord"} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			var sends atomic.Int32
 			f := newCapturedHTTPFixtureWithDismiss(t, provider, "question", nil, capturedHTTPFixtureOptions{
 				prepareOnly: true,
@@ -1194,7 +1209,7 @@ func TestCapturedInteractionFailedSendLeavesDashboardAvailable(t *testing.T) {
 			p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 			require.Error(t, p.Present(t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID))
 			require.EqualValues(t, 1, sends.Load())
-			if provider == "slack" {
+			if provider == integrationdefinition.ProviderSlack {
 				require.Equal(t, "ignored", f.slackRequest(t, false)["ok"])
 			} else {
 				require.Equal(t, float64(4), f.discordRequest(t, "c0", false, false)["type"])

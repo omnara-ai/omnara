@@ -103,7 +103,7 @@ func TestPostMessageClassifiesNon2XXSlackError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostMessage: %v", err)
 	}
-	if !result.PermanentFailure || result.Code != "integration_disconnected" {
+	if !result.PermanentFailure || result.Code != IntegrationDisconnected {
 		t.Fatalf("PostMessage result = %+v, want integration_disconnected", result)
 	}
 }
@@ -126,7 +126,7 @@ func TestPostMessageKeepsUnknown5XXSlackErrorTransient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostMessage: %v", err)
 	}
-	if !result.TransientFailure || result.PermanentFailure || result.Code != "transient_failure" ||
+	if !result.TransientFailure || result.PermanentFailure || result.Code != TransientFailure ||
 		!strings.Contains(result.Message, "rollup_error") {
 		t.Fatalf("PostMessage result = %+v, want transient with slack error", result)
 	}

@@ -79,7 +79,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
             }}
           >
             <span key={label} className="truncate">
-              {label}
+              {value ? (config.renderValue?.(value) ?? label) : label}
             </span>
           </ComboboxTrigger>
           {canClear && (

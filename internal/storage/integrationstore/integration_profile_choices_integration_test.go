@@ -55,7 +55,7 @@ func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 			Name:            "inbox-integration",
 			IntegrationKind: integrationdefinition.SlackThread,
 
-			Settings: integrationtest.ChatSettings("", profileID, second.ID),
+			Settings: integrationtest.ChatSettings(profileID, second.ID),
 		},
 	)
 	require.NoError(t, err)
@@ -317,7 +317,7 @@ func TestIntegrationProfileChoiceSettingsEditPreservesAuthenticatedSetup(t *test
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
 	input := f.chooseInput(t, choice, "support")
-	settings := integrationtest.ChatSettings("", f.input.Options[0].ProfileID)
+	settings := integrationtest.ChatSettings(f.input.Options[0].ProfileID)
 	updated, err := f.store.UpdateIntegration(f.ctx, f.integration.ID, integrationstore.SaveIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 		Settings: settings,
@@ -401,7 +401,7 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 				require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integration.ID))
 				want = storeerr.ErrNotFound
 			case "removed-configured-profile":
-				settings := integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+				settings := integrationtest.ChatSettings(f.input.Options[1].ProfileID)
 				f.exec(t, `UPDATE integrations SET settings=$2 WHERE id=$1`, f.integration.ID, settings)
 			case "disabled-launcher":
 				f.exec(t, `UPDATE integrations SET settings='{}' WHERE id=$1`, f.integration.ID)

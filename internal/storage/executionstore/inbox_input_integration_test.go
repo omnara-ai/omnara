@@ -25,10 +25,10 @@ import (
 func inboxInputIntegration(
 	t *testing.T,
 	f integrationActivationFixture,
-	provider string,
+	provider integrationdefinition.Provider,
 ) integrationstore.IntegrationRecord {
 	t.Helper()
-	require.Equal(t, "github", provider)
+	require.Equal(t, integrationdefinition.ProviderGitHub, provider)
 	secret, _, err := f.store.Secrets().CreateSecret(f.ctx, secretstore.CreateSecretInput{
 		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID,
 		Name: "github-" + uuid.NewString(), Actor: userPrincipal(f.user.ID),

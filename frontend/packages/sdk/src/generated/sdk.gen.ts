@@ -3766,7 +3766,7 @@ export const createIntegrationSubscription = <ThrowOnError extends boolean = tru
 /**
  * Stop forwarding an integration conversation to an agent
  *
- * Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Sending tools, interaction handlers, and the agent remain available. A selected thread does not launch a replacement agent when forwarding stops; attaching again resumes forwarding with a new subscription ID.
+ * Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. The agent, sending tools, interaction handlers, and history remain available. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
  */
 export const deleteIntegrationSubscription = <ThrowOnError extends boolean = true>(options: Options<DeleteIntegrationSubscriptionData, ThrowOnError>): RequestResult<DeleteIntegrationSubscriptionResponses, DeleteIntegrationSubscriptionErrors, ThrowOnError> => (options.client ?? client).delete<DeleteIntegrationSubscriptionResponses, DeleteIntegrationSubscriptionErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteIntegrationSubscriptionResponse),

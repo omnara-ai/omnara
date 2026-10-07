@@ -171,7 +171,8 @@ func (s *Store) lockRuntimeAuthority(ctx context.Context, tx pgx.Tx, revision In
 	if err != nil {
 		return err
 	}
-	if integration.Provider != IntegrationProviderDiscord || integration.SetupRevision != revision.SetupRevision {
+	if integration.Provider != integrationdefinition.ProviderDiscord ||
+		integration.SetupRevision != revision.SetupRevision {
 		return ErrIntegrationRuntimeLeaseLost
 	}
 	secret, err := lockAvailableIntegrationCredential(

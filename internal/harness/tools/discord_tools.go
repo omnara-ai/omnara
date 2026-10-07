@@ -72,7 +72,7 @@ func runDiscordTool(
 	args := discord.MessageArgs{Content: input.Content, Nonce: base64.RawURLEncoding.EncodeToString(record.ID[:])}
 	var total int
 	for _, filePath := range input.Paths {
-		filename, content, err := call.Executor.loadIntegrationFile(ctx, call.Turn, filePath)
+		filename, content, err := call.Executor.loadMessageAttachment(ctx, call.Turn, filePath)
 		if err != nil {
 			return integrationToolFailure(err)
 		}

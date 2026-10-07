@@ -1,5 +1,5 @@
 import {
-  chatIntegrationLauncher,
+  type GitHubIntegrationLauncher,
   githubIntegrationSettings,
   type Integration,
   type IntegrationKind,
@@ -13,9 +13,8 @@ import * as z from 'zod'
 export interface IntegrationFormValues {
   launcher: boolean
   profileIds: string[]
-  scopeKind: string
-  scopeRef: string
-  trigger: string
+  repositoryId: string
+  trigger: GitHubIntegrationLauncher['trigger']
 }
 
 export function integrationFormValues(
@@ -25,13 +24,10 @@ export function integrationFormValues(
 ): IntegrationFormValues {
   const github =
     integrationKind === 'github_pr' ? githubIntegrationSettings(integration.settings) : undefined
-  const chat =
-    integrationKind !== 'github_pr' ? chatIntegrationLauncher(integration.settings) : undefined
   return {
     launcher: Boolean(integration.settings.launcher) || defaultLauncherEnabled,
     profileIds: profileIntegrationProfiles(integration),
-    scopeKind: github?.launcher?.repository_id ? 'repository' : chat?.channel_id ? 'channel' : '',
-    scopeRef: github?.launcher?.repository_id ?? chat?.channel_id ?? '',
+    repositoryId: github?.launcher?.repository_id ?? '',
     trigger: github?.launcher?.trigger ?? (integrationKind === 'github_pr' ? 'both' : 'mention'),
   }
 }
@@ -49,17 +45,9 @@ export function integrationFormRequest(
     name: integration.name,
     launcher: enabled,
     profileIds: values.profileIds,
-    channelId:
-      integrationKind === 'slack_thread' && values.scopeKind === 'channel'
-        ? values.scopeRef.trim()
-        : undefined,
-    repositoryId:
-      integrationKind === 'github_pr' && values.scopeKind === 'repository'
-        ? values.scopeRef.trim()
-        : undefined,
-    trigger: z.enum(['mention', 'pull_request_opened', 'both']).parse(values.trigger),
+    repositoryId: integrationKind === 'github_pr' ? values.repositoryId || undefined : undefined,
+    trigger: values.trigger,
   })
-  if (enabled && values.scopeKind && !values.scopeRef.trim()) throw new Error('Enter a scope ID.')
   if (
     profileIntegrationDiscordKeyStatus({
       integrationKind,
@@ -85,15 +73,8 @@ export function validateIntegrationForm(
 ) {
   try {
     integrationFormRequest(integrationKind, values, integration)
-    return {
-      error: '',
-      profileCount:
-        integrationKind === 'github_pr' && !values.launcher ? 0 : values.profileIds.length,
-    }
+    return ''
   } catch (cause) {
-    return {
-      error: integrationFormError(cause, 'Check the integration settings.'),
-      profileCount: null,
-    }
+    return integrationFormError(cause, 'Check the integration settings.')
   }
 }

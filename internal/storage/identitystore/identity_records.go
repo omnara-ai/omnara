@@ -71,8 +71,6 @@ const (
 	ProjectActionSecretsManage = authz.ProjectSecretsManage
 	AgentActionRead            = authz.AgentRead
 	AgentActionOperate         = authz.AgentOperate
-
-	ActorProviderExternal = "external"
 )
 
 func ProjectRolesAllow(roles []string, action string) bool {

@@ -30,7 +30,7 @@ func TestIntegrationLaunchClaimFreezesEntireRecipientSet(t *testing.T) {
 		ProjectID:       f.project,
 		Name:            "inbox-integration",
 		IntegrationKind: integrationdefinition.SlackThread,
-		Settings:        integrationtest.ChatSettings("", profileID),
+		Settings:        integrationtest.ChatSettings(profileID),
 	}
 	integration, err := store.UpdateIntegration(f.ctx, f.integrationID, setup)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestIntegrationLaunchClaimFreezesEntireRecipientSet(t *testing.T) {
 	require.NotEqual(t, -1, winner)
 	require.JSONEq(t, string(plans[winner]), string(f.read(t, receipts[winner].ID).Plan))
 	require.Empty(t, f.read(t, receipts[1-winner].ID).Plan)
-	setup.Settings = integrationtest.ChatSettings("C456", uuid.New())
+	setup.Settings = integrationtest.ChatSettings(uuid.New())
 	_, err = store.UpdateIntegration(f.ctx, integration.ID, setup)
 	require.NoError(t, err)
 	blockedPlan := plan("c")

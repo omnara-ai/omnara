@@ -1,92 +1,42 @@
-import { useUpdateIntegration } from '@omnara/react'
-import type { Integration, IntegrationKind } from '@omnara/sdk'
-import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
-
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
-import { errorMessage } from '@/lib/submit-status'
 
 import { IntegrationLauncherFields } from './IntegrationFormFields'
 import {
-  integrationFormRequest,
-  type IntegrationFormValues,
-  integrationFormValues,
-  validateIntegrationForm,
-} from './integrationFormState'
+  type IntegrationFormDraftOptions,
+  useIntegrationFormDraft,
+} from './useIntegrationFormDraft'
 
-export interface IntegrationFormProps {
-  orgId: string
-  projectId: string
-  integrationKind: IntegrationKind
-  integration: Integration
-  onSaved: (integration: Integration) => void
+export interface IntegrationFormProps extends IntegrationFormDraftOptions {
   onCancel?: () => void
   cancelLabel?: string
-  defaultLauncherEnabled?: boolean
 }
 
-export function IntegrationForm(props: IntegrationFormProps) {
-  const [base, setBase] = useState(props.integration)
-  const stale = base.id !== props.integration.id || base.updated_at !== props.integration.updated_at
-  return (
-    <IntegrationFormEditor
-      key={`${base.id}/${base.updated_at}`}
-      {...props}
-      integration={base}
-      stale={stale}
-      onReload={() => {
-        setBase(props.integration)
-      }}
-    />
-  )
-}
-
-function IntegrationFormEditor({
+export function IntegrationForm({
   orgId,
   projectId,
   integrationKind,
   integration,
   onSaved,
+  onDiscard,
   onCancel,
   cancelLabel = 'Cancel',
+  canEdit = true,
   defaultLauncherEnabled = false,
-  stale,
-  onReload,
-}: IntegrationFormProps & { stale: boolean; onReload: () => void }) {
-  const update = useUpdateIntegration(orgId, projectId)
-  const [values, setValues] = useState(() =>
-    integrationFormValues(integrationKind, integration, defaultLauncherEnabled),
-  )
-  const [error, setError] = useState('')
-  const submitting = useRef(false)
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-  const busy = update.isPending
-  const validation = validateIntegrationForm(integrationKind, values, integration)
+}: IntegrationFormProps) {
+  const { values, dirty, stale, busy, error, validationError, canSave, change, discard, submit } =
+    useIntegrationFormDraft({
+      orgId,
+      projectId,
+      integrationKind,
+      integration,
+      onSaved,
+      onDiscard,
+      canEdit,
+      defaultLauncherEnabled,
+    })
   const missingProfile =
     integrationKind === 'github_pr' && values.launcher && values.profileIds.length === 0
-  function change(patch: Partial<IntegrationFormValues>) {
-    setValues((previous) => ({ ...previous, ...patch }))
-  }
-  async function submit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (submitting.current || stale || validation.error) return
-    submitting.current = true
-    setError('')
-    try {
-      const request = integrationFormRequest(integrationKind, values, integration)
-      const saved = await update.mutateAsync({ integrationID: integration.id, ...request })
-      if (mounted.current) onSaved(saved)
-    } catch (cause) {
-      setError(errorMessage(cause, 'Could not save integration.'))
-    }
-    submitting.current = false
-  }
   return (
     <form onSubmit={(event) => void submit(event)}>
       <FieldGroup>
@@ -95,12 +45,12 @@ function IntegrationFormEditor({
             <p>
               Integration changed. Reload settings before saving. Reloading discards unsaved edits.
             </p>
-            <Button type="button" variant="outline" disabled={busy} onClick={onReload}>
+            <Button type="button" variant="outline" disabled={busy} onClick={discard}>
               Reload settings
             </Button>
           </div>
         )}
-        <fieldset disabled={busy || stale} className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6">
           <IntegrationLauncherFields
             orgId={orgId}
             projectId={projectId}
@@ -108,33 +58,67 @@ function IntegrationFormEditor({
             integration={integration}
             values={values}
             onChange={change}
-            disabled={busy || stale}
-            profileCount={validation.profileCount}
+            disabled={!canEdit || busy || stale}
           />
-        </fieldset>
+        </div>
         {error && (
           <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
             {error}
           </p>
         )}
-        {!error && validation.error && !missingProfile && (
-          <p className="text-muted-foreground text-sm">{validation.error}</p>
+        {canEdit && !error && validationError && !missingProfile && (
+          <p className="text-muted-foreground text-sm">{validationError}</p>
         )}
-        <div className="flex justify-end gap-2">
-          {onCancel && (
-            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-              {cancelLabel}
-            </Button>
-          )}
-          <Button
-            type="submit"
-            loading={busy}
-            disabled={busy || stale || Boolean(validation.error)}
-          >
-            Save changes
-          </Button>
-        </div>
+        {canEdit && (
+          <IntegrationFormActions
+            busy={busy}
+            dirty={dirty}
+            stale={stale}
+            canSave={canSave}
+            onCancel={onCancel}
+            cancelLabel={cancelLabel}
+            onDiscard={discard}
+          />
+        )}
       </FieldGroup>
     </form>
+  )
+}
+
+function IntegrationFormActions({
+  busy,
+  dirty,
+  stale,
+  canSave,
+  onCancel,
+  cancelLabel,
+  onDiscard,
+}: {
+  busy: boolean
+  dirty: boolean
+  stale: boolean
+  canSave: boolean
+  onCancel?: () => void
+  cancelLabel: string
+  onDiscard: () => void
+}) {
+  return (
+    <div className="flex justify-end gap-2">
+      {onCancel ? (
+        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+      ) : (
+        dirty &&
+        !stale && (
+          <Button type="button" variant="outline" disabled={busy} onClick={onDiscard}>
+            Discard changes
+          </Button>
+        )
+      )}
+      <Button type="submit" loading={busy} disabled={!canSave || busy}>
+        Save changes
+      </Button>
+    </div>
   )
 }

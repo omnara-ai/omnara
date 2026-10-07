@@ -221,7 +221,7 @@ func newInboxLaunchFixtureForIntegration(
 		ProjectID:       testProjectID,
 		Name:            f.integration.Name,
 		IntegrationKind: integrationdefinition.SlackThread,
-		Settings:        integrationtest.ChatSettings("C123", f.profile.ID),
+		Settings:        integrationtest.ChatSettings(f.profile.ID),
 	}
 	var err error
 	f.integration, err = f.store.Integrations().UpdateIntegration(f.ctx, f.integration.ID, setup)
@@ -530,7 +530,7 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossIntegrationEdit(t *testing.T) {
 	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "b", nil)
 	require.Error(t, err)
 	f.assertAbsent(t, "b")
-	settings := integrationtest.ChatSettings("C456", uuid.New())
+	settings := integrationtest.ChatSettings(uuid.New())
 	_, err = f.store.Integrations().
 		UpdateIntegration(
 			f.ctx,

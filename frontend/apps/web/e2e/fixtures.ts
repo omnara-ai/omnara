@@ -260,7 +260,7 @@ export async function connectIntegrationWithCredentialRetry(
   await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   expect((await configured).status()).toBe(200)
   await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationKind}`)
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const integration = await readIntegration(page, apiProjectPath, draft.id)
   expect(integration).toMatchObject({

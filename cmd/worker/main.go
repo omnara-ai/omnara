@@ -174,6 +174,7 @@ func main() {
 		ctx,
 		log,
 		cfg.WorkerBackgroundToolCapacity,
+		metricSet,
 	)
 	if err != nil {
 		log.Error("configure background tool runner", "error", err)
@@ -286,10 +287,12 @@ func main() {
 		store.Secrets(),
 		store.Integrations(),
 	)
-	integrationProviders := map[string]integrationruntime.IntegrationInboxProvider{
-		"slack":   slackProvider,
-		"discord": discordProvider,
-		"github":  integrationruntime.NewGitHubIntegrationInboxProvider(github.Config{HTTPClient: integrationHTTPClient}, store.Secrets(), store.Integrations()),
+	integrationProviders := map[integrationdefinition.Provider]integrationruntime.IntegrationInboxProvider{
+		integrationdefinition.ProviderSlack:   slackProvider,
+		integrationdefinition.ProviderDiscord: discordProvider,
+		integrationdefinition.ProviderGitHub: integrationruntime.NewGitHubIntegrationInboxProvider(
+			github.Config{HTTPClient: integrationHTTPClient}, store.Secrets(), store.Integrations(),
+		),
 	}
 	chatLauncher := integrationruntime.NewChatIntegrationLauncher(
 		store.Integrations(),

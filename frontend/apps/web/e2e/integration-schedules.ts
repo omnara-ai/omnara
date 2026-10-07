@@ -15,17 +15,7 @@ export async function exerciseDiscordIntegrationSchedule(
   await expect(
     mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
   ).toBeVisible()
-  await expect(mentions).toContainText('0/16 selected')
-  const savedSettings = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'PUT' &&
-      new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
-  )
-  await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
-  const saved = await savedSettings
-  expect(saved.status()).toBe(200)
-  expect(schemas.zIntegration.parse(await saved.json()).settings.launcher).toBeUndefined()
-  await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
+  await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
   const name = `${integration.name} schedule`
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })
   await schedules.getByRole('button', { name: 'Add schedule', exact: true }).click()
@@ -127,5 +117,8 @@ export async function exerciseDiscordIntegrationSchedule(
   expect(
     (await readIntegration(page, apiProjectPath, integration.id)).settings.launcher,
   ).toBeUndefined()
-  await mentions.getByRole('button', { name: 'Choose profiles', exact: true }).click()
+  await expect(
+    mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
+  ).toBeVisible()
+  await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
 }

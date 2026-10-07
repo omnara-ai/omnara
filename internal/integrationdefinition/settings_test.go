@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testLaunchSettings(kind Kind, trigger string) json.RawMessage {
+func testLaunchSettings(kind Kind, trigger LauncherTrigger) json.RawMessage {
 	id, _ := publicid.Encode(publicid.KindAgentProfile, uuid.MustParse("11111111-1111-4111-8111-111111111111"))
 	if kind == GitHubPR {
 		return json.RawMessage(fmt.Sprintf(`{"launcher":{"profile":%q,"trigger":%q}}`, id, trigger))
@@ -21,7 +21,7 @@ func testLaunchSettings(kind Kind, trigger string) json.RawMessage {
 func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 	profile, _ := publicid.Encode(publicid.KindAgentProfile, uuid.New())
 	for _, kind := range []Kind{SlackThread, DiscordThread, GitHubPR} {
-		for _, settings := range []json.RawMessage{json.RawMessage(`{}`), testLaunchSettings(kind, "mention")} {
+		for _, settings := range []json.RawMessage{json.RawMessage(`{}`), testLaunchSettings(kind, TriggerMention)} {
 			_, err := ValidateSettings(kind, settings)
 			require.NoError(t, err)
 		}
@@ -33,7 +33,6 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q,%q]}}`, profile, profile)},
 		{SlackThread, `{"launcher":{"profiles":[]}}`},
 		{SlackThread, `{"launcher":{"profiles":["11111111-1111-4111-8111-111111111111"]}}`},
-		{DiscordThread, fmt.Sprintf(`{"launcher":{"profiles":[%q],"channel_id":"123"}}`, profile)},
 		{GitHubPR, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, profile)},
 		{GitHubPR, fmt.Sprintf(
 			`{"launcher":{"profile":%q,"trigger":"mention","repository_id":"9223372036854775808"}}`, profile)},
@@ -44,12 +43,14 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 }
 
 func TestIntegrationLaunchAuthorizationAndScope(t *testing.T) {
-	profiles, err := ChatLaunchProfiles(testLaunchSettings(SlackThread, "mention"))
+	profiles, err := ChatLaunchProfiles(testLaunchSettings(SlackThread, TriggerMention))
 	require.NoError(t, err)
 	profile := profiles[0]
-	event := Event{Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}, Kind: "message", Mentioned: true}
+	event := Event{
+		Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}, Kind: EventMessage, Mentioned: true,
+	}
 	definition, _ := Lookup(SlackThread)
-	settings := testLaunchSettings(SlackThread, "mention")
+	settings := testLaunchSettings(SlackThread, TriggerMention)
 	intent := LaunchIntent{LaunchKey: ProfileLaunchKey, ProfileID: profile}
 	require.NoError(t, definition.AuthorizeLaunch(settings, event, intent))
 	intent.LaunchKey = "profile_2"
@@ -59,16 +60,42 @@ func TestIntegrationLaunchAuthorizationAndScope(t *testing.T) {
 	require.Error(t, definition.AuthorizeLaunch(settings, event, intent))
 	intent.ProfileID = uuid.Nil
 	require.Error(t, definition.AuthorizeLaunch(settings, event, intent))
-	var raw map[string]map[string]any
-	require.NoError(t, json.Unmarshal(settings, &raw))
-	raw["launcher"]["channel_id"] = "C456"
-	settings, err = json.Marshal(raw)
-	require.NoError(t, err)
-	require.False(t, definition.MatchesLaunch(settings, event))
 	github, _ := Lookup(GitHubPR)
-	pr := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"}
-	require.True(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, "pull_request_opened"), pr))
-	require.False(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, "mention"), pr))
+	pr := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: EventPullRequestOpened}
+	require.True(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, TriggerPullRequestOpened), pr))
+	require.False(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, TriggerMention), pr))
+}
+
+func TestChatLaunchersMatchProviderMentions(t *testing.T) {
+	for _, kind := range []Kind{SlackThread, DiscordThread} {
+		t.Run(string(kind), func(t *testing.T) {
+			definition, _ := Lookup(kind)
+			settings := testLaunchSettings(kind, TriggerMention)
+			for _, tc := range []struct {
+				name  string
+				scope Scope
+				kind  Kind
+			}{
+				{"Slack channel", Scope{Slack: &SlackScope{ChannelID: "C123"}}, SlackThread},
+				{"Slack other channel", Scope{Slack: &SlackScope{ChannelID: "C456"}}, SlackThread},
+				{"Slack private channel", Scope{Slack: &SlackScope{ChannelID: "G123"}}, SlackThread},
+				{"Slack thread", Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}, SlackThread},
+				{"Slack DM", Scope{Slack: &SlackScope{ChannelID: "D123"}}, SlackThread},
+				{"Slack DM thread", Scope{Slack: &SlackScope{ChannelID: "D123", ThreadTS: "1.2"}}, SlackThread},
+				{"Discord channel", Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456"}}, DiscordThread},
+				{"Discord thread", Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456", ThreadID: "789"}}, DiscordThread},
+				{"Discord DM", Scope{Discord: &DiscordScope{ChannelID: "456"}}, ""},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					event := Event{Scope: tc.scope, Kind: EventMessage, Mentioned: true}
+					require.Equal(t, kind == tc.kind, definition.MatchesLaunch(settings, event))
+					require.False(t, definition.MatchesLaunch(json.RawMessage(`{}`), event))
+					event.Mentioned = false
+					require.False(t, definition.MatchesLaunch(settings, event))
+				})
+			}
+		})
+	}
 }
 
 func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
@@ -94,18 +121,19 @@ func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 
 func TestGitHubLauncherTriggers(t *testing.T) {
 	definition, _ := Lookup(GitHubPR)
-	for _, trigger := range []string{"mention", "pull_request_opened", "both"} {
-		t.Run(trigger, func(t *testing.T) {
+	for _, trigger := range []LauncherTrigger{TriggerMention, TriggerPullRequestOpened, TriggerBoth} {
+		t.Run(string(trigger), func(t *testing.T) {
 			settings := testLaunchSettings(GitHubPR, trigger)
 			_, err := ValidateSettings(GitHubPR, settings)
 			require.NoError(t, err)
-			for _, kind := range []string{"discussion_comment", "review_comment", "pull_request_opened", "commit"} {
+			for _, kind := range []EventKind{EventDiscussionComment, EventReviewComment, EventPullRequestOpened, EventCommit} {
 				for _, mentioned := range []bool{false, true} {
 					event := Event{
 						Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: kind, Mentioned: mentioned,
 					}
-					want := (kind == "pull_request_opened" && trigger != "mention") ||
-						((kind == "discussion_comment" || kind == "review_comment") && mentioned && trigger != "pull_request_opened")
+					want := (kind == EventPullRequestOpened && trigger != TriggerMention) ||
+						((kind == EventDiscussionComment || kind == EventReviewComment) &&
+							mentioned && trigger != TriggerPullRequestOpened)
 					require.Equal(t, want, definition.MatchesLaunch(settings, event), "%s mentioned=%t", kind, mentioned)
 				}
 			}
@@ -114,7 +142,7 @@ func TestGitHubLauncherTriggers(t *testing.T) {
 			restricted.Launcher.RepositoryID = "456"
 			settings, err = json.Marshal(restricted)
 			require.NoError(t, err)
-			for _, kind := range []string{"discussion_comment", "pull_request_opened"} {
+			for _, kind := range []EventKind{EventDiscussionComment, EventPullRequestOpened} {
 				require.False(t, definition.MatchesLaunch(settings, Event{
 					Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: kind, Mentioned: true,
 				}))
@@ -127,12 +155,12 @@ func TestPendingLaunchPredicateOnlyProtectsSingleProfileChat(t *testing.T) {
 	for _, kind := range []Kind{SlackThread, DiscordThread} {
 		t.Run(string(kind), func(t *testing.T) {
 			definition, _ := Lookup(kind)
-			event := Event{Kind: "message", Mentioned: true,
+			event := Event{Kind: EventMessage, Mentioned: true,
 				Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}}
 			if kind == DiscordThread {
 				event.Scope = Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456", ThreadID: "789"}}
 			}
-			single := testLaunchSettings(kind, "mention")
+			single := testLaunchSettings(kind, TriggerMention)
 			require.True(t, definition.MayLaunchWithoutSelection(single, event))
 			event.Mentioned = false
 			require.False(t, definition.MayLaunchWithoutSelection(single, event))
@@ -150,8 +178,8 @@ func TestPendingLaunchPredicateOnlyProtectsSingleProfileChat(t *testing.T) {
 		})
 	}
 	github, _ := Lookup(GitHubPR)
-	pr := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"}
-	require.True(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, "pull_request_opened"), pr))
+	pr := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: EventPullRequestOpened}
+	require.True(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, TriggerPullRequestOpened), pr))
 	require.Nil(t, github.Launcher.MayLaunchWithoutSelection)
-	require.False(t, github.MayLaunchWithoutSelection(testLaunchSettings(GitHubPR, "pull_request_opened"), pr))
+	require.False(t, github.MayLaunchWithoutSelection(testLaunchSettings(GitHubPR, TriggerPullRequestOpened), pr))
 }

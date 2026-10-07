@@ -9,10 +9,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -21,12 +24,32 @@ type GitHubAppIdentity struct {
 	BotLogin  string `json:"bot_login"`
 }
 
+type GitHubInboxSecrets interface {
+	ReadProjectAvailableSecretPayload(context.Context, secretstore.ReadProjectAvailableSecretPayloadInput) (
+		secretstore.SecretPayloadRecord, error,
+	)
+	GetProjectAvailableSecret(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (
+		secretstore.ProjectSecretAccessRecord, error,
+	)
+}
+
+type GitHubInboxIntegrations interface {
+	GetIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationRecord, error)
+}
+
 // GitHubIntegrationInboxProvider uses signed body fields because event/delivery headers are unsigned:
 // https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 type GitHubIntegrationInboxProvider struct {
 	config       github.Config
 	secrets      GitHubInboxSecrets
 	integrations GitHubInboxIntegrations
+}
+
+func NewGitHubIntegrationInboxProvider(config github.Config, secrets GitHubInboxSecrets,
+	integrations GitHubInboxIntegrations,
+) *GitHubIntegrationInboxProvider {
+	config.Credentials, config.InstallationID = github.Credentials{}, 0
+	return &GitHubIntegrationInboxProvider{config: config, secrets: secrets, integrations: integrations}
 }
 
 func (p GitHubIntegrationInboxProvider) Expand(
@@ -51,8 +74,9 @@ func (p GitHubIntegrationInboxProvider) ExpandRouted(
 			return IntegrationInboxExpansion{}, err
 		}
 	}
-	switch event.Event.Kind {
-	case "discussion_comment", "review_comment", "pull_request_opened":
+	if event.Event.Kind == integrationdefinition.EventDiscussionComment ||
+		event.Event.Kind == integrationdefinition.EventReviewComment ||
+		event.Event.Kind == integrationdefinition.EventPullRequestOpened {
 		ctx, cancel := context.WithTimeout(ctx, github.OperationTimeout)
 		defer cancel()
 		client, err := p.requestAccess(ctx, integrationSetup)
@@ -111,7 +135,7 @@ type GitHubEventMetadata struct {
 func NormalizeGitHubIntegrationEvent(
 	integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) (IntegrationEvent, bool, error) {
-	if integrationSetup.Provider != integrationstore.IntegrationProviderGitHub {
+	if integrationSetup.Provider != integrationdefinition.ProviderGitHub {
 		return IntegrationEvent{}, false, storeerr.ErrUnauthorized
 	}
 	var payload githubEventPayload
@@ -138,18 +162,19 @@ func NormalizeGitHubIntegrationEvent(
 		RepositoryID: payload.Repository.ID, RepositoryName: payload.Repository.FullName,
 		EventType: eventType, Action: payload.Action,
 	}
-	var kind, key, text, mentionText string
+	var kind integrationdefinition.EventKind
+	var key, text, mentionText string
 	actor := payload.Sender
 	switch eventType {
 	case "issue_comment":
 		metadata.PullRequest = payload.Issue.Number
-		kind = "discussion_comment"
+		kind = integrationdefinition.EventDiscussionComment
 		actor, text = payload.Comment.User, payload.Comment.Body
 		metadata.CommentID, metadata.URL = payload.Comment.ID, payload.Comment.HTMLURL
 		key = fmt.Sprintf("discussion_comment:%d:created", metadata.CommentID)
 		mentionText = text
 	case "pull_request_review_comment":
-		kind = "review_comment"
+		kind = integrationdefinition.EventReviewComment
 		actor, text = payload.Comment.User, payload.Comment.Body
 		metadata.CommentID, metadata.URL = payload.Comment.ID, payload.Comment.HTMLURL
 		metadata.ReviewID, metadata.ReplyToID = payload.Comment.PullRequestReviewID, payload.Comment.InReplyToID
@@ -182,7 +207,7 @@ func NormalizeGitHubIntegrationEvent(
 		default:
 			return IntegrationEvent{}, false, fmt.Errorf("invalid submitted GitHub review state")
 		}
-		kind, actor = "review_comment", payload.Review.User
+		kind, actor = integrationdefinition.EventReviewComment, payload.Review.User
 		metadata.ReviewID, metadata.ReviewState = payload.Review.ID, payload.Review.State
 		metadata.CommitID = payload.Review.CommitID
 		metadata.URL = payload.Review.HTMLURL
@@ -192,7 +217,7 @@ func NormalizeGitHubIntegrationEvent(
 	case "pull_request":
 		switch payload.Action {
 		case "opened":
-			kind = "pull_request_opened"
+			kind = integrationdefinition.EventPullRequestOpened
 			text = "Pull request opened: " + payload.PullRequest.Title + "\n" + payload.PullRequest.Body
 			key = fmt.Sprintf("pull_request:%d:opened", payload.PullRequest.ID)
 		case "synchronize":
@@ -200,7 +225,7 @@ func NormalizeGitHubIntegrationEvent(
 				payload.After != payload.PullRequest.Head.SHA {
 				return IntegrationEvent{}, false, fmt.Errorf("invalid GitHub synchronize commit identity")
 			}
-			kind = "commit"
+			kind = integrationdefinition.EventCommit
 			metadata.Before, metadata.After = payload.Before, payload.After
 			text = "Pull request head changed from " + payload.Before + " to " + payload.After
 			key = fmt.Sprintf("pull_request:%d:synchronize:%s:%s", payload.PullRequest.ID, payload.Before, payload.After)
@@ -222,9 +247,10 @@ func NormalizeGitHubIntegrationEvent(
 		(payload.Comment != nil && metadata.CommentID <= 0) || (payload.Review != nil && metadata.ReviewID <= 0) {
 		return IntegrationEvent{}, false, fmt.Errorf("GitHub event lacks durable object or actor identity")
 	}
-	humanInput := kind == "discussion_comment" || kind == "review_comment"
+	humanInput := kind == integrationdefinition.EventDiscussionComment || kind == integrationdefinition.EventReviewComment
 	if githubSelfEvent(actor, identity) ||
-		((humanInput || kind == "pull_request_opened") && (actor.Type != "User" || payload.Sender.Type != "User")) {
+		((humanInput || kind == integrationdefinition.EventPullRequestOpened) &&
+			(actor.Type != "User" || payload.Sender.Type != "User")) {
 		return IntegrationEvent{}, false, nil
 	}
 	if humanInput && actor.ID != payload.Sender.ID {
@@ -294,7 +320,7 @@ func GitHubWebhookInstallationMatches(c integrationstore.IntegrationRecord, even
 	// GitHub can omit app_id; ingress has already verified this integration's HMAC signature.
 	appID, appErr := strconv.ParseInt(c.ProviderTenantID, 10, 64)
 	installationID, installationErr := strconv.ParseInt(c.ProviderAccountRef, 10, 64)
-	return c.Provider == integrationstore.IntegrationProviderGitHub && appErr == nil && installationErr == nil &&
+	return c.Provider == integrationdefinition.ProviderGitHub && appErr == nil && installationErr == nil &&
 		appID > 0 && installationID > 0 && strconv.FormatInt(appID, 10) == c.ProviderTenantID &&
 		strconv.FormatInt(installationID, 10) == c.ProviderAccountRef && event.Installation.ID == installationID &&
 		(event.Installation.AppID == 0 || event.Installation.AppID == appID)
@@ -369,4 +395,82 @@ func githubEventSenderAllowed(ctx context.Context, client *github.Client, event 
 	scope := event.Event.Scope.GitHub
 	return client.CanDirectPullRequest(ctx, github.Scope{RepositoryID: scope.RepositoryID, PullRequest: scope.PullRequest},
 		github.User{ID: userID, Login: *event.Actor.DisplayName})
+}
+
+func (p GitHubIntegrationInboxProvider) acknowledge(ctx context.Context,
+	integration integrationstore.IntegrationRecord, payload []byte,
+) error {
+	event, ok, err := NormalizeGitHubIntegrationEvent(integration, payload)
+	if err != nil || !ok {
+		return err
+	}
+	var metadata GitHubEventMetadata
+	if err := json.Unmarshal(event.Metadata, &metadata); err != nil {
+		return err
+	}
+	if metadata.EventType != "issue_comment" && metadata.EventType != "pull_request_review_comment" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	client, err := p.requestAccess(ctx, integration)
+	if err != nil {
+		return err
+	}
+	scope := github.Scope{RepositoryID: event.Event.Scope.GitHub.RepositoryID,
+		PullRequest: event.Event.Scope.GitHub.PullRequest}
+	return client.AcknowledgeComment(ctx, scope, metadata.CommentID,
+		metadata.EventType == "pull_request_review_comment")
+}
+
+func (p GitHubIntegrationInboxProvider) requestAccess(ctx context.Context,
+	integration integrationstore.IntegrationRecord,
+) (*github.Client, error) {
+	if p.integrations == nil || p.secrets == nil {
+		return nil, fmt.Errorf("GitHub secret and integration resolvers are required")
+	}
+	if integration.Provider != integrationdefinition.ProviderGitHub {
+		return nil, storeerr.ErrUnauthorized
+	}
+	if err := checkIntegrationSetup(ctx, p.integrations, integration); err != nil {
+		return nil, err
+	}
+	credential, err := p.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
+		OrgID:     integration.OrgID,
+		ProjectID: integration.ProjectID,
+		SecretID:  integration.CredentialSecretID,
+		Kind:      secrets.KindGitHubAppCredentials,
+	})
+	if err != nil {
+		return nil, err
+	}
+	appID, err := strconv.ParseInt(credential.Payload[secrets.KeyAppID], 10, 64)
+	if err != nil || appID <= 0 || strconv.FormatInt(appID, 10) != integration.ProviderTenantID {
+		return nil, storeerr.ErrUnauthorized
+	}
+	installationID, err := strconv.ParseInt(integration.ProviderAccountRef, 10, 64)
+	if err != nil || installationID <= 0 || strconv.FormatInt(installationID, 10) != integration.ProviderAccountRef {
+		return nil, storeerr.ErrUnauthorized
+	}
+	config := p.config
+	config.Credentials = github.Credentials{AppID: appID,
+		PrivateKeyPEM: credential.Payload[secrets.KeyPrivateKey], WebhookSecret: credential.Payload[secrets.KeyWebhookSecret]}
+	config.InstallationID = installationID
+	config.CredentialSecretID = integration.CredentialSecretID
+	config.CredentialVersionID = credential.CurrentVersionID
+	config.BeforeRequest = func(ctx context.Context) error {
+		if err := CheckCredentialAccess(
+			ctx, p.integrations, p.secrets, integration, credential.CurrentVersionID,
+		); err != nil {
+			return err
+		}
+		if p.config.BeforeRequest != nil {
+			return p.config.BeforeRequest(ctx)
+		}
+		return nil
+	}
+	if err := config.BeforeRequest(ctx); err != nil {
+		return nil, err
+	}
+	return github.NewClient(config)
 }

@@ -1506,13 +1506,13 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "integration events provider route exact match",
 			method: http.MethodPost,
-			path:   integrationEventsPath,
+			path:   slackEventsPath,
 			want:   http.StatusBadRequest,
 		},
 		{
 			name:   "integration actions provider route exact match",
 			method: http.MethodPost,
-			path:   integrationActionsPath,
+			path:   slackActionsPath,
 			want:   http.StatusBadRequest,
 		},
 		{

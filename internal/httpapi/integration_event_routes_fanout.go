@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -26,13 +27,13 @@ func fanoutIntegrations(
 	ctx context.Context,
 	listIntegrations func(
 		context.Context,
-		string,
+		integrationdefinition.Provider,
 		string,
 		string,
 		uuid.UUID,
 		int,
 	) ([]integrationstore.IntegrationRecord, error),
-	provider, tenant, account string,
+	provider integrationdefinition.Provider, tenant, account string,
 	accept func(context.Context, integrationstore.IntegrationRecord) (bool, error),
 ) (integrationFanoutResult, error) {
 	var result integrationFanoutResult
@@ -60,7 +61,7 @@ func fanoutIntegrations(
 			after = integration.ID
 			// Acknowledge disconnected integrations to avoid retries: https://docs.slack.dev/apis/events-api/#responding
 			eligible := integration.State == integrationstore.IntegrationStateActive ||
-				(provider == integrationstore.IntegrationProviderSlack &&
+				(provider == integrationdefinition.ProviderSlack &&
 					integration.State == integrationstore.IntegrationStateDisconnected &&
 					integration.CredentialSecretID != uuid.Nil)
 			if !eligible || integration.DeletedAt != nil || integration.Provider != provider ||

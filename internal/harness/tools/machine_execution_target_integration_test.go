@@ -932,7 +932,7 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 			return nil
 		},
 	}
-	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}

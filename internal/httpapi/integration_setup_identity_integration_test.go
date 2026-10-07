@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -31,11 +32,11 @@ type integrationSetupIdentityFixture struct {
 }
 
 func newIntegrationSetupIdentityFixture(
-	t *testing.T, provider string, before func(context.Context) error,
+	t *testing.T, provider integrationdefinition.Provider, before func(context.Context) error,
 ) integrationSetupIdentityFixture {
 	t.Helper()
 	var f integrationSetupIdentityFixture
-	if provider == "github" {
+	if provider == integrationdefinition.ProviderGitHub {
 		config := githubSetupTestConfig(t)
 		config.BeforeRequest = before
 		journey := newGitHubSetupJourney(t, "github-identity", WithGitHubClientConfig(config))
@@ -133,8 +134,11 @@ func verifiedIntegrationCredentialVersion(
 
 func TestIntegrationSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"github", "discord"} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderGitHub,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			calls, offline := 0, false
 			f := newIntegrationSetupIdentityFixture(t, provider, func(context.Context) error {
@@ -147,7 +151,7 @@ func TestIntegrationSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 			require.Equal(t, f.steps, calls)
 			verifiedIntegrationCredentialVersion(t, f.integration)
 			offline = true
-			if provider == "discord" {
+			if provider == integrationdefinition.ProviderDiscord {
 				f.body["provider_agent_display_name"] = "Updated active label"
 				f.update(t, http.StatusOK)
 				require.Equal(t, "Updated active label", f.current(t).ProviderAgentDisplayName)
@@ -202,9 +206,12 @@ func TestIntegrationSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 
 func TestIntegrationSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"github", "discord"} {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderGitHub,
+		integrationdefinition.ProviderDiscord,
+	} {
 		for _, change := range []string{"credential rotation", "integration setup", "integration deletion"} {
-			t.Run(provider+"/"+change, func(t *testing.T) {
+			t.Run(string(provider)+"/"+change, func(t *testing.T) {
 				t.Parallel()
 				var before func()
 				f := newIntegrationSetupIdentityFixture(t, provider, func(context.Context) error {
@@ -285,8 +292,11 @@ func TestIntegrationSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 
 func TestIntegrationSetupHTTPIdentitySaveRechecksCredentialGrant(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{"github", "discord"} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderGitHub,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			var revoke func()
 			f := newIntegrationSetupIdentityFixture(t, provider, func(context.Context) error {

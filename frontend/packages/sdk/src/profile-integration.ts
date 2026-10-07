@@ -15,19 +15,13 @@ const profilesSchema = z
   .array(zAgentProfileId)
   .max(16)
   .refine((ids) => new Set(ids).size === ids.length, 'Choose each profile only once.')
-const channelSchema = z
-  .string()
-  .trim()
-  .regex(/^[CG][A-Z0-9]+$/, 'Enter a Slack channel ID, such as C123.')
 const repositorySchema = z
   .string()
   .trim()
   .regex(/^[1-9][0-9]*$/, 'Enter a positive repository ID without leading zeros.')
   .refine((id) => BigInt(id) <= 9223372036854775807n, 'The repository ID is too large.')
 const triggerSchema = z.enum(['mention', 'pull_request_opened', 'both'])
-const chatLauncherSchema = z
-  .object({ profiles: profilesSchema.min(1), channel_id: channelSchema.optional() })
-  .strict()
+const chatLauncherSchema = z.object({ profiles: profilesSchema.min(1) }).strict()
 const githubLauncherSchema = z
   .object({
     profile: zAgentProfileId,
@@ -82,7 +76,6 @@ export function profileIntegrationSetup(input: {
   profileId?: string
   profileIds?: readonly string[]
   launcher?: boolean
-  channelId?: string
   repositoryId?: string
   trigger?: GitHubIntegrationLauncher['trigger']
 }): CreateIntegrationRequest {
@@ -93,7 +86,6 @@ export function profileIntegrationSetup(input: {
       .parse(input.profileIds ?? (input.profileId ? [input.profileId] : []))
     if (input.integrationKind === 'github_pr') {
       if (profiles.length !== 1) throw new Error('GitHub requires exactly one profile.')
-      if (input.channelId) throw new Error('GitHub launchers do not accept a channel.')
       settings.launcher = githubLauncherSchema.parse({
         profile: profiles[0],
         trigger: input.trigger ?? 'both',
@@ -102,12 +94,7 @@ export function profileIntegrationSetup(input: {
     } else {
       if (input.repositoryId || (input.trigger && input.trigger !== 'mention'))
         throw new Error('Chat launchers start from mentions.')
-      if (input.integrationKind === 'discord_thread' && input.channelId)
-        throw new Error('Manage Discord bot access in Discord.')
-      settings.launcher = chatLauncherSchema.parse({
-        profiles,
-        channel_id: input.channelId === '' ? undefined : input.channelId,
-      })
+      settings.launcher = chatLauncherSchema.parse({ profiles })
     }
   }
   const name = zIntegrationName.safeParse(input.name.trim())
@@ -125,6 +112,6 @@ export function profileIntegrationProfileUpdate(
   const profiles = profilesSchema.parse(profileIds)
   const settings = { ...integration.settings }
   if (profiles.length === 0) delete settings.launcher
-  else settings.launcher = { ...chatIntegrationLauncher(settings), profiles }
+  else settings.launcher = { profiles }
   return { settings }
 }

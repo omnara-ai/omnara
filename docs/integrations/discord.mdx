@@ -33,7 +33,7 @@ credential for you and retrieves the bot User ID and display name from the token
 After connecting, save the displayed **Interactions Endpoint URL** under
 **General Information** in Discord. **Add bot to server** opens Discord with the
 permissions above already selected. Choose a server you manage, then select
-**Profiles for mentions** in Omnara.
+**Profiles for mentions** in Omnara and select **Save changes**.
 
 The dashboard requires the public key. It verifies interaction callbacks for
 profile menus, questions and approvals; it is different from the bot token used
@@ -136,7 +136,8 @@ steer the agent and cancel open interactions. Bot and webhook messages are ignor
 The bot adds an eyes reaction after a message is accepted for an agent. Enable
 **Add Reactions** on the bot's role if you installed it before this permission was
 included in setup. A failed reaction does not prevent the agent from receiving the message.
-Edit the offered profiles to change future launches; existing agents keep their configs.
+Change **Profiles for mentions** directly on the integration page and select **Save changes**
+to update future launches; existing agents keep their configs.
 Selecting profiles enables mention launches without a separate enable switch.
 An empty selection leaves schedules and existing conversations available. With
 no matching subscription or launcher, messages receive no response.
@@ -228,7 +229,7 @@ presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration.
 
 Discord interaction notifications run independently of the waiting agent. Delivery is
-best effort: a full worker queue or restart can lose the external notification.
+best effort: overload can delay or drop notifications, and restarts can interrupt sending.
 Omnara retries only safe failures, with a bounded retry budget. If delivery may
 have succeeded, it does not automatically post another copy; a crash during
 sending can leave a prompt missing or unconfirmed. The interaction remains

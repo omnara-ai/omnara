@@ -111,13 +111,15 @@ it('shows loading, retries an initial error and then explains an empty list', as
   await waitForUI(() => {
     expect(container.textContent).toContain('Could not load conversations.')
   })
-  expect(container.textContent).not.toContain('No conversations yet.')
+  expect(container.textContent).not.toContain('No connected conversations yet.')
   act(() => {
     button('Retry conversations').click()
   })
   await waitForUI(() => {
-    expect(container.textContent).toContain('No conversations yet.')
+    expect(container.textContent).toContain('No connected conversations yet.')
   })
+  expect(container.querySelector('h2')?.textContent).toBe('Connected conversations')
+  expect(container.textContent).toContain('Conversations that send updates to your agents.')
   expect(attempts).toBe(2)
   expect(container.querySelector('[role="alert"]')).toBeNull()
 })
@@ -257,7 +259,9 @@ it('uses the saved name in stop confirmation while deleting only the subscriptio
   await waitForUI(() => {
     expect(api.requestsTo('DELETE', `${path}/${row.id}`)).toHaveLength(1)
   })
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining(`${stop}?`))
+  expect(confirm).toHaveBeenCalledWith(
+    `${stop}? Future updates from this conversation will no longer be forwarded to this agent. The agent, its sending tools and history are kept. To resume forwarding, reattach the conversation through the subscriptions API.`,
+  )
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
 })
 
@@ -321,7 +325,7 @@ it('allows stopping while disconnected, keeps failed deletions visible, and resp
     await Promise.resolve()
   })
   await waitForUI(() => {
-    expect(container.textContent).toContain('No conversations yet.')
+    expect(container.textContent).toContain('No connected conversations yet.')
   })
   expect(container.textContent).not.toContain('Please try stopping again')
   expect(attempts).toBe(2)
@@ -433,7 +437,7 @@ it('refreshes the integration list after an explicit API attachment without chan
     </>,
   )
   await waitForUI(() => {
-    expect(container.textContent).toContain('No conversations yet.')
+    expect(container.textContent).toContain('No connected conversations yet.')
   })
   act(() => {
     button('Attach via hook').click()

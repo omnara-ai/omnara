@@ -5,10 +5,20 @@ import (
 	"slices"
 )
 
+type EventKind string
+
+const (
+	EventMessage           EventKind = "message"
+	EventDiscussionComment EventKind = "discussion_comment"
+	EventReviewComment     EventKind = "review_comment"
+	EventCommit            EventKind = "commit"
+	EventPullRequestOpened EventKind = "pull_request_opened"
+)
+
 type Event struct {
-	Scope     Scope  `json:"scope"`
-	Kind      string `json:"kind"`
-	Mentioned bool   `json:"mentioned,omitempty"`
+	Scope     Scope     `json:"scope"`
+	Kind      EventKind `json:"kind"`
+	Mentioned bool      `json:"mentioned,omitempty"`
 }
 
 type EventAddress struct {
@@ -22,19 +32,21 @@ func (e Event) Validate() error {
 	}
 	switch e.Scope.Provider() {
 	case ProviderSlack, ProviderDiscord:
-		if e.Kind == "message" {
+		if e.Kind == EventMessage {
 			return nil
 		}
 	case ProviderGitHub:
 		switch e.Kind {
-		case "discussion_comment", "review_comment", "commit", "pull_request_opened":
+		case EventDiscussionComment, EventReviewComment, EventCommit, EventPullRequestOpened:
 			return nil
+		default:
+			return fmt.Errorf("unsupported hosted integration event %q", e.Kind)
 		}
 	}
 	return fmt.Errorf("unsupported hosted integration event %q", e.Kind)
 }
 
-func (d Definition) Forwards(event string) bool {
+func (d Definition) Forwards(event EventKind) bool {
 	return d.Subscription != nil && slices.Contains(d.Subscription.Events, event)
 }
 

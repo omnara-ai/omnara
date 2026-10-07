@@ -114,7 +114,6 @@ it('keeps mentions and schedules available together without changing the launche
     state: 'active',
     settings: {
       launcher: {
-        channel_id: 'C123',
         profiles: [profile.id],
       },
     },
@@ -144,7 +143,7 @@ it('keeps mentions and schedules available together without changing the launche
   await waitForUI(() => {
     expect(container.textContent).toContain('daily-report')
   })
-  expect(container.textContent).toContain('When someone mentions the bot')
+  expect(container.textContent).toContain('A mention starts the selected profile.')
   act(() => {
     button('Add schedule').click()
   })
@@ -225,7 +224,9 @@ it('edits integration settings including the profile for future runs while keepi
   await waitForUI(() => {
     expect(field('Channel ID').value).toBe('123')
   })
-  expect(document.querySelector<HTMLButtonElement>('#integration-profiles')?.disabled).toBe(false)
+  expect(
+    document.querySelector<HTMLButtonElement>('[role="dialog"] [role="combobox"]')?.disabled,
+  ).toBe(false)
   await chooseProfile(replacement)
   await enter('Channel ID', '789')
   await enter('Opening message', 'Daily update {{.trigger.local_date}}')

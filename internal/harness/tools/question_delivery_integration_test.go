@@ -20,26 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type questionPromptRunner struct {
-	t         *testing.T
-	trySubmit func(string, func(context.Context) error) bool
-}
-
-func (r questionPromptRunner) Submit(string, func(context.Context) error) bool {
-	r.t.Error("question presentation must not use blocking Submit")
-	return false
-}
-
-func (r questionPromptRunner) TrySubmit(label string, task func(context.Context) error) bool {
-	return r.trySubmit(label, task)
-}
-
 func newQuestionPresentationRunner(t *testing.T, ctx context.Context) (BackgroundRunner, func() error) {
 	t.Helper()
 	var tasks sync.WaitGroup
 	var mu sync.Mutex
 	var failures []error
-	runner := questionPromptRunner{t: t, trySubmit: func(_ string, task func(context.Context) error) bool {
+	runner := backgroundRunnerFunc(func(_ string, task func(context.Context) error) bool {
 		tasks.Add(1)
 		go func() {
 			defer tasks.Done()
@@ -50,7 +36,7 @@ func newQuestionPresentationRunner(t *testing.T, ctx context.Context) (Backgroun
 			}
 		}()
 		return true
-	}}
+	})
 	wait := func() error {
 		t.Helper()
 		done := make(chan struct{})
@@ -82,14 +68,14 @@ func TestQuestionWaitSurvivesUndeliveredPromptAndRuntimeExpiry(t *testing.T) {
 				`{"questions":[{"prompt":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
 			toolID := f.toolCallID(t, ctx, call.ID)
 			enqueues := 0
-			runner := questionPromptRunner{t: t, trySubmit: func(string, func(context.Context) error) bool {
+			runner := backgroundRunnerFunc(func(string, func(context.Context) error) bool {
 				enqueues++
 				tool, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, toolID)
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ToolCallStateWaiting, tool.State)
 				require.Equal(t, uuid.Nil, tool.RuntimeLockID)
 				return accepted
-			}}
+			})
 			executor := Executor{Store: f.Store, BackgroundRunner: runner}
 			scope := NewAsyncExecutionScope(nil)
 			scope.Seal()
@@ -127,7 +113,7 @@ func TestQuestionWaitSurvivesUndeliveredPromptAndRuntimeExpiry(t *testing.T) {
 	}
 }
 
-func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) {
+func TestQuestionPersistsBeforeWaitingForPresentationCapacity(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixture(t, ctx, "question-saturation")
 	prepareInteractionPromptFixture(t, ctx, f)
@@ -145,7 +131,7 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
 	defer server.Close()
-	runner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	runner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	require.NoError(t, err)
 	release, started := make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
@@ -181,17 +167,22 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 		return err == nil && tool.State == executionstore.ToolCallStateWaiting && tool.RuntimeLockID == uuid.Nil
 	}, 5*time.Second, 10*time.Millisecond)
 	select {
-	case outcome := <-returned:
-		require.NoError(t, outcome.err)
-		require.Equal(t, DispatchDeferred, outcome.result.Disposition)
-	case <-time.After(time.Second):
-		t.Fatal("question dispatch remained blocked after durable wait with a full presentation queue")
+	case <-returned:
+		t.Fatal("question dispatch did not wait for background queue capacity")
+	case <-time.After(25 * time.Millisecond):
 	}
-	cancelDispatch()
 	interaction := integrationToolInteraction(t, ctx, f, toolID, executionstore.AgentInteractionKindQuestion)
 	require.Zero(t, posts.Load())
 
 	releaseCapacity()
+	select {
+	case outcome := <-returned:
+		require.NoError(t, outcome.err)
+		require.Equal(t, DispatchDeferred, outcome.result.Disposition)
+	case <-time.After(5 * time.Second):
+		t.Fatal("question dispatch did not resume when queue space became available")
+	}
+	cancelDispatch()
 	result, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
 	require.Equal(t, DispatchDeferred, result.Disposition)
@@ -203,7 +194,7 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 	case <-time.After(5 * time.Second):
 		t.Fatal("presentation queue did not drain")
 	}
-	require.Zero(t, posts.Load(), "a dropped presentation is not retried after capacity returns")
+	require.EqualValues(t, 1, posts.Load(), "the queued question is presented once despite tool replay")
 	assertDispatchTestToolState(t, ctx, f, call.ID, "waiting", false)
 	assertDispatchTestResultCount(t, ctx, f, call.ID, 0)
 	resolveDashboardQuestion(t, ctx, f, interaction)
@@ -274,10 +265,10 @@ func TestQuestionPresentationReplayAndTakeoverDoNotResend(t *testing.T) {
 			runner, wait := newQuestionPresentationRunner(t, ctx)
 			enqueues := 0
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server),
-				BackgroundRunner: questionPromptRunner{t: t, trySubmit: func(label string, task func(context.Context) error) bool {
+				BackgroundRunner: backgroundRunnerFunc(func(label string, task func(context.Context) error) bool {
 					enqueues++
-					return runner.TrySubmit(label, task)
-				}}}
+					return runner.Submit(label, task)
+				})}
 			result, err := executor.Dispatch(ctx, f.turn(), call)
 			require.NoError(t, err)
 			require.Equal(t, DispatchDeferred, result.Disposition)

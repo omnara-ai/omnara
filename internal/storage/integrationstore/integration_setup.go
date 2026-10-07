@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -54,7 +55,7 @@ func (s *Store) ConfigureIntegration(
 	if current.SetupRevision != input.ExpectedSetupRevision {
 		return IntegrationRecord{}, ErrIntegrationSetupChanged
 	}
-	if input.Provider == IntegrationProviderSlack && input.OAuthFlowID == uuid.Nil {
+	if input.Provider == integrationdefinition.ProviderSlack && input.OAuthFlowID == uuid.Nil {
 		return IntegrationRecord{}, storeerr.InvalidRequest(errors.New("slack credentials require OAuth setup"))
 	}
 	if err := validateIntegrationInstaller(ctx, q, input.OrgID, input.ProjectID, input.InstalledByUserID); err != nil {
@@ -106,7 +107,7 @@ func (s *Store) IntegrationOAuthFlowConsumed(ctx context.Context, flowID uuid.UU
 }
 
 func IdempotencyScope(integration IntegrationRecord) string {
-	return "integration:" + integration.Provider + ":" + integration.ID.String()
+	return "integration:" + string(integration.Provider) + ":" + integration.ID.String()
 }
 
 func validateIntegrationCredential(

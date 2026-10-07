@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -70,11 +71,11 @@ type AgentModelDisplay struct {
 }
 
 type IntegrationTargetDisplay struct {
-	Provider         string `json:"provider,omitempty"`
-	ProviderTenantID string `json:"-"`
-	ScopeRef         string `json:"scope_ref,omitempty"`
-	ScopeKind        string `json:"scope_kind,omitempty"`
-	DisplayName      string `json:"display_name,omitempty"`
+	Provider         integrationdefinition.Provider `json:"provider,omitempty"`
+	ProviderTenantID string                         `json:"-"`
+	ScopeRef         string                         `json:"scope_ref,omitempty"`
+	ScopeKind        string                         `json:"scope_kind,omitempty"`
+	DisplayName      string                         `json:"display_name,omitempty"`
 }
 
 func insertAdmittedAgentTx(

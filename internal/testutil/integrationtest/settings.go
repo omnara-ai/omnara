@@ -2,22 +2,23 @@ package integrationtest
 
 import (
 	"encoding/json"
+
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func ChatSettings(channel string, profiles ...uuid.UUID) json.RawMessage {
+func ChatSettings(profiles ...uuid.UUID) json.RawMessage {
 	ids := make([]string, len(profiles))
 	for i, id := range profiles {
 		ids[i] = ProfileID(id)
 	}
 	launcher := map[string]any{"profiles": ids}
-	if channel != "" {
-		launcher["channel_id"] = channel
-	}
 	return encode(map[string]any{"launcher": launcher})
 }
-func GitHubSettings(profile uuid.UUID, trigger, repository string) json.RawMessage {
+func GitHubSettings(
+	profile uuid.UUID, trigger integrationdefinition.LauncherTrigger, repository string,
+) json.RawMessage {
 	launcher := map[string]any{"profile": ProfileID(profile), "trigger": trigger}
 	if repository != "" {
 		launcher["repository_id"] = repository

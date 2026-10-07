@@ -16,6 +16,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -29,19 +30,19 @@ func TestProviderIngressBodyLimits(t *testing.T) {
 	for _, endpoint := range []string{"slack-events", "slack-actions", "discord-interactions"} {
 		t.Run(endpoint, func(t *testing.T) {
 			t.Parallel()
-			provider := "slack"
+			provider := integrationdefinition.ProviderSlack
 			if endpoint == "discord-interactions" {
-				provider = "discord"
+				provider = integrationdefinition.ProviderDiscord
 			}
 			f := newCapturedHTTPFixture(t, provider, "question")
-			path, contentType, padding := integrationEventsPath, "application/json", " "
+			path, contentType, padding := slackEventsPath, "application/json", " "
 			limit := slack.EventBodyMaxBytes
 			base := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-body-limit",` +
 				`"authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],` +
 				`"event":{"type":"message","user":"U123","text":"hello","channel":"C123","ts":"111.222"}}`
 			switch endpoint {
 			case "slack-actions":
-				path, contentType, padding = integrationActionsPath, "application/x-www-form-urlencoded", "x"
+				path, contentType, padding = slackActionsPath, "application/x-www-form-urlencoded", "x"
 				limit = slack.ActionBodyMaxBytes
 				destination, err := f.record.CapturedDestination()
 				require.NoError(t, err)
@@ -138,7 +139,7 @@ func TestSlackSharedBotUninstallVerifiesEachIntegrationAndFencesSetupRevision(t 
 			body := `{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"Ev-uninstall",` +
 				`"authorizations":[{"team_id":"T123","user_id":"U_ADMIN","is_bot":false}],` +
 				`"event":{"type":"app_uninstalled"}}`
-			request := httptest.NewRequest(http.MethodPost, integrationEventsPath, strings.NewReader(body))
+			request := httptest.NewRequest(http.MethodPost, slackEventsPath, strings.NewReader(body))
 			for key, value := range unitSlackSignedHeaders(body, "signing-secret") {
 				request.Header.Set(key, value)
 			}
@@ -230,7 +231,7 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 			"event": map[string]any{"type": event.kind, "user": "U123", "text": event.text,
 				"channel": event.channel, "channel_type": "channel", "ts": event.ts, "thread_ts": event.thread, "team": "T123"},
 		})
-		requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", http.StatusOK,
+		requestJSONWithHeaders(t, f.Handler, http.MethodPost, slackEventsPath, body, "", http.StatusOK,
 			unitSlackSignedHeaders(body, "signing-secret"))
 		drainSlackJourney(t, ctx, f.Project, f.Slack)
 		var agents, inputs, subscriptions int

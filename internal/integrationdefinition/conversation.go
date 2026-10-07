@@ -23,7 +23,7 @@ func (s Scope) ConversationJSON() (json.RawMessage, error) {
 	}
 }
 
-func ParseConversation(provider, kind, ref string) (Scope, error) {
+func ParseConversation(provider Provider, kind, ref string) (Scope, error) {
 	kind, ref = strings.TrimSpace(kind), strings.TrimSpace(ref)
 	invalid := func() (Scope, error) {
 		return Scope{}, fmt.Errorf("invalid %s conversation %q", provider, kind)

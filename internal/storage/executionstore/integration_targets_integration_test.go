@@ -1562,7 +1562,7 @@ func slackIntegrationSetupInput(
 		OrgID:                    testOrgID,
 		ProjectID:                testProjectID,
 		InstalledByUserID:        installedByUserID,
-		Provider:                 integrationstore.IntegrationProviderSlack,
+		Provider:                 integrationdefinition.ProviderSlack,
 		ProviderTenantID:         providerTenantID,
 		ProviderAccountRef:       providerAccountRef,
 		ProviderAgentDisplayName: "Omnara",

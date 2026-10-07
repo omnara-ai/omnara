@@ -411,6 +411,7 @@ it.each([true, false])(
     await enter('Integration name', integration.name)
     click('Enter App details')
     expect(field('Integration name').value).toBe(integration.name)
+    expect(container.textContent).not.toContain('Name in Omnara')
     await enter('GitHub App ID', '111')
     await enter('Installation ID', '222')
     if (newCredential) {

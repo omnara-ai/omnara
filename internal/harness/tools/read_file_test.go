@@ -207,7 +207,7 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 		})
 	}
 	t.Run("integration attachment", func(t *testing.T) {
-		_, _, err := (Executor{}).loadIntegrationFile(t.Context(), Turn{}, "/artifacts/report.pdf")
+		_, _, err := (Executor{}).loadMessageAttachment(t.Context(), Turn{}, "/artifacts/report.pdf")
 		if err == nil || !strings.Contains(err.Error(), "artifacts are read by ID") ||
 			!strings.Contains(err.Error(), "use list_files") {
 			t.Fatalf("filename error = %v", err)

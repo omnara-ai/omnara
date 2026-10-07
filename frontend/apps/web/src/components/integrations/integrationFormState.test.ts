@@ -13,35 +13,39 @@ const first = fakeId('aprf'),
 describe('integration settings editor', () => {
   it('sends only settings and preserves unrelated settings when editing profiles', () => {
     const saved = integrationFixture({
-      settings: { launcher: { profiles: [first, second], channel_id: 'C123' }, other: 'kept' },
+      settings: { launcher: { profiles: [first, second] }, other: 'kept' },
     })
     const values = integrationFormValues('slack_thread', saved)
     expect(
       integrationFormRequest('slack_thread', { ...values, profileIds: [second, first] }, saved),
     ).toEqual({
-      settings: { other: 'kept', launcher: { profiles: [second, first], channel_id: 'C123' } },
+      settings: { other: 'kept', launcher: { profiles: [second, first] } },
     })
     expect(integrationFormRequest('slack_thread', { ...values, profileIds: [] }, saved)).toEqual({
       settings: { other: 'kept' },
     })
   })
-  it('uses implicit account scope and an optional channel', () => {
-    const saved = integrationFixture({ settings: { launcher: { profiles: [first] } } })
-    const values = integrationFormValues('slack_thread', saved)
-    expect(values.scopeRef).toBe('')
-    expect(values.scopeKind).toBe('')
-    expect(integrationFormRequest('slack_thread', values, saved).settings.launcher).toEqual({
-      profiles: [first],
-      channel_id: undefined,
-    })
-    expect(
-      validateIntegrationForm(
-        'slack_thread',
-        { ...values, scopeKind: 'channel', scopeRef: '' },
-        saved,
-      ).error,
-    ).toBe('Enter a scope ID.')
-  })
+  it.each(['slack_thread', 'discord_thread'] as const)(
+    'keeps %s mention profiles independent from schedule destinations',
+    (integrationKind) => {
+      const saved = integrationFixture({
+        integration_kind: integrationKind,
+        provider_config: { public_key: 'ab'.repeat(32) },
+        settings: { launcher: { profiles: [first, second] } },
+      })
+      const values = integrationFormValues(integrationKind, saved)
+      expect(values.repositoryId).toBe('')
+      expect(validateIntegrationForm(integrationKind, values, saved)).toBe('')
+      expect(integrationFormRequest(integrationKind, values, saved)).toEqual({
+        settings: { launcher: { profiles: [first, second] } },
+      })
+      expect(integrationFormRequest(integrationKind, { ...values, profileIds: [] }, saved)).toEqual(
+        {
+          settings: {},
+        },
+      )
+    },
+  )
   it('preserves the GitHub repository when editing the launcher and removes disabled launchers', () => {
     const saved = integrationFixture({
       integration_kind: 'github_pr',
@@ -50,6 +54,7 @@ describe('integration settings editor', () => {
       },
     })
     const values = integrationFormValues('github_pr', saved)
+    expect(values.repositoryId).toBe('123')
     expect(integrationFormRequest('github_pr', { ...values, launcher: false }, saved)).toEqual({
       settings: {},
     })
@@ -75,7 +80,7 @@ describe('integration settings editor', () => {
     const initial = integrationFormValues('github_pr', saved, true)
     expect(initial.launcher).toBe(true)
     expect(initial.trigger).toBe('both')
-    expect(validateIntegrationForm('github_pr', initial, saved).error).toBe(
+    expect(validateIntegrationForm('github_pr', initial, saved)).toBe(
       'Choose at least one profile.',
     )
     expect(integrationFormRequest('github_pr', { ...initial, profileIds: [first] }, saved)).toEqual(

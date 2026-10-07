@@ -144,7 +144,7 @@ func runSlackTool(
 			// Absence from a paginated read is not proof that publication failed.
 			result = slack.APIResult{
 				DeliveryUnknown: true,
-				Code:            "delivery_unknown",
+				Code:            slack.DeliveryUnknown,
 				Message:         "Slack may have accepted the message. Read the conversation before deciding whether to resend.",
 			}
 		}
@@ -176,13 +176,13 @@ func slackIntegrationFailure(resource string, result slack.APIResult) (asyncPhas
 func slackIntegrationFailureContent(resource string, result slack.APIResult) (toolResultContent, error) {
 	code := result.Code
 	if result.RateLimited {
-		code = "rate_limited"
+		code = slack.RateLimited
 	}
 	if result.DeliveryUnknown {
-		code = "delivery_unknown"
+		code = slack.DeliveryUnknown
 	}
 	if code == "" {
-		code = "provider_error"
+		code = slack.ProviderError
 	}
 	content, err := structuredToolResultContent(
 		map[string]any{
@@ -197,7 +197,7 @@ func slackIntegrationFailureContent(resource string, result slack.APIResult) (to
 	}
 	message := result.Message
 	if message == "" {
-		message = code
+		message = string(code)
 	}
 	return content, errors.New(message)
 }

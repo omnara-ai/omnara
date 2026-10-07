@@ -42,7 +42,7 @@ type profileChoiceHTTPFixture struct {
 	signingSecret string
 }
 
-func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTTPFixture {
+func newProfileChoiceHTTPFixture(t *testing.T, provider integrationdefinition.Provider) profileChoiceHTTPFixture {
 	t.Helper()
 	updates := make(chan map[string]any, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	handler := newIntegrationServer(pool, WithSlackOAuth(SlackOAuthConfig{
 		HTTPClient: server.Client(), APIURL: server.URL + "/api",
 	}))
-	project := bootstrapPublicHTTPProject(t, handler, "profile-choice-"+provider)
+	project := bootstrapPublicHTTPProject(t, handler, "profile-choice-"+string(provider))
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
@@ -142,7 +142,7 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		integration.ID,
 		integrationstore.SaveIntegrationInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationKind: integrationKind,
-			Settings: integrationtest.ChatSettings("", profiles...),
+			Settings: integrationtest.ChatSettings(profiles...),
 		},
 	)
 	require.NoError(t, err)
@@ -168,7 +168,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	actor, err := executionstore.IntegrationActorParams(f.integration, originalActor, nil)
 	require.NoError(t, err)
 	source := integrationruntime.IntegrationEvent{
-		Event:       integrationdefinition.Event{Kind: "message", Mentioned: true, Scope: scope},
+		Event:       integrationdefinition.Event{Kind: integrationdefinition.EventMessage, Mentioned: true, Scope: scope},
 		SemanticKey: "source:" + message, ContentBlocks: json.RawMessage(`[{"type":"text","text":"original request"}]`),
 		Actor:        actor,
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
@@ -258,7 +258,7 @@ func (f profileChoiceHTTPFixture) callback(
 			"component_type": 3, "values": []string{key}},
 	}
 	if f.integration.Provider == integrationdefinition.ProviderSlack {
-		path = integrationActionsPath
+		path = slackActionsPath
 		payload = map[string]any{
 			"type": "block_actions", "api_app_id": "A123", "team": map[string]string{"id": "T123"},
 			"user":    map[string]string{"id": actor, "team_id": "T123"},
@@ -319,8 +319,11 @@ func (f profileChoiceHTTPFixture) assertAccepted(
 
 func TestIntegrationProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{integrationdefinition.ProviderSlack, integrationdefinition.ProviderDiscord} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu := f.menu(t, false)
@@ -364,8 +367,11 @@ func TestIntegrationProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *test
 }
 
 func TestIntegrationProfileChoiceCallbacksRejectForgedAndCrossMenuChoices(t *testing.T) {
-	for _, provider := range []string{integrationdefinition.ProviderSlack, integrationdefinition.ProviderDiscord} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu, other := f.menu(t, false), f.menu(t, true)
 			for _, test := range []struct {
@@ -439,7 +445,7 @@ func TestIntegrationProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 			f := newProfileChoiceHTTPFixture(t, integrationdefinition.ProviderDiscord)
 			menu := f.menu(t, false)
 			if staleProfile {
-				settings := integrationtest.ChatSettings("", f.options[0].ProfileID)
+				settings := integrationtest.ChatSettings(f.options[0].ProfileID)
 				_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
 					integrationstore.SaveIntegrationInput{
 						OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
@@ -465,8 +471,11 @@ func TestIntegrationProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 
 func TestIntegrationProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{integrationdefinition.ProviderSlack, integrationdefinition.ProviderDiscord} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu := f.menu(t, false)
@@ -530,12 +539,15 @@ func TestIntegrationProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *test
 
 func TestIntegrationProfileChoiceMetadataEditPreservesCallbackAuthority(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []string{integrationdefinition.ProviderSlack, integrationdefinition.ProviderDiscord} {
-		t.Run(provider, func(t *testing.T) {
+	for _, provider := range []integrationdefinition.Provider{
+		integrationdefinition.ProviderSlack,
+		integrationdefinition.ProviderDiscord,
+	} {
+		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu := f.menu(t, false)
-			settings := integrationtest.ChatSettings("", f.options[1].ProfileID, f.options[0].ProfileID)
+			settings := integrationtest.ChatSettings(f.options[1].ProfileID, f.options[0].ProfileID)
 			updated, err := f.project.Store.Integrations().
 				UpdateIntegration(t.Context(), f.integration.ID, integrationstore.SaveIntegrationInput{
 					OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,

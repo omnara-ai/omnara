@@ -2,19 +2,24 @@ import { useAgentProfiles, useOmnaraClient } from '@omnara/react'
 import type { AgentProfile } from '@omnara/sdk'
 import { getAgentProfileOptions } from '@omnara/sdk/tanstack'
 import { useQueries } from '@tanstack/react-query'
+import { useId } from 'react'
 
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { profileIcon } from '@/lib/agent-icon'
 
 type ProfileOption = Pick<AgentProfile, 'id' | 'name'>
 
 const ProfilesCombobox = createResourceMultiCombobox<ProfileOption>({
   itemKey: (profile) => profile.id,
   itemLabel: (profile) => profile.name,
+  renderItem: profileLabel,
+  renderValue: profileLabel,
   placeholder: 'Search agent profiles…',
   emptyMessage: 'No agent profiles found.',
 })
@@ -22,6 +27,8 @@ const ProfilesCombobox = createResourceMultiCombobox<ProfileOption>({
 const ProfileCombobox = createResourceCombobox<ProfileOption>({
   itemKey: (profile) => profile.id,
   itemLabel: (profile) => profile.name,
+  renderItem: profileLabel,
+  renderValue: profileLabel,
   placeholder: 'Choose an agent profile…',
   emptyMessage: 'No agent profiles found.',
 })
@@ -31,7 +38,6 @@ export function IntegrationProfilePicker({
   projectId,
   value,
   onChange,
-  profileCount,
   disabled,
   single = false,
   label = 'Offered profiles',
@@ -41,13 +47,12 @@ export function IntegrationProfilePicker({
   projectId: string
   value: string[]
   onChange: (profileIds: string[]) => void
-  profileCount?: number | null
   disabled?: boolean
   single?: boolean
   label?: string
   description?: string | null
 }) {
-  const displayedProfileCount = profileCount === undefined ? value.length : profileCount
+  const id = useId()
   const search = useTypeaheadSearch()
   const query = useAgentProfiles(orgId, projectId, {
     filters: search.filters,
@@ -77,10 +82,10 @@ export function IntegrationProfilePicker({
   )
   return (
     <Field>
-      <FieldLabel htmlFor="integration-profiles">{label}</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {single ? (
         <ProfileCombobox
-          id="integration-profiles"
+          id={id}
           items={items}
           value={selected[0] ?? null}
           onValueChange={(profile) => {
@@ -92,7 +97,7 @@ export function IntegrationProfilePicker({
         />
       ) : (
         <ProfilesCombobox
-          id="integration-profiles"
+          id={id}
           items={items}
           value={selected}
           onValueChange={(profiles) => {
@@ -103,20 +108,9 @@ export function IntegrationProfilePicker({
           disabled={disabled}
         />
       )}
-      {description !== null && (
-        <FieldDescription>
-          {description ??
-            (single ? (
-              'Choose one profile to launch for matching GitHub events.'
-            ) : (
-              <>
-                With one eligible profile, a mention launches it immediately. With multiple eligible
-                profiles, a native menu asks the person to choose just one. Later messages stay with
-                that agent. Up to 16 profiles per setup
-                {displayedProfileCount === null ? '.' : ` (${displayedProfileCount}/16 selected).`}
-              </>
-            ))}
-        </FieldDescription>
+      {description && <FieldDescription>{description}</FieldDescription>}
+      {!single && value.length >= 16 && (
+        <FieldDescription>Up to 16 profiles can be offered.</FieldDescription>
       )}
       {loadingNames && (
         <p role="status" className="text-muted-foreground text-sm">
@@ -140,5 +134,14 @@ export function IntegrationProfilePicker({
         </div>
       )}
     </Field>
+  )
+}
+
+function profileLabel(profile: ProfileOption) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <AgentIcon icon={profileIcon(profile.id)} className="size-5 rounded-[2px]" />
+      <span className="truncate">{profile.name}</span>
+    </span>
   )
 }

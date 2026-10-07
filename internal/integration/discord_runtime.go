@@ -306,14 +306,14 @@ func (r *DiscordRuntime) connect(
 						Payload:       raw,
 					}
 				} else {
-					r.IntakeMetrics.Record("discord", "filtered")
+					r.IntakeMetrics.Record("discord", metrics.IntegrationInboxIntakeOutcomeFiltered)
 				}
 			}
 			err = r.Integrations.CommitIntegrationRuntime(ctx, claim.Lease, rawCheckpoint, receipt)
 			if receipt != nil {
-				outcome := "committed"
+				outcome := metrics.IntegrationInboxIntakeOutcomeCommitted
 				if err != nil {
-					outcome = "error"
+					outcome = metrics.IntegrationInboxIntakeOutcomeError
 				}
 				r.IntakeMetrics.Record("discord", outcome)
 			}

@@ -111,6 +111,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
       provider_account_ref: '222',
       credential_secret_id: secretID,
       provider_agent_display_name: 'Guided reviewer',
+      bot_mention: '@guided-reviewer',
       updated_at: '2026-09-22T00:01:00Z',
     }
     await route.fulfill({ json: integration })
@@ -171,14 +172,17 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   ).toBeVisible()
   expect(inspections).toBe(2)
   await expect(
-    page.getByRole('link', { name: 'Manage repository access in GitHub' }),
+    page.getByRole('link', { name: 'Change repository access', exact: true }),
   ).toHaveAttribute('href', installation.settings_url)
   await expect(
-    page.getByRole('link', { name: 'Manage repository access in GitHub' }),
+    page.getByRole('link', { name: 'Change repository access', exact: true }),
   ).toHaveAttribute('target', '_blank')
   await expect(
-    page.getByRole('link', { name: 'Add an account on GitHub', exact: true }),
+    page.getByRole('link', { name: 'Install in another account', exact: true }),
   ).toHaveAttribute('target', '_blank')
+  await expect(
+    page.getByRole('link', { name: 'Install in another account', exact: true }),
+  ).toHaveAttribute('href', installations.install_url)
   await captureGitHubSetup(page, 'installation-selected')
   expect(connects).toBe(0)
   await page.getByRole('button', { name: 'Connect integration', exact: true }).click()
@@ -188,6 +192,15 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await expect(launch.getByRole('checkbox', { name: 'PR opened', exact: true })).toBeChecked()
   await expect(launch.getByRole('checkbox', { name: 'Bot mentioned', exact: true })).toBeChecked()
   await expect(launch.getByRole('combobox', { name: 'Agent profile', exact: true })).toBeVisible()
+  await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+  const mention = '@guided-reviewer please review this PR'
+  await expect(launch.getByText(mention, { exact: true })).toBeVisible()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await launch.getByRole('button', { name: 'Copy bot mention', exact: true }).click()
+  await expect(
+    launch.getByRole('button', { name: 'Copied bot mention', exact: true }),
+  ).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(mention)
   await captureGitHubSetup(page, 'connected')
 }
 

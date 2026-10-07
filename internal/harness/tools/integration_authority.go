@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -206,27 +207,12 @@ func (e Executor) recheckIntegrationToolAccess(
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
 		}
 	}
-	integration, err := e.Store.Integrations().GetIntegration(ctx, turn.ProjectID, access.Integration.ID)
-	if err != nil {
-		return err
+	err = integrationruntime.CheckCredentialAccess(ctx, e.Store.Integrations(), e.Store.Secrets(),
+		access.Integration, access.CredentialVersion)
+	if errors.Is(err, integrationruntime.ErrCredentialAccessChanged) {
+		return fmt.Errorf("%w: %w; submit a new call", ErrToolAuthorizationInvalidated, err)
 	}
-	if integration.State != integrationstore.IntegrationStateActive ||
-		integration.SetupRevision != access.Integration.SetupRevision {
-		return fmt.Errorf("%w: integration setup changed; submit a new call", ErrToolAuthorizationInvalidated)
-	}
-	secret, err := e.Store.Secrets().GetProjectAvailableSecret(
-		ctx,
-		turn.OrgID,
-		turn.ProjectID,
-		integration.CredentialSecretID,
-	)
-	if err != nil {
-		return err
-	}
-	if secret.Secret.CurrentVersionID != access.CredentialVersion {
-		return fmt.Errorf("%w: integration credentials changed; submit a new call", ErrToolAuthorizationInvalidated)
-	}
-	return nil
+	return err
 }
 
 func (e Executor) integrationRuntimeContract(

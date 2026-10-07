@@ -15,7 +15,7 @@ type IntegrationRecord struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	InstalledByUserID        uuid.UUID
-	Provider                 string
+	Provider                 integrationdefinition.Provider
 	State                    IntegrationState
 	ProviderTenantID         string
 	ProviderAccountRef       string

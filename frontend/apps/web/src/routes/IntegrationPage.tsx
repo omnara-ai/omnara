@@ -122,17 +122,10 @@ function IntegrationSettings({
   const draft = integration.state === 'disconnected' && !integration.provider_tenant_id
   const [initialSetup, setInitialSetup] = useState(draft)
   const [connected, setConnected] = useState(oauth?.kind === 'success')
-  const [editing, setEditing] = useState(
-    canSetUp && oauth?.kind === 'success' && !integration.settings.launcher,
-  )
-  const finishConnection = useCallback(
-    (savedIntegration: Integration) => {
-      setConnected(true)
-      if (canSetUp && !savedIntegration.settings.launcher) setEditing(true)
-      onOAuthCleared()
-    },
-    [canSetUp, onOAuthCleared],
-  )
+  const finishConnection = useCallback(() => {
+    setConnected(true)
+    onOAuthCleared()
+  }, [onOAuthCleared])
   return (
     <IntegrationDetailLayout
       orgId={orgId}
@@ -153,14 +146,10 @@ function IntegrationSettings({
           projectId={projectId}
           integration={integration}
           canEdit={canSetUp}
-          editing={editing}
-          initialSetup={connected && initialSetup}
-          onEditingChange={(next) => {
-            setEditing(next)
-            if (!next) {
-              setConnected(false)
-              setInitialSetup(false)
-            }
+          initialSetup={initialSetup}
+          onSetupFinished={() => {
+            setConnected(false)
+            setInitialSetup(false)
           }}
         />
       )}

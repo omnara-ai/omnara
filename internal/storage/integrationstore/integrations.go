@@ -283,7 +283,7 @@ func (s *Store) ListIntegrations(
 }
 
 func (s *Store) ListIntegrationsByProviderIdentity(
-	ctx context.Context, provider, tenant, account string, after uuid.UUID, limit int,
+	ctx context.Context, provider integrationdefinition.Provider, tenant, account string, after uuid.UUID, limit int,
 ) ([]IntegrationRecord, error) {
 	if provider == "" || tenant == "" || account == "" || limit < 1 || limit > 100 {
 		return nil, storeerr.InvalidRequest(errors.New("provider identity and limit between 1 and 100 are required"))
@@ -292,7 +292,7 @@ func (s *Store) ListIntegrationsByProviderIdentity(
 }
 
 func (s *Store) ListIntegrationsForProviderEventVerification(
-	ctx context.Context, provider, tenant, account string, after uuid.UUID, limit int,
+	ctx context.Context, provider integrationdefinition.Provider, tenant, account string, after uuid.UUID, limit int,
 ) ([]IntegrationRecord, error) {
 	// Disconnected integrations retain credentials so ingress can authenticate acknowledgements.
 	if provider == "" || tenant == "" || account == "" || limit < 1 || limit > 100 {
@@ -303,7 +303,7 @@ func (s *Store) ListIntegrationsForProviderEventVerification(
 
 func (s *Store) ListIntegrationsByProviderTenant(
 	ctx context.Context,
-	provider, tenant string,
+	provider integrationdefinition.Provider, tenant string,
 	after uuid.UUID,
 	limit int,
 ) ([]IntegrationRecord, error) {
@@ -315,7 +315,7 @@ func (s *Store) ListIntegrationsByProviderTenant(
 
 func (s *Store) listIntegrationsByProviderIdentity(
 	ctx context.Context,
-	provider, tenant string,
+	provider integrationdefinition.Provider, tenant string,
 	account *string,
 	after uuid.UUID,
 	limit int,

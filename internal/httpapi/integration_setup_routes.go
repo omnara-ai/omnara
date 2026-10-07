@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -126,7 +127,7 @@ func (s strictOpenAPIServer) integrationSetupInput(
 	if input.ExpectedSetupRevision != current.SetupRevision {
 		return input, integrationstore.ErrIntegrationSetupChanged
 	}
-	if current.Provider == integrationstore.IntegrationProviderSlack {
+	if current.Provider == integrationdefinition.ProviderSlack {
 		return input, storeerr.InvalidRequest(
 			errors.New("configure Slack credentials through integration OAuth setup"),
 		)
@@ -165,7 +166,7 @@ func (s strictOpenAPIServer) integrationSetupInput(
 	if _, validateErr := secrets.ValidatePayload(kind, credential.Payload); validateErr != nil {
 		return input, storeerr.InvalidRequest(validateErr)
 	}
-	if input.Provider == integrationstore.IntegrationProviderGitHub {
+	if input.Provider == integrationdefinition.ProviderGitHub {
 		appID, parseErr := strconv.ParseInt(
 			strings.TrimSpace(credential.Payload[secrets.KeyAppID]),
 			10,
@@ -240,7 +241,7 @@ func (s strictOpenAPIServer) integrationSetupInput(
 			return input, err
 		}
 	}
-	if input.Provider == integrationstore.IntegrationProviderDiscord {
+	if input.Provider == integrationdefinition.ProviderDiscord {
 		if body.ProviderAgentDisplayName == nil {
 			input.ProviderAgentDisplayName = current.ProviderAgentDisplayName
 		}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ func TestIntegrationSetupValidation(t *testing.T) {
 		OrgID:             uuid.New(),
 		ProjectID:         uuid.New(),
 		InstalledByUserID: uuid.New(),
-		Provider:          IntegrationProviderSlack,
+		Provider:          integrationdefinition.ProviderSlack,
 		IntegrationID:     uuid.New(), ExpectedSetupRevision: 1, CredentialVersionID: uuid.New(),
 		ProviderTenantID:   "tenant",
 		ProviderAccountRef: "router",
@@ -99,7 +100,7 @@ func TestIntegrationProviderIdentities(t *testing.T) {
 		OrgID:             uuid.New(),
 		ProjectID:         uuid.New(),
 		InstalledByUserID: uuid.New(),
-		Provider:          IntegrationProviderGitHub,
+		Provider:          integrationdefinition.ProviderGitHub,
 		IntegrationID:     uuid.New(), ExpectedSetupRevision: 1,
 		ProviderTenantID:    "00123",
 		ProviderAccountRef:  "00456",
@@ -125,7 +126,7 @@ func TestIntegrationProviderIdentities(t *testing.T) {
 	changed.CredentialVersionID = uuid.Nil
 	_, err = normalizeConfigureIntegrationInput(changed)
 	require.ErrorContains(t, err, "verified credential version")
-	input.Provider = IntegrationProviderDiscord
+	input.Provider = integrationdefinition.ProviderDiscord
 	input.ProviderTenantID, input.ProviderAccountRef = "111", "222"
 	input.ProviderConfig = json.RawMessage(`{"public_key":"` + strings.Repeat("AB", 32) + `"}`)
 	normalized, err = normalizeConfigureIntegrationInput(input)
@@ -158,7 +159,7 @@ func TestIntegrationProviderIdentities(t *testing.T) {
 func TestIntegrationDiscordOptionalConfig(t *testing.T) {
 	input := ConfigureIntegrationInput{
 		OrgID: uuid.New(), ProjectID: uuid.New(), InstalledByUserID: uuid.New(),
-		Provider: IntegrationProviderDiscord, IntegrationID: uuid.New(), ExpectedSetupRevision: 1,
+		Provider: integrationdefinition.ProviderDiscord, IntegrationID: uuid.New(), ExpectedSetupRevision: 1,
 		CredentialVersionID: uuid.New(), CredentialSecretID: uuid.New(),
 		ProviderTenantID: "111", ProviderAccountRef: "222",
 	}

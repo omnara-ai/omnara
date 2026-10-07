@@ -18,7 +18,7 @@ import (
 )
 
 type ActorParams struct {
-	Provider         string                `json:"provider"`
+	Provider         ActorProvider         `json:"provider"`
 	ProviderTenantID string                `json:"provider_tenant_id"`
 	ProviderUserID   string                `json:"provider_user_id"`
 	DisplayName      *string               `json:"display_name,omitempty"`
@@ -179,7 +179,7 @@ func lookupActorIDTx(
 	}
 	row, err := qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 		ProjectID:        projectID,
-		Provider:         strings.TrimSpace(params.Provider),
+		Provider:         strings.TrimSpace(string(params.Provider)),
 		ProviderTenantID: storeutil.TextFromEmpty(strings.TrimSpace(params.ProviderTenantID)),
 		ProviderUserID:   strings.TrimSpace(params.ProviderUserID),
 	})

@@ -95,7 +95,8 @@ it('authorizes in the same tab without polling and restarts an expired flow with
   act(() => {
     button('Start authorization again').click()
   })
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true)
+  expect(container.querySelector('#clientId')).not.toBeNull()
+  expect(container.querySelector('#slack-app-name')).toBeNull()
   await enter('Client ID', 'client')
   await enter('Client secret', 'secret')
   await enter('Signing secret', 'signature')
@@ -189,13 +190,15 @@ it('keeps focus and each Slack setup draft, including the icon, when switching m
       </OmnaraClientProvider>,
     )
   })
-  const methodToggle = field('Use an existing Slack app')
+  const methodToggle = button('Enter app details')
   function toggleExistingApp() {
     methodToggle.focus()
     act(() => {
       methodToggle.click()
     })
-    expect(field('Use an existing Slack app')).toBe(methodToggle)
+    expect(
+      button(container.querySelector('#clientId') ? 'Create a new Slack app' : 'Enter app details'),
+    ).toBe(methodToggle)
     expect(document.activeElement).toBe(methodToggle)
   }
   await enter('Name in Slack', 'Reviewer')
@@ -213,12 +216,16 @@ it('keeps focus and each Slack setup draft, including the icon, when switching m
   })
   toggleExistingApp()
   await enter('Client ID', 'client')
+  await enter('Client secret', 'secret')
+  await enter('Signing secret', 'signature')
   toggleExistingApp()
   expect(field('Name in Slack').value).toBe('Reviewer')
   expect(field('App configuration token').value).toBe('config-token')
   expect(container.textContent).toContain('icon.png')
   toggleExistingApp()
   expect(field('Client ID').value).toBe('client')
+  expect(field('Client secret').value).toBe('secret')
+  expect(field('Signing secret').value).toBe('signature')
   toggleExistingApp()
   act(() => {
     button('Connect integration').click()
@@ -231,4 +238,53 @@ it('keeps focus and each Slack setup draft, including the icon, when switching m
     app_configuration_token: 'config-token',
     icon: { filename: 'icon.png', data_base64: 'aW1hZ2U=' },
   })
+})
+
+it('reconnects through existing-app authorization without offering to create another Slack app', async () => {
+  const orgId = fakeId('org'),
+    projectId = fakeId('proj')
+  const integration = integrationFixture({ state: 'disconnected', provider_tenant_id: 'T123' })
+  const path = `/api/v1/orgs/${orgId}/projects/${projectId}/integrations/${integration.id}`
+  const api = fakeApi([
+    {
+      method: 'POST',
+      path: path + '/oauth/setup',
+      respond: () =>
+        jsonResponse({ code: 'unavailable', error: 'Slack is unavailable. Try again.' }, 503),
+    },
+  ])
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  act(() => {
+    root.render(
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ConnectSlackForm integration={integration} orgId={orgId} projectId={projectId} />
+        </QueryClientProvider>
+      </OmnaraClientProvider>,
+    )
+  })
+  expect(container.textContent).toContain('Reconnect the same Slack app and workspace.')
+  expect(container.textContent).not.toContain('Create a new Slack app')
+  expect(container.querySelector('#slack-app-name')).toBeNull()
+  expect(container.querySelector('input[type="checkbox"]')).toBeNull()
+  expect(button('Reconnect integration').disabled).toBe(true)
+  await enter('Client ID', ' client ')
+  await enter('Client secret', ' secret ')
+  await enter('Signing secret', ' signature ')
+  act(() => {
+    button('Reconnect integration').click()
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      'Slack is unavailable. Try again.',
+    )
+  })
+  expect(api.requestsTo('POST', path + '/oauth/setup')[0]?.body).toEqual({
+    client_id: 'client',
+    client_secret: 'secret',
+    signing_secret: 'signature',
+    return_to: `/projects/${projectId}/integrations/${integration.id}`,
+  })
+  expect(api.requestsTo('POST', path + '/slack-setup')).toHaveLength(0)
+  expect(container.textContent).not.toContain('Create a new Slack app')
 })

@@ -59,7 +59,7 @@ func selectAdmittedInteractionDestinationTx(
 			return fmt.Errorf("load admitted input actor identities: %w", err)
 		}
 		for _, actor := range actors {
-			preserves[actor.ID] = internalInputPreservesInteractionSelection(actor.Provider, actor.ProviderUserID)
+			preserves[actor.ID] = internalInputPreservesInteractionSelection(ActorProvider(actor.Provider), actor.ProviderUserID)
 		}
 	}
 	for i := len(inputs) - 1; i >= 0; i-- {
@@ -78,7 +78,7 @@ func selectAdmittedInteractionDestinationTx(
 	return nil
 }
 
-func internalInputPreservesInteractionSelection(provider, userID string) bool {
+func internalInputPreservesInteractionSelection(provider ActorProvider, userID string) bool {
 	if provider != ActorProviderOmnara {
 		return false
 	}

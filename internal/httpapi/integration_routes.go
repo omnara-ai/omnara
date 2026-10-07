@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -219,6 +220,13 @@ func integrationResponse(
 	}
 	if integration.ProviderAccountRef != "" {
 		response.ProviderAccountRef = &integration.ProviderAccountRef
+	}
+	if integration.Provider == integrationdefinition.ProviderGitHub {
+		var identity github.AppIdentity
+		if json.Unmarshal(integration.ProviderIdentity, &identity) == nil && identity.AppSlug != "" {
+			mention := "@" + identity.AppSlug
+			response.BotMention = &mention
+		}
 	}
 	response.CredentialSecretId, err = idOrNil(publicid.KindSecret, integration.CredentialSecretID)
 	if err != nil {

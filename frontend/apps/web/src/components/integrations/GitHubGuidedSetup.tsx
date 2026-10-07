@@ -165,11 +165,11 @@ function GitHubSetupIntroduction({
       <p className="text-muted-foreground">
         {returned
           ? inspection?.result.installations.length
-            ? 'Connect a GitHub account below to finish setup.'
+            ? 'Connect a GitHub account to finish setup.'
             : 'Choose which repositories your App can access on GitHub.'
           : resuming
-            ? 'Select a saved credential, then check which GitHub accounts it can access.'
-            : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
+            ? 'Choose a saved credential to check its GitHub accounts.'
+            : 'Fill in the details below, then continue to GitHub. You’ll return here to connect your App.'}
       </p>
     </div>
   )
@@ -255,7 +255,7 @@ function GitHubRegistrationOptions({
           </SelectContent>
         </Select>
         <FieldDescription>
-          Choose the account or organization that owns the repositories you want to review.
+          Choose the account that owns the repositories to review.
         </FieldDescription>
       </Field>
       {organizationOwned && (
@@ -273,7 +273,7 @@ function GitHubRegistrationOptions({
             }}
           />
           <FieldDescription>
-            Enter just the name from its GitHub URL, like acme for github.com/acme.
+            Use the name from its GitHub URL, like acme for github.com/acme.
           </FieldDescription>
         </Field>
       )}
@@ -341,8 +341,8 @@ function GitHubAccountSelection({
         <p className="text-muted-foreground">
           {page === 1
             ? returnsToOmnara
-              ? 'The App can’t access any repositories yet. Choose repositories on GitHub, then you’ll return here automatically. If an organization owner must approve it, refresh accounts once they have.'
-              : 'The App can’t access any repositories yet. Choose repositories on GitHub, then return here and refresh accounts. If an organization owner must approve it, refresh once they have.'
+              ? 'The App can’t access any repositories yet. Choose repositories on GitHub to return here automatically. Refresh accounts after any required organization approval.'
+              : 'The App can’t access any repositories yet. Choose repositories on GitHub, then return here and refresh accounts after any required organization approval.'
             : 'No more accounts.'}
         </p>
       ) : sole && selected ? (
@@ -365,7 +365,7 @@ function GitHubAccountSelection({
             </SelectContent>
           </Select>
           <FieldDescription>
-            The App can access repositories on these accounts. Choose the one agents should review.
+            Choose the account whose repositories agents should review.
           </FieldDescription>
         </Field>
       )}
@@ -388,24 +388,16 @@ function GitHubInstallationActions({
   const accounts = result.installations.length
   return (
     <>
-      {selected && (
-        <a
-          href={selected.settings_url}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2"
-        >
-          Manage repository access in GitHub
-        </a>
-      )}
       <div className="flex flex-wrap gap-2">
-        <Button asChild variant={accounts ? 'outline' : 'default'}>
+        <Button asChild variant={selected || accounts ? 'outline' : 'default'}>
           <a
-            href={result.install_url}
-            target={returnsToOmnara && page === 1 && accounts === 0 ? undefined : '_blank'}
+            href={selected ? selected.settings_url : result.install_url}
+            target={
+              !selected && returnsToOmnara && page === 1 && accounts === 0 ? undefined : '_blank'
+            }
             rel="noreferrer"
           >
-            {accounts ? 'Add an account on GitHub' : 'Choose repositories on GitHub'}
+            {selected ? 'Change repository access' : 'Choose repositories on GitHub'}
           </a>
         </Button>
         <Button
@@ -440,6 +432,16 @@ function GitHubInstallationActions({
           </Button>
         )}
       </div>
+      {selected && (
+        <a
+          href={result.install_url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-muted-foreground self-start underline underline-offset-2"
+        >
+          Install in another account
+        </a>
+      )}
     </>
   )
 }

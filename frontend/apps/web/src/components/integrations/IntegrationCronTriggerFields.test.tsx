@@ -50,6 +50,11 @@ it('uses the declared schedule capability, defaults, order and constraints witho
   const api = fakeApi([
     {
       method: 'GET',
+      path: path + '/agent-profiles',
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
+    {
+      method: 'GET',
       path: path + '/integrations/' + integration.id,
       respond: () => Response.json(integration),
     },
@@ -87,7 +92,11 @@ it('uses the declared schedule capability, defaults, order and constraints witho
   expect(
     [...document.querySelectorAll('[role="dialog"] label')].map((label) => label.textContent),
   ).toEqual(['Name', 'Queue', 'Note', 'Cron expression', 'Timezone'])
-  expect(document.querySelector('#integration-profiles')).toBeNull()
+  expect(
+    [...document.querySelectorAll('[role="dialog"] label')].some(
+      (label) => label.textContent === 'Agent profile',
+    ),
+  ).toBe(false)
   await enter('Name', 'queue-check')
   await enter('Cron expression', '0 9 * * *')
   await enter('Queue', 'invalid')
@@ -113,7 +122,7 @@ it('uses the declared schedule capability, defaults, order and constraints witho
       settings: { queue: 'job-2', note: '🚀🚀' },
     },
   })
-  expect(api.requestsTo('GET', path + '/agent-profiles')).toHaveLength(0)
+  expect(api.requestsTo('GET', path + '/agent-profiles')).toHaveLength(1)
 })
 
 it.each(['nested schema', 'additional saved settings'])(

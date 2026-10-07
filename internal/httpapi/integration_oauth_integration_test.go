@@ -102,12 +102,12 @@ func newProjectSlackOAuthFixture(
 					)
 					assert.Equal(
 						t,
-						"https://omnara.test"+integrationEventsPath,
+						"https://omnara.test"+slackEventsPath,
 						manifest.Settings.EventSubscriptions.RequestURL,
 					)
 					assert.Equal(
 						t,
-						"https://omnara.test"+integrationActionsPath,
+						"https://omnara.test"+slackActionsPath,
 						manifest.Settings.Interactivity.RequestURL,
 					)
 					assert.ElementsMatch(
@@ -186,8 +186,8 @@ func (f *projectSlackOAuthFixture) start(
 	require.Equal(t, "client-123", oauthURL.Query().Get("client_id"))
 	require.Equal(t, "https://omnara.test"+integrationOAuthCallbackPath, setup["redirect_uri"])
 	require.Equal(t, setup["redirect_uri"], oauthURL.Query().Get("redirect_uri"))
-	require.Equal(t, "https://omnara.test"+integrationEventsPath, setup["events_url"])
-	require.Equal(t, "https://omnara.test"+integrationActionsPath, setup["actions_url"])
+	require.Equal(t, "https://omnara.test"+slackEventsPath, setup["events_url"])
+	require.Equal(t, "https://omnara.test"+slackActionsPath, setup["actions_url"])
 	require.ElementsMatch(
 		t,
 		slack.RequiredBotScopes,

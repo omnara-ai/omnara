@@ -70,7 +70,7 @@ func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing
 				OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 				Settings: f.integration.Settings,
 			}
-			setup.Settings = integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+			setup.Settings = integrationtest.ChatSettings(f.input.Options[1].ProfileID)
 			_, err = f.store.UpdateIntegration(f.ctx, f.integration.ID, setup)
 			require.NoError(t, err)
 			plan := f.launchClaimPlan(t, f.integration.ID, "review")
@@ -300,7 +300,7 @@ func TestIntegrationProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 		Settings: f.integration.Settings,
 	}
-	setup.Settings = integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+	setup.Settings = integrationtest.ChatSettings(f.input.Options[1].ProfileID)
 	_, err := f.store.UpdateIntegration(f.ctx, f.integration.ID, setup)
 	require.NoError(t, err)
 	wrongMenu := click

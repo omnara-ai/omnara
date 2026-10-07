@@ -69,7 +69,7 @@ it('links every catalog entry by its exact integration type', async () => {
 })
 
 it.each([
-  ['slack_thread', 'Use an existing Slack app', 'slack-bot'],
+  ['slack_thread', 'Enter app details', 'slack-bot'],
   ['github_pr', 'GitHub App owner', 'github-bot'],
   ['discord_thread', 'Bot token', 'discord-bot'],
 ] as const)(
@@ -94,6 +94,8 @@ it.each([
       expect(container.querySelector('[aria-label="Connection"]')?.textContent).toContain(control)
     })
     expect(container.querySelector<HTMLInputElement>('#integration-name')?.value).toBe(defaultName)
+    expect(container.textContent).not.toContain('Name in Omnara')
+    expect(container.textContent).not.toContain('A permanent name for this integration')
     await enter('Integration name', 'team-helper')
     expect(container.querySelector<HTMLInputElement>('#integration-name')?.value).toBe(
       'team-helper',

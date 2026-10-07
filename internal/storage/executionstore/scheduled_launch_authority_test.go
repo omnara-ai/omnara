@@ -51,7 +51,7 @@ func scheduledAuthorityFixture(t *testing.T) (
 	require.NoError(t, err)
 	recipient := InboxLaunchRecipient{
 		LaunchClaim: integrationstore.InboxLaunchClaim{
-			IntegrationID: integration.ID, LaunchKey: "scheduled",
+			IntegrationID: integration.ID, LaunchKey: integrationdefinition.ScheduledLaunchKey,
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 		},
 		Launch: InboxLaunchPlan{
@@ -74,7 +74,7 @@ func scheduledAuthorityFixture(t *testing.T) (
 	}
 	receipt.Plan, err = json.Marshal(map[string]any{
 		"message":    map[string]any{"scope": root, "content_blocks": recipient.InitialInput.ContentBlocks},
-		"recipients": map[string]any{"scheduled": map[string]any{"launch_claim": recipient.LaunchClaim, "launch": recipient.Launch}},
+		"recipients": map[string]any{integrationdefinition.ScheduledLaunchKey: map[string]any{"launch_claim": recipient.LaunchClaim, "launch": recipient.Launch}},
 	})
 	require.NoError(t, err)
 	require.NoError(t, validateScheduledInboxLaunch(receipt, integration, recipient))
@@ -216,8 +216,8 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(receipt.Plan, &plan))
 				plan.Message["content_blocks"] = recipient.InitialInput.ContentBlocks
-				plan.Recipients["scheduled"]["launch"], _ = json.Marshal(recipient.Launch)
-				plan.Recipients["scheduled"]["launch_claim"], _ = json.Marshal(recipient.LaunchClaim)
+				plan.Recipients[integrationdefinition.ScheduledLaunchKey]["launch"], _ = json.Marshal(recipient.Launch)
+				plan.Recipients[integrationdefinition.ScheduledLaunchKey]["launch_claim"], _ = json.Marshal(recipient.LaunchClaim)
 				receipt.Plan, _ = json.Marshal(plan)
 			}
 			require.Error(t, validateScheduledInboxLaunch(receipt, integration, recipient))

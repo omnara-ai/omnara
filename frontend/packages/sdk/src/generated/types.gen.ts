@@ -3957,6 +3957,10 @@ export type Integration = {
      */
     provider_account_ref?: string;
     provider_agent_display_name: IntegrationProviderDisplayName;
+    /**
+     * GitHub App mention including the leading @, derived from the verified App slug. Omitted when the verified slug is unavailable or the integration is not GitHub. Retained after disconnect.
+     */
+    bot_mention?: string;
     credential_secret_id?: SecretId;
     provider_config: IntegrationProviderConfig;
     capabilities: IntegrationCapabilities;

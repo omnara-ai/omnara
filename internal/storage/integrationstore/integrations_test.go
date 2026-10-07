@@ -12,7 +12,7 @@ import (
 func TestIntegrationAcceptsReferencesToResolveAtRuntime(t *testing.T) {
 	input := SaveIntegrationInput{
 		OrgID: uuid.New(), ProjectID: uuid.New(), Name: "support", IntegrationKind: integrationdefinition.SlackThread,
-		Settings: integrationtest.ChatSettings("", uuid.New()),
+		Settings: integrationtest.ChatSettings(uuid.New()),
 	}
 	normalized, err := normalizeIntegration(input)
 	require.NoError(t, err)

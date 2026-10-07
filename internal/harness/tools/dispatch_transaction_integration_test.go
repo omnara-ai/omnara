@@ -25,16 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type backgroundRunnerFunc func(string, func(context.Context) error) bool
-
-func (f backgroundRunnerFunc) Submit(label string, task func(context.Context) error) bool {
-	return f(label, task)
-}
-
-func (f backgroundRunnerFunc) TrySubmit(label string, task func(context.Context) error) bool {
-	return f(label, task)
-}
-
 func dispatchTestStructuredResult(raw string) toolResultContent {
 	content, err := structuredToolResultContent(json.RawMessage(raw))
 	if err != nil {
@@ -384,7 +374,7 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 func TestToolHandlerPhaseOrdering(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "typed-phase-ordering")
-	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}

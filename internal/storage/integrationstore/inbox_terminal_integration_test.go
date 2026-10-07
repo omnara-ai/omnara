@@ -34,7 +34,7 @@ func freezeInboxLaunchClaim(
 		f.integrationID,
 		integrationstore.SaveIntegrationInput{
 			OrgID: f.org, ProjectID: f.project, Name: "inbox-integration", IntegrationKind: integrationdefinition.SlackThread,
-			Settings: integrationtest.ChatSettings("", profileID),
+			Settings: integrationtest.ChatSettings(profileID),
 		},
 	)
 	require.NoError(t, err)

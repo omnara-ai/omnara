@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -31,7 +33,7 @@ const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLim
 
 type githubIntakeStore interface {
 	ListIntegrationsByProviderIdentity(
-		context.Context, string, string, string, uuid.UUID, int,
+		context.Context, integrationdefinition.Provider, string, string, uuid.UUID, int,
 	) ([]integrationstore.IntegrationRecord, error)
 	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
 		integrationstore.IntegrationInboxRecord, bool, error,
@@ -105,7 +107,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	var invalidWebhook bool
 	if hint.Installation.ID > 0 {
 		result, err = fanoutIntegrations(ctx, h.store.ListIntegrationsByProviderIdentity,
-			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
+			integrationdefinition.ProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
 			func(ctx context.Context, integration integrationstore.IntegrationRecord) (bool, error) {
 				event, verified, err := h.verifyIntegrationCredential(ctx, r.Header, raw, appID, integration)
 				if verified && err != nil {
@@ -120,18 +122,18 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				}
 				_, relevant, normalizeErr := integrationruntime.NormalizeGitHubIntegrationEvent(integration, raw)
 				if normalizeErr == nil && !relevant {
-					h.recorder.Record("github", "filtered")
+					h.recorder.Record("github", metrics.IntegrationInboxIntakeOutcomeFiltered)
 					return true, nil
 				}
 				_, created, err := h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 					ProjectID: integration.ProjectID, IntegrationID: integration.ID,
 					ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID, Payload: raw,
 				})
-				outcome := "accepted"
+				outcome := metrics.IntegrationInboxIntakeOutcomeAccepted
 				if err != nil {
-					outcome = "error"
+					outcome = metrics.IntegrationInboxIntakeOutcomeError
 				} else if !created {
-					outcome = "duplicate"
+					outcome = metrics.IntegrationInboxIntakeOutcomeDuplicate
 				}
 				h.recorder.Record("github", outcome)
 				return true, err
@@ -191,7 +193,7 @@ func (h *githubIntakeHandler) verifyIntegrationCredential(
 	appID string,
 	integration integrationstore.IntegrationRecord,
 ) (github.Webhook, bool, error) {
-	if integration.Provider != integrationstore.IntegrationProviderGitHub || integration.ProviderTenantID != appID ||
+	if integration.Provider != integrationdefinition.ProviderGitHub || integration.ProviderTenantID != appID ||
 		integration.CredentialSecretID == uuid.Nil {
 		return github.Webhook{}, false, nil
 	}

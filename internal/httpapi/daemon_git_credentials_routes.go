@@ -100,7 +100,7 @@ func (s *Server) daemonGitCredentialsAuthority(
 	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
 	if !ok || definition.Provider != integrationdefinition.ProviderGitHub ||
 		integration.OrgID != scope.OrgID || integration.State != integrationstore.IntegrationStateActive ||
-		integration.Provider != integrationstore.IntegrationProviderGitHub || integration.CredentialSecretID == uuid.Nil {
+		integration.Provider != integrationdefinition.ProviderGitHub || integration.CredentialSecretID == uuid.Nil {
 		return daemonGitCredentialsAuthority{}, storeerr.ErrNotFound
 	}
 	appID, err := strconv.ParseInt(integration.ProviderTenantID, 10, 64)

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/metrics"
 )
 
 // BackgroundRunner runs bounded work outside agent runtime ownership.
@@ -15,8 +18,9 @@ type BackgroundRunner interface {
 }
 
 type backgroundTask struct {
-	label string
-	run   func(context.Context) error
+	label       string
+	run         func(context.Context) error
+	submittedAt time.Time
 }
 
 type BackgroundExecutionRunner struct {
@@ -26,12 +30,14 @@ type BackgroundExecutionRunner struct {
 	shutdown  chan struct{}
 	stopOnce  sync.Once
 	workers   sync.WaitGroup
+	metrics   *metrics.BackgroundExecutionRecorder
 }
 
 func NewBackgroundExecutionRunner(
 	ctx context.Context,
 	log *slog.Logger,
 	capacity int,
+	metricSet *metrics.Set,
 ) (*BackgroundExecutionRunner, error) {
 	if ctx == nil {
 		return nil, errors.New("background execution context is required")
@@ -48,6 +54,9 @@ func NewBackgroundExecutionRunner(
 		queue:     make(chan backgroundTask, capacity),
 		stopTasks: stopTasks,
 		shutdown:  make(chan struct{}),
+	}
+	if metricSet != nil {
+		runner.metrics = metrics.NewBackgroundExecutionRecorder(metricSet, capacity, func() int { return len(runner.queue) })
 	}
 	runner.workers.Add(capacity)
 	for range capacity {
@@ -75,6 +84,10 @@ func (r *BackgroundExecutionRunner) Submit(
 	if r == nil || task == nil {
 		return false
 	}
+	started := time.Now()
+	r.metrics.StartSubmission()
+	result := metrics.BackgroundSubmissionShutdown
+	defer func() { r.metrics.RecordSubmission(result, time.Since(started)) }()
 	select {
 	case <-r.shutdown:
 		return false
@@ -83,11 +96,12 @@ func (r *BackgroundExecutionRunner) Submit(
 	select {
 	case <-r.shutdown:
 		return false
-	case r.queue <- backgroundTask{label: label, run: task}:
+	case r.queue <- backgroundTask{label: label, run: task, submittedAt: started}:
 		select {
 		case <-r.shutdown:
 			return false
 		default:
+			result = metrics.BackgroundSubmissionAccepted
 			return true
 		}
 	}
@@ -100,17 +114,23 @@ func (r *BackgroundExecutionRunner) TrySubmit(
 	if r == nil || task == nil {
 		return false
 	}
+	started := time.Now()
+	r.metrics.StartSubmission()
+	result := metrics.BackgroundSubmissionShutdown
+	defer func() { r.metrics.RecordSubmission(result, time.Since(started)) }()
 	select {
 	case <-r.shutdown:
 		return false
-	case r.queue <- backgroundTask{label: label, run: task}:
+	case r.queue <- backgroundTask{label: label, run: task, submittedAt: started}:
 		select {
 		case <-r.shutdown:
 			return false
 		default:
+			result = metrics.BackgroundSubmissionAccepted
 			return true
 		}
 	default:
+		result = metrics.BackgroundSubmissionFull
 		return false
 	}
 }
@@ -125,6 +145,7 @@ func (r *BackgroundExecutionRunner) runWorker(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			r.metrics.RecordStart(time.Since(task.submittedAt))
 			r.runTask(ctx, task)
 		}
 	}

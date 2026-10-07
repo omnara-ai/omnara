@@ -34,7 +34,7 @@ func TestIntegrationReferencesAndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	input := integrationstore.SaveIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, Name: "thread-bot", IntegrationKind: integrationdefinition.SlackThread,
-		Settings: integrationtest.ChatSettings("", profile.ID),
+		Settings: integrationtest.ChatSettings(profile.ID),
 	}
 	integration, err := s.CreateIntegration(f.ctx, input)
 	require.NoError(t, err)

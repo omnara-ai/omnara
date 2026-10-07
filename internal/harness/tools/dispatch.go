@@ -187,7 +187,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 			p.executor.submitBackgroundTool(
 				p.turn,
 				p.call,
-				p.handler,
+				p.handler.Background,
 				p.toolCallID,
 				execution.CommandResult,
 			)
@@ -199,7 +199,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 			p.executor.submitBackgroundTool(
 				p.turn,
 				p.call,
-				p.handler,
+				p.handler.Background,
 				p.toolCallID,
 				execution.CommandResult,
 			)
@@ -245,32 +245,24 @@ func transactionResultStartsBackground(result transactionalPhaseResult) bool {
 func (e Executor) submitBackgroundTool(
 	turn Turn,
 	call model.ToolCall,
-	handler toolHandler,
+	handler backgroundToolHandler,
 	toolCallID uuid.UUID,
 	commandResult any,
 ) {
-	if handler.Background == nil || e.BackgroundRunner == nil {
+	if handler == nil || e.BackgroundRunner == nil {
 		return
 	}
-	task := func(ctx context.Context) error {
+	e.BackgroundRunner.Submit(call.Name, func(ctx context.Context) error {
 		executionCtx, cancel := context.WithTimeout(ctx, backgroundExecutionTimeout)
 		defer cancel()
-		return handler.Background(executionCtx, backgroundToolContext{
+		return handler(executionCtx, backgroundToolContext{
 			Executor:      e,
 			Turn:          turn,
 			Call:          call,
 			ToolCallID:    toolCallID,
 			CommandResult: commandResult,
 		})
-	}
-	if handler.BackgroundBestEffort {
-		if !e.BackgroundRunner.TrySubmit(call.Name, task) {
-			e.logger().Warn("best-effort background tool dropped",
-				"tool", call.Name, "tool_call_id", toolCallID, "agent_id", turn.AgentID)
-		}
-		return
-	}
-	e.BackgroundRunner.Submit(call.Name, task)
+	})
 }
 
 func successfulToolCallCompletion(
@@ -521,7 +513,7 @@ func (e Executor) executeAsyncTool(
 	e.submitBackgroundTool(
 		call.Turn,
 		call.Call,
-		handler,
+		handler.Background,
 		call.ToolCallID,
 		nil,
 	)
@@ -529,10 +521,9 @@ func (e Executor) executeAsyncTool(
 }
 
 type toolHandler struct {
-	Transactional        transactionalToolHandler
-	Async                asyncToolHandler
-	Background           backgroundToolHandler
-	BackgroundBestEffort bool
+	Transactional transactionalToolHandler
+	Async         asyncToolHandler
+	Background    backgroundToolHandler
 }
 
 type transactionalToolContext struct {

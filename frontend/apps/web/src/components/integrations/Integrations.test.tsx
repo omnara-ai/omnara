@@ -227,10 +227,13 @@ it.each([true, false])(
       expect(container.querySelector('h1')?.textContent).toBe(integration.name)
     })
     expect(container.querySelector('[aria-label="Pull requests"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Conversations"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Connected conversations"]')).not.toBeNull()
     if (!canManage) {
       expect(container.querySelector('[aria-label="Integration actions"]')).toBeNull()
-      expect(container.querySelector('form')).toBeNull()
+      expect(container.querySelector('[aria-label="Pull requests"] form')).not.toBeNull()
+      expect(field('PR opened').disabled).toBe(true)
+      expect(field('Bot mentioned').disabled).toBe(true)
+      expect(() => button('Save changes')).toThrow('Missing button')
       expect(() => button('Edit')).toThrow('Missing button')
       expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
       return
@@ -243,8 +246,9 @@ it.each([true, false])(
     act(() => {
       button('Cancel').click()
     })
-    expect(container.querySelector('form')).toBeNull()
-    expect(button('Edit')).toBeDefined()
+    expect(container.querySelector('#provider-tenant')).toBeNull()
+    expect(container.querySelector('[aria-label="Pull requests"] form')).not.toBeNull()
+    expect(button('Save changes').disabled).toBe(true)
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)
     await selectAction('Disconnect integration')
@@ -397,9 +401,11 @@ it.each([true, false])(
       state: 'active',
       provider_tenant_id: '111',
       provider_account_ref: '222',
+      provider_config: { public_key: 'ab'.repeat(32) },
+      settings: { launcher: { profiles: [fakeId('aprf')] } },
     })
     const integrationPath = `${projectPath}/integrations/${integration.id}`
-    const updated = { ...integration, updated_at: '2026-09-23T11:00:00Z' }
+    const updated = { ...integration, settings: {}, updated_at: '2026-09-23T11:00:00Z' }
     let saved = false
     let release!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => {
@@ -441,7 +447,7 @@ it.each([true, false])(
       expect(container.textContent).toContain(`Connection failed: ${failure.message}`)
     })
     act(() => {
-      button('Choose profiles').click()
+      button(`Remove ${fakeId('aprf')}`).click()
     })
     act(() => {
       button('Save changes').click()
@@ -460,7 +466,7 @@ it.each([true, false])(
       release(Response.json({ ...updated, runtime_failure: stillFailing ? failure : undefined }))
     })
     await waitForUI(() => {
-      expect(button('Choose profiles')).toBeDefined()
+      expect(button('Save changes').disabled).toBe(true)
       expect(cache.getQueryData(queryKey)).toEqual({
         ...updated,
         runtime_failure: stillFailing ? failure : undefined,
@@ -499,10 +505,7 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
     />,
   )
   await waitForUI(() => {
-    expect(button('Edit')).toBeDefined()
-  })
-  act(() => {
-    button('Edit').click()
+    expect(button('Save changes').disabled).toBe(true)
   })
   act(() => {
     field('Bot mentioned').click()
@@ -790,7 +793,7 @@ it.each([401, 403, 404])(
       />,
     )
     await waitForUI(() => {
-      expect(button('Edit')).toBeDefined()
+      expect(button('Save changes').disabled).toBe(true)
     })
     unavailable = true
     await act(async () => {

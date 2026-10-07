@@ -7,6 +7,27 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type IntegrationInboxProcessingOutcome string
+
+const (
+	IntegrationInboxProcessingOutcomeCompleted        IntegrationInboxProcessingOutcome = "completed"
+	IntegrationInboxProcessingOutcomeRetryScheduled   IntegrationInboxProcessingOutcome = "retry_scheduled"
+	IntegrationInboxProcessingOutcomeFailed           IntegrationInboxProcessingOutcome = "failed"
+	IntegrationInboxProcessingOutcomeLeaseLost        IntegrationInboxProcessingOutcome = "lease_lost"
+	IntegrationInboxProcessingOutcomeRetryNotRecorded IntegrationInboxProcessingOutcome = "retry_not_recorded"
+	IntegrationInboxProcessingOutcomeOther            IntegrationInboxProcessingOutcome = "other"
+)
+
+type IntegrationInboxIntakeOutcome string
+
+const (
+	IntegrationInboxIntakeOutcomeAccepted  IntegrationInboxIntakeOutcome = "accepted"
+	IntegrationInboxIntakeOutcomeDuplicate IntegrationInboxIntakeOutcome = "duplicate"
+	IntegrationInboxIntakeOutcomeCommitted IntegrationInboxIntakeOutcome = "committed"
+	IntegrationInboxIntakeOutcomeFiltered  IntegrationInboxIntakeOutcome = "filtered"
+	IntegrationInboxIntakeOutcomeError     IntegrationInboxIntakeOutcome = "error"
+)
+
 type IntegrationInboxRecorder struct {
 	oldestReadyLag     prometheus.Gauge
 	lastSuccess        prometheus.Gauge
@@ -52,17 +73,19 @@ func (m *IntegrationInboxRecorder) RecordOldestReadyLag(lag time.Duration, err e
 	m.lastSuccess.SetToCurrentTime()
 }
 
-func (m *IntegrationInboxRecorder) RecordProcessing(outcome string, duration time.Duration) {
+func (m *IntegrationInboxRecorder) RecordProcessing(outcome IntegrationInboxProcessingOutcome, duration time.Duration) {
 	if m == nil {
 		return
 	}
 	switch outcome {
-	case "completed", "retry_scheduled", "failed", "lease_lost", "retry_not_recorded":
+	case IntegrationInboxProcessingOutcomeCompleted, IntegrationInboxProcessingOutcomeRetryScheduled,
+		IntegrationInboxProcessingOutcomeFailed, IntegrationInboxProcessingOutcomeLeaseLost,
+		IntegrationInboxProcessingOutcomeRetryNotRecorded:
 	default:
-		outcome = "other"
+		outcome = IntegrationInboxProcessingOutcomeOther
 	}
-	m.processingTotal.WithLabelValues(outcome).Inc()
-	m.processingDuration.WithLabelValues(outcome).Observe(duration.Seconds())
+	m.processingTotal.WithLabelValues(string(outcome)).Inc()
+	m.processingDuration.WithLabelValues(string(outcome)).Observe(duration.Seconds())
 }
 
 type IntegrationInboxIntakeRecorder struct {
@@ -83,7 +106,7 @@ func NewIntegrationInboxIntakeRecorder(set *Set) *IntegrationInboxIntakeRecorder
 	return m
 }
 
-func (m *IntegrationInboxIntakeRecorder) Record(provider, outcome string) {
+func (m *IntegrationInboxIntakeRecorder) Record(provider string, outcome IntegrationInboxIntakeOutcome) {
 	if m == nil {
 		return
 	}
@@ -93,9 +116,10 @@ func (m *IntegrationInboxIntakeRecorder) Record(provider, outcome string) {
 		provider = "other"
 	}
 	switch outcome {
-	case "accepted", "duplicate", "committed", "filtered", "error":
+	case IntegrationInboxIntakeOutcomeAccepted, IntegrationInboxIntakeOutcomeDuplicate,
+		IntegrationInboxIntakeOutcomeCommitted, IntegrationInboxIntakeOutcomeFiltered, IntegrationInboxIntakeOutcomeError:
 	default:
-		outcome = "error"
+		outcome = IntegrationInboxIntakeOutcomeError
 	}
-	m.total.WithLabelValues(provider, outcome).Inc()
+	m.total.WithLabelValues(provider, string(outcome)).Inc()
 }

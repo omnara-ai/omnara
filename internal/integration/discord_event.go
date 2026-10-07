@@ -116,7 +116,7 @@ func discordIntegrationMessageEvent(
 		return IntegrationEvent{}, false, err
 	}
 	result := IntegrationEvent{
-		Event: integrationdefinition.Event{Kind: "message", Mentioned: message.MentionsBot,
+		Event: integrationdefinition.Event{Kind: integrationdefinition.EventMessage, Mentioned: message.MentionsBot,
 			Scope: integrationdefinition.Scope{Discord: &integrationdefinition.DiscordScope{
 				GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID,
 			}}},
@@ -143,7 +143,7 @@ func discordIntegrationMessageEvent(
 func discordInboxMessage(
 	integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) (discord.MessageEvent, bool, error) {
-	if integrationSetup.Provider != "discord" ||
+	if integrationSetup.Provider != integrationdefinition.ProviderDiscord ||
 		integrationSetup.State != integrationstore.IntegrationStateActive ||
 		!discordInboxID(integrationSetup.ProviderTenantID) || !discordInboxID(integrationSetup.ProviderAccountRef) {
 		return discord.MessageEvent{}, false, storeerr.ErrUnauthorized
@@ -213,23 +213,10 @@ func (p *DiscordIntegrationInboxProvider) requestClient(
 	if p.secrets == nil || p.integrations == nil {
 		return nil, nil, fmt.Errorf("discord secret and integration resolvers are required")
 	}
-	checkIntegrationSetup := func(ctx context.Context) error {
-		latest, err := p.integrations.GetIntegration(ctx, integrationSetup.ProjectID, integrationSetup.ID)
-		if err != nil {
-			return err
-		}
-		if latest.State != integrationstore.IntegrationStateActive || latest.Provider != "discord" ||
-			latest.ID != integrationSetup.ID || latest.OrgID != integrationSetup.OrgID ||
-			latest.ProjectID != integrationSetup.ProjectID ||
-			latest.ProviderTenantID != integrationSetup.ProviderTenantID ||
-			latest.ProviderAccountRef != integrationSetup.ProviderAccountRef ||
-			latest.CredentialSecretID != integrationSetup.CredentialSecretID ||
-			latest.SetupRevision != integrationSetup.SetupRevision {
-			return storeerr.ErrUnauthorized
-		}
-		return nil
+	if integrationSetup.Provider != integrationdefinition.ProviderDiscord {
+		return nil, nil, storeerr.ErrUnauthorized
 	}
-	if err := checkIntegrationSetup(ctx); err != nil {
+	if err := checkIntegrationSetup(ctx, p.integrations, integrationSetup); err != nil {
 		return nil, nil, err
 	}
 	credential, err := p.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
@@ -240,20 +227,9 @@ func (p *DiscordIntegrationInboxProvider) requestClient(
 		return nil, nil, err
 	}
 	check := func(ctx context.Context) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		access, err := p.secrets.GetProjectAvailableSecret(
-			ctx, integrationSetup.OrgID, integrationSetup.ProjectID, integrationSetup.CredentialSecretID,
-		)
-		if err != nil {
-			return err
-		}
-		if access.Secret.Kind != secrets.KindGeneric || credential.CurrentVersionID == uuid.Nil ||
-			access.Secret.CurrentVersionID != credential.CurrentVersionID {
-			return storeerr.ErrUnauthorized
-		}
-		if err := checkIntegrationSetup(ctx); err != nil {
+		if err := CheckCredentialAccess(
+			ctx, p.integrations, p.secrets, integrationSetup, credential.CurrentVersionID,
+		); err != nil {
 			return err
 		}
 		if p.config.BeforeRequest != nil {

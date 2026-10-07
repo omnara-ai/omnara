@@ -7,7 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
-func DestinationProperties(provider string) (map[string]any, []string, error) {
+func DestinationProperties(provider Provider) (map[string]any, []string, error) {
 	text := func(pattern string) any { return map[string]any{"type": "string", "pattern": pattern} }
 	positive := func() any { return map[string]any{"type": "integer", "minimum": 1} }
 	switch provider {
@@ -45,7 +45,7 @@ func objectSchema(properties map[string]any, required []string) (json.RawMessage
 	return json.Marshal(schema)
 }
 
-func destinationSchema(provider string) (json.RawMessage, error) {
+func destinationSchema(provider Provider) (json.RawMessage, error) {
 	properties, required, err := DestinationProperties(provider)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func destinationSchema(provider string) (json.RawMessage, error) {
 	return objectSchema(properties, required)
 }
 
-func ResolveDestination(provider string, args json.RawMessage) (Scope, error) {
+func ResolveDestination(provider Provider, args json.RawMessage) (Scope, error) {
 	schema, err := destinationSchema(provider)
 	if err != nil {
 		return Scope{}, err

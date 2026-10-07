@@ -81,7 +81,7 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	require.NoError(t, err)
 	integration, err = store.ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integration.ID,
-		InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationstore.IntegrationProviderSlack,
+		InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationdefinition.ProviderSlack,
 		ProviderTenantID: "T123", ProviderAccountRef: "inbox-integration",
 		CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
 		ExpectedSetupRevision: integration.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),

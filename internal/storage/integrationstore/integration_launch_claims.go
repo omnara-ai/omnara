@@ -141,7 +141,7 @@ func (w *IntegrationInboxLeaseTx) reserveIntegrationLaunchClaims(
 	}
 	if w.record.Source != IntegrationInboxSourceScheduled {
 		for _, launchKeys := range identities {
-			if launchKeys["scheduled"] {
+			if launchKeys[integrationdefinition.ScheduledLaunchKey] {
 				return storeerr.ErrUnauthorized
 			}
 		}

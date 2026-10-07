@@ -8,8 +8,8 @@ import (
 )
 
 type SubscriptionDefinition struct {
-	Provider string
-	Events   []string
+	Provider Provider
+	Events   []EventKind
 }
 
 func (d SubscriptionDefinition) ConversationSchema() (json.RawMessage, error) {
@@ -24,7 +24,7 @@ func (d SubscriptionDefinition) Prepare(conversation json.RawMessage) (Scope, er
 	return scope, nil
 }
 
-type InteractionHandlerDefinition struct{ Provider string }
+type InteractionHandlerDefinition struct{ Provider Provider }
 type PreparedInteractionHandler struct {
 	Description string
 	InputSchema json.RawMessage
@@ -36,7 +36,7 @@ func (d InteractionHandlerDefinition) Prepare() (PreparedInteractionHandler, err
 		return PreparedInteractionHandler{}, err
 	}
 	return PreparedInteractionHandler{
-		Description: "Questions and approvals in this agent's assigned " + d.Provider +
+		Description: "Questions and approvals in this agent's assigned " + string(d.Provider) +
 			" conversation. Select with empty args.",
 		InputSchema: schema,
 	}, nil

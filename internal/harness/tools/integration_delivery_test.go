@@ -235,7 +235,7 @@ func TestReconcileIntegrationMessageClassifiesProviderErrors(t *testing.T) {
 	if messageID != "" || found {
 		t.Fatalf("readback = %q %t, want empty false", messageID, found)
 	}
-	if !result.PermanentFailure || result.Code != "integration_disconnected" {
+	if !result.PermanentFailure || result.Code != slack.IntegrationDisconnected {
 		t.Fatalf("readback api result = %+v", result)
 	}
 }

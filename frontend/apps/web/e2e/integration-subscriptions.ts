@@ -86,7 +86,7 @@ export async function exerciseIntegrationConversations(
       : { thread_id: '555555555555555555' },
   )
   await page.goto(`/projects/${integration.project_id}/integrations/${integration.id}`)
-  const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   await expect(section).toBeVisible()
   await expect(section.getByRole('listitem')).toHaveCount(2)
   const agentLinks = section.getByRole('link', { name: agent.name, exact: true })
@@ -107,7 +107,7 @@ async function stopConversation(
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
-  const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   let label: string
   if (integration.integration_kind === 'github_pr') {
     const address = z
@@ -142,12 +142,12 @@ export async function stopDisconnectedConversation(
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
-  const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   await expect(section).toBeVisible()
   await expect(section).toContainText('Forwarding is paused')
   await auditConversationLayout(page, integration.integration_kind, 'disconnected')
   await stopConversation(page, integration, subscription, apiProjectPath)
-  await expect(section).toContainText('No conversations yet.')
+  await expect(section).toContainText('No connected conversations yet.')
 }
 
 async function auditConversationLayout(
@@ -155,7 +155,7 @@ async function auditConversationLayout(
   integrationKind: IntegrationKind,
   state: string,
 ) {
-  const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   const viewport = page.viewportSize()
   if (!viewport) throw new Error('Browser audit requires a fixed viewport')
   for (const width of [viewport.width, 390]) {

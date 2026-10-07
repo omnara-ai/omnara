@@ -807,7 +807,7 @@ tools:
 					scope, err := integrationdefinition.ParseConversation(integrationdefinition.ProviderSlack,
 						wantConversation.Kind, wantConversation.Ref)
 					require.NoError(t, err)
-					event := integrationdefinition.Event{Scope: scope, Kind: "message", Mentioned: true}
+					event := integrationdefinition.Event{Scope: scope, Kind: integrationdefinition.EventMessage, Mentioned: true}
 					definition, ok := integrationdefinition.Lookup(candidates.Launcher.IntegrationKind)
 					require.True(t, ok)
 					require.True(t, definition.MatchesLaunch(candidates.Launcher.Settings, event))

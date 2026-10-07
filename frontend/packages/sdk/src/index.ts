@@ -30,6 +30,7 @@ export { type JsonBody, zJsonText } from './json-body'
 export { FILE_DIGEST_HEADER, MAX_MEMORY_FILE_BYTES } from './memory'
 export {
   chatIntegrationLauncher,
+  type GitHubIntegrationLauncher,
   githubIntegrationSettings,
   profileIntegrationDiscordKeyStatus,
   profileIntegrationProfiles,

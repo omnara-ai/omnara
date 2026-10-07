@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -64,7 +65,7 @@ func newGitHubIntakeFixture() *githubIntakeFixture {
 }
 
 func (f *githubIntakeFixture) ListIntegrationsByProviderIdentity(
-	_ context.Context, provider, appID, installationID string, after uuid.UUID, limit int,
+	_ context.Context, provider integrationdefinition.Provider, appID, installationID string, after uuid.UUID, limit int,
 ) ([]integrationstore.IntegrationRecord, error) {
 	f.pages++
 	if f.lookupErr != nil {
@@ -667,7 +668,7 @@ func TestGitHubHTTPFanoutIsolatesBadIntegrationsAndRetriesTransientFailures(t *t
 				if tc.receiptErr != nil {
 					stage = "intake"
 				}
-				if entry.IntegrationID != bad.ID || entry.ProjectID != bad.ProjectID || entry.Provider != bad.Provider ||
+				if entry.IntegrationID != bad.ID || entry.ProjectID != bad.ProjectID || entry.Provider != string(bad.Provider) ||
 					entry.SetupRevision != bad.SetupRevision || entry.Stage != stage || entry.ErrorType == "" ||
 					entry.Retryable != (tc.status == http.StatusServiceUnavailable) {
 					t.Fatalf("wrong failed-app diagnostic: %+v", entry)

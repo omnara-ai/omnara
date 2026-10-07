@@ -634,7 +634,7 @@ FROM agent_interactions interaction
 JOIN agent_inputs input ON input.id=interaction.resolved_by_input_id
 JOIN actors actor ON actor.id=input.actor_id
 WHERE interaction.id=$1`, interaction.ID).Scan(&provider, &tenant, &sender))
-	require.Equal(t, executionstore.ActorProviderIntegration, provider)
+	require.Equal(t, string(executionstore.ActorProviderIntegration), provider)
 	require.Equal(t, callback.Actor.ProviderTenantID, tenant)
 	require.Equal(t, "U_OTHER_PARTICIPANT", sender)
 	tool, err := f.store.Execution().GetToolCall(f.ctx, testProjectID, f.process.AgentID, toolID)

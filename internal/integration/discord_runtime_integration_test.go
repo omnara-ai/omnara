@@ -91,7 +91,7 @@ func newDiscordRuntimeFixture(t *testing.T) discordRuntimeFixture {
 		ctx,
 		integrationstore.ConfigureIntegrationInput{
 			OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integration.ID,
-			InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationstore.IntegrationProviderDiscord,
+			InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationdefinition.ProviderDiscord,
 			ProviderTenantID: "123", ProviderAccountRef: "456", CredentialSecretID: secret.ID,
 			CredentialVersionID: version.ID, ExpectedSetupRevision: integration.SetupRevision,
 		},
@@ -433,7 +433,7 @@ func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.
 			ctx,
 			integrationstore.ConfigureIntegrationInput{
 				OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, IntegrationID: integration.ID,
-				InstalledByUserID: f.integrationSetup.InstalledByUserID, Provider: integrationstore.IntegrationProviderDiscord,
+				InstalledByUserID: f.integrationSetup.InstalledByUserID, Provider: integrationdefinition.ProviderDiscord,
 				ProviderTenantID: fmt.Sprintf("%d", 124+i), ProviderAccountRef: f.integrationSetup.ProviderAccountRef,
 				CredentialSecretID: f.integrationSetup.CredentialSecretID, CredentialVersionID: f.version,
 				ExpectedSetupRevision: integration.SetupRevision,

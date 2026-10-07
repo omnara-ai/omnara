@@ -45,7 +45,7 @@ func integrationSetupFixture(
 	require.NoError(t, err)
 	return f, secretStore, integrationstore.ConfigureIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, IntegrationID: integration.ID, InstalledByUserID: f.user,
-		Provider: integrationstore.IntegrationProviderSlack, ProviderTenantID: "T123", ProviderAccountRef: "router",
+		Provider: integrationdefinition.ProviderSlack, ProviderTenantID: "T123", ProviderAccountRef: "router",
 		CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
 		ExpectedSetupRevision: integration.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
 	}
@@ -145,7 +145,7 @@ func TestIntegrationKindConstraints(t *testing.T) {
 	integration, err := f.store.GetIntegration(f.ctx, f.project, input.IntegrationID)
 	require.NoError(t, err)
 	require.Equal(t, integrationdefinition.SlackThread, integration.IntegrationKind)
-	require.Equal(t, integrationstore.IntegrationProviderSlack, integration.Provider)
+	require.Equal(t, integrationdefinition.ProviderSlack, integration.Provider)
 	metadata := integrationMetadata(integration)
 	metadata.IntegrationKind = integrationdefinition.DiscordThread
 	_, err = f.store.UpdateIntegration(f.ctx, integration.ID, metadata)
@@ -195,7 +195,7 @@ func TestIntegrationCredentialAuthorizationAndRotation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	input.IntegrationID, input.ExpectedSetupRevision = integration.ID, integration.SetupRevision
-	input.Provider = integrationstore.IntegrationProviderGitHub
+	input.Provider = integrationdefinition.ProviderGitHub
 	input.ProviderTenantID, input.ProviderAccountRef = "123", "456"
 	input.CredentialSecretID, input.CredentialVersionID, input.CredentialAppID = credential.ID, version.ID, 123
 	input.OAuthFlowID = uuid.Nil

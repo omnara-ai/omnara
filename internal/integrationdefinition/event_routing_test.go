@@ -7,24 +7,24 @@ import (
 )
 
 func TestRoutingAddressesOnlyContainSupportedConversations(t *testing.T) {
-	slack := Event{Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}, Kind: "message"}
-	github := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "discussion_comment"}
+	slack := Event{Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}, Kind: EventMessage}
+	github := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: EventDiscussionComment}
 	for _, tc := range []struct {
 		name  string
 		event Event
 		want  []EventAddress
 	}{
 		{"Slack thread", slack, []EventAddress{{"thread", "C123:1.2"}, {"channel", "C123"}}},
-		{"Slack channel", Event{Scope: Scope{Slack: &SlackScope{ChannelID: "C123"}}, Kind: "message"},
+		{"Slack channel", Event{Scope: Scope{Slack: &SlackScope{ChannelID: "C123"}}, Kind: EventMessage},
 			[]EventAddress{{"channel", "C123"}}},
-		{"Slack DM", Event{Scope: Scope{Slack: &SlackScope{ChannelID: "D123"}}, Kind: "message"},
+		{"Slack DM", Event{Scope: Scope{Slack: &SlackScope{ChannelID: "D123"}}, Kind: EventMessage},
 			[]EventAddress{{"dm", "D123"}}},
 		{"GitHub PR", github, []EventAddress{{"pull_request", "123#7"}}},
 		{"Discord thread", Event{
-			Scope: Scope{Discord: &DiscordScope{ChannelID: "456", ThreadID: "789"}}, Kind: "message",
+			Scope: Scope{Discord: &DiscordScope{ChannelID: "456", ThreadID: "789"}}, Kind: EventMessage,
 		}, []EventAddress{{"thread", "789"}, {"channel", "456"}}},
 		{"Discord thread only", Event{
-			Scope: Scope{Discord: &DiscordScope{ThreadID: "789"}}, Kind: "message",
+			Scope: Scope{Discord: &DiscordScope{ThreadID: "789"}}, Kind: EventMessage,
 		}, []EventAddress{{"thread", "789"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -26,7 +26,7 @@ returns you to Omnara to continue setup. Omnara selects a single available accou
 automatically; if several are available, choose which one to connect. Select **Connect integration**
 to finish. If organization approval is pending, return later using the saved
 credential and check access again. Nothing launches until you choose an agent
-profile and save the integration's launch settings.
+profile in **Pull requests** and select **Save changes**.
 
 <Warning>
 PR-open launches, mention launches and comments that steer agents require repository
@@ -235,9 +235,10 @@ issued tokens or remove cloned files.
 
 ## Configure incoming PR work
 
-In the dashboard, choose one profile and whether to start agents from PR openings,
-mentions or both. To mention the bot, use `@<app-slug>`, such as `@review-helper`
-for `https://github.com/apps/review-helper`. Use the GitHub App's slug, not the
+In the dashboard's **Pull requests** section, choose one profile and whether to start
+agents from PR openings, mentions or both, then select **Save changes**. These controls
+remain editable on the integration page. To mention the bot, use `@<app-slug>`, such as
+`@review-helper` for `https://github.com/apps/review-helper`. Use the GitHub App's slug, not the
 Omnara integration name (`reviews` in these examples).
 
 To forward events from one PR to an existing agent, send this body to

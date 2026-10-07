@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -136,7 +137,7 @@ func newIntegrationRuntimeFixture(
 	require.NoError(t, err)
 	integration, err = f.store.ConfigureIntegration(f.ctx, integrationstore.ConfigureIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, IntegrationID: integration.ID, InstalledByUserID: f.user,
-		Provider: integrationstore.IntegrationProviderDiscord, ProviderTenantID: "123", ProviderAccountRef: "456",
+		Provider: integrationdefinition.ProviderDiscord, ProviderTenantID: "123", ProviderAccountRef: "456",
 		CredentialSecretID: secret.ID, CredentialVersionID: version.ID, ExpectedSetupRevision: integration.SetupRevision,
 	})
 	require.NoError(t, err)
@@ -274,7 +275,7 @@ func TestPersistentIntegrationsRetryUsesCurrentSetupAndCredential(t *testing.T) 
 					f.project).Scan(&profileID))
 				_, err := f.store.UpdateIntegration(f.ctx, integration.ID, integrationstore.SaveIntegrationInput{
 					OrgID: f.org, ProjectID: f.project, Name: integration.Name, IntegrationKind: integration.IntegrationKind,
-					Settings: integrationtest.ChatSettings("", profileID),
+					Settings: integrationtest.ChatSettings(profileID),
 				})
 				require.NoError(t, err)
 			}
@@ -804,7 +805,7 @@ func TestIntegrationRuntimeSettingsPreserveLeaseCheckpointAndBackoff(t *testing.
 	)
 	updated, err := f.store.UpdateIntegration(f.ctx, integration.ID, integrationstore.SaveIntegrationInput{
 		OrgID: f.org, ProjectID: f.project, Name: integration.Name, IntegrationKind: integration.IntegrationKind,
-		Settings: integrationtest.ChatSettings("", profileID),
+		Settings: integrationtest.ChatSettings(profileID),
 	})
 	require.NoError(t, err)
 	require.Equal(t, integration.SetupRevision, updated.SetupRevision)

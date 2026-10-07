@@ -77,7 +77,9 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	}
 	want := integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
 	if *root.Event.Scope.Discord != want ||
-		!definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), root.Event) ||
+		!definition.MatchesLaunch(
+			testLaunchSettings(definition.IntegrationKind, integrationdefinition.TriggerMention), root.Event,
+		) ||
 		root.DeliveryMode != executionstore.DeliveryModeSteering || !root.CancelOpenInteractions ||
 		root.Actor.Provider != executionstore.ActorProviderIntegration ||
 		root.Actor.ProviderTenantID != "discord" || root.Actor.Metadata["source_label"] != "Discord" ||

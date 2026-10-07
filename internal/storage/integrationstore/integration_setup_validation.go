@@ -12,16 +12,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 )
 
-func IntegrationCredentialKind(provider string) (secrets.Kind, error) {
+func IntegrationCredentialKind(provider integrationdefinition.Provider) (secrets.Kind, error) {
 	switch provider {
-	case IntegrationProviderSlack:
+	case integrationdefinition.ProviderSlack:
 		return secrets.KindSlackAppCredentials, nil
-	case IntegrationProviderGitHub:
+	case integrationdefinition.ProviderGitHub:
 		return secrets.KindGitHubAppCredentials, nil
-	case IntegrationProviderDiscord:
+	case integrationdefinition.ProviderDiscord:
 		return secrets.KindGeneric, nil
 	default:
 		return "", fmt.Errorf("unsupported integration provider %q", provider)
@@ -35,7 +36,7 @@ func normalizeConfigureIntegrationInput(input ConfigureIntegrationInput) (
 	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil || input.InstalledByUserID == uuid.Nil {
 		return input, errors.New("org, project, and installed-by user are required")
 	}
-	input.Provider = strings.TrimSpace(input.Provider)
+	input.Provider = integrationdefinition.Provider(strings.TrimSpace(string(input.Provider)))
 	input.ProviderTenantID = strings.TrimSpace(input.ProviderTenantID)
 	input.ProviderAccountRef = strings.TrimSpace(input.ProviderAccountRef)
 	input.ProviderAgentDisplayName = strings.TrimSpace(input.ProviderAgentDisplayName)
@@ -61,7 +62,7 @@ func normalizeConfigureIntegrationInput(input ConfigureIntegrationInput) (
 		dbsafe.Text(input.ProviderAgentDisplayName) != nil {
 		return input, errors.New("provider_agent_display_name must be text of at most 512 bytes")
 	}
-	if input.Provider == IntegrationProviderGitHub {
+	if input.Provider == integrationdefinition.ProviderGitHub {
 		appID, err := strconv.ParseInt(input.ProviderTenantID, 10, 64)
 		if err != nil || appID <= 0 {
 			return input, errors.New("github provider_tenant_id must be a positive numeric App ID")
@@ -78,7 +79,7 @@ func normalizeConfigureIntegrationInput(input ConfigureIntegrationInput) (
 			)
 		}
 	}
-	if input.Provider == IntegrationProviderDiscord {
+	if input.Provider == integrationdefinition.ProviderDiscord {
 		for _, id := range []string{input.ProviderTenantID, input.ProviderAccountRef} {
 			value, err := strconv.ParseUint(id, 10, 64)
 			if err != nil || value == 0 || strconv.FormatUint(value, 10) != id {
@@ -109,7 +110,7 @@ func normalizeConfigureIntegrationInput(input ConfigureIntegrationInput) (
 	if err := json.Unmarshal(input.ProviderConfig, &config); err != nil {
 		return input, err
 	}
-	if input.Provider == IntegrationProviderDiscord {
+	if input.Provider == integrationdefinition.ProviderDiscord {
 		for key := range config {
 			if key != "public_key" {
 				return input, fmt.Errorf("unsupported discord provider_config field %q", key)

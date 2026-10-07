@@ -78,7 +78,7 @@ func TestScheduledLaunchClaimRequiresTrustedReceiptSource(t *testing.T) {
 				integrationstore.ScheduledIntegrationEvent
 				Source string                      `json:"source"`
 				Root   integrationdefinition.Scope `json:"root"`
-			}{launch, "scheduled", root})
+			}{launch, integrationdefinition.ScheduledLaunchKey, root})
 			require.NoError(t, err)
 			_, _, err = f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: "forged-scheduled-event", Payload: payload,
@@ -90,10 +90,10 @@ func TestScheduledLaunchClaimRequiresTrustedReceiptSource(t *testing.T) {
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			launchFacts, message := scheduledPlanFacts(t, f, launch, root)
 			plan, err := json.Marshal(map[string]any{
-				"message": message, "recipients": map[string]any{"scheduled": map[string]any{
+				"message": message, "recipients": map[string]any{integrationdefinition.ScheduledLaunchKey: map[string]any{
 					"launch": launchFacts,
 					"launch_claim": integrationstore.InboxLaunchClaim{
-						IntegrationID: f.integrationID, LaunchKey: "scheduled",
+						IntegrationID: f.integrationID, LaunchKey: integrationdefinition.ScheduledLaunchKey,
 						Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 					},
 				}},
@@ -130,26 +130,26 @@ func TestScheduledLaunchClaimRequiresOneThreadWithinAcceptedParent(t *testing.T)
 			receipt := f.claim(t)
 			root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
 			claim := integrationstore.InboxLaunchClaim{
-				IntegrationID: f.integrationID, LaunchKey: "scheduled",
+				IntegrationID: f.integrationID, LaunchKey: integrationdefinition.ScheduledLaunchKey,
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 			}
 			if scenario == "different thread" {
 				claim.Address.Ref = "C123:101.1"
 			}
 			launchFacts, message := scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
-			recipients := map[string]any{"scheduled": map[string]any{
+			recipients := map[string]any{integrationdefinition.ScheduledLaunchKey: map[string]any{
 				"launch_claim": claim,
 				"launch":       launchFacts,
 			}}
 			if scenario == "no scope" {
-				recipients["scheduled"] = map[string]any{"launch_claim": claim}
+				recipients[integrationdefinition.ScheduledLaunchKey] = map[string]any{"launch_claim": claim}
 				message = nil
 			}
 			if scenario == "wrong parent" {
 				root.Slack.ChannelID = "C999"
 				launchFacts, message = scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
 				claim.Address.Ref = "C999:100.1"
-				recipients["scheduled"] = map[string]any{
+				recipients[integrationdefinition.ScheduledLaunchKey] = map[string]any{
 					"launch_claim": claim,
 					"launch":       launchFacts,
 				}
@@ -185,10 +185,10 @@ func TestScheduledReceiptReplayRequiresIdenticalSnapshot(t *testing.T) {
 	root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
 	launchFacts, message := scheduledPlanFacts(t, f, launch, root)
 	plan, err := json.Marshal(map[string]any{
-		"message": message, "recipients": map[string]any{"scheduled": map[string]any{
+		"message": message, "recipients": map[string]any{integrationdefinition.ScheduledLaunchKey: map[string]any{
 			"launch": launchFacts,
 			"launch_claim": integrationstore.InboxLaunchClaim{
-				IntegrationID: f.integrationID, LaunchKey: "scheduled",
+				IntegrationID: f.integrationID, LaunchKey: integrationdefinition.ScheduledLaunchKey,
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 			},
 		}},

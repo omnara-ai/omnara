@@ -72,14 +72,17 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 	definition, _ := integrationdefinition.Lookup(integrationdefinition.GitHubPR)
 	for _, tc := range []struct {
 		eventType string
-		kind      string
+		kind      integrationdefinition.EventKind
 		key       string
 		steering  bool
 	}{
-		{"issue_comment", "discussion_comment", "github:1001:discussion_comment:3001:created", true},
-		{"pull_request_review_comment", "review_comment", "github:1001:review_comment:3001:created", true},
-		{"pull_request_review", "review_comment", "github:1001:review:4001:submitted", true},
-		{"pull_request", "pull_request_opened", "github:1001:pull_request:2001:opened", false},
+		{"issue_comment", integrationdefinition.EventDiscussionComment, "github:1001:discussion_comment:3001:created", true},
+		{
+			"pull_request_review_comment", integrationdefinition.EventReviewComment,
+			"github:1001:review_comment:3001:created", true,
+		},
+		{"pull_request_review", integrationdefinition.EventReviewComment, "github:1001:review:4001:submitted", true},
+		{"pull_request", integrationdefinition.EventPullRequestOpened, "github:1001:pull_request:2001:opened", false},
 	} {
 		t.Run(tc.eventType, func(t *testing.T) {
 			t.Parallel()
@@ -97,8 +100,8 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 			if event.Event.Scope.GitHub.RepositoryID != 1001 || event.Event.Scope.GitHub.PullRequest != 42 {
 				t.Fatalf("scope: %+v", event.Event.Scope)
 			}
-			mentionSettings := testLaunchSettings(definition.IntegrationKind, "mention")
-			openSettings := testLaunchSettings(definition.IntegrationKind, "pull_request_opened")
+			mentionSettings := testLaunchSettings(definition.IntegrationKind, integrationdefinition.TriggerMention)
+			openSettings := testLaunchSettings(definition.IntegrationKind, integrationdefinition.TriggerPullRequestOpened)
 			if definition.MatchesLaunch(mentionSettings, event.Event) != tc.steering ||
 				definition.MatchesLaunch(openSettings, event.Event) == tc.steering {
 				t.Fatalf("trigger: %+v", event.Event)
@@ -168,7 +171,7 @@ func TestGitHubSynchronizeQueuesAndUsesTransitionIdentity(t *testing.T) {
 	payload.Action, payload.Before, payload.After = "synchronize", strings.Repeat("a", 40), strings.Repeat("b", 40)
 	event, ok, err := NormalizeGitHubIntegrationEvent(githubEventIntegration(), githubEventJSON(t, payload))
 	if err != nil || !ok || event.DeliveryMode != executionstore.DeliveryModeQueued ||
-		event.CancelOpenInteractions || event.Event.Mentioned || event.Event.Kind != "commit" {
+		event.CancelOpenInteractions || event.Event.Mentioned || event.Event.Kind != integrationdefinition.EventCommit {
 		t.Fatalf("commit: %+v %v %v", event, ok, err)
 	}
 	payload.Before = strings.Repeat("c", 40)
@@ -284,7 +287,8 @@ func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 		*before.Event.Scope.GitHub != *after.Event.Scope.GitHub || before.Event.Mentioned != after.Event.Mentioned {
 		t.Fatalf("rename/replay changed identity: %+v %v", after, err)
 	}
-	if after.Event.Kind != "review_comment" || !strings.HasPrefix(after.DisplayName, "new-owner/new-name#") {
+	if after.Event.Kind != integrationdefinition.EventReviewComment ||
+		!strings.HasPrefix(after.DisplayName, "new-owner/new-name#") {
 		t.Fatalf("renamed input: %+v", after)
 	}
 	payload.Repository.ID++

@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.Agent, error) {
@@ -64,7 +63,7 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 			return openapi.Agent{}, err
 		}
 		target := openapi.IntegrationTarget{
-			Provider:     record.IntegrationTarget.Provider,
+			Provider:     string(record.IntegrationTarget.Provider),
 			Conversation: conversation,
 			DisplayName:  record.IntegrationTarget.DisplayName,
 		}
@@ -103,7 +102,7 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 
 func integrationTargetProviderURI(target executionstore.IntegrationTargetDisplay) string {
 	switch target.Provider {
-	case integrationstore.IntegrationProviderSlack:
+	case integrationdefinition.ProviderSlack:
 		return slack.ConversationURI(target.ProviderTenantID, target.ScopeRef)
 	default:
 		return ""

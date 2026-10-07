@@ -43,7 +43,7 @@ func TestSlackDisconnectedEventsVerifyRetainedCredentialsAndReconnect(t *testing
 	require.Equal(t, f.Install.SetupRevision+1, disconnected.SetupRevision)
 	request := func(body, signingSecret string, status int) map[string]any {
 		t.Helper()
-		return requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", status,
+		return requestJSONWithHeaders(t, f.Handler, http.MethodPost, slackEventsPath, body, "", status,
 			unitSlackSignedHeaders(body, signingSecret))
 	}
 	assertReceipts := func(want int) {
@@ -142,7 +142,7 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveIntegration(
 	require.ElementsMatch(t, []uuid.UUID{f.Install.ID, different.ID, same.ID}, candidateIDs)
 	request := func(body, signingSecret string, status int) map[string]any {
 		t.Helper()
-		return requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", status,
+		return requestJSONWithHeaders(t, f.Handler, http.MethodPost, slackEventsPath, body, "", status,
 			unitSlackSignedHeaders(body, signingSecret))
 	}
 	assertReceipts := func(activeCount int) {
@@ -176,13 +176,13 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveIntegration(
 	require.NoError(t, err)
 	body := strings.ReplaceAll(disconnectedSlackEvent, "Ev-disconnected", "Ev-unwrap-failure")
 	var logs bytes.Buffer
-	r := httptest.NewRequest(http.MethodPost, integrationEventsPath, strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, slackEventsPath, strings.NewReader(body))
 	r = r.WithContext(log.WithLogger(ctx, slog.New(slog.NewJSONHandler(&logs, nil))))
 	for key, value := range unitSlackSignedHeaders(body, "signing-secret") {
 		r.Header.Set(key, value)
 	}
 	server := &Server{store: f.Project.Store}
-	response := performRequest(http.HandlerFunc(server.integrationEventsRoute), r)
+	response := performRequest(http.HandlerFunc(server.slackEventsRoute), r)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.JSONEq(t, `{"ok":"received"}`, response.Body.String())
 	assertReceipts(2)

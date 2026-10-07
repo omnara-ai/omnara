@@ -31,10 +31,23 @@ type MessageTarget struct {
 	BotToken  string
 }
 
+type ErrorCode string
+
+const (
+	RateLimited             ErrorCode = "rate_limited"
+	DeliveryUnknown         ErrorCode = "delivery_unknown"
+	TransientFailure        ErrorCode = "transient_failure"
+	PermanentFailure        ErrorCode = "permanent_failure"
+	IntegrationDisconnected ErrorCode = "integration_disconnected"
+	InvalidFileURL          ErrorCode = "invalid_file_url"
+	FileTooLarge            ErrorCode = "file_too_large"
+	ProviderError           ErrorCode = "provider_error"
+)
+
 type APIResult struct {
 	StatusCode       int
 	MessageID        string
-	Code             string
+	Code             ErrorCode
 	ProviderCode     string
 	RateLimited      bool
 	RetryAfter       time.Duration
@@ -53,7 +66,7 @@ func (e *APIError) Error() string {
 		return e.Result.Message
 	}
 	if e.Result.Code != "" {
-		return "slack " + e.Result.Code
+		return "slack " + string(e.Result.Code)
 	}
 	return "slack request failed"
 }
@@ -332,24 +345,24 @@ func doRequest(client *http.Client, req *http.Request, out any) (result APIResul
 		if code := slackErrorCode(body); code != "" {
 			result := ErrorResult(code)
 			if resp.StatusCode < 500 || result.RateLimited || result.TransientFailure ||
-				result.Code == "integration_disconnected" {
+				result.Code == IntegrationDisconnected {
 				return result, nil
 			}
 			return APIResult{
-				Code:             "transient_failure",
+				Code:             TransientFailure,
 				TransientFailure: true,
 				Message:          fmt.Sprintf("slack returned status %d: %s", resp.StatusCode, code),
 			}, nil
 		}
 		if resp.StatusCode >= 500 {
 			return APIResult{
-				Code:             "transient_failure",
+				Code:             TransientFailure,
 				TransientFailure: true,
 				Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 			}, nil
 		}
 		return APIResult{
-			Code:             "permanent_failure",
+			Code:             PermanentFailure,
 			PermanentFailure: true,
 			Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 		}, nil
@@ -389,16 +402,16 @@ func ErrorResult(code string) APIResult {
 	case "ratelimited":
 		return APIResult{ProviderCode: code, RateLimited: true, Message: message}
 	case "internal_error", "fatal_error", "service_unavailable", "request_timeout":
-		return APIResult{Code: "transient_failure", ProviderCode: code, TransientFailure: true, Message: message}
+		return APIResult{Code: TransientFailure, ProviderCode: code, TransientFailure: true, Message: message}
 	case "not_authed", "invalid_auth", "account_inactive", "token_revoked":
 		return APIResult{
-			Code:             "integration_disconnected",
+			Code:             IntegrationDisconnected,
 			ProviderCode:     code,
 			PermanentFailure: true,
 			Message:          "integration is disconnected or credentials are invalid",
 		}
 	default:
-		return APIResult{Code: "permanent_failure", ProviderCode: code, PermanentFailure: true, Message: message}
+		return APIResult{Code: PermanentFailure, ProviderCode: code, PermanentFailure: true, Message: message}
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ func TestIntegrationOAuthStateScopeAndBounds(t *testing.T) {
 		OrgID:             uuid.New(),
 		ProjectID:         uuid.New(),
 		InstalledByUserID: uuid.New(),
-		Provider:          integrationstore.IntegrationProviderSlack,
+		Provider:          integrationdefinition.ProviderSlack,
 		ClientID:          "client",
 		ClientSecret:      "secret",
 		SigningSecret:     "signing",

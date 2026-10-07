@@ -167,13 +167,20 @@ it.each([
         [6n, 10n, 11n, 15n, 16n, 35n, 38n].reduce((mask, bit) => mask | (1n << bit), 0n),
       )
     }
-    act(() => {
-      button('Cancel').click()
-    })
-    expect(container.querySelector('form')).toBeNull()
-    expect(
-      button(integrationKind === 'github_pr' ? 'Choose a profile' : 'Choose profiles'),
-    ).toBeDefined()
+    expect(button('Save changes').disabled).toBe(true)
+    if (integrationKind === 'github_pr' && !reconnecting) {
+      act(() => {
+        button('Discard changes').click()
+      })
+      expect(field('PR opened')).toHaveProperty('checked', false)
+      expect(field('Bot mentioned')).toHaveProperty('checked', false)
+      expect(container.textContent).not.toContain('Account connected.')
+    }
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    expect(container.querySelector('form')).not.toBeNull()
+    expect(() => button('Choose profiles')).toThrow('Missing button')
+    expect(() => button('Choose a profile')).toThrow('Missing button')
+    expect(() => button('Edit')).toThrow('Missing button')
   },
 )
 
@@ -448,14 +455,15 @@ it('keeps a reconnect draft through refresh failures and external activation unt
   act(() => {
     button('Cancel').click()
   })
-  expect(container.querySelector('form')).toBeNull()
+  expect(container.querySelector('[name="botToken"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Mentions"] form')).not.toBeNull()
   expect(button('Delete integration').closest('form')).toBeNull()
-  expect(button('Choose profiles')).toBeDefined()
+  expect(button('Save changes').disabled).toBe(true)
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
 it.each([true, false])(
-  'opens profiles only for this integration’s Slack success callback without a modal (matching=%s)',
+  'acknowledges only this integration’s Slack success callback with the inline editor (matching=%s)',
   async (matching) => {
     const integration = integrationFixture({
       state: 'active',
@@ -500,7 +508,7 @@ it.each([true, false])(
       />,
     )
     await waitForUI(() => {
-      expect(button(matching ? 'Save changes' : 'Choose profiles')).toBeDefined()
+      expect(button('Save changes').disabled).toBe(true)
     })
     expect(container.textContent.includes('Account connected.')).toBe(matching)
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -608,7 +616,9 @@ it.each(['access_denied', 'identity_mismatch', 'integration_setup_changed'])(
       expect(container.textContent).toContain('Account connected.')
     })
     expect(container.textContent).not.toContain('Slack setup didn’t finish.')
-    expect(container.querySelector('form')).toBeNull()
+    expect(container.querySelector('[aria-label="Mentions"] form')).not.toBeNull()
+    expect(container.querySelector('#clientId')).toBeNull()
+    expect(button('Save changes').disabled).toBe(true)
     expect(container.textContent).toContain('existing-team-bot')
     expect(api.requestsTo('PUT', detailPath)).toHaveLength(0)
     expect(window.location.search).toBe('')
@@ -685,9 +695,7 @@ it.each(['access_denied', 'flow_expired'])(
       expect(container.querySelector('[role="alert"]')?.textContent).toContain(
         'Slack setup didn’t finish.',
       )
-      expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(
-        true,
-      )
+      expect(button('Create a new Slack app')).toBeDefined()
       expect(container.querySelector('#clientId')).not.toBeNull()
     })
     expect(window.location.search).toBe('')

@@ -15,16 +15,24 @@ const MaxChatProfiles = 16
 // ProfileLaunchKey identifies the one launch owned by a conversation, independently
 // of the configured profile or its position in a menu.
 const ProfileLaunchKey = "default"
+const ScheduledLaunchKey = "scheduled"
+
+type LauncherTrigger string
+
+const (
+	TriggerMention           LauncherTrigger = "mention"
+	TriggerPullRequestOpened LauncherTrigger = "pull_request_opened"
+	TriggerBoth              LauncherTrigger = "both"
+)
 
 type ChatLauncherSettings struct {
-	Profiles  []string `json:"profiles"`
-	ChannelID string   `json:"channel_id,omitempty"`
+	Profiles []string `json:"profiles"`
 }
 
 type GitHubLauncherSettings struct {
-	Profile      string `json:"profile"`
-	Trigger      string `json:"trigger"`
-	RepositoryID string `json:"repository_id,omitempty"`
+	Profile      string          `json:"profile"`
+	Trigger      LauncherTrigger `json:"trigger"`
+	RepositoryID string          `json:"repository_id,omitempty"`
 }
 
 type GitHubSettings struct {
@@ -63,20 +71,13 @@ func ChatLaunchProfiles(raw json.RawMessage) ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-func newChatSettings(provider string) *SettingsDefinition {
-	channel := ""
-	if provider == ProviderSlack {
-		channel = `,"channel_id":{"type":"string","pattern":"^[CG][A-Z0-9]+$","title":"Channel ID",
- "description":"Optional: restrict mentions to this channel."}`
-	}
-	return &SettingsDefinition{
-		InputSchema:      json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profiles"],"properties":{"profiles":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$"},"title":"Profiles","description":"One profile launches immediately; several offer a choice of exactly one."}` + channel + `}}}}`),
-		Description:      "Launch from a mention using one profile or a menu of profiles.",
-		ValidateSettings: func(raw json.RawMessage) error { _, err := ChatLaunchProfiles(raw); return err },
-	}
+var chatSettings = &SettingsDefinition{
+	InputSchema:      json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profiles"],"properties":{"profiles":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$"},"title":"Profiles","description":"One profile launches immediately; several offer a choice of exactly one."}}}}}`),
+	Description:      "Launch from a mention using one profile or a menu of profiles.",
+	ValidateSettings: func(raw json.RawMessage) error { _, err := ChatLaunchProfiles(raw); return err },
 }
 
-func newChatLauncher(provider string) *LauncherDefinition {
+func newChatLauncher(provider Provider) *LauncherDefinition {
 	return &LauncherDefinition{
 		MayLaunchWithoutSelection: func(raw json.RawMessage, _ Event) bool {
 			profiles, err := ChatLaunchProfiles(raw)
@@ -84,10 +85,7 @@ func newChatLauncher(provider string) *LauncherDefinition {
 		},
 		Matches: func(raw json.RawMessage, event Event) bool {
 			launcher, err := ReadChatLauncher(raw)
-			if err != nil || launcher == nil || event.Scope.Provider() != provider || !matchesTrigger(event, "mention") {
-				return false
-			}
-			return launcher.ChannelID == "" || (event.Scope.Slack != nil && launcher.ChannelID == event.Scope.Slack.ChannelID)
+			return err == nil && launcher != nil && event.Scope.Provider() == provider && matchesTrigger(event, TriggerMention)
 		},
 		AuthorizeIntent: func(raw json.RawMessage, _ Event, intent LaunchIntent) error {
 			profiles, err := ChatLaunchProfiles(raw)
@@ -147,18 +145,19 @@ var githubLauncher = &LauncherDefinition{
 	},
 }
 
-func matchesTrigger(event Event, trigger string) bool {
+func matchesTrigger(event Event, trigger LauncherTrigger) bool {
 	if event.Validate() != nil || (event.Scope.Discord != nil && event.Scope.Discord.GuildID == "") {
 		return false
 	}
 	switch trigger {
-	case "mention":
+	case TriggerMention:
 		return event.Mentioned &&
-			(event.Kind == "message" || event.Kind == "discussion_comment" || event.Kind == "review_comment")
-	case "pull_request_opened":
-		return event.Scope.GitHub != nil && event.Kind == "pull_request_opened"
-	case "both":
-		return event.Scope.GitHub != nil && (matchesTrigger(event, "mention") || matchesTrigger(event, "pull_request_opened"))
+			(event.Kind == EventMessage || event.Kind == EventDiscussionComment || event.Kind == EventReviewComment)
+	case TriggerPullRequestOpened:
+		return event.Scope.GitHub != nil && event.Kind == EventPullRequestOpened
+	case TriggerBoth:
+		return event.Scope.GitHub != nil &&
+			(matchesTrigger(event, TriggerMention) || matchesTrigger(event, TriggerPullRequestOpened))
 	}
 	return false
 }

@@ -115,8 +115,10 @@ func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntim
 	require.True(t, found)
 	require.Equal(t, raw, string(receipt.Payload), "acknowledged receipt retains exact signed bytes")
 	router := integrationruntime.NewIntegrationRouter(f.project.Store.Execution(), inbox)
-	providers := map[string]integrationruntime.IntegrationInboxProvider{
-		"github": integrationruntime.NewGitHubIntegrationInboxProvider(f.providerConfig(t), f.project.Store.Secrets(), inbox),
+	providers := map[integrationdefinition.Provider]integrationruntime.IntegrationInboxProvider{
+		integrationdefinition.ProviderGitHub: integrationruntime.NewGitHubIntegrationInboxProvider(
+			f.providerConfig(t), f.project.Store.Secrets(), inbox,
+		),
 	}
 	consumer := integrationruntime.NewIntegrationInboxConsumer(
 		router, inbox, nil,

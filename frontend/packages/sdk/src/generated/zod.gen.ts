@@ -3294,6 +3294,7 @@ export const zIntegration = z.object({
     provider_tenant_id: z.string().optional(),
     provider_account_ref: z.string().optional(),
     provider_agent_display_name: zIntegrationProviderDisplayName,
+    bot_mention: z.string().optional(),
     credential_secret_id: zSecretId.optional(),
     provider_config: zIntegrationProviderConfig,
     capabilities: zIntegrationCapabilities,

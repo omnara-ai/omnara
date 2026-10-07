@@ -39,13 +39,15 @@ func TestIntegrationDiscordRoleMentionRetriesThenChoosesOnce(t *testing.T) {
 	integrationSetup, err := store.Integrations().UpdateIntegration(ctx, integrationID,
 		integrationstore.SaveIntegrationInput{
 			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.DiscordThread,
-			Settings: integrationtest.ChatSettings("", profiles...),
+			Settings: integrationtest.ChatSettings(profiles...),
 		})
 	require.NoError(t, err)
 	f, provider := newDiscordInboxFixture(t)
 	f.integrationSetup, provider.integrations = integrationSetup, store.Integrations()
 	f.message.Mentions, f.message.MentionRoles, f.message.Content = nil, []string{"700"}, "<@&700> original request"
-	providers := map[string]IntegrationInboxProvider{"discord": provider}
+	providers := map[integrationdefinition.Provider]IntegrationInboxProvider{
+		integrationdefinition.ProviderDiscord: provider,
+	}
 	newConsumer := func() *IntegrationInboxConsumer {
 		router := NewIntegrationRouter(store.Execution(), store.Integrations())
 		launcher := NewChatIntegrationLauncher(store.Integrations(), store.Execution(), providers)

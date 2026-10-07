@@ -132,7 +132,7 @@ it('uses the public dashboard URL for all Slack callbacks even with a separate A
     public_url: 'https://public-dashboard.example',
   })
   act(() => {
-    field('Use an existing Slack app').click()
+    button('Enter app details').click()
   })
   await waitForUI(() => {
     expect(container.textContent).toContain(

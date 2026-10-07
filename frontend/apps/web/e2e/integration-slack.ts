@@ -8,6 +8,7 @@ import {
   integrationCreation,
   mockSlackSetupReturn,
   openIntegrationSetup,
+  readIntegration,
 } from './fixtures'
 
 export async function exerciseSlackIntegrationSetup(
@@ -15,6 +16,8 @@ export async function exerciseSlackIntegrationSetup(
   context: BrowserContext,
   projectID: string,
   integrationName: string,
+  profileId: string,
+  profileName: string,
 ) {
   const failures = installIntegrationFailureTracking(page)
   await openIntegrationSetup(page, projectID, 'slack_thread', integrationName)
@@ -48,7 +51,7 @@ export async function exerciseSlackIntegrationSetup(
       await expect(page.getByText('icon.png', { exact: true })).toHaveCount(0)
     }
   }
-  await page.getByLabel('Use an existing Slack app').check()
+  await page.getByRole('button', { name: 'Enter app details', exact: true }).click()
   await page.getByLabel('Client ID', { exact: true }).fill('local-slack-client')
   await page.getByLabel('Client secret', { exact: true }).fill('local-slack-secret')
   await page.getByLabel('Signing secret', { exact: true }).fill('local-slack-signing')
@@ -102,31 +105,52 @@ export async function exerciseSlackIntegrationSetup(
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(mentions.getByLabel('Integration name', { exact: true })).toHaveCount(0)
   await expect(mentions.getByRole('checkbox')).toHaveCount(0)
-  await expect(mentions).toContainText('0/16 selected')
+  const save = mentions.getByRole('button', { name: 'Save changes', exact: true })
+  await expect(save).toBeDisabled()
+  await mentions
+    .getByRole('combobox', { name: 'Profiles for mentions', exact: true })
+    .fill(profileName)
+  await page.getByRole('option', { name: profileName, exact: true }).click()
+  await mentions.getByRole('heading', { name: 'Mentions', exact: true }).click()
+  await expect(
+    mentions.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
+  ).toBeVisible()
+  await expect(save).toBeEnabled()
   const savedSettings = page.waitForResponse(
     (result) =>
       result.request().method() === 'PUT' &&
       new URL(result.url()).pathname === `${projectPath}/integrations/${integration.id}`,
   )
-  await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await save.click()
   const saved = await savedSettings
   expect(saved.status()).toBe(200)
-  expect(saved.request().postDataJSON()).toEqual({ settings: {} })
+  expect(saved.request().postDataJSON()).toEqual({
+    settings: { launcher: { profiles: [profileId] } },
+  })
   const connected = schemas.zIntegration.parse(await saved.json())
   expect(connected).toMatchObject({
     id: integration.id,
     state: 'active',
     last_oauth_flow_id: setup.flow_id,
   })
-  expect(connected.settings.launcher).toBeUndefined()
-  await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
+  expect(connected.settings.launcher).toEqual({ profiles: [profileId] })
+  await expect(save).toBeDisabled()
   await expectIntegrationCapabilities(page, connected)
   await expect(page.getByRole('heading', { name: integration.name, exact: true })).toBeVisible()
   await page.goto(
     `${browserOrigin}${integrationPath}?integration_oauth=success&integration_id=${integration.id}`,
   )
   await expect(page.getByRole('status').filter({ hasText: 'Account connected.' })).toBeVisible()
-  await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+  await expect(
+    mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
+  ).toBeVisible()
+  await expect(
+    mentions.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
+  ).toBeVisible()
+  await expect(save).toBeDisabled()
+  expect((await readIntegration(page, apiProjectPath, integration.id)).settings.launcher).toEqual({
+    profiles: [profileId],
+  })
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page).toHaveURL(integrationPath)
   await expect(page.getByRole('heading', { name: integration.name, exact: true })).toBeVisible()

@@ -48,16 +48,19 @@ func TestIntegrationInboxIntakeBoundsLabels(t *testing.T) {
 	set := New()
 	m := NewIntegrationInboxIntakeRecorder(set)
 	for _, provider := range []string{"slack", "discord", "github"} {
-		for _, outcome := range []string{"accepted", "duplicate", "committed", "filtered", "error"} {
+		for _, outcome := range []IntegrationInboxIntakeOutcome{
+			IntegrationInboxIntakeOutcomeAccepted, IntegrationInboxIntakeOutcomeDuplicate,
+			IntegrationInboxIntakeOutcomeCommitted, IntegrationInboxIntakeOutcomeFiltered, IntegrationInboxIntakeOutcomeError,
+		} {
 			m.Record(provider, outcome)
 			m.Record(provider, outcome)
 		}
 	}
-	for _, id := range []string{"integration-123", "repository-456", "agent-789"} {
-		m.Record(id, id)
+	for _, id := range []string{"integration-123", "repository-456", "agent-789", "", "unknown"} {
+		m.Record(id, IntegrationInboxIntakeOutcome(id))
 	}
 	var absent *IntegrationInboxIntakeRecorder
-	absent.Record("slack", "accepted")
+	absent.Record("slack", IntegrationInboxIntakeOutcomeAccepted)
 	families, err := set.registry.Gather()
 	require.NoError(t, err)
 	found := false
@@ -77,7 +80,7 @@ func TestIntegrationInboxIntakeBoundsLabels(t *testing.T) {
 			require.Contains(t, []string{"accepted", "duplicate", "committed", "filtered", "error"}, labels["outcome"])
 			want := 2.0
 			if labels["provider"] == "other" {
-				want = 3
+				want = 5
 				require.Equal(t, "error", labels["outcome"])
 			}
 			require.Equal(t, want, metric.GetCounter().GetValue())
@@ -91,14 +94,21 @@ func TestIntegrationInboxIntakeBoundsLabels(t *testing.T) {
 func TestIntegrationInboxProcessingCountsAndDuration(t *testing.T) {
 	set := New()
 	m := NewIntegrationInboxRecorder(set)
-	for _, outcome := range []string{"completed", "retry_scheduled", "failed", "lease_lost", "retry_not_recorded"} {
+	for _, outcome := range []IntegrationInboxProcessingOutcome{
+		IntegrationInboxProcessingOutcomeCompleted, IntegrationInboxProcessingOutcomeRetryScheduled,
+		IntegrationInboxProcessingOutcomeFailed, IntegrationInboxProcessingOutcomeLeaseLost,
+		IntegrationInboxProcessingOutcomeRetryNotRecorded,
+	} {
 		m.RecordProcessing(outcome, 2*time.Second)
 		m.RecordProcessing(outcome, 3*time.Second)
 	}
 	m.RecordProcessing("receipt-123", time.Second)
 	m.RecordProcessing("receipt-456", time.Second)
+	m.RecordProcessing("", time.Second)
+	m.RecordProcessing("unknown", time.Second)
+	m.RecordProcessing(IntegrationInboxProcessingOutcomeOther, time.Second)
 	var absent *IntegrationInboxRecorder
-	absent.RecordProcessing("completed", time.Second)
+	absent.RecordProcessing(IntegrationInboxProcessingOutcomeCompleted, time.Second)
 	body := scrapeMetrics(t, set)
 	require.Equal(t, 6, strings.Count(body, "\nomnara_integration_inbox_processing_total{"))
 	require.Equal(t, 6, strings.Count(body, "\nomnara_integration_inbox_processing_duration_seconds_count{"))
@@ -107,6 +117,8 @@ func TestIntegrationInboxProcessingCountsAndDuration(t *testing.T) {
 		require.Contains(t, body, `omnara_integration_inbox_processing_duration_seconds_count{outcome="`+outcome+`"} 2`)
 		require.Contains(t, body, `omnara_integration_inbox_processing_duration_seconds_sum{outcome="`+outcome+`"} 5`)
 	}
-	require.Contains(t, body, `omnara_integration_inbox_processing_total{outcome="other"} 2`)
+	require.Contains(t, body, `omnara_integration_inbox_processing_total{outcome="other"} 5`)
+	require.Contains(t, body, `omnara_integration_inbox_processing_duration_seconds_count{outcome="other"} 5`)
+	require.Contains(t, body, `omnara_integration_inbox_processing_duration_seconds_sum{outcome="other"} 5`)
 	require.NotContains(t, body, "receipt-123")
 }

@@ -20,7 +20,9 @@ import (
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,6 +172,11 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 		return "helper"
 	})
 	f := newGitHubSetupJourney(t, "github-renamed-app", WithGitHubClientConfig(config))
+	integrationPath := f.project.ProjectPath + "/integrations/" +
+		testPublicID(t, publicid.KindIntegration, f.integration.ID)
+	headers := authHeaders(f.project.AdminToken)
+	response := requestJSONWithHeaders(t, f.handler, http.MethodGet, integrationPath, "", "", http.StatusOK, headers)
+	require.Equal(t, "@helper", response["bot_mention"])
 	raw := []byte(githubHTTPComment(t, 42, 3001, "@renamed-helper please review"))
 	event, ok, err := integrationruntime.NormalizeGitHubIntegrationEvent(f.integration, raw)
 	require.NoError(t, err)
@@ -180,8 +187,9 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	body["credential_secret_id"] = f.secretID
 	body["expected_setup_revision"] = f.integration.SetupRevision
 	path := integrationSetupPath(t, f.project, f.integration)
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, integrationHTTPJSON(t, body),
-		"", http.StatusOK, authHeaders(f.project.AdminToken))
+	response = requestJSONWithHeaders(t, f.handler, http.MethodPost, path, integrationHTTPJSON(t, body),
+		"", http.StatusOK, headers)
+	require.Equal(t, "@renamed-helper", response["bot_mention"])
 	current, err := f.project.Store.Integrations().GetIntegration(
 		t.Context(), f.project.ProjectUUID, f.integration.ID)
 	require.NoError(t, err)
@@ -205,6 +213,15 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 		event.Event.Mentioned,
 		"ordinary PUT must repair mention routing after the App is renamed",
 	)
+	response = requestJSONWithHeaders(t, f.handler, http.MethodGet, f.project.ProjectPath+"/integrations",
+		"", "", http.StatusOK, headers)
+	data := testutil.RequireType[[]any](t, response["data"])
+	require.Len(t, data, 1)
+	require.Equal(t, "@renamed-helper", testutil.RequireType[map[string]any](t, data[0])["bot_mention"])
+	response = requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationPath+"/disconnect",
+		"", "", http.StatusOK, headers)
+	require.Equal(t, "disconnected", response["state"])
+	require.Equal(t, "@renamed-helper", response["bot_mention"])
 }
 
 type githubSetupJourney struct {

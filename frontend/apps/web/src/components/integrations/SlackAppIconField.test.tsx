@@ -114,10 +114,10 @@ it.each(['replace', 'switch mode'] as const)(
         })
       } else {
         act(() => {
-          field('Use an existing Slack app').click()
+          button('Enter app details').click()
         })
         act(() => {
-          field('Use an existing Slack app').click()
+          button('Create a new Slack app').click()
         })
       }
       await act(async () => {

@@ -11,14 +11,18 @@ import (
 
 func TestIntegrationActorParamsStableAcrossConfiguredBots(t *testing.T) {
 	for _, tc := range []struct {
-		kind                                            integrationdefinition.Kind
-		provider, tenant, otherTenant, namespace, label string
+		kind                                  integrationdefinition.Kind
+		provider                              integrationdefinition.Provider
+		tenant, otherTenant, namespace, label string
 	}{
-		{integrationdefinition.SlackThread, "slack", "T123", "T123", "slack:T123", "Slack"},
-		{integrationdefinition.DiscordThread, "discord", "app-1", "app-2", "discord", "Discord"},
-		{integrationdefinition.GitHubPR, "github", "install-1", "install-2", "github:github.com", "GitHub"},
+		{integrationdefinition.SlackThread, integrationdefinition.ProviderSlack, "T123", "T123", "slack:T123", "Slack"},
+		{integrationdefinition.DiscordThread, integrationdefinition.ProviderDiscord, "app-1", "app-2", "discord", "Discord"},
+		{
+			integrationdefinition.GitHubPR, integrationdefinition.ProviderGitHub,
+			"install-1", "install-2", "github:github.com", "GitHub",
+		},
 	} {
-		t.Run(tc.provider, func(t *testing.T) {
+		t.Run(string(tc.provider), func(t *testing.T) {
 			integration := integrationstore.IntegrationRecord{
 				ID: uuid.New(), ProjectID: uuid.New(), IntegrationKind: tc.kind,
 				Provider: tc.provider, ProviderTenantID: tc.tenant, ProviderAccountRef: "bot-1",
@@ -64,7 +68,8 @@ func TestValidateIntegrationInputActorRetainsNamespaceConsistency(t *testing.T) 
 	integration.IntegrationKind = "unknown"
 	_, err = IntegrationActorParams(integration, "U123", nil)
 	require.Error(t, err)
-	integration.IntegrationKind, integration.Provider = integrationdefinition.DiscordThread, "slack"
+	integration.IntegrationKind, integration.Provider =
+		integrationdefinition.DiscordThread, integrationdefinition.ProviderSlack
 	_, err = IntegrationActorParams(integration, "U123", nil)
 	require.Error(t, err)
 }

@@ -5,12 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-)
-
-const (
-	IntegrationProviderSlack   = "slack"
-	IntegrationProviderGitHub  = "github"
-	IntegrationProviderDiscord = "discord"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 )
 
 type IntegrationState string
@@ -25,7 +20,7 @@ type ConfigureIntegrationInput struct {
 	ProjectID                uuid.UUID
 	IntegrationID            uuid.UUID
 	InstalledByUserID        uuid.UUID
-	Provider                 string
+	Provider                 integrationdefinition.Provider
 	ProviderTenantID         string
 	ProviderAccountRef       string
 	ProviderAgentDisplayName string

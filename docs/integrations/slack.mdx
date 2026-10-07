@@ -32,7 +32,7 @@ own, such as `engineering`. This permanent name identifies the integration and i
 - To create a Slack app, enter **Name in Slack**, the name teammates will see,
   and an app configuration token from [Slack's app settings](https://api.slack.com/apps).
   Omnara configures the app's URLs and event subscriptions for you.
-- To use an existing app, select **Use an existing Slack app**, copy its Client ID,
+- To use an existing app, choose **Enter app details**, copy its Client ID,
   Client Secret and Signing Secret from **Basic Information**, and complete the
   [Slack settings checklist](#existing-app-checklist) below.
 
@@ -102,8 +102,9 @@ the credential reference for reconnect, while deleting the integration releases 
 
 ## Start agents from mentions
 
-Choose profiles and a workspace or channel scope in the integration's launch settings.
-Invite the bot to the channels where it should respond. A channel mention starts
+Choose profiles in the integration's launch settings. Mention launches are available
+wherever the bot can receive messages in the connected workspace. Invite the bot
+to the channels where it should respond. A channel mention starts
 work in that thread; a DM to the bot can start work without a mention. With one
 profile, the agent starts immediately. With several, the
 first reply asks which profile to use; no agent starts before the selection.
@@ -129,17 +130,14 @@ For API setup, send the settings to
 {
   "settings": {
     "launcher": {
-      "channel_id": "C123",
       "profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibae"]
     }
   }
 }
 ```
 
-Omit `channel_id` to allow launches from accessible channels and DMs in the
-connected workspace. Setting it to a public or private channel (`C…` or `G…`)
-restricts new launches to that channel and excludes DMs; existing subscribed
-conversations still receive replies. Profiles are ordered, distinct public IDs.
+Profiles are ordered, distinct public IDs. Slack launchers contain only `profiles`;
+channel access is managed in Slack.
 Updates replace `settings`; send `{"settings":{}}` to remove the mention launcher.
 
 ## Scheduled threads
@@ -204,7 +202,7 @@ to resume automatic selection. Omitting it keeps the current mode. The list tool
 reports the mode. The dashboard always remains available.
 
 Slack interaction notifications run independently of the waiting agent. Delivery is
-best effort: a full worker queue or restart can lose the external notification.
+best effort: overload can delay or drop notifications, and restarts can interrupt sending.
 Omnara retries only safe failures, with a bounded retry budget. If delivery may
 have succeeded, it does not automatically post another copy; a crash during
 sending can leave a prompt missing or unconfirmed. The interaction remains

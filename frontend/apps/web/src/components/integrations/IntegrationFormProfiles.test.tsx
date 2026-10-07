@@ -4,6 +4,7 @@ import { OmnaraClientProvider } from '@omnara/react'
 import {
   type AgentProfileSummary,
   createOmnaraClient,
+  type CronTrigger,
   type Integration,
   schemas,
 } from '@omnara/sdk'
@@ -12,8 +13,10 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { IntegrationDetail } from '@/routes/IntegrationPage'
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { agentConfigModel, fakeId, integration as integrationFixture } from '@/test/fixtures'
+import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, choose, enter, field, waitForUI } from '@/test/secret-editor'
 
@@ -79,16 +82,29 @@ afterEach(() => {
   cache.clear()
   container.remove()
   restore()
+  vi.restoreAllMocks()
 })
 function render(api: FakeApi, node: ReactNode) {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-  act(() => {
-    root.render(
-      <OmnaraClientProvider client={client}>
-        <QueryClientProvider client={cache}>{node}</QueryClientProvider>
-      </OmnaraClientProvider>,
-    )
-  })
+  const rerender = (next: ReactNode) => {
+    act(() => {
+      root.render(
+        <OmnaraClientProvider client={client}>
+          <QueryClientProvider client={cache}>{next}</QueryClientProvider>
+        </OmnaraClientProvider>,
+      )
+    })
+  }
+  rerender(node)
+  return { rerender }
+}
+function profilePicker(scope: ParentNode | null = container) {
+  const label = [...(scope?.querySelectorAll('label') ?? [])].find(
+    (item) => item.textContent === 'Agent profile',
+  )
+  const picker = label && document.getElementById(label.htmlFor)
+  if (!(picker instanceof HTMLButtonElement)) throw new Error('Missing agent profile picker')
+  return picker
 }
 async function openProfiles() {
   await act(async () => {
@@ -128,15 +144,16 @@ const mixedIntegration: Integration = {
   ...integrationFixture({ name: 'shared-support', state: 'active', provider_tenant_id: 'T123' }),
   settings: {
     launcher: {
-      channel_id: 'C123',
       profiles: [support.id, reviews.id],
     },
   },
 }
 
-it('saves independent GitHub launch triggers and preserves the selected profile', async () => {
+it('saves independent GitHub triggers and clears the profile only after saving both off', async () => {
   const integration = integrationFixture({ integration_kind: 'github_pr' })
   const updatePath = path + '/integrations/' + integration.id
+  let revision = 0
+  const onSaved = vi.fn()
   const api = fakeApi([
     ...profileNameRoutes,
     {
@@ -148,7 +165,11 @@ it('saves independent GitHub launch triggers and preserves the selected profile'
       method: 'PUT',
       path: updatePath,
       respond: ({ body }) =>
-        Response.json({ ...integration, ...schemas.zUpdateIntegrationRequest.parse(body) }),
+        Response.json({
+          ...integration,
+          ...schemas.zUpdateIntegrationRequest.parse(body),
+          updated_at: `2026-09-20T00:00:0${++revision}Z`,
+        }),
     },
   ])
   render(
@@ -159,7 +180,7 @@ it('saves independent GitHub launch triggers and preserves the selected profile'
       integrationKind="github_pr"
       integration={integration}
       defaultLauncherEnabled
-      onSaved={vi.fn()}
+      onSaved={onSaved}
     />,
   )
   expect(field('PR opened')).toHaveProperty('checked', true)
@@ -179,8 +200,26 @@ it('saves independent GitHub launch triggers and preserves the selected profile'
       act(() => {
         field(toggle).click()
       })
+    if (trigger === 'pull_request_opened') {
+      expect(button('Save changes').disabled).toBe(true)
+      expect(profilePicker().textContent).not.toContain('Reviews')
+      await submit()
+      expect(api.requestsTo('PUT', updatePath)).toHaveLength(3)
+      await choose('Agent profile', 'Reviews')
+    }
+    if (trigger === null) {
+      expect(profilePicker().textContent).toContain('Reviews')
+      expect(container.textContent).toContain(
+        'Saving with both triggers off clears the selected profile.',
+      )
+    }
     expect(button('Save changes').disabled).toBe(false)
     await submit()
+    await waitForUI(() => {
+      expect(onSaved).toHaveBeenCalledTimes(revision)
+      expect(button('Save changes').disabled).toBe(true)
+      expect(() => button('Discard changes')).toThrow('Missing button')
+    })
     expect(api.requestsTo('PUT', updatePath).at(-1)?.body).toEqual({
       settings: trigger ? { launcher: { profile: reviews.id, trigger } } : {},
     })
@@ -191,11 +230,6 @@ it('keeps off-page profiles and retries a failed profile save', async () => {
   let attempts = 0
   const api = fakeApi([
     ...profileNameRoutes,
-    {
-      method: 'GET',
-      path: path + '/integrations',
-      respond: () => Response.json({ data: [mixedIntegration], next_cursor: null }),
-    },
     {
       method: 'GET',
       path: path + '/agent-profiles',
@@ -215,6 +249,7 @@ it('keeps off-page profiles and retries a failed profile save', async () => {
         return Response.json({
           ...mixedIntegration,
           ...schemas.zUpdateIntegrationRequest.parse(body),
+          updated_at: '2026-09-21T00:00:00Z',
         })
       },
     },
@@ -253,7 +288,7 @@ it('keeps off-page profiles and retries a failed profile save', async () => {
   expect(updates).toHaveLength(2)
   expect(updates[0]?.body).toEqual(updates[1]?.body)
   expect(updates[1]?.body).toEqual({
-    settings: { launcher: { channel_id: 'C123', profiles: [reviews.id, triage.id] } },
+    settings: { launcher: { profiles: [reviews.id, triage.id] } },
   })
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(2)
   expect(
@@ -294,6 +329,7 @@ it.each(['retry', 'remove'] as const)(
           Response.json({
             ...mixedIntegration,
             ...schemas.zUpdateIntegrationRequest.parse(body),
+            updated_at: '2026-09-21T00:00:00Z',
           }),
       },
     ])
@@ -312,7 +348,9 @@ it.each(['retry', 'remove'] as const)(
       expect(document.body.textContent).toContain('Some saved profile names could not be loaded.')
       expect(button(`Remove ${reviews.id}`)).toBeDefined()
     })
-    expect(button('Save changes').disabled).toBe(false)
+    expect(button('Save changes').disabled).toBe(true)
+    await submit()
+    expect(api.requestsTo('PUT', path + '/integrations/' + mixedIntegration.id)).toHaveLength(0)
     if (action === 'retry') {
       act(() => {
         button('Retry profile names').click()
@@ -324,6 +362,9 @@ it.each(['retry', 'remove'] as const)(
         )
       })
       expect(nameAttempts).toBe(2)
+      act(() => {
+        button('Remove Support').click()
+      })
     } else {
       act(() => {
         button(`Remove ${reviews.id}`).click()
@@ -340,8 +381,7 @@ it.each(['retry', 'remove'] as const)(
       api.requestsTo('PUT', path + '/integrations/' + mixedIntegration.id)[0]?.body,
     )
     expect(saved.settings.launcher).toEqual({
-      channel_id: 'C123',
-      profiles: action === 'retry' ? [support.id, reviews.id] : [support.id],
+      profiles: action === 'retry' ? [reviews.id] : [support.id],
     })
     expect(api.requestsTo('GET', path + '/agent-profiles')).toHaveLength(1)
   },
@@ -351,20 +391,9 @@ it('requires a public key for even one Discord launch profile', async () => {
   const integration = {
     ...mixedIntegration,
     integration_kind: 'discord_thread' as const,
-    settings: {
-      launcher: {
-        profiles: [support.id],
-      },
-    },
+    settings: {},
   }
-  const api = fakeApi([
-    ...profileNameRoutes,
-    {
-      method: 'GET',
-      path: path + '/agent-profiles',
-      respond: () => Response.json({ data: [support], next_cursor: null }),
-    },
-  ])
+  const api = fakeApi(launcherRoutes)
   render(
     api,
     <IntegrationForm
@@ -375,6 +404,8 @@ it('requires a public key for even one Discord launch profile', async () => {
       onSaved={vi.fn()}
     />,
   )
+  await chooseProfile('Support')
+  expect(button('Discard changes')).toBeDefined()
   await waitForUI(() => {
     expect(document.body.textContent).toContain('Configure a valid Discord public key')
   })
@@ -383,59 +414,403 @@ it('requires a public key for even one Discord launch profile', async () => {
   expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
 })
 
-it.each(['saved channel', 'new launcher'] as const)(
-  'uses the verified Slack workspace when switching from %s',
-  async (scenario) => {
-    const integration = {
-      ...mixedIntegration,
-      settings: scenario === 'saved channel' ? mixedIntegration.settings : {},
+const launcherRoutes = [
+  ...profileNameRoutes,
+  {
+    method: 'GET',
+    path: path + '/agent-profiles',
+    respond: () => Response.json({ data: [support, reviews, triage], next_cursor: null }),
+  },
+]
+
+it('refreshes a clean inline form from a newer remote record without making it dirty', async () => {
+  const integration = integrationFixture({
+    integration_kind: 'github_pr',
+    settings: { launcher: { profile: support.id, trigger: 'both', repository_id: '123' } },
+  })
+  const api = fakeApi(launcherRoutes)
+  const props = { orgId, projectId, integrationKind: 'github_pr' as const, onSaved: vi.fn() }
+  const { rerender } = render(api, <IntegrationForm {...props} integration={integration} />)
+  await waitForUI(() => {
+    expect(profilePicker().textContent).toContain('Support')
+  })
+  const form = container.querySelector('form')
+  expect(form).not.toBeNull()
+  expect(button('Save changes').disabled).toBe(true)
+  for (const label of ['Edit', 'Choose a profile', 'Choose profiles', 'Discard changes'])
+    expect(() => button(label)).toThrow('Missing button')
+  rerender(<IntegrationForm {...props} integration={{ ...integration }} />)
+  expect(button('Save changes').disabled).toBe(true)
+  const next = {
+    ...integration,
+    updated_at: '2026-09-20T00:00:00Z',
+    settings: { launcher: { profile: reviews.id, trigger: 'mention', repository_id: '456' } },
+  }
+  rerender(<IntegrationForm {...props} integration={next} />)
+  await waitForUI(() => {
+    expect(profilePicker().textContent).toContain('Reviews')
+  })
+  expect(container.querySelector('form')).toBe(form)
+  expect(field('PR opened')).toHaveProperty('checked', false)
+  expect(field('Bot mentioned')).toHaveProperty('checked', true)
+  expect(container.textContent).toContain('Restricted to repository 456.')
+  expect(container.textContent).not.toContain('Integration changed.')
+  expect(button('Save changes').disabled).toBe(true)
+  expect(() => button('Discard changes')).toThrow('Missing button')
+  await submit()
+  expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+})
+
+it.each(['valid', 'incomplete'] as const)(
+  'retains a %s draft across prop identities, blocks stale saves and reloads the latest settings',
+  async (draft) => {
+    const integration = integrationFixture({
+      integration_kind: 'github_pr',
+      bot_mention: '@reviewer',
+      settings:
+        draft === 'valid'
+          ? { launcher: { profile: support.id, trigger: 'both', repository_id: '123' } }
+          : {},
+    })
+    const api = fakeApi(launcherRoutes)
+    const onDiscard = vi.fn()
+    const props = {
+      orgId,
+      projectId,
+      integrationKind: 'github_pr' as const,
+      onSaved: vi.fn(),
+      onDiscard,
     }
+    const { rerender } = render(api, <IntegrationForm {...props} integration={integration} />)
+    act(() => {
+      field('PR opened').click()
+    })
+    const form = container.querySelector('form')
+    const opened = draft === 'incomplete'
+    expect(button('Save changes').disabled).toBe(opened)
+    expect(button('Discard changes').disabled).toBe(false)
+    rerender(
+      <IntegrationForm
+        {...props}
+        integration={{
+          ...integration,
+          runtime_failure: { message: 'Connection temporarily unavailable', retry_at: now },
+        }}
+      />,
+    )
+    expect(container.querySelector('form')).toBe(form)
+    expect(field('PR opened')).toHaveProperty('checked', opened)
+    expect(field('Bot mentioned')).toHaveProperty('checked', !opened)
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(button('Save changes').disabled).toBe(opened)
+    const next = {
+      ...integration,
+      updated_at: '2026-09-20T00:00:00Z',
+      settings: { launcher: { profile: reviews.id, trigger: 'both', repository_id: '456' } },
+    }
+    rerender(<IntegrationForm {...props} integration={next} />)
+    expect(container.textContent).toContain('Integration changed. Reload settings')
+    expect(container.querySelector('form')).toBe(form)
+    expect(field('PR opened')).toHaveProperty('checked', opened)
+    expect(field('Bot mentioned')).toHaveProperty('checked', !opened)
+    expect(field('PR opened').disabled).toBe(true)
+    expect(profilePicker().disabled).toBe(true)
+    expect(button('Save changes').disabled).toBe(true)
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    if (draft === 'valid') {
+      const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+      await act(async () => {
+        button('Copy bot mention').click()
+        await Promise.resolve()
+      })
+      expect(copy).toHaveBeenCalledWith('@reviewer please review this PR')
+    } else expect(() => button('Copy bot mention')).toThrow('Missing button')
+    rerender(<IntegrationForm {...props} integration={{ ...next }} />)
+    expect(container.textContent).toContain('Integration changed. Reload settings')
+    await submit()
+    expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+    expect(props.onSaved).not.toHaveBeenCalled()
+    act(() => {
+      button('Reload settings').click()
+    })
+    await waitForUI(() => {
+      expect(profilePicker().textContent).toContain('Reviews')
+    })
+    expect(onDiscard).toHaveBeenCalledOnce()
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(container.textContent).toContain('Restricted to repository 456.')
+    expect(field('PR opened')).toHaveProperty('checked', true)
+    expect(field('Bot mentioned')).toHaveProperty('checked', true)
+    expect(field('PR opened').disabled).toBe(false)
+    expect(button('Save changes').disabled).toBe(true)
+    expect(() => button('Discard changes')).toThrow('Missing button')
+  },
+)
+
+it.each(['immediate', 'delayed'] as const)(
+  'rebases on the saved response and stays clean with a %s parent update',
+  async (parentUpdate) => {
+    const integration = integrationFixture({
+      integration_kind: 'github_pr',
+      settings: { launcher: { profile: support.id, trigger: 'both' } },
+    })
+    const updatePath = path + '/integrations/' + integration.id
+    let saved = integration
     const api = fakeApi([
-      ...profileNameRoutes,
+      ...launcherRoutes,
+      {
+        method: 'PUT',
+        path: updatePath,
+        respond: ({ body }) => {
+          saved = {
+            ...integration,
+            ...schemas.zUpdateIntegrationRequest.parse(body),
+            updated_at: '2026-09-20T00:00:00Z',
+          }
+          return Response.json(saved)
+        },
+      },
+    ])
+    const props = {
+      orgId,
+      projectId,
+      integrationKind: 'github_pr' as const,
+      onSaved: vi.fn((result: Integration) => {
+        if (parentUpdate === 'immediate')
+          rerender(<IntegrationForm {...props} integration={result} />)
+      }),
+    }
+    const { rerender } = render(api, <IntegrationForm {...props} integration={integration} />)
+    const form = container.querySelector('form')
+    act(() => {
+      field('PR opened').click()
+    })
+    await submit()
+    await waitForUI(() => {
+      expect(props.onSaved).toHaveBeenCalledWith(saved)
+      expect(button('Save changes').disabled).toBe(true)
+    })
+    expect(container.querySelector('form')).toBe(form)
+    expect(field('PR opened')).toHaveProperty('checked', false)
+    expect(field('Bot mentioned')).toHaveProperty('checked', true)
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    expect(container.textContent).not.toContain('Integration changed.')
+    await submit()
+    expect(api.requestsTo('PUT', updatePath)).toHaveLength(1)
+    if (parentUpdate === 'delayed') {
+      rerender(<IntegrationForm {...props} integration={{ ...integration }} />)
+      expect(button('Save changes').disabled).toBe(true)
+      expect(field('PR opened')).toHaveProperty('checked', false)
+      act(() => {
+        field('PR opened').click()
+      })
+      act(() => {
+        button('Discard changes').click()
+      })
+      expect(field('PR opened')).toHaveProperty('checked', false)
+      expect(button('Save changes').disabled).toBe(true)
+    }
+    act(() => {
+      field('PR opened').click()
+    })
+    expect(button('Save changes').disabled).toBe(false)
+    rerender(<IntegrationForm {...props} integration={{ ...saved }} />)
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(field('PR opened')).toHaveProperty('checked', true)
+    expect(button('Save changes').disabled).toBe(false)
+    act(() => {
+      button('Discard changes').click()
+    })
+    expect(field('PR opened')).toHaveProperty('checked', false)
+    expect(field('Bot mentioned')).toHaveProperty('checked', true)
+    expect(button('Save changes').disabled).toBe(true)
+    expect(api.requestsTo('PUT', updatePath)[0]?.body).toEqual({
+      settings: { launcher: { profile: support.id, trigger: 'mention' } },
+    })
+  },
+)
+
+it.each(['github_pr', 'slack_thread', 'discord_thread'] as const)(
+  'disables %s controls and rejects programmatic submission after edit access is removed',
+  async (integrationKind) => {
+    const integration = integrationFixture({
+      integration_kind: integrationKind,
+      bot_mention: integrationKind === 'github_pr' ? '@reviewer' : undefined,
+      provider_config: { public_key: 'ab'.repeat(32) },
+      settings: {
+        launcher:
+          integrationKind === 'github_pr'
+            ? { profile: support.id, trigger: 'both' }
+            : { profiles: [support.id, reviews.id] },
+      },
+    })
+    const api = fakeApi(launcherRoutes)
+    const props = { orgId, projectId, integrationKind, integration, onSaved: vi.fn() }
+    const { rerender } = render(api, <IntegrationForm {...props} />)
+    if (integrationKind === 'github_pr') {
+      act(() => {
+        field('PR opened').click()
+      })
+    } else {
+      await waitForUI(() => {
+        expect(button('Remove Support')).toBeDefined()
+      })
+      act(() => {
+        button('Remove Support').click()
+      })
+    }
+    expect(button('Save changes').disabled).toBe(false)
+    rerender(<IntegrationForm {...props} canEdit={false} />)
+    expect(container.querySelector('form')).not.toBeNull()
+    expect(() => button('Save changes')).toThrow('Missing button')
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    if (integrationKind === 'github_pr') {
+      expect(field('PR opened').disabled).toBe(true)
+      expect(field('Bot mentioned').disabled).toBe(true)
+      expect(profilePicker().disabled).toBe(true)
+      const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+      await act(async () => {
+        button('Copy bot mention').click()
+        await Promise.resolve()
+      })
+      expect(copy).toHaveBeenCalledWith('@reviewer please review this PR')
+    } else {
+      expect(field('Profiles for mentions').disabled).toBe(true)
+      await waitForUI(() => {
+        expect(button('Remove Reviews').getAttribute('aria-disabled')).toBe('true')
+      })
+      act(() => {
+        button('Remove Reviews').click()
+      })
+      expect(button('Remove Reviews')).toBeDefined()
+    }
+    await submit()
+    expect(props.onSaved).not.toHaveBeenCalled()
+    expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+  },
+)
+
+it.each(['slack_thread', 'discord_thread'] as const)(
+  'keeps %s schedules and their channels independent when mention profiles are changed or cleared',
+  async (integrationKind) => {
+    let integration = integrationFixture({
+      integration_kind: integrationKind,
+      state: 'active',
+      provider_tenant_id: integrationKind === 'slack_thread' ? 'T123' : '111',
+      provider_config: { public_key: 'ab'.repeat(32) },
+      settings: { launcher: { profiles: [support.id, reviews.id] } },
+    })
+    const channel = integrationKind === 'slack_thread' ? 'C123' : '123456'
+    const schedule: CronTrigger = {
+      id: fakeId('cron'),
+      org_id: orgId,
+      project_id: projectId,
+      name: 'daily-report',
+      cron: '0 9 * * 1-5',
+      timezone: 'UTC',
+      enabled: true,
+      target: {
+        type: 'integration',
+        integration_id: integration.id,
+        settings: {
+          agent_profile_id: triage.id,
+          channel_id: channel,
+          opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+          message_template: 'Summarize the daily progress.',
+        },
+      },
+      last_fired_at: null,
+      next_fire_at: now,
+      failure_report: null,
+      last_run: null,
+      created_at: now,
+      updated_at: now,
+    }
+    const detailPath = path + '/integrations/' + integration.id
+    let revision = 0
+    const api = fakeApi([
+      ...launcherRoutes,
+      { method: 'GET', path: detailPath, respond: () => Response.json(integration) },
       {
         method: 'GET',
-        path: path + '/agent-profiles',
-        respond: () => Response.json({ data: [support], next_cursor: null }),
+        path: detailPath + '/subscriptions',
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      {
+        method: 'GET',
+        path: path + '/cron-triggers',
+        respond: () => Response.json({ data: [schedule], next_cursor: null }),
       },
       {
         method: 'PUT',
-        path: path + '/integrations/' + integration.id,
-        respond: ({ body }) =>
-          Response.json({ ...integration, ...schemas.zUpdateIntegrationRequest.parse(body) }),
-      },
-    ])
-    const onSaved = vi.fn()
-    render(
-      api,
-      <IntegrationForm
-        orgId={orgId}
-        projectId={projectId}
-        integrationKind="slack_thread"
-        integration={integration}
-        onSaved={onSaved}
-      />,
-    )
-    if (scenario === 'new launcher') {
-      await chooseProfile('Support')
-      expect(container.textContent).toContain('Workspace: T123')
-      await choose('Respond to mentions in', 'One channel')
-      await enter('Channel ID', 'C456')
-    }
-    await choose('Respond to mentions in', 'Connected workspace')
-    expect(container.textContent).toContain('Workspace: T123')
-    expect(button('Save changes').disabled).toBe(false)
-    await submit()
-    await waitForUI(() => {
-      expect(onSaved).toHaveBeenCalled()
-    })
-    const updates = api.requestsTo('PUT', path + '/integrations/' + integration.id)
-    expect(updates).toHaveLength(1)
-    expect(updates[0]?.body).toMatchObject({
-      settings: {
-        launcher: {
-          profiles: scenario === 'saved channel' ? [support.id, reviews.id] : [support.id],
+        path: detailPath,
+        respond: ({ body }) => {
+          integration = {
+            ...integration,
+            ...schemas.zUpdateIntegrationRequest.parse(body),
+            updated_at: `2026-09-20T00:00:0${++revision}Z`,
+          }
+          return Response.json(integration)
         },
       },
+    ])
+    const rendered = renderIntegration(
+      root,
+      api,
+      <IntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
+    cache = rendered.cache
+    await waitForUI(() => {
+      expect(button('Remove Support')).toBeDefined()
+      expect(button('Remove Reviews')).toBeDefined()
+      expect(button('Edit schedule daily-report')).toBeDefined()
+    })
+    const mentions = container.querySelector('[aria-label="Mentions"]')
+    expect(mentions?.textContent).not.toContain('Triage')
+    expect(button('Save changes').disabled).toBe(true)
+    for (const [index, name] of ['Support', 'Reviews'].entries()) {
+      act(() => {
+        button(`Remove ${name}`).click()
+      })
+      act(() => {
+        button('Save changes').click()
+      })
+      await waitForUI(() => {
+        expect(api.requestsTo('PUT', detailPath)).toHaveLength(index + 1)
+        expect(button('Save changes').disabled).toBe(true)
+      })
+      expect(api.requestsTo('PUT', detailPath)[index]?.body).toEqual({
+        settings: index === 0 ? { launcher: { profiles: [reviews.id] } } : {},
+      })
+      expect(button('Edit schedule daily-report')).toBeDefined()
+      expect(button('Add schedule').disabled).toBe(false)
+    }
+    expect(mentions?.textContent).toContain('Choose a profile to enable mentions.')
+    act(() => {
+      button('Edit schedule daily-report').click()
+    })
+    await waitForUI(() => {
+      expect(field('Channel ID').value).toBe(channel)
+      expect(profilePicker(document.querySelector('[role="dialog"]')).textContent).toContain(
+        'Triage',
+      )
+    })
+    expect(field('Task instructions').value).toBe('Summarize the daily progress.')
+    expect(
+      api.requests
+        .filter((request) => request.method !== 'GET')
+        .map((request) => request.url.pathname),
+    ).toEqual([detailPath, detailPath])
+    act(() => {
+      button('Close').click()
+    })
+    await waitForUI(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
     })
   },
 )

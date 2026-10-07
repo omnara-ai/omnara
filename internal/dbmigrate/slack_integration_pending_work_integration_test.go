@@ -441,7 +441,7 @@ func (f *slackPendingWorkFixture) steer(t *testing.T) executionstore.AgentInputR
 	router := integration.NewIntegrationRouter(f.store.Execution(), integrations)
 	plan, created, err := router.Freeze(ctx, receipt.Lease(), &integration.IntegrationEvent{
 		Event: integrationdefinition.Event{
-			Kind: "message", Mentioned: false, Scope: integrationdefinition.Scope{Slack: &scope},
+			Kind: integrationdefinition.EventMessage, Mentioned: false, Scope: integrationdefinition.Scope{Slack: &scope},
 		},
 		Actor: actor, SemanticKey: "cutover-steering", DeliveryMode: executionstore.DeliveryModeSteering,
 		ContentBlocks:          json.RawMessage(`[{"type":"text","text":"Use the new instructions instead"}]`),

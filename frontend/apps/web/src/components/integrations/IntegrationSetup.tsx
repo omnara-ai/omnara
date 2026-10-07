@@ -9,7 +9,6 @@ import { integrationFormError } from './integrationFormState'
 import { IntegrationNameField } from './IntegrationNameField'
 import { IntegrationSetupCredentials } from './IntegrationSetupCredentials'
 import { DiscordSetupDetails, GitHubSetupDetails } from './IntegrationSetupDetails'
-import { IntegrationSetupGroup } from './IntegrationSetupGroup'
 import { submitIntegrationSetup } from './integrationSetupSubmission'
 import { useIntegrationDraft } from './useIntegrationDraft'
 import { useIntegrationSetupState } from './useIntegrationSetupState'
@@ -127,10 +126,10 @@ export function IntegrationSetupForm({
             {reconnect ? (
               'Reconnect the same provider account. Create another integration to use a different account.'
             ) : github ? (
-              'Copy these values from your GitHub App’s settings. Next, you’ll choose the agent to launch for pull requests.'
+              'Copy your GitHub App’s details from its settings, then choose an agent for pull requests.'
             ) : (
               <>
-                Open your application in the{' '}
+                Enter your application’s details from the{' '}
                 <a
                   href="https://discord.com/developers/applications"
                   target="_blank"
@@ -139,21 +138,13 @@ export function IntegrationSetupForm({
                 >
                   Discord Developer Portal
                 </a>
-                . Enter the details below and connect. You’ll then get the steps to finish setup in
-                Discord.
+                . After connecting, you’ll get the steps to finish setup in Discord.
               </>
             )}
           </p>
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-8">
-          {!existing && (
-            <IntegrationSetupGroup
-              title="Name in Omnara"
-              hint="A permanent name for this integration in your project."
-            >
-              <IntegrationNameField name={name} onChange={setName} saved={integration} />
-            </IntegrationSetupGroup>
-          )}
+          {!existing && <IntegrationNameField name={name} onChange={setName} saved={integration} />}
           {github ? (
             <GitHubSetupDetails
               integration={integration}

@@ -28,11 +28,9 @@ export function IntegrationConversations({
   const remove = useDeleteIntegrationSubscription(orgId, projectId, integration.id)
   if (hideWhenEmpty && !subscriptions.length && !query.isError) return null
   return (
-    <section aria-label="Conversations" className="flex flex-col gap-3 text-sm">
-      <h2 className="font-medium">Conversations</h2>
-      <p className="text-muted-foreground">
-        Conversations connected to an agent. New activity in each one is sent to its agent.
-      </p>
+    <section aria-label="Connected conversations" className="flex flex-col gap-3 text-sm">
+      <h2 className="font-medium">Connected conversations</h2>
+      <p className="text-muted-foreground">Conversations that send updates to your agents.</p>
       {integration.state !== 'active' && (
         <p className="text-muted-foreground">
           Forwarding is paused while this integration is disconnected. These connections are kept.
@@ -111,7 +109,7 @@ export function IntegrationConversations({
                     onClick={() => {
                       if (
                         !window.confirm(
-                          `Stop forwarding ${conversation.label} to ${agentName}? New activity there will no longer reach this agent, and a stopped selected thread will not launch a replacement agent on the next mention. The agent, its sending tools and history are kept. Forwarding can only be resumed by reattaching through the subscriptions API.`,
+                          `Stop forwarding ${conversation.label} to ${agentName}? Future updates from this conversation will no longer be forwarded to this agent. The agent, its sending tools and history are kept. To resume forwarding, reattach the conversation through the subscriptions API.`,
                         )
                       )
                         return
@@ -129,11 +127,7 @@ export function IntegrationConversations({
         </ul>
       ) : (
         !query.isPending &&
-        !query.isError && (
-          <p className="text-muted-foreground">
-            No conversations yet. They appear here when this integration starts an agent.
-          </p>
-        )
+        !query.isError && <p className="text-muted-foreground">No connected conversations yet.</p>
       )}
       {query.hasNextPage && !query.isFetchNextPageError && (
         <Button

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +15,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -195,7 +197,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		integrationstore.SaveIntegrationInput{
 			OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, Name: f.integrationSetup.Name,
 			IntegrationKind: f.integrationSetup.IntegrationKind,
-			Settings:        integrationtest.ChatSettings("", profile.ID),
+			Settings:        integrationtest.ChatSettings(profile.ID),
 		},
 	)
 	require.NoError(t, err)
@@ -209,7 +211,8 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	newWorker := func() *IntegrationInboxWorker {
 		router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 		consumer := NewIntegrationInboxConsumer(router, f.store.Integrations(), nil,
-			map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router))
+			map[integrationdefinition.Provider]IntegrationInboxProvider{integrationdefinition.ProviderDiscord: provider},
+			nil, testIntegrationLaunchWorkflow(router))
 		return NewIntegrationInboxWorker(f.store.Integrations(), consumer, IntegrationInboxWorkerOptions{})
 	}
 	revision := integrationstore.IntegrationRuntimeRevision{

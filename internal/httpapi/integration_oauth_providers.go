@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 var errIntegrationOAuthMissingScope = errors.New("integration oauth missing required scope")
@@ -24,9 +24,9 @@ type integrationOAuthProviderInstall struct {
 	CredentialPayload        secrets.Payload
 }
 
-func supportedIntegrationOAuthProvider(provider string) bool {
+func supportedIntegrationOAuthProvider(provider integrationdefinition.Provider) bool {
 	switch provider {
-	case integrationstore.IntegrationProviderSlack:
+	case integrationdefinition.ProviderSlack:
 		return true
 	default:
 		return false
@@ -34,10 +34,10 @@ func supportedIntegrationOAuthProvider(provider string) bool {
 }
 
 func (s *Server) integrationOAuthAuthorizeURL(
-	provider, clientID, redirectURI, stateToken string,
+	provider integrationdefinition.Provider, clientID, redirectURI, stateToken string,
 ) (string, error) {
 	switch provider {
-	case integrationstore.IntegrationProviderSlack:
+	case integrationdefinition.ProviderSlack:
 		out, err := slack.AuthorizeURL(s.slackOAuth, clientID, redirectURI, stateToken)
 		if errors.Is(err, slack.ErrStateTooLarge) {
 			return "", errIntegrationOAuthStateTooLarge
@@ -54,7 +54,7 @@ func (s *Server) completeIntegrationOAuth(
 	code, redirectURI string,
 ) (integrationOAuthProviderInstall, error) {
 	switch state.Provider {
-	case integrationstore.IntegrationProviderSlack:
+	case integrationdefinition.ProviderSlack:
 		install, err := slack.CompleteOAuth(
 			ctx,
 			s.slackOAuth,

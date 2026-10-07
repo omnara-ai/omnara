@@ -27,7 +27,7 @@ func TestSlackEventsThreadBroadcastContinuesAssignedThreadOnce(t *testing.T) {
 		})
 		require.NoError(t, err)
 		body := string(raw)
-		response := requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "",
+		response := requestJSONWithHeaders(t, f.Handler, http.MethodPost, slackEventsPath, body, "",
 			http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
 		require.Equal(t, outcome, response["ok"])
 		drainSlackJourney(t, ctx, f.Project, f.Slack)

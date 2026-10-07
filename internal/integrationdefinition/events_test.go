@@ -12,36 +12,36 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 		name            string
 		event           Event
 		addresses       []EventAddress
-		trigger         string
+		trigger         LauncherTrigger
 	}{
 		{
 			SlackThread,
 			"slack",
 			Event{
 				Scope:     Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "123.456"}},
-				Kind:      "message",
+				Kind:      EventMessage,
 				Mentioned: true,
 			},
 			[]EventAddress{{"thread", "C123:123.456"}, {"channel", "C123"}},
-			"mention",
+			TriggerMention,
 		},
 		{
 			GitHubPR,
 			"github",
-			Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"},
+			Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: EventPullRequestOpened},
 			[]EventAddress{{"pull_request", "123#7"}},
-			"pull_request_opened",
+			TriggerPullRequestOpened,
 		},
 		{
 			DiscordThread,
 			"discord",
 			Event{
 				Scope:     Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456", ThreadID: "789"}},
-				Kind:      "message",
+				Kind:      EventMessage,
 				Mentioned: true,
 			},
 			[]EventAddress{{"thread", "789"}, {"channel", "456"}},
-			"mention",
+			TriggerMention,
 		},
 	}
 	for _, test := range tests {
@@ -59,7 +59,7 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	event := tests[0].event
 	definition, _ := Lookup(SlackThread)
 	event.Mentioned = false
-	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, TriggerMention), event))
 	event = tests[2].event
 	definition, _ = Lookup(DiscordThread)
 	addresses, err := event.RoutingAddresses()
@@ -70,24 +70,24 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []EventAddress{{"thread", "789"}}, addresses, "unknown parent must not add a routing address")
 	event.Scope.Discord.GuildID = ""
-	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event),
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, TriggerMention), event),
 		"Discord launchers do not support DMs")
 	event = tests[1].event
 	definition, _ = Lookup(GitHubPR)
-	event.Kind = "commit"
+	event.Kind = EventCommit
 	event.Mentioned = true
-	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event),
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, TriggerMention), event),
 		"commit text is not a provider mention event")
 }
 
 func TestLauncherMayBeAbsent(t *testing.T) {
 	definition, _ := Lookup(GitHubPR)
 	event := Event{
-		Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "discussion_comment", Mentioned: true,
+		Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: EventDiscussionComment, Mentioned: true,
 	}
-	require.True(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, "mention"), event))
+	require.True(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, TriggerMention), event))
 	definition.Launcher = nil
-	require.False(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, "mention"), event))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, TriggerMention), event))
 	definition, _ = Lookup(SlackThread)
-	require.False(t, definition.MatchesLaunch(testLaunchSettings(SlackThread, "mention"), event))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(SlackThread, TriggerMention), event))
 }

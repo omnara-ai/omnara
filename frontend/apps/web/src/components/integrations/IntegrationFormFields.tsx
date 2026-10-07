@@ -1,15 +1,8 @@
 import { type Integration, type IntegrationKind } from '@omnara/sdk'
 import { useId } from 'react'
 
-import { CheckboxField, Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { CopyButton } from '@/components/overview/CodeBlock'
+import { CheckboxField, Field, FieldDescription } from '@/components/ui/field'
 
 import { type IntegrationFormValues } from './integrationFormState'
 import { IntegrationProfilePicker } from './IntegrationProfilePicker'
@@ -22,12 +15,63 @@ interface LauncherFieldsProps {
   values: IntegrationFormValues
   onChange: (patch: Partial<IntegrationFormValues>) => void
   disabled: boolean
-  profileCount: number | null
 }
 
-export function IntegrationLauncherFields(props: LauncherFieldsProps) {
-  const { values, onChange, integrationKind } = props
+export function IntegrationLauncherFields({
+  orgId,
+  projectId,
+  integrationKind,
+  integration,
+  values,
+  onChange,
+  disabled,
+}: LauncherFieldsProps) {
   const github = integrationKind === 'github_pr'
+  return (
+    <Field>
+      {github ? (
+        <GitHubLauncherFields
+          integration={integration}
+          values={values}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      ) : (
+        <FieldDescription>
+          A mention starts the selected profile. If you select several, people choose one in{' '}
+          {integrationKind === 'slack_thread' ? 'Slack' : 'Discord'}.
+        </FieldDescription>
+      )}
+      <IntegrationProfilePicker
+        orgId={orgId}
+        projectId={projectId}
+        value={values.profileIds}
+        onChange={(profileIds) => {
+          onChange({ profileIds })
+        }}
+        single={github}
+        label={github ? 'Agent profile' : 'Profiles for mentions'}
+        disabled={disabled || (github && !values.launcher)}
+      />
+      {!github && values.profileIds.length === 0 && (
+        <FieldDescription>Choose a profile to enable mentions.</FieldDescription>
+      )}
+      {!github && (
+        <FieldDescription>
+          People who can reach the bot can launch these profiles and answer questions and approvals
+          without an Omnara account.
+        </FieldDescription>
+      )}
+    </Field>
+  )
+}
+
+function GitHubLauncherFields({
+  integration,
+  values,
+  onChange,
+  disabled,
+}: Pick<LauncherFieldsProps, 'integration' | 'values' | 'onChange' | 'disabled'>) {
   const id = useId()
   const opened = values.launcher && values.trigger !== 'mention'
   const mentioned = values.launcher && values.trigger !== 'pull_request_opened'
@@ -39,129 +83,59 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             trigger:
               nextOpened && nextMentioned ? 'both' : nextOpened ? 'pull_request_opened' : 'mention',
           }
-        : { launcher: false },
+        : { launcher: false, trigger: 'both' },
     )
   }
   return (
-    <Field>
-      {github ? (
-        <div
-          role="group"
-          aria-labelledby={`${id}-label`}
-          aria-describedby={`${id}-hint`}
-          className="flex flex-col gap-3"
-        >
-          <span id={`${id}-label`} className="type-label">
-            Launch when
-          </span>
-          <CheckboxField
-            label="PR opened"
-            checked={opened}
-            disabled={props.disabled}
-            onChange={(event) => {
-              setTriggers(event.target.checked, mentioned)
-            }}
+    <div
+      role="group"
+      aria-labelledby={`${id}-label`}
+      aria-describedby={`${id}-hint`}
+      className="flex flex-col gap-3"
+    >
+      <span id={`${id}-label`} className="type-label">
+        Launch when
+      </span>
+      <CheckboxField
+        label="PR opened"
+        checked={opened}
+        disabled={disabled}
+        onChange={(event) => {
+          setTriggers(event.target.checked, mentioned)
+        }}
+      />
+      <CheckboxField
+        label="Bot mentioned"
+        checked={mentioned}
+        disabled={disabled}
+        onChange={(event) => {
+          setTriggers(opened, event.target.checked)
+        }}
+      />
+      {mentioned && integration.bot_mention && (
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <code className="break-all">{integration.bot_mention} please review this PR</code>
+          <CopyButton
+            text={`${integration.bot_mention} please review this PR`}
+            label="bot mention"
           />
-          <CheckboxField
-            label="Bot mentioned"
-            checked={mentioned}
-            disabled={props.disabled}
-            onChange={(event) => {
-              setTriggers(opened, event.target.checked)
-            }}
-          />
-          <FieldDescription id={`${id}-hint`}>
-            Only people with repository write access can launch or steer agents.
-          </FieldDescription>
         </div>
-      ) : (
+      )}
+      <FieldDescription id={`${id}-hint`}>
+        Only people with repository write access can launch or steer agents.
+      </FieldDescription>
+      {values.repositoryId && (
+        <FieldDescription>Restricted to repository {values.repositoryId}.</FieldDescription>
+      )}
+      {!values.launcher && (
         <FieldDescription>
-          Choose which profiles people can start by mentioning the bot. Leave the profiles empty to
-          use schedules only. Each schedule has its own profile and destination channel. Existing
-          conversations continue unchanged.
+          {values.profileIds.length > 0
+            ? values.repositoryId
+              ? 'Saving with both triggers off clears the profile and repository restriction.'
+              : 'Saving with both triggers off clears the selected profile.'
+            : 'Enable a trigger to choose a profile.'}
         </FieldDescription>
       )}
-      {(!github || values.launcher) && (
-        <>
-          <IntegrationLauncherScopeFields {...props} />
-          <IntegrationProfilePicker
-            orgId={props.orgId}
-            projectId={props.projectId}
-            value={values.profileIds}
-            onChange={(profileIds) => {
-              onChange({ profileIds })
-            }}
-            single={github}
-            label={github ? 'Agent profile' : 'Profiles for mentions'}
-            description={github ? null : undefined}
-            disabled={props.disabled}
-            profileCount={props.profileCount}
-          />
-        </>
-      )}
-    </Field>
-  )
-}
-
-function IntegrationLauncherScopeFields({
-  integrationKind,
-  integration,
-  values,
-  onChange,
-  disabled,
-}: LauncherFieldsProps) {
-  if (integrationKind === 'discord_thread')
-    return (
-      <FieldDescription>
-        Mentions work in every server where this bot is installed and has access. Manage server and
-        channel access in Discord. People in those conversations can launch these profiles and
-        answer agent questions and approvals without Omnara project membership.
-      </FieldDescription>
-    )
-  if (integrationKind === 'github_pr')
-    return values.scopeKind === 'repository' ? (
-      <FieldDescription>{`Restricted to repository ${values.scopeRef}.`}</FieldDescription>
-    ) : null
-  const workspace = integration.provider_tenant_id ?? ''
-  return (
-    <>
-      <Field>
-        <FieldLabel htmlFor="integration-launch-scope">Respond to mentions in</FieldLabel>
-        <Select
-          value={values.scopeKind || 'workspace'}
-          disabled={disabled}
-          onValueChange={(scopeKind) => {
-            onChange({ scopeKind: scopeKind === 'workspace' ? '' : scopeKind, scopeRef: '' })
-          }}
-        >
-          <SelectTrigger id="integration-launch-scope" className="w-full">
-            <SelectValue>{values.scopeKind ? 'One channel' : 'Connected workspace'}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="workspace" disabled={disabled}>
-              Connected workspace
-            </SelectItem>
-            <SelectItem value="channel" disabled={disabled}>
-              One channel
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-      {values.scopeKind ? (
-        <Field>
-          <FieldLabel htmlFor="launcher-scope">Channel ID</FieldLabel>
-          <Input
-            id="launcher-scope"
-            name="scope"
-            value={values.scopeRef}
-            onChange={(event) => {
-              onChange({ scopeRef: event.target.value })
-            }}
-          />
-        </Field>
-      ) : (
-        <FieldDescription>{`Workspace: ${workspace || 'Connect this Slack app'}. The bot must have access to the conversation.`}</FieldDescription>
-      )}
-    </>
+    </div>
   )
 }

@@ -5,11 +5,11 @@ import { type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
-  CheckboxField,
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldSeparator,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
@@ -112,19 +112,6 @@ export function ConnectSlackForm({
     }
   }
 
-  const methodToggle = reconnect ? null : (
-    <CheckboxField
-      label="Use an existing Slack app"
-      checked={existingApp}
-      onChange={(event) => {
-        if (form.state.values.appIcon.kind === 'checking') {
-          form.setFieldValue('appIcon', noAppIcon)
-        }
-        setExistingAppSelected(event.target.checked)
-      }}
-    />
-  )
-
   return (
     <div>
       {authorization.pending ? (
@@ -149,7 +136,9 @@ export function ConnectSlackForm({
               <p className="text-muted-foreground">
                 {reconnect
                   ? 'Reconnect the same Slack app and workspace. Your launch settings are kept.'
-                  : 'Connect your Slack app to this integration, then authorize it in Slack and choose which agents people can start.'}
+                  : existingApp
+                    ? 'Enter your Slack app’s credentials, then authorize it in Slack.'
+                    : 'Enter the details below to create your Slack app, then authorize it in Slack.'}
               </p>
             </div>
             <div className="flex flex-col gap-8">
@@ -157,19 +146,12 @@ export function ConnectSlackForm({
                 <form.Subscribe selector={(state) => state.isSubmitting}>
                   {(isSubmitting) => (
                     <fieldset disabled={isSubmitting}>
-                      <IntegrationSetupGroup
-                        title="Name in Omnara"
-                        hint="A permanent name for this integration in your project."
-                      >
-                        <IntegrationNameField name={name} onChange={setName} saved={integration} />
-                      </IntegrationSetupGroup>
+                      <IntegrationNameField name={name} onChange={setName} saved={integration} />
                     </fieldset>
                   )}
                 </form.Subscribe>
               )}
-              <SlackSetupFields form={form} reconnect={reconnect} existingApp={existingApp}>
-                {methodToggle}
-              </SlackSetupFields>
+              <SlackSetupFields form={form} existingApp={existingApp} />
             </div>
             {error && (
               <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
@@ -207,6 +189,22 @@ export function ConnectSlackForm({
                 </fieldset>
               )}
             </form.Subscribe>
+            {!reconnect && (
+              <form.Subscribe selector={(state) => state.isSubmitting}>
+                {(isSubmitting) => (
+                  <SlackSetupAlternatives
+                    existingApp={existingApp}
+                    disabled={isSubmitting}
+                    onSwitchSetup={() => {
+                      if (form.state.values.appIcon.kind === 'checking') {
+                        form.setFieldValue('appIcon', noAppIcon)
+                      }
+                      setExistingAppSelected(!existingApp)
+                    }}
+                  />
+                )}
+              </form.Subscribe>
+            )}
           </FieldGroup>
         </form>
       )}
@@ -214,21 +212,57 @@ export function ConnectSlackForm({
   )
 }
 
+function SlackSetupAlternatives({
+  existingApp,
+  disabled,
+  onSwitchSetup,
+}: {
+  existingApp: boolean
+  disabled: boolean
+  onSwitchSetup: () => void
+}) {
+  return (
+    <>
+      <FieldSeparator>OR</FieldSeparator>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <h2 className="font-medium">
+            {existingApp ? 'Create a new Slack app' : 'Use an existing Slack app'}
+          </h2>
+          <p className="text-muted-foreground">
+            {existingApp
+              ? 'Let Omnara create and configure an app for you.'
+              : 'Copy your app’s credentials from Slack.'}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          disabled={disabled}
+          onClick={onSwitchSetup}
+        >
+          {existingApp ? 'Create a new Slack app' : 'Enter app details'}
+        </Button>
+      </div>
+    </>
+  )
+}
+
 const SlackSetupFields = withForm({
   ...slackSetupForm,
-  props: { reconnect: false, existingApp: false },
-  render: function Render({ form, reconnect, existingApp, children }) {
+  props: { existingApp: false },
+  render: function Render({ form, existingApp }) {
     return (
       <>
         <IntegrationSetupGroup
           title="Slack app"
           hint={
-            reconnect
+            existingApp
               ? 'Find the Client ID in Basic Information in your Slack app settings.'
-              : 'Use an existing Slack app, or let Omnara create one for you.'
+              : 'Omnara will create and configure a Slack app for you.'
           }
         >
-          {children}
           {existingApp ? (
             <form.Field name="clientId">
               {(field) => (

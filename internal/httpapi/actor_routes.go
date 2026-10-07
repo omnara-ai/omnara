@@ -24,9 +24,9 @@ func (s strictOpenAPIServer) ListActors(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	provider := ""
+	var provider executionstore.ActorProvider
 	if request.Params.Provider != nil {
-		provider = string(*request.Params.Provider)
+		provider = executionstore.ActorProvider(*request.Params.Provider)
 	}
 	providerTenantID := ""
 	if request.Params.ProviderTenantId != nil {
@@ -137,7 +137,7 @@ func putActorInputFromParams(
 
 func externalActorParamsFromRequest(params openapi.ExternalActorParams) *executionstore.ActorParams {
 	actor := &executionstore.ActorParams{
-		Provider:       identitystore.ActorProviderExternal,
+		Provider:       executionstore.ActorProviderExternal,
 		ProviderUserID: params.ProviderUserId,
 		DisplayName:    params.DisplayName,
 		Metadata:       params.Metadata,

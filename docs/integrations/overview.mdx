@@ -48,7 +48,7 @@ and lifecycle. Avoid overlapping launchers for the same conversation: duplicate
 menus, agents or replies are possible.
 
 The detail page shows setup state, launch settings, available capabilities and a
-paginated **Conversations** list with each destination agent.
+paginated **Connected conversations** list with each destination agent.
 Changing offered profiles affects future launches. Disconnecting stops provider
 access and conversation forwarding. It does not queue incoming events for replay
 after reconnection. Its conversations remain visible and can still be removed
@@ -158,11 +158,10 @@ creation and deletion require project management permission.
 
 ### Stop forwarding
 
-Open the integration's **Conversations** section and choose **Stop forwarding**, or call
+Open the integration's **Connected conversations** section and choose **Stop forwarding**, or call
 `DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}`.
-This stops incoming forwarding for that subscription. The agent, sending tools,
-interaction handlers and history remain. A stopped selected thread does not
-launch a replacement agent on the next mention. Explicitly attach the conversation
+This stops future incoming forwarding for that subscription. The agent, sending tools,
+interaction handlers and history remain. Explicitly attach the conversation
 again through the API to resume forwarding. Already accepted chooser handoffs are not canceled by this deletion.
 
 Repeating an active attachment returns the same subscription. A fresh attachment

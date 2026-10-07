@@ -62,7 +62,7 @@ func TestFireDueTriggersProfileUsesOccurrenceTimezone(t *testing.T) {
 	require.NoError(t, err)
 	wantActor, err := publicid.Encode(publicid.KindCronTrigger, trigger.ID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.ActorProviderOmnara, provider)
+	require.Equal(t, string(executionstore.ActorProviderOmnara), provider)
 	require.Equal(t, wantTenant, tenant)
 	require.Equal(t, wantActor, actorID)
 	require.Equal(t, trigger.Name, name)

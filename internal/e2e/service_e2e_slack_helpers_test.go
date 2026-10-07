@@ -105,7 +105,9 @@ func startServiceSlackWorkers(
 	slackProvider := integrationruntime.NewSlackIntegrationInboxProvider(
 		slack.OAuthConfig{HTTPClient: client}, store.Secrets(), store.Integrations(), store.Execution(),
 	)
-	providers := map[string]integrationruntime.IntegrationInboxProvider{"slack": slackProvider}
+	providers := map[integrationdefinition.Provider]integrationruntime.IntegrationInboxProvider{
+		integrationdefinition.ProviderSlack: slackProvider,
+	}
 	launcher := integrationruntime.NewChatIntegrationLauncher(store.Integrations(), store.Execution(), providers)
 	launches := integrationruntime.NewIntegrationLaunchWorkflow(
 		router,

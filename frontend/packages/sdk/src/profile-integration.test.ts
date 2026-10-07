@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  chatIntegrationLauncher,
   githubIntegrationSettings,
   profileIntegrationDiscordKeyStatus,
+  profileIntegrationProfiles,
   profileIntegrationProfileUpdate,
   profileIntegrationSetup,
 } from './profile-integration'
@@ -19,11 +21,13 @@ describe('integration-owned launcher settings', () => {
         name: 'support',
         profileIds: [first, second],
       })
-      expect(created.settings).toEqual({
-        launcher: { profiles: [first, second], channel_id: undefined },
+      expect(created.settings).toStrictEqual({
+        launcher: { profiles: [first, second] },
       })
-      expect(profileIntegrationProfileUpdate(created, [second, first])).toEqual({
-        settings: { launcher: { profiles: [second, first], channel_id: undefined } },
+      expect(chatIntegrationLauncher(created.settings)).toStrictEqual({ profiles: [first, second] })
+      expect(profileIntegrationProfiles(created)).toEqual([first, second])
+      expect(profileIntegrationProfileUpdate(created, [second, first])).toStrictEqual({
+        settings: { launcher: { profiles: [second, first] } },
       })
       expect(() =>
         profileIntegrationSetup({ integrationKind, name: 'support', profileIds: [first, first] }),
@@ -36,42 +40,38 @@ describe('integration-owned launcher settings', () => {
         integrationKind: 'slack_thread',
         name: 'support',
         profileId: first,
-        channelId: 'C123',
       }),
-      settings: { launcher: { profiles: [first], channel_id: 'C123' }, other: 'preserved' },
+      settings: { launcher: { profiles: [first] }, other: 'preserved' },
     }
     expect(profileIntegrationProfileUpdate(current, [second])).toEqual({
-      settings: { other: 'preserved', launcher: { profiles: [second], channel_id: 'C123' } },
+      settings: { other: 'preserved', launcher: { profiles: [second] } },
     })
     expect(profileIntegrationProfileUpdate(current, [])).toEqual({
       settings: { other: 'preserved' },
     })
   })
-  it('limits profiles and validates channel restrictions', () => {
-    expect(() =>
-      profileIntegrationSetup({
-        integrationKind: 'slack_thread',
-        name: 'support',
-        profileIds: Array.from({ length: 17 }, () => first),
-      }),
-    ).toThrow()
-    expect(() =>
-      profileIntegrationSetup({
-        integrationKind: 'slack_thread',
-        name: 'support',
-        profileId: first,
-        channelId: 'T123',
-      }),
-    ).toThrow()
-    expect(() =>
-      profileIntegrationSetup({
-        integrationKind: 'discord_thread',
-        name: 'support',
-        profileId: first,
-        channelId: '123',
-      }),
-    ).toThrow()
-  })
+  it.each(['slack_thread', 'discord_thread'] as const)(
+    'accepts one to sixteen profiles for %s',
+    (integrationKind) => {
+      const profiles = Array.from(
+        { length: 17 },
+        (_, index) => `aprf_${String.fromCharCode(97 + index).repeat(26)}`,
+      )
+      for (const profileIds of [[first], profiles.slice(0, 16)]) {
+        expect(
+          profileIntegrationSetup({ integrationKind, name: 'support', profileIds }).settings,
+        ).toStrictEqual({ launcher: { profiles: profileIds } })
+      }
+      for (const profileIds of [[], profiles]) {
+        expect(() =>
+          profileIntegrationSetup({ integrationKind, name: 'support', profileIds }),
+        ).toThrow()
+      }
+      expect(
+        profileIntegrationSetup({ integrationKind, name: 'support', launcher: false }).settings,
+      ).toStrictEqual({})
+    },
+  )
   it('uses exactly one GitHub profile when launching is enabled', () => {
     const input = {
       integrationKind: 'github_pr' as const,

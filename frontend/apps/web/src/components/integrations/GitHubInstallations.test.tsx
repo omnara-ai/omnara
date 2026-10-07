@@ -179,6 +179,8 @@ it('resumes a saved credential after approval and connects only on explicit conf
   expect(
     container.querySelector(`a[href="${verified.install_url}"]`)?.getAttribute('target'),
   ).toBeNull()
+  expect(container.textContent).not.toContain('Change repository access')
+  expect(container.textContent).not.toContain('Install in another account')
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
   approved = true
   rerender(null)
@@ -199,9 +201,15 @@ it('resumes a saved credential after approval and connects only on explicit conf
     expect(container.textContent).toContain('GitHub account: engineering')
   })
   expect(document.querySelector('#github-installation')).toBeNull()
-  const addAccount = container.querySelector(`a[href="${verified.install_url}"]`)
-  expect(addAccount?.textContent).toBe('Add an account on GitHub')
-  expect(addAccount?.getAttribute('target')).toBe('_blank')
+  const changeAccess = container.querySelector(
+    `a[href="${verified.installations[0]?.settings_url}"]`,
+  )
+  expect(changeAccess?.textContent).toBe('Change repository access')
+  expect(changeAccess?.getAttribute('target')).toBe('_blank')
+  const installElsewhere = container.querySelector(`a[href="${verified.install_url}"]`)
+  expect(installElsewhere?.textContent).toBe('Install in another account')
+  expect(installElsewhere?.getAttribute('target')).toBe('_blank')
+  expect(container.textContent).not.toContain('Choose repositories on GitHub')
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
   click('Connect integration')
   await waitForUI(() => {
@@ -228,6 +236,12 @@ it('resumes a saved credential after approval and connects only on explicit conf
 it.each([true, false])(
   'uses an installation hint only on the first verified page (present=%s)',
   async (hintOnFirstPage) => {
+    const anotherInstallation = {
+      ...verified.installations[0],
+      id: '333',
+      account: 'another-account',
+      settings_url: 'https://github.com/organizations/another-account/settings/installations/333',
+    }
     window.history.replaceState(
       null,
       '',
@@ -246,11 +260,8 @@ it.each([true, false])(
               : {
                   ...verified,
                   installations: hintOnFirstPage
-                    ? [
-                        ...verified.installations,
-                        { ...verified.installations[0], id: '333', account: 'another-account' },
-                      ]
-                    : [{ ...verified.installations[0], id: '333', account: 'another-account' }],
+                    ? [...verified.installations, anotherInstallation]
+                    : [anotherInstallation],
                   next_page: 2,
                 },
           )
@@ -277,7 +288,18 @@ it.each([true, false])(
     expect(document.getElementById('github-installation')?.textContent).toBe(
       hintOnFirstPage ? 'engineering' : 'Choose an account',
     )
-    if (hintOnFirstPage) await choose('GitHub account', 'another-account')
+    if (!hintOnFirstPage) {
+      expect(container.textContent).not.toContain('Change repository access')
+      expect(container.querySelector(`a[href="${verified.install_url}"]`)?.textContent).toBe(
+        'Choose repositories on GitHub',
+      )
+    }
+    await choose('GitHub account', 'another-account')
+    expect(
+      [...container.querySelectorAll('a')]
+        .find((link) => link.textContent === 'Change repository access')
+        ?.getAttribute('href'),
+    ).toBe(anotherInstallation.settings_url)
     click('More accounts')
     await waitForUI(() => {
       expect(button('Previous accounts')).toBeDefined()

@@ -144,7 +144,7 @@ export function render(api: FakeApi, node: ReactNode) {
 }
 export async function submit() {
   await act(async () => {
-    const form = document.querySelector('form')
+    const form = document.querySelector('[role="dialog"] form')
     if (!form) throw new Error('Missing cron form')
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await Promise.resolve()
@@ -152,7 +152,7 @@ export async function submit() {
 }
 export async function chooseProfile(selected = profile) {
   act(() => {
-    const picker = document.getElementById('integration-profiles')
+    const picker = document.querySelector('[role="dialog"] [role="combobox"]')
     if (!(picker instanceof HTMLButtonElement)) throw new Error('Missing profile picker')
     picker.click()
   })

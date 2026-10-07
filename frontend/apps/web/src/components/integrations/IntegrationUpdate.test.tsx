@@ -1,6 +1,7 @@
 /** @vitest-environment happy-dom */
 
-import type { AgentProfile } from '@omnara/sdk'
+import { useIntegration } from '@omnara/react'
+import type { AgentProfile, Integration } from '@omnara/sdk'
 import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
 import {
   createMemoryHistory,
@@ -12,7 +13,7 @@ import {
 } from '@tanstack/react-router'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { BreadcrumbSlotContext } from '@/components/layout/breadcrumb-slot-context'
 import { ActiveOrgContext } from '@/lib/active-org-context'
@@ -21,7 +22,9 @@ import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { agentConfigModel, fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, waitForUI } from '@/test/secret-editor'
+import { button, field, waitForUI } from '@/test/secret-editor'
+
+import { IntegrationForm } from './IntegrationForm'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj'),
@@ -144,9 +147,6 @@ it.each(['same setup', 'new revision', 'disconnected'] as const)(
     await waitForUI(() => {
       expect(container.textContent).toContain(`Connection failed: ${failure.message}`)
     })
-    act(() => {
-      button('Edit').click()
-    })
     await waitForUI(() => {
       expect(button('Remove Support')).toBeDefined()
     })
@@ -164,7 +164,7 @@ it.each(['same setup', 'new revision', 'disconnected'] as const)(
       button('Save changes').click()
     })
     await waitForUI(() => {
-      expect(button('Choose profiles')).toBeDefined()
+      expect(button('Save changes').disabled).toBe(true)
       expect(container.textContent).toContain('Could not refresh this integration.')
     })
     expect(api.requestsTo('PUT', integrationPath)[0]?.body).toEqual({
@@ -179,11 +179,9 @@ it.each(['same setup', 'new revision', 'disconnected'] as const)(
       ...updated,
       runtime_failure: scenario === 'same setup' ? failure : undefined,
     })
-    act(() => {
-      button('Choose profiles').click()
-    })
     await waitForUI(() => {
-      expect(container.textContent).toContain('0/16 selected')
+      expect(button('Save changes').disabled).toBe(true)
+      expect(() => button('Discard changes')).toThrow('Missing button')
       expect(container.querySelector('[aria-label="Remove Support"]')).toBeNull()
       expect(container.textContent.includes(`Connection failed: ${failure.message}`)).toBe(
         scenario === 'same setup',
@@ -311,3 +309,287 @@ it('keeps the loaded integration breadcrumb and settings during a transient refr
   })
   expect(breadcrumb()?.querySelector('[aria-current="page"]')?.textContent).toBe('engineering-bot')
 })
+
+it.each(['before the PUT returns', 'during the save refresh'] as const)(
+  'rebases the editor on a newer GET arriving %s',
+  async (timing) => {
+    const integration = integrationFixture({
+      integration_kind: 'github_pr',
+      state: 'active',
+      provider_tenant_id: '111',
+      provider_account_ref: '222',
+      settings: { launcher: { profile: profileId, trigger: 'both', repository_id: '123' } },
+    })
+    const saved = {
+      ...integration,
+      settings: {
+        launcher: { profile: profileId, trigger: 'pull_request_opened', repository_id: '123' },
+      },
+      updated_at: '2026-09-20T00:01:00Z',
+    }
+    const latest = {
+      ...saved,
+      settings: { launcher: { profile: profileId, trigger: 'mention', repository_id: '456' } },
+      updated_at: '2026-09-20T00:02:00Z',
+    }
+    const detailPath = `${projectPath}/integrations/${integration.id}`
+    let releaseSave!: (response: Response) => void
+    const pendingSave = new Promise<Response>((resolve) => {
+      releaseSave = resolve
+    })
+    let releaseRefresh!: (response: Response) => void
+    const pendingRefresh = new Promise<Response>((resolve) => {
+      releaseRefresh = resolve
+    })
+    let saving = false,
+      refreshed = false
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: detailPath,
+        respond: () =>
+          saving
+            ? refreshed
+              ? Response.json(latest)
+              : pendingRefresh
+            : Response.json(integration),
+      },
+      {
+        method: 'PUT',
+        path: detailPath,
+        respond: () => {
+          saving = true
+          return pendingSave
+        },
+      },
+      ...['agent-profiles', `integrations/${integration.id}/subscriptions`].map((resource) => ({
+        method: 'GET',
+        path: `${projectPath}/${resource}`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      })),
+    ])
+    const { cache, client } = renderIntegration(
+      root,
+      api,
+      <IntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
+    const queryKey = getIntegrationQueryKey({
+      path: { orgID: orgId, projectID: projectId, integrationID: integration.id },
+      client,
+    })
+    await waitForUI(() => {
+      expect(button('Save changes').disabled).toBe(true)
+    })
+    const form = container.querySelector('[aria-label="Pull requests"] form')
+    act(() => {
+      field('Bot mentioned').click()
+    })
+    act(() => {
+      button('Save changes').click()
+    })
+    await waitForUI(() => {
+      expect(api.requestsTo('PUT', detailPath)).toHaveLength(1)
+    })
+    let backgroundRefresh: Promise<void> | undefined
+    if (timing === 'before the PUT returns') {
+      act(() => {
+        backgroundRefresh = cache.invalidateQueries({ queryKey })
+      })
+    } else {
+      act(() => {
+        releaseSave(Response.json(saved))
+      })
+    }
+    await waitForUI(() => {
+      expect(api.requestsTo('GET', detailPath)).toHaveLength(2)
+    })
+    expect(cache.isMutating()).toBe(1)
+    expect(field('PR opened')).toHaveProperty('checked', true)
+    expect(field('Bot mentioned')).toHaveProperty('checked', false)
+    expect(field('PR opened').disabled).toBe(true)
+    await act(async () => {
+      refreshed = true
+      releaseRefresh(Response.json(latest))
+      await backgroundRefresh
+    })
+    if (timing === 'before the PUT returns') {
+      await waitForUI(() => {
+        expect(cache.getQueryData(queryKey)).toEqual(latest)
+      })
+      act(() => {
+        releaseSave(Response.json(saved))
+      })
+    }
+    await waitForUI(() => {
+      expect(cache.isMutating()).toBe(0)
+      expect(cache.getQueryData(queryKey)).toEqual(latest)
+      expect(button('Save changes').disabled).toBe(true)
+      expect(field('PR opened')).toHaveProperty('checked', false)
+      expect(field('Bot mentioned')).toHaveProperty('checked', true)
+      expect(container.textContent).toContain('Restricted to repository 456.')
+    })
+    expect(container.querySelector('[aria-label="Pull requests"] form')).toBe(form)
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    expect(api.requestsTo('PUT', detailPath)[0]?.body).toEqual({ settings: saved.settings })
+    act(() => {
+      field('PR opened').click()
+    })
+    expect(button('Save changes').disabled).toBe(false)
+    act(() => {
+      button('Discard changes').click()
+    })
+    expect(field('PR opened')).toHaveProperty('checked', false)
+    expect(field('Bot mentioned')).toHaveProperty('checked', true)
+    expect(container.textContent).toContain('Restricted to repository 456.')
+    expect(button('Save changes').disabled).toBe(true)
+    expect(api.requestsTo('PUT', detailPath)).toHaveLength(1)
+  },
+)
+
+function CachedIntegrationEditor({
+  integrationId,
+  onSaved,
+}: {
+  integrationId: string
+  onSaved: (integration: Integration) => void
+}) {
+  const { data } = useIntegration(orgId, projectId, integrationId)
+  if (!data) return null
+  return (
+    <>
+      <output aria-label="Observed integration revision">{data.updated_at}</output>
+      <IntegrationForm
+        orgId={orgId}
+        projectId={projectId}
+        integrationKind={data.integration_kind}
+        integration={data}
+        onSaved={onSaved}
+      />
+    </>
+  )
+}
+
+it.each(['saved', 'newer'] as const)(
+  'does not show a conflict while the cached save awaits a GET returning the %s revision',
+  async (refreshRevision) => {
+    const integration = integrationFixture({
+      integration_kind: 'github_pr',
+      settings: { launcher: { profile: profileId, trigger: 'both', repository_id: '123' } },
+    })
+    const saved = {
+      ...integration,
+      settings: {
+        launcher: { profile: profileId, trigger: 'pull_request_opened', repository_id: '123' },
+      },
+      updated_at: '2026-09-20T00:01:00Z',
+    }
+    const refreshed =
+      refreshRevision === 'saved'
+        ? saved
+        : {
+            ...saved,
+            settings: {
+              launcher: { profile: profileId, trigger: 'mention', repository_id: '456' },
+            },
+            updated_at: '2026-09-20T00:02:00Z',
+          }
+    const detailPath = `${projectPath}/integrations/${integration.id}`
+    let releaseRefresh!: (response: Response) => void
+    const pendingRefresh = new Promise<Response>((resolve) => {
+      releaseRefresh = resolve
+    })
+    let saving = false
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: detailPath,
+        respond: () => (saving ? pendingRefresh : Response.json(integration)),
+      },
+      {
+        method: 'PUT',
+        path: detailPath,
+        respond: () => {
+          saving = true
+          return Response.json(saved)
+        },
+      },
+      {
+        method: 'GET',
+        path: `${projectPath}/agent-profiles`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+    ])
+    const onSaved = vi.fn()
+    const { cache, client } = renderIntegration(
+      root,
+      api,
+      <CachedIntegrationEditor integrationId={integration.id} onSaved={onSaved} />,
+    )
+    const queryKey = getIntegrationQueryKey({
+      path: { orgID: orgId, projectID: projectId, integrationID: integration.id },
+      client,
+    })
+    const observedRevision = () => container.querySelector('output')?.textContent
+    await waitForUI(() => {
+      expect(observedRevision()).toBe(integration.updated_at)
+    })
+    const form = container.querySelector('form')
+    act(() => {
+      field('Bot mentioned').click()
+    })
+    act(() => {
+      button('Save changes').click()
+    })
+    await waitForUI(() => {
+      expect(api.requestsTo('PUT', detailPath)).toHaveLength(1)
+      expect(api.requestsTo('GET', detailPath)).toHaveLength(2)
+      expect(observedRevision()).toBe(saved.updated_at)
+    })
+    expect(cache.getQueryData(queryKey)).toEqual(saved)
+    expect(cache.isMutating()).toBe(1)
+    expect(cache.getQueryState(queryKey)?.fetchStatus).toBe('fetching')
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(() => button('Reload settings')).toThrow('Missing button')
+    expect(field('PR opened')).toHaveProperty('checked', true)
+    expect(field('Bot mentioned')).toHaveProperty('checked', false)
+    expect(field('PR opened').disabled).toBe(true)
+    expect(button('Save changes').disabled).toBe(true)
+    await act(async () => {
+      releaseRefresh(Response.json(refreshed))
+      await pendingRefresh
+    })
+    await waitForUI(() => {
+      expect(onSaved).toHaveBeenCalledOnce()
+      expect(cache.isMutating()).toBe(0)
+      expect(observedRevision()).toBe(refreshed.updated_at)
+      expect(field('PR opened')).toHaveProperty('checked', refreshRevision === 'saved')
+      expect(field('Bot mentioned')).toHaveProperty('checked', refreshRevision === 'newer')
+      expect(button('Save changes').disabled).toBe(true)
+    })
+    expect(container.querySelector('form')).toBe(form)
+    expect(cache.getQueryData(queryKey)).toEqual(refreshed)
+    expect(container.textContent).not.toContain('Integration changed.')
+    expect(() => button('Discard changes')).toThrow('Missing button')
+    expect(api.requestsTo('PUT', detailPath)[0]?.body).toEqual({ settings: saved.settings })
+    act(() => {
+      field('PR opened').click()
+    })
+    act(() => {
+      button('Discard changes').click()
+    })
+    expect(field('PR opened')).toHaveProperty('checked', refreshRevision === 'saved')
+    expect(field('Bot mentioned')).toHaveProperty('checked', refreshRevision === 'newer')
+    expect(container.textContent).toContain(
+      `Restricted to repository ${refreshed.settings.launcher.repository_id}.`,
+    )
+    expect(button('Save changes').disabled).toBe(true)
+    expect(api.requestsTo('PUT', detailPath)).toHaveLength(1)
+  },
+)

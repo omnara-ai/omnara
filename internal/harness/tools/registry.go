@@ -319,9 +319,8 @@ func builtInToolRegistrations() []toolRegistration {
 			name:                   toolcatalog.ToolNameAskQuestion,
 			semanticInputValidator: validateQuestionInput,
 			handler: toolHandler{
-				Transactional:        prepareStructuredQuestion,
-				Background:           presentStructuredQuestion,
-				BackgroundBestEffort: true,
+				Transactional: prepareStructuredQuestion,
+				Background:    presentStructuredQuestion,
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},

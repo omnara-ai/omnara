@@ -9,18 +9,20 @@ import (
 
 type Kind string
 
+type Provider string
+
 const (
-	ProviderSlack        = "slack"
-	ProviderGitHub       = "github"
-	ProviderDiscord      = "discord"
-	SlackThread     Kind = "slack_thread"
-	GitHubPR        Kind = "github_pr"
-	DiscordThread   Kind = "discord_thread"
+	ProviderSlack   Provider = "slack"
+	ProviderGitHub  Provider = "github"
+	ProviderDiscord Provider = "discord"
+	SlackThread     Kind     = "slack_thread"
+	GitHubPR        Kind     = "github_pr"
+	DiscordThread   Kind     = "discord_thread"
 )
 
 type Definition struct {
 	IntegrationKind    Kind
-	Provider           string
+	Provider           Provider
 	Tools              []string
 	Subscription       *SubscriptionDefinition
 	Settings           *SettingsDefinition
@@ -47,8 +49,8 @@ func Lookup(id Kind) (Definition, bool) {
 			IntegrationKind:    id,
 			Provider:           ProviderSlack,
 			Tools:              []string{"read", "post_message"},
-			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []string{"message"}},
-			Settings:           newChatSettings(ProviderSlack),
+			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []EventKind{EventMessage}},
+			Settings:           chatSettings,
 			Launcher:           newChatLauncher(ProviderSlack),
 			SubscribeOnLaunch:  true,
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
@@ -59,8 +61,8 @@ func Lookup(id Kind) (Definition, bool) {
 			IntegrationKind:    id,
 			Provider:           ProviderDiscord,
 			Tools:              []string{"read", "post_message"},
-			Subscription:       &SubscriptionDefinition{Provider: ProviderDiscord, Events: []string{"message"}},
-			Settings:           newChatSettings(ProviderDiscord),
+			Subscription:       &SubscriptionDefinition{Provider: ProviderDiscord, Events: []EventKind{EventMessage}},
+			Settings:           chatSettings,
 			Launcher:           newChatLauncher(ProviderDiscord),
 			SubscribeOnLaunch:  true,
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
@@ -75,7 +77,7 @@ func Lookup(id Kind) (Definition, bool) {
 			},
 			Subscription: &SubscriptionDefinition{
 				Provider: ProviderGitHub,
-				Events:   []string{"discussion_comment", "review_comment", "commit"},
+				Events:   []EventKind{EventDiscussionComment, EventReviewComment, EventCommit},
 			},
 			Settings:          githubSettings,
 			Launcher:          githubLauncher,
@@ -87,7 +89,7 @@ func Lookup(id Kind) (Definition, bool) {
 	return d, true
 }
 
-func IntegrationKindsForProvider(provider string) []string {
+func IntegrationKindsForProvider(provider Provider) []string {
 	var types []string
 	for _, definition := range All() {
 		if definition.Provider == provider {
@@ -97,7 +99,7 @@ func IntegrationKindsForProvider(provider string) []string {
 	return types
 }
 
-func ProviderForKind(integrationKind Kind) string {
+func ProviderForKind(integrationKind Kind) Provider {
 	definition, _ := Lookup(integrationKind)
 	return definition.Provider
 }
@@ -130,7 +132,7 @@ var (
 	discordID      = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 )
 
-func (s Scope) Validate(provider string) error {
+func (s Scope) Validate(provider Provider) error {
 	count := 0
 	for _, present := range []bool{s.Slack != nil, s.GitHub != nil, s.Discord != nil} {
 		if present {
@@ -173,7 +175,7 @@ func (s Scope) Validate(provider string) error {
 	return fmt.Errorf("scope does not match provider %q", provider)
 }
 
-func (s Scope) Provider() string {
+func (s Scope) Provider() Provider {
 	switch {
 	case s.Slack != nil:
 		return ProviderSlack

@@ -712,7 +712,7 @@ func TestIntegrationPermissionPromptDeliveryDoesNotBlockOmnaraPrompt(t *testing.
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "permission-delivery-failure")
 	prepareInteractionPromptFixture(t, ctx, fixture)
-	runner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	runner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}
