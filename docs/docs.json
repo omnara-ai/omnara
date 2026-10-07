@@ -93,6 +93,7 @@
               "examples/posthog-analytics-agent",
               "examples/sre-agent",
               "examples/slack-coding-agent",
+              "examples/browser-agent",
               "examples/video-generation-agent"
             ]
           },

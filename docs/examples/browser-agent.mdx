@@ -1,0 +1,17 @@
+---
+title: Browser agent
+description: A long-running agent that signs in to your web apps and works in a real browser, overnight if needed
+icon: "globe"
+---
+
+It signs in to your web apps with credentials stored as Omnara [secrets](/organization/secrets), then carries out multi-step tasks in a real browser: pulling data out of dashboards, filling in forms, or working through a queue overnight. Passwords go into an encrypted vault on the agent's machine and never pass through the model. It runs on a large machine that's kept, browser and sign-ins included, until you archive the agent, and it asks you for one-time codes and before anything you haven't allowed it to do on its own.
+
+## Build it
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It asks what the job is and how it should be done, which sites it signs in to, whether it runs on a schedule, and whether you want it in Slack. Then it builds the agent in your Omnara project and has it sign in to each site once.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/browser-agent/SKILL.md and follow it to build my browser agent.
+```
+
+To see how it works, switch it to a cloud browser such as Kernel or Browserbase, or adapt it, browse [`examples/browser-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/browser-agent) on GitHub.
