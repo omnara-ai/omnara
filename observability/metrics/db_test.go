@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestDBRecorder(t *testing.T) {

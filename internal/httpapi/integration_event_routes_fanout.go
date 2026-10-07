@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const integrationIntakeTimeout = 5 * time.Second

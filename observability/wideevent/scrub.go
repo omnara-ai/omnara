@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"net/url"
@@ -23,10 +23,15 @@ var (
 			`client[_-]?secret|code|password|passwd|pwd|refresh[_-]?token|secret|token)["']` +
 			`\s*:\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}]+)`,
 	)
+	// providerSecretPattern matches well-known provider credential shapes that
+	// can appear in error text without an assignment: Stripe secret,
+	// restricted, and webhook-signing keys and OpenRouter keys.
+	providerSecretPattern = regexp.MustCompile(`\b(?:(?:sk|rk)_(?:live|test)_|whsec_|sk-or-)[A-Za-z0-9_-]+`)
 )
 
 // ScrubLogString removes URL query strings and redacts common free-form
-// secret assignments before a value is emitted to process logs.
+// secret assignments and provider credential shapes before a value is emitted
+// to process logs.
 func ScrubLogString(value string) string {
 	if value == "" {
 		return value
@@ -35,6 +40,7 @@ func ScrubLogString(value string) string {
 	value = bearerTokenPattern.ReplaceAllString(value, `${1}`+redactedLogValue)
 	value = quotedSensitivePattern.ReplaceAllString(value, `${1}"`+redactedLogValue+`"`)
 	value = sensitiveAssignmentPattern.ReplaceAllString(value, `${1}`+redactedLogValue)
+	value = providerSecretPattern.ReplaceAllString(value, redactedLogValue)
 	return value
 }
 

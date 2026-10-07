@@ -25,7 +25,8 @@ MIGRATION_DIRS := migrations internal/machinedaemon/statedb/migrations
 SQLC_OWNED_PATHS := internal/storage/internal/dbsqlc internal/storage/queries \
 	internal/machinedaemon/statedb/internal/dbsqlc internal/machinedaemon/statedb/queries
 OMNARALINT_SOURCES := $(shell find tools/omnaralint -name '*.go' -print)
-GO_MODULE_DIRS := . tools/ci tools/goose tools/omnaralint
+GO_MODULE_DIRS := . observability tools/ci tools/goose tools/omnaralint
+GO_FMT_FILES = find . \( -path './.tools' -o -path './.cache' -o -path './.context' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print
 INTEGRATION_STORAGE_PACKAGES := \
 	./internal/storage \
 	./internal/storage/executionstore \
@@ -44,7 +45,6 @@ INTEGRATION_RUNTIME_PACKAGES := \
 	./internal/harness/worker \
 	./internal/dbmigrate \
 	./internal/machinepool \
-	./internal/metrics \
 	./internal/modelprovider \
 	./internal/notifications \
 	./internal/redistore
@@ -94,7 +94,7 @@ verify-go: verify-static unit race-unit
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
-	@files="$$(find . \( -path './.tools' -o -path './.cache' -o -path './.context' -o -path '*/node_modules' -o -path './frontend/apps/web/dist' \) -prune -o -name '*.go' -print | xargs gofmt -l)"; \
+	@files="$$($(GO_FMT_FILES) | xargs gofmt -l)"; \
 	test -z "$$files" || { printf 'gofmt needed:\n%s\n' "$$files"; exit 1; }
 
 golangci-version-check:
@@ -144,8 +144,9 @@ $(GOLANGCI_LINT): .custom-gcl.yml tools/ci/go.mod tools/ci/go.sum tools/omnarali
 race-machinedaemon:
 	$(GO) test -race ./internal/machinedaemon/...
 
-race-unit: ## Run internal unit tests with race detection
+race-unit: ## Run internal and observability unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
+	$(GO) -C observability test -race -count=1 ./...
 
 config-schema-generate: ## Generate agent config and shared OpenAPI schemas
 	$(GO) run ./tools/config-schema
@@ -367,7 +368,7 @@ stack-down: ## Stop the local development stack
 	docker compose --profile app down
 
 fmt:
-	$(GO) fmt ./...
+	$(GO_FMT_FILES) | xargs gofmt -l -w
 
 web-install:
 	cd frontend && pnpm install

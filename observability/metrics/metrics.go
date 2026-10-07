@@ -10,26 +10,44 @@ import (
 
 const ScrapePath = "/metrics"
 
+const DefaultNamespace = "omnara"
+
 const (
 	SubsystemAPI        = "api"
 	SubsystemHTTPClient = "http_client"
 )
 
 type Set struct {
-	registry *prometheus.Registry
-	handler  http.Handler
+	registry  *prometheus.Registry
+	handler   http.Handler
+	namespace string
 }
 
-func New() *Set {
+type Option func(*Set)
+
+func WithNamespace(namespace string) Option {
+	return func(set *Set) { set.namespace = namespace }
+}
+
+func New(opts ...Option) *Set {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
-	return &Set{
-		registry: registry,
-		handler:  promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+	set := &Set{
+		registry:  registry,
+		handler:   promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+		namespace: DefaultNamespace,
 	}
+	for _, opt := range opts {
+		opt(set)
+	}
+	return set
+}
+
+func (m *Set) Namespace() string {
+	return m.namespace
 }
 
 func (m *Set) Handler() http.Handler {

@@ -13,8 +13,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (s strictOpenAPIServer) CreateIntegrationOAuthSetup(

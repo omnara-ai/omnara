@@ -18,7 +18,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 // Configure the process-wide error policy before concurrent construction or validation.

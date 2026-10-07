@@ -11,7 +11,7 @@ type MemoryRecorder struct {
 func NewMemoryRecorder(set *Set) *MemoryRecorder {
 	m := &MemoryRecorder{
 		listingDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemMemory,
 			Name:      "listing_duration_seconds",
 			Help:      "Memory file listing duration in seconds.",

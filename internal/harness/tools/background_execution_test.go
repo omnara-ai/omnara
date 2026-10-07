@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 )
 

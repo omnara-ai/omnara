@@ -3,8 +3,8 @@ package logent
 import (
 	"context"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func DaemonRuntime(ctx context.Context, r executionstore.DaemonRuntimeRecord) {

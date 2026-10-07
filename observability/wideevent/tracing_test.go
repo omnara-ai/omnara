@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"bytes"
@@ -255,4 +255,27 @@ func TestDBQueryName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTracingBuffersAtMostCapRecords(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := WithLogger(t.Context(), testLogger(&buf))
+	ctx, event := Start(ctx, "test.event")
+	for i := range 1000 {
+		AttachDBQuery(ctx, DBQueryTraceRecord{Name: fmt.Sprintf("Query%d", i), Rows: 1, Failed: i%100 == 99})
+		AttachHTTPRequest(ctx, HTTPRequestTraceRecord{Method: "GET", Path: fmt.Sprintf("/%d", i)})
+	}
+	if len(event.dbQueries) != maxTraceRecords || len(event.httpReqs) != maxTraceRecords {
+		t.Fatalf("kept db=%d http=%d, want %d", len(event.dbQueries), len(event.httpReqs), maxTraceRecords)
+	}
+
+	event.Done(ctx)
+
+	record := oneRecord(t, &buf)
+	assertDecodedField(t, record, "db.queries.count", 1000)
+	assertDecodedField(t, record, "db.queries.error_count", 10)
+	assertDecodedField(t, record, "db.queries.rows_sum", int64(1000))
+	assertDecodedField(t, record, "db.queries.24.name", "Query999")
+	assertDecodedField(t, record, "http.subrequests.count", 1000)
+	assertDecodedField(t, record, "http.subrequests.truncated_count", 1000-maxTraceRecords)
 }

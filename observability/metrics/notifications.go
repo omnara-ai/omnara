@@ -11,7 +11,7 @@ type NotificationRecorder struct {
 func NewNotificationRecorder(set *Set) *NotificationRecorder {
 	m := &NotificationRecorder{
 		notificationsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemNotifications,
 			Name:      "total",
 			Help:      "Total number of post-commit notification publish outcomes, labeled by intent.",

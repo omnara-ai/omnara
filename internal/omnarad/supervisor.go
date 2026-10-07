@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const supervisedServiceFlag = "--supervised"

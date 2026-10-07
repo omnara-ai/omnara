@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"context"
@@ -8,13 +8,16 @@ import (
 	"time"
 )
 
-type cancellationError string
+// CancellationError names why a context was canceled. Pass one to a
+// context.CancelCauseFunc so failed database queries report it as
+// cancel_source instead of "unknown".
+type CancellationError string
 
 const (
-	ErrSSEShutdown   cancellationError = "sse_shutdown"
-	ErrSocketTimeout cancellationError = "socket_timeout"
-	ErrSocketFailure cancellationError = "socket_failure"
-	ErrSocketClosed  cancellationError = "socket_closed"
+	ErrSSEShutdown   CancellationError = "sse_shutdown"
+	ErrSocketTimeout CancellationError = "socket_timeout"
+	ErrSocketFailure CancellationError = "socket_failure"
+	ErrSocketClosed  CancellationError = "socket_closed"
 )
 
 type DBQueryTraceRecord struct {
@@ -59,6 +62,41 @@ func AttachHTTPRequest(ctx context.Context, record HTTPRequestTraceRecord) {
 
 const maxTraceRecords = 25
 
+type traceStats struct {
+	count      int
+	errorCount int
+	msSum      int64
+	msMax      int64
+}
+
+func (s *traceStats) add(duration time.Duration, failed bool) {
+	s.count++
+	if failed {
+		s.errorCount++
+	}
+	ms := duration.Milliseconds()
+	s.msSum += ms
+	s.msMax = max(s.msMax, ms)
+}
+
+// keepDBQuery bounds the kept queries at maxTraceRecords. Once full, a failure
+// replaces the most recent kept success, so failures win while the earliest
+// successes and chronological order survive.
+func keepDBQuery(queries []DBQueryTraceRecord, record DBQueryTraceRecord) []DBQueryTraceRecord {
+	if len(queries) < maxTraceRecords {
+		return append(queries, record)
+	}
+	if !record.Failed {
+		return queries
+	}
+	for i := len(queries) - 1; i >= 0; i-- {
+		if !queries[i].Failed {
+			return append(append(queries[:i], queries[i+1:]...), record)
+		}
+	}
+	return queries
+}
+
 func (e *Event) attachDBQuery(record DBQueryTraceRecord) {
 	if e == nil {
 		return
@@ -71,7 +109,9 @@ func (e *Event) attachDBQuery(record DBQueryTraceRecord) {
 	if e.requestCanceled != nil {
 		record.RequestCanceled = e.requestCanceled()
 	}
-	e.dbQueries = append(e.dbQueries, record)
+	e.dbStats.add(record.Duration, record.Failed)
+	e.dbRows += record.Rows
+	e.dbQueries = keepDBQuery(e.dbQueries, record)
 }
 
 func (e *Event) attachHTTPRequest(record HTTPRequestTraceRecord) {
@@ -83,7 +123,10 @@ func (e *Event) attachHTTPRequest(record HTTPRequestTraceRecord) {
 	if e.done {
 		return
 	}
-	e.httpReqs = append(e.httpReqs, record)
+	e.httpStats.add(record.Duration, record.Error != "")
+	if len(e.httpReqs) < maxTraceRecords {
+		e.httpReqs = append(e.httpReqs, record)
+	}
 }
 
 func (e *Event) flushTraceFields() {
@@ -92,41 +135,16 @@ func (e *Event) flushTraceFields() {
 }
 
 func (e *Event) flushDBQueries() {
-	if len(e.dbQueries) == 0 {
+	if e.dbStats.count == 0 {
 		return
 	}
 
-	emitCount := min(len(e.dbQueries), maxTraceRecords)
 	out := Fields{
-		"db.queries.count":           len(e.dbQueries),
-		"db.queries.truncated_count": len(e.dbQueries) - emitCount,
+		"db.queries.count":           e.dbStats.count,
+		"db.queries.truncated_count": e.dbStats.count - len(e.dbQueries),
 	}
-	var durationMsSum int64
-	var durationMsMax int64
-	var rowsSum int64
-	var errorCount int
-	for _, record := range e.dbQueries {
-		durationMs := record.Duration.Milliseconds()
-		durationMsSum += durationMs
-		if durationMs > durationMsMax {
-			durationMsMax = durationMs
-		}
-		rowsSum += record.Rows
-		if record.Failed {
-			errorCount++
-		}
-	}
-	successBudget := max(0, emitCount-errorCount)
-	emitted := 0
-	for _, record := range e.dbQueries {
-		if emitted == emitCount || (!record.Failed && successBudget == 0) {
-			continue
-		}
-		if !record.Failed {
-			successBudget--
-		}
-		prefix := fmt.Sprintf("db.queries.%d.", emitted)
-		emitted++
+	for i, record := range e.dbQueries {
+		prefix := fmt.Sprintf("db.queries.%d.", i)
 		out[prefix+"name"] = record.Name
 		out[prefix+"start_time_ms"] = relativeMilliseconds(record.Start, e.started)
 		out[prefix+"duration_ms"] = record.Duration.Milliseconds()
@@ -147,45 +165,30 @@ func (e *Event) flushDBQueries() {
 			}
 		}
 	}
-	out["db.queries.error_count"] = errorCount
-	out["db.queries.duration_ms_sum"] = durationMsSum
-	out["db.queries.duration_ms_max"] = durationMsMax
-	out["db.queries.rows_sum"] = rowsSum
+	out["db.queries.error_count"] = e.dbStats.errorCount
+	out["db.queries.duration_ms_sum"] = e.dbStats.msSum
+	out["db.queries.duration_ms_max"] = e.dbStats.msMax
+	out["db.queries.rows_sum"] = e.dbRows
 
 	e.applyFields(out)
 }
 
 func (e *Event) flushHTTPRequests() {
-	if len(e.httpReqs) == 0 {
+	if e.httpStats.count == 0 {
 		return
 	}
 
-	emitCount := min(len(e.httpReqs), maxTraceRecords)
 	out := Fields{
-		"http.subrequests.count":           len(e.httpReqs),
-		"http.subrequests.truncated_count": len(e.httpReqs) - emitCount,
+		"http.subrequests.count":           e.httpStats.count,
+		"http.subrequests.truncated_count": e.httpStats.count - len(e.httpReqs),
 	}
-	var totalMsSum int64
-	var totalMsMax int64
-	var errorCount int
 	for i, record := range e.httpReqs {
-		totalMs := record.Duration.Milliseconds()
-		totalMsSum += totalMs
-		if totalMs > totalMsMax {
-			totalMsMax = totalMs
-		}
-		if record.Error != "" {
-			errorCount++
-		}
-		if i >= emitCount {
-			continue
-		}
 		prefix := fmt.Sprintf("http.subrequests.%d.", i)
 		out[prefix+"method"] = record.Method
 		out[prefix+"host"] = record.Host
 		out[prefix+"path"] = record.Path
 		out[prefix+"start_time_ms"] = relativeMilliseconds(record.Start, e.started)
-		out[prefix+"total_ms"] = totalMs
+		out[prefix+"total_ms"] = record.Duration.Milliseconds()
 		if record.StatusCode != 0 {
 			out[prefix+"status_code"] = record.StatusCode
 		}
@@ -193,9 +196,9 @@ func (e *Event) flushHTTPRequests() {
 			out[prefix+"error"] = record.Error
 		}
 	}
-	out["http.subrequests.error_count"] = errorCount
-	out["http.subrequests.total_ms_sum"] = totalMsSum
-	out["http.subrequests.total_ms_max"] = totalMsMax
+	out["http.subrequests.error_count"] = e.httpStats.errorCount
+	out["http.subrequests.total_ms_sum"] = e.httpStats.msSum
+	out["http.subrequests.total_ms_max"] = e.httpStats.msMax
 
 	e.applyFields(out)
 }
@@ -207,11 +210,11 @@ func relativeMilliseconds(t, base time.Time) int64 {
 	return t.Sub(base).Milliseconds()
 }
 
-func (s cancellationError) Error() string { return string(s) }
+func (s CancellationError) Error() string { return string(s) }
 
 func DBCancellationSource(ctx context.Context) string {
 	cause := context.Cause(ctx)
-	var source cancellationError
+	var source CancellationError
 	if errors.As(cause, &source) {
 		return string(source)
 	}

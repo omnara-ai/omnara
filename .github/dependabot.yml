@@ -9,6 +9,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - /
+      - /observability
       - /tools/ci
       - /tools/goose
       - /tools/omnaralint

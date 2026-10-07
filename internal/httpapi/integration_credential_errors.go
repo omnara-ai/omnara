@@ -7,7 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 // Credential workflows can return URLs, response bodies or database details containing

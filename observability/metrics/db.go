@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -34,13 +34,13 @@ type DBRecorder struct {
 func NewDBRecorder(set *Set, subsystem string) *DBRecorder {
 	m := &DBRecorder{
 		queriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "queries_total",
 			Help:      "Total number of database queries.",
 		}, []string{"query_name", "result", "error_kind", "error_severity"}),
 		queryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "query_duration_seconds",
 			Help:      "Database query duration in seconds.",

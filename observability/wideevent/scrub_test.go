@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"bytes"
@@ -121,5 +121,19 @@ func TestEventDoneScrubsAttachedStringField(t *testing.T) {
 	}
 	if record["message"] != "provider.callback" || record["event.name"] != "provider.callback" {
 		t.Fatalf("event log identity missing: %+v", record)
+	}
+}
+
+func TestScrubLogStringRedactsProviderSecrets(t *testing.T) {
+	input := "stripe rejected sk_live_51AbC and rk_test_9xYz; webhook whsec_q1W2e3 " +
+		"key sk-or-v1-abcDEF123 kept prod_credits"
+	got := ScrubLogString(input)
+	for _, forbidden := range []string{"sk_live_51AbC", "rk_test_9xYz", "whsec_q1W2e3", "sk-or-v1-abcDEF123"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("ScrubLogString() leaked %q in %q", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "prod_credits") {
+		t.Fatalf("ScrubLogString() removed unrelated content: %q", got)
 	}
 }

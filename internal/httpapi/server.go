@@ -21,7 +21,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -32,6 +31,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type Server struct {
@@ -61,7 +61,6 @@ type Server struct {
 	recorder                            *metrics.HTTPRecorder
 	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
-	requestLog                          middleware
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
 	modelDiscoverer                     modelprovider.DiscoverFunc
@@ -371,7 +370,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	server := &Server{
 		log:                               log,
 		store:                             store,
-		requestLog:                        requestLog(log),
 		authSignupEnabled:                 true,
 		authResetEnabled:                  true,
 		daemonRuntimeLeaseDuration:        executionstore.DaemonRuntimeLeaseDuration,
@@ -498,18 +496,13 @@ func (s *Server) Handler() http.Handler {
 	s.registerRoutes(mux)
 	apiDispatch := chain(mux, s.apiDispatchMiddlewares(mux)...)
 	s.apiDispatch.Store(&apiDispatch)
-	middlewares := make([]middleware, 0, 7)
-	if s.recorder != nil {
-		middlewares = append(middlewares, s.recorder.Middleware(mux))
-	}
-	middlewares = append(middlewares,
-		s.requestLog,
+	return chain(mux,
+		requestEvents(s.log, s.recorder, mux),
 		maxBody(requestBodyLimit),
 		s.publicHostGuard,
 		s.auth,
 		s.openAPIRequestValidator,
 	)
-	return chain(mux, middlewares...)
 }
 
 func (s *Server) Close() {

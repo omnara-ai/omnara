@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"bufio"

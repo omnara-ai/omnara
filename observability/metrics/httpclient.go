@@ -10,7 +10,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type HTTPClientRecorder struct {
@@ -43,13 +43,13 @@ func WithHTTPClientPathLabel(path string) HTTPClientObserverOption {
 func NewHTTPClientRecorder(set *Set, subsystem string) *HTTPClientRecorder {
 	m := &HTTPClientRecorder{
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "requests_total",
 			Help:      "Total number of outbound HTTP requests.",
 		}, []string{"host", "path", "method", "code", "result", "error_kind"}),
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "request_duration_seconds",
 			Help:      "Outbound HTTP request duration in seconds.",

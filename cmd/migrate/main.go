@@ -9,8 +9,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func main() {

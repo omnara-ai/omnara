@@ -23,9 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/interactionform"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -35,6 +33,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 var (
@@ -370,7 +370,7 @@ func decodeRequestEvent(t *testing.T, buf *bytes.Buffer) map[string]any {
 
 func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logent.Org(r.Context(), identitystore.OrgRecord{ID: httpTestOrgID})
 		w.WriteHeader(http.StatusTeapot)
 		if _, err := w.Write([]byte("teapot")); err != nil {
@@ -414,7 +414,7 @@ func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.ProjectScoped(context.Canceled)
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
 	}))
 
@@ -446,10 +446,10 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 		"mapped dependency failure",
 	).WithCause(context.Canceled)
 	mux := http.NewServeMux()
-	mux.Handle("GET /api/v1/test", requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/test", func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
-	})))
-	handler := metrics.NewHTTPRecorder(set, metrics.SubsystemAPI).Middleware(mux)(mux)
+	})
+	handler := requestEvents(log, metrics.NewHTTPRecorder(set, metrics.SubsystemAPI), mux)(mux)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -504,7 +504,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 		openapi.ErrorCodeServiceUnavailable,
 		"mapped dependency failure",
 	).WithCause(errors.New("query agent row: connection refused"))
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
 		openAPIResponseErrorHandler(w, r, handlerErr)
 	}))
@@ -534,7 +534,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 
 func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
 		panic("boom")
 	}))
@@ -569,7 +569,7 @@ func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
 func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
 	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logent.AuthFailedError(
 			r.Context(),
 			logent.AuthSchemeBearer,
@@ -627,7 +627,7 @@ func TestRequestLogAttachesRequestErrorOnBadRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf, log := newRequestEventCapture()
-			handler := requestLog(log)(tt.serve)
+			handler := requestEvents(log, nil, nil)(tt.serve)
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/test", nil)
 			rec := httptest.NewRecorder()
@@ -652,7 +652,7 @@ func TestRequestLogAttachesRequestErrorOnBadRequest(t *testing.T) {
 
 func TestRequestLogRecoversHandlerPanic(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
 
@@ -688,7 +688,7 @@ func TestRequestLogRecoversHandlerPanic(t *testing.T) {
 
 func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte("partial")); err != nil {
 			t.Errorf("write response: %v", err)
 			return
@@ -709,9 +709,11 @@ func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 	}
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
-		"level":            "error",
-		"error.message":    "http handler panicked: boom",
-		"http.status_code": float64(http.StatusOK),
+		"level":                    "error",
+		"error.message":            "http handler panicked: boom",
+		"http.status_code":         float64(http.StatusInternalServerError),
+		"http.written_status_code": float64(http.StatusOK),
+		"http.response_aborted":    true,
 	} {
 		if got := event[key]; got != want {
 			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
