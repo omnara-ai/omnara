@@ -60,6 +60,13 @@ VALUES
 			t.Fatalf("unexpected project grant %d: %+v", index, grant)
 		}
 	}
+	if _, _, err := store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
+		OrgID:     testOrgID,
+		ProjectID: testProjectID,
+		MachineID: result.Machine.ID,
+	}); !errors.Is(err, storeerr.ErrConflict) || errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("duplicate project grant error = %v, want ErrConflict", err)
+	}
 	if count := countProjectMachineGrantsForMachineForTest(
 		t,
 		ctx,

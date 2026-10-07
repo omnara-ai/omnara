@@ -145,9 +145,23 @@ export function machinePoolFieldErrors(
   }
   if (!optionalPositiveInt32Valid(values.maxMachineCpu)) {
     errors.maxMachineCpu = 'Enter a whole number of 1 or more, or leave it empty.'
+  } else if (
+    provider.resources.cpu === 'configured' &&
+    values.maxMachineCpu.trim() !== '' &&
+    positiveInt32(values.cpu) &&
+    Number(values.cpu) > Number(values.maxMachineCpu)
+  ) {
+    errors.maxMachineCpu = `Enter a whole number of ${String(Number(values.cpu))} or more, or leave it empty.`
   }
   if (!memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true })) {
     errors.maxMachineMemoryGb = 'Enter a size greater than 0 GB, or leave it empty.'
+  } else if (
+    provider.resources.memoryMb === 'configured' &&
+    values.maxMachineMemoryGb.trim() !== '' &&
+    memoryGbDraftValid(values.memoryGb) &&
+    memoryGbToMb(values.memoryGb) > memoryGbToMb(values.maxMachineMemoryGb)
+  ) {
+    errors.maxMachineMemoryGb = `Enter a size of ${String(Number(values.memoryGb))} GB or more, or leave it empty.`
   }
   if (!optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes)) {
     errors.deleteAfterIdleMinutes = 'Enter a whole number of at least 5, or leave it empty.'

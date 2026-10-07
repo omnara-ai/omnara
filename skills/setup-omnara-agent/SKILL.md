@@ -49,7 +49,7 @@ Then, ask the user questions on what type of agent they'd like to create:
    - The granted model and machine pool
    - Relevant secrets or startup scripts for the machine pool env override. For example, if the user wants to clone a Github repository, you may setup a script which clones the repo upon starting the machine. If needed, you can pipe a Github PAT via a secret into the env var overlay
 
-3. Launch an agent from the profile with `agents_launch` / `npx omnara agents launch` and a simple first message. Provide the user with a link to the agent at https://app.omnara.com/projects/{project_id}/agents/{agent_id}
+3. Launch an agent from the profile with `agents_launch` / `npx omnara agents launch` and a simple first message. Provide the user with a link to the agent at `https://app.omnara.com/projects/{project_id}/agents/{agent_id}`
 
 4. (optional: interact via Slack) Create a project integration with `integration_kind: slack_thread` through `npx omnara integrations create`, and select the profile in its launcher with `npx omnara integrations profiles`. Then connect the saved integration with `npx omnara integrations slack {integration_id} ...`. Use `-h` for current arguments and follow the Slack guide for creating a Slack registration with a configuration token from https://api.slack.com/apps or connecting an existing registration. The MCP server has no integration setup tools, so authenticate the CLI as described above before this step.
 

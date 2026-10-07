@@ -16,6 +16,7 @@ import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
 import { queryClient } from '@/lib/query'
 import { requireOrganization } from '@/lib/require-organization'
+import { claimStaleChunkReload } from '@/lib/stale-chunk'
 import { RootError } from '@/routes/RootError'
 import { omnaraClient } from '@/transport'
 
@@ -451,6 +452,9 @@ export const router = createRouter({
   defaultPreload: 'intent',
   defaultPendingComponent: FullPageSpinner,
   defaultErrorComponent: RootError,
+  defaultOnCatch: (error) => {
+    if (error instanceof Error && claimStaleChunkReload(error, window)) window.location.reload()
+  },
 })
 
 declare module '@tanstack/react-router' {
