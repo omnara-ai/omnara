@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -51,10 +52,10 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSlackIntegrationCutoverPreservesScopedSendingAndHistory(t *testing.T) {
+func TestSlackIntegrationCutoverPreservesConversationsAndHistory(t *testing.T) {
 	for _, scenario := range []string{
 		"normal", "memory_store", "pre_internal_ids", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
-		"live_lease", "started_context", "unfinished_tool", "open_interaction", "unsupported_setup",
+		"live_lease", "unsupported_setup",
 		"fixed_agent", "mislabeled_fixed_agent", "multiple_targets", "multiple_integrations", "enabled", "json", "yaml", "yaml_alias", "enabled_json", "enabled_yaml", "channel", "dm",
 		"wire_json", "wire_yaml", "enabled_wire_json", "enabled_wire_yaml", "enabled_null_json", "enabled_null_yaml",
 		"absent_send", "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota", "invalid_policy", "unmapped_policy", "invalid_address", "bad_hash", "bad_source_hash", "config_limit",
@@ -300,13 +301,10 @@ tools:
                       runtime_lock_id,state,created_at)
                       VALUES($1,$2,$3,$4,'normal',1,$5,$6,1,$7,'started',now())`,
 						failed, ids.OrgID, ids.ProjectID, agentID, configID, revisionID, uuid.New())
-					if i != 0 || scenario != "started_context" {
-						q(`UPDATE model_call_contexts SET state='failed',recovery_kind='retry',error_kind='provider_error',
+					q(`UPDATE model_call_contexts SET state='failed',recovery_kind='retry',error_kind='provider_error',
                           retry_at=now(),completed_at=now() WHERE id=$1`, failed)
-					}
-					if i == 0 && scenario != "continuable_retry" && scenario != "started_context" {
-						seedSlackCutoverSuccessfulRetry(t, q, ids, agentID, configID, revisionID, turnID,
-							scenario == "unfinished_tool" || scenario == "open_interaction")
+					if i == 0 && scenario != "continuable_retry" {
+						seedSlackCutoverSuccessfulRetry(t, q, ids, agentID, configID, revisionID, turnID)
 					}
 					if i == 1 {
 						stopInput, stopEvent := uuid.New(), uuid.New()
@@ -426,9 +424,6 @@ tools:
 			case "live_lease":
 				exec(`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
                     VALUES($1,$2,now(),now(),now()+interval '1 hour')`, agents[0], uuid.New())
-			case "open_interaction":
-				exec(`INSERT INTO agent_interactions(agent_id,tool_call_id,interaction_kind,state,created_at)
-                    SELECT agent_id,id,'question','open',now() FROM tool_calls WHERE agent_id=$1`, agents[0])
 			case "mislabeled_fixed_agent":
 				exec(`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2 WHERE id=$1`, integrationID, agents[0])
 			case "fixed_agent":
@@ -458,7 +453,7 @@ tools:
 			}
 			switch scenario {
 			case "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota",
-				"custom_collision", "live_lease", "started_context", "unfinished_tool", "open_interaction",
+				"custom_collision", "live_lease",
 				"unsupported_setup", "fixed_agent", "mislabeled_fixed_agent", "multiple_targets":
 				err := applyProductionPostgresMigrations(ctx, db)
 				want := "requires maintenance"
@@ -553,6 +548,12 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_states WHERE kind='agent_conversation'`).Scan(&conversations))
 				require.Zero(t, conversations, "migration failure rolls back conversation assignments")
+				var subscriptions, owners int
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
+				require.NoError(t, db.QueryRowContext(ctx,
+					`SELECT count(*) FROM integration_targets WHERE launch_key IS NOT NULL`).Scan(&owners))
+				require.Zero(t, subscriptions)
+				require.Zero(t, owners)
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
@@ -626,7 +627,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NOT NULL`,
 						configID,
 					).Scan(
 						&count,
@@ -651,7 +652,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NOT NULL`,
 						configID,
 					).Scan(
 						&active,
@@ -678,7 +679,7 @@ tools:
 				exec(`CREATE FUNCTION reject_cutover_config_event() RETURNS trigger LANGUAGE plpgsql AS $$
 				 BEGIN
                  IF NEW.input_idempotency_key='slack_integration_cutover'
-                    AND EXISTS (SELECT 1 FROM integration_states WHERE kind='agent_conversation') THEN
+                    AND EXISTS (SELECT 1 FROM integration_subscriptions) THEN
                      RAISE EXCEPTION 'injected cutover failure';
                  END IF;
                  RETURN NEW;
@@ -695,24 +696,6 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_inputs`).Scan(&count))
 				require.Equal(t, len(agents)+1, count)
 				exec(`DROP TRIGGER reject_cutover ON agent_inputs; DROP FUNCTION reject_cutover_config_event()`)
-			}
-			if scenario == "continuable_retry" {
-				err := applyProductionPostgresMigrations(ctx, db)
-				require.ErrorContains(t, err, "still has continuable work")
-				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
-				var turnID uuid.UUID
-				require.NoError(
-					t,
-					db.QueryRowContext(ctx, `SELECT id FROM agent_turns WHERE agent_id=$1`, agents[0]).Scan(&turnID),
-				)
-				tx, err := db.BeginTx(ctx, nil)
-				require.NoError(t, err)
-				seedSlackCutoverSuccessfulRetry(t, func(query string, args ...any) {
-					t.Helper()
-					_, err := tx.ExecContext(ctx, query, args...)
-					require.NoError(t, err)
-				}, ids, agents[0], configID, revisionID, turnID, false)
-				require.NoError(t, tx.Commit())
 			}
 			if scenario == "pre_internal_ids" {
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
@@ -748,15 +731,13 @@ tools:
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
-				if scenario == "multiple_integrations" {
-					require.Equal(t, configID, snapshot.AgentConfig.ID,
-						"reuse identical rewritten config without a hidden destination")
-				} else {
-					require.NotEqual(t, configID, snapshot.AgentConfig.ID)
-				}
+				require.NotEqual(t, configID, snapshot.AgentConfig.ID)
 				expectedSequence := int64(2)
 				if i == 0 || i == 1 {
 					expectedSequence = 3
+				}
+				if i == 0 && scenario == "continuable_retry" {
+					expectedSequence = 2
 				}
 				if i == noTurnIndex {
 					expectedSequence = 1
@@ -767,7 +748,7 @@ tools:
 					snapshot.AgentConfig.EffectiveDefinitionHash,
 				)
 				require.NoError(t, err)
-				require.Empty(t, contract.InteractionHandlers)
+				require.Equal(t, integrationID, contract.InteractionHandlers["slack"].IntegrationID)
 				var raw agentconfig.Compiled
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
 				if scenario == "pre_internal_ids" {
@@ -806,6 +787,38 @@ tools:
 				}
 				require.Equal(t, wantConversation, conversation)
 				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, integrationID, wantConversation)
+				if scenario == "normal" || scenario == "dm" {
+					tx, err := pool.Begin(ctx)
+					require.NoError(t, err)
+					candidates, routeErr := conversations.IntegrationRoutingCandidatesTx(ctx, tx,
+						ids.ProjectID, integrationID, wantConversation, []integrationstore.ConversationAddress{wantConversation})
+					require.NoError(t, tx.Rollback(ctx))
+					require.NoError(t, routeErr)
+					require.NotNil(t, candidates.Launcher)
+					require.Len(t, candidates.LaunchOwners, 1)
+					require.Equal(t, agentID, candidates.LaunchOwners[0].AgentID)
+					require.Equal(t, integrationdefinition.ProfileLaunchKey, candidates.LaunchOwners[0].LaunchKey)
+					if i == archivedIndex {
+						require.Empty(t, candidates.Subscriptions)
+					} else {
+						require.Len(t, candidates.Subscriptions, 1)
+						require.Equal(t, agentID, candidates.Subscriptions[0].AgentID)
+					}
+					scope, err := integrationdefinition.ParseConversation(integrationdefinition.ProviderSlack,
+						wantConversation.Kind, wantConversation.Ref)
+					require.NoError(t, err)
+					event := integrationdefinition.Event{Scope: scope, Kind: "message", Mentioned: true}
+					definition, ok := integrationdefinition.Lookup(candidates.Launcher.IntegrationKind)
+					require.True(t, ok)
+					require.True(t, definition.MatchesLaunch(candidates.Launcher.Settings, event))
+					launcher := integration.NewChatIntegrationLauncher(conversations, execution, nil)
+					launches, err := launcher.Decide(ctx, integration.IntegrationLaunchContext{
+						Integration: *candidates.Launcher, Address: wantConversation, Candidates: candidates,
+						Event: integration.IntegrationEvent{Event: event, SemanticKey: "post-migration-mention"},
+					})
+					require.NoError(t, err)
+					require.Empty(t, launches, "mentioning an existing conversation must not launch a replacement agent")
+				}
 				wantIntegrations := 1
 				if scenario == "multiple_integrations" {
 					wantIntegrations = 2
@@ -878,10 +891,21 @@ tools:
 			require.Equal(t, wantAssignments, assignments, "only eligible live targets assign conversations")
 			require.NoError(t, db.QueryRowContext(ctx,
 				`SELECT count(*) FROM integration_targets WHERE launch_key IS NOT NULL`).Scan(&selections))
-			require.Zero(t, selections, "migrated conversations must not suppress new mention launches")
+			wantOwners := wantAssignments
+			if scenario == "channel" {
+				wantOwners = 0
+			}
+			require.Equal(t, wantOwners, selections, "existing threads and DMs keep their launch owner")
 			var subscriptions, pointers int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
-			require.Zero(t, subscriptions, "cutover preserves sending and history without creating receive routes")
+			wantSubscriptions := len(agents) - 1
+			if scenario == "multiple_integrations" {
+				wantSubscriptions *= 2
+			}
+			if scenario == "channel" {
+				wantSubscriptions = 0
+			}
+			require.Equal(t, wantSubscriptions, subscriptions, "active agents retain their thread and DM subscriptions")
 			require.NoError(
 				t,
 				db.QueryRowContext(
@@ -892,7 +916,7 @@ tools:
 						&pointers,
 					),
 			)
-			require.Zero(t, pointers)
+			require.Equal(t, len(agents), pointers)
 			var setup []byte
 			require.NoError(
 				t,
@@ -1058,12 +1082,7 @@ tools:
 				}
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
-				if scenario == "multiple_integrations" {
-					require.Equal(t, configID, snapshot.AgentConfig.ID,
-						"reuse identical rewritten config without a hidden destination")
-				} else {
-					require.NotEqual(t, configID, snapshot.AgentConfig.ID)
-				}
+				require.NotEqual(t, configID, snapshot.AgentConfig.ID)
 			}
 			if scenario == "normal" {
 				assertSlackCutoverInputGuards(t, db, ids.ProjectID, agents[noTurnIndex], agents[0], integrationID)
@@ -1137,7 +1156,6 @@ func seedSlackCutoverSuccessfulRetry(
 	exec func(string, ...any),
 	ids storagefixture.ProjectIDs,
 	agentID, configID, revisionID, turnID uuid.UUID,
-	withTool bool,
 ) {
 	t.Helper()
 	succeeded, outputID, eventID := uuid.New(), uuid.New(), uuid.New()
@@ -1154,14 +1172,6 @@ func seedSlackCutoverSuccessfulRetry(
 	)
 	exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,created_at)
 	 VALUES($1,'model_output',$2,1,'text','Historical Slack reply',now())`, agentID, outputID)
-	if withTool {
-		toolID := uuid.New()
-		exec(`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-            VALUES($1,$2,$3,'cutover-call','ask_question','{}','built_in','awaiting_authorization',now())`,
-			toolID, agentID, outputID)
-		exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,tool_call_id,created_at)
-            VALUES($1,'model_output',$2,0,'tool_call',$3,now())`, agentID, outputID, toolID)
-	}
 	exec(
 		`UPDATE model_call_contexts SET state='succeeded',api_format='openai',api_variant='responses',completed_at=now() WHERE id=$1`,
 		succeeded,

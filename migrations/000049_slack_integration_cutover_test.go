@@ -70,7 +70,7 @@ tools:
 	}
 }
 
-func TestSlackSendingSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T) {
+func TestSlackAgentSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T) {
 	integrationID, firstTarget, secondTarget := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	for _, policy := range []string{
 		`{}`, `{"send_integration_message":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}}}}`,
@@ -78,14 +78,14 @@ func TestSlackSendingSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T)
 	} {
 		t.Run(policy, func(t *testing.T) {
 			original := []byte(`{"instruction":"Review","tools":` + policy + `}`)
-			first, err := slackSendingSuccessor(
+			first, err := slackAgentSuccessor(
 				original,
 				[]slackCutoverTarget{
 					{id: firstTarget, integrationID: integrationID, integrationName: "slack", kind: "thread", ref: "C123:111.222"},
 				},
 			)
 			require.NoError(t, err)
-			second, err := slackSendingSuccessor(
+			second, err := slackAgentSuccessor(
 				original,
 				[]slackCutoverTarget{
 					{id: secondTarget, integrationID: integrationID, integrationName: "slack", kind: "dm", ref: "D456"},
@@ -98,7 +98,7 @@ func TestSlackSendingSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T)
 				contract, err := agentconfig.RuntimeContractFromCompiled(raw, hash)
 				require.NoError(t, err)
 				require.Len(t, contract.IntegrationTools, 1)
-				require.Empty(t, contract.InteractionHandlers)
+				require.Equal(t, integrationID, contract.InteractionHandlers["slack"].IntegrationID.String())
 				tool := contract.IntegrationTools["int__slack__post_message"]
 				require.Equal(t, "always_allow", tool.Permission.Mode)
 				require.Equal(t, integrationID, tool.IntegrationID.String())
@@ -115,6 +115,22 @@ func TestSlackSendingSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T)
 			require.Equal(t, `{"instruction":"Review","tools":`+policy+`}`, string(original))
 		})
 	}
+}
+
+func TestSlackAgentSuccessorPreservesDisabledInteractionSelection(t *testing.T) {
+	raw, err := slackAgentSuccessor([]byte(`{"tools":{
+        "set_integration_target":{"enabled":false},"list_interaction_handlers":{"enabled":false}}}`),
+		[]slackCutoverTarget{{
+			id: uuid.NewString(), integrationID: uuid.NewString(), integrationName: "slack",
+			kind: "thread", ref: "C123:111.222",
+		}})
+	require.NoError(t, err)
+	var config agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(raw, &config))
+	require.Contains(t, config.Tools, "set_interaction_handler")
+	require.Contains(t, config.Tools, "list_interaction_handlers")
+	require.False(t, config.Tools["set_interaction_handler"].Enabled)
+	require.False(t, config.Tools["list_interaction_handlers"].Enabled)
 }
 
 func TestSlackIntegrationMigrationRejectsUnmappablePolicies(t *testing.T) {
@@ -209,24 +225,25 @@ tools:
 	require.Contains(t, string(updated), "instruction: |-\n  Preserve this paragraph.\n\n  And this one.")
 }
 
-func TestSlackSendingSuccessorRejectsInvalidLegacyAddress(t *testing.T) {
+func TestSlackAgentSuccessorRejectsInvalidLegacyAddress(t *testing.T) {
 	for _, target := range []slackCutoverTarget{
 		{kind: "thread", ref: "C123:invalid"}, {kind: "thread", ref: "wrong:111.222"},
 		{kind: "channel", ref: "*"}, {kind: "dm", ref: ""},
+		{kind: "dm", ref: "C123"}, {kind: "thread", ref: "D123:111.222"}, {kind: "channel", ref: "D123"},
 	} {
 		target.id, target.integrationID, target.integrationName = uuid.NewString(), uuid.NewString(), "slack"
-		_, err := slackSendingSuccessor([]byte(`{"tools":{}}`), []slackCutoverTarget{target})
+		_, err := slackAgentSuccessor([]byte(`{"tools":{}}`), []slackCutoverTarget{target})
 		require.ErrorContains(t, err, "invalid Slack target")
 	}
 }
 
-func TestSlackSendingSuccessorRejectsSeveralTargetsForOneIntegration(t *testing.T) {
+func TestSlackAgentSuccessorRejectsSeveralTargetsForOneIntegration(t *testing.T) {
 	integrationID := uuid.NewString()
 	targets := []slackCutoverTarget{
 		{id: uuid.NewString(), integrationID: integrationID, integrationName: "slack", kind: "channel", ref: "C123"},
 		{id: uuid.NewString(), integrationID: integrationID, integrationName: "slack", kind: "channel", ref: "C456"},
 	}
-	_, err := slackSendingSuccessor([]byte(`{"tools":{}}`), targets)
+	_, err := slackAgentSuccessor([]byte(`{"tools":{}}`), targets)
 	require.ErrorContains(t, err, "belong to one Slack integration")
 	for _, target := range targets {
 		require.ErrorContains(t, err, target.id)

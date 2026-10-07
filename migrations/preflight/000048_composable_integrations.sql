@@ -15,38 +15,11 @@ BEGIN
 END;
 $preflight$;
 
-WITH raw_work AS (
-SELECT 'runtime_lock' AS blocker, id, agent_id
-FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp()
-UNION ALL
-SELECT 'started_model_context', id, agent_id
-FROM model_call_contexts WHERE state = 'started'
-UNION ALL
-SELECT 'unfinished_tool_call', id, agent_id
-FROM tool_calls WHERE state <> 'completed'
-UNION ALL
-SELECT 'open_interaction', id, agent_id
-FROM agent_interactions WHERE state = 'open'
-)
-SELECT raw_work.blocker, agent.org_id, agent.project_id, raw_work.id, raw_work.agent_id
-FROM raw_work
-JOIN agents agent ON agent.id = raw_work.agent_id
-ORDER BY raw_work.blocker, raw_work.agent_id, raw_work.id;
-
-SELECT agent.org_id, agent.project_id, agent.id AS agent_id, latest.id AS turn_id
-FROM agents agent
-JOIN LATERAL (
-    SELECT id FROM agent_turns WHERE agent_id = agent.id
-    ORDER BY turn_sequence DESC LIMIT 1
-) latest ON true
-WHERE EXISTS (
-        SELECT 1 FROM agent_continuable_model_contexts(agent.project_id, agent.id) context
-        WHERE context.turn_id = latest.id)
-   OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
-   OR EXISTS (
-        SELECT 1 FROM agent_next_model_work(agent.project_id, agent.id) frontier
-        WHERE frontier.turn_id = latest.id)
-ORDER BY agent.project_id, agent.id;
+SELECT agent.org_id, agent.project_id, runtime.agent_id, runtime.lease_expires_at
+FROM agent_runtime_locks runtime
+JOIN agents agent ON agent.id = runtime.agent_id
+WHERE runtime.lease_expires_at > statement_timestamp()
+ORDER BY runtime.lease_expires_at;
 
 SELECT config.project_id, config.id AS config_id, tool.key AS conflicting_tool
 FROM agent_configs config
@@ -106,9 +79,9 @@ JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.
 JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
 JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 WHERE target.deleted_at IS NULL AND NOT CASE target.provider_ref_kind
-    WHEN 'dm' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
-    WHEN 'channel' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
-    WHEN 'thread' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+:[0-9]+[.][0-9]+$'
+    WHEN 'dm' THEN target.provider_ref COLLATE "C" ~ '^D[A-Z0-9]+$'
+    WHEN 'channel' THEN target.provider_ref COLLATE "C" ~ '^[CG][A-Z0-9]+$'
+    WHEN 'thread' THEN target.provider_ref COLLATE "C" ~ '^[CG][A-Z0-9]+:[0-9]+[.][0-9]+$'
     ELSE false END
 ORDER BY target.project_id, target.agent_id, target.id;
 

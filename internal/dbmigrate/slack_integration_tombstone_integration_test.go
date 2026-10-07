@@ -169,7 +169,11 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			require.Equal(t, int64(49), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
-			require.Zero(t, subscriptions, "neither live nor deleted integration history grants receive routes at cutover")
+			if scenario.onlyDeleted {
+				require.Zero(t, subscriptions, "deleted integrations cannot receive")
+			} else {
+				require.Equal(t, 1, subscriptions, "the live integration keeps its receiving subscription")
+			}
 			var assignments int
 			require.NoError(t, db.QueryRowContext(ctx,
 				`SELECT count(*) FROM integration_states WHERE kind='agent_conversation'`).Scan(&assignments))
@@ -183,7 +187,11 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			var launchKey sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
 				`SELECT launch_key FROM integration_targets WHERE id=$1`, targetID).Scan(&launchKey))
-			require.False(t, launchKey.Valid)
+			if scenario.onlyDeleted {
+				require.False(t, launchKey.Valid)
+			} else {
+				require.Equal(t, sql.NullString{String: "default", Valid: true}, launchKey)
+			}
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
 					t,
@@ -251,7 +259,8 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			tool := testutil.RequireType[map[string]any](t, tools["int__slack__post_message"])
 			require.Equal(t, liveID.String(), tool["integration_id"])
 			require.NotContains(t, config["tools"], "int__slack-2__post_message")
-			require.NotContains(t, config, "interaction_handlers")
+			handlers := testutil.RequireType[map[string]any](t, config["interaction_handlers"])
+			require.Equal(t, map[string]any{"slack": map[string]any{"integration_id": liveID.String()}}, handlers)
 		})
 	}
 }

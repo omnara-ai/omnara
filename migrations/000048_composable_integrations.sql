@@ -1,28 +1,15 @@
 -- +goose Up
 
--- Goose commits each migration separately: reject unfinished work before SQL48
--- changes the schema needed by the old release to stop it. Go49 rechecks under lock.
+-- Old writers must be stopped before SQL48; Go49 rechecks leases under lock.
 -- Keep this legacy-policy preflight in sync with Go49's frozen translator.
 -- +goose StatementBegin
 DO $$
-DECLARE conflicting_config uuid; conflicting_tool text; unfinished_agent uuid;
+DECLARE conflicting_config uuid; conflicting_tool text;
         unsupported_install uuid; ambiguous_agent uuid; ambiguous_targets uuid[];
         policy_config uuid; policy_project uuid; invalid_target uuid; full_project uuid;
 BEGIN
-    IF EXISTS (SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp())
-       OR EXISTS (SELECT 1 FROM model_call_contexts WHERE state = 'started')
-       OR EXISTS (SELECT 1 FROM tool_calls WHERE state <> 'completed')
-       OR EXISTS (SELECT 1 FROM agent_interactions WHERE state = 'open') THEN
-        RAISE EXCEPTION 'integration cutover requires maintenance: stop outstanding work and interactions through the old release, then stop writers';
-    END IF;
-    SELECT agent.id INTO unfinished_agent FROM agents agent
-    JOIN LATERAL (SELECT id FROM agent_turns WHERE agent_id=agent.id ORDER BY turn_sequence DESC LIMIT 1) latest ON true
-    WHERE EXISTS (SELECT 1 FROM agent_continuable_model_contexts(agent.project_id,agent.id) context WHERE context.turn_id=latest.id)
-       OR agent_has_incomplete_tool_batch(agent.project_id,agent.id)
-       OR EXISTS (SELECT 1 FROM agent_next_model_work(agent.project_id,agent.id) frontier WHERE frontier.turn_id=latest.id)
-    LIMIT 1;
-    IF unfinished_agent IS NOT NULL THEN
-        RAISE EXCEPTION 'integration cutover: agent % still has continuable work; stop it through the old release', unfinished_agent;
+    IF EXISTS (SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp()) THEN
+        RAISE EXCEPTION 'integration cutover requires maintenance: stop writers and wait for active worker leases to expire';
     END IF;
     SELECT config.id, tool.key INTO conflicting_config, conflicting_tool
     FROM agent_configs config CROSS JOIN LATERAL jsonb_each(coalesce(nullif(config.compiled_definition->'tools','null'::jsonb),'{}'::jsonb)) tool
@@ -79,9 +66,9 @@ BEGIN
     JOIN projects project ON project.id=target.project_id AND project.deleted_at IS NULL
     JOIN orgs org ON org.id=project.org_id AND org.deleted_at IS NULL
     WHERE target.deleted_at IS NULL AND NOT CASE target.provider_ref_kind
-        WHEN 'dm' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
-        WHEN 'channel' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+$'
-        WHEN 'thread' THEN target.provider_ref COLLATE "C" ~ '^[CDG][A-Z0-9]+:[0-9]+[.][0-9]+$'
+        WHEN 'dm' THEN target.provider_ref COLLATE "C" ~ '^D[A-Z0-9]+$'
+        WHEN 'channel' THEN target.provider_ref COLLATE "C" ~ '^[CG][A-Z0-9]+$'
+        WHEN 'thread' THEN target.provider_ref COLLATE "C" ~ '^[CG][A-Z0-9]+:[0-9]+[.][0-9]+$'
         ELSE false END
     LIMIT 1;
     IF invalid_target IS NOT NULL THEN
@@ -397,12 +384,20 @@ WHERE orgs.deleted_at IS NULL;
 ALTER TABLE agents RENAME COLUMN integration_target_id TO interaction_target_id;
 ALTER TABLE agents RENAME CONSTRAINT agents_project_id_id_integration_target_id_fkey
     TO agents_project_id_id_interaction_target_id_fkey;
-UPDATE agents SET interaction_target_id = NULL WHERE interaction_target_id IS NOT NULL;
-
 ALTER TABLE agents
     ADD COLUMN interaction_handler_key text,
-    ADD COLUMN interaction_auto_select boolean NOT NULL DEFAULT true,
-    ADD CHECK (
+    ADD COLUMN interaction_auto_select boolean NOT NULL DEFAULT true;
+UPDATE agents agent
+SET interaction_target_id = CASE WHEN target.deleted_at IS NULL AND integration.deleted_at IS NULL
+        AND project.deleted_at IS NULL AND org.deleted_at IS NULL THEN target.id END,
+    interaction_handler_key = CASE WHEN target.deleted_at IS NULL AND integration.deleted_at IS NULL
+        AND project.deleted_at IS NULL AND org.deleted_at IS NULL THEN integration.name END
+FROM integration_targets target
+JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+JOIN projects project ON project.id = target.project_id
+JOIN orgs org ON org.id = project.org_id
+WHERE agent.project_id = target.project_id AND agent.interaction_target_id = target.id;
+ALTER TABLE agents ADD CHECK (
         (interaction_target_id IS NULL AND interaction_handler_key IS NULL)
         OR (interaction_target_id IS NOT NULL AND interaction_handler_key IS NOT NULL
             AND interaction_handler_key <> ''));

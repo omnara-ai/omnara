@@ -37,7 +37,7 @@ func upSlackIntegrationCutover(ctx context.Context, tx *sql.Tx) error {
 	if err := migrateSlackLauncherProfileIDs(ctx, tx); err != nil {
 		return err
 	}
-	return migrateSlackAgentTools(ctx, tx, integrations)
+	return migrateSlackAgents(ctx, tx, integrations)
 }
 
 type integrationCutoverConfig struct {
@@ -356,7 +356,7 @@ type slackCutoverTarget struct {
 var slackCutoverChannel = regexp.MustCompile(`^[CDG][A-Z0-9]+$`)
 var slackCutoverTimestamp = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
-func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, error) {
+func slackAgentSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
 		return nil, err
@@ -385,6 +385,16 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 	if _, err := rewriteSlackToolKeys(root, nil, true); err != nil {
 		return nil, err
 	}
+	handlers := map[string]any{}
+	root["interaction_handlers"] = handlers
+	for _, name := range []string{"list_interaction_handlers", "set_interaction_handler"} {
+		if _, exists := tools[name]; !exists {
+			tools[name] = map[string]any{
+				"enabled":    true,
+				"permission": map[string]any{"mode": "always_allow", "parameters": map[string]any{}},
+			}
+		}
+	}
 	seen := map[string]string{}
 	for _, target := range targets {
 		if previous, exists := seen[target.integrationID]; exists {
@@ -396,12 +406,14 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 		integration := slackCutoverIntegration{id: target.integrationID, name: target.integrationName}
 		switch target.kind {
 		case "dm", "channel":
-			if !slackCutoverChannel.MatchString(target.ref) {
+			if !slackCutoverChannel.MatchString(target.ref) ||
+				(target.kind == "dm") != strings.HasPrefix(target.ref, "D") {
 				return nil, fmt.Errorf("invalid Slack target %s address %q", target.id, target.ref)
 			}
 		case "thread":
 			channel, timestamp, found := strings.Cut(target.ref, ":")
-			if !found || !slackCutoverChannel.MatchString(channel) || !slackCutoverTimestamp.MatchString(timestamp) {
+			if !found || !slackCutoverChannel.MatchString(channel) || strings.HasPrefix(channel, "D") ||
+				!slackCutoverTimestamp.MatchString(timestamp) {
 				return nil, fmt.Errorf("invalid Slack target %s", target.id)
 			}
 		default:
@@ -410,6 +422,7 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 		sending := maps.Clone(tool)
 		sending["integration_id"] = integration.id
 		tools[integration.toolName()] = sending
+		handlers[target.integrationName] = map[string]any{"integration_id": target.integrationID}
 	}
 	return json.Marshal(root)
 }
@@ -424,7 +437,7 @@ func preflightSlackIntegrationCutover(ctx context.Context, tx *sql.Tx) error {
 	).Scan(&collisionConfig, &collisionTool)
 	if collisionErr == nil {
 		return fmt.Errorf(
-			"config %s custom tool %q conflicts with a new integration built-in; historical configs require repair before cutover; remain in maintenance and follow the cutover recovery runbook",
+			"config %s custom tool %q conflicts with a new integration built-in; historical configs require repair before cutover; remain in maintenance until repaired",
 			collisionConfig,
 			collisionTool,
 		)
@@ -432,42 +445,21 @@ func preflightSlackIntegrationCutover(ctx context.Context, tx *sql.Tx) error {
 	if !errors.Is(collisionErr, sql.ErrNoRows) {
 		return collisionErr
 	}
-	var unfinished bool
-	if err := tx.QueryRowContext(ctx, `SELECT
-		EXISTS (SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp())
-		OR EXISTS (SELECT 1 FROM model_call_contexts WHERE state='started')
-		OR EXISTS (SELECT 1 FROM tool_calls WHERE state <> 'completed')
-		OR EXISTS (SELECT 1 FROM agent_interactions WHERE state='open')`).Scan(&unfinished); err != nil {
+	var liveLease bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+        SELECT 1 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp()
+    )`).Scan(&liveLease); err != nil {
 		return err
 	}
-	if unfinished {
+	if liveLease {
 		return errors.New(
-			"slack integration cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 48)",
+			"integration cutover requires maintenance: stop writers and wait for active worker leases to expire",
 		)
-	}
-	// An idle worker can still have a continuation with no model call inserted yet.
-	var agentID string
-	err := tx.QueryRowContext(ctx, `SELECT agent.id::text FROM agents agent
-		JOIN LATERAL (SELECT id FROM agent_turns WHERE agent_id=agent.id ORDER BY turn_sequence DESC LIMIT 1) latest ON true
-		WHERE EXISTS (SELECT 1 FROM agent_continuable_model_contexts(agent.project_id,agent.id) context
-		              WHERE context.turn_id=latest.id)
-		   OR agent_has_incomplete_tool_batch(agent.project_id,agent.id)
-		   OR EXISTS (SELECT 1 FROM agent_next_model_work(agent.project_id,agent.id) frontier
-		              WHERE frontier.turn_id=latest.id)
-		LIMIT 1`).Scan(&agentID)
-	if err == nil {
-		return fmt.Errorf(
-			"slack integration cutover: agent %s still has continuable work; remain in maintenance and follow the cutover recovery runbook",
-			agentID,
-		)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
 	}
 	return nil
 }
 
-func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[string][]slackCutoverIntegration) error {
+func migrateSlackAgents(ctx context.Context, tx *sql.Tx, integrations map[string][]slackCutoverIntegration) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT agent.id::text, agent.current_config_id::text, config.compiled_definition::text,
 		       target.id::text, integration.id::text, integration.name, target.scope_kind, target.scope_ref
@@ -523,9 +515,8 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[st
 	if err := rewriteSlackIntegrationConfigs(ctx, tx, integrations); err != nil {
 		return err
 	}
-	// Leave launch_key NULL so new mentions can launch through the integration after cutover.
 	for _, agent := range agents {
-		compiled, err := slackSendingSuccessor(agent.compiled, agent.targets)
+		compiled, err := slackAgentSuccessor(agent.compiled, agent.targets)
 		if err != nil {
 			return fmt.Errorf("slack successor for agent %s: %w", agent.agentID, err)
 		}
@@ -577,12 +568,42 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[st
 			); err != nil {
 				return fmt.Errorf("assign Slack conversation from target %s: %w", target.id, err)
 			}
+			if target.kind == "channel" {
+				continue
+			}
+			if _, err := tx.ExecContext(
+				ctx, `UPDATE integration_targets SET launch_key='default' WHERE id=$1::uuid`, target.id,
+			); err != nil {
+				return fmt.Errorf("preserve Slack launch owner %s: %w", target.id, err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO integration_subscriptions(
+                project_id,agent_id,integration_id,scope_kind,scope_ref)
+                SELECT target.project_id,target.agent_id,target.integration_id,target.scope_kind,target.scope_ref
+                FROM integration_targets target JOIN agents agent
+                  ON agent.id=target.agent_id AND agent.project_id=target.project_id
+                WHERE target.id=$1::uuid AND agent.state='active'`, target.id); err != nil {
+				return fmt.Errorf("preserve Slack subscription %s: %w", target.id, err)
+			}
 		}
 	}
 	return nil
 }
 
 func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID string) error {
+	var currentTurn sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT turn.id::text
+        FROM agents agent JOIN agent_turns turn ON turn.agent_id=agent.id
+          AND turn.id=agent_latest_turn_id(agent.project_id,agent.id)
+        WHERE agent.id=$1::uuid AND (
+          EXISTS (SELECT 1 FROM agent_continuable_model_contexts(agent.project_id,agent.id) context
+                  WHERE context.turn_id=turn.id)
+          OR agent_has_incomplete_tool_batch(agent.project_id,agent.id)
+          OR EXISTS (SELECT 1 FROM agent_next_model_work(agent.project_id,agent.id) frontier
+                     WHERE frontier.turn_id=turn.id))`,
+		agentID).Scan(&currentTurn)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	var inputID, eventID, turnID string
 	if err := tx.QueryRowContext(ctx, `INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,
 		delivery_mode,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
@@ -599,18 +620,23 @@ func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID s
 	INSERT INTO agent_events(
         agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,is_opening_event,created_at
     )
-	SELECT $1::uuid,uuidv7(),sequence,'agent_input','agent_input:' || $2::text,$2::uuid,true,statement_timestamp()
-	FROM allocated RETURNING id::text,turn_id::text`, agentID, inputID).Scan(&eventID, &turnID); err != nil {
+	SELECT $1::uuid,coalesce($3::uuid,uuidv7()),sequence,'agent_input',
+        'agent_input:' || $2::text,$2::uuid,$4,statement_timestamp()
+	FROM allocated RETURNING id::text,turn_id::text`,
+		agentID, inputID, currentTurn, !currentTurn.Valid).Scan(&eventID, &turnID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO agent_turns(id,agent_id,turn_sequence,latest_event_id,latest_semantic_event_id)
-		SELECT $2::uuid,$1::uuid,coalesce(max(turn_sequence),0)+1,$3::uuid,$3::uuid FROM agent_turns WHERE agent_id=$1::uuid`,
-		agentID,
-		turnID,
-		eventID,
-	); err != nil {
+	if currentTurn.Valid {
+		_, err = tx.ExecContext(ctx, `UPDATE agent_turns SET latest_event_id=$3::uuid,latest_semantic_event_id=$3::uuid
+            WHERE agent_id=$1::uuid AND id=$2::uuid`, agentID, turnID, eventID)
+	} else {
+		_, err = tx.ExecContext(ctx, `INSERT INTO agent_turns(
+            id,agent_id,turn_sequence,latest_event_id,latest_semantic_event_id)
+            SELECT $2::uuid,$1::uuid,coalesce(max(turn_sequence),0)+1,$3::uuid,$3::uuid
+            FROM agent_turns WHERE agent_id=$1::uuid`,
+			agentID, turnID, eventID)
+	}
+	if err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_inputs SET state='resolved',admitted_event_id=$2::uuid,
@@ -620,7 +646,7 @@ func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID s
 	); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		`WITH activated AS (
             UPDATE agents SET current_config_id=$2::uuid,updated_at=statement_timestamp()
@@ -636,6 +662,22 @@ func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID s
 		configID,
 		eventID,
 	)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `WITH eligible AS MATERIALIZED (
+        SELECT id,agent_next_wakeup_ready_at(project_id,id) AS ready_at
+        FROM agents WHERE id=$1::uuid AND state<>'archived'
+    ), upserted AS (
+        INSERT INTO agent_wakeups(agent_id,ready_at,updated_at,metadata)
+        SELECT id,ready_at,statement_timestamp(),'{"reason":"slack_integration_cutover"}'::jsonb
+        FROM eligible WHERE ready_at IS NOT NULL
+        ON CONFLICT (agent_id) DO UPDATE SET ready_at=excluded.ready_at,
+            updated_at=greatest(agent_wakeups.updated_at,excluded.updated_at),
+            metadata=agent_wakeups.metadata||excluded.metadata
+        RETURNING agent_id
+    ) DELETE FROM agent_wakeups wake USING eligible
+      WHERE wake.agent_id=eligible.id AND eligible.ready_at IS NULL`, agentID)
 	return err
 }
 
