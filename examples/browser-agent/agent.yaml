@@ -159,7 +159,9 @@ machine_sources:
         # Save each LOGIN_<KEY>_* set in the vault as <key>, lowercase with dashes.
         for key in $(env | sed -n 's/^LOGIN_\([A-Z0-9_]*\)_URL=.*/\1/p'); do
           name=$(printf '%s' "$key" | tr 'A-Z_' 'a-z-')
-          eval "url=\$LOGIN_${key}_URL user=\$LOGIN_${key}_USERNAME pass=\$LOGIN_${key}_PASSWORD"
+          url=$(printenv "LOGIN_${key}_URL")
+          user=$(printenv "LOGIN_${key}_USERNAME")
+          pass=$(printenv "LOGIN_${key}_PASSWORD")
           agent-browser auth delete "$name" >/dev/null 2>&1 || true
           printf '%s' "$pass" | agent-browser auth save "$name" \
             --url "$url" --username "$user" --password-stdin
