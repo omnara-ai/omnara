@@ -3,14 +3,11 @@ import {
   useAgentProfiles,
   useClusterModelPricing,
   useConfiguredModels,
-  useCreateProjectModelGrant,
   useDeleteProjectModelGrant,
   useModelProviders,
   useProjectModelGrants,
 } from '@omnara/react'
 import {
-  type AgentProfileSummary,
-  ApiError,
   type ConfiguredModel,
   type ModelProviderConfig,
   type ProjectModelGrantListItem,
@@ -36,46 +33,40 @@ import {
 import { ModelProviderLogo } from '@/components/org/ModelProviderLogo'
 import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
+import {
+  countProfilesByModel,
+  groupByProvider,
+  profileModelKey,
+  type ProviderGroup,
+  sharedCountLabel,
+} from '@/components/projects/project-model-groups'
 import { AvailableModelRow, SharedModelRow } from '@/components/projects/ProjectModelRows'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAllPages } from '@/hooks/use-all-pages'
 import { createdResourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { useShareProjectModel } from '@/hooks/use-share-project-model'
 import { guides } from '@/lib/docs'
 import { formatCount } from '@/lib/format'
 import { clusterFirst } from '@/lib/management-kind'
 
-type PricingLookup = ReturnType<typeof useClusterModelPricing>
-
-/** Provider a group of shared models belongs to; `config` is absent when the viewer can't list it. */
-interface ProviderGroup {
-  id: string
-  name: string
-  config?: ModelProviderConfig
-  items: ProjectModelGrantListItem[]
-}
-
-function profileModelKey(providerConfig: string, name: string) {
-  return `${providerConfig}/${name}`
-}
+export type PricingLookup = ReturnType<typeof useClusterModelPricing>
 
 const previewLimit = 5
 
 /**
- * Shared models grouped into provider cards. With `providerId` it's that provider's page:
- * one card listing every model instead of a preview. Anyone who can read the project can
- * view them; sharing, editing and revoking grants requires project access management.
+ * Shared models grouped into provider cards, each previewing its models. Anyone who can read
+ * the project can view them; sharing, editing and revoking grants requires project access
+ * management.
  */
 export function ProjectModelsView({
   orgId,
   projectId,
-  providerId,
   canManageAccess,
 }: {
   orgId: string
   projectId: string
-  providerId?: string
   canManageAccess: boolean
 }) {
   const list = useResourceList<ProjectModelGrantListSort>('-created_at')
@@ -85,43 +76,21 @@ export function ProjectModelsView({
   const providers = useAllPages(useModelProviders(orgId))
   const profiles = useAllPages(useAgentProfiles(orgId, projectId))
   const pricing = useClusterModelPricing(orgId)
-  const createGrant = useCreateProjectModelGrant(orgId)
   const deleteGrant = useDeleteProjectModelGrant(orgId, projectId)
+  const { sharingId, share } = useShareProjectModel(orgId, projectId)
   const [showAvailable, setShowAvailable] = useState(false)
   const [editing, setEditing] = useState<ProjectModelGrantListItem | null>(null)
-  const [sharingId, setSharingId] = useState<string | null>(null)
 
   const profileCounts = countProfilesByModel(profiles.items)
   const listAvailable = canManageAccess && showAvailable && !list.isFiltering
-  const allGroups = groupByProvider(
-    grants.items,
-    providers.items,
-    providerId !== undefined || listAvailable,
-  )
-  const groups = allGroups.filter((group) => providerId === undefined || group.id === providerId)
+  const groups = groupByProvider(grants.items, providers.items, listAvailable)
   const isPending = grants.isPending || providers.isPending
-
-  async function share(modelId: string) {
-    setSharingId(modelId)
-    try {
-      await createGrant.mutateAsync({ projectID: projectId, configured_model_id: modelId })
-    } catch (error) {
-      window.alert(error instanceof ApiError ? error.message : 'Could not share model')
-    }
-    setSharingId(null)
-  }
-
-  const isOverview = providerId === undefined
 
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title={isOverview ? 'Shared models' : 'Models'}
-        description={
-          isOverview
-            ? 'Models agents in this project can use, grouped by provider'
-            : 'Models from this provider that agents in this project can use'
-        }
+        title="Shared models"
+        description="Models agents in this project can use, grouped by provider"
         guide={guides.modelProviders}
         toolbar={
           <ResourceListToolbar
@@ -165,7 +134,6 @@ export function ProjectModelsView({
                 orgId={orgId}
                 projectId={projectId}
                 group={group}
-                limit={isOverview ? previewLimit : undefined}
                 pricing={pricing}
                 showAvailable={listAvailable}
                 sharingId={sharingId}
@@ -202,17 +170,13 @@ export function ProjectModelsView({
   )
 }
 
-function countProfilesByModel(profiles: AgentProfileSummary[]) {
-  const counts = new Map<string, number>()
-  for (const profile of profiles) {
-    const { name, provider_config: providerConfig } = profile.current_config.model
-    const key = profileModelKey(providerConfig, name)
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-  }
-  return counts
-}
-
-function ShowAvailableToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+export function ShowAvailableToggle({
+  pressed,
+  onToggle,
+}: {
+  pressed: boolean
+  onToggle: () => void
+}) {
   return (
     <Button size="sm" variant="ghost" aria-pressed={pressed} onClick={onToggle}>
       {pressed ? 'Hide available' : 'Show available'}
@@ -245,40 +209,10 @@ function SharedModelsEmpty({
   )
 }
 
-function groupByProvider(
-  items: ProjectModelGrantListItem[],
-  providers: ModelProviderConfig[],
-  includeEmpty: boolean,
-): ProviderGroup[] {
-  const byProvider = new Map<string, ProjectModelGrantListItem[]>()
-  for (const item of items) {
-    const id = item.model.model_provider_config_id
-    byProvider.set(id, [...(byProvider.get(id) ?? []), item])
-  }
-  const known = clusterFirst(
-    [...providers].sort((left, right) => left.name.localeCompare(right.name)),
-  )
-  const groups: ProviderGroup[] = known
-    .filter((config) => includeEmpty || byProvider.has(config.id))
-    .map((config) => ({
-      id: config.id,
-      name: config.name,
-      config,
-      items: byProvider.get(config.id) ?? [],
-    }))
-  const knownIds = new Set(known.map((config) => config.id))
-  for (const [id, groupItems] of byProvider) {
-    if (knownIds.has(id) || !groupItems[0]) continue
-    groups.push({ id, name: groupItems[0].model.provider_config, items: groupItems })
-  }
-  return groups
-}
-
 function ProjectProviderCard({
   orgId,
   projectId,
   group,
-  limit,
   pricing,
   showAvailable,
   sharingId,
@@ -291,8 +225,6 @@ function ProjectProviderCard({
   orgId: string
   projectId: string
   group: ProviderGroup
-  /** Preview only this many rows, with a link to the provider's page for the rest. */
-  limit?: number
   pricing: PricingLookup
   showAvailable: boolean
   sharingId: string | null
@@ -306,9 +238,8 @@ function ProjectProviderCard({
   const orgModels = useAllPages(
     useConfiguredModels(orgId, group.id, { enabled: config !== undefined }),
   )
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const expansionId = useId()
-  const kind = config ? modelProviderKind(config) : 'custom'
   const orgTotal = config && !orgModels.isPending && !orgModels.isError ? orgModels.items.length : 0
   const sharedCount = formatCount(group.items.length)
   const expansion = {
@@ -320,7 +251,7 @@ function ProjectProviderCard({
         group={group}
         orgModels={orgModels.items}
         orgModelsPending={orgModels.isPending}
-        limit={limit}
+        limit={previewLimit}
         pricing={pricing}
         showAvailable={showAvailable}
         sharingId={sharingId}
@@ -338,33 +269,21 @@ function ProjectProviderCard({
 
   return (
     <AgentCard
-      icon={
-        <AgentCardGlyph>
-          <ManagedLogo managed={config?.management_kind === 'cluster'}>
-            <ModelProviderLogo provider={kind} />
-          </ManagedLogo>
-        </AgentCardGlyph>
+      icon={<ProjectProviderGlyph config={config} />}
+      title={
+        <>
+          <Link
+            to="/projects/$projectId/models/providers/$providerId"
+            params={{ projectId, providerId: group.id }}
+            className={agentCardLinkClass}
+          >
+            {group.name}
+          </Link>
+          {config?.management_kind === 'cluster' && <OmnaraManagedTag />}
+        </>
       }
-      title={<ProviderCardTitle projectId={projectId} group={group} linked={limit !== undefined} />}
-      subtitle={
-        config ? (
-          <>
-            <span className="shrink-0">{modelProviderLabel(kind)}</span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate font-mono">{config.base_url}</span>
-          </>
-        ) : (
-          <span className="truncate">Provider details aren&rsquo;t visible to you</span>
-        )
-      }
-      meta={
-        <Link
-          to="/models"
-          className="text-muted-foreground hover:text-foreground relative whitespace-nowrap text-xs hover:underline"
-        >
-          Manage in org
-        </Link>
-      }
+      subtitle={<ProjectProviderSubtitle config={config} />}
+      meta={<ManageInOrgLink />}
       stats={
         <AgentCardStatToggle
           icon={Box}
@@ -379,39 +298,39 @@ function ProjectProviderCard({
   )
 }
 
-function sharedCountLabel(orgTotal: number, sharedCount: number) {
-  if (orgTotal > 0) return 'shared'
-  return sharedCount === 1 ? 'model' : 'models'
+export function ProjectProviderGlyph({ config }: { config?: ModelProviderConfig }) {
+  return (
+    <AgentCardGlyph>
+      <ManagedLogo managed={config?.management_kind === 'cluster'}>
+        <ModelProviderLogo provider={config ? modelProviderKind(config) : 'custom'} />
+      </ManagedLogo>
+    </AgentCardGlyph>
+  )
 }
 
-function ProviderCardTitle({
-  projectId,
-  group,
-  linked,
-}: {
-  projectId: string
-  group: ProviderGroup
-  linked: boolean
-}) {
+export function ProjectProviderSubtitle({ config }: { config?: ModelProviderConfig }) {
+  if (!config) return <span className="truncate">Provider details aren&rsquo;t visible to you</span>
   return (
     <>
-      {linked ? (
-        <Link
-          to="/projects/$projectId/models/providers/$providerId"
-          params={{ projectId, providerId: group.id }}
-          className={agentCardLinkClass}
-        >
-          {group.name}
-        </Link>
-      ) : (
-        <h1 className="truncate font-medium">{group.name}</h1>
-      )}
-      {group.config?.management_kind === 'cluster' && <OmnaraManagedTag />}
+      <span className="shrink-0">{modelProviderLabel(modelProviderKind(config))}</span>
+      <span aria-hidden="true">·</span>
+      <span className="truncate font-mono">{config.base_url}</span>
     </>
   )
 }
 
-function ProviderModelRows({
+export function ManageInOrgLink() {
+  return (
+    <Link
+      to="/models"
+      className="text-muted-foreground hover:text-foreground relative whitespace-nowrap text-xs hover:underline"
+    >
+      Manage in org
+    </Link>
+  )
+}
+
+export function ProviderModelRows({
   projectId,
   group,
   orgModels,

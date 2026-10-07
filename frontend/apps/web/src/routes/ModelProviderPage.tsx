@@ -14,7 +14,7 @@ import {
   ProviderActions,
 } from '@/components/overview/ModelManagement'
 import { ProviderGlyph, ProviderSubtitle } from '@/components/overview/ModelProvidersSection'
-import { ProviderModelList } from '@/components/overview/ProviderModelList'
+import { AddModelButton, ProviderModelList } from '@/components/overview/ProviderModelList'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -116,7 +116,12 @@ function ProviderView({
         }
       />
       <section className="flex flex-col gap-3">
-        <SectionTitle title="Models" />
+        <div className="flex items-center justify-between gap-2">
+          <SectionTitle title="Models" />
+          {modelActions.onCreate && (
+            <AddModelButton providerId={provider.id} onCreate={modelActions.onCreate} />
+          )}
+        </div>
         <div className="rounded-xl border [&>div]:border-t-0">
           <ProviderModelList
             provider={provider}
@@ -125,7 +130,8 @@ function ProviderView({
             isError={isError}
             onRetry={refetch}
             pricing={pricing}
-            actions={modelActions}
+            // Add model sits above the list here, not inside it.
+            actions={{ ...modelActions, onCreate: undefined }}
           />
         </div>
       </section>

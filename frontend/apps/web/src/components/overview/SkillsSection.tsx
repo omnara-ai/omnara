@@ -1,11 +1,11 @@
 import { type SkillListSort, type SkillOwnerScope, useSkills } from '@omnara/react'
 import { type ReactNode, useState } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
+import { AgentCardList } from '@/components/agents/AgentCardList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
-import { SkillDetails } from '@/components/skills/SkillDetails'
+import { SkillCard } from '@/components/skills/SkillCard'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -101,49 +101,26 @@ function SkillsList({
           {actions}
           {createSkillButton()}
         </SearchHeader>
-        <DataTable
-          columns={[
-            {
-              id: 'name',
-              header: 'Name',
-              cell: (skill) => <span className="font-medium">{skill.name}</span>,
-            },
-            {
-              id: 'description',
-              header: 'Description',
-              cell: (skill) => (
-                <span className="text-muted-foreground line-clamp-1">{skill.description}</span>
-              ),
-            },
-            {
-              id: 'revision',
-              header: 'Revision',
-              className: 'w-24',
-              cell: (skill) => (
-                <span className="text-muted-foreground tabular-nums">v{skill.revision}</span>
-              ),
-            },
-            {
-              id: 'actions',
-              header: '',
-              className: 'w-14',
-              isActions: true,
-              cell: (skill) => (
+        <AgentCardList
+          items={paged.rows}
+          getId={(skill) => skill.id}
+          renderCard={(skill) => (
+            <SkillCard
+              orgId={activeOrg.id}
+              skill={skill}
+              projectId={owner.kind === 'project' ? owner.project_id : undefined}
+              actions={
                 <SkillRowActions
                   orgId={activeOrg.id}
                   skill={skill}
                   canDelete={canManage}
-                  canUpdate={canManage}
                   canGrant={canManage && owner.kind !== 'project'}
                 />
-              ),
-            },
-          ]}
-          data={paged.rows}
-          isFiltered={list.isFiltering}
+              }
+            />
+          )}
           pagination={paged.pagination}
-          getRowId={(skill) => skill.id}
-          rowExpanded={(skill) => <SkillDetails orgId={activeOrg.id} skill={skill} />}
+          isFiltered={list.isFiltering}
           isPending={query.isPending}
           isError={query.isError}
           onRetry={() => {

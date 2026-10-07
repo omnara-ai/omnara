@@ -23,7 +23,7 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
-import { ProjectSkillGrantsTable } from '@/components/projects/ProjectSkillGrantsTable'
+import { ProjectSharedSkills } from '@/components/projects/ProjectSharedSkills'
 import { ActiveOrgContext } from '@/lib/active-org-context'
 import { ProjectMachinesPage } from '@/routes/ProjectMachinesPage'
 import { ProjectModelsPage } from '@/routes/ProjectModelsPage'
@@ -338,7 +338,7 @@ it.each([
       access: readerAccess,
       role: 'member',
       content: (
-        <ProjectSkillGrantsTable
+        <ProjectSharedSkills
           orgId={orgId}
           projectId={projectId}
           projectName="Shared project"

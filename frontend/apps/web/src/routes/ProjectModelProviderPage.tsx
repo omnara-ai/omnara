@@ -1,7 +1,7 @@
 import { useModelProviders } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
 
-import { ProjectModelsView } from '@/components/projects/ProjectModelsView'
+import { ProjectModelProviderView } from '@/components/projects/ProjectModelProviderView'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { useAllPages } from '@/hooks/use-all-pages'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -21,7 +21,7 @@ export function ProjectModelProviderPage() {
     >
       {({ project }) =>
         project?.access.can_read ? (
-          <ProjectModelsView
+          <ProjectModelProviderView
             orgId={activeOrg.id}
             projectId={projectId}
             providerId={providerId}
