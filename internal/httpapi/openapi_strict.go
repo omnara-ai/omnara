@@ -8,7 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const openAPIBasePath = "/api/v1"

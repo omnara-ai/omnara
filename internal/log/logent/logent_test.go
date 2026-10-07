@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestLogEntitiesAttachCanonicalFields(t *testing.T) {

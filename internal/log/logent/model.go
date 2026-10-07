@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func ModelCatalogProbeFailed(ctx context.Context, modelProviderConfigID uuid.UUID, message string) {

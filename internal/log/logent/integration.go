@@ -3,8 +3,8 @@ package logent
 import (
 	"context"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func Integration(ctx context.Context, install integrationstore.IntegrationRecord) {

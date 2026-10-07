@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/maintenance"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 	"github.com/stretchr/testify/require"
 )
 

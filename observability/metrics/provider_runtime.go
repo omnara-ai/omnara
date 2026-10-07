@@ -54,19 +54,19 @@ type ProviderRuntimeRecorder struct {
 func NewProviderRuntimeRecorder(set *Set) *ProviderRuntimeRecorder {
 	m := &ProviderRuntimeRecorder{
 		passesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemProviderRuntime,
 			Name:      "reconciliation_passes_total",
 			Help:      "Total provider runtime reconciliation passes.",
 		}, []string{"operation", "result"}),
 		eventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemProviderRuntime,
 			Name:      "reconciliation_events_total",
 			Help:      "Total provider runtime reconciliation events.",
 		}, []string{"operation", "event"}),
 		passDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemProviderRuntime,
 			Name:      "reconciliation_pass_duration_seconds",
 			Help:      "Provider runtime reconciliation pass duration in seconds.",

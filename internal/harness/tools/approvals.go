@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (e Executor) PrepareToolCallPermission(

@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"context"
@@ -32,6 +32,12 @@ func WithEvent(ctx context.Context, event *Event) context.Context {
 	return context.WithValue(ctx, eventContextKey{}, event)
 }
 
+// Start creates an event and returns a context carrying it.
+func Start(ctx context.Context, name string, fieldSets ...Fields) (context.Context, *Event) {
+	event := NewEvent(ctx, name, fieldSets...)
+	return WithEvent(ctx, event), event
+}
+
 func FromContext(ctx context.Context) (*Event, bool) {
 	event, ok := ctx.Value(eventContextKey{}).(*Event)
 	return event, ok && event != nil
@@ -52,5 +58,11 @@ func Error(ctx context.Context, err error) {
 func Level(ctx context.Context, level EventLevel) {
 	if event, ok := FromContext(ctx); ok {
 		event.Level(level)
+	}
+}
+
+func Escalate(ctx context.Context, level EventLevel) {
+	if event, ok := FromContext(ctx); ok {
+		event.Escalate(level)
 	}
 }

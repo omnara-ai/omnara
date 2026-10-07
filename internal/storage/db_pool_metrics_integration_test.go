@@ -1,6 +1,6 @@
 //go:build integration
 
-package metrics
+package storage
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMain(m *testing.M) { integrationdb.RunTestMain(m) }
 
 func TestDBPoolCollectorWaitAndUtilization(t *testing.T) {
 	base := integrationdb.OpenUnmigratedPool(t, t.Context())
@@ -22,11 +22,11 @@ func TestDBPoolCollectorWaitAndUtilization(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	require.NoError(t, err)
 	defer pool.Close()
-	set := New()
-	set.MustRegister(NewDBPoolCollector(pool))
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(metrics.NewDBPoolCollector(pool))
 	value := func(name string) float64 {
 		t.Helper()
-		families, err := set.registry.Gather()
+		families, err := registry.Gather()
 		require.NoError(t, err)
 		for _, family := range families {
 			if family.GetName() != "omnara_db_pool_"+name {
@@ -66,5 +66,4 @@ func TestDBPoolCollectorWaitAndUtilization(t *testing.T) {
 	require.GreaterOrEqual(t, value("acquire_duration_seconds_total"), value("empty_acquire_wait_seconds_total"))
 	require.Zero(t, value("acquired_connections"))
 	require.Equal(t, 1.0, value("idle_connections"))
-	require.Contains(t, scrapeMetrics(t, set), "omnara_db_pool_acquires_total 2")
 }

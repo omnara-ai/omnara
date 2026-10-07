@@ -1,4 +1,4 @@
-package log
+package wideevent
 
 import (
 	"context"
@@ -25,7 +25,10 @@ type Event struct {
 	level      EventLevel
 	beforeDone []func(Finalizer)
 	dbQueries  []DBQueryTraceRecord
+	dbStats    traceStats
+	dbRows     int64
 	httpReqs   []HTTPRequestTraceRecord
+	httpStats  traceStats
 
 	requestCanceled func() bool
 }
@@ -46,6 +49,10 @@ func (f Finalizer) Attach(fieldSets ...Fields) {
 
 func (f Finalizer) Level(level EventLevel) {
 	f.e.pinLevel(level)
+}
+
+func (f Finalizer) Escalate(level EventLevel) {
+	f.e.raiseLevel(level)
 }
 
 func (f Finalizer) Error(err error) {
@@ -126,6 +133,29 @@ func (e *Event) Level(level EventLevel) {
 	e.pinLevel(level)
 }
 
+// Escalate raises the event level, overriding a lower pinned level. Use it
+// for failures that must stay visible even after an earlier Level call
+// quieted the event.
+func (e *Event) Escalate(level EventLevel) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.done {
+		return
+	}
+	e.raiseLevel(level)
+}
+
+func (e *Event) raiseLevel(level EventLevel) {
+	if e.levelSet && e.level >= level {
+		return
+	}
+	e.level = level
+	e.levelSet = true
+}
+
 func (e *Event) pinLevel(level EventLevel) {
 	if e.levelSet {
 		return
@@ -172,7 +202,6 @@ func (e *Event) Done(ctx context.Context) {
 	for _, fn := range callbacks {
 		fn(Finalizer{e: e})
 	}
-	e.flushTraceFields()
 
 	level := InfoLevel
 	switch {
@@ -181,6 +210,10 @@ func (e *Event) Done(ctx context.Context) {
 	case e.err != nil:
 		level = ErrorLevel
 	}
+	if !e.log.Enabled(ctx, level) {
+		return
+	}
+	e.flushTraceFields()
 	attrs := append([]slog.Attr(nil), e.attrs...)
 	attrs = append(attrs, slog.Duration("event.duration", time.Since(e.started)))
 	if e.err != nil {

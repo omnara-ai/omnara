@@ -18,6 +18,7 @@ COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/ngi
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS go-base
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY observability/go.mod observability/go.sum ./observability/
 RUN go mod download && mkdir -p /out/memory
 COPY . .
 
@@ -43,6 +44,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/o
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS mcp-registry-snapshot
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY observability/go.mod observability/go.sum ./observability/
 COPY internal/mcpregistry internal/mcpregistry
 COPY tools/mcp-registry-sync tools/mcp-registry-sync
 RUN go run ./tools/mcp-registry-sync -out /out/mcp-registry.json

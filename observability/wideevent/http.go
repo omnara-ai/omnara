@@ -1,11 +1,9 @@
-package log
+package wideevent
 
 import (
 	"context"
 	"errors"
 	"net/http"
-
-	"github.com/omnara-ai/omnara/internal/errutil"
 )
 
 const statusClientClosedRequest = 499
@@ -32,12 +30,21 @@ func HTTPRequest(
 				fields["http.request.deadline"] = deadline.UTC()
 			}
 			f.Attach(fields)
-			if errutil.OnlyMatches(f.e.err, context.Canceled) {
+			if OnlyCanceled(f.e.err) {
 				status = statusClientClosedRequest
 				f.e.err = nil
 				f.e.level = InfoLevel
 				f.e.levelSet = true
 			}
+		}
+		if rec.aborted {
+			// The client received a truncated response whatever status was
+			// already written, so telemetry reports a server failure.
+			f.Attach(Fields{
+				"http.response_aborted":    true,
+				"http.written_status_code": rec.StatusCode(),
+			})
+			status = http.StatusInternalServerError
 		}
 		rec.telemetryStatus = status
 		f.Attach(Fields{
@@ -46,7 +53,7 @@ func HTTPRequest(
 		})
 		switch {
 		case status >= http.StatusInternalServerError:
-			f.Level(ErrorLevel)
+			f.Escalate(ErrorLevel)
 		case status >= http.StatusBadRequest:
 			f.Level(WarnLevel)
 		}
@@ -60,6 +67,7 @@ type ResponseRecorder struct {
 	status          int
 	telemetryStatus int
 	bytes           int64
+	aborted         bool
 }
 
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
@@ -95,6 +103,10 @@ func (r *ResponseRecorder) Flush() {
 
 func (r *ResponseRecorder) Started() bool { return r.status != 0 }
 
+// Abort records that the handler abandoned the response, so the event and
+// metrics report a server error instead of the status already written.
+func (r *ResponseRecorder) Abort() { r.aborted = true }
+
 func (r *ResponseRecorder) StatusCode() int {
 	if r.status == 0 {
 		return http.StatusOK
@@ -110,3 +122,31 @@ func (r *ResponseRecorder) TelemetryStatusCode() int {
 }
 
 func (r *ResponseRecorder) BytesWritten() int64 { return r.bytes }
+
+// OnlyCanceled reports whether err is nothing but context cancellation, so
+// shutdown can be told apart from a failure that happened to race it.
+func OnlyCanceled(err error) bool { return onlyMatches(err, context.Canceled) }
+
+// onlyMatches reports whether every leaf of err's wrap tree matches target, so
+// a cancellation joined with an unrelated failure still reports the failure.
+func onlyMatches(err, target error) bool {
+	if err == nil || target == nil {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		for _, cause := range causes {
+			if !onlyMatches(cause, target) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return onlyMatches(wrapped.Unwrap(), target)
+	}
+	return errors.Is(err, target)
+}

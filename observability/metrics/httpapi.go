@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -33,20 +34,20 @@ type HTTPRecorder struct {
 func NewHTTPRecorder(set *Set, subsystem string) *HTTPRecorder {
 	m := &HTTPRecorder{
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "requests_total",
 			Help:      "Total number of HTTP requests.",
 		}, []string{"method", "route", "code"}),
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "request_duration_seconds",
 			Help:      "HTTP request duration in seconds.",
 			Buckets:   prometheus.DefBuckets,
 		}, []string{"method", "route", "code"}),
 		inFlight: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: subsystem,
 			Name:      "requests_in_flight",
 			Help:      "Current number of HTTP requests being served.",
@@ -90,6 +91,40 @@ func (m *HTTPRecorder) Middleware(mux *http.ServeMux) func(http.Handler) http.Ha
 			ctx = context.WithValue(ctx, statusContextKey{}, requestStatus)
 			instrumented.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// Start counts a request in flight and returns the function that records it
+// once the matched route pattern and final status are known. It is the
+// alternative to Middleware for servers that already wrap the response writer
+// and read the route from the routed request's Pattern.
+func (m *HTTPRecorder) Start() func(method, pattern string, status int) {
+	if m == nil {
+		return func(string, string, int) {}
+	}
+	started := time.Now()
+	m.inFlight.Inc()
+	return func(method, pattern string, status int) {
+		m.inFlight.Dec()
+		route := "unmatched"
+		if pattern != "" {
+			route = routePathPattern(pattern)
+		}
+		labels := []string{httpMethodLabel(method), route, strconv.Itoa(status)}
+		m.requestsTotal.WithLabelValues(labels...).Inc()
+		m.requestDuration.WithLabelValues(labels...).Observe(time.Since(started).Seconds())
+	}
+}
+
+// httpMethodLabel matches promhttp's method label so Start and Middleware
+// report the same series.
+func httpMethodLabel(method string) string {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodPut, http.MethodHead, http.MethodPost, http.MethodDelete,
+		http.MethodConnect, http.MethodOptions, "NOTIFY", http.MethodTrace, http.MethodPatch:
+		return strings.ToLower(method)
+	default:
+		return "unknown"
 	}
 }
 

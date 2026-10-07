@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestHTTPClientResultClassification(t *testing.T) {

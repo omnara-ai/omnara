@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func MaintenanceLoop(

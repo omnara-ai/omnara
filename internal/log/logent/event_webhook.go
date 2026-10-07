@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func EventWebhookDelivery(

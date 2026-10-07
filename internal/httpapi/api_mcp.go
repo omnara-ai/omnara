@@ -9,9 +9,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (s *Server) newAPIMCPServer() (*mcp.Server, error) {

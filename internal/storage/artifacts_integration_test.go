@@ -14,13 +14,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type recordingBlobStore struct {

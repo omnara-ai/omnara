@@ -19,10 +19,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -454,11 +454,11 @@ func TestIntegrationInboxWorkerProvisionsPartialSuccessAndDoesNotRewriteLostLeas
 	consumer := integrationWorkerConsumerFunc(
 		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			return []IntegrationRecipientAdmission{
-				{Launch: &executionstore.LaunchAgentResult{ProvisionMachineIDs: []uuid.UUID{machine}}},
-			}, errors.Join(
-				integrationstore.ErrIntegrationInboxLeaseLost,
-				errors.New("another recipient failed"),
-			)
+					{Launch: &executionstore.LaunchAgentResult{ProvisionMachineIDs: []uuid.UUID{machine}}},
+				}, errors.Join(
+					integrationstore.ErrIntegrationInboxLeaseLost,
+					errors.New("another recipient failed"),
+				)
 		},
 	)
 	provisioner := &integrationWorkerTestProvisioner{}

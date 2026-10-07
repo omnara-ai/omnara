@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (

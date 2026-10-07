@@ -13,8 +13,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 // BackgroundRunner runs bounded work outside agent runtime ownership.

@@ -11,7 +11,7 @@ type DaemonRecorder struct {
 func NewDaemonRecorder(set *Set) *DaemonRecorder {
 	m := &DaemonRecorder{
 		socketEventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "omnara",
+			Namespace: set.namespace,
 			Subsystem: SubsystemDaemon,
 			Name:      "socket_events_total",
 			Help:      "Total number of daemon websocket transport events.",

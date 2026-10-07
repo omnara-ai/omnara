@@ -15,8 +15,8 @@ import (
 	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	mlog "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	mlog "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (

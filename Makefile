@@ -25,7 +25,7 @@ MIGRATION_DIRS := migrations internal/machinedaemon/statedb/migrations
 SQLC_OWNED_PATHS := internal/storage/internal/dbsqlc internal/storage/queries \
 	internal/machinedaemon/statedb/internal/dbsqlc internal/machinedaemon/statedb/queries
 OMNARALINT_SOURCES := $(shell find tools/omnaralint -name '*.go' -print)
-GO_MODULE_DIRS := . tools/ci tools/goose tools/omnaralint
+GO_MODULE_DIRS := . observability tools/ci tools/goose tools/omnaralint
 INTEGRATION_STORAGE_PACKAGES := \
 	./internal/storage \
 	./internal/storage/executionstore \
@@ -44,7 +44,6 @@ INTEGRATION_RUNTIME_PACKAGES := \
 	./internal/harness/worker \
 	./internal/dbmigrate \
 	./internal/machinepool \
-	./internal/metrics \
 	./internal/modelprovider \
 	./internal/notifications \
 	./internal/redistore
