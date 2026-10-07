@@ -94,42 +94,17 @@ has done and what's next, so it can pick up after a context compaction
 without repeating actions that change data. Downloads land in
 `/workspace/output`, and it delivers files from there.
 
-## When to use a cloud browser instead
+## If a site blocks the agent
 
-The local browser is free and keeps everything on the agent's machine, but it
-runs from a datacenter IP with no live view. Switch to a hosted browser such
-as [Kernel](https://www.kernel.sh) or
-[Browserbase](https://www.browserbase.com) when:
-
-- the site blocks or CAPTCHAs datacenter traffic, and you need stealth mode
-  or residential proxies
-- someone needs to watch the browser live or take over for a sign-in step
-- the signed-in session should outlive the machine, in a profile the
-  provider stores
-
-agent-browser speaks to both, so the instruction, commands, and sign-ins stay
-the same. For Kernel, in `machine_sources[0]`, delete `AGENT_BROWSER_PROFILE`
-(the cloud browser keeps its own profile), keep the other lines, and add:
-
-```yaml
-env_overlay:
-  AGENT_BROWSER_PROVIDER: kernel
-  KERNEL_STEALTH: "true"
-  KERNEL_PROFILE_NAME: browser-agent-acme
-  KERNEL_PROFILE_SAVE_CHANGES: "true"
-  KERNEL_TIMEOUT_SECONDS: "3600"    # inactivity timeout; longer than any pause in the task
-secret_env_overlay:
-  KERNEL_API_KEY: sec_…             # a generic secret with your Kernel API key
-```
-
-Also drop the instruction's paragraph about `/workspace/browser-profile`, and
-note that downloads then happen in the cloud browser rather than in
-`/workspace/output`; see the provider's docs for fetching them.
-Kernel's [Managed Auth](https://www.kernel.sh/docs/auth/overview) can go
-further: it stores the credentials itself, keeps the profile signed in, and
-re-authenticates on its own, so the password never reaches the Omnara machine
-at all. Browserbase works the same way with `AGENT_BROWSER_PROVIDER:
-browserbase` and `BROWSERBASE_API_KEY`; its sessions last at most six hours.
+The browser runs on the agent's machine, from a datacenter IP, with no live
+view. Most sites are fine with that. If one blocks it or keeps showing
+CAPTCHAs, if someone needs to watch the browser live, or if a sign-in needs a
+step the agent can't do, such as SSO with a phone prompt, switch to a hosted
+browser such as [Kernel](https://www.kernel.sh) or
+[Browserbase](https://www.browserbase.com). agent-browser supports both
+through `AGENT_BROWSER_PROVIDER`, so the instruction and commands stay the
+same: follow the provider's setup, store its API key as an Omnara secret, and
+remove `AGENT_BROWSER_PROFILE`, since the provider keeps the profile.
 
 Why not a browser MCP server? Omnara calls MCP servers from its control
 plane, so signing in through one means the model types the password as a

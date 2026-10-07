@@ -80,7 +80,8 @@ answers in a few lines and get a yes. Explain these where they apply:
   authenticator app.
 - **SSO:** store the identity provider's sign-in page and credentials. If it
   needs a device prompt or passkey, the agent can't do it alone; suggest
-  Kernel's Managed Auth from `README.md`.
+  a hosted browser, as described in `README.md` under "If a site blocks the
+  agent".
 - **Two accounts on one site:** works, but the agent signs out to switch, so
   it can't use both at once.
 - **No sign-ins:** fine; step 4 is skipped.
@@ -240,7 +241,7 @@ Chrome. With no sign-ins, ask it to open a site from the job instead.
 If a sign-in fails, read the agent's messages before changing anything. The
 usual causes are a sign-in URL that redirects elsewhere (store the URL the
 form actually lives on) or a site that blocks headless browsers from
-datacenter IPs (switch to a cloud browser; see `README.md`).
+datacenter IPs (see "If a site blocks the agent" in `README.md`).
 
 Keep this agent if the user wants a schedule without Slack; step 9 uses it.
 Otherwise archive it in the console once every sign-in works.
