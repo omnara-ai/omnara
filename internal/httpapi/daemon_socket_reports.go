@@ -9,7 +9,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -265,20 +264,13 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 	}
 	if processOffer.PreparationError == "" {
 		processOffer = &daemonprotocol.ProcessOffer{
+			ExecutionSpec:  offer.Process.ExecutionSpec,
 			ProcessID:      processID,
 			Cwd:            offer.Process.Cwd,
 			Env:            offer.Env,
 			GitCredentials: offer.GitCredentials,
 			WaitMs:         offer.Process.InitialWaitMS,
 			TimeoutSeconds: offer.Process.TimeoutSeconds,
-		}
-		spec := &offer.Process.ExecutionSpec
-		if spec.Kind == processcmd.KindShell && spec.Shell != nil && spec.FileTransfer == nil {
-			processOffer.Command = spec.Shell.Command
-			processOffer.ShellSelector = spec.Shell.Shell
-			processOffer.IOMode = spec.Shell.IOMode
-		} else {
-			processOffer.ExecutionSpec = spec
 		}
 	}
 	message := daemonprotocol.Message{

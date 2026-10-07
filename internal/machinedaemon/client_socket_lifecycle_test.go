@@ -187,13 +187,12 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 		gitCredentials           bool
 	}{
 		{
-			name: "legacy shell", payload: `{"command":"echo legacy",` +
-				`"shell_selector":"sh","io_mode":"pty","git_credentials":true}`,
-			want: processcmd.ForShell("echo legacy", processcmd.ShellSH, processcmd.IOModePTY), gitCredentials: true,
+			name: "legacy shell", payload: `{"command":"echo legacy","shell_selector":"sh","io_mode":"pty"}`,
+			wantError: "invalid execution kind",
 		},
 		{
-			name: "legacy defaults", payload: `{"command":"echo legacy"}`,
-			want: processcmd.ForShell("echo legacy", processcmd.ShellDefault, processcmd.IOModePipe),
+			name: "null spec", payload: `{"execution_spec":null}`,
+			wantError: "invalid execution kind",
 		},
 		{
 			name: "shell spec", payload: `{"execution_spec":{"kind":"shell","shell":` +
@@ -210,12 +209,12 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 			gitCredentials: true,
 		},
 		{
-			name: "empty spec cannot fall back", payload: `{"execution_spec":{},"command":"echo fallback"}`,
+			name: "empty spec", payload: `{"execution_spec":{}}`,
 			wantError: "invalid execution kind",
 		},
 		{
-			name: "invalid transfer cannot fall back", payload: `{"command":"echo fallback",` +
-				`"execution_spec":{"kind":"file_transfer","file_transfer":{"direction":"invalid"}}}`,
+			name: "invalid transfer", payload: `{"execution_spec":` +
+				`{"kind":"file_transfer","file_transfer":{"direction":"invalid"}}}`,
 			wantError: "invalid file transfer direction",
 		},
 	} {
@@ -399,9 +398,7 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 	defer transport.stopAndWait(func() {})
 
 	transport.offerProcess(ctx, daemonprotocol.ProcessOffer{
-		Command:        "echo should-not-run",
-		ShellSelector:  processcmd.ShellDefault,
-		IOMode:         invalidMode,
+		ExecutionSpec:  processcmd.ForShell("echo should-not-run", processcmd.ShellDefault, invalidMode),
 		ProcessID:      processID,
 		Cwd:            t.TempDir(),
 		TimeoutSeconds: 1,
@@ -523,9 +520,7 @@ func TestTransientPreparationFailureCleansLocalStateWithoutAcceptance(
 	transport.offerProcess(
 		ctx,
 		daemonprotocol.ProcessOffer{
-			Command:        "echo should-not-run",
-			ShellSelector:  processcmd.ShellDefault,
-			IOMode:         processcmd.IOModePipe,
+			ExecutionSpec:  processcmd.ForShell("echo should-not-run", processcmd.ShellDefault, processcmd.IOModePipe),
 			ProcessID:      processID,
 			Cwd:            t.TempDir(),
 			TimeoutSeconds: 1,

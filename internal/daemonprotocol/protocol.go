@@ -357,17 +357,14 @@ type GitCredentials struct {
 }
 
 type ProcessOffer struct {
-	GitCredentials   bool                      `json:"git_credentials,omitempty"`
-	ExecutionSpec    *processcmd.ExecutionSpec `json:"execution_spec,omitempty"`
-	Command          string                    `json:"command,omitempty"`
-	ShellSelector    processcmd.ShellSelector  `json:"shell_selector,omitempty"`
-	IOMode           processcmd.IOMode         `json:"io_mode,omitempty"`
-	ProcessID        string                    `json:"process_id"`
-	PreparationError string                    `json:"preparation_error,omitempty"`
-	Cwd              string                    `json:"cwd"`
-	Env              map[string]string         `json:"env,omitempty"`
-	WaitMs           int                       `json:"wait_ms,omitempty"`
-	TimeoutSeconds   int                       `json:"timeout_seconds"`
+	GitCredentials   bool                     `json:"git_credentials,omitempty"`
+	ExecutionSpec    processcmd.ExecutionSpec `json:"execution_spec,omitzero"`
+	ProcessID        string                   `json:"process_id"`
+	PreparationError string                   `json:"preparation_error,omitempty"`
+	Cwd              string                   `json:"cwd"`
+	Env              map[string]string        `json:"env,omitempty"`
+	WaitMs           int                      `json:"wait_ms,omitempty"`
+	TimeoutSeconds   int                      `json:"timeout_seconds"`
 }
 
 type FileTransferResult struct {

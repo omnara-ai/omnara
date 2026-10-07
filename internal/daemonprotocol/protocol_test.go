@@ -20,7 +20,7 @@ func TestFileTransferOffer(t *testing.T) {
 		Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
 	})
 	offer := ProcessOffer{
-		ExecutionSpec: &spec,
+		ExecutionSpec: spec,
 		ProcessID:     "prc_transfer",
 	}
 	body, err := json.Marshal(Message{Type: MessageProcessOffer, ProcessOffer: &offer})
@@ -274,7 +274,7 @@ func TestMessageEnvelopeRoundTripsEveryMessageType(t *testing.T) {
 			Type:      "process_offer",
 			ProcessID: "prc_1",
 			ProcessOffer: &ProcessOffer{
-				ExecutionSpec:  &shell,
+				ExecutionSpec:  shell,
 				ProcessID:      "prc_1",
 				Cwd:            "/work",
 				WaitMs:         100,

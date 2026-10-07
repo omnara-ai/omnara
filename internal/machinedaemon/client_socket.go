@@ -20,7 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/skillsync"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
-	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 const daemonSocketReadLimitBytes = daemonprotocol.MaxMessageBytes
@@ -663,15 +662,11 @@ func (t *daemonSocketTransport) offerProcess(
 	ctx context.Context,
 	offer daemonprotocol.ProcessOffer,
 ) {
-	spec := processcmd.ForShell(offer.Command, offer.ShellSelector, offer.IOMode)
-	if offer.ExecutionSpec != nil {
-		spec = *offer.ExecutionSpec
-	}
 	assignment := ProcessAssignment{
 		ID:             offer.ProcessID,
 		GitCredentials: offer.GitCredentials,
 		Process: Process{
-			ExecutionSpec: spec,
+			ExecutionSpec: offer.ExecutionSpec,
 			Cwd:           offer.Cwd,
 		},
 		Env:              offer.Env,
