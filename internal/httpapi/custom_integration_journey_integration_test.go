@@ -40,7 +40,7 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 				"ticket-event-1", http.StatusOK, authHeaders(token))
 			require.Equal(t, input, replay["agent_input"])
 
-			interaction, tool := customIntegrationHTTPPermission(t, f, inputID)
+			interaction, tool, runtimeLockID := customIntegrationHTTPPermission(t, f, inputID)
 			destination, err := interaction.CapturedDestination()
 			require.NoError(t, err)
 			require.Nil(t, destination)
@@ -49,6 +49,7 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			listed := customIntegrationHTTPInteraction(t, f, authHeaders(token))
 			require.NotContains(t, listed, "destination")
 			require.NotContains(t, listed, "presentation_receipt")
+			require.Equal(t, "waiting_on_interaction", customIntegrationHTTPActivityState(t, f, authHeaders(token)))
 			answers := map[string]any{"answers": []any{map[string]any{"option_indices": []int{0}}}}
 			headers := f.project.adminBrowserAuthHeaders()
 			if surface == "api" {
@@ -78,6 +79,9 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			calls := testutil.RequireType[[]any](t, ready["data"])
 			require.Len(t, calls, 1)
 			require.Equal(t, toolID, testutil.RequireType[map[string]any](t, calls[0])["id"])
+			require.NoError(t, f.project.Store.Execution().ReleaseAgentRuntimeLock(
+				ctx, f.project.ProjectUUID, f.agent.ID, runtimeLockID))
+			require.Equal(t, "running", customIntegrationHTTPActivityState(t, f, authHeaders(token)))
 			resultPath := f.path + "/tool-calls/" + toolID + "/result"
 			resultBody := `{"outcome":"succeeded","content_blocks":[{"type":"text","text":"Ticket updated"}]}`
 			completed := requestJSONWithHeaders(t, f.handler, http.MethodPost, resultPath,
@@ -328,6 +332,18 @@ func customIntegrationHTTPInteraction(
 	return testutil.RequireType[map[string]any](t, data[0])
 }
 
+func customIntegrationHTTPActivityState(
+	t *testing.T,
+	f customIntegrationHTTPFixture,
+	headers map[string]string,
+) string {
+	t.Helper()
+	detail := requestJSONWithHeaders(t, f.handler, http.MethodGet, f.path, "", "", http.StatusOK, headers)
+	agent := testutil.RequireType[map[string]any](t, detail["agent"])
+	activity := testutil.RequireType[map[string]any](t, agent["activity"])
+	return testutil.RequireType[string](t, activity["state"])
+}
+
 func customIntegrationHTTPKey(t *testing.T, handler http.Handler, project publicHTTPProject, name, role string) string {
 	t.Helper()
 	path := "/api/v1/orgs/" + project.OrgID + "/api-keys"
@@ -342,7 +358,7 @@ func customIntegrationHTTPKey(t *testing.T, handler http.Handler, project public
 
 func customIntegrationHTTPPermission(
 	t *testing.T, f customIntegrationHTTPFixture, inputID uuid.UUID,
-) (executionstore.AgentInteractionRecord, executionstore.ToolCallRecord) {
+) (executionstore.AgentInteractionRecord, executionstore.ToolCallRecord, uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
 	claim, found, err := f.project.Store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
@@ -385,5 +401,5 @@ func customIntegrationHTTPPermission(
 			RuntimeLockID: claim.RuntimeLock.ID, Request: permission,
 		})
 	require.NoError(t, err)
-	return interaction, calls[0]
+	return interaction, calls[0], claim.RuntimeLock.ID
 }

@@ -61,7 +61,7 @@ Omnara accepts common images, PDFs, text files, spreadsheets, and Office documen
 `delivery_mode` decides when a busy agent receives a message:
 
 - **`queued`** (default) waits until the agent is ready to start new work. Use it for a new task or follow-up.
-- **`steering`** joins the current turn at the next model call, ahead of queued messages. Use it for an urgent correction such as “stop using the staging database.”
+- **`steering`** is delivered at the next model call, ahead of queued messages, and starts a new [turn](/events/streaming#group-events-into-turns). Use it for an urgent correction such as “stop using the staging database.”
 
 The other input kinds — interaction responses, cancels, config changes — never wait in the queue: they're delivered with a third mode, `immediate`, that you can't choose. Only `content` inputs take `queued` or `steering`.
 

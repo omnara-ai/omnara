@@ -800,6 +800,11 @@ func (s *Server) currentAgentResponse(
 	ctx context.Context,
 	record executionstore.AgentRecord,
 ) (openapi.GetAgentResponse, error) {
+	activity, err := s.store.Execution().GetAgentActivity(ctx, record.ProjectID, record.ID)
+	if err != nil {
+		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
+	}
+	record.Activity = &activity
 	agent, err := publicAgentResponseFromRecord(record)
 	if err != nil {
 		return openapi.GetAgentResponse{}, err

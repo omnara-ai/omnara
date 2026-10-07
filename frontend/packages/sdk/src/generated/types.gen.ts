@@ -1818,7 +1818,7 @@ export type Agent = {
      */
     subagent_key?: string;
     /**
-     * Current activity, present on list responses.
+     * Current activity, present on list and get responses.
      */
     activity?: AgentActivity;
     /**
@@ -1832,7 +1832,7 @@ export type Agent = {
 
 export type AgentActivity = {
     /**
-     * running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived.
      */
     state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
     /**

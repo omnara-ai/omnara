@@ -377,8 +377,13 @@ func TestListAgentsChildrenWithActivity(t *testing.T) {
 	if _, ok := detail["subagents"]; ok {
 		t.Fatalf("get agent still embeds subagents: %+v", detail)
 	}
-	if _, ok := testutil.RequireType[map[string]any](t, detail["agent"])["activity"]; ok {
-		t.Fatalf("get agent reports activity: %+v", detail)
+	detailAgent := testutil.RequireType[map[string]any](t, detail["agent"])
+	detailActivity := testutil.RequireType[map[string]any](t, detailAgent["activity"])
+	if detailActivity["state"] != "idle" {
+		t.Fatalf("get agent activity = %+v, want idle", detailActivity)
+	}
+	if _, ok := detailActivity["last_activity_at"].(string); !ok {
+		t.Fatalf("get agent activity = %+v, want last_activity_at", detailActivity)
 	}
 }
 

@@ -11327,7 +11327,7 @@ components:
           description: The `subagents` key this agent was spawned from.
           type: string
         activity:
-          description: Current activity, present on list responses.
+          description: Current activity, present on list and get responses.
           $ref: '#/components/schemas/AgentActivity'
         usage:
           description: >-
@@ -11347,9 +11347,10 @@ components:
       properties:
         state:
           description: >-
-            running while the agent has work in progress, waiting_on_interaction
-            while it has an open question or permission request, idle otherwise,
-            and archived once the agent is archived.
+            running while the agent has work in progress, which includes a
+            custom tool call awaiting its result; waiting_on_interaction while
+            it has an open question or permission request; idle otherwise; and
+            archived once the agent is archived.
           type: string
           enum: [running, idle, waiting_on_interaction, archived]
         last_activity_at:
