@@ -144,6 +144,7 @@ func (s *Store) MarkProcessStarted(
 				txNotifications,
 				tx,
 				resultRecord,
+				nil,
 			); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
@@ -354,7 +355,7 @@ func (s *Store) CompleteDaemonProcess(
 			committedResult = result
 			resultRecord := toolCallRecordFromProcessCompleteSQLC(toolRow)
 			resultRecord.ResultContentParts = contentParts
-			if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+			if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
 			metadata, err := marshalJSON(

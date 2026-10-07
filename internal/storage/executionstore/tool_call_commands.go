@@ -25,7 +25,7 @@ func CompleteToolCallInExecution(input ToolCallCompletionInput) ToolCallCommand 
 
 func StartToolCallAsync() ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		return nil, tx.startToolCall(ctx, true)
+		return nil, tx.startToolCall(ctx, true, nil)
 	})
 }
 
@@ -35,7 +35,7 @@ func StartProcessForToolCall(input CreateProcessInput) ToolCallCommand {
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -45,7 +45,7 @@ func CreateProcessActionForToolCall(input CreateProcessActionInput) ToolCallComm
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -68,7 +68,7 @@ func StopProcessForToolCall(
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -78,7 +78,7 @@ func CreateQuestionForToolCall(input CreateQuestionInteractionInput) ToolCallCom
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, interactionUpdateFromRecord(record))
 	})
 }
 

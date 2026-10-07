@@ -113,9 +113,18 @@ func enqueueEventWebhooksTx(ctx context.Context, tx pgx.Tx, pending *notificatio
 		if !enabled || !slices.Contains(target.events, "tool_call_update") {
 			continue
 		}
+		var interactionUpdate json.RawMessage
+		if update.InteractionUpdate != nil {
+			var err error
+			interactionUpdate, err = json.Marshal(update.InteractionUpdate)
+			if err != nil {
+				return fmt.Errorf("encode webhook interaction update: %w", err)
+			}
+		}
 		if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
 			OrgID: target.orgID, AgentID: update.AgentID,
 			ToolCallID: &update.ToolCallID, ToolState: &update.State,
+			InteractionUpdate: sqlcRawMessageFromEmpty(interactionUpdate),
 		}); err != nil {
 			return fmt.Errorf("enqueue tool webhook: %w", err)
 		}
@@ -124,14 +133,15 @@ func enqueueEventWebhooksTx(ctx context.Context, tx pgx.Tx, pending *notificatio
 }
 
 type EventWebhookDelivery struct {
-	OrgID         uuid.UUID
-	ID            uuid.UUID
-	AgentID       uuid.UUID
-	EventSequence *int64
-	ToolCallID    *uuid.UUID
-	ToolState     *string
-	AttemptCount  int32
-	ClaimToken    uuid.UUID
+	OrgID             uuid.UUID
+	ID                uuid.UUID
+	AgentID           uuid.UUID
+	EventSequence     *int64
+	ToolCallID        *uuid.UUID
+	ToolState         *string
+	InteractionUpdate *notifications.AgentInteractionUpdate
+	AttemptCount      int32
+	ClaimToken        uuid.UUID
 }
 
 func (s *Store) ClaimEventWebhookDelivery(
@@ -147,10 +157,17 @@ func (s *Store) ClaimEventWebhookDelivery(
 	if err != nil {
 		return EventWebhookDelivery{}, fmt.Errorf("claim event webhook: %w", err)
 	}
+	var interactionUpdate *notifications.AgentInteractionUpdate
+	if row.InteractionUpdate != nil {
+		if err := json.Unmarshal(*row.InteractionUpdate, &interactionUpdate); err != nil {
+			return EventWebhookDelivery{}, fmt.Errorf("decode interaction update for delivery %s: %w", row.ID, err)
+		}
+	}
 	return EventWebhookDelivery{
 		ID: row.ID, AgentID: row.AgentID, OrgID: row.OrgID,
 		EventSequence: row.EventSequence, ToolCallID: row.ToolCallID, ToolState: row.ToolState,
-		AttemptCount: row.AttemptCount, ClaimToken: *row.ClaimToken,
+		InteractionUpdate: interactionUpdate,
+		AttemptCount:      row.AttemptCount, ClaimToken: *row.ClaimToken,
 	}, nil
 }
 

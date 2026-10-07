@@ -518,6 +518,7 @@ func completeDaemonProcessActionTx(
 				txNotifications,
 				tx,
 				resultRecord,
+				nil,
 			); err != nil {
 				return DaemonProcessActionReportApplication{}, err
 			}

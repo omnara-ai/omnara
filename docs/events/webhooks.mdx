@@ -177,7 +177,12 @@ Timeline events include event, agent, project, organization, and turn identifier
   "data": {
     "tool_call_id": "tcl_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
-    "state": "ready"
+    "state": "awaiting_permission",
+    "interaction_update": {
+      "id": "int_5n6a2bfgik7mv4qtrwz3jehcyd",
+      "interaction_kind": "permission",
+      "state": "open"
+    }
   }
 }
 ```
@@ -186,3 +191,5 @@ Timeline events include event, agent, project, organization, and turn identifier
 </AccordionGroup>
 
 `tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not the tool arguments or a timeline sequence. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Self-subagents send their own agent IDs; profile subagents use their own webhook configuration.
+
+When a permission or question opens or closes, `interaction_update` includes its ID, kind, and state (`open`, `resolved`, or `canceled`). Omission means no interaction change. Track interactions by ID; a terminal update takes precedence over a late `open` update. Fetch interactions when you need the full form.

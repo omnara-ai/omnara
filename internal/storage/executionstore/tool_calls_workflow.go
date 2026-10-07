@@ -29,12 +29,14 @@ func appendToolResultEventTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	record ToolCallRecord,
+	interactionUpdate *notifications.AgentInteractionUpdate,
 ) (events.Event, error) {
 	admitted, err := appendToolResultRecordTx(
 		ctx,
 		txNotifications,
 		tx,
 		record,
+		interactionUpdate,
 	)
 	if err != nil {
 		return events.Event{}, err
@@ -47,8 +49,9 @@ func appendToolResultRecordTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	record ToolCallRecord,
+	interactionUpdate *notifications.AgentInteractionUpdate,
 ) (admittedToolCallResult, error) {
-	if _, err := dbsqlc.New(tx).CancelOpenAgentInteractionsForToolCall(
+	interactions, err := dbsqlc.New(tx).CancelOpenAgentInteractionsForToolCall(
 		ctx,
 		dbsqlc.CancelOpenAgentInteractionsForToolCallParams{
 			ProjectID:  record.ProjectID,
@@ -56,11 +59,17 @@ func appendToolResultRecordTx(
 			ToolCallID: record.ID,
 			Reason:     toolCallCompletedInteractionReason,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		return admittedToolCallResult{}, fmt.Errorf(
 			"close interactions for completed tool call: %w",
 			err,
 		)
+	}
+	for _, interaction := range interactions {
+		interactionUpdate = &notifications.AgentInteractionUpdate{
+			ID: interaction.ID, InteractionKind: interaction.InteractionKind, State: interaction.State,
+		}
 	}
 	admitted, err := admitToolCallResultTx(
 		ctx,
@@ -98,6 +107,7 @@ func appendToolResultRecordTx(
 			record.AgentID,
 			record.ID,
 			string(ToolCallStateCompleted),
+			interactionUpdate,
 		)
 	}
 	return admitted, nil

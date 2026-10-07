@@ -5,6 +5,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +117,9 @@ func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 		State:      "ready",
+		InteractionUpdate: &AgentInteractionUpdate{
+			ID: uuid.New(), InteractionKind: "permission", State: "resolved",
+		},
 	}
 	if err := bus.PublishAgentToolCallUpdate(ctx, want); err != nil {
 		t.Fatalf("publish tool call update: %v", err)
@@ -123,7 +127,7 @@ func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 
 	select {
 	case got := <-received:
-		if got != want {
+		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("tool call update = %+v, want %+v", got, want)
 		}
 	case <-ctx.Done():

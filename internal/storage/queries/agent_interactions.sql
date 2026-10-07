@@ -129,7 +129,7 @@ WHERE interaction.agent_id = sqlc.arg(agent_id)
 	AND projection.turn_id = sqlc.arg(turn_id)
 RETURNING interaction.id;
 
--- name: CancelOpenAgentInteractionsForToolCall :execrows
+-- name: CancelOpenAgentInteractionsForToolCall :many
 UPDATE agent_interactions
 SET state = 'canceled',
     resolution = jsonb_build_object('reason', sqlc.arg(reason)::text),
@@ -143,4 +143,5 @@ WHERE agent_interactions.agent_id = sqlc.arg(agent_id)
     FROM agents agent
     WHERE agent.id = agent_interactions.agent_id
       AND agent.project_id = sqlc.arg(project_id)
-  );
+  )
+RETURNING id, interaction_kind, state;

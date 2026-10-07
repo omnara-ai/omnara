@@ -192,6 +192,7 @@ func (t *toolCallTransaction) lockToolCall(
 func (t *toolCallTransaction) startToolCall(
 	ctx context.Context,
 	retainRuntimeOwnership bool,
+	interactionUpdate *notifications.AgentInteractionUpdate,
 ) error {
 	if t == nil || t.tx == nil || t.q == nil {
 		return errors.New("tool call transaction is required")
@@ -234,7 +235,7 @@ func (t *toolCallTransaction) startToolCall(
 	} else {
 		t.disposition = ToolCallDispositionWaiting
 	}
-	t.notifications.AddToolCallUpdate(t.input.AgentID, t.input.ToolCallID, string(state))
+	t.notifications.AddToolCallUpdate(t.input.AgentID, t.input.ToolCallID, string(state), interactionUpdate)
 	t.applied = true
 	return nil
 }

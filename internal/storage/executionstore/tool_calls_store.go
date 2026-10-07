@@ -240,7 +240,7 @@ func (s *Store) MarkToolCallReady(
 		return ToolCallRecord{}, fmt.Errorf("mark tool call ready: %w", err)
 	}
 	record := toolCallRecordFromReadySQLC(row)
-	txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
+	txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State), nil)
 	if err := s.commitTxWithNotifications(
 		ctx,
 		tx,
@@ -304,6 +304,7 @@ func (s *Store) RequeueRuntimeToolCall(
 			input.AgentID,
 			input.ToolCallID,
 			string(ToolCallStateReady),
+			nil,
 		)
 	}
 	metadata, err := marshalJSON(map[string]any{
@@ -388,6 +389,7 @@ func completeToolCallTx(
 			txNotifications,
 			tx,
 			record,
+			nil,
 		)
 		if err != nil {
 			return ToolCallRecord{}, err
@@ -600,6 +602,7 @@ func finishCompletedToolCallTx(
 		txNotifications,
 		tx,
 		record,
+		nil,
 	)
 	if err != nil {
 		return ToolCallRecord{}, err
@@ -703,6 +706,7 @@ func completeCustomToolCallTx(
 			txNotifications,
 			tx,
 			record,
+			nil,
 		)
 		if err != nil {
 			return CompleteCustomToolCallResult{}, err

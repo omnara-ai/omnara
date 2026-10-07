@@ -1241,8 +1241,8 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	if got := tx.AgentEvents()[agentB]; !slices.Equal(got, []AgentEventReference{{Sequence: 1, Kind: "agent_input"}}) {
 		t.Fatalf("agent B collected sequences = %v, want [1]", got)
 	}
-	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization")
-	tx.AddToolCallUpdate(agentA, toolCallID, "ready")
+	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization", nil)
+	tx.AddToolCallUpdate(agentA, toolCallID, "ready", nil)
 	tx.AddWorkerControlCancel(workerID, workerAgentID, workerRuntimeID)
 
 	publisher := &capturingPublisher{}
