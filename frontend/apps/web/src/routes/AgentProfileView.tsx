@@ -4,7 +4,6 @@ import {
   useCreateAgent,
   useCronTriggers,
   useDeleteAgentProfile,
-  useIntegrationInstalls,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useLocation, useNavigate, useParams } from '@tanstack/react-router'
@@ -13,15 +12,12 @@ import { type ReactNode, useState } from 'react'
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { AgentIcon } from '@/components/agents/AgentIcon'
 import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
-import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsSection } from '@/components/agents/AgentsSection'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
-import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
-import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
@@ -41,18 +37,13 @@ import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
+type ProfileTab = 'configuration' | 'schedules' | 'agents' | 'usage'
 
 const profileTabs = [
   {
     value: 'configuration',
     label: 'Configuration',
     to: '/projects/$projectId/agent-profiles/$profileId/configuration',
-  },
-  {
-    value: 'integrations',
-    label: 'Integrations',
-    to: '/projects/$projectId/agent-profiles/$profileId/integrations',
   },
   {
     value: 'schedules',
@@ -86,7 +77,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
   const pathname = useLocation({ select: (location) => location.pathname })
   const tab: ProfileTab =
     profileTabs.find((option) => pathname.endsWith(`/${option.value}`))?.value ?? 'configuration'
-  const [deployOpen, setDeployOpen] = useState(false)
   const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
 
@@ -166,17 +156,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onDelete={remove}
         />
       </div>
-      {tab === 'integrations' && (
-        <IntegrationsTab
-          orgId={activeOrg.id}
-          projectId={projectId}
-          profileId={profile.id}
-          canManage={canManage}
-          onAdd={() => {
-            setDeployOpen(true)
-          }}
-        />
-      )}
       {tab === 'schedules' && (
         <SchedulesTab
           orgId={activeOrg.id}
@@ -207,15 +186,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
       )}
 
-      {canManage && deployOpen && (
-        <DeployAgentProfileDialog
-          open
-          onOpenChange={setDeployOpen}
-          orgId={activeOrg.id}
-          projectId={projectId}
-          profile={profile}
-        />
-      )}
       {canManage && addCronOpen && (
         <CreateCronTriggerDialog
           open
@@ -226,7 +196,6 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           targetLabel={profile.name}
         />
       )}
-      <SlackOAuthOutcomeDialog />
     </div>
   )
 }
@@ -322,38 +291,6 @@ interface ProfileTabProps {
   profileId: string
   canManage: boolean
   onAdd: () => void
-}
-
-function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
-  // Shares the list's cached query; while it's empty, the empty state offers the button.
-  const installs = useIntegrationInstalls(orgId, projectId, {
-    filters: { agent_profile_id: profileId },
-  })
-  const hasInstalls = (installs.data?.pages[0]?.data.length ?? 0) > 0
-  return (
-    <div className="flex flex-col gap-4">
-      {canManage && hasInstalls && (
-        <div className="flex justify-end">
-          <Button size="sm" variant="outline" onClick={onAdd}>
-            Add integration
-          </Button>
-        </div>
-      )}
-      <AgentProfileIntegrations
-        orgId={orgId}
-        projectId={projectId}
-        profileId={profileId}
-        canManage={canManage}
-        emptyAction={
-          canManage && (
-            <Button size="sm" variant="outline" onClick={onAdd}>
-              Add integration
-            </Button>
-          )
-        }
-      />
-    </div>
-  )
 }
 
 function SchedulesTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {

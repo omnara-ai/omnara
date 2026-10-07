@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -23,6 +24,11 @@ func (s *Store) CreateAgentContentInput(
 	}
 	if input.AgentID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("agent id is required")
+	}
+	if input.Origin != nil || input.IntegrationTargetID != uuid.Nil {
+		return AgentInputRecord{}, nil, false, storeerr.InvalidRequest(
+			errors.New("integration origin requires verified inbox admission"),
+		)
 	}
 	exists, err := s.q.AgentExistsInProject(
 		ctx,
@@ -62,19 +68,11 @@ func (s *Store) CreateAgentContentInput(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	agent, err := loadAgentTx(ctx, tx, input.AgentID)
-	if err != nil {
-		return AgentInputRecord{}, nil, false, err
-	}
-	if agent.ProjectID != input.ProjectID {
-		return AgentInputRecord{}, nil, false, storeerr.ErrNotFound
-	}
 	result, err := createAgentContentInputTx(
 		ctx,
 		txNotifications,
 		tx,
 		qtx,
-		agent,
 		input,
 		contentBlocks,
 	)
@@ -126,14 +124,14 @@ func createAgentContentInputTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	agent AgentRecord,
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (createAgentContentInputTxResult, error) {
-	if _, err := qtx.LockAgentInProject(
+	agent, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
+	)
+	if err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)
 	}
 	if input.IdempotencyKey != "" {
@@ -183,21 +181,25 @@ func createAgentContentInputTx(
 			}, nil
 		}
 	}
-	var err error
-	agent, err = loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
-	if err != nil {
-		return createAgentContentInputTxResult{}, err
-	}
-	if agent.State == AgentStateArchived {
+	if AgentState(agent.State) == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
+	}
+	if input.IntegrationTargetID != uuid.Nil {
+		target, err := qtx.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.IntegrationTargetID,
+		})
+		if err != nil {
+			return createAgentContentInputTxResult{}, err
+		}
+		if target.IntegrationState != string(integrationstore.IntegrationStateActive) {
+			return createAgentContentInputTxResult{}, storeerr.ErrUnauthorized
+		}
 	}
 	actorID, err := resolveActorTx(
 		ctx,
 		qtx,
 		input.ProjectID,
-		input.AgentID,
 		input.Actor,
-		input.IntegrationTargetID,
 	)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -323,14 +325,15 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID              uuid.UUID
-	AgentID                uuid.UUID
-	Actor                  *ActorParams
-	IntegrationTargetID    uuid.UUID
-	ContentBlocks          json.RawMessage
-	Metadata               json.RawMessage
-	DeliveryMode           AgentInputDeliveryMode
-	IdempotencyScope       string
-	IdempotencyKey         string
-	CancelOpenInteractions bool
+	ProjectID              uuid.UUID              `json:"project_id,omitempty"`
+	AgentID                uuid.UUID              `json:"agent_id,omitempty"`
+	Actor                  *ActorParams           `json:"actor,omitempty"`
+	IntegrationTargetID    uuid.UUID              `json:"integration_target_id,omitempty"`
+	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
+	ContentBlocks          json.RawMessage        `json:"content_blocks"`
+	Metadata               json.RawMessage        `json:"metadata,omitempty"`
+	DeliveryMode           AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
+	IdempotencyScope       string                 `json:"idempotency_scope,omitempty"`
+	IdempotencyKey         string                 `json:"idempotency_key,omitempty"`
+	CancelOpenInteractions bool                   `json:"cancel_open_interactions,omitempty"`
 }

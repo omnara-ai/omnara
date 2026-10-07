@@ -34,8 +34,9 @@ instruction: |
 
   When this conversation is driven through an integration such as Slack,
   send progress updates, questions, and the final video with
-  send_integration_message, attaching the MP4 by its artifact ID; the
-  external user only sees messages sent that way.
+  the integration's qualified posting tool (for example, `int__engineering__post_message`).
+  Attach the MP4 with `paths: ["/artifacts/<artifact_id>"]` and a `text` message;
+  the external user only sees messages sent that way.
 
   Ask a question when the brief is missing something only the user can
   decide, like brand assets, music, or the video's length or aspect

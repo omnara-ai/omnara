@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -195,7 +196,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	fixture.provisionClusterModel(t, ctx, "managed-retry-prod", "managed-retry-model")
-	agentID, userID := fixture.createNamedAgentWithModelOptions(
+	agentID, _ := fixture.createNamedAgentWithModelOptions(
 		t,
 		ctx,
 		"Managed Retry Admission",
@@ -203,24 +204,18 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load managed-retry agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"managed-retry",
-		"C_MANAGED_RETRY:1.0",
+		"CMANAGEDRETRY:1.0",
 	)
-	work := fixture.admitContentInputTurn(
+	work := fixture.admitSlackContentInputTurn(
 		t,
 		ctx,
-		agentID,
-		userID,
+		handler,
 		"continue an admitted model call",
 		now.Add(time.Millisecond),
 	)
@@ -234,7 +229,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 	}
 	currentNow := now.Add(2 * time.Millisecond)
 	postCount := 0
-	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-retry",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -244,12 +239,12 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_MANAGED_RETRY","ts":"2.0"}`,
+					`{"ok":true,"channel":"CMANAGEDRETRY","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil
 		},
-	)}
+	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
@@ -257,6 +252,9 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		StreamPublisher: &capturingStreamPublisher{},
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,

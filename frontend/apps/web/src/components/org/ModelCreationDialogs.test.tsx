@@ -29,6 +29,8 @@ import { waitForUI } from '@/test/secret-editor'
 import { AddConfiguredModelsView } from './AddConfiguredModelsView'
 import { CreateConfiguredModelDialog } from './CreateConfiguredModelDialog'
 import { CreateModelProviderDialog } from './CreateModelProviderDialog'
+import { EditConfiguredModelDialog } from './EditConfiguredModelDialog'
+import { EditModelProviderDialog } from './EditModelProviderDialog'
 import { GrantConfiguredModelDialog } from './GrantConfiguredModelDialog'
 
 const timestamp = '2026-01-01T00:00:00Z'
@@ -206,6 +208,15 @@ function element(selector: string): HTMLElement {
   return match
 }
 
+function labeledControl(text: string): HTMLElement {
+  const label = [...document.querySelectorAll('label')].find(
+    (candidate) => candidate.textContent === text,
+  )
+  const control = label?.control
+  if (!(control instanceof HTMLElement)) throw new Error(`Missing labeled control: ${text}`)
+  return control
+}
+
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll('button')].find(
     (candidate) => (candidate.getAttribute('aria-label') ?? candidate.textContent) === label,
@@ -246,11 +257,9 @@ function modelRows() {
   )
 }
 
-async function selectOption(selector: string, label: string) {
+async function selectOption(control: HTMLElement, label: string) {
   await interact(() => {
-    element(selector).dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-    )
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
   })
   await interact(() => {
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
@@ -291,7 +300,9 @@ it('lists catalog models, marks configured ones added, and creates the edited se
 
   await toggleModel('model-one')
   await toggleModel('model-three')
-  expect(document.querySelector('#cm-draft-1-context')).not.toBeNull()
+  expect(labeledControl('Name').id).toBe('cm-draft-1-name')
+  expect(labeledControl('Context').id).toBe('cm-draft-1-context')
+  expect(labeledControl('Max output').id).toBe('cm-draft-1-max-output')
   expect(button('Add 2 models').disabled).toBe(true)
   await type('#cm-draft-1-context', '50000')
   await clickButton('Done editing model-three')
@@ -673,7 +684,7 @@ it('creates a preset provider and continues straight into the model picker', asy
 
   expect(element('#mp-provider').textContent).toContain('OpenAI')
   await type('#mp-name', 'production-openai')
-  await selectOption('[aria-label="Search secrets…"]', 'openai-api-key')
+  await selectOption(labeledControl('API key'), 'openai-api-key')
   await clickButton('Add provider')
 
   expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
@@ -690,7 +701,7 @@ it('deletes the provider and returns to its settings when the catalog fails', as
   const api = providerApi({ status: 'failed', error: 'unauthorized' })
   await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
   await type('#mp-name', 'production-openai')
-  await selectOption('[aria-label="Search secrets…"]', 'openai-api-key')
+  await selectOption(labeledControl('API key'), 'openai-api-key')
   await clickButton('Add provider')
   await waitForUI(() => {
     expect(document.body.textContent).toContain('unable to fetch available models')
@@ -716,7 +727,7 @@ it('edits a preset endpoint under Advanced without switching provider', async ()
   expect(button('Advanced').getAttribute('aria-expanded')).toBe('true')
 
   await type('#mp-name', 'proxied-openai')
-  await selectOption('[aria-label="Search secrets…"]', 'openai-api-key')
+  await selectOption(labeledControl('API key'), 'openai-api-key')
   await clickButton('Add provider')
   expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
     {
@@ -726,4 +737,45 @@ it('edits a preset endpoint under Advanced without switching provider', async ()
       base_url: 'https://llm-proxy.example.com/v1',
     },
   ])
+})
+
+it('labels the configured model edit controls', async () => {
+  await render(
+    creationApi(),
+    <EditConfiguredModelDialog open onOpenChange={() => undefined} orgId={orgId} model={model} />,
+  )
+  for (const [label, value] of Object.entries({
+    Name: model.name,
+    'Provider model slug': model.provider_model_slug,
+    'Context window': String(model.context_window_tokens),
+    'Maximum output': '',
+    'Default output': '',
+  })) {
+    const control = labeledControl(label)
+    if (!(control instanceof HTMLInputElement)) throw new Error(`Expected input: ${label}`)
+    expect(control.value).toBe(value)
+  }
+})
+
+it('labels the provider edit controls including AWS signing region', async () => {
+  await render(
+    creationApi(),
+    <EditModelProviderDialog
+      open
+      onOpenChange={() => undefined}
+      orgId={orgId}
+      provider={{ ...provider, auth_kind: 'sigv4', auth_options: { region: 'us-east-1' } }}
+    />,
+  )
+  for (const [label, value] of Object.entries({
+    'Base URL': provider.base_url,
+    'Endpoint path': provider.endpoint_path,
+    'Total request timeout (ms)': String(provider.request_timeout_ms),
+    'Idle timeout (ms)': String(provider.idle_timeout_ms),
+    'AWS signing region': 'us-east-1',
+  })) {
+    const control = labeledControl(label)
+    if (!(control instanceof HTMLInputElement)) throw new Error(`Expected input: ${label}`)
+    expect(control.value).toBe(value)
+  }
 })

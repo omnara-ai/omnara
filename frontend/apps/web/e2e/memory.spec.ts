@@ -5,6 +5,7 @@ import { expect, type Page, type Request, test } from '@playwright/test'
 import { z } from 'zod'
 
 import { installFailureTracking, requiredEnvironmentVariable, signIn } from './helpers'
+import { fetchLocalAPI, fetchLocalRoute } from './transport'
 
 const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
@@ -13,10 +14,7 @@ const memoryPath = `/projects/${projectID}/memory`
 const fileRoute = '**/memory-stores/*/file?*'
 
 async function createMemoryStore(page: Page, expectedFileStatuses: number[] = []) {
-  const ignore = [
-    /^request: .*memory-stores\/mst_[a-z2-7]+(?:\/files?\?[^ ]+)? \(net::ERR_ABORTED\)$/,
-    /^page: Canceled$/,
-  ]
+  const ignore = [/^page: Canceled$/]
   const failures = installFailureTracking(page, ignore)
   const storeName = `memory-browser-${randomUUID()}`
   await signIn(page, adminEmail, memoryPath)
@@ -96,7 +94,7 @@ test('memory files preserve text bytes, guard unsaved edits, download, and delet
   })
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(page.getByText('Unsaved changes', { exact: false })).toBeHidden()
-  const savedFile = await page.request.get(fileURL.toString())
+  const savedFile = await fetchLocalAPI(page, fileURL.toString())
   expect(savedFile.ok()).toBe(true)
   expect(await savedFile.body()).toEqual(Buffer.from('\ufeffEdited notes'))
   expect(await saveBanner.evaluate((state) => state.finish())).toBe(false)
@@ -212,7 +210,7 @@ test('memory editor preserves drafts across a failed conflict refresh and retry'
   await page.route(
     fileRoute,
     async (route) => {
-      const remoteWrite = await route.fetch({ postData: 'Replacement notes' })
+      const remoteWrite = await fetchLocalRoute(route, { postData: 'Replacement notes' })
       expect(remoteWrite.ok()).toBe(true)
       await route.continue()
     },
@@ -256,7 +254,7 @@ for (const concurrentRecreation of [false, true]) {
     await page.route(
       fileRoute,
       async (route) => {
-        const deleted = await route.fetch({ method: 'DELETE', postData: '' })
+        const deleted = await fetchLocalRoute(route, { method: 'DELETE', postData: '' })
         expect(deleted.status()).toBe(204)
         await route.continue()
       },
@@ -278,7 +276,7 @@ for (const concurrentRecreation of [false, true]) {
       async (route) => {
         expect(new URL(route.request().url()).searchParams.has('expected_digest')).toBe(false)
         if (concurrentRecreation) {
-          const created = await route.fetch({ postData: 'Another writer' })
+          const created = await fetchLocalRoute(route, { postData: 'Another writer' })
           expect(created.ok()).toBe(true)
         }
         await route.continue()
@@ -289,13 +287,13 @@ for (const concurrentRecreation of [false, true]) {
     if (concurrentRecreation) {
       const replace = page.getByRole('button', { name: 'Replace current contents', exact: true })
       await expect(replace).toBeEnabled()
-      const current = await page.request.get(fileURL.toString())
+      const current = await fetchLocalAPI(page, fileURL.toString())
       expect(await current.text()).toBe('Another writer')
       await expect(page.locator('.view-lines')).toContainText('Recovered draft true')
       await replace.click()
     }
     await expect(page.getByText('Unsaved changes', { exact: false })).toBeHidden()
-    const restored = await page.request.get(fileURL.toString())
+    const restored = await fetchLocalAPI(page, fileURL.toString())
     expect(await restored.text()).toBe(`Recovered draft ${concurrentRecreation}`)
     expect(failures).toEqual([])
   })
@@ -408,13 +406,17 @@ test('memory viewers follow remote text and binary updates without an editable d
     { body: Buffer.from([0, 255]), text: null },
     { body: Buffer.from('Updated text'), text: 'Updated text' },
   ]) {
-    const latest = await page.request.get(fileURL.toString())
+    const latest = await fetchLocalAPI(page, fileURL.toString())
     const updateURL = new URL(fileURL)
     updateURL.searchParams.set(
       'expected_digest',
       z.string().parse(latest.headers()['x-omnara-file-digest']),
     )
-    const updated = await page.request.put(updateURL.toString(), { headers, data: body })
+    const updated = await fetchLocalAPI(page, updateURL.toString(), {
+      method: 'PUT',
+      headers,
+      data: body,
+    })
     expect(updated.ok()).toBe(true)
     await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
     const expectedText = text ?? 'Preview isn’t available for this file.'

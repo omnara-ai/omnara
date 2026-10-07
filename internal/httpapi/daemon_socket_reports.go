@@ -268,6 +268,7 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 			ProcessID:      processID,
 			Cwd:            offer.Process.Cwd,
 			Env:            offer.Env,
+			GitCredentials: offer.GitCredentials,
 			WaitMs:         offer.Process.InitialWaitMS,
 			TimeoutSeconds: offer.Process.TimeoutSeconds,
 		}

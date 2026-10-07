@@ -26,6 +26,15 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 5 && os.Args[1] == "__omnara_git_credential" {
+		if err := RunGitCredentialHelper(
+			context.Background(), os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "__omnara_file_transfer" {
 		os.Exit(runFileTransferProbe())
 	}

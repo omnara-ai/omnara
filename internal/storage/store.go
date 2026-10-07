@@ -104,7 +104,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
 	store.memories = memorystore.New(pool, config.memoryFS, config.memoryRecorder)
 	store.artifacts = artifactstore.New(pool, config.blobs)
-	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
+	store.integrations = integrationstore.New(pool, executionstore.IntegrationAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,

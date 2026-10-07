@@ -351,7 +351,13 @@ func decodeEnvelope(data []byte, dst any) error {
 	return nil
 }
 
+type GitCredentials struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type ProcessOffer struct {
+	GitCredentials   bool                      `json:"git_credentials,omitempty"`
 	ExecutionSpec    *processcmd.ExecutionSpec `json:"execution_spec,omitempty"`
 	Command          string                    `json:"command,omitempty"`
 	ShellSelector    processcmd.ShellSelector  `json:"shell_selector,omitempty"`

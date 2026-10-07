@@ -9,7 +9,7 @@ describe('chatCommands', () => {
       orgId: 'org_example',
       projectId: 'proj_example',
       profileId: 'apf_example',
-      configId: 'apc_example',
+      configId: 'ipc_example',
     })
 
     expect(commands.sdk.copy).toContain("baseUrl: 'https://api.example.com/v1'")

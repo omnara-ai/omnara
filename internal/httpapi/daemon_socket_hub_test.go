@@ -47,22 +47,27 @@ func TestDaemonProcessOfferMessagePreservesShellWireFormat(t *testing.T) {
 			InitialWaitMS:  750,
 			TimeoutSeconds: 30,
 		},
+		GitCredentials: true,
 	})
 	body, err := json.Marshal(message.ProcessOffer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var legacy struct {
-		Command       string `json:"command"`
-		ShellSelector string `json:"shell_selector"`
-		IOMode        string `json:"io_mode"`
-		WaitMS        int    `json:"wait_ms"`
+		Command        string `json:"command"`
+		ShellSelector  string `json:"shell_selector"`
+		IOMode         string `json:"io_mode"`
+		WaitMS         int    `json:"wait_ms"`
+		GitCredentials bool   `json:"git_credentials"`
 	}
 	if err := json.Unmarshal(body, &legacy); err != nil {
 		t.Fatal(err)
 	}
 	if legacy.Command != command || legacy.ShellSelector != "bash" || legacy.IOMode != "pty" || legacy.WaitMS != 750 {
 		t.Fatal("shell offer lost legacy execution fields or initial wait")
+	}
+	if !legacy.GitCredentials {
+		t.Fatal("shell offer lost Git credential authority")
 	}
 	if strings.Contains(string(body), `"execution_spec"`) {
 		t.Fatal("shell offer duplicates its operation")
@@ -79,7 +84,7 @@ func TestDaemonProcessOfferMessageCarriesTransferSpec(t *testing.T) {
 	})
 	offer := message.ProcessOffer
 	if offer == nil || offer.ExecutionSpec == nil || *offer.ExecutionSpec != spec ||
-		offer.Command != "" || offer.ShellSelector != "" || offer.IOMode != "" {
+		offer.Command != "" || offer.ShellSelector != "" || offer.IOMode != "" || offer.GitCredentials {
 		t.Fatalf("transfer offer = %+v", offer)
 	}
 }

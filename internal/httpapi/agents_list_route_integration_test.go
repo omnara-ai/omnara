@@ -5,6 +5,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"testing"
@@ -12,12 +13,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
-	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListAgents(t *testing.T) {
@@ -151,10 +155,9 @@ func TestListAgents(t *testing.T) {
 					t,
 					row,
 					"slack",
-					"C0BAK8REEGY:1783382417.000100",
-					"thread",
+					map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"},
 					"agent-testing",
-					"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=T-list-agents-target",
+					"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
 				)
 			}
 			seen[id] = true
@@ -179,8 +182,64 @@ func TestListAgents(t *testing.T) {
 	}
 	for i := range wantOrder {
 		if got[i] != wantOrder[i] {
-			t.Fatalf("order mismatch at %d: got %s want %s (full got=%v want=%v)", i, got[i], wantOrder[i], got, wantOrder)
+			t.Fatalf(
+				"order mismatch at %d: got %s want %s (full got=%v want=%v)",
+				i,
+				got[i],
+				wantOrder[i],
+				got,
+				wantOrder,
+			)
 		}
+	}
+
+	for _, sortBy := range []string{"name", "-name"} {
+		wantNames := []string{"Agent A", "Agent B", "Agent C", "Agent D", "Agent E"}
+		if sortBy == "-name" {
+			sort.Sort(sort.Reverse(sort.StringSlice(wantNames)))
+		}
+		var gotNames []string
+		cursor := ""
+		for pages := 0; ; pages++ {
+			require.Less(t, pages, agentCount, "pagination did not terminate")
+			page := requestJSONWithHeaders(
+				t, handler, http.MethodGet,
+				agentsPath+"?limit=2&sort="+sortBy+"&cursor="+cursor,
+				"", "", http.StatusOK, authHeaders(project.AdminToken),
+			)
+			rows := testutil.RequireType[[]any](t, page["data"])
+			require.LessOrEqual(t, len(rows), 2)
+			for _, raw := range rows {
+				row := testutil.RequireType[map[string]any](t, raw)
+				gotNames = append(gotNames, testutil.RequireType[string](t, row["name"]))
+				if row["id"] == slackTargetAgentID {
+					assertListAgentsIntegrationTarget(
+						t, row, "slack", map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"}, "agent-testing",
+						"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
+					)
+				}
+			}
+			if page["next_cursor"] == nil {
+				break
+			}
+			cursor = testutil.RequireType[string](t, page["next_cursor"])
+		}
+		require.Equal(t, wantNames, gotNames, "sort=%s", sortBy)
+	}
+
+	for _, sortBy := range []string{"-created_at", "name"} {
+		path := "/api/v1/orgs/" + project.OrgID + "/agents?name=Agent%20B&include_usage=true&sort=" + sortBy
+		rows := listOrgRows(t, handler, path, project.AdminToken)
+		require.Len(t, rows, 1)
+		require.Equal(t, slackTargetAgentID, rows[0]["id"])
+		require.Equal(t, project.ProjectID, rows[0]["project_id"])
+		require.NotContains(t, rows[0], "subagent_key")
+		require.NotContains(t, rows[0], "parent_agent_id")
+		assertListAgentsIntegrationTarget(
+			t, rows[0], "slack",
+			map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"},
+			"agent-testing", "https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
+		)
 	}
 
 	full := requestJSONWithHeaders(
@@ -481,22 +540,77 @@ func seedListAgentsSlackTarget(
 		ctx,
 		project,
 		profileID,
-		"app-list-agents-target",
-		"T-list-agents-target",
-		"U-list-agents-bot",
+		"ALISTAGENTS",
+		"TLISTAGENTS",
+		"ULISTAGENTSBOT",
 		"signing-secret-list-agents",
 	)
-	target, err := store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
-		ProjectID:            project.ProjectUUID,
-		AgentID:              agent.ID,
-		IntegrationInstallID: install.ID,
-		ProviderRef:          "C0BAK8REEGY:1783382417.000100",
-		ProviderRefKind:      "thread",
+	require.Equal(t, integrationdefinition.SlackThread, install.IntegrationKind)
+	base, found, err := store.Execution().GetAgentConfig(ctx, project.ProjectUUID, agent.CurrentConfigID)
+	require.NoError(t, err)
+	require.True(t, found)
+	derived, err := agentconfigcompile.DeriveIntegrationConfig(ctx, store, project.OrgUUID, project.ProjectUUID,
+		agentconfig.CompileOptions{}, base, agentconfig.IntegrationCapabilitiesSource{
+			InteractionHandlers: map[string]agentconfig.AgentConfigIntegrationCapabilitySource{
+				install.Name: {},
+			},
+		})
+	require.NoError(t, err)
+	_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: derived.CreateInput(project.ProjectUUID),
+		AgentID:                agent.ID, ExpectedCurrentConfigID: base.ID, ActorType: "user", ActorID: project.AdminUserUUID,
+		IdempotencyKey: "list-agents-handler",
 	})
-	if err != nil {
-		t.Fatalf("seed Slack integration target: %v", err)
-	}
-	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+	require.NoError(t, err)
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C0BAK8REEGY:1783382417.000100"}
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, install.ID))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, install.ID, address))
+	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agent.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.Integrations().AssignAgentIntegrationConversationTx(
+		ctx, tx, project.ProjectUUID, agent.ID, install.ID, address,
+	))
+	require.NoError(t, tx.Commit(ctx))
+	_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: project.ProjectUUID, IntegrationID: install.ID,
+		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
+	})
+	require.NoError(t, err)
+	receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: project.ProjectUUID, IntegrationID: install.ID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	actor, err := executionstore.IntegrationActorParams(install, "ULISTINPUT", nil)
+	require.NoError(t, err)
+	plan, err := json.Marshal(map[string]any{
+		"message": executionstore.InboxMessage{
+			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{
+				ChannelID: "C0BAK8REEGY", ThreadTS: "1783382417.000100",
+			}},
+			Origin: &executionstore.AgentInputOrigin{
+				IntegrationID: install.ID, Address: address,
+			},
+			Actor: &actor, SemanticKey: "list-origin",
+			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`),
+		},
+		"recipients": map[string]executionstore.InboxInputRecipient{"recipient": {AgentID: agent.ID}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
+		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
+	_, err = store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
+	require.NoError(t, err)
+	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1)
+	require.Equal(t, agent.ID, claim.Model.AdmittedInputTurn.Inputs[0].AgentID)
+	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 		ctx,
 		project.ProjectUUID,
 		install.ID,
@@ -504,15 +618,6 @@ func seedListAgentsSlackTarget(
 		"agent-testing",
 	); err != nil {
 		t.Fatalf("seed Slack conversation display name: %v", err)
-	}
-	if err := storagetest.SeedAgentIntegrationTarget(
-		ctx,
-		pool,
-		project.ProjectUUID,
-		agent.ID,
-		target.ID,
-	); err != nil {
-		t.Fatalf("set Slack integration target: %v", err)
 	}
 	publicAgentID, err := publicid.Encode(publicid.KindAgent, agent.ID)
 	if err != nil {
@@ -525,8 +630,7 @@ func assertListAgentsIntegrationTarget(
 	t *testing.T,
 	row map[string]any,
 	provider string,
-	providerRef string,
-	refKind string,
+	conversation map[string]any,
 	displayName string,
 	providerURI string,
 ) {
@@ -539,15 +643,11 @@ func assertListAgentsIntegrationTarget(
 	if !ok {
 		t.Fatalf("integration target has unexpected shape: %+v", raw)
 	}
+	// Released clients still interpret this field as a transport, not an integration type.
 	if got := target["provider"]; got != provider {
 		t.Fatalf("integration target provider = %v, want %q", got, provider)
 	}
-	if got := target["provider_ref"]; got != providerRef {
-		t.Fatalf("integration target provider_ref = %v, want %q", got, providerRef)
-	}
-	if got := target["provider_ref_kind"]; got != refKind {
-		t.Fatalf("integration target provider_ref_kind = %v, want %q", got, refKind)
-	}
+	require.Equal(t, conversation, target["conversation"])
 	if got := target["display_name"]; got != displayName {
 		t.Fatalf("integration target display_name = %v, want %q", got, displayName)
 	}

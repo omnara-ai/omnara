@@ -1,7 +1,17 @@
 import { useRouterState } from '@tanstack/react-router'
 
 import { NavSection } from '@/components/app-shell/NavSection'
-import { Bot, Box, Brain, ChartBar, House, KeyRound, Server, Sparkles } from '@/components/icons'
+import {
+  BoltIcon,
+  Bot,
+  Box,
+  Brain,
+  ChartBar,
+  House,
+  KeyRound,
+  Server,
+  Sparkles,
+} from '@/components/icons'
 
 export function ProjectNav({ projectId }: { projectId: string }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -31,6 +41,15 @@ export function ProjectNav({ projectId }: { projectId: string }) {
             to: '/projects/$projectId/agents',
             params,
             isActive: within('agents', 'agent-profiles'),
+            emphasized: true,
+          },
+          {
+            id: 'integrations',
+            label: 'Integrations',
+            icon: BoltIcon,
+            to: '/projects/$projectId/integrations',
+            params,
+            isActive: within('integrations'),
             emphasized: true,
           },
           {

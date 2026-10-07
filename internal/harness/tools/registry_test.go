@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -40,12 +42,13 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
-		[]string{"list_machines", "inspect_machine", "set_integration_target"},
+		[]string{"list_machines", "inspect_machine",
+			"list_interaction_handlers", "set_interaction_handler"},
 		expectedTopology{transactional: true},
 	)
 	add(
 		[]string{"ask_question"},
-		expectedTopology{transactional: true, async: true},
+		expectedTopology{transactional: true, background: true},
 	)
 	add(
 		[]string{"read_agent", "send_agent_message", "list_agents", "tool_search"},
@@ -53,7 +56,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	)
 	add(
 		[]string{
-			"send_integration_message", "web_search", "web_fetch", "skill",
+			"web_search", "web_fetch", "skill",
 			"list_files", "read_file", "write_file", "search_files",
 		},
 		expectedTopology{async: true},
@@ -212,51 +215,52 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
-	artifactID, err := publicid.Encode(
-		publicid.KindArtifact,
-		integrationToolTestID("integration-message-validator"),
-	)
-	require.NoError(t, err)
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","paths":["/artifacts/`+artifactID+`"]}`),
-	); err != nil {
-		t.Fatalf("valid integration message rejected: %v", err)
-	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","paths":[]}`),
-	); err != nil {
-		t.Fatalf("empty paths rejected: %v", err)
-	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","paths":null}`),
-	); err == nil {
-		t.Fatal("null paths accepted")
-	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","paths":[""]}`),
-	); err == nil {
-		t.Fatal("empty path accepted")
-	}
-	require.NoError(t, validateRegisteredToolInput("send_integration_message",
-		json.RawMessage(`{"text":"hello","paths":["/memory/engineering/report.pdf"]}`)))
-	require.Error(t, validateRegisteredToolInput("send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[]}`)))
-	tooManyPaths := make([]string, 21)
-	for index := range tooManyPaths {
-		tooManyPaths[index] = "/artifacts/" + artifactID
-	}
-	tooManyInput, err := json.Marshal(map[string]any{
-		"text":  "hello",
-		"paths": tooManyPaths,
-	})
-	require.NoError(t, err)
-	if err := validateRegisteredToolInput("send_integration_message", tooManyInput); err == nil {
-		t.Fatal("more than 20 paths accepted")
+func TestIntegrationMessageFileArguments(t *testing.T) {
+	for _, test := range []struct {
+		kind     integrationdefinition.Kind
+		textKey  string
+		maxFiles int
+	}{
+		{integrationdefinition.SlackThread, "text", 20},
+		{integrationdefinition.DiscordThread, "content", 10},
+	} {
+		t.Run(string(test.kind), func(t *testing.T) {
+			definition, ok := toolcatalog.LookupIntegrationTool(test.kind, toolcatalog.IntegrationOperationPostMessage)
+			require.True(t, ok)
+			name := toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage)
+			entry, err := definition.Prepare(name)
+			require.NoError(t, err)
+			paths := make([]string, test.maxFiles+1)
+			for index := range paths {
+				id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
+				require.NoError(t, err)
+				paths[index] = "/artifacts/" + id
+			}
+			for _, testPaths := range []struct {
+				paths any
+				valid bool
+			}{
+				{[]string{paths[0]}, true},
+				{[]string{}, true},
+				{[]string{"/memory/engineering/report.pdf"}, true},
+				{paths[:test.maxFiles], true},
+				{paths, false},
+				{nil, false},
+				{[]string{""}, false},
+			} {
+				input, err := json.Marshal(map[string]any{test.textKey: "hello", "paths": testPaths.paths})
+				require.NoError(t, err)
+				err = jsonschema.Validate(entry.InputSchema, input)
+				if testPaths.valid {
+					require.NoError(t, err, string(input))
+				} else {
+					require.Error(t, err, string(input))
+				}
+			}
+			input, err := json.Marshal(map[string]any{test.textKey: "hello"})
+			require.NoError(t, err)
+			require.NoError(t, jsonschema.Validate(entry.InputSchema, input))
+		})
 	}
 }
 

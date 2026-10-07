@@ -16,7 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
@@ -109,7 +108,8 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 	if payload.ToolChoice != "auto" || payload.ParallelToolCalls != nil {
 		t.Fatalf("unexpected tool controls: %+v", payload)
 	}
-	if len(payload.Tools) != 1 || payload.Tools[0].Type != "function" || payload.Tools[0].Function.Name != "run_command" {
+	if len(payload.Tools) != 1 || payload.Tools[0].Type != "function" ||
+		payload.Tools[0].Function.Name != "run_command" {
 		t.Fatalf("unexpected tools: %+v", payload.Tools)
 	}
 	if len(payload.Messages) != 5 {
@@ -144,43 +144,6 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 	}
 }
 
-func TestPrepareProjectsIntegrationTargetsOnlyForEnabledTools(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	withoutTools, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-				TargetRef: "slack-abcd",
-				Provider:  "slack",
-			}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare without tools: %v", err)
-	}
-	if strings.Contains(string(withoutTools.Body), "slack-abcd") {
-		t.Fatalf("runtime resource context leaked without usable tools: %s", withoutTools.Body)
-	}
-
-	withTools, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs: []modelcontext.ToolSpec{
-				{Name: toolcatalog.ToolNameSendIntegrationMessage},
-			},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare with tools: %v", err)
-	}
-	body := string(withTools.Body)
-	if !strings.Contains(body, "No external integration targets are currently available") {
-		t.Fatalf("missing empty resource context for enabled tools: %s", body)
-	}
-}
-
 func TestPrepareKeepsCompletedToolExchangeBeforeLaterUserTurnWithoutDuplicatingAssistantText(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,
@@ -208,7 +171,11 @@ func TestPrepareKeepsCompletedToolExchangeBeforeLaterUserTurnWithoutDuplicatingA
 				ProviderReplay:       replay.payload,
 				ProviderReplaySource: replay.source,
 			}, "tcl_1"),
-			{Role: modelprotocol.RoleUser, Sequence: 40, Content: json.RawMessage(`[{"type":"text","text":"next turn"}]`)},
+			{
+				Role:     modelprotocol.RoleUser,
+				Sequence: 40,
+				Content:  json.RawMessage(`[{"type":"text","text":"next turn"}]`),
+			},
 		},
 		ToolResults: []modelcontext.ToolResultRef{{
 			ToolCallID:          "tcl_1",
@@ -291,7 +258,10 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 		t.Fatalf("openrouter payload should use max_completion_tokens, not deprecated max_tokens: %s", prepared.Body)
 	}
 	if _, ok := payload["usage"]; ok {
-		t.Fatalf("openrouter payload should omit usage request options because usage is always returned: %s", prepared.Body)
+		t.Fatalf(
+			"openrouter payload should omit usage request options because usage is always returned: %s",
+			prepared.Body,
+		)
 	}
 	if _, ok := payload["parallel_tool_calls"]; ok {
 		t.Fatalf(
@@ -533,9 +503,11 @@ func TestAPIVariantOptionsRespectChatReasoningOwnership(t *testing.T) {
 				effort = ""
 			}
 			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-				Context: modelcontext.Bundle{Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
-					Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
-				}}},
+				Context: modelcontext.Bundle{
+					Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+						Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+					}},
+				},
 				Policy: model.RequestPolicy{ReasoningEffort: effort},
 			})
 			if err != nil {
@@ -547,7 +519,12 @@ func TestAPIVariantOptionsRespectChatReasoningOwnership(t *testing.T) {
 			}
 			if tc.wantEffortPresent {
 				if string(payload["reasoning_effort"]) != `"`+tc.wantEffort+`"` {
-					t.Fatalf("reasoning_effort = %s, want %q in %s", payload["reasoning_effort"], tc.wantEffort, prepared.Body)
+					t.Fatalf(
+						"reasoning_effort = %s, want %q in %s",
+						payload["reasoning_effort"],
+						tc.wantEffort,
+						prepared.Body,
+					)
 				}
 			} else if _, ok := payload["reasoning_effort"]; ok {
 				t.Fatalf("unexpected reasoning_effort: %s", prepared.Body)
@@ -1059,7 +1036,11 @@ func TestPrepareDefaultsOpenRouterCacheControlForClaudeModels(t *testing.T) {
 			}
 			if len(marks) != 1 || marks[0].role != "user" ||
 				marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "" {
-				t.Fatalf("cache_control marks = %+v, want ephemeral without ttl on the user block: %s", marks, prepared.Body)
+				t.Fatalf(
+					"cache_control marks = %+v, want ephemeral without ttl on the user block: %s",
+					marks,
+					prepared.Body,
+				)
 			}
 		})
 	}
@@ -1118,7 +1099,7 @@ func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastMessage(t *testing
 	}
 }
 
-func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *testing.T) {
+func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastUserMessage(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath,
 		ProviderModelSlug: "anthropic/claude-sonnet-4",
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
@@ -1128,10 +1109,6 @@ func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *tes
 		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
 			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
 		}},
-		ToolSpecs: []modelcontext.ToolSpec{
-			{Name: toolcatalog.ToolNameCreateMachine},
-			{Name: toolcatalog.ToolNameSendIntegrationMessage},
-		},
 	}})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -1277,7 +1254,12 @@ func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
 				t.Fatalf("session_id = %q, want %q: %s", payload.SessionID, wantSessionID, prepared.Body)
 			}
 			if payload.PromptCacheKey != wantPromptCacheKey {
-				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, wantPromptCacheKey, prepared.Body)
+				t.Fatalf(
+					"prompt_cache_key = %q, want %q: %s",
+					payload.PromptCacheKey,
+					wantPromptCacheKey,
+					prepared.Body,
+				)
 			}
 			if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
 				t.Fatalf("prompt_cache_retention must never be sent: %s", prepared.Body)

@@ -32,7 +32,6 @@ type Bundle struct {
 	Messages           []Message                `json:"messages"`
 	ToolSpecs          []ToolSpec               `json:"tool_specs"`
 	ToolResults        []ToolResultRef          `json:"tool_results"`
-	IntegrationTargets []IntegrationTargetRef   `json:"integration_targets,omitempty"`
 	ContextCheckpoint  *CheckpointRef           `json:"context_checkpoint,omitempty"`
 	ResolvedMedia      map[string]ResolvedMedia `json:"resolved_media,omitempty"`
 	RenderedMedia      []RenderedMedia          `json:"-"`
@@ -132,16 +131,6 @@ type ToolResultRef struct {
 	Input               json.RawMessage                  `json:"input"`
 	Outcome             executionstore.ToolResultOutcome `json:"-"`
 	ContentParts        json.RawMessage                  `json:"content_parts"`
-}
-
-type IntegrationTargetRef struct {
-	TargetRef       string `json:"target_ref"`
-	DurableID       string `json:"-"`
-	Provider        string `json:"provider"`
-	ProviderRefKind string `json:"provider_ref_kind"`
-	Label           string `json:"label"`
-	InstallState    string `json:"install_state,omitempty"`
-	IsCurrent       bool   `json:"is_current,omitempty"`
 }
 
 type CheckpointRef struct {

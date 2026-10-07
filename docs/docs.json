@@ -158,7 +158,10 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/slack"
+              "integrations/overview",
+              "integrations/slack",
+              "integrations/github",
+              "integrations/discord"
             ]
           }
         ]
@@ -170,7 +173,8 @@
             "group": "API reference",
             "pages": [
               "api/overview",
-              "api/authentication"
+              "api/authentication",
+              "integrations/custom-integrations"
             ]
           },
           {

@@ -22,6 +22,9 @@ func runFileTransferProbe() int {
 		os.Args[4] != fileTransferTestProcessID || os.Args[5] != "a file;$(false).md" {
 		return 2
 	}
+	if os.Getenv(gitCredentialCapabilityEnv) != "" {
+		return 3
+	}
 	result := os.NewFile(3, "file-transfer-result")
 	defer func() { _ = result.Close() }()
 	_, _ = os.Stdout.WriteString("stdout warning\n")
@@ -39,14 +42,19 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`
 	for _, tc := range []struct {
-		name, result string
-		exitCode     int
-		wantMetadata bool
-		wait         bool
-		wantState    daemonprotocol.ProcessState
-		wantReason   string
+		name, result           string
+		exitCode               int
+		wantMetadata           bool
+		wait                   bool
+		wantState              daemonprotocol.ProcessState
+		wantReason             string
+		gitCredentialsDisabled bool
 	}{
 		{name: "warnings", result: metadata, wantMetadata: true, wantState: daemonprotocol.ProcessStateExited},
+		{
+			name: "git credentials disabled", result: metadata, wantMetadata: true,
+			wantState: daemonprotocol.ProcessStateExited, gitCredentialsDisabled: true,
+		},
 		{name: "missing metadata", wantState: daemonprotocol.ProcessStateFailed, wantReason: "invalid_file_transfer_result"},
 		{
 			name: "invalid metadata", result: "not json",
@@ -94,17 +102,18 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 				env["FILE_TRANSFER_TEST_WAIT"] = "1"
 				timeoutSeconds = 1
 			}
-			fixture := newDetachedSupervisorTestFixture(t, ctx, ProcessAssignment{
-				ID: fileTransferTestProcessID,
-				Process: Process{
-					ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
-						Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
-						Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
-					}),
-					Cwd: t.TempDir(),
-				},
-				Env: env, WaitMs: 20, TimeoutSeconds: timeoutSeconds,
-			})
+			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx,
+				Config{GitCredentialsDisabled: tc.gitCredentialsDisabled}, ProcessAssignment{
+					ID: fileTransferTestProcessID, GitCredentials: tc.gitCredentialsDisabled,
+					Process: Process{
+						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+							Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
+							Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+						}),
+						Cwd: t.TempDir(),
+					},
+					Env: env, WaitMs: 20, TimeoutSeconds: timeoutSeconds,
+				})
 			fixture.acceptAndStart(t, ctx)
 			fixture.waitClosed(t, 10*time.Second)
 			report, event := fixture.terminalEvent(t)

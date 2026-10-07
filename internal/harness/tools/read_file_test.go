@@ -183,7 +183,7 @@ func TestReadFileDigestValidation(t *testing.T) {
 }
 
 func TestArtifactFilenameGuidance(t *testing.T) {
-	for _, name := range []string{"read_file", "search_files", "download_file", "send_integration_message"} {
+	for _, name := range []string{"read_file", "search_files", "download_file"} {
 		t.Run(name, func(t *testing.T) {
 			tool, ok, err := toolImplementationFor(name)
 			if err != nil || !ok {
@@ -195,8 +195,6 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 				input["args"] = []string{"-e", "hello"}
 			case "download_file":
 				input["destination"] = "report.pdf"
-			case "send_integration_message":
-				input = map[string]any{"text": "report", "paths": []string{"/artifacts/report.pdf"}}
 			}
 			raw, err := json.Marshal(input)
 			if err != nil {
@@ -208,6 +206,13 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 			}
 		})
 	}
+	t.Run("integration attachment", func(t *testing.T) {
+		_, _, err := (Executor{}).loadMessageAttachment(t.Context(), Turn{}, "/artifacts/report.pdf")
+		if err == nil || !strings.Contains(err.Error(), "artifacts are read by ID") ||
+			!strings.Contains(err.Error(), "use list_files") {
+			t.Fatalf("filename error = %v", err)
+		}
+	})
 }
 
 func TestIsViewableImageRequiresValidMatchingImage(t *testing.T) {

@@ -25,7 +25,6 @@ import {
 } from '@/components/agents/CreateAgentProfileButton'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { ProjectTag } from '@/components/agents/ProjectTag'
-import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert, Users } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -199,7 +198,6 @@ function AgentProfileList({
           emptyAction={emptyAction}
         />
       </div>
-      <SlackOAuthOutcomeDialog />
     </>
   )
 }

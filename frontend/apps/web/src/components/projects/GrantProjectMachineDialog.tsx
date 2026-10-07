@@ -1,5 +1,6 @@
 import { useGrantMachineToProject, useMachines, useProjectMachineGrants } from '@omnara/react'
 import { type VisibleMachine } from '@omnara/sdk'
+import { useId } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -56,6 +57,7 @@ export function GrantProjectMachineDialog({
       onOpenChange(false)
     },
   })
+  const inputId = useId()
   const search = useTypeaheadSearch()
   const machinesQuery = useMachines(orgId, {
     filters: { source_kind: 'byo', ...search.filters },
@@ -89,8 +91,9 @@ export function GrantProjectMachineDialog({
         <form onSubmit={(event) => void batch.submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Machines</FieldLabel>
+              <FieldLabel htmlFor={inputId}>Machines</FieldLabel>
               <MachineMultiCombobox
+                id={inputId}
                 items={machines}
                 value={batch.items}
                 onValueChange={batch.setItems}

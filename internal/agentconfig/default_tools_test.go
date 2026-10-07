@@ -86,6 +86,7 @@ func TestDefaultMachineTools(t *testing.T) {
 				slices.Sort(wantTools)
 			}
 			for _, supportsTools := range []bool{true, false} {
+				expected := slices.Clone(wantTools)
 				opts := testMachineSourceCompileOptions(t)
 				opts.ResolveModelSelection = func(_, _ string) (ResolvedModelSelection, error) {
 					return ResolvedModelSelection{ConfiguredModelID: publicidTestID(93), SupportsTools: &supportsTools}, nil
@@ -119,7 +120,7 @@ func TestDefaultMachineTools(t *testing.T) {
 						t.Fatalf("%s permission = %s, want %s", tool.Name, tool.Permission.Mode, wantPermission)
 					}
 				}
-				if diff := cmp.Diff(wantTools, got); diff != "" {
+				if diff := cmp.Diff(expected, got); diff != "" {
 					t.Fatalf("tools mismatch (-want +got):\n%s", diff)
 				}
 			}

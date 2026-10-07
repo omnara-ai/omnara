@@ -1,5 +1,6 @@
 const scopedSections = [
   'agents',
+  'integrations',
   'usage',
   'models',
   'machines',
@@ -11,6 +12,7 @@ type ScopedSection = (typeof scopedSections)[number]
 
 export const projectPaths = {
   agents: '/projects/$projectId/agents',
+  integrations: '/projects/$projectId/integrations',
   usage: '/projects/$projectId/usage',
   models: '/projects/$projectId/models',
   machines: '/projects/$projectId/machines',
@@ -28,7 +30,7 @@ export const organizationPaths = {
   skills: '/skills',
 } as const satisfies Partial<Record<ScopedSection, string>>
 
-/** Whether the section also has an all-projects page; memory is project-only. */
+/** Whether the section also has an all-projects page. */
 export function hasOrganizationPath(
   section: ScopedSection,
 ): section is keyof typeof organizationPaths {

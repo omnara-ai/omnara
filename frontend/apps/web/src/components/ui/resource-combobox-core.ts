@@ -4,6 +4,7 @@ export interface ResourceComboboxConfig<TItem> {
   itemKey: (item: TItem) => string
   itemLabel: (item: TItem) => string
   renderItem?: (item: TItem) => ReactNode
+  renderValue?: (item: TItem) => ReactNode
   placeholder: string
   emptyMessage?: string
 }

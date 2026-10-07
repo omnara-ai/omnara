@@ -3,12 +3,12 @@
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
+        coalesce(sqlc.narg(id)::uuid, uuidv7()), sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
         sqlc.narg(archive_after_idle_minutes),
@@ -21,12 +21,12 @@ WITH inserted AS (
       AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, org_id, project_id, state, name,
-              agent_profile_id, current_config_id, integration_target_id,
+              agent_profile_id, current_config_id, interaction_target_id,
               idempotency_key, next_event_sequence, created_at, updated_at, archived_at,
               parent_agent_id, subagent_key
 )
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -55,7 +55,7 @@ SELECT pg_advisory_xact_lock(
 -- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -76,7 +76,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
 
 -- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,
-       agent_profile_id, current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, interaction_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at,
        parent_agent_id, subagent_key
@@ -87,7 +87,7 @@ WHERE id = $1;
 -- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -114,7 +114,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -122,10 +122,10 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name,
@@ -134,23 +134,16 @@ SELECT agent.id,
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_provider' THEN lower(install.provider)
-         WHEN 'integration_target_kind' THEN lower(target.provider_ref_kind)
-       END::text AS sort_key,
-       CASE sqlc.arg(sort_field)::text
-         WHEN 'integration_provider' THEN target.id IS NULL
-         WHEN 'integration_target_kind' THEN target.id IS NULL
-         ELSE false
-       END AS sort_is_null
+       END::text AS sort_key
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -164,30 +157,23 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
-  AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
-  AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
-       integration_target_id, idempotency_key,
+       interaction_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
-       archived_at, parent_agent_id, subagent_key, integration_target_provider,
-       integration_target_provider_tenant_id, integration_target_provider_ref,
-       integration_target_provider_ref_kind,
+       archived_at, parent_agent_id, subagent_key, integration_target_integration_kind,
+       integration_target_provider_tenant_id, integration_target_scope_ref,
+       integration_target_scope_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key, sort_is_null
+       model_provider_config_name, sort_key
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
-   OR sort_is_null > sqlc.arg(cursor_is_null)::boolean
-   OR (sort_is_null = sqlc.arg(cursor_is_null)::boolean AND (
-        (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
-     OR (sqlc.arg(sort_desc)::boolean = true AND (sort_key, id) < (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
-   ))
-ORDER BY sort_is_null ASC,
-         CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
+   OR (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
+   OR (sqlc.arg(sort_desc)::boolean = true AND (sort_key, id) < (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
+ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN sort_key END DESC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN id END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
@@ -201,7 +187,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -209,10 +195,10 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -220,11 +206,11 @@ FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -238,9 +224,6 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
-  AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
-  AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
@@ -259,7 +242,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -267,10 +250,10 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -278,11 +261,11 @@ FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -320,7 +303,7 @@ SELECT EXISTS (
 );
 
 -- name: LockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE;

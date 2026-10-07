@@ -1,38 +1,10 @@
 import { type Cookie, expect, type Page } from '@playwright/test'
 
-export function requiredEnvironmentVariable(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is required. Run \`make web-e2e\` from the repository root.`)
-  return value
-}
+import { requiredEnvironmentVariable } from './fixtures'
+
+export { installFailureTracking, requiredEnvironmentVariable } from './fixtures'
 
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
-
-export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
-  const failures: string[] = []
-  const record = (failure: string) => {
-    if (!ignore.some((pattern) => pattern.test(failure))) failures.push(failure)
-  }
-
-  page.on('pageerror', (error) => {
-    record(`page: ${error.message}`)
-  })
-  page.on('requestfailed', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
-    // Leaving a page cancels the queries it still had in flight; an aborted read isn't a failure.
-    if (request.method() === 'GET' && request.failure()?.errorText === 'net::ERR_ABORTED') return
-    record(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
-  })
-  page.on('response', (response) => {
-    const url = new URL(response.url())
-    if (response.status() === 401 && url.pathname === '/api/v1/me') return
-    if (response.status() >= 400) {
-      record(`response: ${response.status()} ${url.pathname}`)
-    }
-  })
-
-  return failures
-}
 
 const sessionCookies = new Map<string, Cookie[]>()
 

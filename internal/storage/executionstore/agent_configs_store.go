@@ -350,6 +350,23 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
+func validateSavedAgentConfigContractTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	config AgentConfigRecord,
+) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
+	return lockAndValidateAgentConfigModelContractTx(ctx, qtx, CreateAgentConfigInput{
+		OrgID:                   config.OrgID,
+		ProjectID:               config.ProjectID,
+		ConfiguredModelID:       config.ConfiguredModelID,
+		CompiledDefinition:      config.CompiledDefinition,
+		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+	})
+}
+
 func lockAgentConfigForUseTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

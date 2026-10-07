@@ -265,34 +265,6 @@ WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
   AND id = sqlc.arg(id);
 
--- name: ReleaseToolCallRuntimeOwnership :execrows
-WITH live_runtime AS MATERIALIZED (
-  SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
-  FROM agent_runtime_locks runtime_lock
-  JOIN agents agent ON agent.id = runtime_lock.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND runtime_lock.agent_id = sqlc.arg(agent_id)
-    AND runtime_lock.id = sqlc.arg(runtime_lock_id)
-    AND runtime_lock.cancel_requested_at IS NULL
-    AND runtime_lock.lease_expires_at > statement_timestamp()
-)
-UPDATE tool_calls call
-SET state = 'waiting',
-    runtime_lock_id = NULL
-FROM live_runtime runtime_lock
-WHERE call.agent_id = runtime_lock.agent_id
-  AND call.id = sqlc.arg(id)
-  AND call.state = 'running'
-  AND call.runtime_lock_id = runtime_lock.id
-  AND EXISTS (
-    SELECT 1
-    FROM agent_interactions interaction
-    WHERE interaction.agent_id = call.agent_id
-      AND interaction.tool_call_id = call.id
-      AND interaction.interaction_kind = 'question'
-      AND interaction.state = 'open'
-  );
-
 -- name: RequeueRuntimeToolCall :execrows
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id

@@ -58,13 +58,9 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	agent, err := loadAgentInProjectTx(ctx, tx, trigger.ProjectID, trigger.Target.ID)
-	if err != nil {
-		return err
-	}
 	// Input creation locks the agent before completion locks the trigger, matching
 	// the lock order used when archiving an agent and deleting its cron triggers.
-	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, agent, contentInput, contentBlocks); err != nil {
+	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, contentInput, contentBlocks); err != nil {
 		return err
 	}
 	if err := completeCronTriggerFiringTx(ctx, qtx, CompleteCronTriggerFiringInput{

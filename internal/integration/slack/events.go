@@ -83,6 +83,7 @@ type historyResponse struct {
 }
 
 type HistoryMessage struct {
+	Channel  string         `json:"channel,omitempty"`
 	User     string         `json:"user"`
 	BotID    string         `json:"bot_id"`
 	Text     string         `json:"text"`
@@ -175,11 +176,15 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 	if len(lines) == 0 {
 		return ""
 	}
-	return "Recent Slack context:\n" + strings.Join(lines, "\n")
+	heading := "Recent Slack context:"
+	if event.ThreadTS != "" && event.ThreadTS != event.TS {
+		heading = "Earlier Slack thread context (first page, oldest-first; newer replies may be omitted):"
+	}
+	return heading + "\n" + strings.Join(lines, "\n")
 }
 
 func ShouldFetchRecentContext(route InboundRoute, newlyMapped bool) bool {
-	return route.ProviderRefKind == "thread" && newlyMapped
+	return route.ScopeKind == "thread" && newlyMapped
 }
 
 func InboundEventMetadata(
@@ -197,7 +202,7 @@ func InboundEventMetadata(
 		"channel":        envelope.Event.Channel,
 		"channel_type":   envelope.Event.ChannelType,
 		"message_ts":     envelope.Event.TS,
-		"provider_ref":   route.ProviderRef,
+		"provider_ref":   route.ScopeRef,
 		"history_status": historyStatus,
 	}
 	if len(files) > 0 {
@@ -299,9 +304,9 @@ func EventCallbackEnvelope(envelope EventsEnvelope) bool {
 }
 
 type InboundRoute struct {
-	ProviderRef     string
-	ProviderRefKind string
-	AppendOnly      bool
+	ScopeRef   string
+	ScopeKind  string
+	AppendOnly bool
 }
 
 func ValidateRuntimeBotAuthorization(identity Identity, envelope EventsEnvelope) bool {
@@ -338,6 +343,21 @@ func BotOrSelfEvent(botUserID string, event Event) bool {
 		event.Subtype == "bot_message"
 }
 
+func ConversationalMessage(event Event) bool {
+	if event.Type != "message" && event.Type != "app_mention" {
+		return false
+	}
+	switch event.Subtype {
+	case "", "file_share":
+		return true
+	case "thread_broadcast":
+		// A broadcast is the same reply in its original thread, never a new root.
+		return event.Type == "message" && event.ThreadTS != "" && event.ThreadTS != event.TS
+	default:
+		return false
+	}
+}
+
 func DisabledInstallEvent(botUserID string, event Event) bool {
 	return event.Type == "app_uninstalled" || revokedInstallToken(botUserID, event)
 }
@@ -358,53 +378,6 @@ func revokedInstallToken(botUserID string, event Event) bool {
 	return false
 }
 
-func InboundRouting(botUserID string, event Event) (InboundRoute, bool) {
-	if event.Channel == "" || event.TS == "" {
-		return InboundRoute{}, false
-	}
-	switch event.Type {
-	case "app_mention":
-		threadTS := event.ThreadTS
-		if threadTS == "" {
-			threadTS = event.TS
-		}
-		return InboundRoute{ProviderRef: event.Channel + ":" + threadTS, ProviderRefKind: "thread"}, true
-	case "message":
-		if event.Subtype != "" && event.Subtype != "file_share" {
-			return InboundRoute{}, false
-		}
-		switch event.ChannelType {
-		case "im":
-			return InboundRoute{ProviderRef: event.Channel, ProviderRefKind: "dm"}, true
-		case "channel", "group", "mpim":
-			isExistingThreadReply := event.ThreadTS != "" && event.ThreadTS != event.TS
-			targetTS := event.TS
-			if isExistingThreadReply {
-				targetTS = event.ThreadTS
-			}
-			if event.Subtype == "file_share" && len(event.Files) > 0 {
-				return InboundRoute{
-					ProviderRef:     event.Channel + ":" + targetTS,
-					ProviderRefKind: "thread",
-					AppendOnly:      !textMentionsBot(event.Text, botUserID),
-				}, true
-			}
-			if !isExistingThreadReply || textMentionsBot(event.Text, botUserID) {
-				return InboundRoute{}, false
-			}
-			return InboundRoute{
-				ProviderRef:     event.Channel + ":" + targetTS,
-				ProviderRefKind: "thread",
-				AppendOnly:      true,
-			}, true
-		default:
-			return InboundRoute{}, false
-		}
-	default:
-		return InboundRoute{}, false
-	}
-}
-
 func InputIdempotencyKeyPair(envelope EventsEnvelope) (currentEventKey, siblingEventKey string) {
 	team := envelope.TeamID
 	if team == "" {
@@ -417,18 +390,6 @@ func InputIdempotencyKeyPair(envelope EventsEnvelope) (currentEventKey, siblingE
 		return fileMessageKey, plainMessageKey
 	}
 	return plainMessageKey, fileMessageKey
-}
-
-func textMentionsBot(text, botUserID string) bool {
-	if botUserID == "" {
-		return false
-	}
-	for _, userID := range userMentionIDs(text) {
-		if userID == botUserID {
-			return true
-		}
-	}
-	return false
 }
 
 func ModelInputTextParts(
@@ -455,10 +416,10 @@ func ModelInputTextParts(
 }
 
 func routeThreadTS(route InboundRoute) string {
-	if route.ProviderRefKind != "thread" {
+	if route.ScopeKind != "thread" {
 		return ""
 	}
-	_, threadTS, ok := strings.Cut(route.ProviderRef, ":")
+	_, threadTS, ok := strings.Cut(route.ScopeRef, ":")
 	if !ok {
 		return ""
 	}
@@ -468,7 +429,7 @@ func routeThreadTS(route InboundRoute) string {
 func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) string {
 	switch {
 	case route.AppendOnly:
-		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to call `send_integration_message` at all."
+		return "This Slack thread may include multiple participants, and not every message is necessarily directed at you. Use your judgment to decide whether to use your Slack messaging tool at all."
 	case event.Type == "app_mention" && event.ThreadTS != "" && event.ThreadTS != event.TS:
 		if newlyMapped {
 			return "This message directly mentioned the agent inside an existing Slack thread."
@@ -479,7 +440,7 @@ func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) stri
 			return "The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent."
 		}
 		return "This message directly mentioned the agent in a Slack thread that is already attached to this agent."
-	case route.ProviderRefKind == "thread":
+	case route.ScopeKind == "thread":
 		return "This message was routed to a Slack thread attached to this agent."
 	default:
 		return "This message was received from Slack."

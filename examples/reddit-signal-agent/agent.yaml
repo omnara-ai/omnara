@@ -64,7 +64,7 @@ instruction: |
   - suggested action: reply, track the author, or ignore
 
   Deliver. When this conversation is driven through an integration such as
-  Slack, send the digest with send_integration_message; the external user
+  Slack, send the digest with the integration's qualified posting tool (for example, `int__engineering__post_message`); the external user
   only sees messages sent that way. Otherwise present the digest directly in
   the conversation. If someone replies asking for a draft, write the reply
   text for a human to post. Never post to Reddit yourself.

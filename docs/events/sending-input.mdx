@@ -107,11 +107,28 @@ An **actor** solves this. It's not another kind of account — it's a lightweigh
 
 Omnara reuses an actor when its `provider_tenant_id` and `provider_user_id` match an existing record. You can also pass an actor when [resolving an interaction](/events/interactions) or [stopping current work](/agents/overview#stop-current-work).
 
+Hosted integrations record senders with `provider: "integration"`, a stable platform
+namespace as `provider_tenant_id`, and the sender’s platform user ID as
+`provider_user_id`. Slack uses `slack:<workspace ID>`, Discord uses `discord`, and
+GitHub uses `github:github.com`. Within a project, the same person shares an actor
+across configured bots and integration kinds on that platform. Projects, Slack
+workspaces, and platforms keep separate identities. Actors are attribution records,
+not permissions. Their saved `metadata.source_label` identifies the platform in the
+timeline even after an integration is deleted.
+
 Actors belong to a project and can be listed, fetched, or created through the API. Omit `actor` when the request is authenticated as an Omnara user; their account already provides the attribution.
 
 <Info>
 Full schemas and playground: [List project actors](/api-reference/endpoints/actors/list-project-actors) · [Upsert an external actor](/api-reference/endpoints/actors/upsert-an-external-actor) · [Get a project actor](/api-reference/endpoints/actors/get-a-project-actor).
 </Info>
+
+## Inputs from your own app
+
+Your service chooses which agent receives each provider event and submits an
+ordinary input. Pass an `actor` to attribute the message, and use a stable
+`Idempotency-Key` for retries. Your service owns the conversation-to-agent mapping;
+Omnara does not need an integration registration. See [Custom integrations](/integrations/custom-integrations)
+for the complete input, custom-tool and interaction flow.
 
 ## Next
 

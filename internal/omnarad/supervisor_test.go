@@ -136,6 +136,11 @@ func TestSupervisorManualRestartResetsBackoff(t *testing.T) {
 			t.Setenv("OMNARA_MACHINE_TOKEN", "")
 			t.Setenv("OMNARA_NO_UPDATE", "")
 			t.Setenv("OMNARA_RUNNER_PATH", "/temporary/bin")
+			writeTestDaemonConfig(t, home, daemonConfig{
+				SchemaVersion: daemonConfigVersion, APIURL: defaultAPIURL,
+				InstallationID: "inst-test", MachineID: "mch-test", MachineToken: "token",
+				GitCredentialsDisabled: true,
+			})
 			writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
 printf x >> "$SUPERVISOR_COUNT"
 if [ "$(wc -c < "$SUPERVISOR_COUNT")" -eq 3 ] && [ "$SUPERVISOR_WAIT" = true ]; then
@@ -168,6 +173,11 @@ exit 7
 			require.NoError(t, <-done)
 			_, set := os.LookupEnv("OMNARA_RUNNER_PATH")
 			require.False(t, set)
+			_, set = os.LookupEnv("OMNARA_GIT_CREDENTIALS")
+			require.False(t, set)
+			config, _, _, err := loadRuntimeConfig(true)
+			require.NoError(t, err)
+			require.True(t, config.GitCredentialsDisabled)
 		})
 	}
 }

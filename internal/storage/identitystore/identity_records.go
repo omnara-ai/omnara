@@ -71,10 +71,6 @@ const (
 	ProjectActionSecretsManage = authz.ProjectSecretsManage
 	AgentActionRead            = authz.AgentRead
 	AgentActionOperate         = authz.AgentOperate
-
-	ActorProviderOmnara   = "omnara"
-	ActorProviderSlack    = "slack"
-	ActorProviderExternal = "external"
 )
 
 func ProjectRolesAllow(roles []string, action string) bool {

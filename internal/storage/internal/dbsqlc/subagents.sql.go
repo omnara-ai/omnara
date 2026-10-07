@@ -315,6 +315,7 @@ SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
        agent.name AS agent_name, agent.subagent_key
 FROM agent_interaction_read_projection interaction
 JOIN agents agent ON agent.project_id = interaction.project_id
@@ -340,22 +341,24 @@ type ListAgentInteractionsForAgentsParams struct {
 }
 
 type ListAgentInteractionsForAgentsRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    string
-	State              string
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  *uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         *time.Time
-	AgentName          string
-	SubagentKey        string
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+	AgentName           string
+	SubagentKey         string
 }
 
 func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAgentInteractionsForAgentsParams) ([]ListAgentInteractionsForAgentsRow, error) {
@@ -389,6 +392,8 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
 			&i.AgentName,
 			&i.SubagentKey,
 		); err != nil {

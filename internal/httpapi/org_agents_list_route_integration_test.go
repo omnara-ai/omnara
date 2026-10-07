@@ -135,6 +135,12 @@ func TestListOrgAgentsAndProfiles(t *testing.T) {
 		map[string]string{secondAgentID: secondProject.ProjectID})
 	assertOrgRows(t, "viewer profiles", listOrgRows(t, handler, orgPath+"/agent-profiles", viewerPAT.Token),
 		map[string]string{secondProfileID: secondProject.ProjectID})
+	assertOrgRows(t, "viewer cannot filter into another project", listOrgRows(
+		t, handler, orgPath+"/agents?agent_profile_id="+firstProfileID+"&include_usage=true", viewerPAT.Token,
+	), map[string]string{})
+	assertOrgRows(t, "viewer can filter readable agents", listOrgRows(
+		t, handler, orgPath+"/agents?agent_profile_id="+secondProfileID+"&include_usage=true", viewerPAT.Token,
+	), map[string]string{secondAgentID: secondProject.ProjectID})
 
 	outsider, err := storagetest.CreateVerifiedUser(
 		ctx,

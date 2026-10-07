@@ -47,6 +47,29 @@ func TestRenderMessage(t *testing.T) {
 	}
 }
 
+func TestRenderMessageRejectsDatabaseUnsafeOutput(t *testing.T) {
+	for _, test := range []struct{ name, template, trigger string }{
+		{name: "literal NUL", template: "before\x00after", trigger: "sample"},
+		{name: "escaped NUL", template: `{{ "\x00" }}`, trigger: "sample"},
+		{name: "printf NUL", template: `{{ printf "%c" 0 }}`, trigger: "sample"},
+		{name: "escaped non-UTF-8", template: `{{ "\xff" }}`, trigger: "sample"},
+		{name: "NUL from data", template: `Run {{ .trigger.name }}`, trigger: "before\x00after"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := MessageData(test.trigger, time.Time{}, nil)
+			if _, err := RenderMessage(test.template, data); err == nil {
+				t.Fatal("expected database-unsafe rendered text to be rejected")
+			}
+		})
+	}
+}
+
+func TestValidateMessageTemplateRejectsUnrenderedNUL(t *testing.T) {
+	if err := ValidateMessageTemplate("{{/* before\x00after */}}ok"); err == nil {
+		t.Fatal("expected NUL in the persisted template source to be rejected")
+	}
+}
+
 func TestRenderMessageRejectsOversizedSource(t *testing.T) {
 	data := MessageData("sample", time.Time{}, nil)
 	if _, err := RenderMessage(strings.Repeat("a", MaxMessageTemplateBytes+1), data); err == nil {

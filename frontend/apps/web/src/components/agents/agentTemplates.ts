@@ -81,6 +81,7 @@ export function agentTemplateBasicConfig(
   defaultModel?: ConfiguredModelSummary,
 ): BasicConfig {
   return {
+    interactionHandlers: {},
     mcpServers: [],
     eventWebhookEvents: ['tool_call_update'],
     eventWebhookUrl: '',

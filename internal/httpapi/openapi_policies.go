@@ -61,6 +61,13 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
+	operationCreateIntegrationOAuthSetup           operationID = "CreateIntegrationOAuthSetup"
+	operationCreateIntegrationSlackSetup           operationID = "CreateIntegrationSlackSetup"
+	operationCreateIntegrationGitHubSetup          operationID = "CreateIntegrationGitHubSetup"
+	operationInspectIntegrationGitHubInstallations operationID = "InspectIntegrationGitHubInstallations"
+)
+
+const (
 	operationAcceptInvitation              operationID = "AcceptInvitation"
 	operationBootstrapDaemon               operationID = "BootstrapDaemon"
 	operationCancelAgent                   operationID = "CancelAgent"
@@ -75,7 +82,6 @@ const (
 	operationCreateConfiguredModel         operationID = "CreateConfiguredModel"
 	operationListToolCalls                 operationID = "ListToolCalls"
 	operationSubmitToolCallResult          operationID = "SubmitToolCallResult"
-	operationCreateIntegrationOAuthSetup   operationID = "CreateIntegrationOAuthSetup"
 	operationCreateMachine                 operationID = "CreateMachine"
 	operationCreateMachinePool             operationID = "CreateMachinePool"
 	operationCreateModelProviderConfig     operationID = "CreateModelProviderConfig"
@@ -102,8 +108,19 @@ const (
 	operationCreateProjectMachineGrant     operationID = "CreateProjectMachineGrant"
 	operationCreateProjectMachinePoolGrant operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
-	operationCreateSlackSetup              operationID = "CreateSlackSetup"
 	operationCreateCronTrigger             operationID = "CreateCronTrigger"
+	operationConfigureIntegration          operationID = "ConfigureIntegration"
+	operationDisconnectIntegration         operationID = "DisconnectIntegration"
+	operationListIntegrationDefinitions    operationID = "ListIntegrationDefinitions"
+
+	operationCreateIntegration             operationID = "CreateIntegration"
+	operationUpdateIntegration             operationID = "UpdateIntegration"
+	operationDeleteIntegration             operationID = "DeleteIntegration"
+	operationGetIntegration                operationID = "GetIntegration"
+	operationListIntegrations              operationID = "ListIntegrations"
+	operationListIntegrationSubscriptions  operationID = "ListIntegrationSubscriptions"
+	operationCreateIntegrationSubscription operationID = "CreateIntegrationSubscription"
+	operationDeleteIntegrationSubscription operationID = "DeleteIntegrationSubscription"
 	operationListCronTriggers              operationID = "ListCronTriggers"
 	operationGetCronTrigger                operationID = "GetCronTrigger"
 	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
@@ -112,7 +129,6 @@ const (
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
 	operationDeleteCurrentUser             operationID = "DeleteCurrentUser"
-	operationDeleteIntegrationInstall      operationID = "DeleteIntegrationInstall"
 	operationDeleteOrganization            operationID = "DeleteOrganization"
 	operationDeleteProject                 operationID = "DeleteProject"
 	operationDeleteConfiguredModel         operationID = "DeleteConfiguredModel"
@@ -129,6 +145,7 @@ const (
 	operationGetArtifact                   operationID = "GetArtifact"
 	operationGetArtifactContent            operationID = "GetArtifactContent"
 	operationGetCurrentUser                operationID = "GetCurrentUser"
+	operationGetDaemonGitCredentials       operationID = "GetDaemonGitCredentials"
 	operationGetDaemonSkillArchive         operationID = "GetDaemonSkillArchive"
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
@@ -167,7 +184,6 @@ const (
 	operationListBYOMachineDaemonTokens    operationID = "ListBYOMachineDaemonTokens"
 	operationListConfiguredModels          operationID = "ListConfiguredModels"
 	operationListEvents                    operationID = "ListEvents"
-	operationListIntegrationInstalls       operationID = "ListIntegrationInstalls"
 	operationListMachinePools              operationID = "ListMachinePools"
 	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
@@ -251,8 +267,17 @@ func (a operationAuthorizer) policy(operation operationID) (operationPolicy, boo
 }
 
 var openAPIOperationPolicies = map[operationID]operationPolicy{
+	operationCreateIntegrationOAuthSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationSlackSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationGitHubSetup: browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationInspectIntegrationGitHubInstallations: browserSessionPolicy(
+		projectScope(identitystore.ProjectActionManage),
+	),
 	operationGetCurrentUser:    userPolicy(noScope()),
 	operationDeleteCurrentUser: userPolicy(noScope()),
+	operationGetDaemonGitCredentials: machineDaemonPolicy(
+		customScope("machine daemon token + active process with original and current Git credentials authority"),
+	),
 	operationGetDaemonSkillArchive: machineDaemonPolicy(
 		customScope("machine daemon token + machine-bound download capability"),
 	),
@@ -354,14 +379,22 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 
 	operationCreateAgentConfig:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationResolveAgentConfigTools:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationDeleteIntegrationInstall:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateIntegrationOAuthSetup:   userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateSlackSetup:              userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationConfigureIntegration:          userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDisconnectIntegration:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListIntegrationDefinitions:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegration:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrations:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrationSubscriptions:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -372,7 +405,6 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrationInstalls:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListVisibleProjectMachines:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgents:                    accountPolicy(projectScope(identitystore.AgentActionRead)),
 	operationListActors:                    accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -393,36 +425,33 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationUpdateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationDeleteProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-
-	operationGetAgent:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListQueuedBacklogInputs:      accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListEvents:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListTurns:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListTurnEvents:               accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationStreamEvents:                 accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListAgentInteractions:        accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationGetArtifact:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationGetArtifactContent:           accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationCancelAgent:                  accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationArchiveAgent:                 accountPolicy(agentScope(identitystore.ProjectActionManage)),
-	operationCancelQueuedBacklogInput:     accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationMoveQueuedBacklogInput:       accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationPromoteQueuedInputToSteering: accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationDemoteSteeringInputToQueued:  accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationCreateAgentInput:             accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationListToolCalls:                accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationSubmitToolCallResult:         accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationResolveAgentInteraction:      accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationUpdateAgentConfig:            accountPolicy(agentScope(identitystore.ProjectActionManage)),
-
-	operationGetMachine:                  accountPolicy(machineScope(executionstore.MachineActionRead)),
-	operationUpdateMachine:               accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationDeleteMachine:               accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationListBYOMachineDaemonTokens:  accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationCreateBYOMachineDaemonToken: accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationRevokeMachineDaemonToken:    accountPolicy(machineScope(executionstore.MachineActionManage)),
-
-	operationCreateProjectMachineGrant: accountPolicy(customScope("project access-manage + BYO machine manage")),
+	operationGetAgent:                      accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListQueuedBacklogInputs:       accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListEvents:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListTurns:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListTurnEvents:                accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationStreamEvents:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListAgentInteractions:         accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetArtifact:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetArtifactContent:            accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationCancelAgent:                   accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationArchiveAgent:                  accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationCancelQueuedBacklogInput:      accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationMoveQueuedBacklogInput:        accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationPromoteQueuedInputToSteering:  accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationDemoteSteeringInputToQueued:   accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationCreateAgentInput:              accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationListToolCalls:                 accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationSubmitToolCallResult:          accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationResolveAgentInteraction:       accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationUpdateAgentConfig:             accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationGetMachine:                    accountPolicy(machineScope(executionstore.MachineActionRead)),
+	operationUpdateMachine:                 accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationDeleteMachine:                 accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationListBYOMachineDaemonTokens:    accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationCreateBYOMachineDaemonToken:   accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationRevokeMachineDaemonToken:      accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationCreateProjectMachineGrant:     accountPolicy(customScope("project access-manage + BYO machine manage")),
 	operationDeleteProjectMachineGrant: accountPolicy(
 		customScope("project access-manage + machine manage on the grant's machine"),
 	),

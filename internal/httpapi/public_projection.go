@@ -8,10 +8,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.Agent, error) {
@@ -50,13 +50,22 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 		ArchivedAt: record.ArchivedAt,
 	}
 	if record.IntegrationTarget.Provider != "" &&
-		record.IntegrationTarget.ProviderRef != "" &&
-		record.IntegrationTarget.ProviderRefKind != "" {
+		record.IntegrationTarget.ScopeRef != "" &&
+		record.IntegrationTarget.ScopeKind != "" {
+		scope, err := integrationdefinition.ParseConversation(
+			record.IntegrationTarget.Provider, record.IntegrationTarget.ScopeKind, record.IntegrationTarget.ScopeRef,
+		)
+		if err != nil {
+			return openapi.Agent{}, err
+		}
+		conversation, err := scope.ConversationJSON()
+		if err != nil {
+			return openapi.Agent{}, err
+		}
 		target := openapi.IntegrationTarget{
-			Provider:        record.IntegrationTarget.Provider,
-			ProviderRef:     record.IntegrationTarget.ProviderRef,
-			ProviderRefKind: record.IntegrationTarget.ProviderRefKind,
-			DisplayName:     record.IntegrationTarget.DisplayName,
+			Provider:     string(record.IntegrationTarget.Provider),
+			Conversation: conversation,
+			DisplayName:  record.IntegrationTarget.DisplayName,
 		}
 		if providerURI := integrationTargetProviderURI(record.IntegrationTarget); providerURI != "" {
 			target.ProviderUri = &providerURI
@@ -93,8 +102,8 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 
 func integrationTargetProviderURI(target executionstore.IntegrationTargetDisplay) string {
 	switch target.Provider {
-	case integrationstore.IntegrationProviderSlack:
-		return slack.ConversationURI(target.ProviderTenantID, target.ProviderRef)
+	case integrationdefinition.ProviderSlack:
+		return slack.ConversationURI(target.ProviderTenantID, target.ScopeRef)
 	default:
 		return ""
 	}

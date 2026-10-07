@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { mcpToolEnabled, unexposableMcpTools } from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
@@ -9,8 +10,6 @@ import {
   type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
-  mcpToolEnabled,
-  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {

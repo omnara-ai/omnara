@@ -1,12 +1,27 @@
+import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 import {
+  connectIntegrationWithCredentialRetry,
+  expectIntegrationCapabilities,
+  expectInteractionToolMenu,
+  fillProviderAccount,
   installFailureTracking,
+  installIntegrationFailureTracking,
+  integrationCreation,
+  openIntegrationSetup,
+  readIntegration,
   requiredEnvironmentVariable,
-  signIn,
-  signInThroughLoginForm,
-} from './helpers'
+} from './fixtures'
+import { signIn, signInThroughLoginForm } from './helpers'
+import { exerciseGuidedGitHubSetup } from './integration-github'
+import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
+import { exerciseSlackIntegrationSetup } from './integration-slack'
+import {
+  exerciseIntegrationConversations,
+  stopDisconnectedConversation,
+} from './integration-subscriptions'
 
 const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
 const orgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_ORG_NAME')
@@ -39,10 +54,16 @@ async function createProfile(page: Page, name: string, instruction: string) {
   await page.getByLabel('Instruction').fill(instruction)
   await selectConfiguredModel(page)
   await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/agent-profiles'),
+  )
   await page.getByRole('button', { name: 'Create profile' }).click()
   await expect(page).toHaveURL(
     new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
   )
+  return schemas.zAgentProfile.parse(await (await created).json())
 }
 
 function uniqueName(base: string) {
@@ -61,8 +82,16 @@ async function replaceConfigEditor(page: Page, text: string) {
   const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
   await expect(editor).toBeVisible()
   await editor.focus()
+  // Desktop Chrome uses a Windows user agent, which selects Monaco's Ctrl
+  // bindings even on macOS. Paste avoids typing auto-closing extra JSON quotes.
   await page.keyboard.press('Control+A')
-  await page.keyboard.insertText(text)
+  await editor.evaluate((element, value) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', value)
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
+    )
+  }, text)
 }
 
 async function visitAgentsTabAndReturn(page: Page) {
@@ -191,20 +220,12 @@ test('creates an agent with the Builder', async ({ page }) => {
   await expect(page.getByText('No skills attached', { exact: true })).toHaveCount(0)
   await expect(page.getByText('No MCP servers', { exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Add tools' }).click()
-  await expect(page.getByRole('menuitem', { name: 'skill', exact: true })).toHaveCount(0)
-  await expect(
-    page.getByRole('menuitem', { name: 'send_integration_message', exact: true }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('menuitem', { name: 'set_integration_target', exact: true }),
-  ).toHaveCount(0)
-  await page.keyboard.press('Escape')
-
   const agentName = uniqueName('Builder Agent')
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
+
+  await expectInteractionToolMenu(page)
 
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.press('m')
@@ -432,23 +453,24 @@ test('renames a profile from its detail page', async ({ page }) => {
 
 test('deletes a profile from its detail page', async ({ page }) => {
   const failures = installFailureTracking(page, [
-    /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
     /^response: 404 .*\/agent-profiles\/aprf_[a-z2-7]+$/,
   ])
   const profileName = uniqueName('Deleted Profile E2E')
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
 
   page.once('dialog', (dialog) => void dialog.accept())
-  const agentsListed = page.waitForResponse(
+  const profilesListed = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname.endsWith(`/projects/${projectID}/agents`) && response.ok(),
+      response.request().method() === 'GET' &&
+      new URL(response.url()).pathname.endsWith(`/projects/${projectID}/agent-profiles`) &&
+      response.ok(),
   )
   await page.getByRole('button', { name: 'Delete profile' }).click()
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
   await expect(page.getByText(profileName)).toHaveCount(0)
-  await agentsListed
+  await (await profilesListed).finished()
 
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()
@@ -475,9 +497,6 @@ test('edits a profile with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
 
-  await page.getByRole('button', { name: 'Integrations' }).click()
-  await expect(page.getByText('No integrations yet.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Add integration' })).toBeVisible()
   expect(failures).toEqual([])
 })
 
@@ -544,4 +563,312 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+/chat$`))
 
   expect(failures).toEqual([])
+})
+
+for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
+  test(`saves ${integrationKind} integration-owned setup, launcher, tool selections and independent lifecycle`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    const failures = installIntegrationFailureTracking(page)
+    const integrationName = `${integrationKind.replaceAll('_', '-')}-browser-${test.info().retry}`
+    const profileName = uniqueName(`${integrationKind} Integration Profile`)
+    const profile = await createProfile(page, profileName, 'Answer in the selected conversation.')
+    const profilePath = new URL(page.url()).pathname,
+      profileId = profile.id
+    const { integration, apiProjectPath } = await connectIntegrationWithCredentialRetry(
+      page,
+      projectID,
+      integrationKind,
+      integrationName,
+      failures,
+    )
+    const integrationPath = `/projects/${projectID}/integrations/${integration.id}`
+    const launch = page.getByRole('region', {
+      name: integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions',
+      exact: true,
+    })
+
+    const secretID = schemas.zSecretId.parse(integration.credential_secret_id)
+    if (integrationKind === 'discord_thread') {
+      await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
+        new RegExp(`/api/integrations/discord/${integration.provider_tenant_id}/interactions$`),
+      )
+      await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
+      await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
+      const advanced = page.getByRole('region', { name: 'Advanced', exact: true })
+      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
+      await expect(advanced).toContainText(
+        `/api/integrations/discord/${integration.provider_tenant_id}/interactions`,
+      )
+      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
+      await exerciseDiscordIntegrationSchedule(
+        page,
+        integration,
+        profileId,
+        profileName,
+        apiProjectPath,
+      )
+    }
+    const save = launch.getByRole('button', { name: 'Save changes', exact: true })
+    await expect(save).toBeDisabled()
+    if (integrationKind === 'github_pr') {
+      await expect(launch.getByRole('checkbox', { name: 'PR opened', exact: true })).toBeChecked()
+      await expect(
+        launch.getByRole('checkbox', { name: 'Bot mentioned', exact: true }),
+      ).toBeChecked()
+      await launch.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
+    } else {
+      await expect(launch.getByRole('checkbox')).toHaveCount(0)
+      await expect(launch.getByLabel('Channel ID', { exact: true })).toHaveCount(0)
+      await expect(launch.getByLabel('Respond to mentions in', { exact: true })).toHaveCount(0)
+    }
+    await page
+      .getByPlaceholder(
+        integrationKind === 'github_pr' ? 'Choose an agent profile…' : 'Search agent profiles…',
+      )
+      .fill(profileName)
+    await page.getByRole('option', { name: profileName, exact: true }).click()
+    if (integrationKind === 'discord_thread') {
+      await launch.getByRole('heading').click()
+      await expect(
+        page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
+      ).toBeVisible()
+    }
+    await expect(save).toBeEnabled()
+    const savedLauncher = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
+    )
+    await save.click()
+    const launched = schemas.zIntegration.parse(await (await savedLauncher).json())
+    expect(launched.settings.launcher).toEqual(
+      integrationKind === 'github_pr'
+        ? { profile: profileId, trigger: 'both' }
+        : { profiles: [profileId] },
+    )
+    expect(launched.setup_revision).toBe(integration.setup_revision)
+    await expect(page).toHaveURL(integrationPath)
+    const selectedProfile =
+      integrationKind === 'github_pr'
+        ? launch.getByRole('combobox', { name: 'Agent profile', exact: true })
+        : launch.getByRole('button', { name: `Remove ${profileName}`, exact: true })
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
+    await expect(save).toBeDisabled()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: integrationName, exact: true })).toBeVisible()
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
+    await expect(save).toBeDisabled()
+    await expect(launch.getByLabel('Integration name', { exact: true })).toHaveCount(0)
+    let changedIntegration = launched
+    if (integrationKind === 'github_pr') {
+      await launch.getByRole('checkbox', { name: 'PR opened', exact: true }).uncheck()
+      const updated = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
+      )
+      await expect(save).toBeEnabled()
+      await save.click()
+      changedIntegration = schemas.zIntegration.parse(await (await updated).json())
+    } else {
+      await selectedProfile.click()
+      await page.keyboard.press('Escape')
+      await expect(save).toBeEnabled()
+      await launch.getByRole('button', { name: 'Discard changes', exact: true }).click()
+      await expect(selectedProfile).toBeVisible()
+    }
+    await expect(save).toBeDisabled()
+    expect(changedIntegration.name).toBe(integrationName)
+    expect(changedIntegration.settings.launcher).toEqual(
+      integrationKind === 'github_pr'
+        ? { profile: profileId, trigger: 'mention' }
+        : launched.settings.launcher,
+    )
+    expect(changedIntegration.setup_revision).toBe(integration.setup_revision)
+    await expectIntegrationCapabilities(page, changedIntegration)
+    if (integrationKind === 'github_pr') {
+      await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
+        '/api/integrations/github/events',
+      )
+    } else await expect(launch).toContainText('without an Omnara account')
+
+    await page.goto(profilePath)
+    await page.getByRole('button', { name: 'YAML', exact: true }).click()
+    const selectedTool = `int__${integration.name}__read`
+    const selectedHandlers = integrationKind === 'discord_thread' ? { [integration.name]: {} } : {}
+    await replaceConfigEditor(
+      page,
+      JSON.stringify({
+        instruction: 'Read this conversation.',
+        model: { provider_config: providerConfig, name: modelName },
+        tools: { [selectedTool]: {} },
+        interaction_handlers: selectedHandlers,
+      }),
+    )
+    const preview = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/agent-configs/tools'),
+    )
+    await page.getByRole('button', { name: 'Builder', exact: true }).click()
+    const previewResponse = await preview
+    expect(previewResponse.status()).toBe(200)
+    const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
+      previewResponse.request().postDataJSON(),
+    )
+    expect(JSON.parse(previewRequest.source)).toMatchObject({
+      tools: { [selectedTool]: {} },
+      interaction_handlers: selectedHandlers,
+    })
+    const tools = schemas.zResolvedAgentConfigTools.parse(await previewResponse.json()).tools
+    expect(tools).toContainEqual(expect.objectContaining({ name: selectedTool, enabled: true }))
+    const excludedTool = integrationKind === 'github_pr' ? 'discussion_comment' : 'post_message'
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      `int__${integration.name}__${excludedTool}`,
+    )
+    await page.getByRole('button', { name: 'Built-in tools', exact: true }).click()
+    await expect(page.getByText(selectedTool, { exact: true }).first()).toBeVisible()
+    const savedRevision = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/agent-profiles/${profileId}/config`),
+    )
+    await page.getByRole('button', { name: 'Save revision', exact: true }).click()
+    expect((await savedRevision).status()).toBe(200)
+    await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
+
+    const conversation = await exerciseIntegrationConversations(
+      page,
+      integration,
+      profileId,
+      apiProjectPath,
+    )
+
+    await openIntegrationSetup(page, projectID, integrationKind, `${integrationName}-2`)
+    await fillProviderAccount(page, integrationKind)
+    await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
+    await page.getByRole('combobox', { name: 'Saved credential', exact: true }).click()
+    await page.getByRole('option', { name: `${integrationName}-credentials`, exact: true }).click()
+    if (integrationKind === 'discord_thread')
+      await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
+    const secondCreation = integrationCreation(page)
+    await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
+    const secondary = schemas.zIntegration.parse(await (await secondCreation).json())
+    await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+    await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
+    expect(await readIntegration(page, apiProjectPath, secondary.id)).toMatchObject({
+      state: 'active',
+      credential_secret_id: secretID,
+      settings: {},
+    })
+    await page.goto(`/projects/${projectID}/integrations/${integration.id}`)
+    await page.getByRole('button', { name: 'Integration actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Reconnect account', exact: true }).click()
+    const connection = page.getByRole('region', { name: 'Connection', exact: true })
+    await expect(connection).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await connection.getByRole('button', { name: 'Cancel', exact: true }).click()
+    page.once('dialog', (dialog) => void dialog.accept())
+    const disconnected = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}/disconnect`),
+    )
+    await page.getByRole('button', { name: 'Integration actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Disconnect integration', exact: true }).click()
+    const offline = schemas.zIntegration.parse(await (await disconnected).json())
+    expect(offline.state).toBe('disconnected')
+    expect(offline.setup_revision).toBeGreaterThan(integration.setup_revision)
+    expect(offline.settings).toEqual(changedIntegration.settings)
+    expect((await readIntegration(page, apiProjectPath, secondary.id)).state).toBe('active')
+    await stopDisconnectedConversation(page, integration, conversation, apiProjectPath)
+    await page.getByRole('button', { name: 'Reconnect account', exact: true }).click()
+    await expect(
+      page.getByLabel(
+        integrationKind === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID',
+        {
+          exact: true,
+        },
+      ),
+    ).toHaveAttribute('readonly', '')
+    await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
+    await page.getByRole('combobox', { name: 'Saved credential', exact: true }).click()
+    await page.getByRole('option', { name: `${integrationName}-credentials`, exact: true }).click()
+    const reconfigured = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}/setup`),
+    )
+    await connection.getByRole('button', { name: 'Reconnect integration', exact: true }).click()
+    expect((await reconfigured).status()).toBe(200)
+    await expect(connection).toHaveCount(0)
+    if (integrationKind === 'discord_thread') {
+      await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
+        new RegExp(`/api/integrations/discord/${integration.provider_tenant_id}/interactions$`),
+      )
+      await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
+    }
+    await expect(selectedProfile).toBeVisible()
+    if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
+    const reconnected = await readIntegration(page, apiProjectPath, integration.id)
+    expect(reconnected).toMatchObject({
+      state: 'active',
+      settings: changedIntegration.settings,
+      id: integration.id,
+    })
+    expect(reconnected.setup_revision).toBeGreaterThan(offline.setup_revision)
+    page.once('dialog', (dialog) => void dialog.accept())
+    await page.getByRole('button', { name: 'Delete integration', exact: true }).click()
+    await expect(page).toHaveURL(`/projects/${projectID}/integrations`)
+    await expect(page.locator(`a[href="${integrationPath}"]`)).toHaveCount(0)
+    expect((await readIntegration(page, apiProjectPath, secondary.id)).state).toBe('active')
+    expect(failures).toEqual([])
+  })
+}
+
+test('creates and connects Slack through a same-tab authorization return', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(60_000)
+  const profile = await createProfile(
+    page,
+    uniqueName('Slack Integration Profile'),
+    'Answer in the selected conversation.',
+  )
+  await exerciseSlackIntegrationSetup(
+    page,
+    context,
+    projectID,
+    `slack-browser-${test.info().retry}`,
+    profile.id,
+    profile.name,
+  )
+})
+
+test('project viewers can browse integrations but cannot open integration setup', async ({
+  page,
+}) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, viewerEmail, `/projects/${projectID}/integrations`)
+  await expect(page.getByRole('heading', { name: 'Integrations', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Add integration', exact: true })).toHaveCount(0)
+  await page.goto(`/projects/${projectID}/integrations/new/github_pr`)
+  await expect(page.getByRole('alert')).toContainText(
+    'You don’t have permission to manage integrations',
+  )
+  await expect(page.getByRole('button', { name: 'Create and connect', exact: true })).toHaveCount(0)
+  expect(failures).toEqual([])
+})
+
+test('guides customer-owned GitHub registration and installation without live provider calls', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await signIn(page, adminEmail, `/projects/${projectID}/integrations`)
+  await exerciseGuidedGitHubSetup(page, projectID)
 })

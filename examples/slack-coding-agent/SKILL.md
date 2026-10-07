@@ -139,22 +139,23 @@ may need to approve the token.
 This agent is built for Slack: it replies in the thread where it's mentioned,
 and replies in that thread go to the same agent.
 
-1. The user creates an app configuration token at
-   [api.slack.com/apps](https://api.slack.com/apps) under **Your App
-   Configuration Tokens** → **Generate Token**. It expires after about 12
-   hours.
-2. Have the user add it to `.env` as `SLACK_APP_CONFIG_TOKEN=...` (or paste
-   it in the chat), then run:
+1. Open the project's **Integrations** page. Create a **Slack bot** integration
+   with a descriptive name, or reuse the integration already created for this
+   example. In its launch settings, select this agent profile. Preserve other
+   selected profiles and settings when updating an existing integration.
+2. Connect the Slack app from that page, using an app configuration token from
+   [Slack's app settings](https://api.slack.com/apps), and complete OAuth. For CLI
+   setup of that saved integration, put `SLACK_APP_CONFIG_TOKEN=...` in `.env` and run:
 
    ```sh
    set -a && . ./.env && set +a
-   npx omnara profiles slack <agent-profile-id> --app-name "Coding Agent" \
+   npx omnara integrations slack <integration-id> --app-name "Coding Agent" \
      --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
    ```
 
-   It opens a Slack authorization page; the user approves within 10 minutes.
-   Ask before choosing a different app name; it's how the team will mention
-   the bot.
+   Use the integration's `itg_…` ID, not the profile ID. The user approves the
+   returned OAuth URL before it expires. Setup reconnects that integration;
+   selecting the profile in its launcher enables new Slack conversations.
 3. Tell the user to invite the bot to a channel (`/invite @Coding Agent`).
    A private channel suits it, since threads often include internal details.
 
@@ -184,7 +185,7 @@ Then tell the user:
   Reporting Guidelines.
 - **Change the instruction, model, or anything else:** ask a coding agent
   with this skill. It reuses the secret and updates the profile in place.
-- **Remove it:** remove the Slack integration from the profile in the
-  dashboard, then `npx omnara profiles delete <agent-profile-id>` and
+- **Remove it:** remove this profile from the integration's launcher on the project's
+  Integrations page, then `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>`. Revoke the GitHub token in
   GitHub's settings as well.

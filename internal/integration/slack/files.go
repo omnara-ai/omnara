@@ -118,7 +118,7 @@ func UploadFile(
 	}
 	if uploadURL.UploadURL == "" || uploadURL.FileID == "" {
 		return "", APIResult{
-			Code:             "transient_failure",
+			Code:             TransientFailure,
 			TransientFailure: true,
 			Message:          "Slack returned an incomplete file upload URL response.",
 		}, nil
@@ -186,7 +186,7 @@ func uploadFileContent(
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || !allowedSlackFileURL(parsed, "") {
 		return APIResult{
-			Code:             "invalid_file_url",
+			Code:             InvalidFileURL,
 			PermanentFailure: true,
 			Message:          "invalid Slack file upload URL",
 		}, nil
@@ -215,13 +215,13 @@ func uploadFileContent(
 	}
 	if resp.StatusCode >= 500 {
 		return APIResult{
-			Code:             "transient_failure",
+			Code:             TransientFailure,
 			TransientFailure: true,
 			Message:          fmt.Sprintf("Slack returned status %d while uploading the file.", resp.StatusCode),
 		}, nil
 	}
 	return APIResult{
-		Code:             "permanent_failure",
+		Code:             PermanentFailure,
 		PermanentFailure: true,
 		Message:          fmt.Sprintf("Slack returned status %d while uploading the file.", resp.StatusCode),
 	}, nil
@@ -229,10 +229,10 @@ func uploadFileContent(
 
 func filePreShareResult(result APIResult) APIResult {
 	if result.ProviderCode == "missing_scope" {
-		result.Message = "Slack integration must be reauthorized with files:write before it can send artifacts."
+		result.Message = "Slack app must be reauthorized with files:write before it can send artifacts."
 	}
 	if result.DeliveryUnknown {
-		result.Code = "transient_failure"
+		result.Code = TransientFailure
 		result.TransientFailure = true
 		result.DeliveryUnknown = false
 	}
@@ -241,7 +241,7 @@ func filePreShareResult(result APIResult) APIResult {
 
 func fileCompletionResult(result APIResult) APIResult {
 	if result.TransientFailure {
-		result.Code = "delivery_unknown"
+		result.Code = DeliveryUnknown
 		result.TransientFailure = false
 		result.DeliveryUnknown = true
 	}
@@ -420,13 +420,13 @@ func DownloadFile(
 	if maxBytes <= 0 {
 		return nil, "", APIResult{
 			PermanentFailure: true,
-			Code:             "file_too_large",
+			Code:             FileTooLarge,
 			Message:          "slack file exceeds attachment limits",
 		}, nil
 	}
 	parsed, err := url.Parse(strings.TrimSpace(fileURL))
 	if err != nil || !allowedSlackFileURL(parsed, config.APIURL) {
-		return nil, "", APIResult{PermanentFailure: true, Code: "invalid_file_url", Message: "invalid slack file url"}, nil
+		return nil, "", APIResult{PermanentFailure: true, Code: InvalidFileURL, Message: "invalid slack file url"}, nil
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, defaultToolTimeout)
 	defer cancel()
@@ -454,13 +454,13 @@ func DownloadFile(
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode >= 500 {
 			return nil, "", APIResult{
-				Code:             "transient_failure",
+				Code:             TransientFailure,
 				TransientFailure: true,
 				Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 			}, nil
 		}
 		return nil, "", APIResult{
-			Code:             "permanent_failure",
+			Code:             PermanentFailure,
 			PermanentFailure: true,
 			Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 		}, nil
@@ -468,7 +468,7 @@ func DownloadFile(
 	if int64(len(body)) > maxBytes {
 		return nil, "", APIResult{
 			PermanentFailure: true,
-			Code:             "file_too_large",
+			Code:             FileTooLarge,
 			Message:          "slack file exceeds attachment limits",
 		}, nil
 	}
@@ -638,21 +638,15 @@ func apiResultRetryable(result APIResult) bool {
 }
 
 func apiResultError(action string, result APIResult) error {
-	if result.Message != "" {
-		return fmt.Errorf("%s: %s", action, result.Message)
-	}
-	if result.Code != "" {
-		return fmt.Errorf("%s: %s", action, result.Code)
-	}
-	return fmt.Errorf("%s failed", action)
+	return fmt.Errorf("%s: %w", action, &APIError{Result: result})
 }
 
 func apiResultReason(result APIResult, fallback string) string {
 	if result.ProviderCode != "" {
 		return result.ProviderCode
 	}
-	if result.Code != "" && result.Code != "permanent_failure" {
-		return result.Code
+	if result.Code != "" && result.Code != PermanentFailure {
+		return string(result.Code)
 	}
 	return fallback
 }

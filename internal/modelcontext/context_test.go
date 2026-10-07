@@ -46,7 +46,10 @@ func contextTextEvent(t testing.TB, id uuid.UUID, sequence int64, text string) e
 func TestBuildKeepsAllMessagesAndCrossTurnToolResultsThroughWatermark(t *testing.T) {
 	store := &fakeContextStore{watermark: 760}
 	for i := 1; i <= 150; i++ {
-		store.messages = append(store.messages, contextTextEvent(t, testIDN(i), int64(i), fmt.Sprintf("message %03d", i)))
+		store.messages = append(
+			store.messages,
+			contextTextEvent(t, testIDN(i), int64(i), fmt.Sprintf("message %03d", i)),
+		)
 	}
 	turnID := testIDN(300)
 	store.toolCalls = []executionstore.ToolCallRecord{
@@ -377,186 +380,26 @@ func TestBuildPreservesStructuredProcessResultValues(t *testing.T) {
 	}
 }
 
-func TestBuildProjectsIntegrationTargets(t *testing.T) {
-	targetID := testIDN(940)
-	store := &fakeContextStore{
-		watermark: 15,
-		hasConfig: true,
-		config:    testAgentConfigRecord(),
-		integrationTargets: []integrationstore.IntegrationTargetSummary{{
-			ID:              targetID,
-			TargetRef:       "slack-abcd",
-			Provider:        integrationstore.IntegrationProviderSlack,
-			InstallState:    integrationstore.IntegrationInstallStateDisabled,
-			ProviderRef:     "C123:1712345678.000100",
-			ProviderRefKind: "thread",
-			DisplayName:     "general",
-		}},
-	}
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if len(bundle.ToolSpecs) != 1 ||
-		bundle.ToolSpecs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
-		bundle.ToolSpecs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("expected implicit integration send tool, got %+v", bundle.ToolSpecs)
-	}
-	if len(bundle.IntegrationTargets) != 1 ||
-		bundle.IntegrationTargets[0].TargetRef != "slack-abcd" ||
-		bundle.IntegrationTargets[0].IsCurrent {
-		t.Fatalf("expected integration target projection, got %+v", bundle.IntegrationTargets)
-	}
-	if serialized := string(contextFixtureJSON(t, bundle)); strings.Contains(serialized, targetID.String()) {
-		t.Fatalf("integration target projection must not expose raw target id: %s", serialized)
-	}
-	if bundle.IntegrationTargets[0].DurableID != targetID.String() {
-		t.Fatalf("integration target missing durable target id: %+v", bundle.IntegrationTargets)
-	}
-	if bundle.IntegrationTargets[0].Label != "slack thread 1712345678.000100 in C123 (#general)" {
-		t.Fatalf("integration target label = %q", bundle.IntegrationTargets[0].Label)
-	}
-}
-
-func TestBuildExplicitlyDisabledIntegrationSendToolOverridesImplicitTarget(t *testing.T) {
-	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
-instruction: Help the user make progress.
-model:
-  provider_config: deterministic-test
-  name: deterministic-owned-kernel-test
-tools:
-  ask_question: {}
-  send_integration_message:
-    enabled: false
-`), agentconfig.CompileOptions{})
-	if err != nil {
-		t.Fatalf("compile disabled integration send config: %v", err)
-	}
-	store := &fakeContextStore{
-		watermark: 15,
-		hasConfig: true,
-		config: executionstore.AgentConfigRecord{
-			ID:                      testIDN(941),
-			CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-			EffectiveDefinitionHash: result.Hash,
-		},
-		integrationTargets: []integrationstore.IntegrationTargetSummary{{
-			ID:        testIDN(942),
-			TargetRef: "slack-disabled",
-			Provider:  integrationstore.IntegrationProviderSlack,
-		}},
-	}
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) {
-		t.Fatalf("explicitly disabled integration send tool was exposed: %+v", bundle.ToolSpecs)
-	}
-	if !HasTool(bundle.ToolSpecs, toolcatalog.ToolNameAskQuestion) {
-		t.Fatalf("explicitly enabled ask question tool was not exposed: %+v", bundle.ToolSpecs)
-	}
-	if len(bundle.IntegrationTargets) != 0 {
-		t.Fatalf("integration targets leaked without an integration tool: %+v", bundle.IntegrationTargets)
-	}
-}
-
-func TestIntegrationTargetLabel(t *testing.T) {
-	tests := []struct {
-		name   string
-		target integrationstore.IntegrationTargetSummary
-		want   string
-	}{
-		{
-			name: "slack thread with channel name",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123:1712345678.000100",
-				DisplayName:     "general",
-			},
-			want: "slack thread 1712345678.000100 in C123 (#general)",
-		},
-		{
-			name: "slack thread without channel name",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123:1712345678.000100",
-			},
-			want: "slack thread 1712345678.000100 in C123",
-		},
-		{
-			name: "slack thread with malformed ref",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "thread",
-				ProviderRef:     "C123",
-			},
-			want: "slack thread C123",
-		},
-		{
-			name: "slack dm",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "dm",
-				ProviderRef:     "D456",
-			},
-			want: "slack dm D456",
-		},
-		{
-			name: "unknown ref kind",
-			target: integrationstore.IntegrationTargetSummary{
-				Provider:        integrationstore.IntegrationProviderSlack,
-				ProviderRefKind: "channel",
-				ProviderRef:     "C123",
-			},
-			want: "slack channel C123",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := integrationTargetLabel(test.target); got != test.want {
-				t.Fatalf("integrationTargetLabel = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 type fakeContextStore struct {
-	messages                   []executionstore.ContextEventRecord
-	toolCalls                  []executionstore.ToolCallRecord
-	completedToolCallWatermark int64
-	integrationTargets         []integrationstore.IntegrationTargetSummary
-	watermark                  int64
-	checkpoints                []executionstore.ContextCheckpointRecord
-	outputLimitBoundaries      map[int64]bool
-	config                     executionstore.AgentConfigRecord
-	hasConfig                  bool
-	noConfig                   bool
-	mcpConnections             map[string]executionstore.MCPConnectionRecord
-	artifacts                  []artifactstore.ArtifactRecord
-	artifactContent            map[string][]byte
-	artifactBlobReads          []uuid.UUID
-	skills                     map[string]skillstore.SkillRecord
+	messages                      []executionstore.ContextEventRecord
+	toolCalls                     []executionstore.ToolCallRecord
+	completedToolCallWatermark    int64
+	integrationDefinitions        map[uuid.UUID]agentconfig.IntegrationResolution
+	integrationConversations      map[uuid.UUID]integrationstore.ConversationAddress
+	integrationConversationReads  int
+	integrationDefinitionRequests []integrationDefinitionRequest
+	integrationDefinitionsErr     error
+	watermark                     int64
+	checkpoints                   []executionstore.ContextCheckpointRecord
+	outputLimitBoundaries         map[int64]bool
+	config                        executionstore.AgentConfigRecord
+	hasConfig                     bool
+	noConfig                      bool
+	mcpConnections                map[string]executionstore.MCPConnectionRecord
+	artifacts                     []artifactstore.ArtifactRecord
+	artifactContent               map[string][]byte
+	artifactBlobReads             []uuid.UUID
+	skills                        map[string]skillstore.SkillRecord
 }
 
 func (s *fakeContextStore) GetSkillForDispatch(
@@ -668,14 +511,36 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 	return out, nil
 }
 
-func (s *fakeContextStore) ListIntegrationTargets(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-) ([]integrationstore.IntegrationTargetSummary, error) {
-	_ = ctx
-	_ = projectID
-	_ = agentID
-	return s.integrationTargets, nil
+type integrationDefinitionRequest struct {
+	ProjectID uuid.UUID
+	IDs       []uuid.UUID
+}
+
+func (s *fakeContextStore) GetAgentIntegrationConversation(
+	_ context.Context, _, _, id uuid.UUID,
+) (integrationstore.ConversationAddress, bool, error) {
+	s.integrationConversationReads++
+	address, ok := s.integrationConversations[id]
+	return address, ok, nil
+}
+
+func (s *fakeContextStore) ResolveIntegrationDefinitions(
+	_ context.Context, projectID uuid.UUID, ids []uuid.UUID,
+) (map[uuid.UUID]agentconfig.IntegrationResolution, error) {
+	s.integrationDefinitionRequests = append(
+		s.integrationDefinitionRequests,
+		integrationDefinitionRequest{projectID, append([]uuid.UUID(nil), ids...)},
+	)
+	if s.integrationDefinitionsErr != nil {
+		return nil, s.integrationDefinitionsErr
+	}
+	integrations := map[uuid.UUID]agentconfig.IntegrationResolution{}
+	for _, id := range ids {
+		if integration, ok := s.integrationDefinitions[id]; ok {
+			integrations[id] = integration
+		}
+	}
+	return integrations, nil
 }
 
 func (s *fakeContextStore) GetLatestApplicableContextCheckpoint(
@@ -785,7 +650,7 @@ func TestBuildUsesAgentConfigEnabledToolSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	if len(bundle.ToolSpecs) != 4 || bundle.ToolSpecs[2].Name != "run_command" {
+	if len(bundle.ToolSpecs) != 4 || !HasTool(bundle.ToolSpecs, "run_command") {
 		t.Fatalf("expected run_command and retrieval tools from config, got %+v", bundle.ToolSpecs)
 	}
 }
@@ -807,6 +672,11 @@ func TestBuildUsesEffectiveSkillToolConfiguration(t *testing.T) {
 			wantTool:       true,
 			wantCatalog:    true,
 			wantPermission: toolpermission.ModeAlwaysAllow,
+		},
+		{
+			name:       "explicit approval",
+			toolConfig: "tools: {skill: {permission: {mode: always_ask}}}\n",
+			wantTool:   true, wantCatalog: true, wantPermission: toolpermission.ModeAlwaysAsk,
 		},
 		{
 			name: "explicitly disabled",
@@ -870,10 +740,10 @@ skills:
 			if got := HasTool(bundle.ToolSpecs, "skill"); got != test.wantTool {
 				t.Fatalf("skill tool present = %t, want %t", got, test.wantTool)
 			}
-			if test.wantTool && bundle.ToolSpecs[0].Permission.Mode != test.wantPermission {
+			if test.wantTool && requireToolSpec(t, bundle.ToolSpecs, "skill").Permission.Mode != test.wantPermission {
 				t.Fatalf(
 					"skill permission = %q, want %q",
-					bundle.ToolSpecs[0].Permission.Mode,
+					requireToolSpec(t, bundle.ToolSpecs, "skill").Permission.Mode,
 					test.wantPermission,
 				)
 			}
@@ -939,7 +809,7 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 	if len(bundle.ToolSpecs) != 4 {
 		t.Fatalf("expected mcp and retrieval tool specs, got %+v", bundle.ToolSpecs)
 	}
-	spec := bundle.ToolSpecs[3]
+	spec := requireToolSpec(t, bundle.ToolSpecs, "mcp__docs__greet")
 	if spec.Name != "mcp__docs__greet" ||
 		spec.Type != toolcatalog.ToolTypeMCP ||
 		spec.Permission.Mode != toolpermission.ModeAlwaysAllow ||
@@ -1027,10 +897,10 @@ skills:
 	if err != nil {
 		t.Fatalf("build runtime tool specs: %v", err)
 	}
+	skill := requireToolSpec(t, specs, "skill")
 	if len(specs) != 4 ||
-		specs[3].Name != "skill" ||
-		specs[3].Permission.Mode != toolpermission.ModeAlwaysAsk ||
-		!strings.Contains(specs[3].Description, "available_skills catalog") {
+		skill.Permission.Mode != toolpermission.ModeAlwaysAsk ||
+		!strings.Contains(skill.Description, "available_skills catalog") {
 		t.Fatalf("runtime tool specs = %+v, want one explicit skill tool", specs)
 	}
 }

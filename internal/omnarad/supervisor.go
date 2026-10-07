@@ -238,6 +238,7 @@ func clearDaemonEnvironmentOverrides() {
 	_ = os.Unsetenv("OMNARA_API_URL")
 	_ = os.Unsetenv("OMNARA_MACHINE_TOKEN")
 	_ = os.Unsetenv("OMNARA_NO_UPDATE")
+	_ = os.Unsetenv("OMNARA_GIT_CREDENTIALS")
 	_ = os.Unsetenv("OMNARA_RUNNER_PATH")
 }
 

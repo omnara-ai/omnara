@@ -17,6 +17,56 @@ tools:
 `
 
 describe('memory attachments in the builder', () => {
+  it('preserves Git credentials and integration capabilities while editing memory attachments', () => {
+    const combined =
+      source +
+      `
+git_credentials: {integration: reviews}
+interaction_handlers: {chat: {}}
+`
+    const session = createBasicConfigSession(combined)
+    const draft = session.initialDraft
+    if (!draft) throw new Error('Missing draft')
+    const changed = {
+      ...draft,
+      memoryStores: [{ name: 'notes', access: 'read' as const }],
+      tools: [
+        ...draft.tools,
+        {
+          name: 'int__chat__post_message',
+          permission: { mode: 'always_ask', parameters: {} },
+          deferred: true,
+        },
+      ],
+    }
+    const updated = session.apply(changed)
+    expect(parse(updated)).toMatchObject({
+      git_credentials: { integration: 'reviews' },
+      interaction_handlers: { chat: {} },
+      memory_stores: [{ name: 'notes', access: 'read' }],
+      tools: {
+        write_file: { enabled: false },
+        read_file: { permission: { mode: 'always_ask' } },
+        int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
+      },
+    })
+    expect(JSON.parse(agentBuilderToolsSource(changed))).toMatchObject({
+      interaction_handlers: { chat: {} },
+      memory_stores: changed.memoryStores,
+      tools: {
+        write_file: { type: 'built_in', enabled: false },
+        int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
+      },
+    })
+    const next = createBasicConfigSession(updated)
+    if (!next.initialDraft) throw new Error('Missing round-trip draft')
+    expect(next.apply(next.initialDraft)).toBe(updated)
+    expect(parse(next.apply({ ...next.initialDraft, interactionHandlers: {} }))).toMatchObject({
+      git_credentials: { integration: 'reviews' },
+      memory_stores: [{ name: 'notes', access: 'read' }],
+    })
+  })
+
   it('preserves existing attachments and tool overrides through Basic/YAML round trips', () => {
     const session = createBasicConfigSession(source)
     const draft = session.initialDraft

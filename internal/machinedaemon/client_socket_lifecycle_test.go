@@ -184,10 +184,12 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 	for _, tc := range []struct {
 		name, payload, wantError string
 		want                     processcmd.ExecutionSpec
+		gitCredentials           bool
 	}{
 		{
-			name: "legacy shell", payload: `{"command":"echo legacy","shell_selector":"sh","io_mode":"pty"}`,
-			want: processcmd.ForShell("echo legacy", processcmd.ShellSH, processcmd.IOModePTY),
+			name: "legacy shell", payload: `{"command":"echo legacy",` +
+				`"shell_selector":"sh","io_mode":"pty","git_credentials":true}`,
+			want: processcmd.ForShell("echo legacy", processcmd.ShellSH, processcmd.IOModePTY), gitCredentials: true,
 		},
 		{
 			name: "legacy defaults", payload: `{"command":"echo legacy"}`,
@@ -195,16 +197,17 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 		},
 		{
 			name: "shell spec", payload: `{"execution_spec":{"kind":"shell","shell":` +
-				`{"command":"echo typed","shell_selector":"sh","io_mode":"pipe"}}}`,
-			want: processcmd.ForShell("echo typed", processcmd.ShellSH, processcmd.IOModePipe),
+				`{"command":"echo typed","shell_selector":"sh","io_mode":"pipe"}},"git_credentials":true}`,
+			want: processcmd.ForShell("echo typed", processcmd.ShellSH, processcmd.IOModePipe), gitCredentials: true,
 		},
 		{
 			name: "transfer spec", payload: `{"execution_spec":{"kind":"file_transfer","file_transfer":` +
-				`{"direction":"upload","local_path":"report.txt","target":{"artifact":{}}}}}`,
+				`{"direction":"upload","local_path":"report.txt","target":{"artifact":{}}}},"git_credentials":true}`,
 			want: processcmd.ForFileTransfer(processcmd.FileTransfer{
 				Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
 				Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
 			}),
+			gitCredentials: true,
 		},
 		{
 			name: "empty spec cannot fall back", payload: `{"execution_spec":{},"command":"echo fallback"}`,
@@ -234,6 +237,7 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 			transport.offerProcess(t.Context(), offer)
 			select {
 			case assignment := <-assignments:
+				require.Equal(t, tc.gitCredentials, assignment.GitCredentials)
 				_, err := processArgvForLocalOS(offer.ProcessID, assignment.Process)
 				if tc.wantError != "" {
 					require.ErrorContains(t, err, tc.wantError)

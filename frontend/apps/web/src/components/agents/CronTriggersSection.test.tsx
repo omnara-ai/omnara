@@ -44,7 +44,7 @@ afterEach(() => {
 })
 
 it('pauses a schedule after a browser translator rewrites its next run', async () => {
-  let trigger: CronTrigger = {
+  let trigger: CronTrigger & { target: { type: 'profile'; agent_profile_id: string } } = {
     id: fakeId('cron'),
     org_id: orgId,
     project_id: projectId,
@@ -57,6 +57,7 @@ it('pauses a schedule after a browser translator rewrites its next run', async (
     last_fired_at: null,
     next_fire_at: '2026-12-31T00:00:00Z',
     failure_report: null,
+    last_run: null,
     created_at: timestamp,
     updated_at: timestamp,
   }

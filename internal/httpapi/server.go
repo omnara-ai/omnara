@@ -16,7 +16,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -34,9 +35,11 @@ import (
 )
 
 type Server struct {
+	githubClientConfig                  github.Config
+	gitCredentialClients                *github.InstallationClientCache
+	discordClientConfig                 discord.Config
 	log                                 *slog.Logger
 	store                               *storage.Store
-	integrations                        *integration.Service
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
@@ -56,6 +59,7 @@ type Server struct {
 	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
+	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
 	requestLog                          middleware
 	agentConfigOptions                  agentconfig.CompileOptions
@@ -70,6 +74,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
+	integrationHTTPClient               *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -81,15 +86,13 @@ type Server struct {
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
-
-	machinePoolManager *machinepool.Manager
-
-	daemonRuntimeLeaseDuration        time.Duration
-	daemonSocketFallbackDrainInterval time.Duration
-	daemonSocketFallbackDrainJitter   time.Duration
-	agentEventReconciliationInterval  time.Duration
-	skillDownloadSigningKey           []byte
-	timer                             clock.Clock
+	machinePoolManager                  *machinepool.Manager
+	daemonRuntimeLeaseDuration          time.Duration
+	daemonSocketFallbackDrainInterval   time.Duration
+	daemonSocketFallbackDrainJitter     time.Duration
+	agentEventReconciliationInterval    time.Duration
+	skillDownloadSigningKey             []byte
+	timer                               clock.Clock
 }
 
 func WithTimer(timer clock.Clock) Option {
@@ -222,6 +225,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 	}
 }
 
+func WithIntegrationHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.integrationHTTPClient = client
+	}
+}
+
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
@@ -244,6 +253,10 @@ func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {
 	return func(s *Server) {
 		s.recorder = recorder
 	}
+}
+
+func WithIntegrationInboxIntakeRecorder(recorder *metrics.IntegrationInboxIntakeRecorder) Option {
+	return func(s *Server) { s.integrationInboxIntake = recorder }
 }
 
 func WithDaemonRecorder(recorder *metrics.DaemonRecorder) Option {
@@ -372,7 +385,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	var compromiseRevoker httpauth.CompromiseRevoker
 	if store != nil {
 		server.skills = store.Skills()
-		server.integrations = integration.New(store.Execution(), store.Integrations())
 		authStore = store.Identity()
 		compromiseRevoker = store.AccountSecurity()
 	}
@@ -392,6 +404,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	for _, opt := range opts {
 		opt(server)
+	}
+	gitHTTPClient := server.githubClientConfig.HTTPClient
+	if gitHTTPClient == nil {
+		gitHTTPClient = server.integrationHTTPClient
+	}
+	server.gitCredentialClients, err = github.NewInstallationClientCache(github.InstallationClientCacheConfig{
+		Capacity: 128, HTTPClient: gitHTTPClient, APIURL: server.githubClientConfig.APIURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create Git credentials client cache: %w", err)
 	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {

@@ -51,6 +51,17 @@ it.each([undefined, 'instruction: Old generated source.'])(
         tools: {
           read_agent: { enabled: true, permission: { mode: 'always_allow', parameters: {} } },
           skill: { enabled: false, permission: { mode: 'always_allow', parameters: {} } },
+          int__chat__read: {
+            integration_id: fakeId('itg'),
+            enabled: true,
+            permission: { mode: 'always_allow', parameters: {} },
+          },
+        },
+        interaction_handlers: { chat: { integration_id: fakeId('itg') } },
+        event_webhook: {
+          url: 'https://example.com/events',
+          events: ['tool_call_update'],
+          signing_secret_id: fakeId('sec'),
         },
       },
     }

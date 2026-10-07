@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { currentSection } from './scoped-sections'
+import { currentSection, hasOrganizationPath } from './scoped-sections'
 
 describe('currentSection', () => {
   it('finds the section in org and project paths', () => {
@@ -16,6 +16,13 @@ describe('currentSection', () => {
   it('keeps memory pages in the Memory section', () => {
     expect(currentSection('/projects/proj_x/memory')).toBe('memory')
     expect(currentSection('/projects/proj_x/memory/mem_y')).toBe('memory')
+  })
+
+  it('keeps integration setup and instance links in the project-only Integrations section', () => {
+    expect(currentSection('/projects/proj_x/integrations')).toBe('integrations')
+    expect(currentSection('/projects/proj_x/integrations/new/slack_thread')).toBe('integrations')
+    expect(currentSection('/projects/proj_x/integrations/intg_y')).toBe('integrations')
+    expect(hasOrganizationPath('integrations')).toBe(false)
   })
 
   it('has no section for overviews', () => {

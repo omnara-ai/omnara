@@ -147,9 +147,12 @@ async function click(name: string) {
 
 async function chooseSecret(name: string) {
   await interact(() => {
-    document
-      .querySelector('[aria-label="Search secrets…"]')
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    const label = [...document.querySelectorAll('label')].find(
+      (candidate) => candidate.textContent === 'Blaxel API token',
+    )
+    const control = label?.control
+    if (!(control instanceof HTMLElement)) throw new Error('Missing labeled Blaxel API token')
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
   })
   await interact(() => {
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(

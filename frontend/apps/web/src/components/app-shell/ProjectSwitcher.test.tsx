@@ -106,62 +106,92 @@ it('names the current project even when it is not on the first page', async () =
   })
 })
 
-it('keeps the active tab when switching to another project', async () => {
-  const client = createOmnaraClient({
-    baseUrl: 'https://omnara.test/api/v1',
-    fetch: () => Promise.resolve(jsonResponse({ data: [alpha, beta], next_cursor: null })),
-  })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(getCurrentUserQueryKey({ client }), currentUser([org]))
-  const rootRoute = createRootRoute()
-  const shell = () => (
-    <ActiveOrgProvider>
-      <ProjectSwitcher />
-    </ActiveOrgProvider>
-  )
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path: '/projects/$projectId/agents',
-        component: shell,
-      }),
-    ]),
-    history: createMemoryHistory({
-      initialEntries: [`/projects/${alpha.id}/agents?tab=instances`],
-    }),
-  })
-  await act(async () => {
-    root.render(
-      <OmnaraClientProvider client={client}>
-        <QueryClientProvider client={queryClient}>
-          <Suspense fallback={null}>
-            <RouterProvider router={router} />
-          </Suspense>
-        </QueryClientProvider>
-      </OmnaraClientProvider>,
+it.each([
+  { source: 'agents?tab=instances', destination: 'agents', search: { tab: 'instances' } },
+  { source: 'integrations', destination: 'integrations', search: {} },
+  { source: 'integrations/itg_example', destination: 'integrations', search: {} },
+  { source: 'integrations/new', destination: 'integrations', search: {} },
+  { source: 'integrations/new/slack_thread', destination: 'integrations', search: {} },
+])(
+  'keeps the section when switching projects from $source',
+  async ({ source, destination, search }) => {
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: () => Promise.resolve(jsonResponse({ data: [alpha, beta], next_cursor: null })),
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(getCurrentUserQueryKey({ client }), currentUser([org]))
+    const rootRoute = createRootRoute()
+    const shell = () => (
+      <ActiveOrgProvider>
+        <ProjectSwitcher />
+      </ActiveOrgProvider>
     )
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  await waitForUI(() => {
-    expect(container.querySelector('button')?.textContent).toBe('Alpha')
-  })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren(
+        [
+          '/',
+          '/projects/$projectId/agents',
+          '/projects/$projectId/integrations',
+          '/projects/$projectId/integrations/$integrationId',
+          '/projects/$projectId/integrations/new',
+          '/projects/$projectId/integrations/new/$integrationKind',
+        ].map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: shell })),
+      ),
+      history: createMemoryHistory({
+        initialEntries: [`/projects/${alpha.id}/${source}`],
+      }),
+    })
+    await act(async () => {
+      root.render(
+        <OmnaraClientProvider client={client}>
+          <QueryClientProvider client={queryClient}>
+            <Suspense fallback={null}>
+              <RouterProvider router={router} />
+            </Suspense>
+          </QueryClientProvider>
+        </OmnaraClientProvider>,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await waitForUI(() => {
+      expect(container.querySelector('button')?.textContent).toBe('Alpha')
+    })
 
-  await act(async () => {
-    container
-      .querySelector('button')
-      ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  await act(async () => {
-    ;[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((item) => item.textContent === 'Beta')
-      ?.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
+    await act(async () => {
+      container
+        .querySelector('button')
+        ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      ;[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+        .find((item) => item.textContent === 'Beta')
+        ?.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
 
-  await waitForUI(() => {
-    expect(router.state.location.pathname).toBe(`/projects/${beta.id}/agents`)
-  })
-  expect(router.state.location.search).toEqual({ tab: 'instances' })
-})
+    await waitForUI(() => {
+      expect(router.state.location.pathname).toBe(`/projects/${beta.id}/${destination}`)
+    })
+    expect(router.state.location.search).toEqual(search)
+
+    if (destination === 'integrations') {
+      await act(async () => {
+        container
+          .querySelector('button')
+          ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await act(async () => {
+        ;[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+          .find((item) => item.textContent === 'All projects')
+          ?.click()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await waitForUI(() => {
+        expect(router.state.location.pathname).toBe('/')
+      })
+    }
+  },
+)

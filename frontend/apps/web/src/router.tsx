@@ -175,6 +175,36 @@ const projectAgentsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
+const integrationsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations',
+  component: lazyRouteComponent(() => import('@/routes/IntegrationsPage'), 'IntegrationsPage'),
+})
+
+const integrationCatalogRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/new',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
+  ),
+})
+
+const createIntegrationRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/new/$integrationKind',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
+  ),
+})
+
+const integrationDetailRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/$integrationId',
+  component: lazyRouteComponent(() => import('@/routes/IntegrationPage'), 'IntegrationPage'),
+})
+
 const projectModelsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/models',
@@ -245,11 +275,6 @@ const agentProfileIndexRoute = createRoute({
 const agentProfileConfigurationRoute = createRoute({
   getParentRoute: () => agentProfileRoute,
   path: '/configuration',
-})
-
-const agentProfileIntegrationsRoute = createRoute({
-  getParentRoute: () => agentProfileRoute,
-  path: '/integrations',
 })
 
 const agentProfileSchedulesRoute = createRoute({
@@ -396,6 +421,10 @@ const routeTree = rootRoute.addChildren([
       organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,
+      integrationsRoute,
+      integrationCatalogRoute,
+      createIntegrationRoute,
+      integrationDetailRoute,
       projectModelsRoute,
       projectMachinesRoute,
       projectSecretsRoute,
@@ -406,7 +435,6 @@ const routeTree = rootRoute.addChildren([
       agentProfileRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
-        agentProfileIntegrationsRoute,
         agentProfileSchedulesRoute,
         agentProfileAgentsRoute,
         agentProfileUsageRoute,

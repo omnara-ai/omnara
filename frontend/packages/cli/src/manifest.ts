@@ -13,14 +13,15 @@ import {
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { integrationCommandGroups } from './integration-setup.ts'
 import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadMemoryUpload, memoryDownloadOp, zMemoryUploadBody } from './memory-files.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
-import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 export const commandGroups: CommandGroup[] = [
+  ...integrationCommandGroups,
   {
     name: 'agents',
     aliases: ['agent'],
@@ -861,18 +862,6 @@ export const commandGroups: CommandGroup[] = [
         }),
         body: zMcpAddBody,
         run: runProfileMcpAdd,
-      }),
-      flowOp({
-        verb: 'slack',
-        aliases: ['slack-setup'],
-        summary: 'Connect Slack to an agent profile through OAuth',
-        path: z.object({
-          orgID: schemas.zOrganizationId,
-          projectID: schemas.zProjectId,
-          agentProfileID: schemas.zAgentProfileId,
-        }),
-        body: zSlackBody,
-        run: runSlackIntegration,
       }),
     ],
   },
