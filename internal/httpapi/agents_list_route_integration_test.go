@@ -227,6 +227,21 @@ func TestListAgents(t *testing.T) {
 		require.Equal(t, wantNames, gotNames, "sort=%s", sortBy)
 	}
 
+	for _, sortBy := range []string{"-created_at", "name"} {
+		path := "/api/v1/orgs/" + project.OrgID + "/agents?name=Agent%20B&include_usage=true&sort=" + sortBy
+		rows := listOrgRows(t, handler, path, project.AdminToken)
+		require.Len(t, rows, 1)
+		require.Equal(t, slackTargetAgentID, rows[0]["id"])
+		require.Equal(t, project.ProjectID, rows[0]["project_id"])
+		require.NotContains(t, rows[0], "subagent_key")
+		require.NotContains(t, rows[0], "parent_agent_id")
+		assertListAgentsIntegrationTarget(
+			t, rows[0], "slack",
+			map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"},
+			"agent-testing", "https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
+		)
+	}
+
 	full := requestJSONWithHeaders(
 		t,
 		handler,

@@ -84,7 +84,7 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 	return record
 }
 
-func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) AgentRecord {
+func agentRecordFromListForProjectsSQLC(row dbsqlc.ListAgentsForProjectsRow) AgentRecord {
 	record := agentRecordFromSQLC(
 		row.ID,
 		row.OrgID,
@@ -152,8 +152,8 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 	return record
 }
 
-func agentRecordFromListForProjectByCreatedAtDescSQLC(
-	row dbsqlc.ListAgentsForProjectByCreatedAtDescRow,
+func agentRecordFromListForProjectsByCreatedAtDescSQLC(
+	row dbsqlc.ListAgentsForProjectsByCreatedAtDescRow,
 ) AgentRecord {
 	record := agentRecordFromSQLC(
 		row.ID,

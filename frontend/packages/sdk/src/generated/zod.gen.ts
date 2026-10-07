@@ -1076,23 +1076,6 @@ export const zRenameAgentProfileRequest = z.object({
     name: zResourceName
 });
 
-export const zAgentProfileSummary = z.object({
-    id: zAgentProfileId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    current_config_id: zAgentConfigId,
-    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    current_config: zAgentConfigSummary
-});
-
-export const zListAgentProfilesResponse = z.object({
-    data: z.array(zAgentProfileSummary),
-    next_cursor: z.string().nullable()
-});
-
 export const zAgentProfileCronTriggerTarget = z.object({
     type: z.enum(['profile']),
     agent_profile_id: zAgentProfileId
@@ -2208,7 +2191,11 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
         max_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
     }),
     z.object({
-        provider: z.enum(['daytona', 'boxd']),
+        provider: z.enum([
+            'daytona',
+            'boxd',
+            'createos'
+        ]),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2723,28 +2710,51 @@ export const zListProjectsResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zOrgOverviewProjectActivity = z.object({
+    project_id: zProjectId,
+    last_active_at: zTimestamp
+});
+
 export const zOrgOverviewAgentProfileReference = z.object({
     id: zAgentProfileId,
     name: zResourceName,
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
+export const zUsageTimeseriesInterval = z.enum([
+    'hour',
+    'day',
+    'week',
+    'month'
+]);
+
 /**
- * Activity since the start of today in `timezone`, across the readable projects in `projects`.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
  */
-export const zOrgOverviewToday = z.object({
-    agents_created: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
-    messages_sent: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
-});
+export const zUsageTimeseriesMetric = z.enum([
+    'sum_tokens',
+    'sum_input_tokens',
+    'sum_output_tokens',
+    'sum_cost',
+    'count_model_calls'
+]);
 
-export const zOrgOverviewUsageDayModel = z.object({
-    id: zConfiguredModelId,
-    tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
-});
+export const zUsageTimeseriesGroupBy = z.enum(['model', 'profile']);
 
-export const zOrgOverviewUsageDayProfile = z.object({
-    id: zAgentProfileId.optional(),
-    tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+export const zUsageTimeseriesSeries = z.object({
+    kind: z.enum([
+        'all',
+        'model',
+        'profile',
+        'no_profile',
+        'other'
+    ]),
+    id: z.string().optional(),
+    name: zResourceName.optional(),
+    model_provider_config_name: zResourceName.optional(),
+    project_name: zResourceName.optional(),
+    total: z.number().gte(0),
+    values: z.array(z.number().gte(0))
 });
 
 /**
@@ -2770,34 +2780,42 @@ export const zUsageTotals = z.object({
     cost: zUsageCostTotals
 });
 
-export const zOrgOverviewUsageModel = z.object({
-    id: zConfiguredModelId,
-    name: zResourceName,
-    totals: zUsageTotals
-});
-
-export const zOrgOverviewUsageProfile = z.object({
-    id: zAgentProfileId.optional(),
-    name: zResourceName.optional(),
-    totals: zUsageTotals
-});
-
-export const zOrgOverviewUsageDay = z.object({
-    start: zTimestamp,
-    totals: zUsageTotals,
-    models: z.array(zOrgOverviewUsageDayModel),
-    profiles: z.array(zOrgOverviewUsageDayProfile)
-});
-
 /**
- * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ * Present when the list was requested with `include_stats`.
  */
-export const zOrgOverviewUsage = z.object({
+export const zAgentProfileStats = z.object({
+    agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    usage: zUsageTotals
+});
+
+export const zAgentProfileSummary = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfigSummary,
+    stats: zAgentProfileStats.optional()
+});
+
+export const zListAgentProfilesResponse = z.object({
+    data: z.array(zAgentProfileSummary),
+    next_cursor: z.string().nullable()
+});
+
+export const zUsageTimeseries = z.object({
+    metric: zUsageTimeseriesMetric,
+    interval: zUsageTimeseriesInterval,
+    group_by: zUsageTimeseriesGroupBy.optional(),
+    timezone: z.string(),
+    bucket_starts: z.array(zTimestamp),
+    until: zTimestamp,
     totals: zUsageTotals,
     active_agents: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
-    models: z.array(zOrgOverviewUsageModel),
-    profiles: z.array(zOrgOverviewUsageProfile),
-    days: z.array(zOrgOverviewUsageDay)
+    series: z.array(zUsageTimeseriesSeries)
 });
 
 export const zUsageModel = z.object({
@@ -3142,6 +3160,7 @@ export const zAgent = z.object({
     parent_agent_id: zAgentId.optional(),
     subagent_key: z.string().optional(),
     activity: zAgentActivity.optional(),
+    usage: zUsageTotals.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     archived_at: zTimestamp.optional()
@@ -3207,11 +3226,10 @@ export const zListAgentInteractionsResponse = z.object({
 
 export const zOrgOverviewResponse = z.object({
     projects: z.array(zVisibleProject),
+    project_activity: z.array(zOrgOverviewProjectActivity),
     recent_agents: z.array(zAgent),
     recent_agent_profiles: z.array(zAgentProfileSummary),
-    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference),
-    today: zOrgOverviewToday,
-    usage: zOrgOverviewUsage
+    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference)
 });
 
 export const zIntegrationSubscriptionAttachment = z.object({
@@ -3298,6 +3316,21 @@ export const zListIntegrationDefinitionsResponse = z.object({
 });
 
 /**
+ * Include each agent's `usage`, so a list can show costs without a request per agent.
+ */
+export const zAgentIncludeUsage = z.boolean();
+
+/**
+ * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+ */
+export const zAgentProfileIncludeStats = z.boolean();
+
+/**
+ * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+ */
+export const zAgentProfileStatsSince = z.iso.datetime({ offset: true });
+
+/**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
  */
 export const zUsageSince = z.iso.datetime({ offset: true });
@@ -3313,7 +3346,7 @@ export const zUsageUntil = z.iso.datetime({ offset: true });
 export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
- * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
  */
 export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 
@@ -3515,10 +3548,6 @@ export const zGetOrgOverviewPath = z.object({
     orgID: zOrganizationId
 });
 
-export const zGetOrgOverviewQuery = z.object({
-    timezone: z.string().max(64).optional().default('UTC')
-});
-
 /**
  * Overview data for the organization.
  */
@@ -3539,6 +3568,67 @@ export const zGetOrgUsageQuery = z.object({
  * Usage totals for the organization.
  */
 export const zGetOrgUsageResponse = zUsageReport;
+
+export const zGetOrgUsageTimeseriesPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageTimeseriesQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    timezone: z.string().max(64).optional().default('UTC'),
+    interval: zUsageTimeseriesInterval.optional(),
+    metric: zUsageTimeseriesMetric.optional(),
+    group_by: zUsageTimeseriesGroupBy.optional(),
+    group_limit: z.int().gte(1).lte(20).optional().default(8),
+    project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    agent_profile_ids: z.array(zAgentProfileId).min(1).max(100).optional(),
+    include_subagents: z.boolean().optional().default(false)
+});
+
+/**
+ * Usage timeseries.
+ */
+export const zGetOrgUsageTimeseriesResponse = zUsageTimeseries;
+
+export const zListOrgAgentsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgAgentsQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    parent_agent_id: zAgentId.optional(),
+    include_subagents: z.boolean().optional(),
+    include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
+    sort: zResourceListSort.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Agents across the caller's readable projects, newest first.
+ */
+export const zListOrgAgentsResponse = zListAgentsResponse;
+
+export const zListOrgAgentProfilesPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgAgentProfilesQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
+    sort: zResourceListSort.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Agent profiles across the caller's readable projects, newest first.
+ */
+export const zListOrgAgentProfilesResponse = zListAgentProfilesResponse;
 
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -4251,6 +4341,8 @@ export const zListAgentProfilesPath = z.object({
 
 export const zListAgentProfilesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4480,6 +4572,7 @@ export const zListAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

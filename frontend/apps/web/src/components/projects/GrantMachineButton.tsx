@@ -3,14 +3,15 @@ import { useState } from 'react'
 
 import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMachineDialog'
 import { Button } from '@/components/ui/button'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
 /**
- * Self-contained "Grant machines" trigger and dialog for the current project.
+ * Self-contained "Share machines" trigger and dialog for the current project.
  * Only BYO machines are grantable individually; pool machines are reached
- * through their pool's grant. Renders nothing when the viewer can't manage
- * project access.
+ * through their pool's grant. Renders nothing unless the viewer can manage
+ * both project access and the org.
  */
 export function GrantMachineButton({
   onGranted,
@@ -20,7 +21,7 @@ export function GrantMachineButton({
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const [open, setOpen] = useState(false)
-  if (!project?.access.can_manage_access) return null
+  if (!canManageMachineGrants(activeOrg.role, project?.access)) return null
 
   return (
     <>
@@ -32,7 +33,7 @@ export function GrantMachineButton({
           setOpen(true)
         }}
       >
-        Grant machines
+        Share machines
       </Button>
       <GrantProjectMachineDialog
         open={open}

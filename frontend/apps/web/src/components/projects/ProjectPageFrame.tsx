@@ -1,16 +1,11 @@
 import type { ReactNode } from 'react'
 
-import { type Crumb, PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { useProjectPage } from '@/lib/use-project-page'
 
 export function ProjectPageFrame({
-  title,
-  breadcrumbs = [],
   children,
 }: {
-  title: string
-  breadcrumbs?: Crumb[]
   children: (context: ReturnType<typeof useProjectPage>) => ReactNode
 }) {
   const context = useProjectPage()
@@ -28,17 +23,5 @@ export function ProjectPageFrame({
     )
   }
 
-  return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: context.activeOrg.name, to: '/' },
-          { id: 'project', label: context.project.name },
-          ...breadcrumbs,
-          { id: 'page', label: title },
-        ]}
-      />
-      {children(context)}
-    </div>
-  )
+  return <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">{children(context)}</div>
 }

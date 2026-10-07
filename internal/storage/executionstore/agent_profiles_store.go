@@ -343,11 +343,11 @@ func (s *Store) GetAgentProfileDisplayNames(
 	return names, nil
 }
 
-type ListAgentProfilesForProjectInput struct {
-	ProjectID uuid.UUID
-	Filters   AgentProfileListFilters
-	List      listing.Options
-	Limit     int
+type ListAgentProfilesForProjectsInput struct {
+	ProjectIDs []uuid.UUID
+	Filters    AgentProfileListFilters
+	List       listing.Options
+	Limit      int
 }
 
 type AgentProfileListFilters struct {
@@ -357,32 +357,32 @@ type AgentProfileListFilters struct {
 	APIVariants           []string
 }
 
-type ListAgentProfilesForProjectResult struct {
+type ListAgentProfilesForProjectsResult struct {
 	Profiles []AgentProfileRecord
 	HasMore  bool
 	Next     listing.Cursor
 }
 
-// ListAgentProfilesForProject returns one newest-first page of agent profiles.
-func (s *Store) ListAgentProfilesForProject(
+// ListAgentProfilesForProjects returns one keyset page of agent profiles across the given projects.
+func (s *Store) ListAgentProfilesForProjects(
 	ctx context.Context,
-	input ListAgentProfilesForProjectInput,
-) (ListAgentProfilesForProjectResult, error) {
-	if input.ProjectID == uuid.Nil {
-		return ListAgentProfilesForProjectResult{}, errors.New("project id is required")
-	}
+	input ListAgentProfilesForProjectsInput,
+) (ListAgentProfilesForProjectsResult, error) {
 	if input.Limit <= 0 {
-		return ListAgentProfilesForProjectResult{}, errors.New("limit must be positive")
+		return ListAgentProfilesForProjectsResult{}, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return ListAgentProfilesForProjectsResult{}, nil
 	}
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
 		"name", "created_at", "updated_at", "model_provider", "model", "api_format", "api_variant",
 	) {
-		return ListAgentProfilesForProjectResult{}, errors.New("unsupported agent profile list sort")
+		return ListAgentProfilesForProjectsResult{}, errors.New("unsupported agent profile list sort")
 	}
-	params := dbsqlc.ListAgentProfilesForProjectParams{
-		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
+	params := dbsqlc.ListAgentProfilesForProjectsParams{
+		ProjectIds: input.ProjectIDs, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
@@ -390,11 +390,11 @@ func (s *Store) ListAgentProfilesForProject(
 		ConfiguredModelID:     storeutil.IDFromNil(input.Filters.ConfiguredModelID),
 		ApiFormats:            input.Filters.APIFormats, ApiVariants: input.Filters.APIVariants,
 	}
-	rows, err := s.q.ListAgentProfilesForProject(ctx, params)
+	rows, err := s.q.ListAgentProfilesForProjects(ctx, params)
 	if err != nil {
-		return ListAgentProfilesForProjectResult{}, fmt.Errorf("list agent profiles: %w", err)
+		return ListAgentProfilesForProjectsResult{}, fmt.Errorf("list agent profiles: %w", err)
 	}
-	result := ListAgentProfilesForProjectResult{}
+	result := ListAgentProfilesForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
@@ -405,7 +405,7 @@ func (s *Store) ListAgentProfilesForProject(
 	}
 	result.Profiles = make([]AgentProfileRecord, 0, len(rows))
 	for _, row := range rows {
-		record := agentProfileRecordFromListForProjectSQLC(row)
+		record := agentProfileRecordFromListForProjectsSQLC(row)
 		result.Profiles = append(result.Profiles, record)
 	}
 	return result, nil
@@ -472,6 +472,37 @@ func (s *Store) ListRecentAgentProfilesForProjects(
 		records = append(records, agentProfileRecordFromListRecentForProjectsSQLC(row))
 	}
 	return records, nil
+}
+
+type ListProjectLastActivityInput struct {
+	// AgentProjectIDs are the projects whose agents count, ProfileProjectIDs
+	// those whose agent profiles do.
+	AgentProjectIDs   []uuid.UUID
+	ProfileProjectIDs []uuid.UUID
+}
+
+// ListProjectLastActivity returns when each project last had an active
+// top-level agent or a live agent profile updated. Projects with neither are
+// omitted.
+func (s *Store) ListProjectLastActivity(
+	ctx context.Context,
+	input ListProjectLastActivityInput,
+) (map[uuid.UUID]time.Time, error) {
+	activity := map[uuid.UUID]time.Time{}
+	if len(input.AgentProjectIDs) == 0 && len(input.ProfileProjectIDs) == 0 {
+		return activity, nil
+	}
+	rows, err := s.q.ListProjectLastActivity(ctx, dbsqlc.ListProjectLastActivityParams{
+		AgentProjectIds:   input.AgentProjectIDs,
+		ProfileProjectIds: input.ProfileProjectIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list project last activity: %w", err)
+	}
+	for _, row := range rows {
+		activity[row.ProjectID] = row.LastActiveAt
+	}
+	return activity, nil
 }
 
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {

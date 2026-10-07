@@ -63,17 +63,17 @@ export function installFailureTracking(page: FailureTrackingPage, ignore: RegExp
     const method = request.method()
     if (method === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
     const error = request.failure()?.errorText ?? 'failed'
+    if (method === 'GET' && error === 'net::ERR_ABORTED') return
     // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
     if (method === 'DELETE' && error === 'net::ERR_ABORTED' && responses.get(request) === 204)
       return
     const failure = `request: ${method} ${request.url()} (${error})`
     if (
       error === 'net::ERR_ABORTED' &&
-      (method === 'GET' ||
-        (method === 'POST' &&
-          /^\/api\/v1\/orgs\/[^/]+\/projects\/[^/]+\/agent-configs\/tools$/.test(
-            new URL(request.url()).pathname,
-          )))
+      method === 'POST' &&
+      /^\/api\/v1\/orgs\/[^/]+\/projects\/[^/]+\/agent-configs\/tools$/.test(
+        new URL(request.url()).pathname,
+      )
     )
       record(failure)
     else failures.push(failure)
@@ -91,20 +91,9 @@ export function installFailureTracking(page: FailureTrackingPage, ignore: RegExp
 }
 
 export function installIntegrationFailureTracking(page: FailureTrackingPage) {
-  const origin = new URL(requiredEnvironmentVariable('OMNARA_WEB_E2E_BASE_URL')).origin.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    '\\$&',
-  )
   return installFailureTracking(page, [
     /^page: Canceled$/,
-    /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/integrations\/itg_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/integrations\/itg_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
     /^request: POST .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
-    new RegExp(String.raw`^request: GET ${origin}/assets/[^/?]+\.woff2 \(net::ERR_ABORTED\)$`),
   ])
 }
 

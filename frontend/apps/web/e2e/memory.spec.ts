@@ -14,10 +14,7 @@ const memoryPath = `/projects/${projectID}/memory`
 const fileRoute = '**/memory-stores/*/file?*'
 
 async function createMemoryStore(page: Page, expectedFileStatuses: number[] = []) {
-  const ignore = [
-    /^request: .*memory-stores\/mst_[a-z2-7]+(?:\/files?\?[^ ]+)? \(net::ERR_ABORTED\)$/,
-    /^page: Canceled$/,
-  ]
+  const ignore = [/^page: Canceled$/]
   const failures = installFailureTracking(page, ignore)
   const storeName = `memory-browser-${randomUUID()}`
   await signIn(page, adminEmail, memoryPath)

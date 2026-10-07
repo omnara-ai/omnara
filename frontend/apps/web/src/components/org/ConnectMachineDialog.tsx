@@ -2,7 +2,7 @@ import { useConnectMachine } from '@omnara/react'
 import { type SyntheticEvent, useId, useReducer } from 'react'
 
 import { CheckIcon, CopyIcon } from '@/components/icons'
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -148,16 +148,20 @@ export function ConnectMachineDialog({
                   Agent configs reference this name via machine_sources.machine_name.
                 </FieldDescription>
               </Field>
-              <ProjectGrantsField
-                orgId={orgId}
-                isProjectEligible={(project) => project.access.can_manage_access}
-                value={state.projectGrantIds}
-                onChange={(projectGrantIds) => {
-                  dispatch({ type: 'setProjectGrantIds', projectGrantIds })
-                }}
-                disabled={state.submitting}
-                description="Agents in selected projects will be able to run commands on the machine."
-              />
+              <Field>
+                <ProjectShareChips
+                  orgId={orgId}
+                  isProjectEligible={(project) => project.access.can_manage_access}
+                  value={state.projectGrantIds}
+                  onChange={(projectGrantIds) => {
+                    dispatch({ type: 'setProjectGrantIds', projectGrantIds })
+                  }}
+                  disabled={state.submitting}
+                />
+                <FieldDescription>
+                  Agents in selected projects will be able to run commands on the machine.
+                </FieldDescription>
+              </Field>
               {state.error && (
                 <p className="text-destructive whitespace-pre-wrap text-sm">{state.error}</p>
               )}

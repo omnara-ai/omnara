@@ -27,15 +27,13 @@ Create an agent from a [config](/agents/configuration), or from a [profile](/age
   </Info>
 </Tab>
 <Tab title="Dashboard">
-  In your project, open **Agents** and click **New agent**. If your role can manage project resources, choose how to define the agent:
+  Select your project in the project switcher and open **Agents → Profiles**. Click
+  **Launch** on an existing [profile](/agents/configuration#profiles) to start an agent
+  with its current config. Users with launch-only access use this path.
 
-  - **From profile** — pick an existing [profile](/agents/configuration#profiles); the launch uses its current config.
-  - **Builder** — a form for instruction, model, machine sources, tools, skills, and MCP servers, with a live YAML preview.
-  - **YAML** — paste or write the config directly in the editor.
-
-  Users with launch-only access can select **From profile** but cannot create a config with the Builder or YAML editor.
-
-  Give the agent a **Name**, then click **Create & launch agent**. In the conversation view, use the composer to send its first task.
+  If your role can manage project resources, click **New agent** to define a new
+  profile. Enter a **Name**, configure it in **Builder** or **YAML**, then click
+  **Create & launch agent**. In the conversation view, use the composer to send its first task.
 </Tab>
 </Tabs>
 
@@ -87,7 +85,7 @@ reference has since been deleted.
 
 ## Find agents
 
-The project's **Agents** page lists active agents; click one to open its conversation. `omnara agents list` and the API return active agents newest first; fetch one by ID with `omnara agents get {agent-id}`. Archived agents are omitted from the list but remain retrievable by ID.
+The project's **Agents** page opens on **Profiles**; switch to the **Instances** tab to list active agents, and click one to open its conversation. `omnara agents list` and the API return active agents newest first; fetch one by ID with `omnara agents get {agent-id}`. Archived agents are omitted from the list but remain retrievable by ID.
 
 <Info>
 For full schemas and playground see: [List agents](/api-reference/endpoints/agents/list-agents) and [Get agent](/api-reference/endpoints/agents/get-agent).
@@ -129,7 +127,7 @@ Machines you connected yourself, configs, and profiles are not deleted.
   </Info>
 </Tab>
 <Tab title="Dashboard">
-  On the **Agents** page, open the row's actions and click **Archive**.
+  On the **Agents** page's **Instances** tab, open the agent's actions menu and click **Archive**.
 </Tab>
 </Tabs>
 

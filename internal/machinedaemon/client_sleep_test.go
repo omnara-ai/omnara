@@ -34,6 +34,35 @@ func TestSleepPlatformSelection(t *testing.T) {
 	if err != nil || arker != (controlFileSleepPlatform{controlPath: daemonprotocol.ArkerAwakeControlFilePath}) {
 		t.Fatalf("arker sleep platform = %#v, %v", arker, err)
 	}
+	createOS, err := newSleepPlatform(daemonprotocol.SleepPlatformCreateOS)
+	if selfPause, ok := createOS.(createOSSleepPlatform); err != nil || !ok ||
+		selfPause.pauseURL != daemonprotocol.CreateOSSelfPauseURL {
+		t.Fatalf("createos sleep platform = %#v, %v", createOS, err)
+	}
+}
+
+func TestCreateOSSleepPlatformPausesTheSandbox(t *testing.T) {
+	status := http.StatusAccepted
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodPost || r.URL.Path != "/self/pause" {
+			t.Errorf("self-pause request = %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	platform := createOSSleepPlatform{pauseURL: server.URL + "/self/pause", httpClient: server.Client()}
+	if err := platform.preventSleep(); err != nil || requests != 0 {
+		t.Fatalf("prevent sleep error = %v requests = %d, want a no-op", err, requests)
+	}
+	if err := platform.allowSleep(); err != nil || requests != 1 {
+		t.Fatalf("allow sleep error = %v requests = %d", err, requests)
+	}
+	status = http.StatusServiceUnavailable
+	if err := platform.allowSleep(); err == nil || !strings.Contains(err.Error(), "HTTP 503") {
+		t.Fatalf("allow sleep error = %v, want the rejected pause reported", err)
+	}
 }
 
 func TestControlFileSleepPlatformWritesCounter(t *testing.T) {

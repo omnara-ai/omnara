@@ -17,6 +17,7 @@ import {
   listIntegrationDefinitionsOptions,
   listIntegrationsInfiniteOptions,
   listIntegrationsQueryKey,
+  listOrgAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -140,6 +141,9 @@ export function useDeleteIntegration(orgID: string, projectID: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgAgentsQueryKey({ path: { orgID }, client }),
         }),
         queryClient.invalidateQueries({
           queryKey: listCronTriggersQueryKey({ path: { orgID, projectID }, client }),

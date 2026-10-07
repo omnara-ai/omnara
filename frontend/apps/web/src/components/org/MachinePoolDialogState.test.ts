@@ -7,9 +7,9 @@ import {
   machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
-  machinePoolFormValid,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
+import { machinePoolFormValid } from './machinePoolValidation'
 
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {
@@ -154,6 +154,63 @@ describe('boxd machine pools', () => {
     expect(request.default_machine_provider_options).toEqual({ sleep_after_ms: 300000 })
     expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 16384 })
     expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
+describe('CreateOS machine pools', () => {
+  it('creates a pool with the default root filesystem and default limits', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'createos'),
+      name: 'createos-pool',
+      image: ' s-2vcpu-4gb ',
+      maxMachines: '3',
+      secretId: 'sec_createos',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'createos',
+      default_machine_provider_options: { ['shape']: 's-2vcpu-4gb', rootfs: 'devbox:1' },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+  })
+
+  it('edits the shape and root filesystem while preserving API-only options', () => {
+    const pool = machinePool({
+      provider: 'createos',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        ['shape']: 's-2vcpu-4gb',
+        rootfs: 'devbox:1',
+        startup_script: 'echo ready',
+      },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected CreateOS pool form')
+    expect(values).toMatchObject({
+      image: 's-2vcpu-4gb',
+      location: 'devbox:1',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: 's-4vcpu-8gb',
+      location: 'ubuntu:26.04',
+      cpu: '4',
+      memoryGb: '8',
+    })
+    expect(request.default_machine_provider_options).toEqual({
+      ['shape']: 's-4vcpu-8gb',
+      rootfs: 'ubuntu:26.04',
+      startup_script: 'echo ready',
+    })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 8192 })
   })
 })
 

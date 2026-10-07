@@ -3,13 +3,12 @@ import type { SecretOwnerInput } from '@omnara/sdk'
 import { type Dispatch, type SyntheticEvent, useReducer } from 'react'
 
 import { isMcpOAuthLoginUrl } from '@/components/agents/mcpOAuthLogin'
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -57,7 +56,7 @@ function secretDraftValid(secret: SecretDraft): boolean {
 }
 
 function submitLabel(state: SecretDialogState): string {
-  if (state.createdSecret) return 'Retry project grants'
+  if (state.createdSecret) return 'Retry sharing'
   return state.secret.kind === 'mcp_oauth' && secretDraftValid(state.secret)
     ? 'Authorize and Create Secret'
     : 'Create secret'
@@ -255,26 +254,27 @@ export function CreateSecretDialog({
             </Field>
             <SecretKindSelect kind={state.secret.kind} dispatch={dispatch} />
             <SecretKindFields secret={state.secret} dispatch={dispatch} />
-            <ProjectGrantsField
-              orgId={orgId}
-              isProjectEligible={(project) => project.access.can_manage}
-              excludedProjectIds={owner.kind === 'project' ? [owner.project_id] : []}
-              value={state.projectGrantIds}
-              onChange={(ids) => {
-                dispatch({ type: 'set-project-grant-ids', ids })
-              }}
-              disabled={state.submitting}
-            />
             {state.error && <p className="text-destructive text-sm">{state.error}</p>}
-            <DialogFooter>
+            <div className="-mx-4 flex flex-wrap items-center gap-3 border-t px-4 pt-4 sm:-mx-6 sm:px-6">
+              <ProjectShareChips
+                orgId={orgId}
+                isProjectEligible={(project) => project.access.can_manage}
+                excludedProjectIds={owner.kind === 'project' ? [owner.project_id] : []}
+                value={state.projectGrantIds}
+                onChange={(ids) => {
+                  dispatch({ type: 'set-project-grant-ids', ids })
+                }}
+                disabled={state.submitting}
+              />
               <Button
                 type="submit"
+                className="ml-auto"
                 disabled={state.submitting || (!state.createdSecret && !valid)}
                 loading={state.submitting}
               >
                 {submitLabel(state)}
               </Button>
-            </DialogFooter>
+            </div>
           </FieldGroup>
         </form>
       </DialogContent>

@@ -282,7 +282,7 @@ function GitHubRegistrationOptions({
 }
 
 function GitHubInstallationChoice({
-  inspection: { result, page },
+  inspection,
   returnsToOmnara,
   selected,
   onSelect,
@@ -296,15 +296,47 @@ function GitHubInstallationChoice({
   onInspect: (page: number) => void
   disabled: boolean
 }) {
-  const nextPage = result.next_page
-  const accounts = result.installations.length
-  const sole = page === 1 && !nextPage && accounts === 1
+  const { result } = inspection
   return (
     <>
       <p>
         GitHub App: <strong>{result.name}</strong>{' '}
         <span className="text-muted-foreground">({result.slug})</span>
       </p>
+      <GitHubAccountSelection
+        inspection={inspection}
+        returnsToOmnara={returnsToOmnara}
+        selected={selected}
+        onSelect={onSelect}
+        disabled={disabled}
+      />
+      <GitHubInstallationActions
+        inspection={inspection}
+        returnsToOmnara={returnsToOmnara}
+        selected={selected}
+        onInspect={onInspect}
+      />
+    </>
+  )
+}
+
+function GitHubAccountSelection({
+  inspection: { result, page },
+  returnsToOmnara,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  inspection: GitHubInspection
+  returnsToOmnara: boolean
+  selected?: GitHubSetupInstallation
+  onSelect: (installationId: string) => void
+  disabled: boolean
+}) {
+  const accounts = result.installations.length
+  const sole = page === 1 && !result.next_page && accounts === 1
+  return (
+    <>
       {accounts === 0 ? (
         <p className="text-muted-foreground">
           {page === 1
@@ -337,6 +369,25 @@ function GitHubInstallationChoice({
           </FieldDescription>
         </Field>
       )}
+    </>
+  )
+}
+
+function GitHubInstallationActions({
+  inspection: { result, page },
+  returnsToOmnara,
+  selected,
+  onInspect,
+}: {
+  inspection: GitHubInspection
+  returnsToOmnara: boolean
+  selected?: GitHubSetupInstallation
+  onInspect: (page: number) => void
+}) {
+  const nextPage = result.next_page
+  const accounts = result.installations.length
+  return (
+    <>
       {selected && (
         <a
           href={selected.settings_url}

@@ -3,7 +3,7 @@ import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 
 export function IntegrationsPage() {
   return (
-    <ProjectPageFrame title="Integrations">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) => (
         <IntegrationsList
           orgId={activeOrg.id}

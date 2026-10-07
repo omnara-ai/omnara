@@ -55,6 +55,7 @@ export function MachinesSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machines"
+          description="Manage or connect to a single machine instance"
           guide={guides.machines}
           toolbar={
             <ResourceListToolbar
@@ -135,6 +136,7 @@ export function MachinesSection() {
             void query.refetch()
           }}
           emptyMessage="No machines yet. Connect one you operate, or let pools provision them."
+          emptyAction={connectButton()}
         />
       </div>
       <ConnectMachineDialog open={connectOpen} onOpenChange={setConnectOpen} orgId={activeOrg.id} />

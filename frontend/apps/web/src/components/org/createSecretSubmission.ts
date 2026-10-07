@@ -90,7 +90,7 @@ export async function submitSecretTransaction({
         kind: 'grant-failures',
         secret: submittedSecret,
         failedProjectIds: failures.failedProjectIds,
-        message: `The secret was created, but ${failures.message}`,
+        message: `The secret was created. ${failures.message}`,
       }
     }
     return { kind: 'complete', secret: submittedSecret }

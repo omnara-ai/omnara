@@ -30,12 +30,14 @@ function tracker() {
   return { page, failures }
 }
 
-it('ignores a canceled integration read but records an unexpected canceled read', () => {
+it('ignores canceled reads while recording other read failures', () => {
   const { page, failures } = tracker()
   page.emit('requestfailed', request('GET'))
   expect(failures).toEqual([])
   page.emit('requestfailed', request('GET', '/unexpected'))
-  expect(failures).toEqual([`request: GET ${origin}/unexpected (net::ERR_ABORTED)`])
+  expect(failures).toEqual([])
+  page.emit('requestfailed', request('GET', '/unexpected', 'net::ERR_CONNECTION_RESET'))
+  expect(failures).toEqual([`request: GET ${origin}/unexpected (net::ERR_CONNECTION_RESET)`])
 })
 
 it('ignores only canceled POST reads for agent config tools', () => {

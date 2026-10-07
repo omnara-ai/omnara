@@ -192,6 +192,47 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 	return i, err
 }
 
+const countActiveAgentsByProfile = `-- name: CountActiveAgentsByProfile :many
+SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
+FROM agents agent
+WHERE agent.project_id = ANY($1::uuid[])
+  AND agent.agent_profile_id = ANY($2::uuid[])
+  AND agent.parent_agent_id IS NULL
+  AND agent.state = 'active'
+GROUP BY agent.agent_profile_id
+`
+
+type CountActiveAgentsByProfileParams struct {
+	ProjectIds      []uuid.UUID
+	AgentProfileIds []uuid.UUID
+}
+
+type CountActiveAgentsByProfileRow struct {
+	AgentProfileID uuid.UUID
+	AgentCount     int64
+}
+
+// Unarchived top-level agents launched from each profile, for a page of profiles at once.
+func (q *Queries) CountActiveAgentsByProfile(ctx context.Context, arg CountActiveAgentsByProfileParams) ([]CountActiveAgentsByProfileRow, error) {
+	rows, err := q.db.Query(ctx, countActiveAgentsByProfile, arg.ProjectIds, arg.AgentProfileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountActiveAgentsByProfileRow{}
+	for rows.Next() {
+		var i CountActiveAgentsByProfileRow
+		if err := rows.Scan(&i.AgentProfileID, &i.AgentCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteAgentProfile = `-- name: DeleteAgentProfile :execrows
 UPDATE agent_profiles
 SET deleted_at = statement_timestamp(),
@@ -668,7 +709,7 @@ func (q *Queries) InsertAgentProfile(ctx context.Context, arg InsertAgentProfile
 	return i, err
 }
 
-const listAgentProfilesForProject = `-- name: ListAgentProfilesForProject :many
+const listAgentProfilesForProjects = `-- name: ListAgentProfilesForProjects :many
 WITH listed AS (
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -706,7 +747,7 @@ JOIN configured_models model ON model.org_id = config.org_id
   AND model.id = config.configured_model_id
 JOIN model_provider_configs provider ON provider.org_id = model.org_id
   AND provider.id = model.model_provider_config_id
-WHERE profile.project_id = $7
+WHERE profile.project_id = ANY($7::uuid[])
   AND profile.deleted_at IS NULL
   AND ($8::text = '' OR profile.name ILIKE $8::text ESCAPE '\')
   AND ($9::uuid IS NULL OR provider.id = $9::uuid)
@@ -731,14 +772,14 @@ ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
 LIMIT $5::bigint
 `
 
-type ListAgentProfilesForProjectParams struct {
+type ListAgentProfilesForProjectsParams struct {
 	CursorSet             bool
 	SortDesc              bool
 	CursorKey             string
 	CursorID              uuid.UUID
 	RowLimit              int64
 	SortField             string
-	ProjectID             uuid.UUID
+	ProjectIds            []uuid.UUID
 	NamePattern           string
 	ModelProviderConfigID *uuid.UUID
 	ConfiguredModelID     *uuid.UUID
@@ -746,7 +787,7 @@ type ListAgentProfilesForProjectParams struct {
 	ApiVariants           []string
 }
 
-type ListAgentProfilesForProjectRow struct {
+type ListAgentProfilesForProjectsRow struct {
 	ID                            uuid.UUID
 	OrgID                         uuid.UUID
 	ProjectID                     uuid.UUID
@@ -770,15 +811,15 @@ type ListAgentProfilesForProjectRow struct {
 	SortIsNull                    bool
 }
 
-func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgentProfilesForProjectParams) ([]ListAgentProfilesForProjectRow, error) {
-	rows, err := q.db.Query(ctx, listAgentProfilesForProject,
+func (q *Queries) ListAgentProfilesForProjects(ctx context.Context, arg ListAgentProfilesForProjectsParams) ([]ListAgentProfilesForProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentProfilesForProjects,
 		arg.CursorSet,
 		arg.SortDesc,
 		arg.CursorKey,
 		arg.CursorID,
 		arg.RowLimit,
 		arg.SortField,
-		arg.ProjectID,
+		arg.ProjectIds,
 		arg.NamePattern,
 		arg.ModelProviderConfigID,
 		arg.ConfiguredModelID,
@@ -789,9 +830,9 @@ func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgent
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentProfilesForProjectRow{}
+	items := []ListAgentProfilesForProjectsRow{}
 	for rows.Next() {
-		var i ListAgentProfilesForProjectRow
+		var i ListAgentProfilesForProjectsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -861,6 +902,55 @@ func (q *Queries) ListAgentProfilesWithAgentCounts(ctx context.Context, arg List
 	for rows.Next() {
 		var i ListAgentProfilesWithAgentCountsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.AgentCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectLastActivity = `-- name: ListProjectLastActivity :many
+SELECT activity.project_id, max(activity.active_at)::timestamptz AS last_active_at
+FROM (
+  SELECT agent.project_id, agent.updated_at AS active_at
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.state = 'active'
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT profile.project_id, profile.updated_at AS active_at
+  FROM agent_profiles profile
+  WHERE profile.project_id = ANY($2::uuid[])
+    AND profile.deleted_at IS NULL
+) activity
+GROUP BY activity.project_id
+`
+
+type ListProjectLastActivityParams struct {
+	AgentProjectIds   []uuid.UUID
+	ProfileProjectIds []uuid.UUID
+}
+
+type ListProjectLastActivityRow struct {
+	ProjectID    uuid.UUID
+	LastActiveAt time.Time
+}
+
+// When each project last had an active top-level agent or a live profile updated,
+// matching what the overview's recent agents and profiles count as activity.
+func (q *Queries) ListProjectLastActivity(ctx context.Context, arg ListProjectLastActivityParams) ([]ListProjectLastActivityRow, error) {
+	rows, err := q.db.Query(ctx, listProjectLastActivity, arg.AgentProjectIds, arg.ProfileProjectIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectLastActivityRow{}
+	for rows.Next() {
+		var i ListProjectLastActivityRow
+		if err := rows.Scan(&i.ProjectID, &i.LastActiveAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

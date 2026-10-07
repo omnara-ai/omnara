@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -351,30 +353,50 @@ func (s strictOpenAPIServer) ListAgents(
 	if err != nil {
 		return nil, err
 	}
-	return s.listAgents(ctx, request.Params, scope.project)
+	response, err := s.listAgents(ctx, request.Params, projectListScope(scope.project))
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListAgents200JSONResponse(response), nil
+}
+
+type resourceListScope struct {
+	key        string
+	projectIDs []uuid.UUID
+}
+
+func projectListScope(project identitystore.ProjectRecord) resourceListScope {
+	return resourceListScope{
+		key:        project.OrgID.String() + "/" + project.ID.String(),
+		projectIDs: []uuid.UUID{project.ID},
+	}
 }
 
 func (s strictOpenAPIServer) listAgents(
 	ctx context.Context,
 	params openapi.ListAgentsParams,
-	project identitystore.ProjectRecord,
-) (openapi.ListAgentsResponseObject, error) {
+	scope resourceListScope,
+) (openapi.ListAgentsResponse, error) {
 	limit, err := parseOpenAPIPageLimit(params.Limit)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentsResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentListFilters{}
 	if params.AgentProfileId != nil && *params.AgentProfileId != "" {
 		agentProfileID, err := publicid.Decode(publicid.KindAgentProfile, *params.AgentProfileId)
 		if err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+			return openapi.ListAgentsResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, "invalid agent profile filter",
+			)
 		}
 		filters.AgentProfileID = &agentProfileID
 	}
 	if params.ParentAgentId != nil && *params.ParentAgentId != "" {
 		parentAgentID, err := publicid.Decode(publicid.KindAgent, *params.ParentAgentId)
 		if err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid parent agent filter")
+			return openapi.ListAgentsResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, "invalid parent agent filter",
+			)
 		}
 		filters.ParentAgentID = &parentAgentID
 	}
@@ -393,37 +415,66 @@ func (s strictOpenAPIServer) listAgents(
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
-		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindAgent,
+		Scope: scope.key, IDKind: publicid.KindAgent,
 		AllowedSorts: defaultResourceSorts, Extra: extra,
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentsResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: project.ID, Filters: filters, List: list, Limit: limit,
+	page, err := s.server.store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: scope.projectIDs, Filters: filters, List: list, Limit: limit,
 	})
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return openapi.ListAgentsResponse{}, apierror.ProjectScoped(err)
 	}
 	data := make([]openapi.Agent, 0, len(page.Agents))
 	for _, agent := range page.Agents {
 		response, err := publicAgentResponseFromRecord(agent)
 		if err != nil {
-			return nil, err
+			return openapi.ListAgentsResponse{}, err
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeUsage) {
+		if err := s.addAgentUsage(ctx, page.Agents, data); err != nil {
+			return openapi.ListAgentsResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
-		page.HasMore, page.Next, list, "agents",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgent, extra,
+		page.HasMore, page.Next, list, "agents", scope.key, publicid.KindAgent, extra,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListAgentsResponse{}, err
 	}
-	return openapi.ListAgents200JSONResponse(openapi.ListAgentsResponse{
-		Data:       data,
-		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	return openapi.ListAgentsResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentUsage fills in each listed agent's usage, batched across the page so
+// a list doesn't need a request per agent.
+func (s strictOpenAPIServer) addAgentUsage(
+	ctx context.Context,
+	agents []executionstore.AgentRecord,
+	data []openapi.Agent,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(agents))
+	agentIDs := make([]uuid.UUID, 0, len(agents))
+	for _, agent := range agents {
+		if !slices.Contains(projectIDs, agent.ProjectID) {
+			projectIDs = append(projectIDs, agent.ProjectID)
+		}
+		agentIDs = append(agentIDs, agent.ID)
+	}
+	totals, err := s.server.store.Execution().AgentUsageTotals(ctx, executionstore.AgentUsageTotalsInput{
+		ProjectIDs: projectIDs, AgentIDs: agentIDs,
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, agent := range agents {
+		usage := usageTotalsResponse(totals[agent.ID])
+		data[index].Usage = &usage
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) ListAgentProfiles(
@@ -434,56 +485,94 @@ func (s strictOpenAPIServer) ListAgentProfiles(
 	if err != nil {
 		return nil, err
 	}
-	return s.listAgentProfiles(ctx, request.Params, scope.project)
+	response, err := s.listAgentProfiles(ctx, request.Params, projectListScope(scope.project))
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListAgentProfiles200JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) listAgentProfiles(
 	ctx context.Context,
 	params openapi.ListAgentProfilesParams,
-	project identitystore.ProjectRecord,
-) (openapi.ListAgentProfilesResponseObject, error) {
+	scope resourceListScope,
+) (openapi.ListAgentProfilesResponse, error) {
 	limit, err := parseOpenAPIPageLimit(params.Limit)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentProfilesResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentProfileListFilters{}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agent_profiles",
-		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindAgentProfile,
+		Scope: scope.key, IDKind: publicid.KindAgentProfile,
 		AllowedSorts: defaultResourceSorts,
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentProfilesResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Execution().ListAgentProfilesForProject(
+	page, err := s.server.store.Execution().ListAgentProfilesForProjects(
 		ctx,
-		executionstore.ListAgentProfilesForProjectInput{
-			ProjectID: project.ID, Filters: filters, List: list, Limit: limit,
+		executionstore.ListAgentProfilesForProjectsInput{
+			ProjectIDs: scope.projectIDs, Filters: filters, List: list, Limit: limit,
 		},
 	)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return openapi.ListAgentProfilesResponse{}, apierror.ProjectScoped(err)
 	}
 	data := make([]openapi.AgentProfileSummary, 0, len(page.Profiles))
 	for _, profile := range page.Profiles {
 		response, err := s.server.agentProfileSummaryFromRecord(ctx, profile)
 		if err != nil {
-			return nil, err
+			return openapi.ListAgentProfilesResponse{}, err
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeStats) {
+		if err := s.addAgentProfileStats(ctx, page.Profiles, params.StatsSince, data); err != nil {
+			return openapi.ListAgentProfilesResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
-		page.HasMore, page.Next, list, "agent_profiles",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgentProfile, nil,
+		page.HasMore, page.Next, list, "agent_profiles", scope.key, publicid.KindAgentProfile, nil,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListAgentProfilesResponse{}, err
 	}
-	return openapi.ListAgentProfiles200JSONResponse(openapi.ListAgentProfilesResponse{
-		Data:       data,
-		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	return openapi.ListAgentProfilesResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentProfileStats fills in each listed profile's stats, batched across the
+// page so a list doesn't need a request per profile.
+func (s strictOpenAPIServer) addAgentProfileStats(
+	ctx context.Context,
+	profiles []executionstore.AgentProfileRecord,
+	since *time.Time,
+	data []openapi.AgentProfileSummary,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(profiles))
+	profileIDs := make([]uuid.UUID, 0, len(profiles))
+	for _, profile := range profiles {
+		if !slices.Contains(projectIDs, profile.ProjectID) {
+			projectIDs = append(projectIDs, profile.ProjectID)
+		}
+		profileIDs = append(profileIDs, profile.ID)
+	}
+	stats, err := s.server.store.Execution().AgentProfileStats(ctx, executionstore.AgentProfileStatsInput{
+		ProjectIDs: projectIDs, AgentProfileIDs: profileIDs,
+		Window: executionstore.UsageWindow{Since: since},
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, profile := range profiles {
+		entry := stats[profile.ID]
+		data[index].Stats = &openapi.AgentProfileStats{
+			AgentCount: entry.AgentCount,
+			Usage:      usageTotalsResponse(entry.Usage),
+		}
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) CreateAgent(

@@ -222,13 +222,13 @@ SELECT agent.id,
          OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
        )::boolean AS is_running
 FROM agents agent
-WHERE agent.project_id = $1
+WHERE agent.project_id = ANY($1::uuid[])
   AND agent.id = ANY($2::uuid[])
 `
 
 type ListAgentActivityForAgentsParams struct {
-	ProjectID uuid.UUID
-	AgentIds  []uuid.UUID
+	ProjectIds []uuid.UUID
+	AgentIds   []uuid.UUID
 }
 
 type ListAgentActivityForAgentsRow struct {
@@ -241,7 +241,7 @@ type ListAgentActivityForAgentsRow struct {
 }
 
 func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentActivityForAgentsParams) ([]ListAgentActivityForAgentsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentActivityForAgents, arg.ProjectID, arg.AgentIds)
+	rows, err := q.db.Query(ctx, listAgentActivityForAgents, arg.ProjectIds, arg.AgentIds)
 	if err != nil {
 		return nil, err
 	}

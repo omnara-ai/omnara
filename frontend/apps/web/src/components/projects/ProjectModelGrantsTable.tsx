@@ -5,7 +5,6 @@ import {
   useProjectModelGrants,
 } from '@omnara/react'
 import { type ProjectModelGrantListItem } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -16,7 +15,6 @@ import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
@@ -27,12 +25,18 @@ import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { modelPricingDetailItems } from '@/lib/model-pricing'
 
+/**
+ * Models shared with the project. Anyone who can read the project can view the
+ * list; editing and revoking grants requires project access management.
+ */
 export function ProjectModelGrantsTable({
   orgId,
   projectId,
+  canManageAccess,
 }: {
   orgId: string
   projectId: string
+  canManageAccess: boolean
 }) {
   const list = useResourceList<ProjectModelGrantListSort>('-created_at')
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
@@ -48,21 +52,19 @@ export function ProjectModelGrantsTable({
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title="Model grants"
+        title="Shared models"
+        description="List of models accessible to your current project"
         guide={guides.modelProviders}
         toolbar={
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
             sort={{ value: list.sort, options: createdResourceSortOptions, onChange: list.setSort }}
-            placeholder="Search model grants by name…"
+            placeholder="Search shared models by name…"
             showSearch={showToolbar}
           />
         }
       >
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/models">Organization models</Link>
-        </Button>
         <GrantModelButton />
       </SearchHeader>
       <DataTable
@@ -99,14 +101,22 @@ export function ProjectModelGrantsTable({
             isActions: true,
             cell: (item) => (
               <ResourceRowActions
-                deleteLabel="Delete grant"
-                onEdit={() => {
-                  setEditing(item)
-                }}
-                onDelete={() => {
-                  if (!window.confirm('Delete this model grant?')) return
-                  deleteGrant.mutate(item.grant.id)
-                }}
+                deleteLabel="Stop sharing"
+                onEdit={
+                  canManageAccess
+                    ? () => {
+                        setEditing(item)
+                      }
+                    : undefined
+                }
+                onDelete={
+                  canManageAccess
+                    ? () => {
+                        if (!window.confirm('Stop sharing this model with the project?')) return
+                        deleteGrant.mutate(item.grant.id)
+                      }
+                    : undefined
+                }
               />
             ),
           },
@@ -148,9 +158,14 @@ export function ProjectModelGrantsTable({
         onRetry={() => {
           void grantsQuery.refetch()
         }}
-        emptyMessage="No models granted. Grant an organization model so agents in this project can use it."
+        emptyMessage={
+          canManageAccess
+            ? 'No shared models. Share an organization model so agents in this project can use it.'
+            : 'No models are shared with this project yet. Ask a project admin to share one.'
+        }
+        emptyAction={<GrantModelButton />}
       />
-      {editing && (
+      {canManageAccess && editing && (
         <EditModelGrantDialog
           key={editing.grant.id}
           open

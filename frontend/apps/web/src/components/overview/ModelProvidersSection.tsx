@@ -50,9 +50,10 @@ export function ModelProvidersSection() {
 
   return (
     <>
-      <div className="flex flex-col gap-3">
+      <div id="model-providers" className="flex scroll-mt-6 flex-col gap-3">
         <SearchHeader
-          title="Model providers"
+          title="Providers"
+          description="Set up external model providers"
           guide={guides.modelProviders}
           toolbar={
             <ResourceListToolbar
@@ -154,6 +155,7 @@ export function ModelProvidersSection() {
             void query.refetch()
           }}
           emptyMessage="No model providers yet. Connect OpenAI, OpenRouter, Anthropic, or Amazon Bedrock."
+          emptyAction={newProviderButton()}
         />
       </div>
       {canManage && (

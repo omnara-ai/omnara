@@ -83,7 +83,7 @@ SELECT agent.id,
          OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
        )::boolean AS is_running
 FROM agents agent
-WHERE agent.project_id = sqlc.arg(project_id)
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]);
 
 -- name: CountActiveChildAgentsForLaunch :one

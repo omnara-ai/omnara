@@ -37,7 +37,7 @@ export function MemoryStorePage() {
     from: '/authenticated/onboarded/projects/$projectId/memory/$storeId',
   })
   return (
-    <ProjectPageFrame title="Memory">
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) =>
         project?.access.can_read ? (
           <StoreBrowser

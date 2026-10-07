@@ -23,6 +23,8 @@ Shared resources are owned at the org, project, or user scope:
 
 A project can use a resource only if it owns it or holds an explicit **grant**. Org and user ownership alone don't make a resource visible to a project — granting is the deliberate step that shares a model, pool, machine, secret, or skill with a project. Own each resource at the narrowest scope that needs it, and grant outward.
 
+In the web app, this step is called **sharing**: sharing a resource with a project creates a grant, which is the term the API and CLI use.
+
 ## Agents
 
 [Agents](/agents/overview) are the core feature of Omnara. Define an agent's model, [tools](/tools/permissions), and instructions in a [config or profile](/agents/configuration). Then Omnara runs the agent loop and runtime.

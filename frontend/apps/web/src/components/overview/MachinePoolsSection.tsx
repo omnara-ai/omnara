@@ -62,6 +62,7 @@ export function MachinePoolsSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine pools"
+          description="Configure pools of sandboxes for agents to use"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
@@ -225,6 +226,7 @@ export function MachinePoolsSection() {
             void query.refetch()
           }}
           emptyMessage="No machine pools yet. Pools provision the machines your agents run on."
+          emptyAction={newPoolButton()}
         />
       </div>
       {canManage && (

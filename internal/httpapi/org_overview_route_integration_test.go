@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -51,6 +52,9 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("fresh org recent_agent_profiles = %+v, want empty", profiles)
 	}
 	assertReferencedProfiles(t, overview, map[string]float64{})
+	if activity := testutil.RequireType[[]any](t, overview["project_activity"]); len(activity) != 0 {
+		t.Fatalf("fresh org project_activity = %+v, want empty", activity)
+	}
 
 	configSource := "instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(
@@ -150,6 +154,18 @@ func TestGetOrgOverview(t *testing.T) {
 		t.Fatalf("recent agent project_id = %v, want %s", agentRow["project_id"], secondProject.ProjectID)
 	}
 	assertReferencedProfiles(t, overview, map[string]float64{secondProfileID: 1, firstProfileID: 0})
+	// Both projects have a profile, and the second project's launched agent is
+	// its latest activity.
+	activity := map[string]time.Time{}
+	for _, raw := range testutil.RequireType[[]any](t, overview["project_activity"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		activity[testutil.RequireType[string](t, row["project_id"])] = parseOverviewUsageTime(t, row["last_active_at"])
+	}
+	if len(activity) != 2 || activity[project.ProjectID].IsZero() ||
+		!activity[secondProject.ProjectID].Equal(parseOverviewUsageTime(t, agentRow["updated_at"])) {
+		t.Fatalf("project_activity = %+v, want both projects, the second at agent updated_at %v",
+			activity, agentRow["updated_at"])
+	}
 	if model := testutil.RequireType[map[string]any](
 		t, agentRow["model"],
 	); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {

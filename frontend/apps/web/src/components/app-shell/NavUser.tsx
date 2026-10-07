@@ -2,15 +2,7 @@ import { useMe } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import {
-  ChevronsUpDown,
-  CircleHelp,
-  LogOut,
-  Monitor,
-  Moon,
-  Sun,
-  UserIcon,
-} from '@/components/icons'
+import { CircleHelp, LogOut, Monitor, Moon, Sun, UserIcon } from '@/components/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -102,7 +94,6 @@ export function NavUser() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Identity name={name} email={email} initials={initials} />
-              <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent

@@ -177,11 +177,11 @@ func (s *Store) GetAgentInProject(ctx context.Context, projectID, id uuid.UUID) 
 	return agentRecordFromProjectSQLC(row), nil
 }
 
-type ListAgentsForProjectInput struct {
-	ProjectID uuid.UUID
-	Filters   AgentListFilters
-	List      listing.Options
-	Limit     int
+type ListAgentsForProjectsInput struct {
+	ProjectIDs []uuid.UUID
+	Filters    AgentListFilters
+	List       listing.Options
+	Limit      int
 }
 
 type AgentListFilters struct {
@@ -191,39 +191,39 @@ type AgentListFilters struct {
 	IncludeArchived  bool
 }
 
-type ListAgentsForProjectResult struct {
+type ListAgentsForProjectsResult struct {
 	Agents  []AgentRecord
 	HasMore bool
 	Next    listing.Cursor
 }
 
-// ListAgentsForProject returns one keyset page of a project's active agents, newest first.
-func (s *Store) ListAgentsForProject(
+// ListAgentsForProjects returns one keyset page of agents across the given projects.
+func (s *Store) ListAgentsForProjects(
 	ctx context.Context,
-	input ListAgentsForProjectInput,
-) (ListAgentsForProjectResult, error) {
-	if input.ProjectID == uuid.Nil {
-		return ListAgentsForProjectResult{}, errors.New("project id is required")
-	}
+	input ListAgentsForProjectsInput,
+) (ListAgentsForProjectsResult, error) {
 	if input.Limit <= 0 {
-		return ListAgentsForProjectResult{}, errors.New("limit must be positive")
+		return ListAgentsForProjectsResult{}, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return ListAgentsForProjectsResult{}, nil
 	}
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
 		"name", "created_at", "updated_at", "state",
 	) {
-		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
+		return ListAgentsForProjectsResult{}, errors.New("unsupported agent list sort")
 	}
 	if input.List.SortField == "created_at" && input.List.SortDesc {
-		result, err := s.listAgentsForProjectByCreatedAtDesc(ctx, input)
+		result, err := s.listAgentsForProjectsByCreatedAtDesc(ctx, input)
 		if err != nil {
-			return ListAgentsForProjectResult{}, err
+			return ListAgentsForProjectsResult{}, err
 		}
-		return s.attachAgentActivity(ctx, input.ProjectID, result)
+		return s.attachAgentActivity(ctx, input.ProjectIDs, result)
 	}
-	params := dbsqlc.ListAgentsForProjectParams{
-		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
+	params := dbsqlc.ListAgentsForProjectsParams{
+		ProjectIds: input.ProjectIDs, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey:        input.List.After.Key,
@@ -233,11 +233,11 @@ func (s *Store) ListAgentsForProject(
 		IncludeSubagents: input.Filters.IncludeSubagents,
 		IncludeArchived:  input.Filters.IncludeArchived,
 	}
-	rows, err := s.q.ListAgentsForProject(ctx, params)
+	rows, err := s.q.ListAgentsForProjects(ctx, params)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agents: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agents: %w", err)
 	}
-	result := ListAgentsForProjectResult{}
+	result := ListAgentsForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
@@ -248,16 +248,16 @@ func (s *Store) ListAgentsForProject(
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectSQLC(row))
+		result.Agents = append(result.Agents, agentRecordFromListForProjectsSQLC(row))
 	}
-	return s.attachAgentActivity(ctx, input.ProjectID, result)
+	return s.attachAgentActivity(ctx, input.ProjectIDs, result)
 }
 
 func (s *Store) attachAgentActivity(
 	ctx context.Context,
-	projectID uuid.UUID,
-	result ListAgentsForProjectResult,
-) (ListAgentsForProjectResult, error) {
+	projectIDs []uuid.UUID,
+	result ListAgentsForProjectsResult,
+) (ListAgentsForProjectsResult, error) {
 	if len(result.Agents) == 0 {
 		return result, nil
 	}
@@ -266,10 +266,10 @@ func (s *Store) attachAgentActivity(
 		agentIDs = append(agentIDs, agent.ID)
 	}
 	rows, err := s.q.ListAgentActivityForAgents(
-		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectID: projectID, AgentIds: agentIDs},
+		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectIds: projectIDs, AgentIds: agentIDs},
 	)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agent activity: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agent activity: %w", err)
 	}
 	activity := make(map[uuid.UUID]AgentActivity, len(rows))
 	for _, row := range rows {
@@ -288,22 +288,22 @@ func (s *Store) attachAgentActivity(
 	return result, nil
 }
 
-func (s *Store) listAgentsForProjectByCreatedAtDesc(
+func (s *Store) listAgentsForProjectsByCreatedAtDesc(
 	ctx context.Context,
-	input ListAgentsForProjectInput,
-) (ListAgentsForProjectResult, error) {
+	input ListAgentsForProjectsInput,
+) (ListAgentsForProjectsResult, error) {
 	var cursorCreatedAt time.Time
 	if input.List.After.Set {
 		var err error
 		cursorCreatedAt, err = listing.ParseTimestampKey(input.List.After.Key)
 		if err != nil {
-			return ListAgentsForProjectResult{}, fmt.Errorf("parse created_at cursor: %w", err)
+			return ListAgentsForProjectsResult{}, fmt.Errorf("parse created_at cursor: %w", err)
 		}
 	}
-	rows, err := s.q.ListAgentsForProjectByCreatedAtDesc(
+	rows, err := s.q.ListAgentsForProjectsByCreatedAtDesc(
 		ctx,
-		dbsqlc.ListAgentsForProjectByCreatedAtDescParams{
-			ProjectID:        input.ProjectID,
+		dbsqlc.ListAgentsForProjectsByCreatedAtDescParams{
+			ProjectIds:       input.ProjectIDs,
 			NamePattern:      input.List.NamePattern,
 			AgentProfileID:   input.Filters.AgentProfileID,
 			ParentAgentID:    input.Filters.ParentAgentID,
@@ -316,9 +316,9 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 		},
 	)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agents by created_at descending: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agents by created_at descending: %w", err)
 	}
-	result := ListAgentsForProjectResult{}
+	result := ListAgentsForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
@@ -333,7 +333,7 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectByCreatedAtDescSQLC(row))
+		result.Agents = append(result.Agents, agentRecordFromListForProjectsByCreatedAtDescSQLC(row))
 	}
 	return result, nil
 }

@@ -26,6 +26,7 @@ import { ActiveOrgContext } from '@/lib/active-org-context'
 import { type FakeApi, fakeApi, jsonResponse, neverResponds } from '@/test/fake-api'
 import { currentUserOrg, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
+import { waitForUI } from '@/test/secret-editor'
 import { translateTextNodes } from '@/test/translate-text-nodes'
 
 const TestContentContext = createContext<ReactNode>(null)
@@ -227,7 +228,7 @@ async function renderField(
 
 async function renderTranslatedPricedField() {
   await renderField(pricedModel)
-  await vi.waitFor(() => {
+  await waitForUI(() => {
     expect(container.textContent).toContain('$1.25 in · $10.00 out per 1M tokens')
   })
   translateTextNodes(container)
@@ -236,14 +237,19 @@ async function renderTranslatedPricedField() {
 it('keeps searching after a browser translator rewrites the selected model pricing', async () => {
   await renderTranslatedPricedField()
 
-  await act(async () => {
-    container
-      .querySelector('#agent-config-model')
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 300))
+  act(() => {
+    const trigger = container.querySelector('#agent-config-model')
+    if (!(trigger instanceof HTMLButtonElement)) throw new Error('Model trigger missing')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))
   })
 
-  expect(api.requests.some(({ url }) => url.searchParams.get('name') === '*g*')).toBe(true)
+  await waitForUI(() => {
+    expect(api.requests.some(({ url }) => url.searchParams.get('name') === '*g*')).toBe(true)
+  })
+  expect(document.querySelector('input[aria-label="Search shared models…"]')).toHaveProperty(
+    'value',
+    'g',
+  )
   expect(container.querySelector('#agent-config-model')).not.toBeNull()
 })
 

@@ -7,12 +7,14 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { BreadcrumbSlotContext } from '@/components/layout/breadcrumb-slot-context'
 import { ActiveOrgContext } from '@/lib/active-org-context'
 import { IntegrationDetail, IntegrationPage } from '@/routes/IntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
@@ -237,7 +239,21 @@ it('keeps the loaded integration breadcrumb and settings during a transient refr
       respond: () => Response.json({ data: [], next_cursor: null }),
     })),
   ])
-  const rootRoute = createRootRoute()
+  const rootRoute = createRootRoute({
+    component: function PageHeader() {
+      const [slot, setSlot] = useState<HTMLDivElement | null>(null)
+      return (
+        <>
+          <header>
+            <div ref={setSlot} />
+          </header>
+          <BreadcrumbSlotContext value={slot}>
+            <Outlet />
+          </BreadcrumbSlotContext>
+        </>
+      )
+    },
+  })
   const router = createRouter({
     routeTree: rootRoute.addChildren([
       createRoute({
@@ -263,9 +279,9 @@ it('keeps the loaded integration breadcrumb and settings during a transient refr
       <RouterProvider router={router} />
     </ActiveOrgContext>,
   )
-  const breadcrumb = () => container.querySelector('[aria-label="breadcrumb"]')
+  const breadcrumb = () => container.querySelector('header [aria-label="breadcrumb"]')
   await waitForUI(() => {
-    expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
+    expect(breadcrumb()?.querySelector('[aria-current="page"]')?.textContent).toBe(
       'engineering-bot',
     )
   })
@@ -284,9 +300,7 @@ it('keeps the loaded integration breadcrumb and settings during a transient refr
   await waitForUI(() => {
     expect(container.textContent).toContain('Could not refresh this integration.')
   })
-  expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
-    'engineering-bot',
-  )
+  expect(breadcrumb()?.querySelector('[aria-current="page"]')?.textContent).toBe('engineering-bot')
   expect(container.querySelector('h1')?.textContent).toBe('engineering-bot')
   failing = false
   act(() => {
@@ -295,7 +309,5 @@ it('keeps the loaded integration breadcrumb and settings during a transient refr
   await waitForUI(() => {
     expect(container.textContent).not.toContain('Could not refresh this integration.')
   })
-  expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
-    'engineering-bot',
-  )
+  expect(breadcrumb()?.querySelector('[aria-current="page"]')?.textContent).toBe('engineering-bot')
 })

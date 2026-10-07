@@ -13,6 +13,7 @@ import {
   type SlackOAuthOutcome,
   useSlackOAuthOutcome,
 } from '@/components/integrations/useSlackOAuthOutcome'
+import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -23,25 +24,28 @@ export function IntegrationPage() {
   const { activeOrg } = useActiveOrg()
   const query = useIntegration(activeOrg.id, projectId, integrationId)
   return (
-    <ProjectPageFrame
-      title={query.data?.name ?? 'Integration'}
-      breadcrumbs={[
-        {
-          id: 'integrations',
-          label: 'Integrations',
-          to: '/projects/$projectId/integrations',
-          params: { projectId },
-        },
-      ]}
-    >
+    <ProjectPageFrame>
       {({ activeOrg, projectId, project }) => (
-        <IntegrationDetail
-          key={`${projectId}:${integrationId}`}
-          orgId={activeOrg.id}
-          projectId={projectId}
-          integrationId={integrationId}
-          canManage={project?.access.can_manage ?? false}
-        />
+        <>
+          <PageBreadcrumb
+            items={[
+              {
+                id: 'integrations',
+                label: 'Integrations',
+                to: '/projects/$projectId/integrations',
+                params: { projectId },
+              },
+              { id: 'integration', label: query.data?.name ?? 'Integration' },
+            ]}
+          />
+          <IntegrationDetail
+            key={`${projectId}:${integrationId}`}
+            orgId={activeOrg.id}
+            projectId={projectId}
+            integrationId={integrationId}
+            canManage={project?.access.can_manage ?? false}
+          />
+        </>
       )}
     </ProjectPageFrame>
   )

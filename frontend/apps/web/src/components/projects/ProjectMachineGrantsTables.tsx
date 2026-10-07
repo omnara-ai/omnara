@@ -7,7 +7,6 @@ import {
   useProjectMachinePoolGrants,
 } from '@omnara/react'
 import { type ProjectMachinePoolGrantListItem } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -18,7 +17,6 @@ import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { GrantMachinePoolButton } from '@/components/projects/GrantMachinePoolButton'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
@@ -29,7 +27,7 @@ import {
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
-import { canManageOrg } from '@/lib/permissions'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { type ProviderOptions, providerOptionSummaries } from '@/lib/provider-options'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -51,12 +49,19 @@ function envOverlaySummary(overlay: Record<string, string | null>) {
   return summary === '' ? '' : <span className="whitespace-pre-line">{summary}</span>
 }
 
+/**
+ * Machine pools and machines shared with the project. Anyone who can read the
+ * project can view them; editing and revoking grants requires project access
+ * management plus org management (the shared machines belong to the org).
+ */
 export function ProjectMachineGrantsTables({
   orgId,
   projectId,
+  canManageAccess,
 }: {
   orgId: string
   projectId: string
+  canManageAccess: boolean
 }) {
   const poolList = useResourceList<ProjectMachinePoolGrantListSort>('-created_at')
   const grantsQuery = useProjectMachinePoolGrants(orgId, projectId, {
@@ -84,13 +89,16 @@ export function ProjectMachineGrantsTables({
   const deleteMachineGrant = useDeleteProjectMachineGrant(orgId, projectId)
   const [editing, setEditing] = useState<ProjectMachinePoolGrantListItem | null>(null)
   const { activeOrg } = useActiveOrg()
-  const canDeleteGrants = canManageOrg(activeOrg.role)
+  const canManageGrants = canManageMachineGrants(activeOrg.role, {
+    can_manage_access: canManageAccess,
+  })
 
   return (
     <>
       <div className="flex flex-col gap-3">
         <SearchHeader
-          title="Machine pool grants"
+          title="Shared machine pools"
+          description="List of machine pools accessible to agents in your current project"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
@@ -101,19 +109,12 @@ export function ProjectMachineGrantsTables({
                 options: createdResourceSortOptions,
                 onChange: poolList.setSort,
               }}
-              placeholder="Search pool grants by name…"
+              placeholder="Search shared pools by name…"
               showSearch={poolToolbarVisible}
             />
           }
         >
-          {
-            <>
-              <Button asChild size="sm" variant="ghost">
-                <Link to="/machines">Organization machines</Link>
-              </Button>
-              <GrantMachinePoolButton />
-            </>
-          }
+          <GrantMachinePoolButton />
         </SearchHeader>
         <DataTable
           columns={[
@@ -136,14 +137,19 @@ export function ProjectMachineGrantsTables({
               isActions: true,
               cell: (item) => (
                 <ResourceRowActions
-                  deleteLabel="Delete grant"
-                  onEdit={() => {
-                    setEditing(item)
-                  }}
-                  onDelete={
-                    canDeleteGrants
+                  deleteLabel="Stop sharing"
+                  onEdit={
+                    canManageGrants
                       ? () => {
-                          if (!window.confirm('Delete this machine pool grant?')) return
+                          setEditing(item)
+                        }
+                      : undefined
+                  }
+                  onDelete={
+                    canManageGrants
+                      ? () => {
+                          if (!window.confirm('Stop sharing this machine pool with the project?'))
+                            return
                           deleteGrant.mutate(item.grant.id)
                         }
                       : undefined
@@ -207,9 +213,14 @@ export function ProjectMachineGrantsTables({
           onRetry={() => {
             void grantsQuery.refetch()
           }}
-          emptyMessage="No machine pools granted. Grant a pool so agents in this project can run."
+          emptyMessage={
+            canManageGrants
+              ? 'No shared machine pools. Share a pool so agents in this project can run.'
+              : 'No machine pools are shared with this project yet.'
+          }
+          emptyAction={<GrantMachinePoolButton />}
         />
-        {editing && (
+        {canManageGrants && editing && (
           <EditMachinePoolGrantDialog
             key={editing.grant.id}
             open
@@ -224,7 +235,8 @@ export function ProjectMachineGrantsTables({
       </div>
       <div className="flex flex-col gap-3">
         <SearchHeader
-          title="Machine grants"
+          title="Shared machines"
+          description="List of machines accessible to agents in your current project"
           guide={guides.machines}
           toolbar={
             <ResourceListToolbar
@@ -235,7 +247,7 @@ export function ProjectMachineGrantsTables({
                 options: resourceSortOptions,
                 onChange: machineList.setSort,
               }}
-              placeholder="Search machine grants by name…"
+              placeholder="Search shared machines by name…"
               showSearch={machineToolbarVisible}
             />
           }
@@ -263,11 +275,11 @@ export function ProjectMachineGrantsTables({
               isActions: true,
               cell: (item) => (
                 <ResourceRowActions
-                  deleteLabel="Delete grant"
+                  deleteLabel="Stop sharing"
                   onDelete={
-                    canDeleteGrants
+                    canManageGrants
                       ? () => {
-                          if (!window.confirm('Delete this machine grant?')) return
+                          if (!window.confirm('Stop sharing this machine with the project?')) return
                           deleteMachineGrant.mutate(item.grant.id)
                         }
                       : undefined
@@ -295,7 +307,8 @@ export function ProjectMachineGrantsTables({
           onRetry={() => {
             void machineGrantsQuery.refetch()
           }}
-          emptyMessage="No individual machines granted to this project."
+          emptyMessage="No individual machines shared with this project."
+          emptyAction={<GrantMachineButton />}
         />
       </div>
     </>

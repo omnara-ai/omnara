@@ -1,33 +1,37 @@
 import { usePersonalAccessTokens } from '@omnara/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { CreatePersonalAccessTokenDialog } from '@/components/api-tokens/CreatePersonalAccessTokenDialog'
 import { PersonalAccessTokenRowActions } from '@/components/api-tokens/PersonalAccessTokenRowActions'
 import { DataTable } from '@/components/data-table/DataTable'
-import { SectionTitle } from '@/components/layout/SectionTitle'
+import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
-export function PersonalAccessTokensSection() {
+/** `actions` are extra header controls shown before the create button, e.g. tabs. */
+export function PersonalAccessTokensSection({ actions }: { actions?: ReactNode } = {}) {
   const query = usePersonalAccessTokens()
   const paged = usePagedQuery(query)
   const [createOpen, setCreateOpen] = useState(false)
+  const createButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setCreateOpen(true)
+      }}
+    >
+      New token
+    </Button>
+  )
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionTitle title="Personal access tokens" guide={guides.apiTokens} />
-        <Button
-          size="sm"
-          onClick={() => {
-            setCreateOpen(true)
-          }}
-        >
-          New token
-        </Button>
-      </div>
+      <SearchHeader title="Personal access tokens" guide={guides.apiTokens}>
+        {actions}
+        {createButton}
+      </SearchHeader>
       <DataTable
         columns={[
           {
@@ -88,6 +92,7 @@ export function PersonalAccessTokensSection() {
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No API tokens yet. Create one to authenticate an API client or command-line tool."
+        emptyAction={createButton}
       />
       <CreatePersonalAccessTokenDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>

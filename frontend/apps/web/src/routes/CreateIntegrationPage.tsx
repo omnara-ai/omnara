@@ -9,62 +9,65 @@ import { integrationCatalog } from '@/components/integrations/integrationDefinit
 import { IntegrationForm } from '@/components/integrations/IntegrationForm'
 import { IntegrationIcon } from '@/components/integrations/IntegrationIcon'
 import { IntegrationPortalSetup } from '@/components/integrations/IntegrationPortalSetup'
+import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 export function CreateIntegrationPage() {
-  const { projectId = '', integrationKind } = useParams({ strict: false })
+  const { integrationKind } = useParams({ strict: false })
   const selected = integrationCatalog.find(
     (integration) => integration.integrationKind === integrationKind,
   )
   return (
-    <ProjectPageFrame
-      title={selected ? selected.name : 'Add integration'}
-      breadcrumbs={[
-        {
-          id: 'integrations',
-          label: 'Integrations',
-          to: '/projects/$projectId/integrations',
-          params: { projectId },
-        },
-        ...(selected
-          ? [
+    <ProjectPageFrame>
+      {({ activeOrg, projectId, project }) => (
+        <>
+          <PageBreadcrumb
+            items={[
               {
-                id: 'catalog',
-                label: 'Add integration',
-                to: '/projects/$projectId/integrations/new' as const,
+                id: 'integrations',
+                label: 'Integrations',
+                to: '/projects/$projectId/integrations',
                 params: { projectId },
               },
-            ]
-          : []),
-      ]}
-    >
-      {({ activeOrg, projectId, project }) => {
-        if (!project?.access.can_manage)
-          return (
-            <p role="alert">You don’t have permission to manage integrations in this project.</p>
-          )
-        if (integrationKind && !selected) return <p role="alert">Integration not found.</p>
-        return selected ? (
-          <IntegrationCreateSetup
-            key={`${projectId}:${selected.integrationKind}`}
-            orgId={activeOrg.id}
-            projectId={projectId}
-            integrationKind={selected.integrationKind}
+              ...(selected
+                ? [
+                    {
+                      id: 'catalog',
+                      label: 'Add integration',
+                      to: '/projects/$projectId/integrations/new' as const,
+                      params: { projectId },
+                    },
+                  ]
+                : []),
+              { id: 'new-integration', label: selected?.name ?? 'Add integration' },
+            ]}
           />
-        ) : (
-          <>
-            <header className="flex flex-col gap-2">
-              <h1 className="type-title">Add integration</h1>
-              <p className="text-muted-foreground text-sm">
-                Choose an integration for your agents.
-              </p>
-            </header>
-            <IntegrationCatalog orgId={activeOrg.id} projectId={projectId} />
-          </>
-        )
-      }}
+          {!project?.access.can_manage ? (
+            <p role="alert">You don’t have permission to manage integrations in this project.</p>
+          ) : integrationKind && !selected ? (
+            <p role="alert">Integration not found.</p>
+          ) : selected ? (
+            <IntegrationCreateSetup
+              key={`${projectId}:${selected.integrationKind}`}
+              orgId={activeOrg.id}
+              projectId={projectId}
+              integrationKind={selected.integrationKind}
+            />
+          ) : (
+            <>
+              <header className="flex flex-col gap-2">
+                <h1 className="type-title">Add integration</h1>
+                <p className="text-muted-foreground text-sm">
+                  Choose an integration for your agents.
+                </p>
+              </header>
+              <IntegrationCatalog orgId={activeOrg.id} projectId={projectId} />
+            </>
+          )}
+        </>
+      )}
     </ProjectPageFrame>
   )
 }
@@ -103,7 +106,7 @@ export function IntegrationCreateSetup({
   if (!query.data.data.some((integration) => integration.integration_kind === integrationKind))
     return <p role="alert">This integration is unavailable.</p>
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <header className="flex flex-col gap-2">
         <Link
           className="text-muted-foreground text-sm hover:underline"

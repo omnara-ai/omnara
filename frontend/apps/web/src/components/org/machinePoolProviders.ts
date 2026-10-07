@@ -235,6 +235,30 @@ const boxd: MachinePoolProviderDefinition = {
   },
 }
 
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-2vcpu-4gb',
+    description: 'The max vCPU and memory must be at least the shape size.',
+    descriptionHref: 'https://docs.createos.sh/Sandbox/Limits',
+  },
+  location: {
+    key: 'rootfs',
+    label: 'Root filesystem',
+    placeholder: 'devbox:1',
+    defaultValue: 'devbox:1',
+    required: true,
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -244,6 +268,7 @@ export const machinePoolProviderDefinitions = {
   tenki,
   arker,
   boxd,
+  createos,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

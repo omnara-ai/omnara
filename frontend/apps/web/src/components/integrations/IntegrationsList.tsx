@@ -2,6 +2,7 @@ import { useIntegrations } from '@omnara/react'
 import { githubIntegrationSettings, type Integration } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
+import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -24,21 +25,18 @@ export function IntegrationsList({
   const integrations = useInfiniteQueryItems(query)
   return (
     <>
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <h1 className="type-title">Integrations</h1>
-          <p className="text-muted-foreground text-sm">
-            Connect services, choose how agents start, and configure the capabilities they use.
-          </p>
-        </div>
+      <SearchHeader
+        title="Integrations"
+        description="Connect services, choose how agents start, and configure the capabilities they use."
+      >
         {canManage && integrations.length > 0 && (
-          <Button asChild>
+          <Button asChild size="sm">
             <Link to="/projects/$projectId/integrations/new" params={{ projectId }}>
               Add integration
             </Link>
           </Button>
         )}
-      </header>
+      </SearchHeader>
       {query.isPending ? (
         <Spinner className="size-4" />
       ) : query.isError ? (
