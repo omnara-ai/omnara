@@ -6,6 +6,49 @@ mode: "center"
 ---
 
 <Update
+  label="October 7, 2026"
+  rss={{
+    title: "Integrations, memory stores, and a redesigned dashboard",
+    description: "Slack, Discord, and GitHub integrations, memory stores, a redesigned dashboard, deployable example agents, four more sandbox providers, and fixes."
+  }}
+>
+
+## Integrations, memory stores, and a redesigned dashboard
+
+This is our biggest update since launch. Omnara now connects to Slack, Discord, and GitHub, agents can keep files in shared memory stores, and the dashboard has been redesigned. Examples are now agents you deploy with your coding agent, and four more sandbox providers are available.
+
+### Slack, Discord, and GitHub integrations
+
+Create an integration from a project's Integrations page, connect your account, and choose which agent profiles it can launch. In Slack and Discord, mention the bot to start an agent in a thread, or message it directly in Slack. The agent replies in the thread, can ask questions or request approvals there, and schedules can start new threads on a timer. On GitHub, an agent can launch when a pull request opens or someone mentions it. It then receives that PR's comments, reviews, and commits, can read the diff, comment, and submit reviews, and can use Git over HTTPS with your GitHub App's access. See [Integrations](/integrations/overview).
+
+### Memory stores
+
+Create a memory store in a project and attach it to agents with read or read-write access. Agents read and write its files at `/memory/<store-name>/` with the file tools, so they can keep notes between conversations or share files with other agents. Manage stores and files from the new Memory page, the API, or `omnara memory-stores`. See [Memory stores](/agents/configuration#memory-stores).
+
+### Redesigned dashboard
+
+A new sidebar that adapts to where you are, redesigned agent and profile pages, an improved overview, and simpler dialogs for model providers, models, and machine pools.
+
+### Deploy example agents with your coding agent
+
+Each example is an `agent.yaml` and a `SKILL.md`. Ask your coding agent to read the skill and it sets the agent up with the `omnara` CLI: signing in, storing secrets, picking a model, and doing a first run. New examples include an SRE agent that investigates production through AWS, a coding agent you mention in Slack that opens pull requests, and a video agent that renders MP4s with Remotion. See [Examples](/examples/overview).
+
+### More sandbox providers
+
+Tenki, Arker, boxd, and CreateOS join as sandbox providers you can bring your own account for. Each provider now has its own setup and configuration page, plus an overview comparing them. See [Sandbox providers](/machines/providers/overview).
+
+### Fixes and notes
+
+- Agents started from Slack before this release can still post in their threads, but new replies there no longer reach them. Mention the bot to start a new agent.
+- On machines you connected yourself, upgrade `omnarad` to 0.1.36 or later to use Git credentials from the GitHub integration.
+- Self-hosted deployments need `OMNARA_MEMORY_DIR` on a filesystem shared by the API and every worker. See [Memory storage](/self-hosting/configuration#memory-storage).
+- Blaxel machines that take longer to start from a cold image no longer fail.
+- `web_fetch` keeps code blocks from fetched pages.
+- The X, Reddit, LinkedIn, and PostHog examples no longer include `demo.ts` scripts, and `posthog-pulse-agent` is now `posthog-analytics-agent`.
+
+</Update>
+
+<Update
   label="September 30, 2026"
   rss={{
     title: "GPT-6, Claude Opus 5.5, and more tools on hosted machines",
