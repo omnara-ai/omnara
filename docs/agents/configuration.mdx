@@ -303,7 +303,7 @@ The CLI's `omnara memory-stores` commands manage stores; `omnara memory-stores f
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  Send the config in `source` with its `source_format`. YAML or JSON text is stored verbatim with its comments and formatting; with `source_format: json`, `source` can also be the config as a JSON object, which is stored canonicalized. `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. Responses include the saved `source` and the same config as a `definition` object. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
+  Send the config in `source` with its `source_format`. YAML is stored verbatim with its comments and formatting. With `source_format: json`, `source` can be JSON text or the config as a JSON object; either way it is stored canonicalized (compact, keys sorted), so the same JSON definition maps to the same config however it is formatted. `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. Responses include the saved `source` text and its `source_format`. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
 
   <AgentConfigCreate />
 

@@ -54,7 +54,7 @@ const zDefinitionText = zJsonText.pipe(
   ),
 )
 
-// JSON text is sent as written, so the saved source keeps its formatting.
+// The server canonicalizes JSON sources, so text and object forms save the same config.
 function jsonSource(text: string, label: string): CreateAgentConfigRequest {
   const parsed = zDefinitionText.safeParse(text)
   if (!parsed.success) {

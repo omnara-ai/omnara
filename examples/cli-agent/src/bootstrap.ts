@@ -587,12 +587,18 @@ export async function agentProfileSourceFromConfig(
     client,
     path: { orgID: orgId, projectID: projectId, agentConfigID: agentConfigId },
   });
-  if (config.definition == null) {
+  if (config.source == null) {
     throw new Error(
       `agent config ${agentConfigId} has no source to resume from`,
     );
   }
-  return config.definition;
+  const profile = YAML.parse(config.source) as AgentProfileSource | null;
+  if (profile == null || typeof profile !== "object") {
+    throw new Error(
+      `agent config ${agentConfigId} source is not an agent config object`,
+    );
+  }
+  return profile;
 }
 
 export async function ensureAgentProfile(

@@ -10659,9 +10659,10 @@ components:
           $ref: '#/components/schemas/ToolPermissionSelection'
     CreateAgentConfigRequest:
       description: >-
-        An agent config to compile. Text sources are stored verbatim, so YAML
-        comments and formatting survive; JSON object sources are stored
-        canonicalized.
+        An agent config to compile. YAML sources are stored verbatim, so
+        comments and formatting survive; JSON sources, as text or as an
+        object, are stored canonicalized, so the same JSON definition always
+        maps to the same config.
       type: object
       additionalProperties: false
       required: [source, source_format]
@@ -11517,15 +11518,10 @@ components:
           $ref: '#/components/schemas/ProjectID'
         source:
           type: string
-          description: Saved source text. YAML sources keep their original text; JSON definitions are stored canonicalized.
+          description: Saved source text. YAML sources keep their original text; JSON sources are stored canonicalized.
         source_format:
           type: string
           enum: [yaml, json]
-        definition:
-          $ref: '#/components/schemas/AgentConfigDefinition'
-          description: >-
-            The saved source as a JSON object. Omitted for configs derived by
-            Omnara, such as subagent configs, which have no source.
         effective_definition_hash:
           type: string
         model:

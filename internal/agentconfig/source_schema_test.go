@@ -13,6 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCanonicalDefinitionJSON(t *testing.T) {
+	for name, tc := range map[string]struct{ raw, want string }{
+		"sorts keys and compacts": {
+			raw:  "{\n  \"b\": {\"y\": 1, \"x\": 2},\n  \"a\": [3, 1]\n}\n",
+			want: `{"a":[3,1],"b":{"x":2,"y":1}}`,
+		},
+		"keeps number text":    {raw: `{"n": 12345678901234567890, "f": 1.50}`, want: `{"f":1.50,"n":12345678901234567890}`},
+		"does not escape html": {raw: `{"instruction": "Use <tags> & stuff"}`, want: `{"instruction":"Use <tags> & stuff"}`},
+		"invalid json":         {raw: `{"a":`, want: `{"a":`},
+		"trailing value":       {raw: `{"a":1} {"b":2}`, want: `{"a":1} {"b":2}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, string(CanonicalDefinitionJSON([]byte(tc.raw))))
+		})
+	}
+}
+
 func TestParseSourceRejectsOversizedMachineResources(t *testing.T) {
 	for _, field := range []string{"machine_cpu", "machine_memory_mb"} {
 		t.Run(field, func(t *testing.T) {

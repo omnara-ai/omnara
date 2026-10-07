@@ -712,7 +712,9 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "agent-config-json-source")
-	sourceJSON := `{"instruction":"Configured from JSON.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`
+	sourceJSON := "{\n  \"instruction\": \"Configured from <JSON> & text.\",\n" +
+		"  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"}\n}\n"
+	canonicalJSON := `{"instruction":"Configured from <JSON> & text.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
 
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -724,12 +726,11 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	if config["source_format"] != "json" || config["source"] != sourceJSON {
-		t.Fatalf("JSON text config source was not preserved: %+v", config)
+	if config["source_format"] != "json" || config["source"] != canonicalJSON {
+		t.Fatalf("JSON text config source was not stored canonicalized: %+v", config)
 	}
-	definition := testutil.RequireType[map[string]any](t, config["definition"])
-	if definition["instruction"] != "Configured from JSON." {
-		t.Fatalf("JSON-authored config definition was not returned: %+v", config)
+	if _, ok := config["definition"]; ok {
+		t.Fatalf("agent config responses should return source, not definition: %+v", config)
 	}
 	model := testutil.RequireType[map[string]any](t, config["model"])
 	if model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" || config["instruction_hash"] == "" {
@@ -761,10 +762,6 @@ func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
 	if config["source_format"] != "json" || config["source"] != canonicalJSON {
 		t.Fatalf("JSON object config source was not stored canonicalized: %+v", config)
 	}
-	definition := testutil.RequireType[map[string]any](t, config["definition"])
-	if definition["instruction"] != "Configured from an object." {
-		t.Fatalf("JSON object config definition was not returned: %+v", config)
-	}
 	reordered := create(
 		`{"source": { "model": {"name": "gpt-test", "provider_config": "openai-prod"},`+
 			` "instruction": "Configured from an object." }, "source_format": "json"}`,
@@ -772,6 +769,16 @@ func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
 	)
 	if reordered["id"] != config["id"] {
 		t.Fatalf("reordered JSON object should dedupe to %v, got %+v", config["id"], reordered)
+	}
+	asText := create(
+		`{"source_format":"json","source":`+quotedJSONString(
+			"{\n  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"},\n"+
+				"  \"instruction\": \"Configured from an object.\"\n}\n",
+		)+`}`,
+		"idem-object-source-as-text", http.StatusOK,
+	)
+	if asText["id"] != config["id"] || asText["source"] != canonicalJSON {
+		t.Fatalf("formatted JSON text should dedupe to the object config %v, got %+v", config["id"], asText)
 	}
 
 	sourceYAML := "instruction: Configured from YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
@@ -806,10 +813,6 @@ func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
 	)
 	if yamlConfig["source"] != sourceYAML || yamlConfig["source_format"] != "yaml" {
 		t.Fatalf("YAML source should be stored verbatim: %+v", yamlConfig)
-	}
-	yamlDefinition := testutil.RequireType[map[string]any](t, yamlConfig["definition"])
-	if yamlDefinition["instruction"] != "Configured from YAML." {
-		t.Fatalf("YAML config should also return its JSON definition: %+v", yamlConfig)
 	}
 }
 
@@ -861,7 +864,7 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	if inlineAgent["agent_profile_id"] != profileID ||
 		inlineAgent["current_config_id"] == profileConfig["id"] ||
 		inlineAgent["current_config_id"] != inlineConfig["id"] ||
-		testutil.RequireType[map[string]any](t, inlineConfig["definition"])["instruction"] != "Inline override." {
+		inlineConfig["source"] != `{"instruction":"Inline override.","model":{"name":"gpt-test","provider_config":"openai-prod"}}` {
 		t.Fatalf("profile + config_source should launch a new config attributed to the profile: %+v", inline)
 	}
 
@@ -873,6 +876,17 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	)["agent"])
 	if _, ok := yamlOnly["agent_profile_id"]; ok {
 		t.Fatalf("config_source-only launch should not be attributed to a profile: %+v", yamlOnly)
+	}
+	// A retry replays the original launch without recompiling, even when the
+	// source's references no longer resolve.
+	replayed := testutil.RequireType[map[string]any](t, launch(
+		`{"config_source":{"source_format":"yaml","source":`+quotedJSONString(
+			"instruction: Inline YAML.\nmodel:\n  provider_config: deleted-provider\n  name: gpt-test\n",
+		)+`}}`,
+		"idem-combo-yaml-only", http.StatusOK,
+	)["agent"])
+	if replayed["id"] != yamlOnly["id"] {
+		t.Fatalf("idempotent config_source retry should replay agent %v, got %+v", yamlOnly["id"], replayed)
 	}
 
 	launch(

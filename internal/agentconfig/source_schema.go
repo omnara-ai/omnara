@@ -128,8 +128,8 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 
 // CanonicalDefinitionJSON compacts a JSON definition and sorts its object
 // keys, so equal definitions share a source hash however they were written.
-// Numbers keep their original text. Invalid JSON is returned unchanged for the
-// compiler to report.
+// Numbers keep their original text and characters such as < and & are not
+// escaped. Invalid JSON is returned unchanged for the compiler to report.
 func CanonicalDefinitionJSON(raw []byte) []byte {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -140,22 +140,13 @@ func CanonicalDefinitionJSON(raw []byte) []byte {
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return raw
 	}
-	canonical, err := json.Marshal(value)
-	if err != nil {
+	var canonical bytes.Buffer
+	encoder := json.NewEncoder(&canonical)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		return raw
 	}
-	return canonical
-}
-
-// SourceDefinitionJSON converts saved source text to its JSON object form
-// without validating it, so configs saved under older schema rules still
-// render.
-func SourceDefinitionJSON(format SourceFormat, raw []byte) (json.RawMessage, error) {
-	jsonSource, _, err := sourceJSON(format, raw)
-	if err != nil {
-		return nil, err
-	}
-	return CanonicalDefinitionJSON(jsonSource), nil
+	return bytes.TrimSuffix(canonical.Bytes(), []byte("\n"))
 }
 
 func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {

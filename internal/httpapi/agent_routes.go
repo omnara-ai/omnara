@@ -617,11 +617,29 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
 		}
 	}
+	idempotencyKey := ""
+	if request.Params.IdempotencyKey != nil {
+		idempotencyKey = *request.Params.IdempotencyKey
+	}
+	if request.Body.ConfigSource != nil && configID != uuid.Nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
+	}
+	// Replay before compiling config_source or resolving integration references: either may
+	// have changed since the original launch, and a retry must still return its agent.
+	// The kernel repeats this lookup under the launch key lock before writing.
+	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
+		ctx, project.ID, idempotencyKey,
+	); err != nil {
+		return nil, apierror.ProjectScoped(err)
+	} else if found {
+		response, err := currentAgentEnvelope(replay)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.CreateAgent200JSONResponse(response), nil
+	}
 	var newConfig *executionstore.CreateAgentConfigInput
 	if source := request.Body.ConfigSource; source != nil {
-		if configID != uuid.Nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
-		}
 		compiled, err := s.server.compileAgentConfigSourceForProject(
 			ctx, project, string(source.SourceFormat), source.Source,
 		)
@@ -637,10 +655,6 @@ func (s strictOpenAPIServer) createAgent(
 			"one of profile, config, or config_source is required",
 		)
 	}
-	idempotencyKey := ""
-	if request.Params.IdempotencyKey != nil {
-		idempotencyKey = *request.Params.IdempotencyKey
-	}
 	message := ""
 	if request.Body.Message != nil {
 		message = *request.Body.Message
@@ -654,19 +668,6 @@ func (s strictOpenAPIServer) createAgent(
 		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
-	}
-	// Replay before resolving integration references, which may have been deleted since launch.
-	// The kernel repeats this lookup under the launch key lock before writing.
-	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
-		ctx, project.ID, idempotencyKey,
-	); err != nil {
-		return nil, apierror.ProjectScoped(err)
-	} else if found {
-		response, err := currentAgentEnvelope(replay)
-		if err != nil {
-			return nil, err
-		}
-		return openapi.CreateAgent200JSONResponse(response), nil
 	}
 	input, err := s.preparePublicAgentLaunch(ctx, project, principal, *request.Body, input)
 	if err != nil {
@@ -968,25 +969,12 @@ func agentConfigDetailResponse(
 	if err != nil {
 		return openapi.AgentConfig{}, err
 	}
-	var sourceDefinition *openapi.AgentConfigDefinition
-	if summary.Source != nil && summary.SourceFormat != nil {
-		// Saved sources were valid when compiled; a conversion failure here
-		// only omits the convenience field rather than failing the read.
-		converted, err := agentconfig.SourceDefinitionJSON(
-			agentconfig.SourceFormat(*summary.SourceFormat),
-			[]byte(*summary.Source),
-		)
-		if err == nil {
-			sourceDefinition = &converted
-		}
-	}
 	return openapi.AgentConfig{
 		Id:                      summary.Id,
 		OrgId:                   summary.OrgId,
 		ProjectId:               summary.ProjectId,
 		Source:                  summary.Source,
 		SourceFormat:            (*openapi.AgentConfigSourceFormat)(summary.SourceFormat),
-		Definition:              sourceDefinition,
 		EffectiveDefinitionHash: summary.EffectiveDefinitionHash,
 		Model:                   summary.Model,
 		InstructionHash:         summary.InstructionHash,
@@ -1191,8 +1179,9 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 }
 
 // agentConfigSourceInput resolves the source and source_format carried by
-// every config-accepting request into compiler input. A text source is kept
-// verbatim; a JSON object source is canonicalized.
+// every config-accepting request into compiler input. YAML text is kept
+// verbatim. JSON, as text or as an object, is canonicalized, so the same JSON
+// definition maps to the same saved config however it was sent.
 func agentConfigSourceInput(
 	sourceFormatRaw string,
 	source json.RawMessage,
@@ -1209,6 +1198,9 @@ func agentConfigSourceInput(
 		var text string
 		if err := json.Unmarshal(trimmed, &text); err != nil {
 			return "", "", fmt.Errorf("source must be a string or JSON object: %w", err)
+		}
+		if sourceFormat == agentconfig.SourceFormatJSON {
+			text = string(agentconfig.CanonicalDefinitionJSON([]byte(text)))
 		}
 		return sourceFormat, text, nil
 	case trimmed[0] == '{':

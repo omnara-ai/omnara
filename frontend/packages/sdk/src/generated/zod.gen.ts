@@ -949,7 +949,7 @@ export const zAgentConfigSourceInput = z.union([
 ]);
 
 /**
- * An agent config to compile. Text sources are stored verbatim, so YAML comments and formatting survive; JSON object sources are stored canonicalized.
+ * An agent config to compile. YAML sources are stored verbatim, so comments and formatting survive; JSON sources, as text or as an object, are stored canonicalized, so the same JSON definition always maps to the same config.
  */
 export const zCreateAgentConfigRequest = z.object({
     source: zAgentConfigSourceInput,
@@ -3297,7 +3297,6 @@ export const zAgentConfig = z.object({
     project_id: zProjectId,
     source: z.string().optional(),
     source_format: z.enum(['yaml', 'json']).optional(),
-    definition: zAgentConfigDefinition.optional(),
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),

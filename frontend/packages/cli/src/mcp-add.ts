@@ -7,6 +7,7 @@ import {
   type OmnaraClient,
   sdk,
   type Secret,
+  zJsonText,
 } from '@omnara/sdk'
 import { zMcpoAuthStartRequest, zResourceName } from '@omnara/sdk/zod'
 import { isMap, isScalar, parseDocument } from 'yaml'
@@ -55,12 +56,24 @@ function serverEntry(url: string, secretId: string): AgentConfigDefinitionMcpSer
   return { url, auth: { type: 'oauth', secret_id: secretId } }
 }
 
+// The server validates definitions fully when compiling them, so only the object shapes edited here are checked.
+const zJsonRecord = z.record(z.string(), z.json())
+const zDefinitionText = zJsonText.pipe(
+  z.custom<AgentConfigDefinition>((value) => zJsonRecord.safeParse(value).success),
+)
+
 function prepareJsonConfig(
   configId: string,
-  definition: AgentConfigDefinition,
+  source: string,
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
+  const parsed = zDefinitionText.safeParse(source)
+  if (!parsed.success) throw new CliInputError('the current agent config is not a JSON object')
+  const definition = parsed.data
+  if (!zJsonRecord.nullish().safeParse(definition.mcp).success) {
+    throw new CliInputError('the current agent config has an invalid mcp section')
+  }
   if (definition.mcp != null && Object.hasOwn(definition.mcp, serverName)) {
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
   }
@@ -113,13 +126,12 @@ function prepareYamlConfig(
 }
 
 function prepareConfig(config: AgentConfig, serverName: string, mcpUrl: string): PreparedConfig {
-  if (config.source_format === 'json' && config.definition !== undefined) {
-    return prepareJsonConfig(config.id, config.definition, serverName, mcpUrl)
+  if (config.source === undefined || config.source_format === undefined) {
+    throw new CliInputError('the current agent config source is unavailable')
   }
-  if (config.source_format === 'yaml' && config.source !== undefined) {
-    return prepareYamlConfig(config.id, config.source, serverName, mcpUrl)
-  }
-  throw new CliInputError('the current agent config source is unavailable')
+  return config.source_format === 'json'
+    ? prepareJsonConfig(config.id, config.source, serverName, mcpUrl)
+    : prepareYamlConfig(config.id, config.source, serverName, mcpUrl)
 }
 
 async function loadConfig(

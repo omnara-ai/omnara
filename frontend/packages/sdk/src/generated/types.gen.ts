@@ -1299,7 +1299,7 @@ export type ResolvedAgentConfigTool = {
 };
 
 /**
- * An agent config to compile. Text sources are stored verbatim, so YAML comments and formatting survive; JSON object sources are stored canonicalized.
+ * An agent config to compile. YAML sources are stored verbatim, so comments and formatting survive; JSON sources, as text or as an object, are stored canonicalized, so the same JSON definition always maps to the same config.
  */
 export type CreateAgentConfigRequest = {
     source: AgentConfigSourceInput;
@@ -1768,14 +1768,10 @@ export type AgentConfig = {
     org_id: OrganizationId;
     project_id: ProjectId;
     /**
-     * Saved source text. YAML sources keep their original text; JSON definitions are stored canonicalized.
+     * Saved source text. YAML sources keep their original text; JSON sources are stored canonicalized.
      */
     source?: string;
     source_format?: 'yaml' | 'json';
-    /**
-     * The saved source as a JSON object. Omitted for configs derived by Omnara, such as subagent configs, which have no source.
-     */
-    definition?: AgentConfigDefinition;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
