@@ -26,7 +26,7 @@ texted codes instead of guessing.
 Open Claude Code, Codex, Cursor, or any other coding agent and say:
 
 ```text
-Read https://raw.githubusercontent.com/omnara-ai/omnara/browser-agent-example/examples/browser-agent/SKILL.md and follow it to build my browser agent.
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/browser-agent/SKILL.md and follow it to build my browser agent.
 ```
 
 Your coding agent follows [SKILL.md](SKILL.md). It first asks about the work,

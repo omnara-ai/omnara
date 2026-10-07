@@ -179,7 +179,7 @@ since everything it does appears under that account.
 
 1. Copy `agent.yaml` from this folder to `./browser-agent.yaml`. If this
    folder isn't available locally, download
-   https://raw.githubusercontent.com/omnara-ai/omnara/browser-agent-example/examples/browser-agent/agent.yaml
+   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/browser-agent/agent.yaml
    instead.
 2. Replace `{{TASK_INSTRUCTIONS}}` with the text from step 3.
 3. Fill in the sign-ins. Each one is a `LOGIN_<KEY>_URL` line under
