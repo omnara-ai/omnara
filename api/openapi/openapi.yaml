@@ -6936,6 +6936,12 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only the grant for this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -13829,7 +13835,7 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         usage:
-          description: Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+          description: Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
           $ref: '#/components/schemas/MachinePoolUsage'
     MachinePoolUsage:
       type: object

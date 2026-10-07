@@ -5375,6 +5375,7 @@ export const zListProjectMachinePoolGrantsPath = z.object({
 
 export const zListProjectMachinePoolGrantsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    machine_pool_id: zMachinePoolId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()

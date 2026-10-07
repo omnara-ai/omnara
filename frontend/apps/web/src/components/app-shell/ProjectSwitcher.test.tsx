@@ -131,6 +131,7 @@ it.each([
       routeTree: rootRoute.addChildren(
         [
           '/',
+          '/integrations',
           '/projects/$projectId/agents',
           '/projects/$projectId/integrations',
           '/projects/$projectId/integrations/$integrationId',
@@ -189,8 +190,9 @@ it.each([
           ?.click()
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
+      // All projects lands on the org-level picker that asks which project to open.
       await waitForUI(() => {
-        expect(router.state.location.pathname).toBe('/')
+        expect(router.state.location.pathname).toBe('/integrations')
       })
     }
   },

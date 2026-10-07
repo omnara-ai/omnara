@@ -26,12 +26,10 @@ import {
 import { formatPoolMachines, formatPoolResources } from '@/components/overview/machinePoolFormat'
 import { MachinePreviewList } from '@/components/overview/MachinePreviewList'
 import { Button } from '@/components/ui/button'
-import { useAllPages } from '@/hooks/use-all-pages'
-import { useArrayPagination } from '@/hooks/use-array-pagination'
+import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
 import { formatCount } from '@/lib/format'
-import { clusterFirst } from '@/lib/management-kind'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -42,12 +40,7 @@ export function MachinePoolsSection() {
   const canManage = canManageOrg(activeOrg.role)
   const list = useResourceList<MachinePoolListSort>('-created_at')
   const query = useMachinePools(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
-  // Omnara-managed pools always lead, so order the whole set client-side.
-  const poolPages = useAllPages(query)
-  const paged = useArrayPagination(
-    poolPages.isPending ? [] : clusterFirst(poolPages.items),
-    (pool) => pool.id,
-  )
+  const paged = usePagedQuery(query, list.queryKey)
   const [poolDialog, setPoolDialog] = useState<MachinePoolDialog>(null)
 
   const newPoolButton = () =>
@@ -97,8 +90,8 @@ export function MachinePoolsSection() {
           )}
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
-          isPending={poolPages.isPending}
-          isError={poolPages.isError}
+          isPending={query.isPending}
+          isError={query.isError}
           onRetry={() => {
             void query.refetch()
           }}
@@ -215,25 +208,30 @@ export function PoolSubtitle({ pool }: { pool: MachinePool }) {
 }
 
 function ByoMachinesCard({ orgId }: { orgId: string }) {
-  const machines = useAllPages(
-    useMachines(orgId, { filters: { source_kind: 'byo' }, sort: '-updated_at' }),
-  )
+  // One small page: enough for the preview, and one extra row tells us whether there are more.
+  const preview = useMachines(orgId, {
+    filters: { source_kind: 'byo' },
+    sort: '-updated_at',
+    pageSize: previewLimit + 1,
+  })
+  const firstPage = preview.data?.pages[0]?.data ?? []
+  const hasMore = firstPage.length > previewLimit
+  const machines = firstPage.slice(0, previewLimit)
   const [expanded, setExpanded] = useState(false)
   const expansionId = useId()
-  const count = machines.items.length
   const expansion = {
     id: expansionId,
     open: expanded,
     content: (
       <MachinePreviewList
-        machines={machines.items.slice(0, previewLimit)}
-        isPending={machines.isPending}
-        isError={machines.isError}
+        machines={machines}
+        isPending={preview.isPending}
+        isError={preview.isError}
         emptyMessage="No machines connected yet. Connect a machine you operate to run agents on it."
         viewAll={
-          count > previewLimit && (
+          hasMore && (
             <Link to="/machines/byo" className={agentCardMoreLinkClass}>
-              View all {formatCount(count)} machines →
+              View all machines →
             </Link>
           )
         }
@@ -253,15 +251,17 @@ function ByoMachinesCard({ orgId }: { orgId: string }) {
         </Link>
       }
       subtitle={<span className="truncate">Machines you connect and run yourself</span>}
-      meta={
-        machines.items[0] && <AgentCardTime label="Updated" value={machines.items[0].updated_at} />
-      }
+      meta={machines[0] && <AgentCardTime label="Updated" value={machines[0].updated_at} />}
       footer={<span className="truncate">Not part of any pool</span>}
       stats={
         <AgentCardStatToggle
           icon={Server}
-          label={count === 1 ? 'machine' : 'machines'}
-          value={machines.isPending || machines.isError ? undefined : formatCount(count)}
+          label={machines.length === 1 && !hasMore ? 'machine' : 'machines'}
+          value={
+            preview.isPending || preview.isError
+              ? undefined
+              : `${formatCount(machines.length)}${hasMore ? '+' : ''}`
+          }
           expansion={expansion}
           onToggle={() => {
             setExpanded((open) => !open)

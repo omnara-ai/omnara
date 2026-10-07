@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 
 import { NavExternalLink, type NavItem, NavSection } from '@/components/app-shell/NavSection'
 import {
+  BoltIcon,
   Bot,
   Box,
   ChartBar,
@@ -43,6 +44,7 @@ export function OrganizationNav() {
         items={[
           item('/', 'Overview', House, true),
           item('/agents', 'Agents', Bot, true),
+          item('/integrations', 'Integrations', BoltIcon, true),
           item('/usage', 'Usage', ChartBar, true),
         ]}
       >

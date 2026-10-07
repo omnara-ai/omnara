@@ -88,9 +88,6 @@ it('shows all four events and the shared URL in advanced GitHub setup', async ()
   render(<IntegrationAdvanced integration={integration({ integration_kind: 'github_pr' })} />, {
     api_url: 'https://public-api.example/api/v1',
   })
-  act(() => {
-    button('Advanced').click()
-  })
   await waitForUI(() => {
     expect(container.textContent).toContain(
       'https://public-api.example/api/integrations/github/events',
@@ -115,9 +112,6 @@ it.each([
       />,
       { api_url: 'https://public-api.example/api/v1' },
     )
-    act(() => {
-      button('Advanced').click()
-    })
     await waitForUI(() => {
       expect(container.textContent).toContain(
         `https://public-api.example/api/integrations/discord/${expectedId}/interactions`,

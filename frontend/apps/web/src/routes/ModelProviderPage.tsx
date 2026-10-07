@@ -1,10 +1,11 @@
-import { useClusterModelPricing, useModelProviders } from '@omnara/react'
+import { useClusterModelPricing, useConfiguredModels, useModelProvider } from '@omnara/react'
 import type { ModelProviderConfig } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { AgentCard, AgentCardStat, AgentCardTime } from '@/components/agents/AgentCardList'
 import { OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
+import { DataTablePagination } from '@/components/data-table/DataTable'
 import { Box } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SectionTitle } from '@/components/layout/SectionTitle'
@@ -18,9 +19,8 @@ import { AddModelButton, ProviderModelList } from '@/components/overview/Provide
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useAllPages } from '@/hooks/use-all-pages'
 import { useModelActions } from '@/hooks/use-model-actions'
-import { useProviderModels } from '@/hooks/use-provider-models'
+import { usePagedQuery } from '@/hooks/use-paged-query'
 import { formatCount } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -28,9 +28,8 @@ import { useActiveOrg } from '@/lib/use-active-org'
 export function ModelProviderPage() {
   const { activeOrg } = useActiveOrg()
   const { providerId = '' } = useParams({ strict: false })
-  // There's no single-provider endpoint, so find it in the (short) provider list.
-  const providers = useAllPages(useModelProviders(activeOrg.id))
-  const provider = providers.items.find((candidate) => candidate.id === providerId)
+  const providerQuery = useModelProvider(activeOrg.id, providerId)
+  const provider = providerQuery.data
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -41,41 +40,45 @@ export function ModelProviderPage() {
         ]}
       />
       {provider ? (
-        <ProviderView provider={provider} providers={providers.items} />
-      ) : providers.isPending ? (
-        <Skeleton className="h-[7.25rem] rounded-xl" />
-      ) : (
+        <ProviderView provider={provider} />
+      ) : providerQuery.isError ? (
         <Empty className="rounded-xl border">
           <EmptyHeader>
             <EmptyDescription>
-              {providers.isError
-                ? 'Couldn’t load this provider.'
-                : 'This provider doesn’t exist or was deleted.'}
+              Couldn&rsquo;t load this provider. It may have been deleted.
             </EmptyDescription>
           </EmptyHeader>
-          <EmptyContent>
+          <EmptyContent className="flex-row justify-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void providerQuery.refetch()
+              }}
+            >
+              Retry
+            </Button>
             <Button asChild size="sm" variant="ghost">
               <Link to="/models">Back to models</Link>
             </Button>
           </EmptyContent>
         </Empty>
+      ) : (
+        <Skeleton className="h-[7.25rem] rounded-xl" />
       )}
     </div>
   )
 }
 
-function ProviderView({
-  provider,
-  providers,
-}: {
-  provider: ModelProviderConfig
-  providers: ModelProviderConfig[]
-}) {
+function ProviderView({ provider }: { provider: ModelProviderConfig }) {
   const { activeOrg } = useActiveOrg()
   const canManage = canManageOrg(activeOrg.role)
   const navigate = useNavigate()
   const pricing = useClusterModelPricing(activeOrg.id)
-  const { models, isPending, isError, refetch } = useProviderModels(activeOrg.id, provider.id)
+  const modelsQuery = useConfiguredModels(activeOrg.id, provider.id)
+  const paged = usePagedQuery(modelsQuery)
+  // Counts only the pages fetched so far; "+" marks that more exist.
+  const loadedCount = paged.loaded.length
   const [dialog, setDialog] = useState<ModelDialog>(null)
   const modelActions = useModelActions(activeOrg.id, canManage, setDialog)
 
@@ -110,8 +113,12 @@ function ProviderView({
         stats={
           <AgentCardStat
             icon={Box}
-            label={models.length === 1 ? 'model' : 'models'}
-            value={isPending || isError ? undefined : formatCount(models.length)}
+            label={loadedCount === 1 && !modelsQuery.hasNextPage ? 'model' : 'models'}
+            value={
+              modelsQuery.isPending || modelsQuery.isError
+                ? undefined
+                : `${formatCount(loadedCount)}${modelsQuery.hasNextPage ? '+' : ''}`
+            }
           />
         }
       />
@@ -125,20 +132,23 @@ function ProviderView({
         <div className="rounded-xl border [&>div]:border-t-0">
           <ProviderModelList
             provider={provider}
-            models={models}
-            isPending={isPending}
-            isError={isError}
-            onRetry={refetch}
+            models={paged.rows}
+            isPending={modelsQuery.isPending}
+            isError={modelsQuery.isError}
+            onRetry={() => {
+              void modelsQuery.refetch()
+            }}
             pricing={pricing}
             // Add model sits above the list here, not inside it.
             actions={{ ...modelActions, onCreate: undefined }}
           />
         </div>
+        <DataTablePagination pagination={paged.pagination} />
       </section>
       {canManage && (
         <ModelDialogs
           orgId={activeOrg.id}
-          providers={providers}
+          providers={[provider]}
           dialog={dialog}
           onClose={() => {
             setDialog(null)

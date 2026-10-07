@@ -3210,7 +3210,7 @@ export type MachinePool = {
     created_at: Timestamp;
     updated_at: Timestamp;
     /**
-     * Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+     * Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
      */
     usage?: MachinePoolUsage;
 };
@@ -14899,6 +14899,10 @@ export type ListProjectMachinePoolGrantsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Return only the grant for this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

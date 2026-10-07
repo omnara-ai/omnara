@@ -18,11 +18,13 @@ describe('currentSection', () => {
     expect(currentSection('/projects/proj_x/memory/mem_y')).toBe('memory')
   })
 
-  it('keeps integration setup and instance links in the project-only Integrations section', () => {
+  it('keeps integration setup and instance links in the Integrations section', () => {
     expect(currentSection('/projects/proj_x/integrations')).toBe('integrations')
     expect(currentSection('/projects/proj_x/integrations/new/slack_thread')).toBe('integrations')
     expect(currentSection('/projects/proj_x/integrations/intg_y')).toBe('integrations')
-    expect(hasOrganizationPath('integrations')).toBe(false)
+    // The org-level page only asks which project to open.
+    expect(currentSection('/integrations')).toBe('integrations')
+    expect(hasOrganizationPath('integrations')).toBe(true)
   })
 
   it('has no section for overviews', () => {

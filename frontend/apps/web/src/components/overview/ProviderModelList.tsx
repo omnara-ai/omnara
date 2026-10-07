@@ -1,4 +1,4 @@
-import type { useClusterModelPricing } from '@omnara/react'
+import type { ModelPricingLookup } from '@omnara/react'
 import type { ConfiguredModel, ModelProviderConfig } from '@omnara/sdk'
 import { type ReactNode, useId, useState } from 'react'
 
@@ -11,8 +11,6 @@ import { Button } from '@/components/ui/button'
 import { formatCount, formatDateTime } from '@/lib/format'
 import { modelPricingDetailItems } from '@/lib/model-pricing'
 import { cn } from '@/lib/utils'
-
-export type PricingLookup = ReturnType<typeof useClusterModelPricing>
 
 export interface ModelActions {
   onCreate?: (providerId: string) => void
@@ -51,7 +49,6 @@ export function ProviderModelList({
   onRetry,
   pricing,
   actions,
-  limit,
   viewAll,
 }: {
   provider: ModelProviderConfig
@@ -59,16 +56,12 @@ export function ProviderModelList({
   isPending: boolean
   isError: boolean
   onRetry: () => void
-  pricing: PricingLookup
+  pricing: ModelPricingLookup
   actions: ModelActions
-  /** Show only the first `limit` models, as a preview inside a card. */
-  limit?: number
-  /** Link to the full list, shown when `limit` hides some models. */
+  /** Link to the full list, when the preview leaves models out. */
   viewAll?: ReactNode
 }) {
   const { onCreate } = actions
-  const shown = limit === undefined ? models : models.slice(0, limit)
-  const showViewAll = models.length > shown.length && viewAll !== undefined
 
   return (
     <div className="flex flex-col gap-1 border-t px-2 py-2">
@@ -85,7 +78,7 @@ export function ProviderModelList({
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {shown.map((model) => (
+          {models.map((model) => (
             <ModelRow
               key={model.id}
               provider={provider}
@@ -96,7 +89,7 @@ export function ProviderModelList({
           ))}
         </ul>
       )}
-      {(onCreate !== undefined || showViewAll) && (
+      {(onCreate !== undefined || viewAll) && (
         <div className="flex items-center justify-between gap-2 px-1">
           {onCreate ? (
             <Button
@@ -113,7 +106,7 @@ export function ProviderModelList({
           ) : (
             <span />
           )}
-          {showViewAll && viewAll}
+          {viewAll}
         </div>
       )}
     </div>
@@ -128,7 +121,7 @@ function ModelRow({
 }: {
   provider: ModelProviderConfig
   model: ConfiguredModel
-  pricing: PricingLookup
+  pricing: ModelPricingLookup
   actions: ModelActions
 }) {
   const [open, setOpen] = useState(false)
