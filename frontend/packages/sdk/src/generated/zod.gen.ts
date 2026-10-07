@@ -1449,15 +1449,6 @@ export const zToolCall = z.object({
     created_at: zTimestamp
 });
 
-/**
- * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
- */
-export const zToolCallUpdate = z.object({
-    tool_call_id: zToolCallId,
-    agent_id: zAgentId.optional(),
-    state: zToolCallState
-});
-
 export const zListToolCallsResponse = z.object({
     data: z.array(zToolCall),
     next_cursor: z.string().nullable()
@@ -1550,11 +1541,6 @@ export const zEventWebhookContextCheckpointEvent = z.object({
     data: zContextCheckpointEvent
 });
 
-export const zEventWebhookToolCallUpdate = z.object({
-    event: z.enum(['tool_call_update']),
-    data: zToolCallUpdate
-});
-
 export const zModelOutputTextStreamBlock = z.object({
     kind: z.enum(['text'])
 });
@@ -1639,17 +1625,6 @@ export const zEventWebhookModelOutputEvent = z.object({
     data: zModelOutputEvent
 });
 
-/**
- * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
- */
-export const zEventWebhookPayload = z.discriminatedUnion('event', [
-    zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
-    zEventWebhookModelOutputEvent.extend({ event: z.literal('model_output') }),
-    zEventWebhookToolResultEvent.extend({ event: z.literal('tool_result') }),
-    zEventWebhookContextCheckpointEvent.extend({ event: z.literal('context_checkpoint') }),
-    zEventWebhookToolCallUpdate.extend({ event: z.literal('tool_call_update') })
-]);
-
 export const zAgentEvent = z.discriminatedUnion('event_kind', [
     zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
     zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
@@ -1691,16 +1666,6 @@ export const zModelOutputDelta = z.object({
     coalesced_count: zAgentCount,
     event: zModelOutputStreamDelta
 });
-
-/**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
- */
-export const zAgentEventStreamData = z.union([
-    zAgentEvent,
-    zToolCallUpdate,
-    zModelOutputDelta,
-    zError
-]);
 
 export const zListAgentEventsResponse = z.object({
     data: z.array(zAgentEvent),
@@ -1798,6 +1763,48 @@ export const zAgentInteractionState = z.enum([
     'open',
     'resolved',
     'canceled'
+]);
+
+export const zAgentInteractionUpdate = z.object({
+    id: zAgentInteractionId,
+    interaction_kind: zAgentInteractionKind,
+    state: zAgentInteractionState
+});
+
+/**
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ */
+export const zToolCallUpdate = z.object({
+    tool_call_id: zToolCallId,
+    agent_id: zAgentId.optional(),
+    state: zToolCallState,
+    interaction_update: zAgentInteractionUpdate.optional()
+});
+
+export const zEventWebhookToolCallUpdate = z.object({
+    event: z.enum(['tool_call_update']),
+    data: zToolCallUpdate
+});
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export const zEventWebhookPayload = z.discriminatedUnion('event', [
+    zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
+    zEventWebhookModelOutputEvent.extend({ event: z.literal('model_output') }),
+    zEventWebhookToolResultEvent.extend({ event: z.literal('tool_result') }),
+    zEventWebhookContextCheckpointEvent.extend({ event: z.literal('context_checkpoint') }),
+    zEventWebhookToolCallUpdate.extend({ event: z.literal('tool_call_update') })
+]);
+
+/**
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ */
+export const zAgentEventStreamData = z.union([
+    zAgentEvent,
+    zToolCallUpdate,
+    zModelOutputDelta,
+    zError
 ]);
 
 /**

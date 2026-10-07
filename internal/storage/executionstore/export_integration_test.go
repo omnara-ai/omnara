@@ -564,7 +564,7 @@ func IntegrationAppendToolResultEventTx(
 	tx pgx.Tx,
 	record ToolCallRecord,
 ) (events.Event, error) {
-	return appendToolResultEventTx(ctx, txNotifications, tx, record)
+	return appendToolResultEventTx(ctx, txNotifications, tx, record, nil)
 }
 
 func (s *Store) ArchiveIdleAgentsAsOf(

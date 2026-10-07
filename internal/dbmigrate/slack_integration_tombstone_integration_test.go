@@ -166,7 +166,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, int64(49), currentPostgresMigrationVersion(t, ctx, db))
+			require.Equal(t, latestPostgresMigrationVersion(t), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
 			if scenario.onlyDeleted {

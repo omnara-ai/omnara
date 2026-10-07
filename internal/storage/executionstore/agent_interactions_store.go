@@ -77,6 +77,12 @@ func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
 	return interactionFormForInteraction(record.InteractionKind, record.Request)
 }
 
+func interactionUpdateFromRecord(record AgentInteractionRecord) *notifications.AgentInteractionUpdate {
+	return &notifications.AgentInteractionUpdate{
+		ID: record.ID, InteractionKind: string(record.InteractionKind), State: string(record.State),
+	}
+}
+
 func (s *Store) CreatePermissionInteraction(
 	ctx context.Context,
 	input CreatePermissionInteractionInput,
@@ -146,6 +152,7 @@ func (s *Store) CreatePermissionInteraction(
 		input.AgentID,
 		input.ToolCallID,
 		input.RuntimeLockID,
+		interactionUpdateFromRecord(record),
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("link tool call to agent interaction: %w", err)
 	}
@@ -238,6 +245,7 @@ func markToolCallAwaitingPermissionTx(
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	projectID, agentID, toolCallID, runtimeLockID uuid.UUID,
+	interactionUpdate *notifications.AgentInteractionUpdate,
 ) error {
 	_, err := qtx.MarkToolCallAwaitingPermission(
 		ctx,
@@ -256,6 +264,7 @@ func markToolCallAwaitingPermissionTx(
 			agentID,
 			toolCallID,
 			string(ToolCallStateAwaitingPermission),
+			interactionUpdate,
 		)
 		return nil
 	}
@@ -510,7 +519,7 @@ func applyPermissionInteractionResolutionTx(
 			}
 			return fmt.Errorf("mark permitted tool call ready: %w", err)
 		}
-		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State)
+		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State, interactionUpdateFromRecord(record))
 		return nil
 	}
 	return completePermissionDeniedToolCallTx(
@@ -587,7 +596,9 @@ func completePermissionDeniedToolCallTx(
 	}
 	resultRecord := toolCallRecordFromPermissionInteractionCompleteSQLC(row)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(
+		ctx, txNotifications, tx, resultRecord, interactionUpdateFromRecord(record),
+	); err != nil {
 		return err
 	}
 	return nil
@@ -686,7 +697,9 @@ func completeQuestionToolCallTx(
 	}
 	resultRecord := toolCallRecordFromQuestionInteractionCompleteSQLC(row)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(
+		ctx, txNotifications, tx, resultRecord, interactionUpdateFromRecord(interaction),
+	); err != nil {
 		return err
 	}
 	return nil

@@ -322,7 +322,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		}
 		record := toolCallRecordFromInsertSQLC(row)
 		records = append(records, record)
-		txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State))
+		txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State), nil)
 	}
 	toolCallContentBlockArgsByProviderCallID := make(
 		map[string]toolCallContentBlockArgs,

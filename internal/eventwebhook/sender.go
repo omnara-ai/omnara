@@ -163,6 +163,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 		event = "tool_call_update"
 		data, err = publicevents.ToolCallUpdate(notifications.ToolCallUpdatedCommitted{
 			AgentID: delivery.AgentID, ToolCallID: *delivery.ToolCallID, State: *delivery.ToolState,
+			InteractionUpdate: delivery.InteractionUpdate,
 		})
 	}
 	if err != nil {

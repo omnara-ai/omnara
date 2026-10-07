@@ -11965,6 +11965,20 @@ components:
           $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
+        interaction_update:
+          description: Only present when this transition opens, resolves, or cancels an interaction.
+          $ref: '#/components/schemas/AgentInteractionUpdate'
+    AgentInteractionUpdate:
+      type: object
+      additionalProperties: false
+      required: [id, interaction_kind, state]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentInteractionID'
+        interaction_kind:
+          $ref: '#/components/schemas/AgentInteractionKind'
+        state:
+          $ref: '#/components/schemas/AgentInteractionState'
     ListToolCallsResponse:
       type: object
       additionalProperties: false

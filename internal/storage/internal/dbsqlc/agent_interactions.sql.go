@@ -91,7 +91,7 @@ func (q *Queries) CancelOpenAgentInteractionsForAgent(ctx context.Context, arg C
 	return items, nil
 }
 
-const cancelOpenAgentInteractionsForToolCall = `-- name: CancelOpenAgentInteractionsForToolCall :execrows
+const cancelOpenAgentInteractionsForToolCall = `-- name: CancelOpenAgentInteractionsForToolCall :many
 UPDATE agent_interactions
 SET state = 'canceled',
     resolution = jsonb_build_object('reason', $1::text),
@@ -106,6 +106,7 @@ WHERE agent_interactions.agent_id = $2
     WHERE agent.id = agent_interactions.agent_id
       AND agent.project_id = $4
   )
+RETURNING id, interaction_kind, state
 `
 
 type CancelOpenAgentInteractionsForToolCallParams struct {
@@ -115,17 +116,35 @@ type CancelOpenAgentInteractionsForToolCallParams struct {
 	ProjectID  uuid.UUID
 }
 
-func (q *Queries) CancelOpenAgentInteractionsForToolCall(ctx context.Context, arg CancelOpenAgentInteractionsForToolCallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelOpenAgentInteractionsForToolCall,
+type CancelOpenAgentInteractionsForToolCallRow struct {
+	ID              uuid.UUID
+	InteractionKind string
+	State           string
+}
+
+func (q *Queries) CancelOpenAgentInteractionsForToolCall(ctx context.Context, arg CancelOpenAgentInteractionsForToolCallParams) ([]CancelOpenAgentInteractionsForToolCallRow, error) {
+	rows, err := q.db.Query(ctx, cancelOpenAgentInteractionsForToolCall,
 		arg.Reason,
 		arg.AgentID,
 		arg.ToolCallID,
 		arg.ProjectID,
 	)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []CancelOpenAgentInteractionsForToolCallRow{}
+	for rows.Next() {
+		var i CancelOpenAgentInteractionsForToolCallRow
+		if err := rows.Scan(&i.ID, &i.InteractionKind, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAgentInteraction = `-- name: GetAgentInteraction :one

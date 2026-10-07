@@ -169,7 +169,7 @@ func (f *slackPendingWorkFixture) migrate(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 	require.NoError(t, applyProductionPostgresMigrations(ctx, f.db))
-	require.EqualValues(t, 49, currentPostgresMigrationVersion(t, ctx, f.db))
+	require.Equal(t, latestPostgresMigrationVersion(t), currentPostgresMigrationVersion(t, ctx, f.db))
 	if f.scope == "" {
 		return
 	}

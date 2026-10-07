@@ -266,8 +266,10 @@ func cancelAgentTx(
 			return CancelAgentResult{}, fmt.Errorf("load canceled agent interactions: %w", err)
 		}
 	}
+	interactionUpdates := make(map[uuid.UUID]*notifications.AgentInteractionUpdate, len(interactionRows))
 	for _, row := range interactionRows {
 		interaction := agentInteractionRecordFromSQLC(row)
+		interactionUpdates[interaction.ToolCallID] = interactionUpdateFromRecord(interaction)
 		if interaction.TurnID != uuid.Nil {
 			params := dbsqlc.MarkAgentWakeupParams{
 				ProjectID: interaction.ProjectID,
@@ -375,7 +377,9 @@ func cancelAgentTx(
 		if err != nil {
 			return CancelAgentResult{}, fmt.Errorf("marshal canceled tool result content parts: %w", err)
 		}
-		if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+		if _, err := appendToolResultEventTx(
+			ctx, txNotifications, tx, resultRecord, interactionUpdates[resultRecord.ID],
+		); err != nil {
 			return CancelAgentResult{}, fmt.Errorf("append canceled tool result event: %w", err)
 		}
 	}

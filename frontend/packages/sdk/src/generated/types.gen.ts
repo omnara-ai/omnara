@@ -2183,6 +2183,16 @@ export type ToolCallUpdate = {
      */
     agent_id?: AgentId;
     state: ToolCallState;
+    /**
+     * Only present when this transition opens, resolves, or cancels an interaction.
+     */
+    interaction_update?: AgentInteractionUpdate;
+};
+
+export type AgentInteractionUpdate = {
+    id: AgentInteractionId;
+    interaction_kind: AgentInteractionKind;
+    state: AgentInteractionState;
 };
 
 export type ListToolCallsResponse = {

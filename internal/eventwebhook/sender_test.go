@@ -21,8 +21,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -104,6 +107,10 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	sender, store, delivery := testSender()
+	interactionID := uuid.New()
+	delivery.InteractionUpdate = &notifications.AgentInteractionUpdate{
+		ID: interactionID, InteractionKind: "permission", State: "resolved",
+	}
 	key := []byte("12345678901234567890123456789012")
 	store.secret = "whsec_" + base64.StdEncoding.EncodeToString(key)
 	store.target.SigningSecretID = uuid.New()
@@ -132,14 +139,18 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	require.Equal(t, int64(1), store.completed.Load())
 	require.Equal(t, bodies[0], bodies[1])
 	var payload struct {
-		Event string `json:"event"`
-		Data  struct {
-			State string `json:"state"`
-		} `json:"data"`
+		Event string                 `json:"event"`
+		Data  openapi.ToolCallUpdate `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(bodies[0], &payload))
 	require.Equal(t, "tool_call_update", payload.Event)
-	require.Equal(t, "ready", payload.Data.State)
+	require.Equal(t, openapi.ToolCallStateReady, payload.Data.State)
+	publicInteractionID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
+	require.NoError(t, err)
+	require.Equal(t, &openapi.AgentInteractionUpdate{
+		Id: publicInteractionID, InteractionKind: openapi.AgentInteractionKindPermission,
+		State: openapi.AgentInteractionStateResolved,
+	}, payload.Data.InteractionUpdate)
 }
 
 func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {

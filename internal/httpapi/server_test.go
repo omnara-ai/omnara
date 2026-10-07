@@ -2104,6 +2104,42 @@ func TestWriteModelOutputDeltaFrameDropsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
+	for _, interaction := range []*notifications.AgentInteractionUpdate{
+		nil,
+		{ID: httpTestInteractionID, InteractionKind: "permission", State: "open"},
+	} {
+		rec := httptest.NewRecorder()
+		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
+			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
+			InteractionUpdate: interaction,
+		}) {
+			t.Fatal("writeToolCallUpdateFrame returned false")
+		}
+		body := rec.Body.String()
+		if !strings.HasPrefix(body, "event: tool_call_update\ndata: ") || strings.Contains(body, "\nid:") {
+			t.Fatalf("unexpected frame: %q", body)
+		}
+		var payload openapi.ToolCallUpdate
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(body, "event: tool_call_update\ndata: ")), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if interaction == nil {
+			if strings.Contains(body, "interaction_update") {
+				t.Fatalf("absent interaction must be omitted: %q", body)
+			}
+			continue
+		}
+		want := openapi.AgentInteractionUpdate{
+			Id:              testPublicID(t, publicid.KindAgentInteraction, httpTestInteractionID),
+			InteractionKind: openapi.AgentInteractionKindPermission, State: openapi.AgentInteractionStateOpen,
+		}
+		if payload.InteractionUpdate == nil || *payload.InteractionUpdate != want {
+			t.Fatalf("interaction update = %+v, want %+v", payload.InteractionUpdate, want)
+		}
+	}
+}
+
 func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
 	rec := httptest.NewRecorder()
 	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{

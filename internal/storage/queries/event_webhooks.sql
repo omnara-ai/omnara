@@ -14,8 +14,8 @@ WHERE agent.id = $1
 
 
 -- name: EnqueueEventWebhookDelivery :exec
-INSERT INTO event_webhook_deliveries (org_id, agent_id, event_sequence, tool_call_id, tool_state)
-VALUES ($1, $2, $3, $4, $5);
+INSERT INTO event_webhook_deliveries (org_id, agent_id, event_sequence, tool_call_id, tool_state, interaction_update)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: ClaimEventWebhookDelivery :one
 WITH saturated_orgs AS MATERIALIZED (
@@ -43,7 +43,7 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.attempt_count, delivery.claim_token;
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token;
 
 -- name: CompleteEventWebhookDelivery :exec
 DELETE FROM event_webhook_deliveries WHERE id = $1 AND claim_token = $2;
