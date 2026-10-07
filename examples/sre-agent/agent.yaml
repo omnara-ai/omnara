@@ -111,14 +111,8 @@ mcp:
 
 # Optional: source code. Delete this block along with machine_sources.
 tools:
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   run_command:
     permission:
       mode: always_allow    # runs only on the agent's own machine, to read the repo
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}

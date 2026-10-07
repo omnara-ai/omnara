@@ -49,15 +49,8 @@ model:
     effort: xhigh
 
 tools:
-  run_command: {}
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   web_search: {}
   web_fetch: {}
   ask_question: {}
