@@ -23,14 +23,15 @@ import (
 const discordRuntimeLease = 30 * time.Second
 
 type DiscordRuntime struct {
-	Integrations *integrationstore.Store
-	Secrets      *secretstore.Store
-	Redis        identifyRedis
-	HTTPClient   *http.Client
-	Log          *slog.Logger
-	Capacity     int
-	Metrics      *metrics.DiscordRuntimeRecorder
-	runShard     func(context.Context, discord.ShardConfig, *discord.Checkpoint, discord.CommitDispatch) error
+	Integrations  *integrationstore.Store
+	Secrets       *secretstore.Store
+	Redis         identifyRedis
+	HTTPClient    *http.Client
+	Log           *slog.Logger
+	Capacity      int
+	Metrics       *metrics.DiscordRuntimeRecorder
+	IntakeMetrics *metrics.IntegrationInboxIntakeRecorder
+	runShard      func(context.Context, discord.ShardConfig, *discord.Checkpoint, discord.CommitDispatch) error
 }
 
 func (r *DiscordRuntime) Run(ctx context.Context) error {
@@ -143,7 +144,8 @@ func (r *DiscordRuntime) run(
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
-		r.heartbeat(ctx, cancel, claim.Lease, claimedAt.Add(discordRuntimeLease))
+		heartbeatDiscordRuntime(ctx, cancel, claim.Lease, claimedAt.Add(discordRuntimeLease), log,
+			r.Integrations.RenewIntegrationRuntime)
 	}()
 	var runErr error
 	defer func() {
@@ -303,9 +305,19 @@ func (r *DiscordRuntime) connect(
 						ReceiptKey:    "discord:" + event.Message.ID,
 						Payload:       raw,
 					}
+				} else {
+					r.IntakeMetrics.Record("discord", "filtered")
 				}
 			}
-			return r.Integrations.CommitIntegrationRuntime(ctx, claim.Lease, rawCheckpoint, receipt)
+			err = r.Integrations.CommitIntegrationRuntime(ctx, claim.Lease, rawCheckpoint, receipt)
+			if receipt != nil {
+				outcome := "committed"
+				if err != nil {
+					outcome = "error"
+				}
+				r.IntakeMetrics.Record("discord", outcome)
+			}
+			return err
 		},
 	)
 	var gatewayError *discord.GatewayError
@@ -317,13 +329,16 @@ func (r *DiscordRuntime) connect(
 	return err
 }
 
-func (r *DiscordRuntime) heartbeat(
+func heartbeatDiscordRuntime(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	lease integrationstore.IntegrationRuntimeLease,
 	deadline time.Time,
+	log *slog.Logger,
+	renew func(context.Context, integrationstore.IntegrationRuntimeLease, time.Duration) error,
 ) {
 	delay := discordRuntimeLease / 3
+	renewalFailed := false
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -343,9 +358,10 @@ func (r *DiscordRuntime) heartbeat(
 			return
 		}
 		callCtx, done := context.WithDeadline(ctx, minTime(deadline, started.Add(5*time.Second)))
-		err := r.Integrations.RenewIntegrationRuntime(callCtx, lease, discordRuntimeLease)
+		err := renew(callCtx, lease, discordRuntimeLease)
 		done()
 		if err == nil {
+			renewalFailed = false
 			deadline = started.Add(discordRuntimeLease)
 			delay = discordRuntimeLease / 3
 			continue
@@ -355,6 +371,10 @@ func (r *DiscordRuntime) heartbeat(
 			errors.Is(err, storeerr.ErrNotFound) {
 			cancel()
 			return
+		}
+		if !renewalFailed && ctx.Err() == nil {
+			log.WarnContext(ctx, "renew Discord connection lease", "integration_id", lease.IntegrationID, "error", err)
+			renewalFailed = true
 		}
 		delay = min(time.Second, delay) + time.Duration(rand.IntN(250))*time.Millisecond
 	}

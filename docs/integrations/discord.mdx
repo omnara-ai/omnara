@@ -9,16 +9,35 @@ mentions and continue conversations in Discord threads.
 
 ## Connect your bot
 
-Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
-Record the Application ID, bot token and public key. Omnara retrieves the bot User ID
-and display name automatically from the token. Enable Message Content Intent. Omnara receives guild messages through Gateway; this
-integration does not support DMs. Install the bot in your server with permission to read
-history, send messages, add reactions, create public threads and send in threads. Grant Attach
-Files if agents will upload files.
+In the [Discord Developer Portal](https://discord.com/developers/applications):
 
-In the dashboard, **Add bot to server** opens Discord with these permissions
-already selected. After connecting, save the displayed Interactions Endpoint URL
-in your application's General Information page.
+1. Create an application and choose its name in Discord. Copy the **Application ID**
+   and **Public Key** from **General Information**.
+2. Under **Bot**, copy the bot token, or use **Reset Token** to create one.
+3. Enable **Bot → Privileged Gateway Intents → Message Content Intent** before
+   connecting. This is required to read replies that do not mention the bot.
+4. Under **Installation**, enable **Guild Install**.
+
+Omnara receives server messages through Gateway; this integration does not support
+DMs. The bot needs **View Channels**, **Read Message History**, **Send Messages**,
+**Add Reactions**, **Create Public Threads** and **Send Messages in Threads** in
+the channels it uses. Grant **Attach Files** if agents will upload files.
+
+### Dashboard
+
+Choose **Discord bot** on your project's **Integrations** page. Keep the suggested
+Omnara name `discord-bot` or enter your own, such as `support`. Enter the Application
+ID, public key and bot token, then choose **Create and connect**. Omnara saves the
+credential for you and retrieves the bot User ID and display name from the token.
+
+After connecting, save the displayed **Interactions Endpoint URL** under
+**General Information** in Discord. **Add bot to server** opens Discord with the
+permissions above already selected. Choose a server you manage, then select
+**Profiles for mentions** in Omnara.
+
+The dashboard requires the public key. It verifies interaction callbacks for
+profile menus, questions and approvals; it is different from the bot token used
+to read and send messages.
 
 Discord controls who can install the bot and access its conversations. Public bots
 are supported: people in accessible conversations can launch the offered profiles
@@ -27,6 +46,15 @@ to the agent's configured permissions. For internal use, turn off **Public Bot**
 under **Bot** in the Developer Portal when available, and restrict server/channel
 access in Discord. This setting limits new installations; review existing servers
 separately. See Discord's [bot authorization guidance](https://docs.discord.com/developers/topics/oauth2#bot-authorization-flow).
+
+### API
+
+Create the integration with
+`POST /orgs/{orgID}/projects/{projectID}/integrations`:
+
+```json
+{"name":"support","integration_kind":"discord_thread","settings":{}}
+```
 
 Save the token as a project-available [generic secret](/organization/secrets),
 with `material: {"kind":"generic","value":"your-bot-token"}`. Configure the
@@ -49,7 +77,10 @@ per integration. This supports bots in fewer than
 [2,500 servers](https://docs.discord.com/developers/events/gateway#sharding); larger bots
 require sharding, which is not currently supported. Omit `provider_config` during
 token rotation to keep the current settings. Supplying it replaces the settings, so include every field you intend to retain.
-The public key verifies callbacks; it is not the bot token.
+The API permits omitting the public key for messaging with a single launch profile.
+Profile menus and Discord questions or approvals require it and a verified
+[Interactions Endpoint URL](#questions-approvals-and-profile-menus). Install the
+bot through Discord with the permissions listed above.
 
 Each saved integration has an independent runtime. Integrations can use the same bot credentials,
 including in different projects, but duplicated sessions consume provider capacity.
@@ -77,9 +108,20 @@ response before sending follow-ups. Messages sent while Omnara is identifying th
 thread can be missed, including while Discord lookups are retrying. Once the agent
 has been attached to the thread, this limitation no longer applies.
 
-The API launcher is `{"profiles":["aprf_…"]}` with ordered, distinct public profile
-IDs. Discord launchers do not accept server or channel filters. Updates contain
-only `settings`; one profile starts immediately and several offer a menu.
+For the API, put `launcher` inside `settings` and send it to
+`PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:
+
+```json
+{
+  "settings": {
+    "launcher": {"profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibae"]}
+  }
+}
+```
+
+Profiles are ordered, distinct public IDs. Discord launchers do not accept server
+or channel filters. Updates replace `settings`; send `{"settings":{}}` to remove
+the mention launcher.
 
 A mention in a parent channel creates or reuses the public thread attached to that message. A
 mention already inside a thread uses that thread. One offered profile starts
@@ -96,7 +138,8 @@ The bot adds an eyes reaction after a message is accepted for an agent. Enable
 included in setup. A failed reaction does not prevent the agent from receiving the message.
 Edit the offered profiles to change future launches; existing agents keep their configs.
 Selecting profiles enables mention launches without a separate enable switch.
-An empty selection leaves schedules and existing conversations available.
+An empty selection leaves schedules and existing conversations available. With
+no matching subscription or launcher, messages receive no response.
 
 ## Scheduled threads
 
@@ -154,7 +197,7 @@ Configure the integration's public key, then set the Discord registration's
 **Interactions Endpoint URL** to:
 
 ```text
-https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions
+https://YOUR_OMNARA_API_HOST/api/integrations/discord/APPLICATION_ID/interactions
 ```
 
 Use the numeric Discord Application ID, not Omnara's `itg_…` ID. One public
@@ -163,8 +206,9 @@ agent interaction captures its owning integration, so its answer is routed only 
 Require successful [signed PING verification](https://docs.discord.com/developers/interactions/receiving-and-responding)
 before offering profile menus or external approvals.
 
-Select `interaction_handlers: {support: {}}` in an agent config to expose the
-handler. For manual configs, also select `list_interaction_handlers` and
+For an agent assigned to the `support` integration's thread, select
+`interaction_handlers: {support: {}}` in its config to expose the handler.
+For manual configs, also select `list_interaction_handlers` and
 `set_interaction_handler` under `tools` to let the model choose a destination.
 The Discord launcher adds the handler and both tools automatically, preserving explicit settings.
 The handler uses the thread assigned when the integration launches the agent.
@@ -181,8 +225,7 @@ Waiting inputs do not change the current turn. Set `auto_select: false` with
 omission preserves the mode. The list tool reports the mode. Questions remain
 answerable in the dashboard if Discord
 presentation fails. There is no Gateway fallback for interaction answers or
-automatic slash-command registration. A bot used only for messages with one
-profile can omit the public key.
+automatic slash-command registration.
 
 Discord interaction notifications run independently of the waiting agent. Delivery is
 best effort: a full worker queue or restart can lose the external notification.
@@ -197,8 +240,8 @@ An integration can retain its verified credentials while its Gateway connection 
 The integration detail page shows the latest connection error and earliest retry time for
 the current setup and credential version. **Refresh status** rereads the recorded
 failure; it does not start a retry. The failure remains until a new attempt starts.
-After correcting the Discord settings, reconnect the integration to make it eligible for
-a new attempt without waiting for the old retry time. A missing error does not
+After correcting the Discord settings, use **Reconnect account** to make the
+integration eligible for a new attempt without waiting for the old retry time. A missing error does not
 prove the Gateway is connected. The list and setup responses do not include
 this runtime status; API clients read the optional `runtime_failure` from **Get integration**.
 

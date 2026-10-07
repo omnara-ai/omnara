@@ -76,6 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	metricSet.MustRegister(metrics.NewDBPoolCollector(db))
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -255,13 +256,14 @@ func main() {
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
 	discordRuntime := integrationruntime.DiscordRuntime{
-		Capacity:     cfg.WorkerDiscordCapacity,
-		Metrics:      metrics.NewDiscordRuntimeRecorder(metricSet),
-		Integrations: store.Integrations(),
-		Secrets:      store.Secrets(),
-		Redis:        redisClient,
-		HTTPClient:   integrationHTTPClient,
-		Log:          log,
+		Capacity:      cfg.WorkerDiscordCapacity,
+		Metrics:       metrics.NewDiscordRuntimeRecorder(metricSet),
+		IntakeMetrics: metrics.NewIntegrationInboxIntakeRecorder(metricSet),
+		Integrations:  store.Integrations(),
+		Secrets:       store.Secrets(),
+		Redis:         redisClient,
+		HTTPClient:    integrationHTTPClient,
+		Log:           log,
 	}
 	discordDone := make(chan struct{})
 	var discordRunErr error

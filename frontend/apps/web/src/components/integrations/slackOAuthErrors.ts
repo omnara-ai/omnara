@@ -1,9 +1,15 @@
 export function slackOAuthErrorDescription(code: string) {
   switch (code) {
+    case 'identity_mismatch':
+      return 'This integration is connected to a different Slack workspace or bot. Authorize the original workspace and bot, or create a new integration.'
+    case 'access_denied':
+      return 'Slack authorization was canceled or denied. Start authorization again when you’re ready.'
     case 'integration_setup_changed':
       return 'This integration’s setup changed while authorization was open. Refresh the integration and start setup again.'
     case 'integration_deleted':
       return 'This integration was deleted. Choose or create an integration before starting setup again.'
+    case 'flow_expired':
+      return 'Slack authorization expired. Use your existing Slack app’s credentials to start authorization again.'
     case 'flow_consumed':
       return 'This authorization has already been used. Refresh the integration to see its current setup.'
     case 'missing_code':

@@ -1,7 +1,6 @@
 /** @vitest-environment happy-dom */
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient } from '@omnara/sdk'
-import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -37,213 +36,79 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it.each(['changed', 'deleted'] as const)(
-  'stops waiting when the integration is %s during authorization',
-  async (failure) => {
-    vi.useFakeTimers()
-    const orgId = fakeId('org'),
-      projectId = fakeId('proj')
-    const integration = integrationFixture({
-      provider_tenant_id: 'T123',
-      provider_account_ref: 'A123',
-    })
-    const path = `/api/v1/orgs/${orgId}/projects/${projectId}/integrations/${integration.id}`
-    const api = fakeApi([
-      {
-        method: 'POST',
-        path: path + '/oauth/setup',
-        respond: () =>
-          jsonResponse(
-            {
-              integration_id: integration.id,
-              setup_revision: integration.setup_revision,
-              provider: 'slack',
-              flow_id: fakeId('ioaf'),
-              oauth_url: 'https://slack.com/oauth/v2/authorize',
-              redirect_uri: 'https://omnara.test/callback',
-              events_url: 'https://omnara.test/events',
-              actions_url: 'https://omnara.test/actions',
-              expires_at: new Date(Date.now() + 600_000).toISOString(),
-            },
-            201,
-          ),
-      },
-      {
-        method: 'GET',
-        path,
-        respond: () =>
-          failure === 'deleted'
-            ? jsonResponse({ code: 'not_found', error: 'not found' }, 404)
-            : Response.json({
-                ...integration,
-                state: 'active',
-                setup_revision: integration.setup_revision + 1,
-                last_oauth_flow_id: `ioaf_${'b'.repeat(26)}`,
-              }),
-      },
-    ])
-    const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-    const onConnected = vi.fn()
-    act(() => {
-      root.render(
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>
-            <ConnectSlackForm
-              integration={integration}
-              orgId={orgId}
-              projectId={projectId}
-              onConnected={onConnected}
-            />
-          </QueryClientProvider>
-        </OmnaraClientProvider>,
-      )
-    })
-    await enter('Client ID', 'client')
-    await enter('Client secret', 'secret')
-    await enter('Signing secret', 'signature')
-    await act(async () => {
-      document
-        .querySelector('form')
-        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-      await Promise.resolve()
-    })
-    await waitForUI(() => {
-      expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-        failure === 'deleted'
-          ? 'This integration was deleted'
-          : 'setup changed while authorization was open',
-      )
-    })
-    expect(document.body.textContent).not.toContain('Authorize in Slack')
-    expect(onConnected).not.toHaveBeenCalled()
-
-    const reads = api.requestsTo('GET', path).length
-    expect(reads).toBeGreaterThan(0)
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000)
-    })
-    expect(api.requestsTo('GET', path)).toHaveLength(reads)
-  },
-)
-
-it.each(['complete', 'invalidate'] as const)(
-  'uses the server-captured revision with an older cached integration, then handles %s',
-  async (outcome) => {
-    vi.useFakeTimers()
-    const orgId = fakeId('org'),
-      projectId = fakeId('proj'),
-      flowId = fakeId('ioaf')
-    const cached = integrationFixture({
-      state: 'disconnected',
-      setup_revision: 1,
-      provider_tenant_id: 'T123',
-      provider_account_ref: 'A123',
-    })
-    const path = `/api/v1/orgs/${orgId}/projects/${projectId}/integrations/${cached.id}`
-    let current = { ...cached, setup_revision: 2 }
-    let releaseRead!: (response: Response) => void
-    const firstRead = new Promise<Response>((resolve) => {
-      releaseRead = resolve
-    })
-    let reads = 0
-    const api = fakeApi([
-      {
-        method: 'POST',
-        path: path + '/oauth/setup',
-        respond: () =>
-          jsonResponse(
-            {
-              integration_id: cached.id,
-              setup_revision: 2,
-              provider: 'slack',
-              flow_id: flowId,
-              oauth_url: 'https://slack.com/oauth/v2/authorize',
-              redirect_uri: 'https://omnara.test/callback',
-              events_url: 'https://omnara.test/events',
-              actions_url: 'https://omnara.test/actions',
-              expires_at: new Date(Date.now() + 600_000).toISOString(),
-            },
-            201,
-          ),
-      },
-      {
-        method: 'GET',
-        path,
-        respond: () => (++reads === 1 ? firstRead : Response.json(current)),
-      },
-    ])
-    const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-    cache.setQueryData(
-      getIntegrationQueryKey({
-        path: { orgID: orgId, projectID: projectId, integrationID: cached.id },
-        client,
-      }),
-      cached,
+it('authorizes in the same tab without polling and restarts an expired flow with the existing app', async () => {
+  vi.useFakeTimers()
+  const orgId = fakeId('org'),
+    projectId = fakeId('proj')
+  const integration = integrationFixture()
+  const path = `/api/v1/orgs/${orgId}/projects/${projectId}/integrations/${integration.id}`
+  const setup = () => ({
+    integration_id: integration.id,
+    setup_revision: integration.setup_revision,
+    provider: 'slack',
+    slack_app_id: 'A123',
+    flow_id: fakeId('ioaf'),
+    oauth_url: 'https://slack.com/oauth/v2/authorize',
+    redirect_uri: 'https://omnara.test/callback',
+    events_url: 'https://omnara.test/events',
+    actions_url: 'https://omnara.test/actions',
+    expires_at: new Date(Date.now() + 600_000).toISOString(),
+  })
+  const api = fakeApi([
+    { method: 'POST', path: path + '/slack-setup', respond: () => jsonResponse(setup(), 201) },
+    { method: 'POST', path: path + '/oauth/setup', respond: () => jsonResponse(setup(), 201) },
+  ])
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  act(() => {
+    root.render(
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ConnectSlackForm integration={integration} orgId={orgId} projectId={projectId} />
+        </QueryClientProvider>
+      </OmnaraClientProvider>,
     )
-    const onConnected = vi.fn()
-    act(() => {
-      root.render(
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>
-            <ConnectSlackForm
-              integration={cached}
-              orgId={orgId}
-              projectId={projectId}
-              onConnected={onConnected}
-            />
-          </QueryClientProvider>
-        </OmnaraClientProvider>,
-      )
-    })
-    await enter('Client ID', 'client')
-    await enter('Client secret', 'secret')
-    await enter('Signing secret', 'signature')
-    await act(async () => {
-      document
-        .querySelector('form')
-        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-      await Promise.resolve()
-    })
-    await waitForUI(() => {
-      expect(api.requestsTo('GET', path)).toHaveLength(1)
-      expect(document.body.textContent).toContain('Authorize in Slack')
-    })
-    expect(document.body.textContent).not.toContain('setup changed while authorization was open')
-    await act(async () => {
-      releaseRead(Response.json(current))
-      await firstRead
-    })
-    await waitForUI(() => {
-      expect(document.body.textContent).toContain('Authorize in Slack')
-    })
-    expect(document.body.textContent).not.toContain('setup changed while authorization was open')
-    expect(onConnected).not.toHaveBeenCalled()
-    current = {
-      ...current,
-      state: 'active',
-      setup_revision: 3,
-      last_oauth_flow_id: outcome === 'complete' ? flowId : `ioaf_${'b'.repeat(26)}`,
-    }
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000)
-    })
-    await waitForUI(() => {
-      expect(reads).toBe(2)
-      if (outcome === 'complete') {
-        expect(onConnected).toHaveBeenCalledOnce()
-      } else {
-        expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-          'setup changed while authorization was open',
-        )
-        expect(onConnected).not.toHaveBeenCalled()
-      }
-    })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000)
-    })
-    expect(reads).toBe(2)
-  },
-)
+  })
+  expect(field('Name in Slack').value).toBe('')
+  expect(field('Name in Slack').hasAttribute('placeholder')).toBe(true)
+  expect(field('Name in Slack').required).toBe(true)
+  await enter('App configuration token', 'config-token')
+  expect(button('Connect integration').disabled).toBe(true)
+  await enter('Name in Slack', 'Engineering helper')
+  act(() => {
+    button('Connect integration').click()
+  })
+  await waitForUI(() => {
+    const link = container.querySelector('a[href="https://slack.com/oauth/v2/authorize"]')
+    expect(link).not.toBeNull()
+    expect(link?.getAttribute('target')).toBeNull()
+  })
+  expect(api.requestsTo('POST', path + '/slack-setup')[0]?.body).toMatchObject({
+    app_name: 'Engineering helper',
+    return_to: `/projects/${projectId}/integrations/${integration.id}`,
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(600_000)
+  })
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('Authorization expired')
+  expect(container.querySelector('a[href="https://slack.com/oauth/v2/authorize"]')).toBeNull()
+  expect(api.requestsTo('GET', path)).toHaveLength(0)
+  act(() => {
+    button('Start authorization again').click()
+  })
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true)
+  await enter('Client ID', 'client')
+  await enter('Client secret', 'secret')
+  await enter('Signing secret', 'signature')
+  act(() => {
+    button('Connect integration').click()
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('a[href="https://slack.com/oauth/v2/authorize"]')).not.toBeNull()
+  })
+  expect(api.requestsTo('POST', path + '/slack-setup')).toHaveLength(1)
+  expect(api.requestsTo('POST', path + '/oauth/setup')).toHaveLength(1)
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
 
 it('explains an integration creation conflict before creating the Slack app', async () => {
   const orgId = fakeId('org'),
@@ -267,6 +132,7 @@ it('explains an integration creation conflict before creating the Slack app', as
       </OmnaraClientProvider>,
     )
   })
+  await enter('Name in Slack', 'Reviewer')
   await enter('App configuration token', 'config-token')
   await act(async () => {
     document

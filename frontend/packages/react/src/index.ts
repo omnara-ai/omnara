@@ -85,7 +85,6 @@ export {
   useInspectIntegrationGitHubInstallations,
   useIntegration,
   useIntegrationDefinitions,
-  useIntegrationOAuthCompletion,
   useIntegrations,
   useUpdateIntegration,
 } from './domains/integrations'

@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -56,6 +57,7 @@ func (s *Server) GitHubEventsHandler() http.Handler {
 	return &githubIntakeHandler{
 		store: s.store.Integrations(), secrets: s.store.Secrets(),
 		credentialIntegrations: s.store.Integrations().ListGitHubWebhookCredentialIntegrations,
+		recorder:               s.integrationInboxIntake,
 	}
 }
 
@@ -63,6 +65,7 @@ type githubIntakeHandler struct {
 	store                  githubIntakeStore
 	secrets                githubIntakeSecrets
 	credentialIntegrations GitHubWebhookCredentialIntegrations
+	recorder               *metrics.IntegrationInboxIntakeRecorder
 }
 
 func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -115,10 +118,22 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				if !integrationruntime.GitHubWebhookInstallationMatches(integration, event) {
 					return true, storeerr.ErrUnauthorized
 				}
-				_, _, err = h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+				_, relevant, normalizeErr := integrationruntime.NormalizeGitHubIntegrationEvent(integration, raw)
+				if normalizeErr == nil && !relevant {
+					h.recorder.Record("github", "filtered")
+					return true, nil
+				}
+				_, created, err := h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 					ProjectID: integration.ProjectID, IntegrationID: integration.ID,
 					ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID, Payload: raw,
 				})
+				outcome := "accepted"
+				if err != nil {
+					outcome = "error"
+				} else if !created {
+					outcome = "duplicate"
+				}
+				h.recorder.Record("github", outcome)
 				return true, err
 			})
 		if err != nil {

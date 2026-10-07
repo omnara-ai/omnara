@@ -394,7 +394,12 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				`{"id":71,"login":"human","type":"User"}`, `{"id":999,"login":"helper[bot]","type":"Bot"}`)
 			githubHTTPWebhook(t, f.handler, "issue_comment", "self", githubJourneyWebhookSecret,
 				self, http.StatusNoContent)
-			require.Empty(t, f.consume(t, self))
+			_, found, err := f.project.Store.Integrations().ClaimIntegrationInbox(t.Context(),
+				integrationstore.ClaimIntegrationInboxInput{
+					ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID, LeaseDuration: time.Minute,
+				})
+			require.NoError(t, err)
+			require.False(t, found, "self events are filtered before entering the inbox")
 			require.NoError(t, pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&inputs))
 			f.senderPermission = "read"
@@ -453,7 +458,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	grant := requestJSONWithHeaders(t, f.handler, http.MethodPost, secretPath+"/grants",
 		integrationHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
 		"", http.StatusCreated, authHeaders(f.project.AdminToken))
-	secondIntegration := githubHTTPJourneyIntegration(t, f.handler, second, f.secretID, "457")
+	githubHTTPJourneyIntegration(t, f.handler, second, f.secretID, "457")
 	inbox := f.project.Store.Integrations()
 	candidates, err := inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
@@ -511,11 +516,8 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	installed := `{"action":"created","installation":{"id":457,"app_id":123}}`
 	githubHTTPWebhook(t, f.handler, "installation", "managed", githubJourneyWebhookSecret,
 		installed, http.StatusNoContent)
-	f2 := githubHTTPJourney{handler: f.handler, project: second, integration: secondIntegration, secretID: f.secretID}
-	require.Empty(t, f2.consume(t, installed))
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM integration_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
-	require.Zero(t, count)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
+	require.Zero(t, count, "installation callbacks are filtered even for a connected integration")
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		f.project.ProjectPath+"/integrations/"+
 			testPublicID(t, publicid.KindIntegration, separate.ID),

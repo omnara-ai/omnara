@@ -12,6 +12,7 @@ export function integrationConversation(
   integration: Integration,
   subscription: IntegrationSubscription,
 ) {
+  const name = subscription.conversation_name ?? ''
   switch (integration.integration_kind) {
     case 'slack_thread': {
       const address = slackAddress.safeParse(subscription.conversation)
@@ -23,7 +24,7 @@ export function integrationConversation(
         team: integration.provider_tenant_id ?? '',
       })
       return {
-        label: thread_ts ? `${channel} · Thread ${thread_ts}` : channel,
+        label: name || (thread_ts ? `${channel} · Thread ${thread_ts}` : channel),
         href: integration.provider_tenant_id
           ? `https://slack.com/app_redirect?${destination.toString()}`
           : undefined,
@@ -35,16 +36,17 @@ export function integrationConversation(
       const { channel_id, thread_id } = address.data
       if (!channel_id && !thread_id) break
       return {
-        label: thread_id ? `Thread ${thread_id}` : `Channel ${channel_id}`,
+        label: name || (thread_id ? `Thread ${thread_id}` : `Channel ${channel_id}`),
       }
     }
     case 'github_pr': {
       const address = githubAddress.safeParse(subscription.conversation)
       if (!address.success) break
       return {
-        label: `Repository ${address.data.repository_id} · PR #${address.data.pull_request}`,
+        label:
+          name || `Repository ${address.data.repository_id} · PR #${address.data.pull_request}`,
       }
     }
   }
-  return { label: JSON.stringify(subscription.conversation) }
+  return { label: name || JSON.stringify(subscription.conversation) }
 }

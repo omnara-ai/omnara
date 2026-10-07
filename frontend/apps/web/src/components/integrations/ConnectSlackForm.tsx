@@ -40,7 +40,7 @@ const slackSetupForm = formOptions({
     clientId: '',
     clientSecret: '',
     signingSecret: '',
-    appName: 'Omnara',
+    appName: '',
     appConfigurationToken: '',
     appIcon: noAppIcon,
   },
@@ -50,7 +50,7 @@ interface SlackConnectionProps {
   orgId: string
   projectId: string
   integration?: Integration
-  onConnected?: (integration: Integration) => void
+  defaultExistingApp?: boolean
   onCancel?: () => void
   footerAction?: ReactNode
 }
@@ -59,7 +59,7 @@ export function ConnectSlackForm({
   orgId,
   projectId,
   integration: existing,
-  onConnected,
+  defaultExistingApp = false,
   onCancel,
   footerAction,
 }: SlackConnectionProps) {
@@ -72,10 +72,10 @@ export function ConnectSlackForm({
   const createOAuthSetup = useCreateIntegrationOAuthSetup(orgId, projectId)
   const createSlackSetup = useCreateIntegrationSlackSetup(orgId, projectId)
   const reconnect = Boolean(integration?.provider_tenant_id)
-  const [existingAppSelected, setExistingAppSelected] = useState(false)
+  const [existingAppSelected, setExistingAppSelected] = useState(defaultExistingApp)
   const existingApp = reconnect || existingAppSelected
   const [error, setError] = useState('')
-  const authorization = useSlackAuthorization(orgId, projectId, onConnected)
+  const authorization = useSlackAuthorization()
   const form = useAppForm({
     ...slackSetupForm,
     onSubmit: async ({ value }) => {
@@ -127,11 +127,14 @@ export function ConnectSlackForm({
 
   return (
     <div>
-      {authorization.pending && !authorization.failure ? (
+      {authorization.pending ? (
         <SlackAuthorizationPending
           pending={authorization.pending}
-          isError={authorization.checkFailed}
-          onRetry={authorization.recheck}
+          expired={authorization.expired}
+          onRestart={() => {
+            setExistingAppSelected(true)
+            authorization.start()
+          }}
         />
       ) : (
         <form
@@ -168,9 +171,9 @@ export function ConnectSlackForm({
                 {methodToggle}
               </SlackSetupFields>
             </div>
-            {(error || authorization.failure) && (
+            {error && (
               <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
-                {error || authorization.failure}
+                {error}
               </p>
             )}
             <form.Subscribe
@@ -251,6 +254,7 @@ const SlackSetupFields = withForm({
                     <FieldLabel htmlFor="slack-app-name">Name in Slack</FieldLabel>
                     <Input
                       id="slack-app-name"
+                      placeholder="Engineering helper"
                       required
                       value={field.state.value}
                       onChange={(event) => {
@@ -361,7 +365,7 @@ function SlackAppUrls() {
   return (
     <IntegrationSetupGroup
       title="In Slack"
-      hint="Configure these URLs in your Slack app before authorizing."
+      hint="Configure these URLs and bot events in your Slack app before authorizing."
     >
       {publicURL ? (
         <div className="text-muted-foreground flex flex-col gap-2 break-all text-sm">
@@ -382,41 +386,62 @@ function SlackAppUrls() {
             : 'Loading setup URLs…'}
         </p>
       )}
+      <div className="flex flex-col gap-2">
+        <p>Under Event Subscriptions, enable events and add these under Subscribe to bot events:</p>
+        <ul className="grid gap-1 sm:grid-cols-2">
+          {[
+            'app_mention',
+            'app_uninstalled',
+            'channel_rename',
+            'group_rename',
+            'message.channels',
+            'message.groups',
+            'message.im',
+            'message.mpim',
+            'tokens_revoked',
+            'user_profile_changed',
+          ].map((event) => (
+            <li key={event}>
+              <code>{event}</code>
+            </li>
+          ))}
+        </ul>
+        <p className="text-muted-foreground">Save your changes before authorizing.</p>
+      </div>
     </IntegrationSetupGroup>
   )
 }
 
 function SlackAuthorizationPending({
   pending,
-  isError,
-  onRetry,
+  expired,
+  onRestart,
 }: {
   pending: IntegrationOAuthSetup
-  isError: boolean
-  onRetry: () => void
+  expired: boolean
+  onRestart: () => void
 }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
-      <p>
-        Authorize your Slack app in Slack, then return here. This page updates when authorization
-        completes.
-      </p>
-      <Button asChild>
-        <a href={pending.oauth_url} target="_blank" rel="noopener noreferrer">
-          Authorize in Slack
-        </a>
-      </Button>
-      {isError && (
-        <p role="alert">
-          Could not check authorization.{' '}
-          <Button variant="link" onClick={onRetry}>
-            Check again
+      {expired ? (
+        <>
+          <p role="alert">
+            Authorization expired. Use your existing Slack app’s credentials to start authorization
+            again.
+          </p>
+          <Button onClick={onRestart}>Start authorization again</Button>
+        </>
+      ) : (
+        <>
+          <p>Authorize your app in Slack. You’ll return here automatically to finish setup.</p>
+          <Button asChild>
+            <a href={pending.oauth_url}>Authorize in Slack</a>
           </Button>
-        </p>
+          <p className="text-muted-foreground">
+            Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
+          </p>
+        </>
       )}
-      <p className="text-muted-foreground">
-        Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
-      </p>
     </div>
   )
 }

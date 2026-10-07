@@ -52,13 +52,12 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 	if err := validateGitHubRegistrationApp(integration, request.Body.ExpectedSetupRevision); err != nil {
 		return nil, err
 	}
-	name := integration.Name
+	var name string
 	if request.Body.AppName != nil {
-		name = *request.Body.AppName
-	}
-	name = strings.TrimSpace(name)
-	if name == "" || utf8.RuneCountInString(name) > 34 || strings.ContainsFunc(name, unicode.IsControl) {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "GitHub App name must contain 1 to 34 characters")
+		name = strings.TrimSpace(*request.Body.AppName)
+		if name == "" || utf8.RuneCountInString(name) > 34 || strings.ContainsFunc(name, unicode.IsControl) {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "GitHub App name must contain 1 to 34 characters")
+		}
 	}
 	organization := strings.TrimSpace(stringValue(request.Body.Organization))
 	if request.Body.Organization != nil && (len(organization) > 39 || !githubOrganizationLogin.MatchString(organization)) {
@@ -91,7 +90,6 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 		return nil, err
 	}
 	manifest := map[string]any{
-		"name":                     name,
 		"url":                      s.server.absolutePublicURL(path),
 		"hook_attributes":          map[string]any{"url": webhookURL, "active": true},
 		"redirect_url":             s.server.absolutePublicURL(githubManifestCallbackPath),
@@ -106,6 +104,9 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 			"pull_request_review",
 			"pull_request_review_comment",
 		},
+	}
+	if name != "" {
+		manifest["name"] = name
 	}
 	return openapi.CreateIntegrationGitHubSetup201JSONResponse(openapi.GitHubSetup{
 		IntegrationId: request.IntegrationID, SetupRevision: integration.SetupRevision,

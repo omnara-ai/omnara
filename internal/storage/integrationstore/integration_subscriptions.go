@@ -137,6 +137,7 @@ func (s *Store) ListIntegrationSubscriptions(
 			CreatedAt: row.CreatedAt,
 		})
 		record.AgentName = row.AgentName
+		record.ConversationName = row.ConversationName
 		scope, err := integrationdefinition.ParseConversation(integration.Provider, row.ScopeKind, row.ScopeRef)
 		if err != nil {
 			return ListIntegrationSubscriptionsResult{}, err

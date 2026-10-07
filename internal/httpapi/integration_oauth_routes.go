@@ -36,6 +36,7 @@ const (
 )
 
 var errIntegrationOAuthStateTooLarge = errors.New("integration oauth state exceeds maximum size")
+var errIntegrationOAuthStateExpired = errors.New("integration oauth state has expired")
 
 type integrationOAuthState struct {
 	FlowID            uuid.UUID `json:"flow_id"`
@@ -81,7 +82,8 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid oauth state")
 		return
 	}
-	if err := validateIntegrationOAuthState(state, time.Now().UTC()); err != nil {
+	stateErr := validateIntegrationOAuthState(state, time.Now().UTC())
+	if stateErr != nil && !errors.Is(stateErr, errIntegrationOAuthStateExpired) {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid oauth state")
 		return
 	}
@@ -121,6 +123,10 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 	}
 	if integration.SetupRevision != state.SetupRevision {
 		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"integration_setup_changed"}})
+		return
+	}
+	if errors.Is(stateErr, errIntegrationOAuthStateExpired) {
+		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"flow_expired"}})
 		return
 	}
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
@@ -178,13 +184,18 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 	var observed slack.InstallIdentity
 	_ = json.Unmarshal(integration.ProviderIdentity, &observed)
 	verified, err := slack.ParseInstallIdentity(providerInstall.ProviderIdentity)
-	if err != nil || (observed.BotUserID != "" && observed.BotUserID != verified.BotUserID) {
+	if err != nil {
+		logpkg.Error(r.Context(), fmt.Errorf("invalid Slack OAuth identity: %w", err))
 		s.redirectOAuthOutcome(
 			w,
 			r,
 			state.ReturnTo,
 			url.Values{"integration_oauth_error": {"setup_save_failed"}},
 		)
+		return
+	}
+	if observed.BotUserID != "" && observed.BotUserID != verified.BotUserID {
+		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"identity_mismatch"}})
 		return
 	}
 	credentialSecret, err := s.createSlackIntegrationCredentialSecret(
@@ -237,6 +248,8 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			outcome = "flow_consumed"
 		case errors.Is(err, integrationstore.ErrIntegrationSetupChanged):
 			outcome = "integration_setup_changed"
+		case errors.Is(err, integrationstore.ErrIntegrationIdentityMismatch):
+			outcome = "identity_mismatch"
 		case storeerr.IsNotFound(err):
 			_, integrationErr := s.store.Integrations().GetIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 			if storeerr.IsNotFound(integrationErr) {
@@ -313,13 +326,15 @@ func validateIntegrationOAuthState(state integrationOAuthState, now time.Time) e
 	if !supportedIntegrationOAuthProvider(state.Provider) || state.ClientID == "" ||
 		state.ClientSecret == "" ||
 		state.SigningSecret == "" ||
-		state.ExpiresAt.IsZero() ||
-		!now.Before(state.ExpiresAt) {
+		state.ExpiresAt.IsZero() {
 		return errors.New("invalid oauth state")
 	}
 	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
 		state.InstalledByUserID == uuid.Nil {
 		return errors.New("invalid oauth state")
+	}
+	if !now.Before(state.ExpiresAt) {
+		return errIntegrationOAuthStateExpired
 	}
 	return nil
 }

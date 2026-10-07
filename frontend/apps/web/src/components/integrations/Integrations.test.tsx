@@ -299,8 +299,10 @@ it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
     )
     if (integrationKind === 'github_pr') {
       expect(keys).not.toContain('interaction_handlers')
+      expect(section?.textContent).not.toContain('its interaction handler')
     } else {
       expect(keys).toContain('interaction_handlers')
+      expect(section?.textContent).toContain('its interaction handler')
       expect(keys).toContain('customer-support')
     }
   },
@@ -317,6 +319,7 @@ it('shows tools without optional subscription or handler capabilities', () => {
   expect(section?.textContent).toContain(`int__${integration.name}__read`)
   expect(section?.textContent).not.toContain('Conversation subscriptions')
   expect(section?.textContent).not.toContain('Interaction handler')
+  expect(section?.textContent).not.toContain('its interaction handler')
 })
 
 it.each(['active', 'disconnected'] as const)(

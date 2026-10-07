@@ -10,6 +10,7 @@ export function IntegrationConnection({
   projectId,
   integrationKind,
   integration,
+  slackOAuthFailed,
   onConnected,
   onCancel,
   footerAction,
@@ -19,6 +20,7 @@ export function IntegrationConnection({
   projectId: string
   integrationKind: IntegrationKind
   integration?: Integration
+  slackOAuthFailed?: boolean
   onConnected: (integration: Integration) => void
   onCancel?: () => void
   footerAction?: ReactNode
@@ -32,7 +34,7 @@ export function IntegrationConnection({
             orgId={orgId}
             projectId={projectId}
             integration={integration}
-            onConnected={onConnected}
+            defaultExistingApp={slackOAuthFailed}
             onCancel={onCancel}
             footerAction={footerAction}
           />

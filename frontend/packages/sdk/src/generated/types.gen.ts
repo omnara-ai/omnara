@@ -996,7 +996,7 @@ export type IntegrationOAuthSetup = {
 export type CreateGitHubSetupRequest = {
     expected_setup_revision: number;
     /**
-     * Initial GitHub App name suggestion. Defaults to the saved Omnara integration name; GitHub may change it during registration.
+     * Optional initial GitHub App name suggestion. When omitted, the user chooses a name on GitHub during registration.
      */
     app_name?: string;
     /**
@@ -4077,6 +4077,10 @@ export type IntegrationSubscription = {
     agent_id: AgentId;
     agent_name: AgentName;
     conversation: IntegrationConversation;
+    /**
+     * Saved display name for the conversation, when available.
+     */
+    conversation_name?: string;
     created_at: Timestamp;
 };
 

@@ -249,6 +249,9 @@ func (w *IntegrationInboxWorker) nextIntegration(
 }
 
 func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integrationstore.IntegrationInboxRecord) error {
+	started := time.Now()
+	outcome := "completed"
+	defer func() { w.options.Metrics.RecordProcessing(outcome, time.Since(started)) }()
 	deadline := time.Now().Add(integrationstore.IntegrationInboxMaxLease - 15*time.Second)
 	if receipt.ClaimExpiresAt != nil && receipt.ClaimExpiresAt.Add(-15*time.Second).Before(deadline) {
 		deadline = receipt.ClaimExpiresAt.Add(-15 * time.Second)
@@ -285,7 +288,7 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 		}
 		return nil
 	}
-	outcome := "lease_lost"
+	outcome = "lease_lost"
 	terminal := errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrIntegrationInboundPermanent) ||
 		errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {

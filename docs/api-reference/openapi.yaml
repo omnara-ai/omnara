@@ -9645,7 +9645,7 @@ components:
           type: string
           minLength: 1
           maxLength: 34
-          description: Initial GitHub App name suggestion. Defaults to the saved Omnara integration name; GitHub may change it during registration.
+          description: Optional initial GitHub App name suggestion. When omitted, the user chooses a name on GitHub during registration.
         organization:
           type: string
           minLength: 1
@@ -15179,6 +15179,9 @@ components:
           $ref: '#/components/schemas/AgentName'
         conversation:
           $ref: '#/components/schemas/IntegrationConversation'
+        conversation_name:
+          type: string
+          description: Saved display name for the conversation, when available.
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ListIntegrationSubscriptionsResponse:

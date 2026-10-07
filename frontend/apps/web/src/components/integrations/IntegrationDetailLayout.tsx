@@ -87,6 +87,7 @@ export function IntegrationDetailLayout({
           projectId={projectId}
           integrationKind={integration.integration_kind}
           integration={integration}
+          slackOAuthFailed={oauth?.kind === 'error'}
           onConnected={finishConnection}
           onCancel={
             draft

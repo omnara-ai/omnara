@@ -1,18 +1,132 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDiscordHeartbeatLogsUnexpectedRenewalOncePerEpisode(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var output bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&output, nil))
+		lease := integrationstore.IntegrationRuntimeLease{
+			IntegrationRuntimeRevision: integrationstore.IntegrationRuntimeRevision{IntegrationID: uuid.New()},
+		}
+		first := fmt.Errorf("renew ownership: %w", errors.New("database unavailable"))
+		second := fmt.Errorf("renew ownership: %w", context.DeadlineExceeded)
+		third := fmt.Errorf("renew ownership: %w", context.Canceled)
+		sequence := []error{
+			first, first, nil, second, second, nil, third, third, integrationstore.ErrIntegrationRuntimeLeaseLost,
+		}
+		calls := 0
+		heartbeatDiscordRuntime(ctx, cancel, lease, time.Now().Add(discordRuntimeLease), logger,
+			func(callCtx context.Context, got integrationstore.IntegrationRuntimeLease, duration time.Duration) error {
+				require.Equal(t, lease, got)
+				require.Equal(t, discordRuntimeLease, duration)
+				require.NoError(t, callCtx.Err())
+				require.Less(t, calls, len(sequence))
+				err := sequence[calls]
+				calls++
+				return err
+			})
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+		require.Equal(t, len(sequence), calls)
+		entries := strings.Split(strings.TrimSpace(output.String()), "\n")
+		require.Len(t, entries, 3, "only a successful renewal starts a new failure episode")
+		for i, cause := range []error{first, second, third} {
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal([]byte(entries[i]), &entry))
+			require.Equal(t, "WARN", entry["level"])
+			require.Equal(t, "renew Discord connection lease", entry["msg"])
+			require.Equal(t, lease.IntegrationID.String(), entry["integration_id"])
+			require.Equal(t, cause.Error(), entry["error"])
+		}
+	})
+}
+
+func TestDiscordHeartbeatUnexpectedRenewalStopsAtLeaseDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var output bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&output, nil))
+		deadline := time.Now().Add(discordRuntimeLease)
+		calls := 0
+		heartbeatDiscordRuntime(ctx, cancel, integrationstore.IntegrationRuntimeLease{}, deadline, logger,
+			func(context.Context, integrationstore.IntegrationRuntimeLease, time.Duration) error {
+				calls++
+				return errors.New("database unavailable")
+			})
+		require.Greater(t, calls, 1)
+		require.Equal(t, deadline, time.Now())
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+		require.Equal(t, 1, strings.Count(output.String(), "renew Discord connection lease"))
+		require.Contains(t, output.String(), "database unavailable")
+	})
+}
+
+func TestDiscordHeartbeatExpectedStopsStayQuiet(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		err          error
+		cancelBefore bool
+		cancelDuring bool
+	}{
+		{name: "lease lost", err: integrationstore.ErrIntegrationRuntimeLeaseLost},
+		{name: "authorization revoked", err: storeerr.ErrUnauthorized},
+		{name: "integration deleted", err: storeerr.ErrNotFound},
+		{name: "shutdown while waiting", cancelBefore: true},
+		{name: "shutdown during renewal", cancelDuring: true, err: context.Canceled},
+		{name: "driver error during shutdown", cancelDuring: true, err: errors.New("connection closed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				if test.cancelBefore {
+					cancel()
+				}
+				var output bytes.Buffer
+				logger := slog.New(slog.NewJSONHandler(&output, nil))
+				calls := 0
+				heartbeatDiscordRuntime(ctx, cancel, integrationstore.IntegrationRuntimeLease{},
+					time.Now().Add(discordRuntimeLease), logger,
+					func(context.Context, integrationstore.IntegrationRuntimeLease, time.Duration) error {
+						calls++
+						if test.cancelDuring {
+							cancel()
+						}
+						return fmt.Errorf("renew: %w", test.err)
+					})
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+				require.Empty(t, output.String())
+				if test.cancelBefore {
+					require.Zero(t, calls)
+				} else {
+					require.Positive(t, calls)
+				}
+			})
+		})
+	}
+}
 
 func TestDiscordRuntimeFailureMessage(t *testing.T) {
 	t.Parallel()

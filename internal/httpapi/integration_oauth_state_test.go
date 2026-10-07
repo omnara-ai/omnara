@@ -34,8 +34,14 @@ func TestIntegrationOAuthStateScopeAndBounds(t *testing.T) {
 	require.Error(t, validateIntegrationOAuthState(state, now), "setup revision is required")
 	state.SetupRevision = 1
 	require.NoError(t, validateIntegrationOAuthState(state, now))
-	require.Error(t, validateIntegrationOAuthState(state, state.ExpiresAt))
-	require.Error(t, validateIntegrationOAuthState(state, state.ExpiresAt.Add(time.Second)))
+	require.ErrorIs(t, validateIntegrationOAuthState(state, state.ExpiresAt), errIntegrationOAuthStateExpired)
+	require.ErrorIs(t,
+		validateIntegrationOAuthState(state, state.ExpiresAt.Add(time.Second)), errIntegrationOAuthStateExpired)
+	invalid := state
+	invalid.ProjectID = uuid.Nil
+	err := validateIntegrationOAuthState(invalid, state.ExpiresAt)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errIntegrationOAuthStateExpired)
 
 	wrapper, err := secrets.NewLocalKeyWrapper(
 		"test",

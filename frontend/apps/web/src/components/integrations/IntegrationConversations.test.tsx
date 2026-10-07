@@ -123,6 +123,7 @@ it('shows loading, retries an initial error and then explains an empty list', as
 })
 
 it('keeps earlier conversations while retrying the next cursor, with links and an ID fallback', async () => {
+  const named = { ...subscription, conversation_name: '#support · Signup help' }
   let nextAttempts = 0
   const api = fakeApi([
     {
@@ -131,7 +132,7 @@ it('keeps earlier conversations while retrying the next cursor, with links and a
       respond: ({ url }) => {
         expect(url.searchParams.get('limit')).toBe('15')
         if (!url.searchParams.has('cursor'))
-          return Response.json({ data: [subscription], next_cursor: 'next-page' })
+          return Response.json({ data: [named], next_cursor: 'next-page' })
         expect(url.searchParams.get('cursor')).toBe('next-page')
         if (++nextAttempts === 1)
           return Response.json({ code: 'internal_error', error: 'Try again' }, { status: 500 })
@@ -147,9 +148,9 @@ it('keeps earlier conversations while retrying the next cursor, with links and a
   expect(links.find((a) => a.textContent === 'Support agent')?.getAttribute('href')).toBe(
     `/projects/${projectId}/agents/${subscription.agent_id}/events`,
   )
-  expect(
-    links.find((a) => a.textContent === 'Channel C123 · Thread 111.222333')?.getAttribute('href'),
-  ).toBe('https://slack.com/app_redirect?channel=C123&team=T123')
+  expect(links.find((a) => a.textContent === named.conversation_name)?.getAttribute('href')).toBe(
+    'https://slack.com/app_redirect?channel=C123&team=T123',
+  )
   expect(container.querySelector('time')?.dateTime).toBe(subscription.created_at)
   act(() => {
     button('Load more conversations').click()
@@ -165,6 +166,8 @@ it('keeps earlier conversations while retrying the next cursor, with links and a
     expect(container.textContent).toContain(second.agent_id)
   })
   expect(container.querySelectorAll('li')).toHaveLength(2)
+  expect(container.textContent).toContain('Channel C456')
+  expect(container.textContent).toContain(named.conversation_name)
   expect(container.textContent).not.toContain('Load more conversations')
   expect(api.requestsTo('GET', path)).toHaveLength(3)
 })
@@ -173,22 +176,49 @@ it.each([
   {
     integrationKind: 'discord_thread',
     conversation: { channel_id: '444444444444444444' },
+    conversationName: '',
     label: 'Channel 444444444444444444',
   },
   {
     integrationKind: 'discord_thread',
     conversation: { thread_id: '555555555555555555' },
+    conversationName: '',
     label: 'Thread 555555555555555555',
   },
   {
     integrationKind: 'github_pr',
     conversation: { repository_id: 123, pull_request: 42 },
+    conversationName: '',
     label: 'Repository 123 · PR #42',
   },
+  {
+    integrationKind: 'discord_thread',
+    conversation: { channel_id: '444444444444444444' },
+    conversationName: '#support',
+    label: '#support',
+  },
+  {
+    integrationKind: 'discord_thread',
+    conversation: { thread_id: '555555555555555555' },
+    conversationName: 'Signup help',
+    label: 'Signup help',
+  },
+  {
+    integrationKind: 'github_pr',
+    conversation: { repository_id: 123, pull_request: 42 },
+    conversationName: 'omnara-ai/omnara#42',
+    label: 'omnara-ai/omnara#42',
+  },
+  {
+    integrationKind: 'github_pr',
+    conversation: { repository_id: 123, pull_request: 42 },
+    conversationName: 'https://example.com/owner/repo/pull/42',
+    label: 'https://example.com/owner/repo/pull/42',
+  },
 ] as const)(
-  'shows a canonical $integrationKind address without an invented link or mutation controls',
-  async ({ integrationKind, conversation, label }) => {
-    const row = { ...subscription, conversation }
+  'shows $label without an invented link or mutation controls',
+  async ({ integrationKind, conversation, conversationName, label }) => {
+    const row = { ...subscription, conversation, conversation_name: conversationName }
     const api = fakeApi([
       { method: 'GET', path, respond: () => Response.json({ data: [row], next_cursor: null }) },
     ])
@@ -203,6 +233,33 @@ it.each([
     expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
   },
 )
+
+it('uses the saved name in stop confirmation while deleting only the subscription ID', async () => {
+  const row = { ...subscription, conversation_name: '#support · Signup help' }
+  const api = fakeApi([
+    { method: 'GET', path, respond: () => Response.json({ data: [row], next_cursor: null }) },
+    {
+      method: 'DELETE',
+      path: `${path}/${row.id}`,
+      respond: () => new Response(null, { status: 204 }),
+    },
+  ])
+  const confirm = vi.fn(() => true)
+  vi.stubGlobal('confirm', confirm)
+  render(api)
+  const stop = `Stop forwarding ${row.conversation_name} to Support agent`
+  await waitForUI(() => {
+    expect(button(stop)).toBeDefined()
+  })
+  act(() => {
+    button(stop).click()
+  })
+  await waitForUI(() => {
+    expect(api.requestsTo('DELETE', `${path}/${row.id}`)).toHaveLength(1)
+  })
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining(`${stop}?`))
+  expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
+})
 
 it('allows stopping while disconnected, keeps failed deletions visible, and respects canceled confirmation and lost manage permission', async () => {
   let attempts = 0,

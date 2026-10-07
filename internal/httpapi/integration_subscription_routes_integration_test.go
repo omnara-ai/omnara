@@ -28,6 +28,19 @@ func subscriptionHTTPBody(agentID, channel string) map[string]any {
 	}
 }
 
+func subscriptionHTTPConversationName(t *testing.T, f integrationLaunchHTTPFixture, id, name string) {
+	t.Helper()
+	result, err := integrationPoolForHandler(t, f.handler).Exec(t.Context(), `
+		INSERT INTO integration_targets(project_id, agent_id, integration_id, scope_kind, scope_ref,
+		    display_name, created_at, updated_at)
+		SELECT project_id, agent_id, integration_id, scope_kind, scope_ref, $2,
+		    transaction_timestamp(), transaction_timestamp()
+		FROM integration_subscriptions WHERE id=$1`,
+		mustPublicHTTPID(t, publicid.KindIntegrationSubscription, id), name)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, result.RowsAffected())
+}
+
 func TestIntegrationSubscriptionsHTTPPaginationAndDetachReplay(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationLaunchHTTPFixture(t, "subscription-pages")
@@ -46,11 +59,15 @@ func TestIntegrationSubscriptionsHTTPPaginationAndDetachReplay(t *testing.T) {
 	require.Equal(t, f.integrationID, first["integration_id"])
 	require.Equal(t, agentID, first["agent_id"])
 	require.Equal(t, "Subscribed agent", first["agent_name"])
+	require.NotContains(t, first, "conversation_name")
 	require.Equal(t, map[string]any{"channel_id": "C100"}, first["conversation"])
 	_, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, first["created_at"]))
 	require.NoError(t, err)
 	require.Equal(t, first, create("C100"), "repeated attach preserves identity and timestamps")
 	second, third := create("C200"), create("C300")
+	subscriptionHTTPConversationName(t, f, testutil.RequireType[string](t, second["id"]), "#support")
+	second["conversation_name"] = "#support"
+	subscriptionHTTPConversationName(t, f, testutil.RequireType[string](t, third["id"]), "")
 	page := requestJSONWithHeaders(t, f.handler, http.MethodGet, path+"?limit=2", "", "", http.StatusOK, headers)
 	data := testutil.RequireType[[]any](t, page["data"])
 	require.Equal(t, []any{third, second}, data)
@@ -95,6 +112,43 @@ func TestIntegrationSubscriptionsHTTPPaginationAndDetachReplay(t *testing.T) {
 		"", "", http.StatusNoContent, headers)
 	requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusNotFound, headers)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path+"/"+firstID, "", "", http.StatusNotFound, headers)
+}
+
+func TestIntegrationSubscriptionsHTTPConversationNamesProjectIsolation(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationLaunchHTTPFixture(t, "subscription-conversation-names")
+	otherProject := integrationHTTPSecondProject(t, f.handler, f.project)
+	otherIntegration := createSlackHTTPIntegration(t, t.Context(), otherProject, "A123", "T123", "Support")
+	otherConfig := createPublicHTTPAgentConfig(t, f.handler, otherProject, "other-config", "json",
+		integrationHTTPJSON(t, integrationHTTPSource(nil)), otherProject.AdminToken, http.StatusCreated)
+	other := integrationLaunchHTTPFixture{
+		handler: f.handler, project: otherProject,
+		integrationID: testPublicID(t, publicid.KindIntegration, otherIntegration.ID),
+		configID:      testutil.RequireType[string](t, otherConfig["id"]),
+	}
+	cases := []struct {
+		fixture integrationLaunchHTTPFixture
+		name    string
+	}{{f, "#support in first project"}, {other, "#support in other project"}}
+	for _, tc := range cases {
+		agentID := subscriptionHTTPAgent(t, tc.fixture)
+		path := tc.fixture.project.ProjectPath + "/integrations/" + tc.fixture.integrationID + "/subscriptions"
+		created := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
+			integrationHTTPJSON(t, subscriptionHTTPBody(agentID, "C123")), "", http.StatusCreated,
+			authHeaders(tc.fixture.project.AdminToken))
+		subscriptionHTTPConversationName(t, tc.fixture, testutil.RequireType[string](t, created["id"]), tc.name)
+	}
+	for _, tc := range cases {
+		path := tc.fixture.project.ProjectPath + "/integrations/" + tc.fixture.integrationID + "/subscriptions"
+		page := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK,
+			authHeaders(tc.fixture.project.AdminToken))
+		data := testutil.RequireType[[]any](t, page["data"])
+		require.Len(t, data, 1)
+		row := testutil.RequireType[map[string]any](t, data[0])
+		require.Equal(t, tc.name, row["conversation_name"])
+		require.Equal(t, tc.fixture.project.ProjectID, row["project_id"])
+		require.Equal(t, map[string]any{"channel_id": "C123"}, row["conversation"])
+	}
 }
 
 func TestIntegrationSubscriptionsHTTPPermissionsAndIsolation(t *testing.T) {
@@ -171,6 +225,7 @@ func TestIntegrationSubscriptionsHTTPValidation(t *testing.T) {
 		{"raw-agent-id", func(b map[string]any) { b["agent_id"] = uuid.NewString() }},
 		{"wrong-id-kind", func(b map[string]any) { b["agent_id"] = f.integrationID }},
 		{"unexpected-property", func(b map[string]any) { b["unexpected"] = true }},
+		{"conversation-name-is-response-only", func(b map[string]any) { b["conversation_name"] = "#support" }},
 		{"empty-conversation", func(b map[string]any) { b["conversation"] = map[string]any{} }},
 		{"wrong-provider", func(b map[string]any) {
 			b["conversation"] = map[string]any{"repository_id": 1, "pull_request": 2}

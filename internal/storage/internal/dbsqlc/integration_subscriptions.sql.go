@@ -248,9 +248,14 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 const listIntegrationSubscriptions = `-- name: ListIntegrationSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
        subscription.scope_kind, subscription.scope_ref,
-       subscription.created_at, agent.name AS agent_name
+       subscription.created_at, agent.name AS agent_name,
+       COALESCE(target.display_name, '') AS conversation_name
 FROM integration_subscriptions subscription
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
+LEFT JOIN integration_targets target ON target.project_id = subscription.project_id
+  AND target.integration_id = subscription.integration_id AND target.agent_id = subscription.agent_id
+  AND target.scope_kind = subscription.scope_kind AND target.scope_ref = subscription.scope_ref
+  AND target.deleted_at IS NULL
 WHERE subscription.project_id = $1 AND subscription.integration_id = $2
   AND (NOT $3::boolean OR (subscription.created_at, subscription.id) <
        ($4::timestamptz, $5::uuid))
@@ -268,14 +273,15 @@ type ListIntegrationSubscriptionsParams struct {
 }
 
 type ListIntegrationSubscriptionsRow struct {
-	ID            uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	IntegrationID uuid.UUID
-	ScopeKind     string
-	ScopeRef      string
-	CreatedAt     time.Time
-	AgentName     string
+	ID               uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	IntegrationID    uuid.UUID
+	ScopeKind        string
+	ScopeRef         string
+	CreatedAt        time.Time
+	AgentName        string
+	ConversationName string
 }
 
 func (q *Queries) ListIntegrationSubscriptions(ctx context.Context, arg ListIntegrationSubscriptionsParams) ([]ListIntegrationSubscriptionsRow, error) {
@@ -303,6 +309,7 @@ func (q *Queries) ListIntegrationSubscriptions(ctx context.Context, arg ListInte
 			&i.ScopeRef,
 			&i.CreatedAt,
 			&i.AgentName,
+			&i.ConversationName,
 		); err != nil {
 			return nil, err
 		}

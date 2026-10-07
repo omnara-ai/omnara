@@ -102,6 +102,69 @@ func TestIntegrationSubscriptionsIndependentIdentityPaginationAndDetach(t *testi
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 }
 
+func TestIntegrationSubscriptionsConversationNamesAndPagination(t *testing.T) {
+	t.Parallel()
+	f := newInboxFixture(t)
+	firstAgent, secondAgent, manualAgent := subscriptionAgent(t, f), subscriptionAgent(t, f), subscriptionAgent(t, f)
+	otherIntegration := f.addIntegration(t, "other-labels", integrationstore.IntegrationSettings(`{}`))
+	expected := make(map[uuid.UUID]integrationstore.IntegrationSubscriptionRecord)
+	attach := func(agentID uuid.UUID, conversation, name string) integrationstore.IntegrationSubscriptionRecord {
+		t.Helper()
+		record, err := f.store.CreateIntegrationSubscription(f.ctx, subscriptionInput(f, agentID, conversation))
+		require.NoError(t, err)
+		record.ConversationName = name
+		expected[record.ID] = record
+		return record
+	}
+	target := func(record integrationstore.IntegrationSubscriptionRecord, integrationID uuid.UUID, name string) uuid.UUID {
+		t.Helper()
+		saved, err := f.ensureConversationTarget(integrationstore.EnsureConversationTargetInput{
+			ProjectID: f.project, AgentID: record.AgentID, IntegrationID: integrationID,
+			Address: record.Address, DisplayName: name,
+		})
+		require.NoError(t, err)
+		return saved.ID
+	}
+	const conversation = `{"channel_id":"C123","thread_ts":"111.222"}`
+	first := attach(firstAgent.ID, conversation, "#support · First conversation")
+	retired := target(first, f.integrationID, "Outdated name")
+	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, retired)
+	target(first, f.integrationID, first.ConversationName)
+	second := attach(secondAgent.ID, conversation, "#support · Second conversation")
+	target(second, f.integrationID, second.ConversationName)
+	attach(manualAgent.ID, conversation, "")
+	unnamed := attach(firstAgent.ID, `{"channel_id":"C456"}`, "")
+	target(unnamed, f.integrationID, "")
+	foreign := attach(firstAgent.ID, `{"channel_id":"C789"}`, "")
+	target(foreign, otherIntegration.ID, "Another integration's name")
+	retiredOnly := attach(firstAgent.ID, `{"channel_id":"C999"}`, "")
+	retired = target(retiredOnly, f.integrationID, "Retired name")
+	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, retired)
+
+	input := integrationstore.ListIntegrationSubscriptionsInput{
+		ProjectID: f.project, IntegrationID: f.integrationID, Limit: 2,
+	}
+	seen := make(map[uuid.UUID]bool)
+	for pageNumber := 0; ; pageNumber++ {
+		require.Less(t, pageNumber, len(expected), "pagination must advance")
+		page, err := f.store.ListIntegrationSubscriptions(f.ctx, input)
+		require.NoError(t, err)
+		require.Len(t, page.Subscriptions, 2)
+		for _, subscription := range page.Subscriptions {
+			require.False(t, seen[subscription.ID], "target history must not duplicate a subscription")
+			seen[subscription.ID] = true
+			require.Equal(t, expected[subscription.ID], subscription)
+		}
+		if !page.HasMore {
+			break
+		}
+		require.True(t, page.Next.Set)
+		require.Equal(t, page.Subscriptions[len(page.Subscriptions)-1].ID, page.Next.ID)
+		input.After = page.Next
+	}
+	require.Len(t, seen, len(expected), "manual subscriptions must remain visible without targets")
+}
+
 func TestIntegrationSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)

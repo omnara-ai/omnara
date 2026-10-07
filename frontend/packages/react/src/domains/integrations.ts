@@ -1,5 +1,4 @@
 import {
-  ApiError,
   type ConfigureIntegrationRequest,
   type CreateGitHubSetupRequest,
   type CreateIntegrationOAuthSetupRequest,
@@ -298,26 +297,5 @@ export function useDisconnectIntegration(orgID: string, projectID: string) {
         }),
       ])
     },
-  })
-}
-
-export function useIntegrationOAuthCompletion(
-  orgID: string,
-  projectID: string,
-  integrationID: string,
-  flow?: { flow_id: string; expires_at: string; setup_revision: number },
-) {
-  const client = useOmnaraClient()
-  return useQuery({
-    ...getIntegrationOptions({ path: { orgID, projectID, integrationID }, client }),
-    enabled: Boolean(flow) && integrationID !== '',
-    refetchInterval: (query) =>
-      !flow ||
-      Date.now() >= Date.parse(flow.expires_at) ||
-      (query.state.error instanceof ApiError && query.state.error.status === 404) ||
-      (query.state.data !== undefined && query.state.data.setup_revision > flow.setup_revision) ||
-      (query.state.data?.state === 'active' && query.state.data.last_oauth_flow_id === flow.flow_id)
-        ? false
-        : 2000,
   })
 }

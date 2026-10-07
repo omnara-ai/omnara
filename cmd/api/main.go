@@ -88,6 +88,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	metricSet.MustRegister(metrics.NewDBPoolCollector(db))
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -401,6 +402,7 @@ func apiOptions(
 	}
 	opts := []httpapi.Option{
 		httpapi.WithHTTPRecorder(metrics.NewHTTPRecorder(metricSet, metrics.SubsystemAPI)),
+		httpapi.WithIntegrationInboxIntakeRecorder(metrics.NewIntegrationInboxIntakeRecorder(metricSet)),
 		httpapi.WithDaemonRecorder(daemonRecorder),
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),
 		httpapi.WithDaemonReplyPublisher(redisBus),

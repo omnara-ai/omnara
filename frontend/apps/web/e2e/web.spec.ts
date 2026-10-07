@@ -808,7 +808,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
   })
 }
 
-test('creates and connects Slack on one page and waits for its exact OAuth flow', async ({
+test('creates and connects Slack through a same-tab authorization return', async ({
   page,
   context,
 }) => {

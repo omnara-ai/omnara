@@ -2,11 +2,19 @@
 
 import type { AgentProfile } from '@omnara/sdk'
 import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { IntegrationDetail } from '@/routes/IntegrationPage'
+import { ActiveOrgContext } from '@/lib/active-org-context'
+import { IntegrationDetail, IntegrationPage } from '@/routes/IntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { agentConfigModel, fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
@@ -181,3 +189,113 @@ it.each(['same setup', 'new revision', 'disconnected'] as const)(
     })
   },
 )
+
+it('keeps the loaded integration breadcrumb and settings during a transient refresh failure', async () => {
+  const integration = integrationFixture({
+    name: 'engineering-bot',
+    state: 'active',
+    provider_tenant_id: 'T123',
+    provider_account_ref: 'A123',
+  })
+  const integrationPath = `${projectPath}/integrations/${integration.id}`
+  let failing = false
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: `/api/v1/orgs/${orgId}/projects`,
+      respond: () =>
+        Response.json({
+          data: [
+            {
+              id: projectId,
+              org_id: orgId,
+              name: 'Engineering',
+              created_at: integration.created_at,
+              updated_at: integration.updated_at,
+              access: {
+                can_read: true,
+                can_manage: false,
+                can_manage_access: false,
+                can_operate: false,
+              },
+            },
+          ],
+          next_cursor: null,
+        }),
+    },
+    {
+      method: 'GET',
+      path: integrationPath,
+      respond: () =>
+        failing
+          ? jsonResponse({ code: 'unavailable', error: 'Temporary failure' }, 503)
+          : Response.json(integration),
+    },
+    ...[`${integrationPath}/subscriptions`, `${projectPath}/cron-triggers`].map((path) => ({
+      method: 'GET',
+      path,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    })),
+  ])
+  const rootRoute = createRootRoute()
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/projects/$projectId/integrations/$integrationId',
+        component: IntegrationPage,
+      }),
+    ]),
+    history: createMemoryHistory({
+      initialEntries: [`/projects/${projectId}/integrations/${integration.id}`],
+    }),
+  })
+  const { cache, client } = renderIntegration(
+    root,
+    api,
+    <ActiveOrgContext
+      value={{
+        orgs: [],
+        activeOrg: { id: orgId, name: 'Acme', role: 'owner', created_at: integration.created_at },
+        setActiveOrgId: () => undefined,
+      }}
+    >
+      <RouterProvider router={router} />
+    </ActiveOrgContext>,
+  )
+  const breadcrumb = () => container.querySelector('[aria-label="breadcrumb"]')
+  await waitForUI(() => {
+    expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
+      'engineering-bot',
+    )
+  })
+  expect(
+    breadcrumb()?.querySelector(`a[href="/projects/${projectId}/integrations"]`)?.textContent,
+  ).toBe('Integrations')
+  failing = true
+  await act(async () => {
+    await cache.invalidateQueries({
+      queryKey: getIntegrationQueryKey({
+        path: { orgID: orgId, projectID: projectId, integrationID: integration.id },
+        client,
+      }),
+    })
+  })
+  await waitForUI(() => {
+    expect(container.textContent).toContain('Could not refresh this integration.')
+  })
+  expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
+    'engineering-bot',
+  )
+  expect(container.querySelector('h1')?.textContent).toBe('engineering-bot')
+  failing = false
+  act(() => {
+    button('Retry refresh').click()
+  })
+  await waitForUI(() => {
+    expect(container.textContent).not.toContain('Could not refresh this integration.')
+  })
+  expect(breadcrumb()?.querySelector('[data-slot="breadcrumb-page"]')?.textContent).toBe(
+    'engineering-bot',
+  )
+})

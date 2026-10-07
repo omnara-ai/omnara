@@ -149,7 +149,7 @@ it('resumes a saved credential after approval and connects only on explicit conf
     },
   ])
   const onConnected = vi.fn()
-  render(
+  const { rerender } = render(
     api,
     <StrictMode>
       <ConnectGitHubForm
@@ -176,13 +176,32 @@ it('resumes a saved credential after approval and connects only on explicit conf
       .find((link) => link.textContent === 'Choose repositories on GitHub')
       ?.getAttribute('href'),
   ).toBe(verified.install_url)
+  expect(
+    container.querySelector(`a[href="${verified.install_url}"]`)?.getAttribute('target'),
+  ).toBeNull()
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
   approved = true
-  click('I’ve granted access')
+  rerender(null)
+  window.history.replaceState(
+    null,
+    '',
+    `/projects/${projectId}/integrations/${integration.id}?state=${secretId}&installation_id=222&setup_action=install`,
+  )
+  rerender(
+    <ConnectGitHubForm
+      orgId={orgId}
+      projectId={projectId}
+      integration={integration}
+      onConnected={onConnected}
+    />,
+  )
   await waitForUI(() => {
     expect(container.textContent).toContain('GitHub account: engineering')
   })
   expect(document.querySelector('#github-installation')).toBeNull()
+  const addAccount = container.querySelector(`a[href="${verified.install_url}"]`)
+  expect(addAccount?.textContent).toBe('Add an account on GitHub')
+  expect(addAccount?.getAttribute('target')).toBe('_blank')
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
   click('Connect integration')
   await waitForUI(() => {
@@ -387,5 +406,56 @@ it('falls back to saved-credential setup when the returned access check fails', 
     expect(container.textContent).toContain('GitHub account: engineering')
   })
   expect(api.requestsTo('POST', inspectPath)).toHaveLength(2)
+  expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
+})
+
+it('keeps manual App installation in another tab and rechecks access with its saved credential', async () => {
+  let approved = false
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: projectPath + '/secrets',
+      respond: () => credentialPage(credential(secretId, 'Manual app')),
+    },
+    ...reads,
+    {
+      method: 'POST',
+      path: inspectPath,
+      respond: () =>
+        Response.json({ ...verified, installations: approved ? verified.installations : [] }),
+    },
+  ])
+  render(
+    api,
+    <ConnectGitHubForm
+      orgId={orgId}
+      projectId={projectId}
+      integration={integration}
+      onConnected={vi.fn()}
+    />,
+  )
+  click('Use a saved credential')
+  await choose('Saved credential', 'Manual app')
+  click('Check GitHub access')
+  await waitForUI(() => {
+    expect(container.textContent).toContain('The App can’t access any repositories yet')
+  })
+  expect(container.querySelector(`a[href="${verified.install_url}"]`)?.getAttribute('target')).toBe(
+    '_blank',
+  )
+  approved = true
+  click('Refresh accounts')
+  await waitForUI(() => {
+    expect(container.textContent).toContain('GitHub account: engineering')
+  })
+  expect(
+    container
+      .querySelector(`a[href="${verified.installations[0]?.settings_url}"]`)
+      ?.getAttribute('target'),
+  ).toBe('_blank')
+  expect(api.requestsTo('POST', inspectPath).map((request) => request.body)).toEqual([
+    { credential_secret_id: secretId, page: 1 },
+    { credential_secret_id: secretId, page: 1 },
+  ])
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
 })

@@ -16,12 +16,16 @@ Open **Integrations** under your project and select an integration type. If you 
 choose **Add integration** first. Enter its unique name and connection details together
 on the setup page, then choose launch profiles after connecting. If connection
 fails, retrying reuses the saved integration and credentials. You can also reopen the
-saved integration from **Integrations** to finish later. The name follows the
+saved integration from **Integrations** to finish later. New integrations suggest
+`slack-bot`, `discord-bot` or `github-bot`; you can change that suggestion before
+creation. This Omnara name identifies tools and is separate from the App or bot
+name shown by the provider. The name follows the
 same rules as an MCP server name: a letter followed by letters, digits or hyphens,
 up to 32 characters. Names and integration types cannot be changed after creation.
 
 The integration type identifies its behavior: `slack_thread`, `discord_thread` or
-`github_pr`. Create requests use `integration_kind`, for example:
+`github_pr`. With the API, send `POST /orgs/{orgID}/projects/{projectID}/integrations`
+using `integration_kind`, for example:
 
 ```json
 {"name":"engineering","integration_kind":"slack_thread","settings":{}}
@@ -222,8 +226,9 @@ See the provider guide for opening-message limits and supported destinations:
 [Slack scheduled threads](/integrations/slack#scheduled-threads) or
 [Discord scheduled threads](/integrations/discord#scheduled-threads).
 
-Schedules use the ordinary cron API with an integration target. The integration catalog publishes
-the schema for `settings`; cron does not interpret those fields:
+With the API, send `POST /orgs/{orgID}/projects/{projectID}/cron-triggers` with an
+integration target. The integration catalog publishes the schema for the target's
+`settings`:
 
 ```json
 {
@@ -309,8 +314,8 @@ See [interactions](/events/interactions) for answering through the API.
 
 ## Delivery and failures
 
-Inbound events retry automatically with a bounded budget. Terminal failures release
-unfinished launch reservations and preserve accepted agents and inputs. Failed receipts
+Once accepted into Omnara's inbox, inbound events retry processing with a bounded
+budget. Terminal failures release unfinished launch reservations and preserve accepted agents and inputs. Failed receipts
 remain available for diagnostics until cleanup, which starts no earlier than seven days
 after failure unless the integration, project or organization is deleted. See
 [failed integration events](/self-hosting/configuration#failed-integration-events).

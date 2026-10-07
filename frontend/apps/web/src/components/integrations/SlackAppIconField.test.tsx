@@ -101,6 +101,7 @@ it.each(['replace', 'switch mode'] as const)(
       })
     }
     try {
+      await enter('Name in Slack', 'Reviewer')
       await enter('App configuration token', 'token')
       expect(button('Connect integration').disabled).toBe(false)
       select(file)

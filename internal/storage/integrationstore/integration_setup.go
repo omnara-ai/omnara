@@ -17,6 +17,9 @@ import (
 var ErrIntegrationSetupChanged = storeerr.Tag(storeerr.ErrConflict,
 	errors.New("integration setup changed; refresh the integration and start setup again"))
 
+var ErrIntegrationIdentityMismatch = storeerr.Tag(storeerr.ErrInvalidRequest,
+	errors.New("integration provider identity is immutable; create another integration for a different bot or account"))
+
 func (s *Store) ConfigureIntegration(
 	ctx context.Context,
 	input ConfigureIntegrationInput,
@@ -46,9 +49,7 @@ func (s *Store) ConfigureIntegration(
 	}
 	if current.Provider != input.Provider || (current.ProviderTenantID != "" &&
 		(current.ProviderTenantID != input.ProviderTenantID || current.ProviderAccountRef != input.ProviderAccountRef)) {
-		return IntegrationRecord{}, storeerr.InvalidRequest(
-			errors.New("integration provider identity is immutable; create another integration for a different bot or account"),
-		)
+		return IntegrationRecord{}, ErrIntegrationIdentityMismatch
 	}
 	if current.SetupRevision != input.ExpectedSetupRevision {
 		return IntegrationRecord{}, ErrIntegrationSetupChanged

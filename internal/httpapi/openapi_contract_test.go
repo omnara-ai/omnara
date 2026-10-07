@@ -435,6 +435,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Integration.provider_config":                             "#/components/schemas/IntegrationProviderConfig",
 		"ConfigureIntegrationRequest.provider_config":             "#/components/schemas/IntegrationProviderConfig",
 		"IntegrationTarget.display_name":                          "",
+		"IntegrationSubscription.conversation_name":               "",
 		"MachinePool.provider_config":                             "",
 		"MCPRegistryHeader.name":                                  "",
 		"MCPRegistryServer.name":                                  "",

@@ -60,10 +60,11 @@ export function IntegrationAdvanced({ integration }: { integration: Integration 
             <h3 className="font-medium">Agent configurations</h3>
             <p className="text-muted-foreground">
               Nothing here needs to be set up by hand. Agents started from the agent profiles this
-              integration launches get these tools and its interaction handler automatically. The
-              profile itself is not changed, and entries it already defines, including disabled
-              ones, are kept as they are. The names below are a reference for agent configurations
-              and the API. The integration name{' '}
+              integration launches get these tools
+              {integration.capabilities.interaction_handler && ' and its interaction handler'}{' '}
+              automatically. The profile itself is not changed, and entries it already defines,
+              including disabled ones, are kept as they are. The names below are a reference for
+              agent configurations and the API. The integration name{' '}
               <code className="text-foreground">{integration.name}</code> is permanent, and each
               capability uses this integration’s account and credentials in the launched
               conversation.

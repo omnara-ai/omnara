@@ -113,9 +113,18 @@ export function DiscordSetupDetails({
       </IntegrationSetupGroup>
       <IntegrationSetupGroup
         title="2. Bot token"
-        hint="On the Bot page, copy your token (or use Reset Token to create one). Enable Message Content Intent so agents can read replies."
+        hint="On the Bot page, copy your token (or use Reset Token to create one)."
       >
         {children}
+      </IntegrationSetupGroup>
+      <IntegrationSetupGroup
+        title="3. Enable Message Content Intent"
+        hint="Required to read replies that do not mention the bot."
+      >
+        <p>
+          In the Discord Developer Portal, enable Bot → Privileged Gateway Intents → Message Content
+          Intent.
+        </p>
       </IntegrationSetupGroup>
     </>
   )

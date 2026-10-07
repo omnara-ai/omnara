@@ -1,7 +1,6 @@
 /** @vitest-environment happy-dom */
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
-import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -139,9 +138,12 @@ it.each([200, 500])(
   },
 )
 
-it.each(['github_pr', 'discord_thread'] as const)(
+it.each([
+  ['github_pr', 'github-bot'],
+  ['discord_thread', 'discord-bot'],
+] as const)(
   'updates the default credential name when renaming %s without clearing entered secrets',
-  async (integrationKind) => {
+  async (integrationKind, defaultName) => {
     render(
       fakeApi([]),
       <IntegrationSetup
@@ -163,9 +165,7 @@ it.each(['github_pr', 'discord_thread'] as const)(
       await enter(label, value)
       inputs.push({ label, value, element: field(label) })
     }
-    expect(field('Credential name').value).toBe(
-      `${integrationKind.replaceAll('_', '-')}-credentials`,
-    )
+    expect(field('Credential name').value).toBe(`${defaultName}-credentials`)
     for (const name of ['engineering', 'engineering-2']) {
       await enter('Integration name', name)
       expect(field('Credential name').value).toBe(`${name}-credentials`)
@@ -539,81 +539,6 @@ it.each([false, true])(
     ).toHaveLength(2)
   },
 )
-
-it('completes OAuth only for the exact integration flow, not a previous active flow', async () => {
-  const integration = integrationFixture({
-    provider_tenant_id: 'T123',
-    provider_account_ref: 'A123',
-  })
-  const flowId = fakeId('ioaf')
-  const setup = {
-    integration_id: integration.id,
-    setup_revision: integration.setup_revision,
-    provider: 'slack',
-    flow_id: flowId,
-    oauth_url: 'https://slack.com/oauth/v2/authorize',
-    redirect_uri: 'https://omnara.test/callback',
-    events_url: 'https://omnara.test/events',
-    actions_url: 'https://omnara.test/actions',
-    expires_at: new Date(Date.now() + 600_000).toISOString(),
-  }
-  const api = fakeApi([
-    {
-      method: 'POST',
-      path: path + '/integrations/' + integration.id + '/oauth/setup',
-      respond: () => Response.json(setup, { status: 201 }),
-    },
-    {
-      method: 'GET',
-      path: path + '/integrations/' + integration.id,
-      respond: () =>
-        Response.json({
-          ...integration,
-          state: 'active',
-          setup_revision: integration.setup_revision,
-          last_oauth_flow_id: `ioaf_${'b'.repeat(26)}`,
-        }),
-    },
-  ])
-  const onConnected = vi.fn()
-  const { client } = render(
-    api,
-    <ConnectSlackForm
-      integration={integration}
-      orgId={orgId}
-      projectId={projectId}
-      onConnected={onConnected}
-    />,
-  )
-  await enter('Client ID', 'client')
-  await enter('Client secret', 'secret')
-  await enter('Signing secret', 'signature')
-  await submit()
-  await waitForUI(() => {
-    expect(api.requestsTo('GET', path + '/integrations/' + integration.id)).toHaveLength(1)
-  })
-  expect(document.querySelector('a')?.getAttribute('href')).toBe(setup.oauth_url)
-  expect(onConnected).not.toHaveBeenCalled()
-  const key = getIntegrationQueryKey({
-    path: { orgID: orgId, projectID: projectId, integrationID: integration.id },
-    client,
-  })
-  act(() => {
-    cache.setQueryData(key, { ...integration, state: 'disconnected', last_oauth_flow_id: flowId })
-  })
-  expect(onConnected).not.toHaveBeenCalled()
-  act(() => {
-    cache.setQueryData(key, {
-      ...integration,
-      state: 'active',
-      setup_revision: integration.setup_revision + 1,
-      last_oauth_flow_id: flowId,
-    })
-  })
-  await waitForUI(() => {
-    expect(onConnected).toHaveBeenCalledOnce()
-  })
-})
 
 it('keeps the reconnect credential selected when its fallback option is replaced by fetched secrets', async () => {
   const secretID = fakeId('sec')

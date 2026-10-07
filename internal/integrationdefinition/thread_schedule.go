@@ -56,11 +56,11 @@ func newThreadScheduleDefinition(provider string) *ScheduleDefinition {
     },
     "message_template": {
       "type": "string", "minLength": 1, "maxLength": %d, "title": "Task instructions", "x-omnara-control": "textarea",
-      "description": "Instructions for the agent. Its replies go in the new thread. The template source is limited to %d UTF-8 bytes. Variables can expand when rendered; runtime validation also enforces the rendered message's byte limit."
+      "description": "Instructions for the agent started in the new thread."
     }
   }
 }`, channelPattern, channelDescription, maxThreadOpeningCodepoints,
-		cronschedule.MaxMessageTemplateBytes, cronschedule.MaxMessageTemplateBytes))
+		cronschedule.MaxMessageTemplateBytes))
 	return &ScheduleDefinition{
 		InputSchema: schema,
 		Description: "Start a fresh agent in a new channel thread on each run.",

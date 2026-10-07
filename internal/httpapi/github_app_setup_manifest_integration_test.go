@@ -216,6 +216,7 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	response, token, state := f.start(t)
 	require.WithinDuration(t, time.Now().Add(time.Hour), state.ExpiresAt, time.Second)
 	manifest := testutil.RequireType[map[string]any](t, response["manifest"])
+	require.NotContains(t, manifest, "name", "the user chooses the App name on GitHub")
 	canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" + testPublicID(
 		t,
 		publicid.KindIntegration,
@@ -421,6 +422,7 @@ func TestGitHubManifestStartRequiresBrowserRevisionAndNeverConnectedIntegration(
 		http.StatusCreated,
 		f.headers(),
 	)
+	require.Equal(t, "GitHub name", testutil.RequireType[map[string]any](t, response["manifest"])["name"])
 	require.True(
 		t,
 		strings.HasPrefix(

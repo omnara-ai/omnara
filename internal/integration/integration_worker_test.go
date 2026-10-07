@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -20,8 +22,73 @@ import (
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIntegrationInboxWorkerProcessingMetrics(t *testing.T) {
+	transient := errors.New("provider unavailable")
+	for _, test := range []struct {
+		name       string
+		consumeErr error
+		retryErr   error
+		attempt    int
+		outcome    string
+	}{
+		{name: "completed", outcome: "completed"},
+		{name: "retry", consumeErr: transient, outcome: "retry_scheduled"},
+		{name: "permanent", consumeErr: ErrIntegrationInboundPermanent, outcome: "failed"},
+		{name: "scheduled action failed", consumeErr: ErrScheduledActionFailed, outcome: "failed"},
+		{name: "admission denied", consumeErr: storeerr.ErrManagedWorkAdmissionDenied, outcome: "failed"},
+		{name: "exhausted", consumeErr: transient, attempt: integrationstore.IntegrationInboxMaxAttempts, outcome: "failed"},
+		{name: "lease lost", consumeErr: integrationstore.ErrIntegrationInboxLeaseLost, outcome: "lease_lost"},
+		{
+			name: "retry lease lost", consumeErr: transient,
+			retryErr: integrationstore.ErrIntegrationInboxLeaseLost, outcome: "lease_lost",
+		},
+		{
+			name: "retry write failed", consumeErr: transient,
+			retryErr: errors.New("database unavailable"), outcome: "retry_not_recorded",
+		},
+		{
+			name: "failure write failed", consumeErr: ErrIntegrationInboundPermanent,
+			retryErr: errors.New("database unavailable"), outcome: "retry_not_recorded",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				set := metrics.New()
+				store := &integrationWorkerTestStore{retryErr: test.retryErr}
+				worker := NewIntegrationInboxWorker(store, integrationWorkerConsumerFunc(
+					func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
+						time.Sleep(2 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
+						return nil, test.consumeErr
+					}), IntegrationInboxWorkerOptions{
+					Metrics: metrics.NewIntegrationInboxRecorder(set),
+					Log:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+				})
+				receipt := integrationstore.IntegrationInboxRecord{
+					ID: uuid.New(), ProjectID: uuid.New(), IntegrationID: uuid.New(), ClaimToken: uuid.New(),
+					AttemptCount: max(1, test.attempt), CreatedAt: time.Now(),
+				}
+				err := worker.consume(t.Context(), receipt)
+				require.ErrorIs(t, err, test.consumeErr)
+				response := httptest.NewRecorder()
+				set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+				require.Equal(t, http.StatusOK, response.Code)
+				body := response.Body.String()
+				require.Contains(t, body, `omnara_integration_inbox_processing_total{outcome="`+test.outcome+`"} 1`)
+				require.Contains(t, body,
+					`omnara_integration_inbox_processing_duration_seconds_count{outcome="`+test.outcome+`"} 1`)
+				require.Contains(t, body,
+					`omnara_integration_inbox_processing_duration_seconds_sum{outcome="`+test.outcome+`"} 2`)
+				require.NotContains(t, body, receipt.ID.String())
+				require.NotContains(t, body, receipt.IntegrationID.String())
+				require.NotContains(t, body, receipt.ProjectID.String())
+			})
+		})
+	}
+}
 
 type integrationWorkerConsumerFunc func(
 	context.Context,

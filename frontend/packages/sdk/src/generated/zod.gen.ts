@@ -3242,6 +3242,7 @@ export const zIntegrationSubscription = z.object({
     agent_id: zAgentId,
     agent_name: zAgentName,
     conversation: zIntegrationConversation,
+    conversation_name: z.string().optional(),
     created_at: zTimestamp
 });
 

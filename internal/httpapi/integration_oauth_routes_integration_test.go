@@ -147,7 +147,7 @@ func TestIntegrationOAuthRejectsForeignIdentityWithoutLosingCurrentCredentials(t
 		require.Equal(t, http.StatusFound, rec.Code)
 		location, err := url.Parse(rec.Header().Get("Location"))
 		require.NoError(t, err)
-		require.Equal(t, "setup_save_failed", location.Query().Get("integration_oauth_error"))
+		require.Equal(t, "identity_mismatch", location.Query().Get("integration_oauth_error"))
 		after, err := f.project.Store.Integrations().
 			GetIntegration(t.Context(), f.project.ProjectUUID, current.ID)
 		require.NoError(t, err)
@@ -190,16 +190,28 @@ func TestIntegrationOAuthCallbackStateExpiryAndProviderErrors(t *testing.T) {
 	encoder := &Server{secretKeyWrapper: integrationKeyWrapper()}
 	expired, err := encoder.encodeIntegrationOAuthState(t.Context(), state)
 	require.NoError(t, err)
-	require.Equal(
-		t,
-		http.StatusUnauthorized,
-		projectSlackCallback(f.handler, expired, "code", f.project.AdminSession).Code,
-	)
+	f.assertFailure(t, projectSlackCallback(f.handler, expired, "code", f.project.AdminSession), "flow_expired")
+	other := bootstrapPublicHTTPProject(t, f.handler, "expired-oauth-user")
+	for _, test := range []struct {
+		token, session string
+		status         int
+	}{
+		{expired + "tampered", f.project.AdminSession, http.StatusUnauthorized},
+		{expired, other.AdminSession, http.StatusForbidden},
+		{expired, "", http.StatusUnauthorized},
+	} {
+		response := projectSlackCallback(f.handler, test.token, "code", test.session)
+		require.Equal(t, test.status, response.Code)
+		require.Empty(t, response.Header().Get("Location"))
+	}
 	missing := projectSlackCallback(f.handler, token, "", f.project.AdminSession)
 	require.Equal(t, http.StatusFound, missing.Code)
 	require.Contains(t, missing.Header().Get("Location"), "missing_code")
 	require.Zero(t, f.exchanges.Load())
 	require.Zero(t, countSlackOAuthCredentialSecrets(t, t.Context(), f.project.Store, f.project))
+	current, err := f.project.Store.Integrations().GetIntegration(t.Context(), f.project.ProjectUUID, f.integration.ID)
+	require.NoError(t, err)
+	require.Equal(t, f.integration, current)
 }
 
 func TestIntegrationOAuthProviderFailuresLeaveSavedIntegrationDisconnected(t *testing.T) {

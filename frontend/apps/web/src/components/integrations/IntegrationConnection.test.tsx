@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
-import { type Integration, schemas } from '@omnara/sdk'
-import { getIntegrationQueryKey, listIntegrationsInfiniteOptions } from '@omnara/sdk/tanstack'
+import { schemas } from '@omnara/sdk'
+import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -511,156 +511,209 @@ it.each([true, false])(
   },
 )
 
-async function beginSlackAuthorization({ setupRevision = 1, callbackError = false } = {}) {
-  const draft = integrationFixture()
-  const flowId = fakeId('ioaf')
-  const detailPath = `${projectPath}/integrations/${draft.id}`
-  const pagePath = `/projects/${projectId}/integrations/${draft.id}`
-  window.history.replaceState(
-    null,
-    '',
-    pagePath + (callbackError ? '?integration_oauth_error=missing_scope' : ''),
-  )
-  let current = draft
-  const api = fakeApi([
-    { method: 'GET', path: detailPath, respond: () => Response.json(current) },
-    {
-      method: 'POST',
-      path: `${detailPath}/slack-setup`,
-      respond: () =>
-        Response.json(
-          {
-            integration_id: draft.id,
-            setup_revision: setupRevision,
-            provider: 'slack',
-            slack_app_id: 'A123',
-            flow_id: flowId,
-            oauth_url: 'https://slack.test/authorize',
-            redirect_uri: 'https://omnara.test/api/integrations/oauth/callback',
-            events_url: 'https://omnara.test/api/integrations/slack/events',
-            actions_url: 'https://omnara.test/api/integrations/slack/actions',
-            expires_at: new Date(Date.now() + 600_000).toISOString(),
-          },
-          { status: 201 },
-        ),
-    },
-    ...[
-      `${detailPath}/subscriptions`,
-      `${projectPath}/cron-triggers`,
-      `${projectPath}/agent-profiles`,
-    ].map((path) => ({
-      method: 'GET',
-      path,
-      respond: () => Response.json({ data: [], next_cursor: null }),
-    })),
-  ])
-  const context = render(
-    api,
-    <IntegrationDetail orgId={orgId} projectId={projectId} integrationId={draft.id} canManage />,
-  )
-  await waitForUI(() => {
-    expect(document.querySelector('#slack-app-configuration-token')).not.toBeNull()
-  })
-  await enter('App configuration token', 'fake-configuration-token')
-  act(() => {
-    button('Connect integration').click()
-  })
-  await waitForUI(() => {
-    expect(document.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
-  })
-  const queryKey = getIntegrationQueryKey({
-    path: { orgID: orgId, projectID: projectId, integrationID: draft.id },
-    client: context.client,
-  })
-  const connected: Integration = {
-    ...draft,
-    state: 'active',
-    provider_tenant_id: 'T123',
-    provider_account_ref: 'A123',
-    setup_revision: setupRevision + 1,
-    last_oauth_flow_id: flowId,
-    updated_at: '2026-09-19T00:01:00Z',
-  }
-  return {
-    ...context,
-    draft,
-    connected,
-    refreshIntegration: async (integration: Integration) => {
-      current = integration
-      await act(async () => {
-        await context.cache.invalidateQueries({ queryKey })
-      })
-    },
-  }
-}
+it.each(['access_denied', 'identity_mismatch', 'integration_setup_changed'])(
+  'recovers from a %s callback in the saved integration and resumes after the next return',
+  async (outcome) => {
+    const integration = integrationFixture({
+      state: 'active',
+      name: 'existing-team-bot',
+      provider_tenant_id: 'T123',
+      provider_account_ref: 'A123',
+      settings: { launcher: { profiles: [fakeId('aprf')] } },
+    })
+    const detailPath = `${projectPath}/integrations/${integration.id}`
+    const pagePath = `/projects/${projectId}/integrations/${integration.id}`
+    window.history.replaceState(null, '', `${pagePath}?integration_oauth_error=${outcome}`)
+    const api = fakeApi([
+      { method: 'GET', path: detailPath, respond: () => Response.json(integration) },
+      {
+        method: 'POST',
+        path: detailPath + '/oauth/setup',
+        respond: () =>
+          jsonResponse(
+            {
+              integration_id: integration.id,
+              setup_revision: integration.setup_revision,
+              provider: 'slack',
+              flow_id: fakeId('ioaf'),
+              oauth_url: 'https://slack.test/authorize',
+              redirect_uri: 'https://omnara.test/callback',
+              events_url: 'https://omnara.test/events',
+              actions_url: 'https://omnara.test/actions',
+              expires_at: new Date(Date.now() + 600_000).toISOString(),
+            },
+            201,
+          ),
+      },
+      ...[
+        `${detailPath}/subscriptions`,
+        `${projectPath}/cron-triggers`,
+        `${projectPath}/agent-profiles`,
+      ].map((path) => ({
+        method: 'GET',
+        path,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      })),
+    ])
+    const detail = (
+      <IntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />
+    )
+    const { rerender } = render(api, detail)
+    await waitForUI(() => {
+      expect(container.textContent).toContain('Slack setup didn’t finish.')
+    })
+    expect(container.textContent).not.toContain('Account connected.')
+    expect(window.location.search).toBe('')
+    act(() => {
+      button('Integration actions').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      )
+    })
+    await waitForUI(() => {
+      expect(document.querySelector('[role="menuitem"]')).not.toBeNull()
+    })
+    const reconnect = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent.trim() === 'Reconnect account',
+    )
+    if (!reconnect) throw new Error('Missing reconnect action')
+    act(() => {
+      reconnect.click()
+    })
+    await enter('Client ID', 'client')
+    await enter('Client secret', 'secret')
+    await enter('Signing secret', 'signature')
+    act(() => {
+      button('Reconnect integration').click()
+    })
+    await waitForUI(() => {
+      expect(container.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
+    })
+    expect(api.requestsTo('POST', detailPath + '/oauth/setup')[0]?.body).toMatchObject({
+      return_to: pagePath,
+    })
+    expect(api.requestsTo('POST', detailPath + '/slack-setup')).toHaveLength(0)
+    rerender(null)
+    window.history.replaceState(
+      null,
+      '',
+      `${pagePath}?integration_oauth=success&integration_id=${integration.id}`,
+    )
+    rerender(detail)
+    await waitForUI(() => {
+      expect(container.textContent).toContain('Account connected.')
+    })
+    expect(container.textContent).not.toContain('Slack setup didn’t finish.')
+    expect(container.querySelector('form')).toBeNull()
+    expect(container.textContent).toContain('existing-team-bot')
+    expect(api.requestsTo('PUT', detailPath)).toHaveLength(0)
+    expect(window.location.search).toBe('')
+  },
+)
 
-it('keeps Slack authorization open when a fresh read reveals an earlier active flow', async () => {
-  const { connected, refreshIntegration } = await beginSlackAuthorization({ setupRevision: 2 })
-  await refreshIntegration({
-    ...connected,
-    setup_revision: 2,
-    last_oauth_flow_id: `ioaf_${'b'.repeat(26)}`,
-  })
-  await waitForUI(() => {
-    expect(container.querySelector('header')?.textContent).toContain('Connected')
-  })
-  expect(container.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
-  expect(container.textContent).not.toContain('Account connected.')
-  expect(() => button('Save changes')).toThrow('Missing button')
-  await refreshIntegration({ ...connected, last_oauth_flow_id: `ioaf_${'b'.repeat(26)}` })
-  await waitForUI(() => {
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('changed')
-    expect(container.querySelector('#clientId')).not.toBeNull()
-  })
-  expect(container.querySelector('#slack-app-configuration-token')).toBeNull()
-  expect(container.querySelector('input[type="checkbox"]')).toBeNull()
-  expect(container.textContent).not.toContain('Account connected.')
-  expect(() => button('Save changes')).toThrow('Missing button')
-})
+it.each(['access_denied', 'flow_expired'])(
+  'reuses the Slack app after an initial draft returns with %s',
+  async (outcome) => {
+    const integration = integrationFixture({
+      state: 'disconnected',
+      name: 'new-team-bot',
+      provider_tenant_id: '',
+      provider_account_ref: '',
+    })
+    const detailPath = `${projectPath}/integrations/${integration.id}`
+    const pagePath = `/projects/${projectId}/integrations/${integration.id}`
+    window.history.replaceState(null, '', pagePath)
+    const setup = {
+      integration_id: integration.id,
+      setup_revision: integration.setup_revision,
+      provider: 'slack',
+      flow_id: fakeId('ioaf'),
+      oauth_url: 'https://slack.test/authorize',
+      redirect_uri: 'https://omnara.test/callback',
+      events_url: 'https://omnara.test/events',
+      actions_url: 'https://omnara.test/actions',
+      expires_at: new Date(Date.now() + 600_000).toISOString(),
+    }
+    const api = fakeApi([
+      { method: 'GET', path: detailPath, respond: () => Response.json(integration) },
+      {
+        method: 'POST',
+        path: detailPath + '/slack-setup',
+        respond: () => jsonResponse({ ...setup, slack_app_id: 'A123' }, 201),
+      },
+      {
+        method: 'POST',
+        path: detailPath + '/oauth/setup',
+        respond: () => jsonResponse(setup, 201),
+      },
+      ...[`${detailPath}/subscriptions`, `${projectPath}/cron-triggers`].map((path) => ({
+        method: 'GET',
+        path,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      })),
+    ])
+    const detail = (
+      <IntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />
+    )
+    const { rerender } = render(api, detail)
+    await waitForUI(() => {
+      expect(container.querySelector('#slack-app-name')).not.toBeNull()
+    })
+    await enter('Name in Slack', 'Team helper')
+    await enter('App configuration token', 'configuration-token')
+    act(() => {
+      button('Connect integration').click()
+    })
+    await waitForUI(() => {
+      expect(container.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
+    })
+    expect(api.requestsTo('POST', detailPath + '/slack-setup')).toHaveLength(1)
 
-it('invalidates only this project’s cached integration list before finishing Slack authorization', async () => {
-  const { cache, client, draft, connected, refreshIntegration } = await beginSlackAuthorization()
-  const listKey = (projectID: string) =>
-    listIntegrationsInfiniteOptions({ path: { orgID: orgId, projectID }, client }).queryKey
-  const currentList = listKey(projectId)
-  const otherList = listKey(`proj_${'b'.repeat(26)}`)
-  const cachedList = {
-    pages: [{ data: [draft], next_cursor: null }],
-    pageParams: [undefined],
-  }
-  cache.setQueryData(currentList, cachedList)
-  cache.setQueryData(otherList, {
-    pages: [{ data: [], next_cursor: null }],
-    pageParams: [undefined],
-  })
-  await refreshIntegration(connected)
-  await waitForUI(() => {
-    expect(button('Save changes')).toBeDefined()
-    expect(container.querySelector('a[href="https://slack.test/authorize"]')).toBeNull()
-  })
-  expect(cache.getQueryState(currentList)?.isInvalidated).toBe(true)
-  expect(cache.getQueryState(otherList)?.isInvalidated).toBe(false)
-  expect(container.textContent).toContain('Account connected.')
-})
-
-it('clears an earlier Slack callback error after a successful inline authorization retry', async () => {
-  const { connected, refreshIntegration } = await beginSlackAuthorization({ callbackError: true })
-  expect(container.textContent).toContain('Slack setup didn’t finish.')
-  expect(window.location.search).toBe('')
-  await refreshIntegration(connected)
-  await waitForUI(() => {
-    expect(button('Save changes')).toBeDefined()
-    expect(container.textContent).toContain('Account connected.')
-  })
-  expect(container.textContent).not.toContain('Slack setup didn’t finish.')
-  expect(container.querySelector('[role="alert"]')).toBeNull()
-  act(() => {
-    button('Cancel').click()
-  })
-  expect(container.textContent).not.toContain('Account connected.')
-  expect(container.textContent).not.toContain('Slack setup didn’t finish.')
-  expect(container.querySelector('[role="alert"]')).toBeNull()
-})
+    rerender(null)
+    window.history.replaceState(null, '', `${pagePath}?integration_oauth_error=${outcome}`)
+    rerender(detail)
+    await waitForUI(() => {
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        'Slack setup didn’t finish.',
+      )
+      expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(
+        true,
+      )
+      expect(container.querySelector('#clientId')).not.toBeNull()
+    })
+    expect(window.location.search).toBe('')
+    expect(container.querySelector('#slack-app-name')).toBeNull()
+    expect(container.querySelector('#slack-app-configuration-token')).toBeNull()
+    expect(button('Connect integration').disabled).toBe(true)
+    await enter('Client ID', 'original-client')
+    await enter('Client secret', 'original-secret')
+    await enter('Signing secret', 'original-signature')
+    act(() => {
+      button('Connect integration').click()
+    })
+    await waitForUI(() => {
+      expect(container.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
+    })
+    expect(api.requestsTo('POST', detailPath + '/oauth/setup')).toHaveLength(1)
+    expect(api.requestsTo('POST', detailPath + '/oauth/setup')[0]?.body).toEqual({
+      client_id: 'original-client',
+      client_secret: 'original-secret',
+      signing_secret: 'original-signature',
+      return_to: pagePath,
+    })
+    expect(api.requestsTo('POST', detailPath + '/slack-setup')).toHaveLength(1)
+    expect(api.requestsTo('POST', `${projectPath}/integrations`)).toHaveLength(0)
+  },
+)
 
 it.each([404, 500])(
   'preserves the Slack callback error when the initial integration read fails with %s',

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -177,6 +179,15 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 		},
 	)
 	finalizations := 0
+	metricSet := metrics.New()
+	assertOutcome := func(outcome string, count int) {
+		t.Helper()
+		response := httptest.NewRecorder()
+		metricSet.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+		require.Equal(t, http.StatusOK, response.Code)
+		require.Contains(t, response.Body.String(), fmt.Sprintf(
+			`omnara_integration_inbox_processing_total{outcome="%s"} %d`, outcome, count))
+	}
 	worker := NewIntegrationInboxWorker(inbox, integrationWorkerFailureConsumer{integrationWorkerConsumerFunc: consumer,
 		finalize: func(ctx context.Context, project, id uuid.UUID) error {
 			stored, err := inbox.GetIntegrationInbox(ctx, project, id)
@@ -185,13 +196,14 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 			finalizations++
 			return errors.New("notification unavailable")
 		},
-	}, IntegrationInboxWorkerOptions{})
+	}, IntegrationInboxWorkerOptions{Metrics: metrics.NewIntegrationInboxRecorder(metricSet)})
 	worked, err := worker.RunOnce(ctx)
 	require.True(t, worked)
 	require.ErrorIs(t, err, transient)
 	first, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxQueued, first.State)
+	assertOutcome("retry_scheduled", 1)
 	require.Contains(t, first.LastError, transient.Error())
 	require.Len(t, admissions, 1)
 	require.True(t, admissions[0].Created)
@@ -217,6 +229,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	failed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
+	assertOutcome("failed", 1)
 	require.Equal(t, 8, failed.AttemptCount)
 	require.JSONEq(t, string(first.Plan), string(failed.Plan))
 	require.Len(t, admissions, 2)
@@ -250,6 +263,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, fresh.AttemptCount)
 	require.Equal(t, integrationstore.IntegrationInboxQueued, fresh.State)
+	assertOutcome("retry_scheduled", 2)
 }
 
 func TestIntegrationInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {

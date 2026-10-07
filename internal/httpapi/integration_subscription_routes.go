@@ -135,5 +135,8 @@ func integrationSubscriptionResponse(
 		CreatedAt:    subscription.CreatedAt,
 		Conversation: subscription.Conversation,
 	}
+	if subscription.ConversationName != "" {
+		response.ConversationName = &subscription.ConversationName
+	}
 	return response, nil
 }

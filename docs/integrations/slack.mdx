@@ -24,11 +24,53 @@ For complete examples you can deploy, see [Coding agent in Slack](/examples/slac
 
 ## Connect Slack
 
-Choose **Slack bot** and enter an Omnara integration name such as `engineering`.
-On the same page, connect an existing Slack app or let Omnara create the Slack registration using
-an app configuration token from [Slack's app settings](https://api.slack.com/apps).
-The bot token obtained through OAuth represents the bot's access to that workspace;
-it is different from the configuration token used to create the registration.
+### Dashboard
+
+Choose **Slack bot** and keep the suggested Omnara name `slack-bot` or enter your
+own, such as `engineering`. This permanent name identifies the integration and its tools.
+
+- To create a Slack app, enter **Name in Slack**, the name teammates will see,
+  and an app configuration token from [Slack's app settings](https://api.slack.com/apps).
+  Omnara configures the app's URLs and event subscriptions for you.
+- To use an existing app, select **Use an existing Slack app**, copy its Client ID,
+  Client Secret and Signing Secret from **Basic Information**, and complete the
+  [Slack settings checklist](#existing-app-checklist) below.
+
+Choose **Create and connect**, then authorize the app in Slack. Authorization
+continues in the same tab and returns to the saved integration to choose launch
+profiles. The bot token obtained through OAuth grants access to that workspace;
+the app configuration token is only used to create the registration.
+
+### Existing app checklist
+
+In [Slack's app settings](https://api.slack.com/apps), use the URLs shown in
+Omnara or returned by the API setup request:
+
+1. Under **OAuth & Permissions**, add `redirect_uri` to **Redirect URLs**.
+2. Under **Event Subscriptions**, enable events, set **Request URL** to `events_url`,
+   and add all of these under **Subscribe to bot events**:
+
+   - `app_mention`
+   - `app_uninstalled`
+   - `channel_rename`
+   - `group_rename`
+   - `message.channels`
+   - `message.groups`
+   - `message.im`
+   - `message.mpim`
+   - `tokens_revoked`
+   - `user_profile_changed`
+
+3. Under **Interactivity & Shortcuts**, enable interactivity and set **Request URL**
+   to `actions_url`.
+4. Under **App Home**, enable the **Messages Tab** and allow users to send messages
+   if you want DMs with the bot.
+
+Use HTTP event delivery with **Socket Mode** off. Save the changes before authorizing.
+OAuth grants permissions; it does not select
+[event subscriptions](https://docs.slack.dev/apis/events-api/#subscribing-to-event-types).
+
+### CLI or API
 
 With the CLI or API, create the Omnara integration first:
 
@@ -45,7 +87,8 @@ For an existing Slack registration:
 
 <SlackExistingApp />
 
-Configure the returned `events_url`, `actions_url` and `redirect_uri` in Slack.
+For an existing app, complete the [checklist above](#existing-app-checklist) using
+the returned URLs. Newly created apps already include these settings.
 Open `oauth_url` before `expires_at`, signed in to Omnara as the user who started
 setup, and approve installation. The CLI opens this link unless `--no-browser`
 is supplied. The integration becomes active when its `last_oauth_flow_id` matches the
@@ -60,7 +103,9 @@ the credential reference for reconnect, while deleting the integration releases 
 ## Start agents from mentions
 
 Choose profiles and a workspace or channel scope in the integration's launch settings.
-With one profile, a mention starts an agent in that thread. With several, the
+Invite the bot to the channels where it should respond. A channel mention starts
+work in that thread; a DM to the bot can start work without a mention. With one
+profile, the agent starts immediately. With several, the
 first reply asks which profile to use; no agent starts before the selection.
 Anyone in the conversation can choose. Menus expire after an hour, and follow-up
 messages sent before the choice may be missed. Edit offered profiles for future
@@ -69,7 +114,7 @@ requests without changing existing conversations.
 Selecting profiles enables mention launches; there is no separate enable switch.
 Leave the selection empty to use only scheduled launches. Removing the last
 profile removes the mention launcher, without affecting schedules or existing
-conversations.
+conversations. With no matching subscription or launcher, messages receive no response.
 
 A launch derives a config with read/post tools and a Slack interaction handler,
 and attaches a thread subscription before the first input. Existing explicit
@@ -77,18 +122,25 @@ config entries are preserved. Thread
 replies steer the selected agent and cancel its outstanding interactions. Bot
 messages are ignored. Overlapping launchers using the same bot are discouraged.
 
-For API setup, add this `settings.launcher` to the integration's create/update body:
+For API setup, send the settings to
+`PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:
 
 ```json
 {
-  "channel_id":"C123",
-  "profiles":["aprf_aeaqcaibaeaqcaibaeaqcaibae"]
+  "settings": {
+    "launcher": {
+      "channel_id": "C123",
+      "profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibae"]
+    }
+  }
 }
 ```
 
-Omit `channel_id` to allow mentions wherever this bot has access in the connected
-workspace. Profiles are ordered, distinct public IDs. Update requests contain only
-`settings`; the integration name and kind are supplied only on create.
+Omit `channel_id` to allow launches from accessible channels and DMs in the
+connected workspace. Setting it to a public or private channel (`C…` or `G…`)
+restricts new launches to that channel and excludes DMs; existing subscribed
+conversations still receive replies. Profiles are ordered, distinct public IDs.
+Updates replace `settings`; send `{"settings":{}}` to remove the mention launcher.
 
 ## Scheduled threads
 
@@ -132,7 +184,8 @@ does not assign or change the conversation used by this integration's tools.
 
 ## Questions and approvals
 
-Add `interaction_handlers: {engineering: {}}` to offer Slack questions and approvals.
+For an agent assigned to the `engineering` integration's conversation, add
+`interaction_handlers: {engineering: {}}` to offer Slack questions and approvals.
 For manual configs, also select `list_interaction_handlers` and
 `set_interaction_handler` under `tools` to let the model choose a destination.
 The Slack launcher adds the handler and both tools automatically, preserving explicit settings.

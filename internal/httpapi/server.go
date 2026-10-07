@@ -59,6 +59,7 @@ type Server struct {
 	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
+	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
 	requestLog                          middleware
 	agentConfigOptions                  agentconfig.CompileOptions
@@ -252,6 +253,10 @@ func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {
 	return func(s *Server) {
 		s.recorder = recorder
 	}
+}
+
+func WithIntegrationInboxIntakeRecorder(recorder *metrics.IntegrationInboxIntakeRecorder) Option {
+	return func(s *Server) { s.integrationInboxIntake = recorder }
 }
 
 func WithDaemonRecorder(recorder *metrics.DaemonRecorder) Option {

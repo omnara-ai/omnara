@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -53,7 +54,8 @@ func newGitHubIntakeFixture() *githubIntakeFixture {
 		integration: integrationstore.IntegrationRecord{
 			ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), CredentialSecretID: uuid.New(),
 			Provider: "github", ProviderTenantID: "123", ProviderAccountRef: "456",
-			State: integrationstore.IntegrationStateActive,
+			ProviderIdentity: json.RawMessage(`{"bot_user_id":999,"bot_login":"helper[bot]"}`),
+			State:            integrationstore.IntegrationStateActive,
 		},
 		credential: secretstore.SecretPayloadRecord{CurrentVersionID: uuid.New(), Payload: secrets.Payload{
 			secrets.KeyAppID: "123", secrets.KeyWebhookSecret: "webhook-secret", secrets.KeyPrivateKey: "private-key",
@@ -157,6 +159,85 @@ func githubIntakeRequest(t *testing.T, f *githubIntakeFixture, raw string) *http
 	_, _ = mac.Write([]byte(raw))
 	r.Header.Set(github.SignatureHeader, "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	return r
+}
+
+func TestGitHubHTTPIntakeFiltersOnlyVerifiedIrrelevantEvents(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		body   string
+		queued int
+	}{
+		{"human comment", githubIntakeBody, 1},
+		{"edited comment", strings.Replace(githubIntakeBody, `"action":"created"`, `"action":"edited"`, 1), 0},
+		{"issue comment", strings.Replace(githubIntakeBody,
+			`,"pull_request":{"url":"https://api.github.com/repos/owner/repo/pulls/42"}`, "", 1), 0},
+		{"own bot", strings.ReplaceAll(githubIntakeBody, `"id":71`, `"id":999`), 0},
+		{"other bot", strings.ReplaceAll(githubIntakeBody, `"type":"User"`, `"type":"Bot"`), 0},
+		{"installation update", `{"action":"created","installation":{"id":456}}`, 0},
+		{"invalid comment identity", strings.Replace(githubIntakeBody, `"id":3001`, `"id":0`, 1), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			h := &githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations}
+			request := githubIntakeRequest(t, f, tc.body)
+			request.Header.Set(github.EventHeader, "unknown")
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent || len(f.accepted) != tc.queued {
+				t.Fatalf("status=%d receipts=%d; want 204 and %d receipts", response.Code, len(f.accepted), tc.queued)
+			}
+			request = githubIntakeRequest(t, f, tc.body)
+			request.Header.Set(github.SignatureHeader, "sha256=invalid")
+			response = httptest.NewRecorder()
+			h.ServeHTTP(response, request)
+			if response.Code != http.StatusUnauthorized || len(f.accepted) != tc.queued {
+				t.Fatalf("unverified event: status=%d receipts=%d", response.Code, len(f.accepted))
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPIntakeMetricsDistinguishStorageFailureFromRejection(t *testing.T) {
+	t.Parallel()
+	f := newGitHubIntakeFixture()
+	set := metrics.New()
+	h := &githubIntakeHandler{
+		store: f, secrets: f, credentialIntegrations: f.credentialIntegrations,
+		recorder: metrics.NewIntegrationInboxIntakeRecorder(set),
+	}
+	for _, test := range []struct {
+		body     string
+		rejected bool
+		storeErr error
+		status   int
+	}{
+		{body: githubIntakeBody, status: http.StatusNoContent},
+		{body: githubIntakeBody, status: http.StatusNoContent},
+		{body: `{"action":"created","installation":{"id":456}}`, status: http.StatusNoContent},
+		{body: githubIntakeBody, rejected: true, status: http.StatusBadRequest},
+		{body: githubIntakeBody, storeErr: errors.New("commit failed"), status: http.StatusServiceUnavailable},
+	} {
+		f.acceptErr = test.storeErr
+		request := githubIntakeRequest(t, f, test.body)
+		if test.rejected {
+			request.Header.Del(github.EventHeader)
+		}
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, request)
+		if response.Code != test.status {
+			t.Fatalf("status %d, want %d: %s", response.Code, test.status, response.Body.String())
+		}
+	}
+	response := httptest.NewRecorder()
+	set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	for _, outcome := range []string{"accepted", "duplicate", "filtered", "error"} {
+		line := `omnara_integration_inbox_intake_total{outcome="` + outcome + `",provider="github"} 1`
+		if !strings.Contains(response.Body.String(), line) {
+			t.Errorf("missing metric %s", line)
+		}
+	}
 }
 
 func TestGitHubHTTPIntakePersistsExactBodyBeforeAcknowledgement(t *testing.T) {

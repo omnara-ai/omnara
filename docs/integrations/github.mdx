@@ -5,24 +5,28 @@ icon: "github"
 ---
 
 Use your own GitHub App to let an agent read a pull request or post comments.
-Choose its tools independently from incoming events. Questions and approvals
-stay in the dashboard unless you attach a [Slack](/integrations/slack)
-or [Discord](/integrations/discord) interaction handler; GitHub has no interaction handler.
+Choose its tools independently from incoming events. Answer questions and approvals
+in Omnara's dashboard; GitHub has no interaction handler. The
+[interactions API](/events/interactions) is also available.
 
 ## Connect your GitHub App
 
-Open **Integrations** in your project and choose **GitHub PR review**. Choose whether
-the GitHub App belongs to your personal account or an organization, then select
-**Continue to GitHub**. Omnara supplies the webhook, event subscriptions and
-required permissions. The registration belongs to you.
+### Dashboard
+
+Open **Integrations** in your project and choose **GitHub PR review**. Keep the
+suggested Omnara name `github-bot` or enter your own, such as `reviews`. Choose
+whether the GitHub App belongs to your personal account or an organization, then
+select **Continue to GitHub**. Choose the App's public name on GitHub's registration
+page; it is separate from the Omnara integration name. Omnara supplies the webhook,
+event subscriptions and required permissions. The registration belongs to you.
 
 After registration, Omnara saves the credentials and checks account access automatically.
-Select **Choose repositories on GitHub** to grant access, then return and select
-**I’ve granted access**. Omnara selects a single available account automatically;
-if several are available, choose which one to connect. Select **Connect integration**
-to finish. If organization approval is pending, you can return later using the saved
-credential. Nothing launches until you choose an agent profile and save the
-integration's launch settings.
+Select **Choose repositories on GitHub** to grant access in the same tab; GitHub
+returns you to Omnara to continue setup. Omnara selects a single available account
+automatically; if several are available, choose which one to connect. Select **Connect integration**
+to finish. If organization approval is pending, return later using the saved
+credential and check access again. Nothing launches until you choose an agent
+profile and save the integration's launch settings.
 
 <Warning>
 PR-open launches, mention launches and comments that steer agents require repository
@@ -55,11 +59,30 @@ not narrow the installation access granted through [Git credentials](#git-creden
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
    if agents will comment, and **Issues: Read-only** for incoming PR conversation
    comments. For private clone/fetch, also request **Contents: Read-only**.
-   Install it on the repositories you want to use.
-2. Record its numeric **App ID**, numeric **Installation ID**, RSA private key
+2. Enable webhooks with URL `https://YOUR_OMNARA_API_HOST/api/integrations/github/events`
+   and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
+   `pull_request`, `issue_comment`,
+   `pull_request_review` and `pull_request_review_comment`.
+3. Install the App on the repositories you want to use. Record its numeric
+   **App ID**, numeric **Installation ID**, RSA private key
    and webhook secret. App ID and Installation ID are different values.
-3. [Create a secret](/organization/secrets#create-a-secret) available to the
-   Omnara project, with this `material` shape:
+
+In the dashboard, choose **Enter App details**, enter these values and connect.
+Omnara creates the credential for you, or you can select a saved credential.
+Use the displayed webhook URL for your deployment and test delivery after connecting.
+The following secret and setup requests are only needed for API setup.
+
+### API
+
+Create the integration with
+`POST /orgs/{orgID}/projects/{projectID}/integrations`:
+
+```json
+{"name":"reviews","integration_kind":"github_pr","settings":{}}
+```
+
+[Create a secret](/organization/secrets#create-a-secret) available to the
+Omnara project, with this `material` shape:
 
 ```json
 {
@@ -70,8 +93,8 @@ not narrow the installation access granted through [Git credentials](#git-creden
 }
 ```
 
-Create an Omnara integration named `reviews` with integration type `github_pr`, then
-configure it at `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup`:
+Configure the returned integration at
+`POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup`:
 
 ```json
 {
@@ -89,9 +112,7 @@ the GitHub registration to refresh its bot login. Verified numeric identities
 remain fixed. Disconnecting or deleting the Omnara integration requires no GitHub request
 and changes no comments or reviews in GitHub.
 
-Set the GitHub registration's webhook to
-`https://YOUR_OMNARA_HOST/api/integrations/github/events`. The GitHub App ID header
-selects candidate credentials; the signature and installation identity authenticate
+The GitHub App ID header selects candidate credentials; the signature and installation identity authenticate
 the event. Verified installation identity routes ordinary events to each
 matching active Omnara integration. Independent integrations may use the same installation;
 they are not automatically merged. Configure an active integration before testing ping.
@@ -214,6 +235,11 @@ issued tokens or remove cloned files.
 
 ## Configure incoming PR work
 
+In the dashboard, choose one profile and whether to start agents from PR openings,
+mentions or both. To mention the bot, use `@<app-slug>`, such as `@review-helper`
+for `https://github.com/apps/review-helper`. Use the GitHub App's slug, not the
+Omnara integration name (`reviews` in these examples).
+
 To forward events from one PR to an existing agent, send this body to
 `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions`:
 
@@ -229,13 +255,11 @@ submitted reviews and commits from PR synchronization events. PR-open events onl
 trigger launches; they are not forwarded through subscriptions. Use **Stop forwarding**
 on the integration page to remove a subscription.
 
-For PR-open and mention launches, this is the project integration body for
-`POST /orgs/{orgID}/projects/{projectID}/integrations`:
+For PR-open and mention launches through the API, update the saved integration with
+`PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:
 
 ```json
 {
-  "name": "reviews",
-  "integration_kind": "github_pr",
   "settings": {
     "launcher": {
       "trigger": "both",
@@ -272,10 +296,6 @@ after accepting them for an agent. This means the input was accepted, not that
 the agent has finished. Reactions are best effort; a failed reaction does not
 prevent the agent from receiving the comment.
 
-The provider events needed for these routes are `pull_request`, `issue_comment`,
-`pull_request_review` and `pull_request_review_comment`. See GitHub's
-[webhook event reference](https://docs.github.com/en/webhooks/webhook-events-and-payloads).
-
 GitHub does not automatically retry failed webhook deliveries. If Omnara cannot
 persist an event and returns a non-2xx response, explicitly
 [redeliver it from GitHub](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
@@ -284,11 +304,12 @@ Omnara retries processing failures through its internal inbox. Once a receipt ha
 failed permanently, redelivering the same event does not reset its retry budget;
 send a fresh comment or mention instead.
 
-For an active configured installation, Omnara commits the signed raw callback
+For an active configured installation, Omnara commits eligible signed callbacks
 before returning HTTP 204. A persistence failure returns 503; it does not schedule
 a GitHub retry. Manual redelivery with the same delivery ID is accepted once and
 deduplicated while that receipt remains stored. Signed pings and callbacks for
-unmanaged or disconnected installations can receive 204 without creating agent work.
+unmanaged or disconnected installations, along with irrelevant events, can receive
+204 without creating agent work.
 Omnara does not run an automatic GitHub redelivery scheduler.
 
 Completed and failed raw receipts are eligible for cleanup seven days after

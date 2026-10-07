@@ -16,12 +16,15 @@ import {
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 export function IntegrationPage() {
   const { projectId = '', integrationId = '' } = useParams({ strict: false })
+  const { activeOrg } = useActiveOrg()
+  const query = useIntegration(activeOrg.id, projectId, integrationId)
   return (
     <ProjectPageFrame
-      title="Integration"
+      title={query.data?.name ?? 'Integration'}
       breadcrumbs={[
         {
           id: 'integrations',

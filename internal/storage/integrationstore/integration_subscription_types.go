@@ -20,6 +20,7 @@ type IntegrationSubscriptionRecord struct {
 	Address                               ConversationAddress
 	CreatedAt                             time.Time
 	AgentName                             string
+	ConversationName                      string
 	Conversation                          json.RawMessage
 }
 

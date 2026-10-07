@@ -69,12 +69,12 @@ it('links every catalog entry by its exact integration type', async () => {
 })
 
 it.each([
-  ['slack_thread', 'Use an existing Slack app'],
-  ['github_pr', 'GitHub App owner'],
-  ['discord_thread', 'Bot token'],
+  ['slack_thread', 'Use an existing Slack app', 'slack-bot'],
+  ['github_pr', 'GitHub App owner', 'github-bot'],
+  ['discord_thread', 'Bot token', 'discord-bot'],
 ] as const)(
   'creates a %s integration through its connection form',
-  async (integrationKind, control) => {
+  async (integrationKind, control, defaultName) => {
     const api = fakeApi([
       {
         method: 'GET',
@@ -93,7 +93,11 @@ it.each([
     await waitForUI(() => {
       expect(container.querySelector('[aria-label="Connection"]')?.textContent).toContain(control)
     })
-    expect(container.querySelector('#integration-name')).not.toBeNull()
+    expect(container.querySelector<HTMLInputElement>('#integration-name')?.value).toBe(defaultName)
+    await enter('Integration name', 'team-helper')
+    expect(container.querySelector<HTMLInputElement>('#integration-name')?.value).toBe(
+      'team-helper',
+    )
     expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
   },
 )

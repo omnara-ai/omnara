@@ -53,6 +53,15 @@ it.each([
     'integration_oauth_error=integration_deleted',
     'Choose or create an integration before starting setup again.',
   ],
+  [
+    'integration_oauth_error=identity_mismatch',
+    'Authorize the original workspace and bot, or create a new integration.',
+  ],
+  ['integration_oauth_error=access_denied', 'Start authorization again when you’re ready.'],
+  [
+    'integration_oauth_error=flow_expired',
+    'Use your existing Slack app’s credentials to start authorization again.',
+  ],
   ['integration_oauth_error=flow_consumed', 'Refresh the integration to see its current setup.'],
   [
     'integration_oauth=success&integration_id=itg_current&integration_oauth_error=missing_scope',

@@ -105,6 +105,7 @@ export function GitHubGuidedSetup({
           {inspection && (
             <GitHubInstallationChoice
               inspection={inspection}
+              returnsToOmnara={returned}
               selected={guided.selected}
               onSelect={guided.selectInstallation}
               onInspect={guided.inspectInstallations}
@@ -282,12 +283,14 @@ function GitHubRegistrationOptions({
 
 function GitHubInstallationChoice({
   inspection: { result, page },
+  returnsToOmnara,
   selected,
   onSelect,
   onInspect,
   disabled,
 }: {
   inspection: GitHubInspection
+  returnsToOmnara: boolean
   selected?: GitHubSetupInstallation
   onSelect: (installationId: string) => void
   onInspect: (page: number) => void
@@ -305,7 +308,9 @@ function GitHubInstallationChoice({
       {accounts === 0 ? (
         <p className="text-muted-foreground">
           {page === 1
-            ? 'The App can’t access any repositories yet. Choose repositories on GitHub, then select I’ve granted access. If an organization owner must approve it, check again once they have.'
+            ? returnsToOmnara
+              ? 'The App can’t access any repositories yet. Choose repositories on GitHub, then you’ll return here automatically. If an organization owner must approve it, refresh accounts once they have.'
+              : 'The App can’t access any repositories yet. Choose repositories on GitHub, then return here and refresh accounts. If an organization owner must approve it, refresh once they have.'
             : 'No more accounts.'}
         </p>
       ) : sole && selected ? (
@@ -344,7 +349,11 @@ function GitHubInstallationChoice({
       )}
       <div className="flex flex-wrap gap-2">
         <Button asChild variant={accounts ? 'outline' : 'default'}>
-          <a href={result.install_url} target="_blank" rel="noreferrer">
+          <a
+            href={result.install_url}
+            target={returnsToOmnara && page === 1 && accounts === 0 ? undefined : '_blank'}
+            rel="noreferrer"
+          >
             {accounts ? 'Add an account on GitHub' : 'Choose repositories on GitHub'}
           </a>
         </Button>
@@ -355,7 +364,7 @@ function GitHubInstallationChoice({
             onInspect(page)
           }}
         >
-          {accounts ? 'Refresh accounts' : 'I’ve granted access'}
+          Refresh accounts
         </Button>
         {page > 1 && (
           <Button

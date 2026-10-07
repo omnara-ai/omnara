@@ -7,6 +7,8 @@ import {
 } from '@omnara/sdk'
 import { useState } from 'react'
 
+import { integrationCatalog } from './integrationDefinitions'
+
 export function useIntegrationDraft(
   orgId: string,
   projectId: string,
@@ -16,7 +18,12 @@ export function useIntegrationDraft(
   const create = useCreateIntegration(orgId, projectId)
   const refreshed = useIntegration(orgId, projectId, existing ? '' : (create.data?.id ?? ''))
   const integration = existing ?? refreshed.data ?? create.data
-  const [name, setName] = useState(() => existing?.name ?? integrationKind.replaceAll('_', '-'))
+  const [name, setName] = useState(
+    () =>
+      existing?.name ??
+      integrationCatalog.find((entry) => entry.integrationKind === integrationKind)?.defaultName ??
+      '',
+  )
   async function ensureIntegration() {
     if (integration) return integration
     try {

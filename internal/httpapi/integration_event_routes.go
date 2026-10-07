@@ -119,22 +119,28 @@ func (s *Server) acceptSlackEvent(
 	if update, ok := slack.EventNameUpdate(envelope); ok {
 		return "updated", s.applyIntegrationNameUpdate(ctx, integration, update)
 	}
-	if slack.RemoteUserEvent(integration.ProviderTenantID, envelope.Event) ||
-		slack.BotOrSelfEvent(identity.BotUserID, envelope.Event) {
-		return "ignored", nil
-	}
 	event := envelope.Event
-	if !slack.ConversationalMessage(event) || event.Channel == "" || event.TS == "" {
+	if slack.RemoteUserEvent(integration.ProviderTenantID, event) ||
+		slack.BotOrSelfEvent(identity.BotUserID, event) ||
+		!slack.ConversationalMessage(event) || event.Channel == "" || event.TS == "" {
+		s.integrationInboxIntake.Record("slack", "filtered")
 		return "ignored", nil
 	}
-	_, _, err = s.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+	_, created, err := s.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: integration.ProjectID, IntegrationID: integration.ID,
 		ReceiptKey: "slack:" + envelope.EventID, Payload: raw,
 	})
-	if err == nil {
-		logent.IntegrationEvent(ctx, integration, "received", envelope.Event.Type)
+	if err != nil {
+		s.integrationInboxIntake.Record("slack", "error")
+		return "received", err
 	}
-	return "received", err
+	outcome := "accepted"
+	if !created {
+		outcome = "duplicate"
+	}
+	s.integrationInboxIntake.Record("slack", outcome)
+	logent.IntegrationEvent(ctx, integration, "received", envelope.Event.Type)
+	return "received", nil
 }
 
 func (s *Server) applyIntegrationNameUpdate(

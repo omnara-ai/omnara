@@ -44,6 +44,7 @@ INTEGRATION_RUNTIME_PACKAGES := \
 	./internal/harness/worker \
 	./internal/dbmigrate \
 	./internal/machinepool \
+	./internal/metrics \
 	./internal/modelprovider \
 	./internal/notifications \
 	./internal/redistore

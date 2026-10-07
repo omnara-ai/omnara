@@ -124,10 +124,28 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, integrationSetup.SetupRevision, updated.SetupRevision)
 	require.False(t, updated.UpdatedAt.Equal(integrationSetup.UpdatedAt))
+	metricSet := metrics.New()
+	assertIntake := func(committed, filtered, failed int) {
+		t.Helper()
+		response := httptest.NewRecorder()
+		metricSet.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+		require.Equal(t, http.StatusOK, response.Code)
+		for outcome, count := range map[string]int{
+			"committed": committed, "filtered": filtered, "error": failed, "accepted": 0, "duplicate": 0,
+		} {
+			label := fmt.Sprintf(`omnara_integration_inbox_intake_total{outcome="%s",provider="discord"}`, outcome)
+			if count == 0 {
+				require.NotContains(t, response.Body.String(), label)
+			} else {
+				require.Contains(t, response.Body.String(), fmt.Sprintf("%s %d\n", label, count))
+			}
+		}
+	}
 	r := DiscordRuntime{
-		Integrations: store.Integrations(),
-		Secrets:      store.Secrets(),
-		Redis:        integrationredis.OpenClient(t),
+		Integrations:  store.Integrations(),
+		Secrets:       store.Secrets(),
+		Redis:         integrationredis.OpenClient(t),
+		IntakeMetrics: metrics.NewIntegrationInboxIntakeRecorder(metricSet),
 		HTTPClient: &http.Client{
 			Transport: discordRuntimeTransport(func(request *http.Request) (*http.Response, error) {
 				require.Equal(t, "https://discord.com/api/v10/gateway/bot", request.URL.String())
@@ -159,6 +177,8 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		require.NoError(t, config.BeforeConnect(ctx))
 		require.NoError(t, config.BeforeIdentify(ctx), "fresh bot with zero reset_after can connect")
 		require.NoError(t, commit(ctx, discord.Dispatch{Type: "READY", Sequence: 1}, checkpoint))
+		require.Error(t, commit(ctx, discord.Dispatch{Type: "MESSAGE_CREATE", Data: json.RawMessage(`{}`)}, checkpoint))
+		assertIntake(0, 0, 0)
 		checkpoint.Sequence = 2
 		require.NoError(
 			t,
@@ -174,6 +194,14 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 				checkpoint,
 			),
 		)
+		assertIntake(1, 0, 0)
+		require.NoError(t, commit(ctx, discord.Dispatch{
+			Type: "MESSAGE_CREATE", Sequence: 2,
+			Data: json.RawMessage(
+				`{"id":"789","channel_id":"100","guild_id":"101","author":{"id":"102"},"content":"hello"}`,
+			),
+		}, checkpoint))
+		assertIntake(2, 0, 0)
 		checkpoint.Sequence = 3
 		require.NoError(
 			t,
@@ -212,6 +240,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		).Scan(&count),
 	)
 	require.Equal(t, 1, count)
+	assertIntake(2, 4, 0)
 	_, found, err = store.Integrations().ClaimIntegrationRuntime(ctx, revision, discordRuntimeLease)
 	require.NoError(t, err)
 	require.False(t, found, "released shard respects retry delay")
@@ -246,6 +275,9 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 			)
 		require.NoError(t, err)
 		require.ErrorIs(t, config.BeforeConnect(ctx), integrationstore.ErrIntegrationRuntimeLeaseLost)
+		require.ErrorIs(t, commit(ctx, discord.Dispatch{Type: "RESUMED"}, checkpoint),
+			integrationstore.ErrIntegrationRuntimeLeaseLost)
+		assertIntake(2, 4, 0)
 		checkpoint.Sequence++
 		require.ErrorIs(
 			t,
@@ -272,6 +304,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		).Scan(&count),
 	)
 	require.Equal(t, 1, count, "revoked runtime never publishes input")
+	assertIntake(2, 4, 1)
 }
 
 func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {

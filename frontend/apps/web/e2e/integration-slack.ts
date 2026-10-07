@@ -19,6 +19,7 @@ export async function exerciseSlackIntegrationSetup(
   const failures = installIntegrationFailureTracking(page)
   await openIntegrationSetup(page, projectID, 'slack_thread', integrationName)
   const browserOrigin = new URL(page.url()).origin
+  await page.getByLabel('Name in Slack', { exact: true }).fill('Engineering helper')
   await page.getByLabel('App configuration token', { exact: true }).fill('local-config-token')
   const connect = page.getByRole('button', { name: 'Create and connect', exact: true })
   await expect(connect).toBeEnabled()
@@ -79,31 +80,25 @@ export async function exerciseSlackIntegrationSetup(
   })
   expect(response.request().postDataJSON()).not.toHaveProperty('provider')
   expectSlackAuthorization(setup.oauth_url, browserOrigin)
-  const popup = page.waitForEvent('popup')
+  const tabs = context.pages().length
   await page.getByRole('link', { name: 'Authorize in Slack' }).click()
-  const authorization = await popup
-  await expect(authorization.getByText('Provider authorization boundary')).toBeVisible()
-  await authorization.close()
-  await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/slack_thread`)
+  await expect(page.getByText('Provider authorization boundary')).toBeVisible()
+  expect(context.pages()).toHaveLength(tabs)
 
   const projectPath = new URL(apiProjectPath).pathname
   const fixture = await mockSlackSetupReturn(page, projectPath, integration, setup.flow_id)
-  const waiting = await page.waitForResponse(
-    (result) =>
-      result.request().method() === 'GET' &&
-      new URL(result.url()).pathname === `${projectPath}/integrations/${integration.id}`,
-  )
-  const pendingIntegration = schemas.zIntegration.parse(await waiting.json())
-  expect(pendingIntegration.state).toBe('disconnected')
-  expect(pendingIntegration.setup_revision).toBe(integration.setup_revision)
-  expect(pendingIntegration.last_oauth_flow_id).not.toBe(setup.flow_id)
-  await expect(page.getByRole('link', { name: 'Authorize in Slack' })).toBeVisible()
   fixture.complete()
+  await page.goto(
+    `${browserOrigin}${integrationPath}?integration_oauth=success&integration_id=${integration.id}`,
+  )
   const mentions = page.getByRole('region', { name: 'Mentions', exact: true })
   await expect(
     mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
   ).toBeVisible()
-  await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/slack_thread`)
+  await expect(page).toHaveURL(integrationPath)
+  await expect(
+    page.getByLabel('breadcrumb').getByText(integration.name, { exact: true }),
+  ).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(mentions.getByLabel('Integration name', { exact: true })).toHaveCount(0)
   await expect(mentions.getByRole('checkbox')).toHaveCount(0)
