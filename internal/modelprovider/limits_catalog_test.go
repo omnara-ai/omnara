@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 
 const catalogTestResponse = `{"data":[
 	{"id":"openai/gpt-test","context_length":128000,
+	 "supported_parameters":["reasoning"],"reasoning":{"supported_efforts":["high","low"]},
 	 "top_provider":{"context_length":128000,"max_completion_tokens":16384}},
 	{"id":"openai/gpt-test:free","context_length":8192},
 	{"id":"openai/o-test","context_length":200000,
@@ -52,6 +54,7 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		{Slug: "codex-test"},
 		{Slug: "gpt-test", MaxOutputTokens: new(128000)},
 		{Slug: "gpt-test", MaxOutputTokens: new(1024)},
+		{Slug: "gpt-test", SupportsReasoning: new(false)},
 	})
 
 	for _, index := range []int{0, 1, 3} {
@@ -91,6 +94,16 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		models[9].MaxOutputTokens == nil || *models[9].MaxOutputTokens != 1024 {
 		t.Fatalf("sane provider max output should be kept: %+v", models[9])
 	}
+	for _, index := range []int{0, 6} {
+		model := models[index]
+		if model.SupportsReasoning == nil || !*model.SupportsReasoning ||
+			!slices.Equal(model.SupportedReasoningEfforts, []string{"high", "low"}) {
+			t.Fatalf("catalog reasoning support was not filled: %+v", model)
+		}
+	}
+	if *models[10].SupportsReasoning || models[10].SupportedReasoningEfforts != nil {
+		t.Fatalf("provider-reported reasoning support must win over the catalog: %+v", models[10])
+	}
 }
 
 func TestFillMissingLimitsCachesCatalogFetch(t *testing.T) {
@@ -110,7 +123,7 @@ func TestFillMissingLimitsCachesCatalogFetch(t *testing.T) {
 		_, _ = w.Write([]byte(catalogTestResponse))
 	})
 	fresh.FillMissingLimits(context.Background(), []DiscoveredModel{
-		{Slug: "gpt-test", ContextWindowTokens: new(4096), MaxOutputTokens: new(1024)},
+		{Slug: "gpt-test", ContextWindowTokens: new(4096), MaxOutputTokens: new(1024), SupportsReasoning: new(false)},
 	})
 	if got := freshRequests.Load(); got != 0 {
 		t.Fatalf("catalog fetches for fully limited models = %d, want 0", got)
@@ -189,6 +202,19 @@ func TestNewDiscovererEnrichesProviderModels(t *testing.T) {
 		*models[0].ContextWindowTokens != 128000 ||
 		models[0].MaxOutputTokens == nil || *models[0].MaxOutputTokens != 16384 {
 		t.Fatalf("discovered models were not enriched: %+v", models)
+	}
+
+	config.APIFormat = modelprotocol.APIFormatAnthropicMessages
+	config.AuthKind = modelstore.ModelProviderAuthKindAPIKeyHeader
+	config.AuthOptions = []byte(`{"header_name":"x-api-key"}`)
+	models, err = NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(models) != 1 || models[0].ContextWindowTokens == nil ||
+		models[0].SupportsReasoning == nil || *models[0].SupportsReasoning ||
+		models[0].SupportedReasoningEfforts != nil {
+		t.Fatalf("catalog efforts must not reach an anthropic-messages provider: %+v", models)
 	}
 }
 

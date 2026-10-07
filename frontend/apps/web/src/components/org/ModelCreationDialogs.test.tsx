@@ -79,7 +79,12 @@ const discoveredModels: JsonValue[] = [
   { slug: 'model-one', context_window_tokens: 100000, max_output_tokens: 32000 },
   { slug: 'model-two', context_window_tokens: 200000 },
   { slug: 'model-three' },
-  { slug: 'model-zero', context_window_tokens: 100000 },
+  {
+    slug: 'model-zero',
+    context_window_tokens: 100000,
+    supports_reasoning: true,
+    supported_reasoning_efforts: ['low', 'high'],
+  },
 ]
 const existingModel = {
   ...model,
@@ -370,7 +375,8 @@ it('configures an already-added slug again under another name', async () => {
       context_window_tokens: 100000,
       max_output_tokens: 4096,
       supports_tools: true,
-      supports_reasoning: false,
+      supports_reasoning: true,
+      supported_reasoning_efforts: ['low', 'high'],
     },
   ])
 })
@@ -755,6 +761,89 @@ it('labels the configured model edit controls', async () => {
     if (!(control instanceof HTMLInputElement)) throw new Error(`Expected input: ${label}`)
     expect(control.value).toBe(value)
   }
+})
+
+it('turns reasoning on and off for a configured model', async () => {
+  const modelPath = `${modelsPath}/${model.id}`
+  const api = creationApi({
+    catalog: {
+      status: 'ok',
+      models: [
+        {
+          slug: model.provider_model_slug,
+          supports_reasoning: true,
+          supported_reasoning_efforts: ['high'],
+        },
+      ],
+    },
+    extraRoutes: [{ method: 'PUT', path: modelPath, respond: () => jsonResponse(model) }],
+  })
+  await render(
+    api,
+    <EditConfiguredModelDialog open onOpenChange={() => undefined} orgId={orgId} model={model} />,
+  )
+  await selectOption(labeledControl('Reasoning'), 'Enabled')
+  await clickButton('Save changes')
+
+  await waitForUI(() => {
+    expect(api.requestsTo('PUT', modelPath).map((request) => request.body)).toEqual([
+      {
+        provider_model_slug: model.provider_model_slug,
+        context_window_tokens: model.context_window_tokens,
+        max_output_tokens: null,
+        default_max_output_tokens: null,
+        supports_reasoning: true,
+        supported_reasoning_efforts: ['high'],
+        default_reasoning_effort: '',
+      },
+    ])
+  })
+
+  await selectOption(labeledControl('Reasoning'), 'Disabled')
+  await clickButton('Save changes')
+
+  await waitForUI(() => {
+    expect(api.requestsTo('PUT', modelPath).at(1)?.body).toEqual({
+      provider_model_slug: model.provider_model_slug,
+      context_window_tokens: model.context_window_tokens,
+      max_output_tokens: null,
+      default_max_output_tokens: null,
+      supports_reasoning: false,
+      supported_reasoning_efforts: [],
+      default_reasoning_effort: '',
+    })
+  })
+})
+
+it('detects the reasoning levels of a new slug for a model with reasoning on', async () => {
+  const enabled = {
+    ...model,
+    supports_reasoning: true,
+    default_reasoning_effort: 'low',
+    supported_reasoning_efforts: ['low', 'high'],
+  }
+  const modelPath = `${modelsPath}/${model.id}`
+  const api = creationApi({
+    catalog: {
+      status: 'ok',
+      models: [{ slug: 'model-two', supported_reasoning_efforts: ['high'] }],
+    },
+    extraRoutes: [{ method: 'PUT', path: modelPath, respond: () => jsonResponse(enabled) }],
+  })
+  await render(
+    api,
+    <EditConfiguredModelDialog open onOpenChange={() => undefined} orgId={orgId} model={enabled} />,
+  )
+  await type(`#${CSS.escape(labeledControl('Provider model slug').id)}`, 'model-two')
+  await clickButton('Save changes')
+
+  await waitForUI(() => {
+    expect(api.requestsTo('PUT', modelPath).at(0)?.body).toMatchObject({
+      provider_model_slug: 'model-two',
+      supported_reasoning_efforts: ['high'],
+      default_reasoning_effort: '',
+    })
+  })
 })
 
 it('labels the provider edit controls including AWS signing region', async () => {

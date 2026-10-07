@@ -332,6 +332,14 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    /**
+     * Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+     */
+    supports_reasoning?: boolean;
+    /**
+     * Reasoning effort values the model accepts, when reported.
+     */
+    supported_reasoning_efforts?: Array<string>;
     pricing?: DiscoveredModelPricing;
 };
 

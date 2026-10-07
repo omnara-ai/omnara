@@ -863,11 +863,11 @@ func validateEffectiveModelOptions(apiFormat modelprotocol.APIFormat, input conf
 	}
 	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
 		for _, effort := range append([]string{input.DefaultReasoningEffort}, input.SupportedReasoningEfforts...) {
-			if effort != "" && !slices.Contains(anthropicMessagesReasoningEfforts, effort) {
+			if effort != "" && !slices.Contains(AnthropicMessagesReasoningEfforts, effort) {
 				return fmt.Errorf(
 					"anthropic-messages reasoning effort %q must be one of %s: %w",
 					effort,
-					strings.Join(anthropicMessagesReasoningEfforts, ", "),
+					strings.Join(AnthropicMessagesReasoningEfforts, ", "),
 					storeerr.ErrInvalidModelProviderConfig,
 				)
 			}
@@ -876,7 +876,7 @@ func validateEffectiveModelOptions(apiFormat modelprotocol.APIFormat, input conf
 	return nil
 }
 
-var anthropicMessagesReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+var AnthropicMessagesReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // acceptedReasoningEfforts returns the efforts an agent config may set for a
 // model listing supported. An empty list accepts any effort the API format
@@ -886,7 +886,7 @@ func acceptedReasoningEfforts(apiFormat modelprotocol.APIFormat, supported []str
 		return append([]string(nil), supported...)
 	}
 	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
-		return append([]string(nil), anthropicMessagesReasoningEfforts...)
+		return append([]string(nil), AnthropicMessagesReasoningEfforts...)
 	}
 	return nil
 }
