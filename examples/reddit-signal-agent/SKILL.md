@@ -172,13 +172,29 @@ panel. Help them wire it in, or build the UI with them.
 **Slack.** The bot answers wherever it's mentioned, and thread replies become
 instructions to the agent.
 
-1. Open the project's **Integrations** page. Create a **Slack bot** integration
-   with a descriptive name, or reuse the integration already created for this
-   example. In its launch settings, select this agent profile. Preserve other
-   selected profiles and settings when updating an existing integration.
-2. Connect the Slack app from that page, using an app configuration token from
-   [Slack's app settings](https://api.slack.com/apps), and complete OAuth. For CLI
-   setup of that saved integration, put `SLACK_APP_CONFIG_TOKEN=...` in `.env` and run:
+If `npx omnara integrations list` already shows an active `slack_thread`
+integration for this agent, from an earlier run of this skill, reuse it: skip
+to step 4, and if `npx omnara integrations get <integration-id>` doesn't list
+the profile under `settings.launcher.profiles`, add it with
+`npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`.
+The flag replaces the offered profiles, so repeat it for each one already listed.
+
+1. The user creates an app configuration token at
+   [api.slack.com/apps](https://api.slack.com/apps) under **Your App
+   Configuration Tokens** → **Generate Token**. It expires after about 12
+   hours. Have the user add it to `.env` as `SLACK_APP_CONFIG_TOKEN=...`.
+2. Create the integration with this profile in its launcher, so a mention
+   starts this agent, and note the `itg_…` ID it returns:
+
+   ```sh
+   npx omnara integrations create --name reddit-signal-agent \
+     --integration-kind slack_thread \
+     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
+   ```
+
+   The name is permanent and names the agent's Slack tools
+   (`int__reddit-signal-agent__post_message`).
+3. Create the Slack app and connect it:
 
    ```sh
    set -a && . ./.env && set +a
@@ -186,10 +202,10 @@ instructions to the agent.
      --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
    ```
 
-   Use the integration's `itg_…` ID, not the profile ID. The user approves the
-   returned OAuth URL before it expires. Setup reconnects that integration;
-   selecting the profile in its launcher enables new Slack conversations.
-3. Tell the user to invite the bot to a channel (`/invite @Reddit Signal Agent`)
+   Ask before choosing a different app name; it's how the team mentions the
+   bot. It opens a Slack authorization page that the user approves before it
+   expires.
+4. Tell the user to invite the bot to a channel (`/invite @Reddit Signal Agent`)
    and mention it: "@Reddit Signal Agent run the scan".
 
 **Omnara console.** Already done: every agent launched from the profile shows
@@ -227,7 +243,9 @@ cron trigger if any. Then tell the user:
 - **Change the topic or anything else:** ask a coding agent with this skill.
   It reuses the secret and updates the profile in place.
 - **Remove it:** delete the cron trigger (`npx omnara crons delete <id>`),
-  remove this profile from the integration's launcher on the project's Integrations page, then
-  `npx omnara profiles delete <agent-profile-id>` and
+  delete the Slack integration, if any
+  (`npx omnara integrations delete <integration-id>`), or, if other agents
+  share it, rerun `npx omnara integrations profiles` with only their
+  profiles. Then run `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>` (skip the secret if another agent
   shares it).
