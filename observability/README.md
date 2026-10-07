@@ -12,6 +12,9 @@ so other services can depend on it without importing the control plane.
   outbound HTTP, pgx queries, and periodic jobs, and the control plane's
   daemon, memory, notification, and provider-runtime recorders.
   `metrics.WithNamespace` keeps each service's series distinct.
+- `httprequest` completes each inbound HTTP request: it emits the request's
+  wide event and its metrics observation from one final status, and recovers
+  handler panics.
 
 Service-specific event helpers stay in the consuming service. The
 root module builds against this directory through a `replace` directive;

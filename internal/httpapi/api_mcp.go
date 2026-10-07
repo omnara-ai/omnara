@@ -36,11 +36,11 @@ func (s *Server) dispatchAPIRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiDispatchMiddlewares(mux *http.ServeMux) []middleware {
-	middlewares := make([]middleware, 0, 4)
-	if s.recorder != nil {
-		middlewares = append(middlewares, s.recorder.Middleware(mux))
+	return []middleware{
+		requestEvents(s.log, s.recorder, mux),
+		attachMCPToolCall,
+		s.openAPIRequestValidator,
 	}
-	return append(middlewares, s.requestLog, attachMCPToolCall, s.openAPIRequestValidator)
 }
 
 func attachMCPToolCall(next http.Handler) http.Handler {

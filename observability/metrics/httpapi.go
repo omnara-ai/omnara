@@ -1,29 +1,13 @@
 package metrics
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-type routeContextKey struct{}
-type statusContextKey struct{}
-
-type httpRequestStatus struct {
-	code int
-}
-
-func SetHTTPRequestStatusCode(ctx context.Context, status int) {
-	requestStatus, _ := ctx.Value(statusContextKey{}).(*httpRequestStatus)
-	if requestStatus != nil {
-		requestStatus.code = status
-	}
-}
 
 type HTTPRecorder struct {
 	requestsTotal   *prometheus.CounterVec
@@ -61,43 +45,8 @@ func NewHTTPRecorder(set *Set, subsystem string) *HTTPRecorder {
 	return m
 }
 
-func (m *HTTPRecorder) Middleware(mux *http.ServeMux) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		routeLabel := promhttp.WithLabelFromCtx("route", func(ctx context.Context) string {
-			route, _ := ctx.Value(routeContextKey{}).(string)
-			return route
-		})
-		statusLabel := promhttp.WithLabelFromCtx("code", func(ctx context.Context) string {
-			requestStatus, _ := ctx.Value(statusContextKey{}).(*httpRequestStatus)
-			if requestStatus == nil || requestStatus.code == 0 {
-				return "unknown"
-			}
-			return strconv.Itoa(requestStatus.code)
-		})
-		instrumented := promhttp.InstrumentHandlerInFlight(m.inFlight,
-			promhttp.InstrumentHandlerCounter(m.requestsTotal,
-				promhttp.InstrumentHandlerDuration(m.requestDuration, next, routeLabel, statusLabel),
-				routeLabel,
-				statusLabel,
-			),
-		)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == ScrapePath {
-				next.ServeHTTP(w, r)
-				return
-			}
-			requestStatus := &httpRequestStatus{}
-			ctx := context.WithValue(r.Context(), routeContextKey{}, routePattern(mux, r))
-			ctx = context.WithValue(ctx, statusContextKey{}, requestStatus)
-			instrumented.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
 // Start counts a request in flight and returns the function that records it
-// once the matched route pattern and final status are known. It is the
-// alternative to Middleware for servers that already wrap the response writer
-// and read the route from the routed request's Pattern.
+// once the matched route pattern and final status are known.
 func (m *HTTPRecorder) Start() func(method, pattern string, status int) {
 	if m == nil {
 		return func(string, string, int) {}
@@ -116,8 +65,8 @@ func (m *HTTPRecorder) Start() func(method, pattern string, status int) {
 	}
 }
 
-// httpMethodLabel matches promhttp's method label so Start and Middleware
-// report the same series.
+// httpMethodLabel collapses nonstandard methods so clients cannot grow the
+// series.
 func httpMethodLabel(method string) string {
 	switch strings.ToUpper(method) {
 	case http.MethodGet, http.MethodPut, http.MethodHead, http.MethodPost, http.MethodDelete,
@@ -126,17 +75,6 @@ func httpMethodLabel(method string) string {
 	default:
 		return "unknown"
 	}
-}
-
-func routePattern(mux *http.ServeMux, r *http.Request) string {
-	if r.Pattern != "" {
-		return routePathPattern(r.Pattern)
-	}
-	_, pattern := mux.Handler(r)
-	if pattern != "" {
-		return routePathPattern(pattern)
-	}
-	return "unmatched"
 }
 
 func routePathPattern(pattern string) string {

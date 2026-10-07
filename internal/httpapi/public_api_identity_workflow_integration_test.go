@@ -4204,7 +4204,10 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			server := &Server{store: store}
 			buffer, logger := newRequestEventCapture()
 			handlerCalls := 0
-			handler := requestLog(logger)(server.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(server.auth(http.HandlerFunc(func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
 				handlerCalls++
 				principal, ok := r.Context().Value(principalContextKey{}).(identitystore.PrincipalRecord)
 				if !ok || principal.ID != user.ID || principal.BrowserSessionID != session.ID {

@@ -127,8 +127,6 @@ func (r *ResponseRecorder) BytesWritten() int64 { return r.bytes }
 // shutdown can be told apart from a failure that happened to race it.
 func OnlyCanceled(err error) bool { return onlyMatches(err, context.Canceled) }
 
-// onlyMatches reports whether every leaf of err's wrap tree matches target, so
-// a cancellation joined with an unrelated failure still reports the failure.
 func onlyMatches(err, target error) bool {
 	if err == nil || target == nil {
 		return false

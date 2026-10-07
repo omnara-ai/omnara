@@ -32,7 +32,6 @@ func WithEvent(ctx context.Context, event *Event) context.Context {
 	return context.WithValue(ctx, eventContextKey{}, event)
 }
 
-// Start creates an event and returns a context carrying it.
 func Start(ctx context.Context, name string, fieldSets ...Fields) (context.Context, *Event) {
 	event := NewEvent(ctx, name, fieldSets...)
 	return WithEvent(ctx, event), event

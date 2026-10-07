@@ -62,8 +62,6 @@ func AttachHTTPRequest(ctx context.Context, record HTTPRequestTraceRecord) {
 
 const maxTraceRecords = 25
 
-// traceStats totals every attached record, so the kept record lists can stop
-// growing at maxTraceRecords instead of holding every record until Done.
 type traceStats struct {
 	count      int
 	errorCount int

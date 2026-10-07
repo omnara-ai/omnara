@@ -10,7 +10,6 @@ import (
 
 const ScrapePath = "/metrics"
 
-// DefaultNamespace prefixes series when New receives no WithNamespace option.
 const DefaultNamespace = "omnara"
 
 const (
@@ -26,8 +25,6 @@ type Set struct {
 
 type Option func(*Set)
 
-// WithNamespace prefixes every series the shared recorders register, so
-// services that report to the same Prometheus keep distinct series.
 func WithNamespace(namespace string) Option {
 	return func(set *Set) { set.namespace = namespace }
 }

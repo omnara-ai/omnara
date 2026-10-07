@@ -1785,7 +1785,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			buf, logger := newRequestEventCapture()
 			ready := make(chan *daemonSocket, 1)
 			finished := make(chan struct{})
-			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := websocket.Accept(w, r, nil)
 				if err != nil {
 					t.Error(err)

@@ -33,7 +33,7 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 			recorder := metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB)
 			finished := make(chan error, 1)
 			var handlerErr error
-			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := websocket.Accept(w, r, nil)
 				if err != nil {
 					handlerErr = err

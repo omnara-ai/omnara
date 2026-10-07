@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
@@ -22,8 +20,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/httprequest"
 	"github.com/omnara-ai/omnara/observability/metrics"
-	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type principalContextKey struct{}
@@ -78,36 +76,18 @@ func chain(handler http.Handler, middlewares ...middleware) http.Handler {
 	return handler
 }
 
-func requestLog(log *slog.Logger) middleware {
+func requestEvents(log *slog.Logger, recorder *metrics.HTTPRecorder, mux *http.ServeMux) middleware {
+	config := httprequest.Config{
+		Logger:  log,
+		Metrics: recorder,
+		Mux:     mux,
+		WriteInternalError: func(w http.ResponseWriter) {
+			apierror.Write(w, openapi.ErrorCodeInternalError)
+		},
+	}
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := logpkg.WithLogger(r.Context(), log)
-			ctx, rec, event := logpkg.HTTPRequest(ctx, w, r)
-			defer func() {
-				event.Done(ctx)
-				metrics.SetHTTPRequestStatusCode(ctx, rec.TelemetryStatusCode())
-			}()
-			defer recoverRequestPanic(ctx, rec)
-
-			next.ServeHTTP(rec, r.WithContext(ctx))
-		})
+		return httprequest.Handler(config, next)
 	}
-}
-
-func recoverRequestPanic(ctx context.Context, rec *logpkg.ResponseRecorder) {
-	recovered := recover()
-	if recovered == nil {
-		return
-	}
-	if err, ok := recovered.(error); ok && errors.Is(err, http.ErrAbortHandler) {
-		panic(recovered) //nolint:omnaralint // re-raise net/http's abort sentinel
-	}
-	logpkg.Error(ctx, fmt.Errorf("http handler panicked: %v", recovered))
-	logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
-	if rec.Started() {
-		panic(http.ErrAbortHandler) //nolint:omnaralint // abort the partial response
-	}
-	apierror.Write(rec, openapi.ErrorCodeInternalError)
 }
 
 func maxBody(limit func(*http.Request) int64) middleware {

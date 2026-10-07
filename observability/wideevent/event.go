@@ -23,6 +23,8 @@ type Event struct {
 	done       bool
 	levelSet   bool
 	level      EventLevel
+	floorSet   bool
+	floor      EventLevel
 	beforeDone []func(Finalizer)
 	dbQueries  []DBQueryTraceRecord
 	dbStats    traceStats
@@ -52,7 +54,7 @@ func (f Finalizer) Level(level EventLevel) {
 }
 
 func (f Finalizer) Escalate(level EventLevel) {
-	f.e.raiseLevel(level)
+	f.e.raiseFloor(level)
 }
 
 func (f Finalizer) Error(err error) {
@@ -133,9 +135,6 @@ func (e *Event) Level(level EventLevel) {
 	e.pinLevel(level)
 }
 
-// Escalate raises the event level, overriding a lower pinned level. Use it
-// for failures that must stay visible even after an earlier Level call
-// quieted the event.
 func (e *Event) Escalate(level EventLevel) {
 	if e == nil {
 		return
@@ -145,15 +144,15 @@ func (e *Event) Escalate(level EventLevel) {
 	if e.done {
 		return
 	}
-	e.raiseLevel(level)
+	e.raiseFloor(level)
 }
 
-func (e *Event) raiseLevel(level EventLevel) {
-	if e.levelSet && e.level >= level {
+func (e *Event) raiseFloor(level EventLevel) {
+	if e.floorSet && e.floor >= level {
 		return
 	}
-	e.level = level
-	e.levelSet = true
+	e.floor = level
+	e.floorSet = true
 }
 
 func (e *Event) pinLevel(level EventLevel) {
@@ -209,6 +208,9 @@ func (e *Event) Done(ctx context.Context) {
 		level = e.level
 	case e.err != nil:
 		level = ErrorLevel
+	}
+	if e.floorSet && e.floor > level {
+		level = e.floor
 	}
 	if !e.log.Enabled(ctx, level) {
 		return

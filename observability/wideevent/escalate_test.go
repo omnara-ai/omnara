@@ -31,6 +31,33 @@ func TestEscalateOverridesLowerPinnedLevel(t *testing.T) {
 	}
 }
 
+func TestEscalateNeverLowersErrorLevel(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := WithLogger(t.Context(), testLogger(&buf))
+	ctx, event := Start(ctx, "test.event")
+	Escalate(ctx, WarnLevel)
+	Error(ctx, errors.New("boom"))
+
+	event.Done(ctx)
+
+	if record := oneRecord(t, &buf); record["level"] != "error" {
+		t.Fatalf("level = %v, want error", record["level"])
+	}
+}
+
+func TestEscalateRaisesDefaultLevel(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := WithLogger(t.Context(), testLogger(&buf))
+	ctx, event := Start(ctx, "test.event")
+	Escalate(ctx, WarnLevel)
+
+	event.Done(ctx)
+
+	if record := oneRecord(t, &buf); record["level"] != "warn" {
+		t.Fatalf("level = %v, want warn", record["level"])
+	}
+}
+
 func TestEscalateAfterDoneIgnored(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := WithLogger(t.Context(), testLogger(&buf))
