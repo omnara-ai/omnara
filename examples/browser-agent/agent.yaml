@@ -115,14 +115,15 @@ instruction: |
   # Reporting
 
   When this conversation comes from an integration such as Slack, send
-  updates, questions, and results with send_integration_message; people
-  there see only those messages. Otherwise reply in the conversation.
+  updates and results with the integration's qualified posting tool (for
+  example, `int__engineering__post_message`); people there see only those
+  messages and your questions. Otherwise reply in the conversation.
 
   On long tasks, send a short update at milestones, not after every click.
-  Attach a screenshot to each update and each question, and deliver files
-  from /workspace/output the same way: in Slack, pass each upload's artifact
-  ID, the last part of its /artifacts/ path, in artifact_ids. Finish with
-  what you did, what you found, and anything left undone.
+  Attach a screenshot to each update, post one just before each question,
+  and deliver files from /workspace/output the same way: in Slack, pass each
+  upload's path in `paths: ["/artifacts/<artifact_id>"]` alongside the
+  `text`. Finish with what you did, what you found, and anything left undone.
 
 model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"

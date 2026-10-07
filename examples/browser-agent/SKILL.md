@@ -250,21 +250,24 @@ Otherwise archive it in the console once every sign-in works.
 
 ## 8. Connect Slack (if chosen)
 
-1. The user creates an app configuration token at
-   [api.slack.com/apps](https://api.slack.com/apps) under **Your App
-   Configuration Tokens** → **Generate Token**. It expires after about 12
-   hours.
-2. Have the user add it to `.env` as `SLACK_APP_CONFIG_TOKEN=...`, then run:
+1. Open the project's **Integrations** page. Create a **Slack bot** integration
+   with a descriptive name, or reuse the integration already created for this
+   example. In its launch settings, select this agent profile. Preserve other
+   selected profiles and settings when updating an existing integration.
+2. Connect the Slack app from that page, using an app configuration token from
+   [Slack's app settings](https://api.slack.com/apps), and complete OAuth. For CLI
+   setup of that saved integration, put `SLACK_APP_CONFIG_TOKEN=...` in `.env` and run:
 
    ```sh
    set -a && . ./.env && set +a
-   npx omnara profiles slack <agent-profile-id> --app-name "Browser Agent" \
+   npx omnara integrations slack <integration-id> --app-name "Browser Agent" \
      --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
    ```
 
-   Ask before choosing a different app name; it's how the team mentions the
-   bot. It opens a Slack authorization page that the user approves within 10
-   minutes.
+   Use the integration's `itg_…` ID, not the profile ID. Ask before choosing a
+   different app name; it's how the team mentions the bot. The user approves
+   the returned OAuth URL before it expires. Setup reconnects that integration;
+   selecting the profile in its launcher enables new Slack conversations.
 3. Tell the user to invite the bot to a channel (`/invite @Browser Agent`). A
    private channel suits it, since its updates show data from the sites.
 
@@ -297,7 +300,8 @@ npx omnara crons create --name browser-agent-nightly \
 If `npx omnara crons list --name browser-agent-nightly --json` already shows a
 trigger, use `npx omnara crons update <cron-trigger-id>` instead. If a run is
 still going when the next fires, the message waits in the queue. Don't target
-the profile: that starts a new agent, with a new kept machine, every run.
+the profile, and don't use the Slack integration's **Add schedule**: both
+start a new agent, with a new kept machine, every run.
 
 ## 10. Wrap up
 
@@ -313,6 +317,7 @@ schedule if any. Then tell the user:
 - **To rotate a password,** update its secret on the **Secrets** page, then
   start a new agent the same way; running machines keep the old value.
 - **To remove it,** delete the cron trigger (`npx omnara crons delete <id>`),
-  remove the Slack integration from the profile in the dashboard, then run
+  remove this profile from the integration's launcher on the project's
+  Integrations page, then run
   `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>` for each secret.
