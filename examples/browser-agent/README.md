@@ -71,7 +71,7 @@ on the same site take turns.
 | Setting | Default | In this agent |
 | --- | --- | --- |
 | `machine_memory_mb` | The pool's default size | `8192`, or the pool's maximum, for Chrome and Blaxel's in-memory file system |
-| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived. `1440` (a day idle) for a helper used through Slack, where every thread gets its own machine |
+| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived. In Slack every thread gets its own machine, so archive a thread's agent when its work is done, or set a period (at least `5` minutes) to remove idle machines automatically |
 | `sleep_after_ms` | A short idle period on the default pool | `7200000`: sleeps after two hours with no command running, and wakes in under a second with Chrome, memory, and files intact. `0` (never) when a site texts or emails codes |
 | `AGENT_BROWSER_IDLE_TIMEOUT_MS` | One hour: agent-browser closes the browser after an hour without commands | `0`: the browser stays open |
 
