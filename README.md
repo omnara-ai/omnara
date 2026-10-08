@@ -65,8 +65,8 @@ or open it in the dashboard to watch its tool calls and reply.
 <details>
 <summary>Launch it from your code with the TypeScript SDK</summary>
 
-Create an API key in the dashboard, install the SDK with
-`npm install @omnara/sdk`, and use the org and project IDs that
+Create an API key in the dashboard and export it as `OMNARA_TOKEN`, install the
+SDK with `npm install @omnara/sdk`, and use the org and project IDs that
 `npx omnara config` prints:
 
 ```ts
@@ -119,13 +119,22 @@ development prints the verification link in `docker compose logs api`, so no
 email provider is needed. To build from source instead of using published
 images, run `docker compose --profile app up -d --build`.
 
-A new self-hosted instance has no model provider or machines yet. Add a model
-provider and a machine pool (or connect your own machine) in the console, then
-point the CLI at your instance:
+A new instance has no models or machines yet. In the console, add a model
+provider and a model, connect this computer under **Machines**, and share both
+with your project. Sandboxes also work once your instance has a
+[public URL](https://docs.omnara.com/self-hosting/deployment#exposing-the-deployment-publicly).
+
+Point the CLI at your instance and log in:
 
 ```sh
 npx omnara config --api-url http://localhost:8000/api/v1 --issuer-url http://localhost:8000
+npx omnara login
+npx omnara config select
 ```
+
+In `agent.yaml`, use your provider and model names, and replace the
+`machine_pool_name` entry with `machine_name: <your machine>`. Then launch it
+with the same command as above.
 
 The local defaults are intentionally insecure. For a real deployment, follow
 the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
@@ -212,15 +221,16 @@ memory filesystem. The
 ### Run them anywhere
 
 - **[Machines](https://docs.omnara.com/machines/overview).** Machines are tools
-  the agent uses. Install the Omnara daemon on any laptop, VM, or container and
-  your agents can run commands and edit files there, with no inbound ports or
+  the agent uses. Install the Omnara daemon on any macOS or Linux laptop, VM, or
+  container and your agents can run commands and edit files there, with no inbound ports or
   SSH keys. Or use sandboxes from nine providers (Arker, Blaxel, boxd, CreateOS,
   Daytona, Freestyle, Modal, Tenki, Unikraft). An agent can use several machines
   at once (for example, a set of GPU servers) and move between them. If your
-  laptop goes offline, it can continue in a sandbox and sync back with git.
+  laptop goes offline, the agent can continue in a sandbox and sync its work
+  back with git.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
-  saved, so agents recover from crashes, restarts, and machine disconnects
-  without losing work.
+  saved, so agents pick up where they left off after crashes, restarts, and
+  machine disconnects.
 - **[Schedules](https://docs.omnara.com/api-reference/endpoints/configs-and-profiles/create-cron-trigger).**
   Cron triggers with time zones can message an existing agent, launch a new one
   from a profile, or
@@ -288,8 +298,8 @@ your own database.
 
 | If you use | It's good for | Omnara adds |
 | --- | --- | --- |
-| Workflow builders, such as n8n or Zapier | Predictable, step-by-step automations | Agents that decide their own steps, run code on machines, and keep state for days |
-| Agent frameworks, such as Mastra, LangChain, or the OpenAI Agents SDK | Writing one agent in your app's code | Hosting, state, machines, permissions, and integrations, with agents created and changed through an API instead of a redeploy |
+| Workflow builders, such as n8n or Zapier | Predictable, step-by-step automations | Open-ended agents that run code on machines and keep state for days |
+| Agent frameworks, such as Mastra, LangChain, or the OpenAI Agents SDK | Agent logic in your app's code | Hosting, state, machines, permissions, and integrations, with agents created and changed through an API instead of a redeploy |
 | Agent harnesses, such as Claude Code, the Claude Agent SDK, Codex, OpenCode, or Pi | One agent loop in a terminal or on one machine | Cloud agents that run as a service, across machines and users, started from your app, Slack, GitHub, or a schedule |
 | Managed agent platforms, such as Claude Managed Agents or the Agents API | Hosted agents on one company's models | The same model of hosted agents, open source, on any model, and self-hostable |
 
@@ -318,19 +328,20 @@ and a [SharePoint filesystem mount](examples/sharepoint-mount).
 
 ## Use Omnara from your coding agent
 
-**MCP server.** Connect Claude Code, Codex, Cursor, or any MCP client to
-`https://app.omnara.com/mcp`, then launch Omnara agents, send them messages,
-follow their progress, and manage profiles, secrets, and machines with your
-dashboard permissions. You sign in through the browser the first time, so
-there are no tokens to paste. In Claude, add it from the
+**MCP server.** Connect Claude Code, Codex, Cursor, or any MCP client that
+supports OAuth to `https://app.omnara.com/mcp` to launch and manage Omnara
+agents. You sign in through the browser, so there are no tokens to paste. In
+Claude, add it from the
 [connectors directory](https://claude.ai/directory/app-omnara-com). Omnara is
-also listed in the official MCP Registry as `com.omnara/omnara`. See
-[Connecting MCP clients](https://docs.omnara.com/api/authentication#connecting-mcp-clients).
+also listed in the official MCP Registry as `com.omnara/omnara`.
 
 ```sh
 claude mcp add --transport http omnara https://app.omnara.com/mcp
 codex mcp add omnara --url https://app.omnara.com/mcp
 ```
+
+Then sign in with `/mcp` in Claude Code or `codex mcp login omnara` in Codex.
+See [Connecting MCP clients](https://docs.omnara.com/api/authentication#connecting-mcp-clients).
 
 **CLI.** [`omnara`](https://www.npmjs.com/package/omnara) manages agents,
 profiles, machines, model providers, secrets, skills, and cron triggers from
