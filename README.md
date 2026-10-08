@@ -32,8 +32,8 @@ through one API on any model and any machine, with tools, secrets, approvals,
 and streaming built in. Use [Omnara Cloud](https://app.omnara.com) or self-host it
 under Apache 2.0.
 
-Put agents inside your product, run them from Slack, Discord, or GitHub, or
-start them on a schedule. Omnara keeps each agent's state and runs its tools;
+Run cloud agents inside your product, from Slack, Discord, or GitHub, or on a
+schedule. Omnara keeps each agent's state and runs its tools;
 your application decides who can use each agent and what they see.
 
 ## Quickstart
@@ -193,8 +193,9 @@ memory filesystem; see the
   sandboxes from Blaxel, Daytona, Modal, Unikraft, Freestyle, Tenki, Arker,
   boxd, or CreateOS, or on your own laptop, VM, or container through the Omnara
   daemon, which connects outbound so you never open inbound ports. An agent can
-  use no machines or several, and machines can be added or removed while it
-  runs.
+  use several machines at once, such as GPU servers for a training run.
+  Machines don't own the agent: if your laptop goes offline, the agent keeps
+  its full history and can start a sandbox to keep working.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
   saved, so agents recover from crashes, restarts, and machine disconnects
   without losing work.
@@ -209,7 +210,9 @@ memory filesystem; see the
   Mention the bot in Slack or Discord to start an agent in a thread, where it
   replies, asks questions, and requests approvals. On GitHub, an agent can start
   when a pull request opens or someone mentions it, then read the diff,
-  comment, and submit reviews.
+  comment, and submit reviews. To connect another service, build a
+  [custom integration](https://docs.omnara.com/integrations/custom-integrations)
+  on the same public API.
 - **[Streaming](https://docs.omnara.com/events/streaming) and
   [webhooks](https://docs.omnara.com/events/webhooks).** Stream every event as
   it happens or receive it as a webhook, and send new messages while the agent
