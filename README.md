@@ -9,7 +9,7 @@
 
 <h1 align="center">The open-source managed agent platform</h1>
 
-<p align="center">An open-source alternative to Claude Managed Agents and OpenAI's Agents API.</p>
+<p align="center">A self-hostable alternative to Claude Managed Agents and OpenAI's Agents API.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/github/license/omnara-ai/omnara"></a>
