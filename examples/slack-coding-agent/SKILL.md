@@ -151,8 +151,9 @@ task.
 
 ## 7. Wrap up
 
-Summarize what you created: the secret, the profile, and the integrations. Then
-tell the user:
+Summarize what you created: the secret, the profile, and the integrations.
+Remind the user to delete `.env` or move what's in it somewhere safe. Then tell
+them:
 
 - **Start it from elsewhere too:** anything that can call the API (a Linear
   webhook, a CI job) can launch an agent from the profile with the task as

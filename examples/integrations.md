@@ -25,11 +25,13 @@ for anything not covered here.
   `npx omnara integrations profiles <integration-id> --profile-ids <id>`
   replaces the whole list, so repeat any already there. GitHub starts exactly
   one profile, `settings.launcher.profile`.
-- **Credentials.** Have the user put tokens in `.env`, and load it with
-  `set -a && . ./.env && set +a` in the same command that uses them. Reuse a
-  secret that already exists under the expected name. The CLI can't change a
-  secret's value, so if the token changed, the user pastes the new one on the
-  dashboard's **Secrets** page (the ID stays the same).
+- **Credentials.** Have the user put tokens in `.env` (pasting them in the chat
+  also works), and load it with `set -a && . ./.env && set +a` in the same
+  command that uses them. Reuse a secret that already exists under the expected
+  name. The CLI can't change a secret's value, so if the token changed, the user
+  pastes the new one on the dashboard's **Secrets** page (the ID stays the
+  same). When setup is done, remind the user to delete `.env` or move what's in
+  it somewhere safe.
 - **Omnara URL.** The URLs below use `https://app.omnara.com`. On a
   self-hosted Omnara, use its public URL.
 

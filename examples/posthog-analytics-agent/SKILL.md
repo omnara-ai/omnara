@@ -162,7 +162,8 @@ thread instead, see "Scheduled runs in a channel" in `integrations.md`.
 ## 9. Wrap up
 
 Summarize what you created: the secret, the profile, and any integrations or
-cron trigger. Then tell the user:
+cron trigger. Remind the user to delete `.env` or move what's in it somewhere
+safe. Then tell them:
 
 - **Change what it reports or anything else:** ask a coding agent with this
   skill. It reuses the secret and updates the profile in place.

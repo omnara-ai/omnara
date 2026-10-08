@@ -67,9 +67,9 @@ policies `ViewOnlyAccess` and `CloudWatchReadOnlyAccess`. They cover
 describing resources, metrics, alarms, and reading logs, but not S3 object
 contents or secret values.
 
-Skip this step if the secret already exists:
-`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name sre-agent-aws --json`.
-If it does, ask whether to reuse it and note its `id`.
+If a secret named `sre-agent-aws` already exists
+(`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name sre-agent-aws --json`),
+ask whether to reuse it and note its `id`. Otherwise:
 
 1. Create the IAM user, either way:
    - **You do it**, if the user has the AWS CLI signed in to the production
@@ -188,7 +188,7 @@ npx omnara agents launch --profile <agent-profile-id> --config <current-config-i
 
 Give the user the link to watch it work:
 `https://app.omnara.com/projects/<project-id>/agents/<agent-id>`. It takes a
-few minutes, longer on the first run while the machine clones the repository.
+few minutes, longer with code access while the machine clones the repository.
 The user can reply in the console with a real question, such as a recent
 alert or "why was checkout slow yesterday at 3pm?". If the agent reports an
 AWS call as denied, that's the read-only policy working; only widen it if the

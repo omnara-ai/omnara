@@ -56,12 +56,11 @@ is fine. Don't ask for passwords here; step 4 collects them.
    Microsoft).
 3. **When it runs.** Whenever someone starts it, or on a schedule such as
    every night at a set time? For a schedule, get the time and timezone.
-4. **Where they follow it.** Suggest Slack or Discord, whichever the team
-   uses: the team mentions the bot to start a task, and updates, screenshots,
-   questions, and results arrive in the thread. The Omnara console always
-   works too. Ask whether they want a
-   screenshot with every update (the default), only with questions, or only
-   with the result.
+4. **Where they follow it.** Suggest Slack or Discord, whichever the team uses:
+   the team mentions the bot to start a task, and updates, screenshots,
+   questions, and results arrive in the thread. The Omnara console always works
+   too. Ask whether they want a screenshot with every update (the default), only
+   with questions, or only with the result.
 5. **What it may do on its own.** Overnight no one is around to approve
    anything. Which actions may it take without asking, such as submitting
    forms, sending messages, or deleting records? It will ask about everything
@@ -283,7 +282,8 @@ schedule**: both start a new agent, with a new kept machine, every run.
 ## 10. Wrap up
 
 Summarize what you created: the secrets, the profile, and any integrations or
-schedule. Then tell the user:
+schedule. Remind the user to delete `.env` or move what's in it somewhere safe.
+Then tell them:
 
 - **Machines are kept** until their agent is archived, sleeping when idle and
   waking with the browser intact. Archive agents whose work is done.

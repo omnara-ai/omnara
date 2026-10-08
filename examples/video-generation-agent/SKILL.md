@@ -142,8 +142,8 @@ teaser for our new pricing page".
 Summarize what you created: the skill, the profile, and any integrations. Then
 tell the user:
 
-- **Change the instruction, model, or anything else:** ask a coding agent
-  with this skill. It reuses the skill and updates the profile in place.
+- **Change the instruction, model, or anything else:** ask a coding agent with
+  this skill. It reuses the Remotion skill and updates the profile in place.
 - **Remove it:** remove its integrations, if any (see "Removing" in
-  `integrations.md`), then run `npx omnara profiles delete <agent-profile-id>` and
-  `npx omnara skills delete <skill-id>`.
+  `integrations.md`), then run `npx omnara profiles delete <agent-profile-id>`
+  and `npx omnara skills delete <skill-id>`.
