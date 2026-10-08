@@ -55,9 +55,6 @@ machine_sources:
   - machine_pool_name: default-pool
 ```
 
-Because the config gives the agent a machine, tools such as `run_command` are
-added automatically. Add others, such as `web_search`, under `tools:`.
-
 Launch it with the CLI (Node.js 22 or newer). If you're not logged in, the
 first command opens your browser to sign in.
 
