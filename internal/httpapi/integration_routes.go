@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -166,6 +167,53 @@ func (s strictOpenAPIServer) ListIntegrations(
 		return nil, err
 	}
 	return openapi.ListIntegrations200JSONResponse{Data: data, NextCursor: nullableFromPtr(next)}, nil
+}
+
+func (s strictOpenAPIServer) ListOrgIntegrations(
+	ctx context.Context,
+	request openapi.ListOrgIntegrationsRequestObject,
+) (openapi.ListOrgIntegrationsResponseObject, error) {
+	scope, err := s.orgListScope(ctx, identitystore.ProjectActionRead)
+	if err != nil {
+		return nil, err
+	}
+	limit, after, err := parseOpenAPIPageParams(
+		request.Params.Limit,
+		request.Params.Cursor,
+		publicid.KindIntegration,
+	)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	namePattern := ""
+	if request.Params.Name != nil {
+		namePattern, err = resourceNameGlobToLike(*request.Params.Name)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+	}
+	page, err := s.server.store.Integrations().ListIntegrationsForProjects(
+		ctx,
+		integrationstore.ListIntegrationsForProjectsInput{
+			ProjectIDs: scope.projectIDs, NamePattern: namePattern, Limit: limit, After: after,
+		},
+	)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	data := make([]openapi.Integration, 0, len(page.Integrations))
+	for _, integration := range page.Integrations {
+		response, err := integrationResponse(integration)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, response)
+	}
+	next, err := encodeNextCursor(page.HasMore, page.Next.CreatedAt, publicid.KindIntegration, page.Next.ID)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListOrgIntegrations200JSONResponse{Data: data, NextCursor: nullableFromPtr(next)}, nil
 }
 
 func parseIntegrationRequest(

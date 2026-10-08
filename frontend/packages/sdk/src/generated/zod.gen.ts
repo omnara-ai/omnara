@@ -5555,6 +5555,21 @@ export const zUploadDaemonFileQuery = z.object({
  */
 export const zUploadDaemonFileResponse = zUploadFileResponse;
 
+export const zListOrgIntegrationsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgIntegrationsQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Integrations across the caller's readable projects, newest first.
+ */
+export const zListOrgIntegrationsResponse = zListIntegrationsResponse;
+
 export const zListIntegrationsPath = z.object({
     orgID: zOrganizationId,
     projectID: zProjectId

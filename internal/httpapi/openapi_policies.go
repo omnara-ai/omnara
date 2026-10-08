@@ -189,6 +189,7 @@ const (
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
 	operationListOrgAPIKeys                operationID = "ListOrgAPIKeys"
 	operationListOrgAgents                 operationID = "ListOrgAgents"
+	operationListOrgIntegrations           operationID = "ListOrgIntegrations"
 	operationListOrgAgentProfiles          operationID = "ListOrgAgentProfiles"
 	operationListOrgInvitations            operationID = "ListOrgInvitations"
 	operationListOrgMembers                operationID = "ListOrgMembers"
@@ -333,6 +334,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListOrgAgents:              accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationListOrgIntegrations:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListOrgAgentProfiles:       accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
