@@ -1,5 +1,5 @@
 import { useClusterModelPricing, useConfiguredModels, useModelProvider } from '@omnara/react'
-import type { ModelProviderConfig } from '@omnara/sdk'
+import { ApiError, type ModelProviderConfig } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -28,8 +28,12 @@ import { useActiveOrg } from '@/lib/use-active-org'
 export function ModelProviderPage() {
   const { activeOrg } = useActiveOrg()
   const { providerId = '' } = useParams({ strict: false })
-  const providerQuery = useModelProvider(activeOrg.id, providerId)
+  // Provider details and their models are manage-only, so members don't request them.
+  const canManage = canManageOrg(activeOrg.role)
+  const providerQuery = useModelProvider(activeOrg.id, canManage ? providerId : '')
   const provider = providerQuery.data
+  const denied =
+    !canManage || (providerQuery.error instanceof ApiError && providerQuery.error.status === 403)
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -39,7 +43,20 @@ export function ModelProviderPage() {
           { id: 'provider', label: provider?.name ?? 'Provider' },
         ]}
       />
-      {provider ? (
+      {denied ? (
+        <Empty className="rounded-xl border">
+          <EmptyHeader>
+            <EmptyDescription>
+              Only organization admins can view a provider&rsquo;s details and models.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button asChild size="sm" variant="ghost">
+              <Link to="/models">Back to models</Link>
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : provider ? (
         <ProviderView provider={provider} />
       ) : providerQuery.isError ? (
         <Empty className="rounded-xl border">

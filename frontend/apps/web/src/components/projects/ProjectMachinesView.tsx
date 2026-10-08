@@ -339,7 +339,6 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
       }
       subtitle={<span className="truncate">Individual machines shared with this project</span>}
       meta={null}
-      footer={<span className="truncate">Not part of any pool</span>}
       stats={
         <AgentCardStatToggle
           icon={Server}

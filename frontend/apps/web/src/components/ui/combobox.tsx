@@ -9,14 +9,32 @@ import { cn } from '@/lib/utils'
 
 const Combobox = ComboboxPrimitive.Root
 
+type ComboboxInputKeyDown = NonNullable<ComponentProps<typeof ComboboxPrimitive.Input>['onKeyDown']>
+
+/**
+ * Base UI clears every selection when Escape is pressed with the popup already closed. That
+ * silently drops choices (often right after picking one closes the popup), so Escape only
+ * closes the popup here and otherwise leaves the selection alone.
+ */
+function keepSelectionOnEscape(onKeyDown?: ComboboxInputKeyDown): ComboboxInputKeyDown {
+  return (event) => {
+    if (event.key === 'Escape' && event.currentTarget.getAttribute('aria-expanded') !== 'true') {
+      event.preventBaseUIHandler()
+    }
+    onKeyDown?.(event)
+  }
+}
+
 function ComboboxInput({
   className,
   showTrigger = true,
+  onKeyDown,
   ...props
 }: ComponentProps<typeof ComboboxPrimitive.Input> & { showTrigger?: boolean }) {
   return (
     <div className="relative">
       <ComboboxPrimitive.Input
+        onKeyDown={keepSelectionOnEscape(onKeyDown)}
         className={cn(
           'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 text-base md:text-sm',
           showTrigger ? 'pr-9' : 'pr-3',
@@ -71,10 +89,12 @@ function ComboboxChips({ className, ...props }: ComponentProps<typeof ComboboxPr
 
 function ComboboxChipsInput({
   className,
+  onKeyDown,
   ...props
 }: ComponentProps<typeof ComboboxPrimitive.Input>) {
   return (
     <ComboboxPrimitive.Input
+      onKeyDown={keepSelectionOnEscape(onKeyDown)}
       className={cn(
         'placeholder:text-muted-foreground pointer-coarse:text-base h-6 min-w-28 flex-1 bg-transparent px-1 text-base focus-visible:outline-none md:text-sm',
         className,
