@@ -51,17 +51,11 @@ func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, er
 }
 
 func OpenFilesystem(dir string) (*Filesystem, error) {
-	if !filepath.IsAbs(dir) {
-		return nil, errors.New("memory directory must be absolute")
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("create memory directory: %w", err)
-	}
-	root, err := os.OpenRoot(dir)
+	files, err := OpenUnpreparedFilesystem(dir)
 	if err != nil {
-		return nil, fmt.Errorf("open memory directory: %w", err)
+		return nil, err
 	}
-	files := &Filesystem{root: root}
+	root := files.root
 	for _, name := range []string{stagingDir, locksDir} {
 		if err = root.MkdirAll(name, 0700); err == nil {
 			err = CheckPath(root, name)
@@ -88,6 +82,29 @@ func OpenFilesystem(dir string) (*Filesystem, error) {
 		}
 	}
 	return files, nil
+}
+
+func OpenUnpreparedFilesystem(dir string) (*Filesystem, error) {
+	if !filepath.IsAbs(dir) {
+		return nil, errors.New("memory directory must be absolute")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("create memory directory: %w", err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open memory directory: %w", err)
+	}
+	return &Filesystem{root: root}, nil
+}
+
+func (f *Filesystem) CheckPrepared() error {
+	for _, name := range []string{stagingDir, locksDir} {
+		if err := CheckPath(f.root, name); err != nil {
+			return fmt.Errorf("memory directory is not prepared: %w", err)
+		}
+	}
+	return nil
 }
 
 func (f *Filesystem) Close() error { return f.root.Close() }
@@ -249,6 +266,47 @@ func (f *Filesystem) Discard(staged string) error {
 	return err
 }
 
+func (f *Filesystem) DiscardStagedBefore(ctx context.Context, before time.Time) (int, error) {
+	if err := CheckPath(f.root, stagingDir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	discarded := 0
+	var errs []error
+	walkErr := fs.WalkDir(f.root.FS(), stagingDir, func(staged string, entry fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			errs = append(errs, err)
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		info, err := entry.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			errs = append(errs, err)
+			return nil
+		}
+		if !info.ModTime().Before(before) {
+			return nil
+		}
+		if err := f.Discard(staged); err != nil {
+			errs = append(errs, err)
+			return nil
+		}
+		discarded++
+		return nil
+	})
+	return discarded, errors.Join(append(errs, walkErr)...)
+}
+
 func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, name, staged string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -332,13 +390,10 @@ func syncParents(root *os.Root, name string) error {
 }
 
 func (f *Filesystem) RemoveStore(ref StoreRef) error {
-	return f.remove(ref.path, ref.staging)
+	return f.remove(ref.path, ref.staging, locksDir+"/"+ref.path)
 }
 
 func (f *Filesystem) RemoveScope(orgID uuid.UUID, projectID *uuid.UUID) error {
-	if f == nil {
-		return nil
-	}
 	scope, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {
 		return err

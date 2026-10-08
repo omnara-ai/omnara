@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +27,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
-	log "github.com/omnara-ai/omnara/observability/wideevent"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,79 +86,68 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
 	admin := createSecretTestUser(t, ctx, store, "Memory Files Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	for _, unfinishedCleanup := range []bool{false, true} {
-		t.Run(fmt.Sprintf("name-reuse-%t", unfinishedCleanup), func(t *testing.T) {
-			t.Parallel()
-			original, err := store.Memories().Create(
-				ctx, scope, fmt.Sprintf("reuse-%t", unfinishedCleanup), "", agentconfig.MemoryStoreAccessReadWrite,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			oldInput := memorystore.WriteInput{
-				Scope: scope, StoreID: original.ID, Path: "old.md", Content: []byte("old content"),
-			}
-			if _, err := store.Memories().Write(ctx, oldInput); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := store.Memories().Create(
-				ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
-			); !errors.Is(err, storeerr.ErrConflict) {
-				t.Fatalf("duplicate creation: %v", err)
-			}
-			_, body, err := store.Memories().Read(ctx, scope, original.ID, oldInput.Path)
-			if err != nil || !bytes.Equal(body, oldInput.Content) {
-				t.Fatalf("duplicate creation damaged content: %q %v", body, err)
-			}
-			if unfinishedCleanup {
-				if err := dbsqlc.New(pool).DeleteMemoryStore(ctx, dbsqlc.DeleteMemoryStoreParams{
-					ProjectID: scope.ProjectID, ID: original.ID,
-				}); err != nil {
-					t.Fatal(err)
-				}
-			} else if err := store.Memories().Delete(ctx, scope, original.ID); err != nil {
-				t.Fatal(err)
-			}
-			replacement, err := store.Memories().Create(
-				ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if replacement.ID == original.ID {
-				t.Fatal("reused database identity")
-			}
-			oldPath := filepath.Join(
-				dir,
-				mustPublicID(t, publicid.KindOrganization, scope.OrgID),
-				mustPublicID(t, publicid.KindProject, scope.ProjectID),
-				mustPublicID(t, publicid.KindMemoryStore, original.ID), oldInput.Path,
-			)
-			if _, err := os.Stat(oldPath); unfinishedCleanup && err != nil ||
-				!unfinishedCleanup && !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("unexpected old directory state: %v", err)
-			}
-			_, _, readErr := store.Memories().Read(ctx, scope, replacement.ID, oldInput.Path)
-			if !errors.Is(readErr, storeerr.ErrNotFound) {
-				t.Fatalf("replacement inherited old file: %v", readErr)
-			}
-			if _, err := store.Memories().Write(ctx, oldInput); !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("deleted identity could write: %v", err)
-			}
-			newInput := memorystore.WriteInput{
-				Scope: scope, StoreID: replacement.ID, Path: "new.md", Content: []byte("new content"),
-			}
-			if _, err := store.Memories().Write(ctx, newInput); err != nil {
-				t.Fatal(err)
-			}
-			if err := store.Memories().Delete(ctx, scope, original.ID); !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("old deletion retry: %v", err)
-			}
-			_, body, err = store.Memories().Read(ctx, scope, replacement.ID, newInput.Path)
-			if err != nil || !bytes.Equal(body, newInput.Content) {
-				t.Fatalf("old deletion touched replacement: %q %v", body, err)
-			}
-		})
+	original, err := store.Memories().Create(ctx, scope, "reuse", "", agentconfig.MemoryStoreAccessReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInput := memorystore.WriteInput{
+		Scope: scope, StoreID: original.ID, Path: "old.md", Content: []byte("old content"),
+	}
+	if _, err := store.Memories().Write(ctx, oldInput); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Memories().Create(
+		ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
+	); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("duplicate creation: %v", err)
+	}
+	_, body, err := store.Memories().Read(ctx, scope, original.ID, oldInput.Path)
+	if err != nil || !bytes.Equal(body, oldInput.Content) {
+		t.Fatalf("duplicate creation damaged content: %q %v", body, err)
+	}
+	if err := store.Memories().Delete(ctx, scope, original.ID); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := store.Memories().Create(
+		ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.ID == original.ID {
+		t.Fatal("reused database identity")
+	}
+	oldPath := filepath.Join(
+		dir,
+		mustPublicID(t, publicid.KindOrganization, scope.OrgID),
+		mustPublicID(t, publicid.KindProject, scope.ProjectID),
+		mustPublicID(t, publicid.KindMemoryStore, original.ID), oldInput.Path,
+	)
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("deletion removed old files: %v", err)
+	}
+	if _, _, err := store.Memories().Read(ctx, scope, original.ID, oldInput.Path); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("deleted store stayed readable: %v", err)
+	}
+	_, _, readErr := store.Memories().Read(ctx, scope, replacement.ID, oldInput.Path)
+	if !errors.Is(readErr, storeerr.ErrNotFound) {
+		t.Fatalf("replacement inherited old file: %v", readErr)
+	}
+	if _, err := store.Memories().Write(ctx, oldInput); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("deleted identity could write: %v", err)
+	}
+	newInput := memorystore.WriteInput{
+		Scope: scope, StoreID: replacement.ID, Path: "new.md", Content: []byte("new content"),
+	}
+	if _, err := store.Memories().Write(ctx, newInput); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Memories().Delete(ctx, scope, original.ID); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("old deletion retry: %v", err)
+	}
+	_, body, err = store.Memories().Read(ctx, scope, replacement.ID, newInput.Path)
+	if err != nil || !bytes.Equal(body, newInput.Content) {
+		t.Fatalf("old deletion touched replacement: %q %v", body, err)
 	}
 }
 func memoryFilesystemRef(t *testing.T, scope memorystore.Scope, record memorystore.Record) memoryops.StoreRef {
@@ -353,65 +340,13 @@ func TestMemoryScopeDeletionRemovesDeletedStoreFiles(t *testing.T) {
 			if !organization {
 				removed = filepath.Join(removed, mustPublicID(t, publicid.KindProject, scope.ProjectID))
 			}
+			require.DirExists(t, filepath.Join(dir, removed))
+			_, err = store.Memories().CleanupFiles(ctx)
+			require.NoError(t, err)
 			for _, area := range []string{removed, filepath.Join(".staging", removed), filepath.Join(".locks", removed)} {
 				if _, err := os.Stat(filepath.Join(dir, area)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("deleted scope retained %s: %v", area, err)
 				}
-			}
-		})
-	}
-}
-
-func TestMemoryDeletionLogsCleanupFailure(t *testing.T) {
-	t.Parallel()
-	if os.Geteuid() == 0 {
-		t.Skip("requires filesystem permission enforcement")
-	}
-	for _, kind := range []string{"store", "project", "organization"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			var logs bytes.Buffer
-			ctx := log.WithLogger(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)))
-			pool := openIntegrationDB(t, ctx)
-			seedMigratedDB(t, ctx, pool)
-			dir := t.TempDir()
-			files, err := memoryops.OpenFilesystem(dir)
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = files.Close() })
-			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
-			admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
-			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-			resource, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
-			require.NoError(t, err)
-			_, err = store.Memories().Write(ctx, memorystore.WriteInput{
-				Scope: scope, StoreID: resource.ID, Path: "note.txt", Content: []byte("retained"),
-			})
-			require.NoError(t, err)
-			root := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
-				mustPublicID(t, publicid.KindProject, scope.ProjectID), mustPublicID(t, publicid.KindMemoryStore, resource.ID))
-			require.NoError(t, os.Chmod(root, 0500))
-			t.Cleanup(func() { _ = os.Chmod(root, 0700) })
-			switch kind {
-			case "store":
-				err = store.Memories().Delete(ctx, scope, resource.ID)
-			case "project":
-				_, err = store.Organizations().DeleteProject(ctx, scope.OrgID, scope.ProjectID, scope.Principal)
-			case "organization":
-				_, err = store.Organizations().DeleteOrganization(ctx, scope.OrgID, scope.Principal)
-			}
-			require.NoError(t, err)
-			_, err = store.Memories().Get(ctx, scope, resource.ID)
-			require.ErrorIs(t, err, storeerr.ErrNotFound)
-			require.Contains(t, logs.String(), `"level":"ERROR"`)
-			require.Contains(t, logs.String(), `"memory.cleanup.gave_up":true`)
-			require.Contains(t, logs.String(), `"event.name":"memory.cleanup_failed"`)
-			require.Contains(t, logs.String(), `"memory.cleanup.operation":"delete_`+kind+`"`)
-			require.Contains(t, logs.String(), scope.OrgID.String())
-			if kind != "organization" {
-				require.Contains(t, logs.String(), scope.ProjectID.String())
-			}
-			if kind == "store" {
-				require.Contains(t, logs.String(), resource.ID.String())
 			}
 		})
 	}
@@ -532,4 +467,226 @@ func TestMemoryPublishRechecksAgentAfterLockWait(t *testing.T) {
 			require.Equal(t, "original", string(content))
 		})
 	}
+}
+
+func TestMemoryCleanupFiles(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	dir := t.TempDir()
+	files, err := memoryops.OpenFilesystem(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = files.Close() })
+	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
+	admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	create := func(name string) memorystore.Record {
+		record, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
+		require.NoError(t, err)
+		_, err = store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: record.ID, Path: "note.md", Content: []byte("content"),
+		})
+		require.NoError(t, err)
+		return record
+	}
+	requireAreas := func(exists bool, record memorystore.Record) {
+		path := filepath.Join(
+			mustPublicID(t, publicid.KindOrganization, scope.OrgID),
+			mustPublicID(t, publicid.KindProject, scope.ProjectID),
+			mustPublicID(t, publicid.KindMemoryStore, record.ID),
+		)
+		for _, area := range []string{"", ".staging", ".locks"} {
+			_, err := os.Stat(filepath.Join(dir, area, path))
+			require.Equal(t, exists, err == nil, "%s %s: %v", area, record.Name, err)
+		}
+	}
+	kept, deleted := create("kept"), create("deleted")
+	require.NoError(t, store.Memories().Delete(ctx, scope, deleted.ID))
+	stale, err := files.Stage(memoryFilesystemRef(t, scope, kept), []byte("abandoned"))
+	require.NoError(t, err)
+	fresh, err := files.Stage(memoryFilesystemRef(t, scope, kept), []byte("pending"))
+	require.NoError(t, err)
+	past := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, stale), past, past))
+
+	for _, want := range []memorystore.FileCleanupResult{{RemovedStores: 1, DiscardedStagedFiles: 1}, {}} {
+		result, err := store.Memories().CleanupFiles(ctx)
+		require.NoError(t, err)
+		require.Equal(t, want, result)
+	}
+	requireAreas(false, deleted)
+	requireAreas(true, kept)
+	pending, err := dbsqlc.New(pool).ListMemoryStoresPendingFileRemoval(ctx)
+	require.NoError(t, err)
+	require.Empty(t, pending)
+	require.NoFileExists(t, filepath.Join(dir, stale))
+	require.FileExists(t, filepath.Join(dir, fresh))
+	_, body, err := store.Memories().Read(ctx, scope, kept.ID, "note.md")
+	require.NoError(t, err)
+	require.Equal(t, "content", string(body))
+}
+
+func TestMemoryCleanupFilesRetriesFailedRemoval(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("requires filesystem permission enforcement")
+	}
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	dir := t.TempDir()
+	files, err := memoryops.OpenFilesystem(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = files.Close() })
+	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
+	admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	folders := map[string]string{}
+	for _, name := range []string{"blocked", "removable"} {
+		record, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
+		require.NoError(t, err)
+		_, err = store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: record.ID, Path: "note.md", Content: []byte("content"),
+		})
+		require.NoError(t, err)
+		require.NoError(t, store.Memories().Delete(ctx, scope, record.ID))
+		folders[name] = filepath.Join(
+			dir,
+			mustPublicID(t, publicid.KindOrganization, scope.OrgID),
+			mustPublicID(t, publicid.KindProject, scope.ProjectID),
+			mustPublicID(t, publicid.KindMemoryStore, record.ID),
+		)
+	}
+	require.NoError(t, os.Chmod(folders["blocked"], 0500))
+	t.Cleanup(func() { _ = os.Chmod(folders["blocked"], 0700) })
+
+	result, err := store.Memories().CleanupFiles(ctx)
+	require.ErrorIs(t, err, os.ErrPermission)
+	require.Equal(t, 1, result.RemovedStores)
+	require.NoDirExists(t, folders["removable"])
+	require.DirExists(t, folders["blocked"])
+	pending, err := dbsqlc.New(pool).ListMemoryStoresPendingFileRemoval(ctx)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	require.NoError(t, os.Chmod(folders["blocked"], 0700))
+	result, err = store.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.RemovedStores)
+	require.NoDirExists(t, folders["blocked"])
+}
+
+func TestMemoryCleanupFilesRemovesLaterDeletedScope(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	dir := t.TempDir()
+	files, err := memoryops.OpenFilesystem(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = files.Close() })
+	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
+	admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	record, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
+	require.NoError(t, err)
+	_, err = store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: record.ID, Path: "note.md", Content: []byte("content"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.Memories().Delete(ctx, scope, record.ID))
+	_, err = store.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+
+	org := mustPublicID(t, publicid.KindOrganization, scope.OrgID)
+	project := filepath.Join(org, mustPublicID(t, publicid.KindProject, scope.ProjectID))
+	folders := func(scope string) []string {
+		return []string{
+			filepath.Join(dir, scope),
+			filepath.Join(dir, ".staging", scope),
+			filepath.Join(dir, ".locks", scope),
+		}
+	}
+	for _, folder := range folders(project) {
+		require.DirExists(t, folder)
+	}
+
+	_, err = store.Organizations().DeleteProject(ctx, scope.OrgID, scope.ProjectID, scope.Principal)
+	require.NoError(t, err)
+	_, err = store.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	for _, folder := range folders(project) {
+		require.NoDirExists(t, folder)
+	}
+	for _, folder := range folders(org) {
+		require.DirExists(t, folder)
+	}
+
+	_, err = store.Organizations().DeleteOrganization(ctx, scope.OrgID, scope.Principal)
+	require.NoError(t, err)
+	_, err = store.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	for _, folder := range folders(org) {
+		require.NoDirExists(t, folder)
+	}
+	result, err := store.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	require.Equal(t, memorystore.FileCleanupResult{}, result)
+}
+
+func TestMemoryCleanupFilesRefusesUnpreparedDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	unprepared := t.TempDir()
+	unpreparedFiles, err := memoryops.OpenUnpreparedFilesystem(unprepared)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = unpreparedFiles.Close() })
+	maintenance := newIntegrationStore(pool, WithMemoryFilesystem(unpreparedFiles))
+
+	result, err := maintenance.Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	require.Equal(t, memorystore.FileCleanupResult{}, result)
+
+	dir := t.TempDir()
+	files, err := memoryops.OpenFilesystem(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = files.Close() })
+	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
+	admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	record, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
+	require.NoError(t, err)
+	_, err = store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: record.ID, Path: "note.md", Content: []byte("content"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.Memories().Delete(ctx, scope, record.ID))
+	folder := filepath.Join(
+		dir,
+		mustPublicID(t, publicid.KindOrganization, scope.OrgID),
+		mustPublicID(t, publicid.KindProject, scope.ProjectID),
+		mustPublicID(t, publicid.KindMemoryStore, record.ID),
+	)
+
+	result, err = maintenance.Memories().CleanupFiles(ctx)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Equal(t, memorystore.FileCleanupResult{}, result)
+	pending, err := dbsqlc.New(pool).ListMemoryStoresPendingFileRemoval(ctx)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.DirExists(t, folder)
+	entries, err := os.ReadDir(unprepared)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+
+	sharedFiles, err := memoryops.OpenUnpreparedFilesystem(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sharedFiles.Close() })
+	result, err = newIntegrationStore(pool, WithMemoryFilesystem(sharedFiles)).Memories().CleanupFiles(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.RemovedStores)
+	require.NoDirExists(t, folder)
 }

@@ -30,6 +30,16 @@ func ForFileTransfer(transfer FileTransfer) ExecutionSpec {
 }
 
 func (s ExecutionSpec) Validate() error {
+	if err := s.ValidateLocal(); err != nil {
+		return err
+	}
+	if s.FileTransfer != nil {
+		return s.FileTransfer.validateTarget()
+	}
+	return nil
+}
+
+func (s ExecutionSpec) ValidateLocal() error {
 	switch s.Kind {
 	case KindShell:
 		if s.Shell == nil || s.FileTransfer != nil {
@@ -47,7 +57,7 @@ func (s ExecutionSpec) Validate() error {
 		if s.FileTransfer == nil || s.Shell != nil {
 			return errors.New("file transfer execution requires only a file transfer payload")
 		}
-		return s.FileTransfer.Validate()
+		return s.FileTransfer.validateLocal()
 	default:
 		return errors.New("invalid execution kind")
 	}

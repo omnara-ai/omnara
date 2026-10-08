@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -37,13 +38,17 @@ func TestDaemonProcessOfferMessageReplacesOversizedOffer(t *testing.T) {
 	if len(encoded) > daemonSocketReadLimitBytes {
 		t.Fatalf("fallback process offer size = %d", len(encoded))
 	}
+	if strings.Contains(string(encoded), `"execution_spec"`) {
+		t.Fatal("preparation failure includes an execution spec")
+	}
 }
 
-func TestDaemonProcessOfferMessagePreservesShellWireFormat(t *testing.T) {
+func TestDaemonProcessOfferMessageCarriesShellSpec(t *testing.T) {
 	command := "echo " + strings.Repeat("x", daemonSocketReadLimitBytes/2)
+	spec := processcmd.ForShell(command, processcmd.ShellBash, processcmd.IOModePTY)
 	message := daemonProcessOfferMessage("prc_test", executionstore.DaemonProcessOffer{
 		Process: executionstore.ProcessRecord{
-			ExecutionSpec:  processcmd.ForShell(command, processcmd.ShellBash, processcmd.IOModePTY),
+			ExecutionSpec:  spec,
 			InitialWaitMS:  750,
 			TimeoutSeconds: 30,
 		},
@@ -53,24 +58,18 @@ func TestDaemonProcessOfferMessagePreservesShellWireFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var legacy struct {
-		Command        string `json:"command"`
-		ShellSelector  string `json:"shell_selector"`
-		IOMode         string `json:"io_mode"`
-		WaitMS         int    `json:"wait_ms"`
-		GitCredentials bool   `json:"git_credentials"`
-	}
-	if err := json.Unmarshal(body, &legacy); err != nil {
+	var decoded daemonprotocol.ProcessOffer
+	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if legacy.Command != command || legacy.ShellSelector != "bash" || legacy.IOMode != "pty" || legacy.WaitMS != 750 {
-		t.Fatal("shell offer lost legacy execution fields or initial wait")
+	if diff := cmp.Diff(spec, decoded.ExecutionSpec); diff != "" {
+		t.Fatalf("shell execution spec mismatch (-want +got):\n%s", diff)
 	}
-	if !legacy.GitCredentials {
+	if !decoded.GitCredentials {
 		t.Fatal("shell offer lost Git credential authority")
 	}
-	if strings.Contains(string(body), `"execution_spec"`) {
-		t.Fatal("shell offer duplicates its operation")
+	if decoded.WaitMs != 750 || decoded.TimeoutSeconds != 30 {
+		t.Fatal("shell offer lost initial wait or timeout")
 	}
 }
 
@@ -83,8 +82,7 @@ func TestDaemonProcessOfferMessageCarriesTransferSpec(t *testing.T) {
 		Process: executionstore.ProcessRecord{ExecutionSpec: spec},
 	})
 	offer := message.ProcessOffer
-	if offer == nil || offer.ExecutionSpec == nil || *offer.ExecutionSpec != spec ||
-		offer.Command != "" || offer.ShellSelector != "" || offer.IOMode != "" || offer.GitCredentials {
+	if offer == nil || offer.ExecutionSpec != spec || offer.GitCredentials {
 		t.Fatalf("transfer offer = %+v", offer)
 	}
 }

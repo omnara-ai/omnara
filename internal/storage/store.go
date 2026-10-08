@@ -116,7 +116,6 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	})
 	store.organizations = orglifecycle.New(pool, orglifecycle.Config{
 		Blobs:               config.blobs,
-		MemoryFilesystem:    config.memoryFS,
 		PostCommitPublisher: config.postCommitPublisher,
 		Identity:            store.identity,
 		Execution:           store.execution,

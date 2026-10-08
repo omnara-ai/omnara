@@ -1,24 +1,24 @@
 -- name: CreateMemoryStore :one
 INSERT INTO memory_stores(id, project_id, name, description, agent_access)
 VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(description), sqlc.arg(agent_access))
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at;
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
 
 -- name: GetMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
 -- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND name = sqlc.arg(name)
   AND deleted_at IS NULL;
 
 -- name: LockMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -33,10 +33,10 @@ SET description = sqlc.arg(description),
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at;
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
 
 -- name: ListMemoryStores :many
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
@@ -115,3 +115,21 @@ WHERE s.project_id = sqlc.arg(project_id)
   AND s.deleted_at IS NULL
   AND a.state = 'active'
   AND c.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id));
+
+-- name: ListMemoryStoresPendingFileRemoval :many
+SELECT s.id, s.project_id, p.org_id, s.name,
+       (p.deleted_at IS NOT NULL)::boolean AS project_deleted,
+       (o.deleted_at IS NOT NULL)::boolean AS org_deleted
+FROM memory_stores s
+JOIN projects p ON p.id = s.project_id
+JOIN orgs o ON o.id = p.org_id
+WHERE s.deleted_at IS NOT NULL
+  AND (s.files_removed_at IS NULL
+       OR s.files_removed_at < p.deleted_at
+       OR s.files_removed_at < o.deleted_at);
+
+-- name: MarkMemoryStoreFilesRemoved :exec
+UPDATE memory_stores
+SET files_removed_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id);

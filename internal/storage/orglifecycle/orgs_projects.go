@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -494,9 +493,6 @@ func (s *Service) deleteProjectOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
-	if err := s.memoryFS.RemoveScope(orgID, &projectID); err != nil {
-		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteProject, orgID, projectID, uuid.Nil, err)
-	}
 	return machines, nil
 }
 
@@ -666,8 +662,5 @@ func (s *Service) deleteOrganizationOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
-	if err := s.memoryFS.RemoveScope(orgID, nil); err != nil {
-		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteOrganization, orgID, uuid.Nil, uuid.Nil, err)
-	}
 	return machines, nil
 }

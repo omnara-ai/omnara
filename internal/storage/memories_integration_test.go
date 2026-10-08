@@ -1085,14 +1085,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "store_delete":
-				waiting, stop := context.WithTimeout(ctx, 60*time.Millisecond)
-				err = store.Memories().Delete(waiting, scope, resource.ID)
-				stop()
-				if !errors.Is(err, context.DeadlineExceeded) {
-					t.Fatalf("management bypassed filesystem lock: %v", err)
-				}
-				_, err = pool.Exec(ctx, `UPDATE memory_stores SET deleted_at=statement_timestamp() WHERE id=$1`, resource.ID)
-				if err != nil {
+				if err := store.Memories().Delete(ctx, scope, resource.ID); err != nil {
 					t.Fatal(err)
 				}
 			default:
@@ -1129,20 +1122,9 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			if operation == "project_delete" || operation == "org_delete" {
-				for _, area := range []string{
-					contentPath,
-					staging,
-				} {
-					if _, err := os.Stat(area); !errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("%s survived deletion: %v", area, err)
-					}
-				}
-			} else {
-				body, err := os.ReadFile(filepath.Join(contentPath, "file"))
-				if err != nil || string(body) != "first" {
-					t.Fatalf("waiting upload changed content: %q %v", body, err)
-				}
+			body, err := os.ReadFile(filepath.Join(contentPath, "file"))
+			if err != nil || string(body) != "first" {
+				t.Fatalf("waiting upload changed content: %q %v", body, err)
 			}
 		})
 	}

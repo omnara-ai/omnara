@@ -33,11 +33,11 @@ for connection-pool defaults.
 
 ## Memory storage
 
-Compose shares the persistent `memory-data` volume between API and worker at `/var/lib/omnara/memory`.
+Compose shares the persistent `memory-data` volume between API, worker, and maintenance at `/var/lib/omnara/memory`.
 
-Across hosts, mount the same shared filesystem into API and every worker and set `OMNARA_MEMORY_DIR` to its absolute mount path. Configure services to wait for the mount before starting, and verify shared locking and file visibility between hosts. See [Memory storage configuration](/self-hosting/configuration#memory-storage) for filesystem requirements.
+Across hosts, mount the same shared filesystem into API, every worker, and maintenance and set `OMNARA_MEMORY_DIR` to its absolute mount path. Configure services to wait for the mount before starting, and verify shared locking and file visibility between hosts. See [Memory storage configuration](/self-hosting/configuration#memory-storage) for filesystem requirements.
 
-Keep the mount private to API and workers. Back up the entire memory directory alongside PostgreSQL.
+Keep the mount private to API, workers, and maintenance. Back up the entire memory directory alongside PostgreSQL.
 
 ## Exposing the deployment publicly
 

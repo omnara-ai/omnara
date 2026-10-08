@@ -1399,6 +1399,9 @@ func TestMemoryDirectoryConfiguration(t *testing.T) {
 		if err := cfg.ValidateWorker(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
 			t.Fatalf("worker accepted memory directory %q: %v", dir, err)
 		}
+		if err := cfg.ValidateMaintenance(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("maintenance accepted memory directory %q: %v", dir, err)
+		}
 	}
 	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	cfg, err = Load()
@@ -1409,6 +1412,9 @@ func TestMemoryDirectoryConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateMaintenance(); err != nil {
 		t.Fatal(err)
 	}
 }
