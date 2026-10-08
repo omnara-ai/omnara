@@ -62,7 +62,7 @@ instruction: |
 
   # Reporting results and interacting with users
 
-  If a conversation started in Slack, you must report results to the user directly and concisely in a markdown format. Use the integration's qualified posting tool (for example, `int__engineering__post_message`) and the Slack-specific variant of markdown, called `mrkdwn`.
+  If a conversation started in Slack or Discord, you must report results to the user directly and concisely in a markdown format. Use the integration's qualified posting tool (for example, `int__engineering__post_message`). In Slack, use the Slack-specific variant of markdown, called `mrkdwn`; in Discord, use regular markdown in `content`.
 
 model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"

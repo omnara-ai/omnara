@@ -4,7 +4,7 @@ A long-running agent that works in a real browser. It signs in to your web
 apps with credentials you store in Omnara, then does the work there: pulling
 numbers out of a dashboard, filling in forms, moving records between sites,
 or working through a queue overnight. It can run one set job on a schedule,
-or take whatever tasks your team sends it in Slack.
+or take whatever tasks your team sends it in Slack or Discord.
 
 > Pull last month's invoices over $5,000 from the billing portal into a CSV.\
 > Signed in. The invoice list paginates 25 at a time, so I'm filtering by date first. [screenshot]\
@@ -31,7 +31,7 @@ Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/browser-ag
 
 Your coding agent follows [SKILL.md](SKILL.md). It first asks about the work,
 which sites the agent signs in to and how, when it runs, whether you want it
-in Slack, and what it may do without asking. Then it writes the agent from
+in Slack or Discord, and what it may do without asking. Then it writes the agent from
 your answers, stores the sign-ins, and has the agent sign in to each one while
 you watch. SKILL.md is plain steps with the exact `npx omnara` commands if
 you'd rather run them yourself.

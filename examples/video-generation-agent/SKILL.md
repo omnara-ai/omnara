@@ -7,7 +7,8 @@ description: Deploy or update the Video Generation Agent on Omnara, an agent tha
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
 folder. The goal: an agent profile the user has watched produce one video,
-reachable wherever they want it (their own app, Slack, or the Omnara console).
+reachable wherever they want it (their own app, Slack, Discord, or the
+Omnara console).
 
 The steps below are the usual path and have the exact commands. Skip anything
 that's already done (for example, the skill and profile exist and the user
@@ -27,7 +28,8 @@ reference, not a requirement: the Omnara MCP tools, the
 [REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
 too, and the flags map directly to API fields. What matters is the result:
 the Remotion skill uploaded, a profile from the filled-in `agent.yaml`, and
-whatever the user picks in step 6. Slack setup is simplest with the CLI.
+whatever the user picks in step 6. Slack and Discord setup is simplest with
+the CLI.
 
 ## 1. Connect to Omnara
 
@@ -167,13 +169,13 @@ The flag replaces the offered profiles, so repeat it for each one already listed
    starts this agent, and note the `itg_…` ID it returns:
 
    ```sh
-   npx omnara integrations create --name video-generation-agent \
+   npx omnara integrations create --name video-generation-agent-slack \
      --integration-kind slack_thread \
      --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
    ```
 
    The name is permanent and names the agent's Slack tools
-   (`int__video-generation-agent__post_message`).
+   (`int__video-generation-agent-slack__post_message`).
 3. Create the Slack app and connect it:
 
    ```sh
@@ -189,18 +191,87 @@ The flag replaces the offered profiles, so repeat it for each one already listed
    mention it with a brief: "@Video Agent a 15-second teaser for our new
    pricing page".
 
+**Discord.** Works like Slack: the bot answers in a new thread wherever
+it's mentioned in a server channel, and replies in the thread go to the
+same agent. It doesn't answer direct messages.
+
+If `npx omnara integrations list` already shows an active `discord_thread`
+integration for this agent, reuse it the same way as for Slack: add the
+profile with `npx omnara integrations profiles` if
+`settings.launcher.profiles` doesn't list it, then skip to step 6.
+
+1. The user creates an application named "Video Agent" in the
+   [Discord Developer Portal](https://discord.com/developers/applications);
+   ask before choosing a different name, since it's how the team mentions
+   the bot. They copy the **Application ID** and **Public Key** from
+   **General Information**. Under **Bot**, they select **Reset Token** to copy
+   the bot token, turn on **Message Content Intent**, and turn off **Public
+   Bot** so only they can add it (if Discord refuses, first set
+   **Installation** → **Install Link** to **None**). Have the user add the
+   values to `.env`:
+
+   ```sh
+   DISCORD_APPLICATION_ID=...
+   DISCORD_PUBLIC_KEY=...
+   DISCORD_BOT_TOKEN=...
+   ```
+
+2. Store the bot token and note the `sec_…` ID:
+
+   ```sh
+   set -a && . ./.env && set +a
+   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
+     --name video-generation-agent-discord-bot-token --material-kind generic \
+     --material-value "$DISCORD_BOT_TOKEN" --json
+   ```
+
+3. Create the integration with this profile in its launcher, and note the
+   `itg_…` ID and `setup_revision` it returns:
+
+   ```sh
+   npx omnara integrations create --name video-generation-agent-discord \
+     --integration-kind discord_thread \
+     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
+   ```
+
+   The name is permanent and names the agent's Discord tools
+   (`int__video-generation-agent-discord__post_message`).
+4. Connect the bot. Omnara checks the token and finds the bot's user:
+
+   ```sh
+   npx omnara integrations configure <integration-id> \
+     --expected-setup-revision <setup-revision> \
+     --provider-tenant-id "$DISCORD_APPLICATION_ID" \
+     --credential-secret-id <secret-id> \
+     --provider-config "{\"public_key\":\"$DISCORD_PUBLIC_KEY\"}" --json
+   ```
+
+5. Under **General Information**, the user sets **Interactions Endpoint URL**
+   to `https://app.omnara.com/api/integrations/discord/<application-id>/interactions`
+   and saves; the buttons on the bot's questions need it. Discord checks the
+   URL when it's saved, so this has to come after step 4.
+6. The user adds the bot to their server by opening this link, which asks
+   only for the permissions the bot needs:
+   `https://discord.com/oauth2/authorize?client_id=<application-id>&scope=bot&permissions=309237746752&integration_type=0`.
+   Then they mention it in a channel: "@Video Agent a 15-second teaser for
+   our new pricing page".
+
 **Omnara console.** Already done: every agent launched from the profile shows
 up in the console.
 
 ## 7. Wrap up
 
-Summarize what you created: the skill, the profile, and the Slack app if any.
+Summarize what you created: the skill, the profile, and the Slack or Discord
+integration if any.
 Then tell the user:
 
 - **Change the instruction, model, or anything else:** ask a coding agent
   with this skill. It reuses the skill and updates the profile in place.
-- **Remove it:** delete the Slack integration, if any
+- **Remove it:** delete the Slack and Discord integrations, if any
   (`npx omnara integrations delete <integration-id>`), or, if other agents
   share it, rerun `npx omnara integrations profiles` with only their
   profiles. Then run `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara skills delete <skill-id>`.
+  With Discord, also delete the bot token secret
+  (`npx omnara secrets delete <secret-id>`) and the application in the
+  Discord Developer Portal.

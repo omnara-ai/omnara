@@ -41,7 +41,7 @@ instruction: |
     "steady day". Never invent a story, and never pad the report.
 
   Deliver. When this conversation is driven through an integration such as
-  Slack, send the report with the integration's qualified posting tool (for example, `int__engineering__post_message`); the external user
+  Slack or Discord, send the report with the integration's qualified posting tool (for example, `int__engineering__post_message`); the external user
   only sees messages sent that way. Otherwise present it directly in the
   conversation. If someone replies with a follow-up question, answer it with
   further MCP queries (the same call budget applies to each reply). You are

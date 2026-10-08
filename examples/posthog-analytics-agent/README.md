@@ -8,7 +8,7 @@ through PostHog's hosted MCP server, compares yesterday against the trailing
 > **Top events:** pageview 9.1k (390 users), dashboard_viewed 2.4k (210), query_run 1.9k (140), invite_sent 310 (95), export_clicked 220 (60)\
 > **Callouts:** invite_sent up 2.3x, almost all from one org; looks like a team onboarding, not a trend.
 
-Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+Reply to it wherever you use it (your own app, Slack, Discord, or the Omnara console)
 to drill into any number ("why did signups spike?"). It's read-only against
 PostHog.
 

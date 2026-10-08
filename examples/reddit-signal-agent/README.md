@@ -12,7 +12,7 @@ action:
 > **Author:** u/jdoe in r/LLMDevs\
 > **Suggested action:** reply with how you handle durable agent state.
 
-Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+Reply to it wherever you use it (your own app, Slack, Discord, or the Omnara console)
 to ask for reply drafts or push back on the filtering. It never posts to
 Reddit.
 

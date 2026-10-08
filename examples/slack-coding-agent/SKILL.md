@@ -1,14 +1,15 @@
 ---
 name: slack-coding-agent
-description: Deploy or update the Slack Coding Agent on Omnara, a coding agent people mention in Slack that works on a GitHub repository and opens pull requests. Use when the user asks to deploy, set up, update, or remove the Slack coding agent.
+description: Deploy or update the Slack Coding Agent on Omnara, a coding agent people mention in Slack, in Discord, or on a GitHub pull request that works on a GitHub repository and opens pull requests. Use when the user asks to deploy, set up, update, or remove the Slack coding agent.
 ---
 
 # Deploy the Slack Coding Agent
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
-folder. The goal: a coding agent the user's team can mention in Slack, which
-works on one of their GitHub repositories and opens pull requests, and which
-the user has watched answer once in Slack.
+folder. The goal: a coding agent the user's team can mention in Slack, in
+Discord, or on a GitHub pull request, which works on one of their GitHub
+repositories and opens pull requests, and which the user has watched answer
+once.
 
 The steps below are the usual path and have the exact commands. Skip anything
 that's already done (for example, the token and profile exist and the user
@@ -34,7 +35,8 @@ reference, not a requirement: the Omnara MCP tools, the
 [REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
 too, and the flags map directly to API fields. What matters is the result: a
 secret with the GitHub token, a profile from the filled-in `agent.yaml`, and
-a Slack app connected to it. Slack setup is simplest with the CLI.
+the integrations the user picks in step 5. Slack and Discord setup is
+simplest with the CLI; registering a GitHub App needs the Omnara dashboard.
 
 ## 1. Connect to Omnara
 
@@ -134,14 +136,15 @@ may need to approve the token.
    If it rejects the reasoning effort, the chosen model doesn't support
    `high`: remove the `reasoning` block and retry. Note the profile `id`.
 
-## 5. Connect Slack
+## 5. Choose where the team reaches it
 
-This agent is built for Slack: it replies in the thread where it's mentioned,
-and replies in that thread go to the same agent.
+Ask where the team should mention the agent: Slack, Discord, GitHub pull
+requests, or any combination. Wherever it's mentioned, it answers in that
+thread or pull request, and replies there go to the same agent.
 
-If `npx omnara integrations list` already shows an active `slack_thread`
-integration for this agent, from an earlier run of this skill, reuse it: skip
-to step 4, and if `npx omnara integrations get <integration-id>` doesn't list
+**Slack.** If `npx omnara integrations list` already shows an active
+`slack_thread` integration for this agent, from an earlier run of this skill,
+reuse it: skip to step 4, and if `npx omnara integrations get <integration-id>` doesn't list
 the profile under `settings.launcher.profiles`, add it with
 `npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`.
 The flag replaces the offered profiles, so repeat it for each one already listed.
@@ -154,13 +157,13 @@ The flag replaces the offered profiles, so repeat it for each one already listed
    starts this agent, and note the `itg_…` ID it returns:
 
    ```sh
-   npx omnara integrations create --name slack-coding-agent \
+   npx omnara integrations create --name slack-coding-agent-slack \
      --integration-kind slack_thread \
      --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
    ```
 
    The name is permanent and names the agent's Slack tools
-   (`int__slack-coding-agent__post_message`).
+   (`int__slack-coding-agent-slack__post_message`).
 3. Create the Slack app and connect it:
 
    ```sh
@@ -175,9 +178,119 @@ The flag replaces the offered profiles, so repeat it for each one already listed
 4. Tell the user to invite the bot to a channel (`/invite @Coding Agent`).
    A private channel suits it, since threads often include internal details.
 
+**Discord.** The bot answers in a new thread wherever it's mentioned in a
+server channel; it doesn't answer direct messages.
+
+If `npx omnara integrations list` already shows an active `discord_thread`
+integration for this agent, reuse it the same way as for Slack: add the
+profile with `npx omnara integrations profiles` if
+`settings.launcher.profiles` doesn't list it, then skip to step 6.
+
+1. The user creates an application named "Coding Agent" in the
+   [Discord Developer Portal](https://discord.com/developers/applications);
+   ask before choosing a different name, since it's how the team mentions
+   the bot. They copy the **Application ID** and **Public Key** from
+   **General Information**. Under **Bot**, they select **Reset Token** to copy
+   the bot token, turn on **Message Content Intent**, and turn off **Public
+   Bot** so only they can add it (if Discord refuses, first set
+   **Installation** → **Install Link** to **None**). Have the user add the
+   values to `.env`:
+
+   ```sh
+   DISCORD_APPLICATION_ID=...
+   DISCORD_PUBLIC_KEY=...
+   DISCORD_BOT_TOKEN=...
+   ```
+
+2. Store the bot token and note the `sec_…` ID:
+
+   ```sh
+   set -a && . ./.env && set +a
+   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
+     --name slack-coding-agent-discord-bot-token --material-kind generic \
+     --material-value "$DISCORD_BOT_TOKEN" --json
+   ```
+
+3. Create the integration with this profile in its launcher, and note the
+   `itg_…` ID and `setup_revision` it returns:
+
+   ```sh
+   npx omnara integrations create --name slack-coding-agent-discord \
+     --integration-kind discord_thread \
+     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
+   ```
+
+   The name is permanent and names the agent's Discord tools
+   (`int__slack-coding-agent-discord__post_message`).
+4. Connect the bot. Omnara checks the token and finds the bot's user:
+
+   ```sh
+   npx omnara integrations configure <integration-id> \
+     --expected-setup-revision <setup-revision> \
+     --provider-tenant-id "$DISCORD_APPLICATION_ID" \
+     --credential-secret-id <secret-id> \
+     --provider-config "{\"public_key\":\"$DISCORD_PUBLIC_KEY\"}" --json
+   ```
+
+5. Under **General Information**, the user sets **Interactions Endpoint URL**
+   to `https://app.omnara.com/api/integrations/discord/<application-id>/interactions`
+   and saves; the buttons on the bot's questions need it. Discord checks the
+   URL when it's saved, so this has to come after step 4.
+6. The user adds the bot to their server by opening this link, which asks
+   only for the permissions the bot needs:
+   `https://discord.com/oauth2/authorize?client_id=<application-id>&scope=bot&permissions=309237746752&integration_type=0`.
+   A private channel suits it, since threads often include internal
+   details; the user adds the bot to it under the channel's **Permissions**.
+
+**GitHub pull requests.** Someone with write access mentions the GitHub App
+in a pull request comment, and the agent works on that pull request: it
+reviews it, answers in comments, or pushes fixes to its branch.
+
+If `npx omnara integrations list` already shows an active `github_pr`
+integration for this agent, reuse it: if
+`npx omnara integrations get <integration-id>` doesn't show this profile under
+`settings.launcher.profile`, set it with the `update` command below, then skip
+to step 4.
+
+1. Create the integration with this profile in its launcher, and note the
+   `itg_…` ID it returns:
+
+   ```sh
+   npx omnara integrations create --name slack-coding-agent-github \
+     --integration-kind github_pr \
+     --settings '{"launcher":{"trigger":"mention","profile":"<agent-profile-id>"}}' --json
+   ```
+
+   The name is permanent and names the agent's pull request tools
+   (`int__slack-coding-agent-github__discussion_comment`). `"mention"` starts
+   the agent only when someone mentions the App; `"both"` also starts one for
+   every new pull request, so ask before using it. To change it later, run
+   `npx omnara integrations update <integration-id> --settings '...'` with the
+   whole `settings` object.
+2. Registering the GitHub App happens in the browser. Have the user open
+   `https://app.omnara.com/projects/<project-id>/integrations/<integration-id>`,
+   pick the account that owns `GITHUB_REPO`, and select **Continue to
+   GitHub**. On GitHub they name the App (suggest "Coding Agent"); its slug,
+   such as `coding-agent`, is how the team mentions it. Back in Omnara they
+   select **Choose repositories on GitHub**, grant only `GITHUB_REPO`, and
+   then **Connect integration**. An organization's owners may need to approve
+   the installation first.
+3. Omnara gives the App read-only access to code, so it can't push fixes yet.
+   In the App's settings on GitHub (**Settings** → **Developer settings** →
+   **GitHub Apps** → the App → **Edit**, under the organization's settings if
+   an organization owns it), the user opens **Permissions & events**, sets
+   **Repository permissions** → **Contents** to **Read and write**, and saves.
+   Whoever installed the App then accepts the new permission on the
+   installation's settings page; until then pushes fail. On the App's
+   **General** page, also check that **Webhook URL** is
+   `https://app.omnara.com/api/integrations/github/events`, and correct it if
+   not; mentions don't reach Omnara otherwise.
+4. Tell the user to comment on an open pull request in `GITHUB_REPO`:
+   "@coding-agent summarize this PR" (with their App's slug).
+
 ## 6. Give it a first task
 
-Have the user mention the bot in that channel with a question that doesn't
+Have the user mention the bot in Slack or Discord with a question that doesn't
 change anything:
 
 > @Coding Agent what does this repo do, and how do I run its tests?
@@ -187,23 +300,25 @@ repository. The conversation also shows up as an agent in the Omnara console
 ([app.omnara.com](https://app.omnara.com)), where the user can watch every
 command it runs. Once the answer looks right, suggest a small real fix as the
 next message, such as a known bug or a typo, so they see it open a pull
-request.
+request. With only GitHub connected, the comment from step 5 is the first
+task.
 
 ## 7. Wrap up
 
-Summarize what you created: the secret, the profile, and the Slack app.
-Then tell the user:
+Summarize what you created: the secret, the profile, and the Slack, Discord,
+or GitHub integrations. Then tell the user:
 
 - **Start it from elsewhere too:** anything that can call the API (a Linear
-  or GitHub webhook, a CI job) can launch an agent from the profile with the
-  task as the message; see [docs.omnara.com](https://docs.omnara.com). The
-  instruction assumes a Slack thread, so for those entry points adjust its
-  Reporting Guidelines.
+  webhook, a CI job) can launch an agent from the profile with the task as
+  the message; see [docs.omnara.com](https://docs.omnara.com). The
+  instruction assumes a Slack or Discord thread or a pull request, so for
+  those entry points adjust its Reporting Guidelines.
 - **Change the instruction, model, or anything else:** ask a coding agent
   with this skill. It reuses the secret and updates the profile in place.
-- **Remove it:** delete the Slack integration, if any
+- **Remove it:** delete the Slack, Discord, and GitHub integrations, if any
   (`npx omnara integrations delete <integration-id>`), or, if other agents
-  share it, rerun `npx omnara integrations profiles` with only their
-  profiles. Then run `npx omnara profiles delete <agent-profile-id>` and
-  `npx omnara secrets delete <secret-id>`. Revoke the GitHub token in
-  GitHub's settings as well.
+  share a Slack or Discord one, rerun `npx omnara integrations profiles` with
+  only their profiles. Then run `npx omnara profiles delete <agent-profile-id>`
+  and `npx omnara secrets delete <secret-id>` for each secret. Revoke the
+  GitHub token in GitHub's settings as well, and delete the Discord
+  application or GitHub App if there is one.
