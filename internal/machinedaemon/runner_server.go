@@ -1794,7 +1794,7 @@ func startPreparedLocalRunner(
 }
 
 func processArgvForLocalOS(processID string, process Process) ([]string, error) {
-	if err := process.ExecutionSpec.Validate(); err != nil {
+	if err := process.ExecutionSpec.ValidateLocal(); err != nil {
 		return nil, err
 	}
 	if transfer := process.ExecutionSpec.FileTransfer; transfer != nil {

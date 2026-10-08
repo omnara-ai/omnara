@@ -209,6 +209,13 @@ func TestProcessOfferExecutionFormats(t *testing.T) {
 			gitCredentials: true,
 		},
 		{
+			name: "transfer to an unknown target", payload: `{"execution_spec":{"kind":"file_transfer","file_transfer":` +
+				`{"direction":"upload","local_path":"report.txt","target":{"workspace":{}}}}}`,
+			want: processcmd.ForFileTransfer(processcmd.FileTransfer{
+				Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+			}),
+		},
+		{
 			name: "empty spec", payload: `{"execution_spec":{}}`,
 			wantError: "invalid execution kind",
 		},

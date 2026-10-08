@@ -36,13 +36,17 @@ type ArtifactTarget struct {
 	ID uuid.UUID `json:"id,omitzero"`
 }
 
-func (t FileTransfer) Validate() error {
+func (t FileTransfer) validateLocal() error {
 	if t.Direction != FileTransferUpload && t.Direction != FileTransferDownload {
 		return errors.New("invalid file transfer direction")
 	}
 	if t.LocalPath == "" || strings.ContainsRune(t.LocalPath, 0) {
 		return errors.New("file transfer local path must be non-empty and cannot contain NUL")
 	}
+	return nil
+}
+
+func (t FileTransfer) validateTarget() error {
 	if (t.Target.Memory == nil) == (t.Target.Artifact == nil) {
 		return errors.New("file transfer requires exactly one target")
 	}
