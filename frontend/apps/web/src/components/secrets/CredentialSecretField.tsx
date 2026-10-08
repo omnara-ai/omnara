@@ -134,7 +134,7 @@ function InlineNewSecretFields({
     <Field>
       <FieldLabel>{label}</FieldLabel>
       <div className="grid gap-3 rounded-md border p-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           <Field>
             <FieldLabel htmlFor="credential-secret-name">Secret name</FieldLabel>
             <Input

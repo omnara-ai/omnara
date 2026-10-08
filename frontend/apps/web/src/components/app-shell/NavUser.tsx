@@ -2,7 +2,7 @@ import { useMe } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { CircleHelp, LogOut, Monitor, Moon, Sun, UserIcon } from '@/components/icons'
+import { CircleHelp, Fingerprint, LogOut, Monitor, Moon, Sun, UserIcon } from '@/components/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,6 +117,15 @@ export function NavUser() {
               <Link to="/user/account">
                 <UserIcon />
                 <span className="translate-y-px">Account</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              asChild
+              className="hover:bg-primary/15 focus:bg-primary/15 [&_svg]:!text-foreground"
+            >
+              <Link to="/user/api-tokens">
+                <Fingerprint />
+                <span className="translate-y-px">Personal access tokens</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem

@@ -29,6 +29,7 @@ import { MachinePreviewList } from '@/components/overview/MachinePreviewList'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { poolGrantOverrides } from '@/components/projects/grant-override-diffs'
+import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { GrantMachinePoolButton } from '@/components/projects/GrantMachinePoolButton'
 import { OverrideChip } from '@/components/projects/GrantOverrides'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -83,6 +84,7 @@ export function ProjectMachinesView({
           />
         }
       >
+        <GrantMachineButton />
         <GrantMachinePoolButton />
       </SearchHeader>
       {!list.isFiltering && <ProjectByoCard orgId={orgId} projectId={projectId} />}
@@ -304,6 +306,7 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
         isPending={preview.isPending}
         isError={preview.isError}
         emptyMessage="No individual machines shared with this project."
+        emptyAction={<GrantMachineButton />}
         viewAll={
           hasMore && (
             <Link

@@ -15,11 +15,14 @@ import {
   Sparkles,
   Users,
 } from '@/components/icons'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
 export function OrganizationNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { data: webConfig } = useWebConfig()
+  const { activeOrg } = useActiveOrg()
 
   function item(
     to: LinkProps['to'] & string,
@@ -65,7 +68,7 @@ export function OrganizationNav() {
         label="Access"
         items={[
           item('/members', 'Members', Users),
-          item('/user/api-tokens', 'API Tokens', Fingerprint),
+          ...(canManageOrg(activeOrg.role) ? [item('/api-tokens', 'API Tokens', Fingerprint)] : []),
         ]}
       />
     </>

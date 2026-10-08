@@ -1,6 +1,6 @@
 import { useIntegration } from '@omnara/react'
 import { ApiError, type Integration } from '@omnara/sdk'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
 import { type ReactNode, useCallback, useState } from 'react'
 
 import { PillTabs } from '@/components/agents/PillTabs'
@@ -172,7 +172,12 @@ function IntegrationSettings({
   )
 }
 
-type IntegrationTab = 'launch' | 'schedules' | 'conversations' | 'advanced'
+const integrationTabs = ['launch', 'schedules', 'conversations', 'advanced'] as const
+type IntegrationTab = (typeof integrationTabs)[number]
+
+function isIntegrationTab(value: unknown): value is IntegrationTab {
+  return integrationTabs.some((tab) => tab === value)
+}
 
 /** A connected integration's settings, one concern per tab. */
 function IntegrationTabs({
@@ -195,7 +200,19 @@ function IntegrationTabs({
   /** Delete lives with the other rarely-needed settings. */
   removeAction: ReactNode
 }) {
-  const [tab, setTab] = useState<IntegrationTab>('launch')
+  // The tab lives in the URL so a reload or shared link lands on it; the default tab leaves it off.
+  const requested = useRouterState({ select: (state) => state.location.search.tab })
+  const navigate = useNavigate()
+  const tab: IntegrationTab =
+    isIntegrationTab(requested) && (requested !== 'schedules' || integration.capabilities.schedule)
+      ? requested
+      : 'launch'
+  const setTab = (next: IntegrationTab) => {
+    void navigate({
+      to: '.',
+      search: (prev) => ({ ...prev, tab: next === 'launch' ? undefined : next }),
+    })
+  }
   const tabs: { value: IntegrationTab; label: string }[] = [
     {
       value: 'launch',

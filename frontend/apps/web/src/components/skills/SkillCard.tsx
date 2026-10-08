@@ -1,38 +1,22 @@
-import { useSkill } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { agentCardLinkClass } from '@/components/agents/AgentCardList'
-import { formatCount } from '@/lib/format'
-
-/** "3 files" for a skill. The list API omits files, so this loads the skill's detail. */
-export function SkillFileCount({ orgId, skill }: { orgId: string; skill: Skill }) {
-  const detail = useSkill(orgId, skill.id, skill.files === undefined)
-  const count = skill.files?.length ?? detail.data?.files?.length
-  if (count === undefined) return <span>— files</span>
-  return (
-    <span>
-      {formatCount(count)} {count === 1 ? 'file' : 'files'}
-    </span>
-  )
-}
 
 /**
- * A skill tile: name with its file count, then the description. The name links to the skill's page, under a
+ * A skill tile: name, then the description. The name links to the skill's page, under a
  * project when `projectId` is set and the org-level page otherwise.
  */
 export function SkillCard({
-  orgId,
   skill,
   projectId,
   source,
   actions,
 }: {
-  orgId: string
   skill: Skill
   projectId?: string
-  /** Where a shared skill comes from, shown after the file count. */
+  /** Where a shared skill comes from, shown after the name. */
   source?: string
   actions?: ReactNode
 }) {
@@ -57,15 +41,7 @@ export function SkillCard({
               {skill.name}
             </Link>
           )}
-          <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-            <SkillFileCount orgId={orgId} skill={skill} />
-            {source && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{source}</span>
-              </>
-            )}
-          </span>
+          {source && <span className="text-muted-foreground shrink-0 text-xs">{source}</span>}
         </div>
         {actions && (
           // Revealed on hover where hovering is possible; always shown on touch screens.

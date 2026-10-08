@@ -5,6 +5,8 @@ export interface ResourceComboboxConfig<TItem> {
   itemLabel: (item: TItem) => string
   renderItem?: (item: TItem) => ReactNode
   renderValue?: (item: TItem) => ReactNode
+  /** Classes for the dropdown popup, e.g. to widen it beyond the trigger. */
+  contentClassName?: string
   placeholder: string
   emptyMessage?: string
 }

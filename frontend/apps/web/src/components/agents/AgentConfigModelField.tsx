@@ -36,17 +36,20 @@ interface ModelChoice extends ConfiguredModelSummary {
 const ModelCombobox = createResourceCombobox<ModelChoice>({
   itemKey: (model) => model.id,
   itemLabel: (model) => `${model.name} · ${model.provider_config}`,
+  // Name gets the full first line; pricing only appears on the highlighted row so it
+  // never crowds the provider.
   renderItem: (model) => (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="flex min-w-0 items-baseline gap-1.5">
-        <span className="truncate">{model.name}</span>
-        <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
-      </span>
-      <span className="text-muted-foreground text-xs tabular-nums">
-        <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
+      <span className="truncate">{model.name}</span>
+      <span className="text-muted-foreground flex min-w-0 items-baseline gap-3 text-xs">
+        <span className="truncate">{model.provider_config}</span>
+        <span className="in-data-highlighted:inline ml-auto hidden shrink-0 tabular-nums">
+          <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
+        </span>
       </span>
     </span>
   ),
+  contentClassName: 'min-w-[min(36rem,var(--available-width))]',
   placeholder: 'Search shared models…',
   emptyMessage: 'No shared models found.',
 })

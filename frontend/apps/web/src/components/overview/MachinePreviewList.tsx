@@ -11,12 +11,15 @@ export function MachinePreviewList({
   isPending,
   isError,
   emptyMessage,
+  emptyAction,
   viewAll,
 }: {
   machines: MachineSummary[]
   isPending: boolean
   isError: boolean
   emptyMessage: string
+  /** Shown under the empty message, e.g. a button to add the first machine. */
+  emptyAction?: ReactNode
   /** Link to the full list; omit when every machine is already shown. */
   viewAll?: ReactNode
 }) {
@@ -25,9 +28,12 @@ export function MachinePreviewList({
       {isError ? (
         <p className="text-muted-foreground px-2 py-1.5 text-sm">Couldn&rsquo;t load machines.</p>
       ) : machines.length === 0 ? (
-        <p className="text-muted-foreground px-2 py-1.5 text-sm">
-          {isPending ? 'Loading machines…' : emptyMessage}
-        </p>
+        <div className="flex flex-col items-start gap-2 px-2 py-1.5">
+          <p className="text-muted-foreground text-sm">
+            {isPending ? 'Loading machines…' : emptyMessage}
+          </p>
+          {!isPending && emptyAction}
+        </div>
       ) : (
         <ul className="flex flex-col gap-0.5">
           {machines.map((machine) => {
