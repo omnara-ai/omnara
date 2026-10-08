@@ -7,45 +7,34 @@ description: Deploy or update the Video Generation Agent on Omnara, an agent tha
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
 folder. The goal: an agent profile the user has watched produce one video,
-reachable wherever they want it (their own app, Slack, Discord, or the
-Omnara console).
+reachable wherever the user wants it.
 
-The steps below are the usual path and have the exact commands. Skip anything
-that's already done (for example, the skill and profile exist and the user
-only wants a different model), follow the user's lead if they want a
-different order, and narrate briefly as you go.
+The steps below are the usual path, with the exact commands. Skip anything
+that's already done (for example, the skill and profile exist and the user only
+wants a different model), and follow the user's lead if they want a different
+order.
 
 - Start from `agent.yaml` as written. If the user wants something different
   (the instruction, tools, model, or how they reach the agent), change it and
   tell them what you changed.
-- If a command fails, read the error and fix it; `npx omnara <command> --help`
-  and [docs.omnara.com](https://docs.omnara.com) have the details. If you're
-  stuck, show the user the error.
+- If a command fails, `npx omnara <command> --help` and
+  [docs.omnara.com](https://docs.omnara.com) have the details.
 
-The commands use the Omnara CLI (`npx omnara`) because its login handles auth
-in one step; add `--json` when you need to read IDs from the output. They're a
-reference, not a requirement: the Omnara MCP tools, the
-[REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
-too, and the flags map directly to API fields. What matters is the result:
-the Remotion skill uploaded, a profile from the filled-in `agent.yaml`, and
-whatever the user picks in step 6.
+The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
+They're a reference, not a requirement: the Omnara MCP tools, the
+[REST API](https://docs.omnara.com/api-reference/openapi.yaml), and the SDK work
+too, and the flags map directly to API fields.
 
 ## 1. Connect to Omnara
 
-1. Run `npx omnara whoami`. If it reports that you aren't logged in, run
-   `npx omnara login` in an interactive terminal, share the approval link it
-   prints, and wait until the user approves.
-2. Pick the org and project. `npx omnara whoami --json` lists the user's orgs,
-   and `npx omnara projects list --org <org-id> --json` lists an org's
-   projects.
-   - If there's only one org and one project, use them.
-   - If there are several of either, ask the user which to use. Suggest the
-     current defaults from `npx omnara config` if they're set, otherwise the
-     project named `Default`.
-
-   Save the choice with `npx omnara config --org <org-id> --project <project-id>`.
-
-Remember the project ID; later steps need it.
+Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` in an
+interactive terminal, share the approval link it prints, and wait for the user
+to approve. Then pick the org and project (`npx omnara whoami --json` lists
+orgs, `npx omnara projects list --org <org-id> --json` their projects): use them
+if there's one of each, otherwise ask, suggesting the defaults from
+`npx omnara config` or the project named `Default`. Save the choice with
+`npx omnara config --org <org-id> --project <project-id>`; later steps need the
+project ID.
 
 ## 2. Upload the Remotion skill
 
@@ -54,37 +43,31 @@ Remotion's own [agent skills](https://github.com/remotion-dev/skills).
 `remotion-best-practices` is a router: its `SKILL.md` points to reference
 folders next to it, so upload the whole folder, not just `SKILL.md`.
 
-1. Check for an existing upload:
-   `npx omnara skills list --owner-kind project --owner-project-id <project-id> --name remotion-best-practices --json`.
-   If one exists, ask whether to reuse it as is or refresh it with the latest
-   Remotion release. To reuse it, note its `id` and skip to step 3. To
-   refresh it, run the upload below: it adds a revision and the ID stays the
-   same.
-2. Clone the skills and upload the folder:
+If an upload named `remotion-best-practices` already exists
+(`npx omnara skills list --owner-kind project --owner-project-id <project-id> --name remotion-best-practices --json`),
+ask whether to reuse it as is or refresh it with the latest Remotion release.
+Otherwise, or to refresh it, clone the skills and upload the folder; the CLI
+packs the directory itself:
 
-   ```sh
-   git clone --depth 1 https://github.com/remotion-dev/skills /tmp/remotion-skills
-   npx omnara skills create --owner-kind project --owner-project-id <project-id> \
-     --archive /tmp/remotion-skills/skills/remotion-best-practices --json
-   ```
+```sh
+git clone --depth 1 https://github.com/remotion-dev/skills /tmp/remotion-skills
+npx omnara skills create --owner-kind project --owner-project-id <project-id> \
+  --archive /tmp/remotion-skills/skills/remotion-best-practices --json
+```
 
-   The CLI packs the directory itself. Note the `id` (`skl_…`) from the
-   output; it's `REMOTION_SKILL_ID`.
-
-To pick up a newer Remotion release later, clone again and rerun the same
-`skills create` command. It uploads a new revision under the same `skl_` ID,
-and the agent uses it from its next model call, so the profile doesn't change.
+The `id` (`skl_…`) is `REMOTION_SKILL_ID`. A refresh adds a revision under the
+same ID, and the agent uses it from its next model call, so the profile doesn't
+change.
 
 ## 3. Pick the model and machine pool
 
-1. `npx omnara grant models list --json`: each item has
-   `model.provider_config` and `model.name`. Suggest Claude Opus 5.5 (the
-   instruction was tested with it, and it reviews its own frames well). If the
-   user has their own Anthropic provider config with Opus 5.5, suggest that
-   one; otherwise suggest `anthropic/claude-opus-5.5` on `omnara-openrouter`.
-   If Opus 5.5 isn't granted, suggest another strong model that accepts
-   images, and name a couple of alternatives rather than the whole list. The
-   choice gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
+1. `npx omnara grant models list --json`: each item has `model.provider_config`
+   and `model.name`. Suggest Claude Opus 5.5 (the instruction was tested with
+   it, and it reviews its own frames well): the user's own Anthropic provider
+   config if they have one with Opus 5.5, otherwise `anthropic/claude-opus-5.5`
+   on `omnara-openrouter`. If Opus 5.5 isn't granted, suggest another strong
+   model that accepts images. The choice gives `MODEL_PROVIDER_CONFIG` and
+   `MODEL_NAME`.
 2. `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
    candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
    machines come with Node.js and headless Chromium, which Remotion needs.
@@ -156,9 +139,8 @@ teaser for our new pricing page".
 
 ## 7. Wrap up
 
-Summarize what you created: the skill, the profile, and the Slack or Discord
-integration if any.
-Then tell the user:
+Summarize what you created: the skill, the profile, and any integrations. Then
+tell the user:
 
 - **Change the instruction, model, or anything else:** ask a coding agent
   with this skill. It reuses the skill and updates the profile in place.

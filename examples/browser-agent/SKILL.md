@@ -13,15 +13,15 @@ reachable where they want it, on a schedule if they want one.
 Interview first, then build. Don't create anything in Omnara until the user
 has confirmed your summary in step 2.
 
-`agent.yaml` is a guide, not a form. Its browser, sign-in, and machine
-settings were tested together: the agent-browser commands, the vault and
-two-factor helper in the startup script, the `AGENT_BROWSER_*` variables, and
-the settings that keep the machine alive. Keep them unless you have a reason,
-and read the file's comments before editing. Fit everything else to the job:
-add instruction sections, an MCP server for an API the user already has, or
-anything else the job needs, and tell the user what you changed. If a command
-fails, read the error and fix it; `npx omnara <command> --help` and
-[docs.omnara.com](https://docs.omnara.com) have the details.
+`agent.yaml` is a guide, not a form. Its browser, sign-in, and machine settings
+were tested together: the agent-browser commands, the vault and two-factor
+helper in the startup script, the `AGENT_BROWSER_*` variables, and the settings
+that keep the machine alive. Keep them unless you have a reason, and read the
+file's comments before editing. Fit everything else to the job: add instruction
+sections, an MCP server for an API the user already has, or anything else the
+job needs, and tell the user what you changed. If a command fails,
+`npx omnara <command> --help` and [docs.omnara.com](https://docs.omnara.com)
+have the details.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` when you need to
 read IDs. The Omnara MCP tools, the
@@ -30,16 +30,14 @@ work too, and the flags map directly to API fields.
 
 ## 1. Connect to Omnara
 
-1. Run `npx omnara whoami`. If it reports that you aren't logged in, run
-   `npx omnara login` in an interactive terminal, share the approval link it
-   prints, and wait until the user approves.
-2. Pick the org and project. `npx omnara whoami --json` lists the user's orgs,
-   and `npx omnara projects list --org <org-id> --json` lists an org's
-   projects. If there's one of each, use them. Otherwise ask, suggesting the
-   defaults from `npx omnara config` or the project named `Default`. Save the
-   choice with `npx omnara config --org <org-id> --project <project-id>`.
-
-Remember the project ID; later steps need it.
+Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` in an
+interactive terminal, share the approval link it prints, and wait for the user
+to approve. Then pick the org and project (`npx omnara whoami --json` lists
+orgs, `npx omnara projects list --org <org-id> --json` their projects): use them
+if there's one of each, otherwise ask, suggesting the defaults from
+`npx omnara config` or the project named `Default`. Save the choice with
+`npx omnara config --org <org-id> --project <project-id>`; later steps need the
+project ID.
 
 ## 2. Interview the user
 
@@ -136,11 +134,10 @@ since everything it does appears under that account.
    user update it on the **Secrets** page of the Omnara dashboard; the ID
    stays the same.
 2. Ask the user to put the missing values in a `.env` file in the current
-   directory and tell you when it's saved. Discourage pasting passwords into
-   the chat. `TOTP` is the authenticator setup key, only for sites that use
-   one. The file is read by the shell, so wrap each value in single quotes;
-   otherwise spaces, `$`, or `#` in a value break it. Write a single quote
-   inside a value as `'\''`.
+   directory rather than pasting passwords into the chat. `TOTP` is the
+   authenticator setup key, only for sites that use one. The file is read by the
+   shell, so wrap each value in single quotes; otherwise spaces, `$`, or `#` in
+   a value break it. Write a single quote inside a value as `'\''`.
 
    ```sh
    LOGIN_CRM_USERNAME='agent@acme.com'
@@ -285,8 +282,8 @@ schedule**: both start a new agent, with a new kept machine, every run.
 
 ## 10. Wrap up
 
-Summarize what you created: the secrets, the profile, and the Slack or Discord
-integration and schedule if any. Then tell the user:
+Summarize what you created: the secrets, the profile, and any integrations or
+schedule. Then tell the user:
 
 - **Machines are kept** until their agent is archived, sleeping when idle and
   waking with the browser intact. Archive agents whose work is done.

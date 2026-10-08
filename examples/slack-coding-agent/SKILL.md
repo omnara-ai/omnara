@@ -11,10 +11,10 @@ Discord, or on a GitHub pull request, which works on one of their GitHub
 repositories and opens pull requests, and which the user has watched answer
 once.
 
-The steps below are the usual path and have the exact commands. Skip anything
-that's already done (for example, the token and profile exist and the user
-only wants a different model), follow the user's lead if they want a
-different order, and narrate briefly as you go.
+The steps below are the usual path, with the exact commands. Skip anything
+that's already done (for example, the token and profile exist and the user only
+wants a different model), and follow the user's lead if they want a different
+order.
 
 - Start from `agent.yaml` as written. If the user wants something different
   (the instruction, tools, or model), change it and tell them what you
@@ -25,34 +25,24 @@ different order, and narrate briefly as you go.
   secret (API key), and add a short instruction section on how to use it.
   Tell the user that an OAuth connection acts as whoever approves it, so its
   writes appear under that person's name.
-- If a command fails, read the error and fix it; `npx omnara <command> --help`
-  and [docs.omnara.com](https://docs.omnara.com) have the details. If you're
-  stuck, show the user the error.
+- If a command fails, `npx omnara <command> --help` and
+  [docs.omnara.com](https://docs.omnara.com) have the details.
 
-The commands use the Omnara CLI (`npx omnara`) because its login handles auth
-in one step; add `--json` when you need to read IDs from the output. They're a
-reference, not a requirement: the Omnara MCP tools, the
-[REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
-too, and the flags map directly to API fields. What matters is the result: a
-secret with the GitHub token, a profile from the filled-in `agent.yaml`, and
-the integrations the user picks in step 5.
+The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
+They're a reference, not a requirement: the Omnara MCP tools, the
+[REST API](https://docs.omnara.com/api-reference/openapi.yaml), and the SDK work
+too, and the flags map directly to API fields.
 
 ## 1. Connect to Omnara
 
-1. Run `npx omnara whoami`. If it reports that you aren't logged in, run
-   `npx omnara login` in an interactive terminal, share the approval link it
-   prints, and wait until the user approves.
-2. Pick the org and project. `npx omnara whoami --json` lists the user's orgs,
-   and `npx omnara projects list --org <org-id> --json` lists an org's
-   projects.
-   - If there's only one org and one project, use them.
-   - If there are several of either, ask the user which to use. Suggest the
-     current defaults from `npx omnara config` if they're set, otherwise the
-     project named `Default`.
-
-   Save the choice with `npx omnara config --org <org-id> --project <project-id>`.
-
-Remember the project ID; later steps need it.
+Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` in an
+interactive terminal, share the approval link it prints, and wait for the user
+to approve. Then pick the org and project (`npx omnara whoami --json` lists
+orgs, `npx omnara projects list --org <org-id> --json` their projects): use them
+if there's one of each, otherwise ask, suggesting the defaults from
+`npx omnara config` or the project named `Default`. Save the choice with
+`npx omnara config --org <org-id> --project <project-id>`; later steps need the
+project ID.
 
 ## 2. Choose the repository and store a GitHub token
 
@@ -70,39 +60,29 @@ the token owner's account, so a dedicated bot account keeps them separate
 from a person's. If the repository belongs to an organization, its owners
 may need to approve the token.
 
-1. Check for an existing secret:
-   `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name slack-coding-agent-github --json`.
-   If one exists, ask whether to reuse it. To reuse it, note its `id` and skip
-   to step 3. To change its value, have the user update it on the
-   **Secrets** page of the Omnara dashboard (the ID stays the same) and skip
-   to step 3.
-2. Ask the user to add the token to a `.env` file in the current directory
-   and tell you when it's saved (pasting it in the chat also works):
+If a secret named `slack-coding-agent-github` already exists
+(`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name slack-coding-agent-github --json`),
+ask whether to reuse it and note its `id`; if the value changed, the user
+updates it on the dashboard's **Secrets** page (the ID stays the same).
+Otherwise have the user add `AGENT_GITHUB_TOKEN=github_pat_...` to a `.env` file
+in the current directory, then create the secret and note its `id` (`sec_…`) as
+`GITHUB_TOKEN_SECRET_ID`:
 
-   ```sh
-   AGENT_GITHUB_TOKEN=github_pat_...
-   ```
-
-3. Create the secret:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
-     --name slack-coding-agent-github --material-kind generic \
-     --material-value "$AGENT_GITHUB_TOKEN" --json
-   ```
-
-   Note the `id` (`sec_…`) as `GITHUB_TOKEN_SECRET_ID`.
+```sh
+set -a && . ./.env && set +a
+npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
+  --name slack-coding-agent-github --material-kind generic \
+  --material-value "$AGENT_GITHUB_TOKEN" --json
+```
 
 ## 3. Pick the model and machine pool
 
-1. `npx omnara grant models list --json`: each item has
-   `model.provider_config` and `model.name`. Ask the user which model to use.
-   Suggest `anthropic/claude-opus-5.5` on `omnara-openrouter` if it's granted
-   (`agent.yaml` runs it at high reasoning effort); otherwise suggest the strongest
-   coding model on the list. Name a couple of alternatives rather than the
-   whole list, and show everything if they ask. The choice gives
-   `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
+1. `npx omnara grant models list --json`: each item has `model.provider_config`
+   and `model.name`. Ask the user which model to use, suggesting
+   `anthropic/claude-opus-5.5` on `omnara-openrouter` if it's granted
+   (`agent.yaml` runs it at high reasoning effort), otherwise the strongest
+   coding model on the list. The choice gives `MODEL_PROVIDER_CONFIG` and
+   `MODEL_NAME`.
 2. `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
    candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
    machines come with `git`, `gh`, and common language toolchains. Otherwise
@@ -171,8 +151,8 @@ task.
 
 ## 7. Wrap up
 
-Summarize what you created: the secret, the profile, and the Slack, Discord,
-or GitHub integrations. Then tell the user:
+Summarize what you created: the secret, the profile, and the integrations. Then
+tell the user:
 
 - **Start it from elsewhere too:** anything that can call the API (a Linear
   webhook, a CI job) can launch an agent from the profile with the task as
