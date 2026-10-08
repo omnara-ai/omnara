@@ -1,97 +1,112 @@
-# Omnara
+<p align="center">
+  <a href="https://www.omnara.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-white.png">
+      <img alt="Omnara" src="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-black.png" width="212">
+    </picture>
+  </a>
+</p>
 
-**The API for production-grade agents.**
+<h1 align="center">The open-source managed agent platform</h1>
 
-Omnara is an open source platform for running managed agents. It handles
-execution and state while you choose the models, tools, machines, and how users
-interact with each agent.
+<p align="center">A self-hostable alternative to Claude Managed Agents and OpenAI's Agents API.</p>
 
-[Omnara Cloud](https://app.omnara.com) ·
-[Documentation](https://docs.omnara.com/introduction) ·
-[API](https://docs.omnara.com/api/overview) ·
-[Changelog](https://docs.omnara.com/changelog) ·
-[Discord](https://discord.gg/Dc46sYk6e3)
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/github/license/omnara-ai/omnara"></a>
+  <a href="https://www.npmjs.com/package/@omnara/sdk"><img alt="npm: @omnara/sdk" src="https://img.shields.io/npm/v/@omnara/sdk?label=%40omnara%2Fsdk"></a>
+  <a href="https://discord.gg/Dc46sYk6e3"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white"></a>
+</p>
 
-## Who it is for
+<p align="center">
+  <a href="https://www.omnara.com">Website</a> ·
+  <a href="https://docs.omnara.com/quickstart">Quickstart</a> ·
+  <a href="https://docs.omnara.com/introduction">Docs</a> ·
+  <a href="https://docs.omnara.com/api/overview">API</a> ·
+  <a href="https://docs.omnara.com/changelog">Changelog</a> ·
+  <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
+</p>
 
-- **Developers.** Build agents for internal use or customer-facing products with
-  the API. Your application controls who can use each agent, what input it
-  receives, and how its output reaches users. Omnara handles execution and state
-  in between.
-- **Teams.** Interact with agents directly through Omnara's dashboard or
-  first-party Slack connector.
+Omnara is an open-source managed agent platform. Use the API to run AI agents
+on any model and any machine, with tools, secrets, permissions, and streaming
+built in. Self-host it for free under Apache 2.0, or use
+[Omnara Cloud](https://app.omnara.com).
 
-## Getting Started
-
-1. Create your agent
-```yaml agent.yaml
-instruction: |
-  You are a coding agent running gpt-6.1-sol. Use the tools
-  you have available to solve coding problems for the user.
-model:
-  provider_config: omnara-openrouter
-  name: openai/gpt-6.1-sol
-# ...
-# add more tools, sandboxes, mcps
-```
-
-2. Upload your agent profile
-```bash
-$ npx omnara login
-$ npx omnara profiles create --name agent --file agent.yaml
-id                  aprf_aej3...
-name                agent
-[...]
-```
-
-3. Launch the agent from the profile and chat with it
-
-```bash
-$ npx omnara agents launch --profile $AGENT_PROFILE_ID --file agent.yaml
-$ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
-```
-
-## Features
-
-- <ins><strong>Durable agents</strong></ins>. Agent state is committed
-  atomically to Postgres. Agents recover automatically from crashes, restarts,
-  and temporary machine disconnects.
-- <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, Modal,
-  Unikraft, Freestyle, Tenki, Arker, boxd, or CreateOS, or connect your own laptop or VM. An agent
-  can run with no machines or use several at once. These can be sandboxes, your own
-  machines, or both. You can add or remove machines while the agent is running.
-- <ins><strong>Models</strong></ins>. Bring your own API keys and use any model
-  exposed through a compatible endpoint, including OpenRouter, LiteLLM, and
-  Ollama. Omnara supports OpenAI Responses, OpenAI Chat Completions, and
-  Anthropic Messages, with more API formats coming soon.
-- <ins><strong>Tools</strong></ins>. Use built-in tools, custom tools, skills,
-  and HTTP MCP servers.
-- <ins><strong>RBAC</strong></ins>. Assign organization and project roles to
-  users and API keys. Separate who can manage access, configure agents, operate
-  them, or only view them.
-- <ins><strong>Cloud or self-hosted</strong></ins>. Use Omnara Cloud or run it
-  yourself under Apache 2.0.
-  - <ins><strong>Queryable state</strong></ins>. Self-hosted deployments can
-    query agent history directly in Postgres for analytics, evals, prompt
-    analysis, and training datasets.
-- <ins><string>CLI and SDK</strong></ins>. Use Omnara programmatically via the CLI, Typescript CLI, or REST API.
-
-## Get started
+## Quickstart
 
 ### Omnara Cloud
 
-Sign up at [app.omnara.com](https://app.omnara.com), add a model provider,
-define an agent profile, and launch it from the console, Slack, or API.
+Sign in at [app.omnara.com](https://app.omnara.com). Your first project comes
+with a model provider (`omnara-openrouter`) and a pool of managed sandboxes
+(`default-pool`), so this config runs as is. Save it as `agent.yaml`:
 
-See the [quickstart](https://docs.omnara.com/quickstart) for the complete flow.
+```yaml
+version: v1
+instruction: |
+  You are an engineering assistant. Use your machine to run commands.
+model:
+  provider_config: omnara-openrouter
+  name: anthropic/claude-fable-5.1
+machine_sources:
+  - machine_pool_name: default-pool
+```
+
+Launch it with the CLI (Node.js 22 or newer). If you're not logged in, the
+first command opens your browser to sign in.
+
+```sh
+npx omnara agents launch --file agent.yaml \
+  --name "Machine assistant" \
+  --message "Report this machine's operating system and free disk space."
+```
+
+Chat with the agent in your terminal with `npx omnara agents chat <agent-id>`,
+or open it in the dashboard to watch its tool calls and reply.
+
+<details>
+<summary>Launch it from your code with the TypeScript SDK</summary>
+
+Create an API key in the dashboard and export it as `OMNARA_TOKEN`, install the
+SDK with `npm install @omnara/sdk`, and use the org and project IDs that
+`npx omnara config` prints:
+
+```ts
+import { readFile } from 'node:fs/promises'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
+
+const client = createOmnaraClient({ auth: bearerToken(process.env.OMNARA_TOKEN!) })
+const path = { orgID: 'org_...', projectID: 'proj_...' }
+
+const config = await sdk.createAgentConfig({
+  client,
+  path,
+  body: { source: await readFile('agent.yaml', 'utf8'), source_format: 'yaml' },
+})
+const launched = await sdk.createAgent({
+  client,
+  path,
+  body: { config: config.data.id, message: "Report this machine's free disk space." },
+})
+
+const agentID = launched.data.agent.id
+for await (const event of openAgentEventStream({ client, path: { ...path, agentID } })) {
+  console.log(event)
+}
+```
+
+The [quickstart](https://docs.omnara.com/quickstart) shows the same flow with
+the REST API.
+
+</details>
+
+To have your coding agent do the setup, give it this prompt:
+
+```text
+Help me set up Omnara by following https://www.omnara.com/SKILL.md
+```
 
 ### Self-host
 
-#### Requirements
-
-- Docker with Compose
-
-#### Run published images
+Requires Docker with Compose.
 
 ```sh
 git clone https://github.com/omnara-ai/omnara.git
@@ -99,74 +114,276 @@ cd omnara
 docker compose -f compose.yaml --profile app up -d
 ```
 
-#### Build from source
+Open [http://localhost:8000](http://localhost:8000) and sign up. Local
+development prints the verification link in `docker compose logs api`, so no
+email provider is needed. To build from source instead of using published
+images, run `docker compose --profile app up -d --build`.
+
+A new instance has no models or machines yet. In the console, add a model
+provider and a model, connect this computer under **Machines**, and share both
+with your project. Sandboxes also work once your instance has a
+[public URL](https://docs.omnara.com/self-hosting/deployment#exposing-the-deployment-publicly).
+
+Point the CLI at your instance and log in:
 
 ```sh
-git clone https://github.com/omnara-ai/omnara.git
-cd omnara
-docker compose --profile app up -d --build
+npx omnara config --api-url http://localhost:8000/api/v1 --issuer-url http://localhost:8000
+npx omnara login
 ```
 
-Open [http://localhost:8000](http://localhost:8000). Local authentication email
-is written to `docker compose logs api`, so you can complete signup without
-configuring an email provider.
+In `agent.yaml`, use your provider and model names, and replace the
+`machine_pool_name` entry with `machine_name: <your machine>`. Then launch it
+with the same command as above.
 
-Add a model provider credential in the console, create an agent profile, and
-launch an agent.
+The local defaults are intentionally insecure. For a real deployment, follow
+the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
+the [configuration reference](https://docs.omnara.com/self-hosting/configuration).
 
-Local development uses intentionally insecure defaults. Do not use those
-defaults in a deployed environment. Follow the
-[self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
-[configuration reference](https://docs.omnara.com/self-hosting/configuration)
-for production setup.
+## How it works
 
-## API
+Your product talks to Omnara, and Omnara runs each agent with the model,
+tools, and machines in its config.
 
-The API is defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml) and
-served under `/api/v1`. See the
-[API overview](https://docs.omnara.com/api/overview).
+```mermaid
+flowchart TB
+    subgraph yours["Your side"]
+        users(["Your users"]) --> app["Your app<br/>REST API · TypeScript SDK"]
+        team["Your team<br/>CLI · dashboard<br/>Slack · Discord · GitHub"]
+    end
+    subgraph omnara["Omnara"]
+        api["API<br/>launch · input<br/>event stream · approvals"] <--> pg[("Postgres<br/>each agent's event log")] <--> worker["Workers<br/>run the agent loop"]
+    end
+    subgraph plug[" "]
+        models["Models<br/>OpenAI · Anthropic<br/>OpenRouter · self-hosted"]
+        tools["Tools<br/>built-in · skills<br/>MCP · custom"]
+        machines["Machines<br/>sandboxes or your own<br/>laptop, VM, container"]
+    end
+    app --> api
+    team --> api
+    worker --> models
+    worker --> tools
+    worker --> machines
+
+    classDef side fill:none,stroke:#8b949e,stroke-width:1px
+    classDef core fill:#506FCF,stroke:#3D5BB5,stroke-width:1px,color:#ffffff
+    classDef store fill:#3D5BB5,stroke:#2E4794,stroke-width:1px,color:#ffffff
+    classDef plugin fill:none,stroke:#85A0E6,stroke-width:1.5px
+    class users,app,team side
+    class api,worker core
+    class pg store
+    class models,tools,machines plugin
+    style yours fill:none,stroke:#8b949e,stroke-dasharray:4 3
+    style omnara fill:#506FCF14,stroke:#506FCF,stroke-width:1.5px
+    style plug fill:none,stroke:#85A0E6,stroke-dasharray:4 3
+    linkStyle default stroke:#8b949e,stroke-width:1.5px
+```
+
+- **API.** Your app, the CLI, and the dashboard all use the same REST API to
+  launch agents, send messages, and answer approvals. Events stream back as
+  they happen.
+- **Postgres.** Every step of every agent is saved here. That record is the
+  agent's state, so any worker can pick an agent back up after a crash or
+  restart.
+- **Workers.** Stateless processes that build the model context, call the
+  model, and run tools. An agent only uses a worker while it's taking a turn,
+  so one worker can serve many agents. Add workers to handle more turns at
+  once.
+- **Machines.** Each machine runs the `omnarad` daemon, which connects out to
+  Omnara, so agents can run commands there without any inbound ports.
+
+Omnara also uses Redis, blob storage for attachments and tool outputs, and a
+memory filesystem. The
+[architecture docs](https://docs.omnara.com/self-hosting/architecture) cover the details.
+
+## Features
+
+### Build agents
+
+- **[Any model](https://docs.omnara.com/organization/model-providers).** Bring
+  your own keys for OpenAI, Anthropic, OpenRouter, LiteLLM, Ollama, or any
+  compatible endpoint, including models you host yourself.
+- **[Tools](https://docs.omnara.com/tools/built-in).** Built-in tools for shell
+  commands, files, web search and fetch, and asking a person a question, plus
+  [MCP servers](https://docs.omnara.com/tools/mcp) and
+  [custom tools](https://docs.omnara.com/tools/custom) that run in your own
+  systems.
+- **[Skills](https://docs.omnara.com/tools/skills).** Package instructions and
+  files once, attach them to any agent, and the agent loads them when it needs
+  them.
+- **[Memory](https://docs.omnara.com/agents/configuration#memory-stores).**
+  Memory stores give agents files that persist between conversations and can
+  be shared with other agents, with read or read-write access per agent.
+- **[Subagents](https://docs.omnara.com/agents/configuration#subagents).** An agent
+  can start subagents with a fresh context, check their progress, and send them
+  new instructions. Each subagent is a full agent you can inspect.
+
+### Run them anywhere
+
+- **[Machines](https://docs.omnara.com/machines/overview).** Machines are tools
+  the agent uses. Install the Omnara daemon on any macOS or Linux laptop, VM, or
+  container and your agents can run commands and edit files there, with no inbound ports or
+  SSH keys. Or use sandboxes from nine providers (Arker, Blaxel, boxd, CreateOS,
+  Daytona, Freestyle, Modal, Tenki, Unikraft). An agent can use several machines
+  at once (for example, a set of GPU servers) and move between them. If your
+  laptop goes offline, the agent can continue in a sandbox and sync its work
+  back with git.
+- **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
+  saved, so agents pick up where they left off after crashes, restarts, and
+  machine disconnects.
+- **[Schedules](https://docs.omnara.com/api-reference/endpoints/configs-and-profiles/create-cron-trigger).**
+  Cron triggers with time zones can message an existing agent, launch a new one
+  from a profile, or
+  [start a new Slack or Discord thread](https://docs.omnara.com/integrations/overview#start-a-new-thread-on-a-schedule).
+
+### Connect them
+
+- **[Slack, Discord, and GitHub](https://docs.omnara.com/integrations/overview).**
+  Mention the bot in Slack or Discord to start an agent in a thread, where it
+  replies, asks questions, and requests approvals. On GitHub, an agent can start
+  when a pull request opens or someone mentions it, then read the diff,
+  comment, and submit reviews. To connect another service, build a
+  [custom integration](https://docs.omnara.com/integrations/custom-integrations)
+  on the same public API.
+- **[Streaming](https://docs.omnara.com/events/streaming) and
+  [webhooks](https://docs.omnara.com/events/webhooks).** Stream every event as
+  it happens or receive it as a webhook, and send new messages while the agent
+  works.
+- **[Permissions](https://docs.omnara.com/tools/permissions).** Each tool can
+  run immediately, ask a person first, or be blocked. The platform enforces the
+  setting, and the agent waits until someone approves or denies the call.
+- **[API, SDK, and CLI](https://docs.omnara.com/api/overview).** A REST API
+  defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml), a
+  TypeScript SDK ([`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk)),
+  a CLI ([`omnara`](https://www.npmjs.com/package/omnara)), and an MCP server.
+
+### Control them
+
+- **[Role-based access control](https://docs.omnara.com/organization/members)
+  and [secrets](https://docs.omnara.com/organization/secrets).** Organization
+  and project roles for users and API keys. Credentials for
+  models, machines, and MCP servers are stored once and shared with each
+  project explicitly.
+- **[Multi-tenant](https://docs.omnara.com/concepts).** One deployment serves
+  many organizations, each with its own members, projects, secrets, model
+  providers, and machines. Self-hosted operators can give every new
+  organization default models and sandboxes, as Omnara Cloud does.
+- **Your data.** Self-hosted deployments keep every agent's history in your own
+  Postgres, where you can query it for analytics, evals, and training datasets.
+
+## Omnara vs Claude Managed Agents and OpenAI's Agents API
+
+[Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview)
+and OpenAI's [Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview)
+are hosted services for running agents on one company's models. Omnara does the
+same job as an open-source platform you can run anywhere, with any model.
+
+| | Omnara | Claude Managed Agents | OpenAI's Agents API |
+| --- | --- | --- | --- |
+| Source | Open source (Apache 2.0) | Closed | Open-source harness (Codex). The hosted service is OpenAI's. |
+| Models | Any compatible model | Claude | OpenAI |
+| Agent loop | Omnara's, works with any model | Anthropic's, built for Claude | Codex, run and updated by OpenAI |
+| Where the platform runs | Omnara Cloud, or your own infrastructure | Anthropic's cloud | OpenAI's cloud |
+| Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
+| Operations | Managed on Omnara Cloud. You operate it when self-hosting. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
+| Agent history | Stored by Omnara on Omnara Cloud and queryable through the API. In your own Postgres when self-hosted. | Stored by Anthropic, readable and deletable through the API. Not currently eligible for Zero Data Retention or HIPAA BAA coverage. | Stored by OpenAI. No Zero Data Retention support. US data residency only. |
+| Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines, or pay as you go for our models and sandboxes. | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
+
+Choose Claude Managed Agents or the Agents API if you use one company's models
+and want that company to run everything for you. Choose Omnara if you want to
+pick your models and machines, run the platform yourself, or keep agent data in
+your own database.
+
+## Where Omnara fits
+
+| If you use | It's good for | Omnara adds |
+| --- | --- | --- |
+| Workflow builders, such as n8n or Zapier | Predictable, step-by-step automations | Open-ended agents that run code on machines and keep state for days |
+| Agent frameworks, such as Mastra, LangChain, or the OpenAI Agents SDK | Agent logic in your app's code | Hosting, state, machines, permissions, and integrations, with agents created and changed through an API instead of a redeploy |
+| Agent harnesses, such as Claude Code, the Claude Agent SDK, Codex, OpenCode, or Pi | One agent loop in a terminal or on one machine | Cloud agents that run as a service, across machines and users, started from your app, Slack, GitHub, or a schedule |
+| Managed agent platforms, such as Claude Managed Agents or the Agents API | Hosted agents on one company's models | The same model of hosted agents, open source, on any model, and self-hostable |
+
+## Examples
+
+Each of these is an `agent.yaml` plus a `SKILL.md` in [`examples/`](examples),
+and you can deploy any of them with one prompt to your coding agent.
+
+- [Slack coding agent](examples/slack-coding-agent) fixes issues you mention in
+  Slack, Discord, or a GitHub pull request and opens a PR.
+- [SRE agent](examples/sre-agent) investigates production problems such as a
+  5xx spike.
+- [Browser agent](examples/browser-agent) works in a real browser on
+  long-running tasks.
+- [PostHog analytics agent](examples/posthog-analytics-agent) compares
+  yesterday's product usage with the 7-day average and reports what changed.
+- [Reddit](examples/reddit-signal-agent), [X](examples/x-signal-agent), and
+  [LinkedIn](examples/linkedin-signal-agent) signal agents summarize the last
+  24 hours of posts about a topic you pick.
+- [Video generation agent](examples/video-generation-agent) makes short videos
+  from a brief.
+
+There are also code samples for a [CLI chat app](examples/cli-agent) built on
+the TypeScript SDK, [custom tools over webhooks](examples/custom-tool-webhook),
+and a [SharePoint filesystem mount](examples/sharepoint-mount).
+
+## Use Omnara from your coding agent
+
+**MCP server.** Connect Claude Code, Codex, Cursor, or any MCP client that
+supports OAuth to `https://app.omnara.com/mcp` to launch and manage Omnara
+agents. You sign in through the browser, so there are no tokens to paste. In
+Claude, add it from the
+[connectors directory](https://claude.ai/directory/app-omnara-com). Omnara is
+also listed in the official MCP Registry as `com.omnara/omnara`.
+
+```sh
+claude mcp add --transport http omnara https://app.omnara.com/mcp
+codex mcp add omnara --url https://app.omnara.com/mcp
+```
+
+Then sign in with `/mcp` in Claude Code or `codex mcp login omnara` in Codex.
+See [Connecting MCP clients](https://docs.omnara.com/api/authentication#connecting-mcp-clients).
+
+**CLI.** [`omnara`](https://www.npmjs.com/package/omnara) manages agents,
+profiles, machines, model providers, secrets, skills, and cron triggers from
+your terminal or your coding agent's shell. Run `npx omnara --help` to start.
+
+**Setup skill.** [`skills/setup-omnara-agent`](skills/setup-omnara-agent/SKILL.md),
+also served at [omnara.com/SKILL.md](https://www.omnara.com/SKILL.md), walks a
+coding agent through setting up Omnara for your project.
+
+**Docs for LLMs.** [docs.omnara.com/llms.txt](https://docs.omnara.com/llms.txt).
+
+## FAQ
+
+**What is Omnara?** An open-source managed agent platform for running AI agents
+on any model and any machine.
+
+**How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
+fee. You can bring your own model keys and machines for free, or pay as you go
+for our models at provider token rates and our sandboxes by active time and
+retained storage. See [pricing](https://www.omnara.com/pricing).
+
+**Can I self-host it?** Yes. Run it with Docker Compose locally, then follow
+the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) for
+production. The API, CLI, SDK, and config format are the same on Omnara Cloud
+and self-hosted deployments.
+
+**Which models work?** Any model behind an OpenAI Responses, OpenAI Chat
+Completions, or Anthropic Messages compatible endpoint, including OpenAI,
+Anthropic, OpenRouter, LiteLLM, and Ollama.
 
 ## Development
 
 Source development requires the Go version declared in [`go.mod`](go.mod),
-Node.js 24 or newer with Corepack, ripgrep (`rg` on `PATH`), and Docker with Compose.
-
-`make run-worker` builds the sandbox launcher. File search and scripted
-edits require a Linux worker; see the
-[worker prerequisites](https://docs.omnara.com/self-hosting/configuration#memory-storage).
-
-Run the fast repository gate.
-
-```sh
-make verify
-```
-
-To include React Doctor against the current branch changes, run
-`make web-check-all`.
-
-Run database-backed integration tests.
-
-```sh
-make test-integration
-```
-
-Run deterministic service end-to-end tests.
-
-```sh
-make test-service-e2e
-```
-
-Provider-backed live tests are available through the `make test-live-*` targets
-and require the corresponding credentials. CI runs them on every push to `main`;
-to run them on a pull request, add the `live-tests` label.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for generated-code workflows and pull
-request expectations.
+Node.js 24 or newer with Corepack, ripgrep, and Docker with Compose. Run the
+fast repository gate with `make verify`. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the full test suite, generated-code workflows, and pull request
+expectations.
 
 ## Community
 
-[GitHub Issues](https://github.com/omnara-ai/omnara/issues) ·
 [Discord](https://discord.gg/Dc46sYk6e3) ·
+[GitHub Issues](https://github.com/omnara-ai/omnara/issues) ·
+[X](https://x.com/omnaraai) ·
 [Security](SECURITY.md)
 
 ## License
