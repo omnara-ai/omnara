@@ -31,10 +31,13 @@ work too, and the flags map directly to API fields.
 ## 1. Connect to Omnara
 
 Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` in an
-interactive terminal, share the approval link it prints, and wait for the user
-to approve. Then pick the org and project (`npx omnara whoami --json` lists
-orgs, `npx omnara projects list --org <org-id> --json` their projects): use them
-if there's one of each, otherwise ask, suggesting the defaults from
+interactive terminal. It opens the approval page in a browser; also share the
+link it prints, since you may be running on a different machine than the user,
+and wait for them to approve.
+
+Pick the org and project (`npx omnara whoami --json` lists orgs,
+`npx omnara projects list --org <org-id> --json` their projects): use them if
+there's one of each, otherwise ask, suggesting the defaults from
 `npx omnara config` or the project named `Default`. Save the choice with
 `npx omnara config --org <org-id> --project <project-id>`; later steps need the
 project ID.
