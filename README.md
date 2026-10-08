@@ -60,9 +60,38 @@ npx omnara agents launch --file agent.yaml \
 ```
 
 Chat with the agent in your terminal with `npx omnara agents chat <agent-id>`,
-or open it in the dashboard to watch its tool calls and reply. The
-[quickstart](https://docs.omnara.com/quickstart) shows the same flow with the
-REST API and the TypeScript SDK.
+or open it in the dashboard to watch its tool calls and reply.
+
+To launch agents from your own code, create an API key in the dashboard and use
+the TypeScript SDK (`npm install @omnara/sdk`) with the org and project IDs that
+`npx omnara config` prints:
+
+```ts
+import { readFile } from 'node:fs/promises'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
+
+const client = createOmnaraClient({ auth: bearerToken(process.env.OMNARA_TOKEN!) })
+const path = { orgID: 'org_...', projectID: 'proj_...' }
+
+const config = await sdk.createAgentConfig({
+  client,
+  path,
+  body: { source: await readFile('agent.yaml', 'utf8'), source_format: 'yaml' },
+})
+const launched = await sdk.createAgent({
+  client,
+  path,
+  body: { config: config.data.id, message: "Report this machine's free disk space." },
+})
+
+const agentID = launched.data.agent.id
+for await (const event of openAgentEventStream({ client, path: { ...path, agentID } })) {
+  console.log(event)
+}
+```
+
+The [quickstart](https://docs.omnara.com/quickstart) shows the same flow with
+the REST API.
 
 To have your coding agent do the setup, give it this prompt:
 
