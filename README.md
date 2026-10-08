@@ -29,8 +29,13 @@
 
 Omnara is an open-source managed agent platform. It runs durable AI agents
 through one API on any model and any machine, with tools, secrets, approvals,
-and streaming built in. Use [Omnara Cloud](https://app.omnara.com) or self-host it
-under Apache 2.0.
+and streaming built in.
+
+Self-host it for free under Apache 2.0, for any purpose including commercial
+use, with no license key or sales call. Or use
+[Omnara Cloud](https://app.omnara.com), where we run the platform for you: it's
+free with your own model keys and machines, and you pay as you go only for our
+models and sandboxes.
 
 Run cloud agents inside your product, from Slack, Discord, or GitHub, or on a
 schedule. Omnara keeps each agent's state and runs its tools;
@@ -250,7 +255,7 @@ same job as an open-source platform you can run anywhere, with any model.
 | Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
 | Operations | Managed on Omnara Cloud; you operate it when self-hosting | Managed by Anthropic; you run the sandbox side if you self-host sandboxes | Managed by OpenAI; you run the environment if you bring your own |
 | Agent history | Stored by Omnara on Omnara Cloud and queryable through the API; in your own Postgres when self-hosted | Stored by Anthropic, readable and deletable through the API; not currently eligible for Zero Data Retention or HIPAA BAA coverage | Stored by OpenAI; no Zero Data Retention support; US data residency only |
-| Pricing | Platform is free. Bring your own keys and machines, or pay as you go for models and machines on Omnara Cloud | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
+| Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines; pay as you go for our models and sandboxes | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
 
 Choose Claude Managed Agents or the Agents API if you use one company's models
 and want that company to run everything for you. Choose Omnara if you want to
@@ -325,10 +330,10 @@ YAML and launch them through an API; Omnara runs the agent loop, keeps durable
 state, connects models, tools, and machines, and streams events back to your
 app.
 
-**How much does it cost?** The platform is free, including self-hosting. On
-Omnara Cloud you can bring your own model keys and machines at no charge, or
-pay as you go for models at provider token rates and for machines by active
-time and retained storage.
+**How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
+fee: bring your own model keys and machines for free, or pay as you go for our
+models at provider token rates and our sandboxes by active time and retained
+storage.
 See [pricing](https://www.omnara.com/pricing).
 
 **Can I self-host it?** Yes. Run it with Docker Compose locally, then follow
