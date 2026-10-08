@@ -26,10 +26,12 @@ too, and the flags map directly to API fields.
 
 ## 1. Connect to Omnara
 
-Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` in an
-interactive terminal. It opens the approval page in a browser; also share the
-link it prints, since you may be running on a different machine than the user,
-and wait for them to approve.
+Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` without
+piping its output, and keep it running: it waits until the user approves. It
+opens the approval page in the user's browser and prints the page's link and a
+code. Show the user both right away, since you may be on a different machine
+than their browser, and ask them to approve once the code matches. When it
+exits, `npx omnara whoami` should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
