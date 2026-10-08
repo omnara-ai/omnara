@@ -26,11 +26,12 @@
   <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
 </p>
 
-Omnara is an open-source managed agent platform: an API that runs AI agents
-for you. Write an agent's instructions and pick any model, tools, and machines;
-Omnara calls the model, runs the tools, pauses for approvals, and saves every
-step so the agent survives crashes and restarts. Self-host it for free under
-Apache 2.0, or use [Omnara Cloud](https://app.omnara.com).
+Omnara is an open-source managed agent platform with an API for creating and
+running AI agents. You write an agent's instructions and choose its model,
+tools, and machines. Omnara calls the model, runs the tools, pauses for
+approvals, and saves every step, so the agent can pick up where it left off
+after a crash or restart. You can self-host it for free under Apache 2.0 or use
+[Omnara Cloud](https://app.omnara.com).
 
 Put agents inside your product, run them from Slack, Discord, or GitHub, or
 start them on a schedule. Your application decides who can use each agent and
@@ -147,14 +148,14 @@ flowchart TB
 - **Postgres.** Every step of every agent is saved here. That record is the
   agent's state, so any worker can pick an agent back up after a crash or
   restart.
-- **Workers.** Stateless processes that run the agent loop: build the model
-  context, call the model, and run tools. Add workers to run more agents.
+- **Workers.** Stateless processes that build the model context, call the
+  model, and run tools. Add workers to run more agents.
 - **Machines.** Each machine runs the `omnarad` daemon, which connects out to
   Omnara, so agents can run commands there without any inbound ports.
 
 Omnara also uses Redis, blob storage for attachments and tool outputs, and a
-memory filesystem; see the
-[architecture docs](https://docs.omnara.com/self-hosting/architecture).
+memory filesystem. The
+[architecture docs](https://docs.omnara.com/self-hosting/architecture) cover the details.
 
 ## Features
 
@@ -186,7 +187,7 @@ memory filesystem; see the
   your agents can run commands and edit files there, with no inbound ports or
   SSH keys. Or use sandboxes from nine providers (Arker, Blaxel, boxd, CreateOS,
   Daytona, Freestyle, Modal, Tenki, Unikraft). An agent can use several machines
-  at once (for example, a set of GPU servers) and move between them: if your
+  at once (for example, a set of GPU servers) and move between them. If your
   laptop goes offline, it can continue in a sandbox and sync back with git.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
   saved, so agents recover from crashes, restarts, and machine disconnects
@@ -235,20 +236,20 @@ same job as an open-source platform you can run anywhere, with any model.
 
 | | Omnara | Claude Managed Agents | OpenAI's Agents API |
 | --- | --- | --- | --- |
-| Source | Open source (Apache 2.0) | Closed | Open-source harness (Codex); the hosted service is OpenAI's |
+| Source | Open source (Apache 2.0) | Closed | Open-source harness (Codex). The hosted service is OpenAI's. |
 | Models | Any compatible model | Claude | OpenAI |
 | Agent loop | Omnara's, works with any model | Anthropic's, built for Claude | Codex, run and updated by OpenAI |
 | Where the platform runs | Omnara Cloud, or your own infrastructure | Anthropic's cloud | OpenAI's cloud |
 | Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
-| Operations | Managed on Omnara Cloud; you operate it when self-hosting | Managed by Anthropic; you run the sandbox side if you self-host sandboxes | Managed by OpenAI; you run the environment if you bring your own |
-| Agent history | Stored by Omnara on Omnara Cloud and queryable through the API; in your own Postgres when self-hosted | Stored by Anthropic, readable and deletable through the API; not currently eligible for Zero Data Retention or HIPAA BAA coverage | Stored by OpenAI; no Zero Data Retention support; US data residency only |
-| Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines; pay as you go for our models and sandboxes | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
+| Operations | Managed on Omnara Cloud. You operate it when self-hosting. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
+| Agent history | Stored by Omnara on Omnara Cloud and queryable through the API. In your own Postgres when self-hosted. | Stored by Anthropic, readable and deletable through the API. Not currently eligible for Zero Data Retention or HIPAA BAA coverage. | Stored by OpenAI. No Zero Data Retention support. US data residency only. |
+| Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines, or pay as you go for our models and sandboxes. | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
 
 Choose Claude Managed Agents or the Agents API if you use one company's models
 and want that company to run everything for you. Choose Omnara if you want to
 pick your models and machines, run the platform yourself, or keep agent data in
-your own database. Details as of October 2026; see each project's
-documentation for current features and pricing. Omnara is not affiliated with
+your own database. Details are as of October 2026.
+Check each project's documentation for current features and pricing. Omnara is not affiliated with
 Anthropic or OpenAI.
 
 ## Where Omnara fits
@@ -262,26 +263,25 @@ Anthropic or OpenAI.
 
 ## Examples
 
-Agents you can deploy with one prompt to your coding agent. Each is an
-`agent.yaml` plus a `SKILL.md` in [`examples/`](examples).
+Each of these is an `agent.yaml` plus a `SKILL.md` in [`examples/`](examples),
+and you can deploy any of them with one prompt to your coding agent.
 
-- [Slack coding agent](examples/slack-coding-agent): mention it in Slack,
-  Discord, or a GitHub pull request; it fixes the issue and opens a PR.
-- [SRE agent](examples/sre-agent): investigates production symptoms such as a
+- [Slack coding agent](examples/slack-coding-agent) fixes issues you mention in
+  Slack, Discord, or a GitHub pull request and opens a PR.
+- [SRE agent](examples/sre-agent) investigates production problems such as a
   5xx spike.
-- [Browser agent](examples/browser-agent): a long-running agent that works in a
-  real browser.
-- [PostHog analytics agent](examples/posthog-analytics-agent): compares
-  yesterday's product usage against the 7-day average and reports what
-  changed.
+- [Browser agent](examples/browser-agent) works in a real browser on
+  long-running tasks.
+- [PostHog analytics agent](examples/posthog-analytics-agent) compares
+  yesterday's product usage with the 7-day average and reports what changed.
 - [Reddit](examples/reddit-signal-agent), [X](examples/x-signal-agent), and
-  [LinkedIn](examples/linkedin-signal-agent) signal agents: digest the last
-  24 hours of relevant posts.
-- [Video generation agent](examples/video-generation-agent): makes short
-  videos from a brief.
+  [LinkedIn](examples/linkedin-signal-agent) signal agents summarize the last
+  24 hours of posts about a topic you pick.
+- [Video generation agent](examples/video-generation-agent) makes short videos
+  from a brief.
 
-Code samples for specific features: a [CLI chat app](examples/cli-agent) built
-on the TypeScript SDK, [custom tools over webhooks](examples/custom-tool-webhook),
+There are also code samples for a [CLI chat app](examples/cli-agent) built on
+the TypeScript SDK, [custom tools over webhooks](examples/custom-tool-webhook),
 and a [SharePoint filesystem mount](examples/sharepoint-mount).
 
 ## Use Omnara from your coding agent
@@ -289,8 +289,8 @@ and a [SharePoint filesystem mount](examples/sharepoint-mount).
 **MCP server.** Connect Claude Code, Codex, Cursor, or any MCP client to
 `https://app.omnara.com/mcp`, then launch Omnara agents, send them messages,
 follow their progress, and manage profiles, secrets, and machines with your
-dashboard permissions. Sign in through the browser on first use; there are no
-tokens to paste. In Claude, add it from the
+dashboard permissions. You sign in through the browser the first time, so
+there are no tokens to paste. In Claude, add it from the
 [connectors directory](https://claude.ai/directory/app-omnara-com). Omnara is
 also listed in the official MCP Registry as `com.omnara/omnara`. See
 [Connecting MCP clients](https://docs.omnara.com/api/authentication#connecting-mcp-clients).
@@ -312,15 +312,14 @@ coding agent through setting up Omnara for your project.
 
 ## FAQ
 
-**What is Omnara?** An open-source managed agent platform: an API that runs AI
-agents for you. You write an agent's instructions and pick its model, tools,
-and machines, and Omnara runs it.
+**What is Omnara?** An open-source managed agent platform with an API for
+creating and running AI agents. You write an agent's instructions and choose
+its model, tools, and machines, and Omnara runs it.
 
 **How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
-fee: bring your own model keys and machines for free, or pay as you go for our
-models at provider token rates and our sandboxes by active time and retained
-storage.
-See [pricing](https://www.omnara.com/pricing).
+fee. You can bring your own model keys and machines for free, or pay as you go
+for our models at provider token rates and our sandboxes by active time and
+retained storage. See [pricing](https://www.omnara.com/pricing).
 
 **Can I self-host it?** Yes. Run it with Docker Compose locally, then follow
 the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) for
