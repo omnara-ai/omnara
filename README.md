@@ -245,8 +245,9 @@ memory filesystem. The
 
 ### Control them
 
-- **Access control and [secrets](https://docs.omnara.com/organization/secrets).**
-  Organization and project roles for users and API keys. Credentials for
+- **[Role-based access control](https://docs.omnara.com/organization/members)
+  and [secrets](https://docs.omnara.com/organization/secrets).** Organization
+  and project roles for users and API keys. Credentials for
   models, machines, and MCP servers are stored once and shared with each
   project explicitly.
 - **Your data.** Self-hosted deployments keep every agent's history in your own
