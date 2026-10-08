@@ -33,8 +33,8 @@ and streaming built in. Self-host it for free under Apache 2.0, or use
 [Omnara Cloud](https://app.omnara.com), which is free with your own model keys
 and machines.
 
-Run cloud agents inside your product, from Slack, Discord, or GitHub, or on a
-schedule. Omnara keeps each agent's state and runs its tools;
+Put agents inside your product, run them from Slack, Discord, or GitHub, or
+start them on a schedule. Omnara keeps each agent's state and runs its tools;
 your application decides who can use each agent and what they see.
 
 ## Quickstart
@@ -266,7 +266,7 @@ Anthropic or OpenAI.
 | --- | --- | --- |
 | Workflow builders, such as n8n or Zapier | Predictable, step-by-step automations | Agents that decide their own steps, run code on machines, and keep state for days |
 | Agent frameworks, such as Mastra, LangChain, or the OpenAI Agents SDK | Writing one agent in your app's code | Hosting, state, machines, permissions, and integrations, with agents created and changed through an API instead of a redeploy |
-| Agent harnesses, such as Claude Code, the Claude Agent SDK, Codex, OpenCode, or Pi | One agent loop in a terminal or on one machine | Many agents run as a service, across machines and users, started from your app, Slack, GitHub, or a schedule |
+| Agent harnesses, such as Claude Code, the Claude Agent SDK, Codex, OpenCode, or Pi | One agent loop in a terminal or on one machine | Cloud agents that run as a service, across machines and users, started from your app, Slack, GitHub, or a schedule |
 | Managed agent platforms, such as Claude Managed Agents or the Agents API | Hosted agents on one company's models | The same model of hosted agents, open source, on any model, and self-hostable |
 
 ## Examples
