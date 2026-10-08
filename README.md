@@ -244,9 +244,7 @@ same job as an open-source platform you can run anywhere, with any model.
 Choose Claude Managed Agents or the Agents API if you use one company's models
 and want that company to run everything for you. Choose Omnara if you want to
 pick your models and machines, run the platform yourself, or keep agent data in
-your own database. Details are as of October 2026.
-Check each project's documentation for current features and pricing. Omnara is not affiliated with
-Anthropic or OpenAI.
+your own database.
 
 ## Where Omnara fits
 
