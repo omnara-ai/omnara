@@ -26,7 +26,7 @@
   <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
 </p>
 
-Omnara is an open-source managed agent platform. Use its API to run AI agents
+Omnara is an open-source managed agent platform. Use the API to run AI agents
 on any model and any machine, with tools, secrets, approvals, and streaming
 built in. Self-host it for free under Apache 2.0, or use
 [Omnara Cloud](https://app.omnara.com).
