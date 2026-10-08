@@ -7,7 +7,9 @@
   </a>
 </p>
 
-<h1 align="center">The open-source alternative to Claude Managed Agents</h1>
+<h1 align="center">The open-source managed agent platform</h1>
+
+<p align="center">An open-source alternative to Claude Managed Agents and OpenAI's Agents API.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/github/license/omnara-ai/omnara"></a>
@@ -223,34 +225,39 @@ memory filesystem; see the
 - **Your data.** Self-hosted deployments keep every agent's history in your own
   Postgres, where you can query it for analytics, evals, and training datasets.
 
-## Omnara vs Claude Managed Agents
+## Omnara vs Claude Managed Agents and OpenAI's Agents API
 
 [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview)
-is Anthropic's hosted service for running Claude agents. Omnara does the same
-job without tying your agents to one model vendor or one cloud.
+and OpenAI's [Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview)
+are hosted services for running agents on one company's models. Omnara does the
+same job as an open-source platform you can run anywhere, with any model.
 
-| | Omnara | Claude Managed Agents |
+| | Omnara | Claude Managed Agents | OpenAI's Agents API |
+| --- | --- | --- | --- |
+| Source | Open source (Apache 2.0) | Closed | Open-source harness (Codex); the hosted service is OpenAI's |
+| Models | Any compatible model | Claude | OpenAI |
+| Agent loop | Omnara's, works with any model | Anthropic's, built for Claude | Codex, run and updated by OpenAI |
+| Where the platform runs | Omnara Cloud, or your own infrastructure | Anthropic's cloud | OpenAI's cloud |
+| Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
+| Operations | Managed on Omnara Cloud; you operate it when self-hosting | Managed by Anthropic; you run the sandbox side if you self-host sandboxes | Managed by OpenAI; you run the environment if you bring your own |
+| Agent history | Stored by Omnara on Omnara Cloud and queryable through the API; in your own Postgres when self-hosted | Stored by Anthropic, readable and deletable through the API; not currently eligible for Zero Data Retention or HIPAA BAA coverage | Stored by OpenAI; no Zero Data Retention support; US data residency only |
+| Pricing | Platform is free. Bring your own keys and machines, or pay as you go for models and machines on Omnara Cloud | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
+
+Choose Claude Managed Agents or the Agents API if you use one company's models
+and want that company to run everything for you. Choose Omnara if you want to
+pick your models and machines, run the platform yourself, or keep agent data in
+your own database. Details as of October 2026; see each project's
+documentation for current features and pricing. Omnara is not affiliated with
+Anthropic or OpenAI.
+
+## Where Omnara fits
+
+| If you use | It's good for | Omnara adds |
 | --- | --- | --- |
-| Source | Open source (Apache 2.0) | Closed |
-| Models | Any compatible model | Claude |
-| Agent loop | Omnara's, works with any model | Anthropic's, built for Claude |
-| Where the platform runs | Omnara Cloud, or your own infrastructure | Anthropic's cloud |
-| Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes |
-| Operations | Managed on Omnara Cloud; you operate it when self-hosting | Managed by Anthropic; you run the sandbox side if you self-host sandboxes |
-| Agent history | Stored by Omnara on Omnara Cloud and queryable through the API; in your own Postgres when self-hosted | Stored by Anthropic, readable and deletable through the API; not currently eligible for Zero Data Retention or HIPAA BAA coverage |
-| Pricing | Platform is free. Bring your own keys and machines, or pay as you go for models and machines on Omnara Cloud | Claude token rates plus $0.08 per active session-hour |
-
-Choose Claude Managed Agents if you only use Claude and want Anthropic to run
-everything for you. Choose Omnara if you want to pick your models
-and machines, run the platform yourself, or keep agent data in your own
-database. Details as of October 2026; see each project's documentation for
-current features and pricing. Omnara is not affiliated with Anthropic.
-
-Agent frameworks such as Mastra, LangGraph, or Vercel's eve are libraries for
-writing an agent in your own code, so changing the agent means changing the
-code and redeploying. With Omnara, you create and update agents through the
-API or dashboard, and changes to an agent's instructions, model, or tools need
-no deploy.
+| Workflow builders, such as n8n or Zapier | Predictable, step-by-step automations | Agents that decide their own steps, run code on machines, and keep state for days |
+| Agent frameworks, such as Mastra, LangChain, or the OpenAI Agents SDK | Writing one agent in your app's code | Hosting, state, machines, permissions, and integrations, with agents created and changed through an API instead of a redeploy |
+| Agent harnesses, such as Claude Code, the Claude Agent SDK, Codex, OpenCode, or Pi | One agent loop in a terminal or on one machine | Many agents run as a service, across machines and users, started from your app, Slack, GitHub, or a schedule |
+| Managed agent platforms, such as Claude Managed Agents or the Agents API | Hosted agents on one company's models | The same model of hosted agents, open source, on any model, and self-hostable |
 
 ## Examples
 
