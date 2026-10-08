@@ -146,12 +146,13 @@ there.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent. It posts the MP4 there, so replies are revision requests.
 
-Set these up with [`integrations.md`](../integrations.md); if it isn't next to
-this folder, download
-https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md.
-For this agent, name the integrations `video-generation-agent-slack` and
-`video-generation-agent-discord`, call the bot "Video Agent", and have the user
-try it with "@Video Agent a 15-second teaser for our new pricing page".
+Set up whichever the user picks with [`integrations.md`](../integrations.md)
+(read it from
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+if you don't have the repo). For this agent, name the integrations
+`video-generation-agent-slack` and `video-generation-agent-discord`, call the
+bot "Video Agent", and have the user try it with "@Video Agent a 15-second
+teaser for our new pricing page".
 
 ## 7. Wrap up
 

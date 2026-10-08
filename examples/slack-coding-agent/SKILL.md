@@ -141,13 +141,13 @@ Ask where the team should mention the agent: Slack, Discord, GitHub pull
 requests, or any combination. Wherever it's mentioned, it answers in that
 thread or pull request, and replies there go to the same agent.
 
-Set these up with [`integrations.md`](../integrations.md); if it isn't next to
-this folder, download
-https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md.
-For this agent, name the integrations `slack-coding-agent-slack`,
-`slack-coding-agent-discord`, and `slack-coding-agent-github`, and call the
-Slack and Discord bot "Coding Agent". A private channel suits it, since threads
-often include internal details.
+Set up whichever the team picks with [`integrations.md`](../integrations.md)
+(read it from
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+if you don't have the repo). For this agent, name the integrations
+`slack-coding-agent-slack`, `slack-coding-agent-discord`, and
+`slack-coding-agent-github`, and call the Slack and Discord bot "Coding Agent".
+A private channel suits it, since threads often include internal details.
 
 On GitHub, register the App for the account that owns `GITHUB_REPO`, grant it
 only that repository, and give it **Contents** write access so it can push

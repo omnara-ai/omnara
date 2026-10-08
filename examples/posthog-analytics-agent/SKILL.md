@@ -151,12 +151,13 @@ there.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent, so follow-ups can drill into any number.
 
-Set these up with [`integrations.md`](../integrations.md); if it isn't next to
-this folder, download
-https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md.
-For this agent, name the integrations `posthog-analytics-agent-slack` and
-`posthog-analytics-agent-discord`, call the bot "PostHog Analytics", and have
-the user try it with "@PostHog Analytics run today's report".
+Set up whichever the user picks with [`integrations.md`](../integrations.md)
+(read it from
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+if you don't have the repo). For this agent, name the integrations
+`posthog-analytics-agent-slack` and `posthog-analytics-agent-discord`, call the
+bot "PostHog Analytics", and have the user try it with "@PostHog Analytics run
+today's report".
 
 ## 8. Run it daily (optional)
 

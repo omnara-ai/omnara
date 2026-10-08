@@ -246,12 +246,11 @@ uses it. Otherwise archive it in the console once every sign-in works.
 
 ## 8. Connect Slack or Discord (if chosen)
 
-Set it up with [`integrations.md`](../integrations.md); if it isn't next to this
-folder, download
-https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md.
-For this agent, name the integrations `browser-agent-slack` and
-`browser-agent-discord`, and call the bot "Browser Agent". A private channel
-suits it, since its updates show data from the sites.
+Set it up with [`integrations.md`](../integrations.md) (read it from
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+if you don't have the repo). For this agent, name the integrations
+`browser-agent-slack` and `browser-agent-discord`, and call the bot "Browser
+Agent". A private channel suits it, since its updates show data from the sites.
 
 Each mention in a new thread starts a new agent with its own machine, and
 replies in the thread go to the same agent. Kept machines count toward the
