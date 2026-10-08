@@ -27,6 +27,8 @@ order.
   writes appear under that person's name.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
+- When a step says to ask the user, end your turn and wait for their reply.
+  Suggest a default, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -125,8 +127,9 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
 ## 5. Choose where the team reaches it
 
 Ask where the team should mention the agent: Slack, Discord, GitHub pull
-requests, or any combination. Wherever it's mentioned, it answers in that
-thread or pull request, and replies there go to the same agent.
+requests, or any combination. Wait for the user's reply; don't assume the
+console or pick for them. Wherever it's mentioned, it answers in that thread or
+pull request, and replies there go to the same agent.
 
 Set up whichever the team picks with [`integrations.md`](../integrations.md)
 (read it from

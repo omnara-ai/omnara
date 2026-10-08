@@ -19,6 +19,8 @@ different order.
   tell them what you changed.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
+- When a step says to ask the user, end your turn and wait for their reply.
+  Suggest a default, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -126,14 +128,15 @@ did signups spike?".
 
 ## 7. Choose where to use it
 
-Ask where the user wants to talk to the agent. Any combination works, and the
-Omnara console always does: every agent launched from the profile shows up
-there.
+Ask where the user wants to talk to the agent, then wait for their reply; don't
+assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
   small UI built for it.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent, so follow-ups can drill into any number.
+- **Only the Omnara console:** nothing to set up; every agent launched from the
+  profile shows up there.
 
 Set up whichever the user picks with [`integrations.md`](../integrations.md)
 (read it from
@@ -147,7 +150,8 @@ today's report".
 
 A schedule works with any of the above. Ask whether the user wants a daily
 report, and for the time and timezone (default: every day at 9am in the user's
-timezone). Set `--cron` and `--timezone` from their answer:
+timezone). Wait for the reply, and create it only if they say yes, with `--cron`
+and `--timezone` from their answer:
 
 ```sh
 npx omnara crons create --name posthog-analytics-agent-daily \

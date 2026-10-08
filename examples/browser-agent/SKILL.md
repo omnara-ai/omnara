@@ -10,8 +10,9 @@ this folder. The result: an agent profile that does the user's work in their
 web apps, has signed in to each account once while the user watched, and is
 reachable where they want it, on a schedule if they want one.
 
-Interview first, then build. Don't create anything in Omnara until the user
-has confirmed your summary in step 2.
+Interview first, then build. Don't create anything in Omnara until the user has
+confirmed your summary in step 2. When a step says to ask the user, end your
+turn and wait for their reply. Suggest a default, but don't assume it.
 
 `agent.yaml` is a guide, not a form. Its browser, sign-in, and machine settings
 were tested together: the agent-browser commands, the vault and two-factor
