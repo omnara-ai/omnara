@@ -185,8 +185,9 @@ finish: skip step 2, and redo step 1 only if the token in `.env` has expired.
 server channel; it doesn't answer direct messages.
 
 If an integration named `slack-coding-agent-discord` already exists, reuse it
-the same way: add this profile if it's missing, and if it's `active`, skip to
-its last step. If it's `disconnected`, skip step 3 and do the steps that weren't
+the same way: add this profile if it's missing. If it's `active`, skip to
+step 5; Omnara can't tell whether steps 5 and 6 were done in Discord, so check them
+with the user. If it's `disconnected`, skip step 3 and do the steps that weren't
 done, passing the current `setup_revision` from
 `npx omnara integrations get <integration-id> --json` in step 4.
 
@@ -259,8 +260,9 @@ reviews it, answers in comments, or pushes fixes to its branch.
 If an integration named `slack-coding-agent-github` already exists, reuse it
 whatever its state: if `npx omnara integrations get <integration-id> --json`
 doesn't show this profile under `settings.launcher.profile`, set it with the
-`update` command below. Then skip to its last step if it's `active`, or to
-step 2 if it's `disconnected`; the integration's page shows what's left.
+`update` command below. Then skip to step 3 if it's `active`, since Omnara can't
+tell whether it was done on GitHub, or to step 2 if it's `disconnected`; the
+integration's page shows what's left.
 
 1. Create the integration with this profile in its launcher, and note the
    `itg_…` ID it returns:

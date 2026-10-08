@@ -289,8 +289,9 @@ finish: skip step 2, and redo step 1 only if the token in `.env` has expired.
 server channel; it doesn't answer direct messages.
 
 If an integration named `browser-agent-discord` already exists, reuse it the
-same way: add this profile if it's missing, and if it's `active`, skip to its
-last step. If it's `disconnected`, skip step 3 and do the steps that weren't
+same way: add this profile if it's missing. If it's `active`, skip to step 5;
+Omnara can't tell whether steps 5 and 6 were done in Discord, so check them with
+the user. If it's `disconnected`, skip step 3 and do the steps that weren't
 done, passing the current `setup_revision` from
 `npx omnara integrations get <integration-id> --json` in step 4.
 
