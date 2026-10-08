@@ -135,8 +135,8 @@ Right after sharing the link, ask where the user wants to talk to the agent.
 Wait for the reply; don't assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
-  small UI built for it. Anything that can call the API, like a CMS hook or a
-  script, can start one with the brief as the message.
+  small UI built for it. Anything that can call Omnara's API, like a CMS hook
+  or a script, can start one with the brief as the message.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent. It posts the MP4 there, so replies are revision requests.
 - **Only the Omnara console:** nothing to set up; every agent launched from the

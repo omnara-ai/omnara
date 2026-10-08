@@ -171,9 +171,9 @@ trigger, change it with `npx omnara crons update <cron-trigger-id>` (same
 flags) instead of creating a second one.
 
 Each firing launches a fresh agent from the profile. It shows up in the console,
-and the user's app can pick it up through the SDK or API. To post every digest
-in one Slack or Discord thread instead, see "Scheduled runs in a channel" in
-`integrations.md`.
+and the user's app can pick it up through Omnara's SDK or API. To post every
+digest in one Slack or Discord thread instead, see "Scheduled runs in a channel"
+in `integrations.md`.
 
 ## 8. Wrap up
 

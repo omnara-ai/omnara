@@ -53,19 +53,18 @@ steps need the project ID.
 
 ## 2. Describe the system
 
-Ask the user about the production system the agent will investigate:
+Ask what product the agent is for (suggest the org name) and whether you may
+draft the rest from their AWS account with read-only calls. If they agree,
+work out `AWS_REGION` and `SYSTEM_CONTEXT` from `aws configure get region`,
+`aws ecs list-services`, `aws lambda list-functions`, and similar calls;
+otherwise ask for the region, the main services, and where logs live.
 
 - `COMPANY_NAME`: the company or product name, for example `Acme`.
-- What it is and its main services, and how they run on AWS (ECS, Lambda,
-  EKS, EC2), plus where logs live. Write this as `SYSTEM_CONTEXT`: two to four
-  sentences on a single line, for example
-  `Acme is a checkout API for online stores. It runs an API and a worker on ECS Fargate behind an ALB, with RDS Postgres and SQS, primarily on AWS. Logs go to CloudWatch Logs under /ecs/acme-*.`
-  If the user has AWS CLI access and wants you to, you can draft it from
-  `aws ecs list-services`, `aws lambda list-functions`, and similar
-  read-only calls.
 - `AWS_REGION`: the region production runs in, for example `us-west-2`.
-- Whether they want the agent to read their code (step 4). It's optional and
-  makes answers sharper.
+- `SYSTEM_CONTEXT`: what it is, its main services and how they run on AWS
+  (ECS, Lambda, EKS, EC2), and where logs live, in two to four sentences on a
+  single line, for example
+  `Acme is a checkout API for online stores. It runs an API and a worker on ECS Fargate behind an ALB, with RDS Postgres and SQS, primarily on AWS. Logs go to CloudWatch Logs under /ecs/acme-*.`
 
 Show `SYSTEM_CONTEXT` to the user and adjust until they're happy. If they
 can say more about their logs or metrics (for example, every request writes
@@ -215,8 +214,9 @@ Right after sharing the link, ask where the user wants to talk to the agent.
 Wait for the reply; don't assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
-  small UI built for it. Anything that can call the API, like their alerting
-  webhook, can start an investigation with the alert text as the message.
+  small UI built for it.
+- **Their alerts:** their alerting tool starts an investigation for each alert
+  through Omnara's API, with the alert text as the message.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent. An incidents or alerts channel works well.
 - **Only the Omnara console:** nothing to set up; every agent launched from the
@@ -244,9 +244,9 @@ trigger, change it with `npx omnara crons update <cron-trigger-id>` (same
 flags) instead of creating a second one.
 
 Each firing launches a fresh agent from the profile. It shows up in the console,
-and the user's app can pick it up through the SDK or API. To post every check in
-one Slack or Discord thread instead, see "Scheduled runs in a channel" in
-`integrations.md`.
+and the user's app can pick it up through Omnara's SDK or API. To post every
+check in one Slack or Discord thread instead, see "Scheduled runs in a channel"
+in `integrations.md`.
 
 ## 9. Wrap up
 
