@@ -13,7 +13,6 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/github/license/omnara-ai/omnara"></a>
-  <a href="https://github.com/omnara-ai/omnara/actions/workflows/ci.yaml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/omnara-ai/omnara/ci.yaml?branch=main&label=CI"></a>
   <a href="https://www.npmjs.com/package/@omnara/sdk"><img alt="npm: @omnara/sdk" src="https://img.shields.io/npm/v/@omnara/sdk?label=%40omnara%2Fsdk"></a>
   <a href="https://discord.gg/Dc46sYk6e3"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white"></a>
 </p>
