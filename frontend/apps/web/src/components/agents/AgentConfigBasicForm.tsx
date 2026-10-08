@@ -1,6 +1,7 @@
 import { useToolCatalog } from '@omnara/react'
 
 import { AgentConfigEventWebhookField } from '@/components/agents/AgentConfigEventWebhookField'
+import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
@@ -125,7 +126,7 @@ export function AgentConfigBasicForm({
               <ChevronRightIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
               Advanced
             </CollapsibleTrigger>
-            <CollapsibleContent className="pt-4">
+            <CollapsibleContent className="flex flex-col gap-3 pt-4">
               <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
                 <AgentConfigEventWebhookField
                   orgId={orgId}
@@ -138,6 +139,12 @@ export function AgentConfigBasicForm({
                   onSigningSecretIdChange={form.setEventWebhookSigningSecretId}
                 />
               </FieldGroup>
+              <AgentConfigGitCredentialsField
+                orgId={orgId}
+                projectId={projectId}
+                integration={form.gitCredentialsIntegration}
+                onIntegrationChange={form.setGitCredentialsIntegration}
+              />
             </CollapsibleContent>
           </Collapsible>
         </div>
