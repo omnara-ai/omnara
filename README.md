@@ -31,10 +31,6 @@ on any model and any machine, with tools, secrets, approvals, and streaming
 built in. Self-host it for free under Apache 2.0, or use
 [Omnara Cloud](https://app.omnara.com).
 
-Put agents inside your product, run them from Slack, Discord, or GitHub, or
-start them on a schedule. Your application decides who can use each agent and
-what they see.
-
 ## Quickstart
 
 ### Omnara Cloud
