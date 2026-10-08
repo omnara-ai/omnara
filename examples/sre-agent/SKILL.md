@@ -91,7 +91,7 @@ If it does, ask whether to reuse it and note its `id`.
      **Attach policies directly** (`ViewOnlyAccess`,
      `CloudWatchReadOnlyAccess`), then on the user's **Security credentials**
      tab, **Create access key**. Ask them to add the keys to a `.env` file in
-     the current directory:
+     the current directory (pasting them in the chat also works):
 
      ```sh
      AGENT_AWS_ACCESS_KEY_ID=...

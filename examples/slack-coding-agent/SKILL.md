@@ -65,8 +65,8 @@ If a secret named `slack-coding-agent-github` already exists
 ask whether to reuse it and note its `id`; if the value changed, the user
 updates it on the dashboard's **Secrets** page (the ID stays the same).
 Otherwise have the user add `AGENT_GITHUB_TOKEN=github_pat_...` to a `.env` file
-in the current directory, then create the secret and note its `id` (`sec_…`) as
-`GITHUB_TOKEN_SECRET_ID`:
+in the current directory (pasting it in the chat also works), then create the
+secret and note its `id` (`sec_…`) as `GITHUB_TOKEN_SECRET_ID`:
 
 ```sh
 set -a && . ./.env && set +a

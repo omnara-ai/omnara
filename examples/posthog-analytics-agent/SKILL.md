@@ -63,7 +63,8 @@ If a secret named `posthog-analytics-agent-api-key` already exists
 ask whether to reuse it and note its `id`; if the value changed, the user
 updates it on the dashboard's **Secrets** page (the ID stays the same).
 Otherwise have the user add `POSTHOG_API_KEY=phx_...` to a `.env` file in the
-current directory, then create the secret and note its `id` (`sec_…`):
+current directory (pasting it in the chat also works), then create the secret
+and note its `id` (`sec_…`):
 
 ```sh
 set -a && . ./.env && set +a

@@ -62,7 +62,8 @@ If a secret named `x-signal-agent-bearer-token` already exists
 ask whether to reuse it and note its `id`; if the value changed, the user
 updates it on the dashboard's **Secrets** page (the ID stays the same).
 Otherwise have the user add `X_BEARER_TOKEN=...` to a `.env` file in the current
-directory, then create the secret and note its `id` (`sec_…`):
+directory (pasting it in the chat also works), then create the secret and note
+its `id` (`sec_…`):
 
 ```sh
 set -a && . ./.env && set +a
