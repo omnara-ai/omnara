@@ -26,14 +26,15 @@
   <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
 </p>
 
-Omnara is an open-source managed agent platform. It runs durable AI agents
-through one API on any model and any machine, with tools, secrets, approvals,
-and streaming built in. Self-host it for free under Apache 2.0, or use
-[Omnara Cloud](https://app.omnara.com).
+Omnara is an open-source managed agent platform. You write an agent's
+instructions and pick any model, tools, and machines for it; Omnara runs it,
+calling the model, running tools, pausing for approvals, and saving every step
+so the agent survives crashes and restarts. Self-host it for free under
+Apache 2.0, or use [Omnara Cloud](https://app.omnara.com).
 
 Put agents inside your product, run them from Slack, Discord, or GitHub, or
-start them on a schedule. Omnara keeps each agent's state and runs its tools;
-your application decides who can use each agent and what they see.
+start them on a schedule. Your application decides who can use each agent and
+what they see.
 
 ## Quickstart
 
@@ -103,11 +104,8 @@ the [configuration reference](https://docs.omnara.com/self-hosting/configuration
 
 ## How it works
 
-Omnara saves every step of every agent (each message, model call, tool call,
-and result) to Postgres. That record is the agent's state, so any worker can
-pick the agent back up after a crash or restart, and machines can be added or
-removed while it runs. Models, tools, and machines are settings in the agent's
-config.
+Your product talks to Omnara, and Omnara runs each agent with the model,
+tools, and machines in its config.
 
 ```mermaid
 flowchart TB
@@ -143,21 +141,16 @@ flowchart TB
     linkStyle default stroke:#8b949e,stroke-width:1.5px
 ```
 
-- **Your side.** Your app owns the user experience and decides who can use
-  each agent. Custom tools run in your own systems; Omnara holds each call
-  durably until your code posts the result.
-- **API.** Every action is a REST call: create configs, launch agents, send
-  input, and resolve approvals. Events stream back over server-sent events.
-- **Postgres.** The source of truth. Each agent's event history lives here,
-  so any worker can pick up any agent after a crash or restart.
-- **Workers.** Stateless processes that claim ready agent work, build the
-  model context, call the model, and run tools. They scale horizontally.
-- **Machines.** Sandboxes from a provider pool, which Omnara provisions and
-  cleans up, or your own computers. Each runs the `omnarad` daemon, which
-  connects outbound, so you never open inbound ports.
-- **Models and tools.** Any compatible model endpoint, plus built-in tools,
-  skills, and MCP servers. Each tool can run immediately, ask a person first,
-  or be blocked.
+- **API.** Your app, the CLI, and the dashboard all use the same REST API to
+  launch agents, send messages, and answer approvals. Events stream back as
+  they happen.
+- **Postgres.** Every step of every agent is saved here. That record is the
+  agent's state, so any worker can pick an agent back up after a crash or
+  restart.
+- **Workers.** Stateless processes that run the agent loop: build the model
+  context, call the model, and run tools. Add workers to run more agents.
+- **Machines.** Each machine runs the `omnarad` daemon, which connects out to
+  Omnara, so agents can run commands there without any inbound ports.
 
 Omnara also uses Redis, blob storage for attachments and tool outputs, and a
 memory filesystem; see the
