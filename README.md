@@ -108,31 +108,40 @@ Omnara saves every step of every agent (each message, model call, tool call,
 and result) to Postgres. That record is the agent's state, so any worker can
 pick the agent back up after a crash or restart, and machines can be added or
 removed while it runs. Models, tools, and machines are settings in the agent's
-config. We explain the design in
-[The Log Is the Agent](https://www.omnara.com/blog/the-log-is-the-agent) and
-[Serverless Agents](https://www.omnara.com/blog/serverless-agents).
+config.
 
 ```mermaid
 flowchart TB
     subgraph yours["Your side"]
         users(["Your users"]) --> app["Your app<br/>REST API · TypeScript SDK"]
-        team["Your team<br/>CLI · dashboard · Slack · Discord · GitHub"]
-        custom["Custom tools<br/>in your own systems"]
+        team["Your team<br/>CLI · dashboard<br/>Slack · Discord · GitHub"]
     end
-    subgraph omnara["Omnara · Omnara Cloud or self-hosted"]
-        api["API<br/>launch · input · event stream · approvals"] <--> pg[("Postgres<br/>each agent's event log")] <--> worker["Workers<br/>run the agent loop"]
+    subgraph omnara["Omnara"]
+        api["API<br/>launch · input<br/>event stream · approvals"] <--> pg[("Postgres<br/>each agent's event log")] <--> worker["Workers<br/>run the agent loop"]
     end
-    subgraph plug["Chosen per agent in its config"]
-        models["Models<br/>OpenAI · Anthropic · OpenRouter · self-hosted"]
-        tools["Tools<br/>built-in · skills · MCP servers"]
-        machines["Machines<br/>sandboxes or your own laptop, VM, container"]
+    subgraph plug[" "]
+        models["Models<br/>OpenAI · Anthropic<br/>OpenRouter · self-hosted"]
+        tools["Tools<br/>built-in · skills<br/>MCP · custom"]
+        machines["Machines<br/>sandboxes or your own<br/>laptop, VM, container"]
     end
     app --> api
     team --> api
-    custom <--> api
     worker --> models
     worker --> tools
-    worker -- "commands via omnarad<br/>(machine dials out)" --> machines
+    worker --> machines
+
+    classDef side fill:none,stroke:#8b949e,stroke-width:1px
+    classDef core fill:#506FCF,stroke:#3D5BB5,stroke-width:1px,color:#ffffff
+    classDef store fill:#3D5BB5,stroke:#2E4794,stroke-width:1px,color:#ffffff
+    classDef plugin fill:none,stroke:#85A0E6,stroke-width:1.5px
+    class users,app,team side
+    class api,worker core
+    class pg store
+    class models,tools,machines plugin
+    style yours fill:none,stroke:#8b949e,stroke-dasharray:4 3
+    style omnara fill:#506FCF14,stroke:#506FCF,stroke-width:1.5px
+    style plug fill:none,stroke:#85A0E6,stroke-dasharray:4 3
+    linkStyle default stroke:#8b949e,stroke-width:1.5px
 ```
 
 - **Your side.** Your app owns the user experience and decides who can use
