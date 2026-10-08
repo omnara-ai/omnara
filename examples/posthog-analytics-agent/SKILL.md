@@ -29,8 +29,7 @@ reference, not a requirement: the Omnara MCP tools, the
 [REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
 too, and the flags map directly to API fields. What matters is the result:
 a secret with the key, a profile from the filled-in `agent.yaml`, and
-whatever the user picks in steps 7 and 8. Slack and Discord setup is simplest
-with the CLI.
+whatever the user picks in steps 7 and 8.
 
 ## 1. Connect to Omnara
 
@@ -143,137 +142,21 @@ did signups spike?".
 
 ## 7. Choose where to use it
 
-Ask where the user wants to talk to the agent, offering these in this order.
-Any combination is fine.
+Ask where the user wants to talk to the agent. Any combination works, and the
+Omnara console always does: every agent launched from the profile shows up
+there.
 
-**Their own app, existing or new (recommended).** Put the agent where the
-user's team already works: inside their existing product or internal tool, or, if there's no
-natural home, a small UI built for it. Both are the same integration: launch
-agents from the profile and stream their replies with the TypeScript SDK
-(`@omnara/sdk`) or the REST API; see [docs.omnara.com](https://docs.omnara.com).
-Anything else that can call the API (an alerting webhook, a CI job, a script)
-can start the agent the same way. The app needs an org API key: the user
-creates one on the dashboard's **API Tokens** page (**Organization** tab →
-**New token**), then grants it a role on this project from the key's detail
-panel. Help them wire it in, or build the UI with them.
+- **Their own app (recommended):** inside their product or internal tool, or a
+  small UI built for it.
+- **Slack or Discord:** the team mentions the bot, and replies in the thread go
+  to the same agent, so follow-ups can drill into any number.
 
-**Slack.** The bot answers wherever it's mentioned, and thread replies become
-instructions to the agent, so the team can drill into any number in the
-thread.
-
-If `npx omnara integrations list --json` already has an integration named
-`posthog-analytics-agent-slack` from an earlier run of this skill, reuse it
-whatever its state, since names are unique in a project. If
-`npx omnara integrations get <integration-id> --json` doesn't list this profile
-under `settings.launcher.profiles`, add it with
-`npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`;
-the flag replaces the list, so repeat each profile already there. Then, if its
-`state` is `active`, skip to its last step. If it's `disconnected`, setup didn't
-finish: skip step 2, and redo step 1 only if the token in `.env` has expired.
-
-1. The user creates an app configuration token at
-   [api.slack.com/apps](https://api.slack.com/apps) under **Your App
-   Configuration Tokens** → **Generate Token**. It expires after about 12
-   hours. Have the user add it to `.env` as `SLACK_APP_CONFIG_TOKEN=...`.
-2. Create the integration with this profile in its launcher, so a mention
-   starts this agent, and note the `itg_…` ID it returns:
-
-   ```sh
-   npx omnara integrations create --name posthog-analytics-agent-slack \
-     --integration-kind slack_thread \
-     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
-   ```
-
-   The name is permanent and names the agent's Slack tools
-   (`int__posthog-analytics-agent-slack__post_message`).
-3. Create the Slack app and connect it:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara integrations slack <integration-id> --app-name "PostHog Analytics" \
-     --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
-   ```
-
-   Ask before choosing a different app name; it's how the team mentions the
-   bot. It opens a Slack authorization page that the user approves before it
-   expires.
-4. Tell the user to invite the bot to a channel (`/invite @PostHog Analytics`)
-   and mention it: "@PostHog Analytics run today's report".
-
-**Discord.** Works like Slack: the bot answers in a new thread wherever
-it's mentioned in a server channel, and replies in the thread go to the
-same agent. It doesn't answer direct messages.
-
-If an integration named `posthog-analytics-agent-discord` already exists, reuse
-it the same way: add this profile if it's missing. If it's `active`, skip to
-step 5; Omnara can't tell whether steps 5 and 6 were done in Discord, so check
-them with the user. If it's `disconnected`, skip step 3 and do the steps that
-weren't done, passing the current `setup_revision` from
-`npx omnara integrations get <integration-id> --json` in step 4.
-
-1. The user creates an application named "PostHog Analytics" in the
-   [Discord Developer Portal](https://discord.com/developers/applications);
-   ask before choosing a different name, since it's how the team mentions
-   the bot. They copy the **Application ID** and **Public Key** from
-   **General Information**. Under **Bot**, they select **Reset Token** to copy
-   the bot token, turn on **Message Content Intent**, and turn off **Public
-   Bot** so only they can add it (if Discord refuses, first set
-   **Installation** → **Install Link** to **None**). Have the user add the
-   values to `.env`:
-
-   ```sh
-   DISCORD_APPLICATION_ID=...
-   DISCORD_PUBLIC_KEY=...
-   DISCORD_BOT_TOKEN=...
-   ```
-
-2. Store the bot token and note the `sec_…` ID. If a secret named
-   `posthog-analytics-agent-discord-bot-token` already exists
-   (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name posthog-analytics-agent-discord-bot-token --json`),
-   reuse its ID; if the user has reset the token since, have them paste the new
-   one into it on the dashboard's **Secrets** page (the ID stays the same).
-   Otherwise:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
-     --name posthog-analytics-agent-discord-bot-token --material-kind generic \
-     --material-value "$DISCORD_BOT_TOKEN" --json
-   ```
-
-3. Create the integration with this profile in its launcher, and note the
-   `itg_…` ID and `setup_revision` it returns:
-
-   ```sh
-   npx omnara integrations create --name posthog-analytics-agent-discord \
-     --integration-kind discord_thread \
-     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
-   ```
-
-   The name is permanent and names the agent's Discord tools
-   (`int__posthog-analytics-agent-discord__post_message`).
-4. Connect the bot. Omnara checks the token and finds the bot's user:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara integrations configure <integration-id> \
-     --expected-setup-revision <setup-revision> \
-     --provider-tenant-id "$DISCORD_APPLICATION_ID" \
-     --credential-secret-id <secret-id> \
-     --provider-config "{\"public_key\":\"$DISCORD_PUBLIC_KEY\"}" --json
-   ```
-
-5. Under **General Information**, the user sets **Interactions Endpoint URL**
-   to `https://app.omnara.com/api/integrations/discord/<application-id>/interactions`
-   and saves; the buttons on the bot's questions need it. Discord checks the
-   URL when it's saved, so this has to come after step 4.
-6. The user adds the bot to their server by opening this link, which asks
-   only for the permissions the bot needs:
-   `https://discord.com/oauth2/authorize?client_id=<application-id>&scope=bot&permissions=309237746752&integration_type=0`.
-   Then they mention it in a channel: "@PostHog Analytics run today's report".
-
-**Omnara console.** Already done: every agent launched from the profile shows
-up in the console.
+Set these up with [`integrations.md`](../integrations.md); if it isn't next to
+this folder, download
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md.
+For this agent, name the integrations `posthog-analytics-agent-slack` and
+`posthog-analytics-agent-discord`, call the bot "PostHog Analytics", and have
+the user try it with "@PostHog Analytics run today's report".
 
 ## 8. Run it daily (optional)
 
@@ -292,14 +175,11 @@ If `npx omnara crons list --name posthog-analytics-agent-daily --json` already
 shows a trigger, change it with `npx omnara crons update <cron-trigger-id>`
 (same flags) instead of creating a second one.
 
-Each firing launches a fresh agent from the profile. It reports on
-"yesterday" in the PostHog project's timezone and recomputes the 7-day
-baseline, so there is no state between runs. It shows up in the console, and
-the user's app can pick it up through the SDK or API. To get each report in a
-Slack or Discord channel, mention the bot in that channel once, then create
-the trigger with `--target-type agent --target-agent-id <agent-id>` (the
-agent ID from that conversation's console URL), so every report posts to that
-thread.
+Each firing launches a fresh agent from the profile. It reports on "yesterday"
+in the PostHog project's timezone and recomputes the 7-day baseline, so there is
+no state between runs. It shows up in the console, and the user's app can pick
+it up through the SDK or API. To post every report in one Slack or Discord
+thread instead, see "Scheduled runs in a channel" in `integrations.md`.
 
 ## 9. Wrap up
 
@@ -309,12 +189,7 @@ Discord integration or cron trigger if any. Then tell the user:
 - **Change what it reports or anything else:** ask a coding agent with this
   skill. It reuses the secret and updates the profile in place.
 - **Remove it:** delete the cron trigger (`npx omnara crons delete <id>`),
-  delete the Slack and Discord integrations, if any
-  (`npx omnara integrations delete <integration-id>`), or, if other agents
-  share it, rerun `npx omnara integrations profiles` with only their
-  profiles. Then run `npx omnara profiles delete <agent-profile-id>` and
+  remove its integrations, if any (see "Removing" in `integrations.md`),
+  then run `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>`. The PostHog key can also be
   revoked in PostHog's settings.
-  With Discord, also delete the bot token secret
-  (`npx omnara secrets delete <secret-id>`) and the application in the
-  Discord Developer Portal.
