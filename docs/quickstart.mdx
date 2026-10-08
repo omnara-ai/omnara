@@ -40,7 +40,7 @@ Help me setup Omnara by fetching the Skill file here: https://github.com/omnara-
       <ApiSetup />
     </Step>
     <Step title="Write the config">
-      Save this config as `agent.yaml`. The machine tools run on the cloud machine that Omnara creates from `default-pool` at launch:
+      Save this config as `agent.yaml`. Because it lists `default-pool` as a machine source, Omnara adds machine tools such as `run_command` automatically, and they run on the cloud machine Omnara creates from that pool at launch:
 
       <QuickstartAgentConfig />
     </Step>
