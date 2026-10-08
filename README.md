@@ -193,8 +193,7 @@ memory filesystem. The
 
 - **[Any model](https://docs.omnara.com/organization/model-providers).** Bring
   your own keys for OpenAI, Anthropic, OpenRouter, LiteLLM, Ollama, or any
-  OpenAI Responses, OpenAI Chat Completions, or Anthropic Messages compatible
-  endpoint, including models you host yourself.
+  compatible endpoint, including models you host yourself.
 - **[Tools](https://docs.omnara.com/tools/built-in).** Built-in tools for shell
   commands, files, web search and fetch, and asking a person a question, plus
   [MCP servers](https://docs.omnara.com/tools/mcp) and
