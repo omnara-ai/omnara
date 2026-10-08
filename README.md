@@ -129,7 +129,6 @@ Point the CLI at your instance and log in:
 ```sh
 npx omnara config --api-url http://localhost:8000/api/v1 --issuer-url http://localhost:8000
 npx omnara login
-npx omnara config select
 ```
 
 In `agent.yaml`, use your provider and model names, and replace the
