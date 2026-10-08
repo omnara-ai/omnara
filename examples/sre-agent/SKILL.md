@@ -215,8 +215,6 @@ Wait for the reply; don't assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
   small UI built for it.
-- **Their alerts:** their alerting tool starts an investigation for each alert
-  through Omnara's API, with the alert text as the message.
 - **Slack or Discord:** the team mentions the bot, and replies in the thread go
   to the same agent. An incidents or alerts channel works well.
 - **Only the Omnara console:** nothing to set up; every agent launched from the
