@@ -200,6 +200,12 @@ func (s *Store) List(ctx context.Context, scope Scope, options listing.Options, 
 	if err := authorize(ctx, s.q, scope, false); err != nil {
 		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
 	}
+	return s.ListForProjects(ctx, []uuid.UUID{scope.ProjectID}, options, limit)
+}
+
+func (s *Store) ListForProjects(
+	ctx context.Context, projectIDs []uuid.UUID, options listing.Options, limit int,
+) (ListResult, error) {
 	if options.After.Key != "" {
 		if err := skills.ValidateName(options.After.Key); err != nil {
 			return ListResult{}, storeerr.InvalidRequest(err)
@@ -209,8 +215,9 @@ func (s *Store) List(ctx context.Context, scope Scope, options listing.Options, 
 		return ListResult{}, storeerr.InvalidRequest(errors.New("invalid limit"))
 	}
 	rows, err := s.q.ListMemoryStores(ctx, dbsqlc.ListMemoryStoresParams{
-		ProjectID:   scope.ProjectID,
+		ProjectIds:  projectIDs,
 		AfterName:   options.After.Key,
+		AfterID:     options.After.ID,
 		NamePattern: options.NamePattern,
 		RowLimit:    int32(limit + 1),
 	})

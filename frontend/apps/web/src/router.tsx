@@ -239,6 +239,12 @@ const projectSkillsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
+const organizationMemoryRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/memory',
+  component: lazyRouteComponent(() => import('@/routes/OrgMemoryPage'), 'OrgMemoryPage'),
+})
+
 const projectMemoryRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/memory',
@@ -418,6 +424,7 @@ const routeTree = rootRoute.addChildren([
       organizationUsageRoute,
       secretsRoute,
       skillsRoute,
+      organizationMemoryRoute,
       apiTokensRoute,
       organizationSettingsRoute,
       projectRoute,

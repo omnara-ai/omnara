@@ -2114,6 +2114,49 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/memory-stores:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+    get:
+      operationId: listOrgMemoryStores
+      tags:
+        - Memory Stores
+      summary: List memory stores across projects
+      description: >-
+        Lists memory stores in every project of the organization the caller can
+        read. Each store carries its project_id. Items are ordered by name, then id.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/ResourceNameFilter"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Memory stores across the caller's readable projects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStoreList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
   /orgs/{orgID}/projects/{projectID}/memory-stores:
     parameters:
       - name: orgID
@@ -9650,6 +9693,7 @@ components:
       additionalProperties: false
       required:
         - id
+        - project_id
         - name
         - description
         - agent_access
@@ -9658,6 +9702,8 @@ components:
       properties:
         id:
           $ref: "#/components/schemas/MemoryStoreID"
+        project_id:
+          $ref: "#/components/schemas/ProjectID"
         name:
           $ref: "#/components/schemas/MemoryStoreName"
         description:
