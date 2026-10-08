@@ -173,15 +173,7 @@ export function ProviderSubtitle({ provider }: { provider: ModelProviderConfig }
   )
 }
 
-function ProviderCard({
-  orgId,
-  provider,
-  canManage,
-  pricing,
-  modelActions,
-  defaultExpanded,
-  actions,
-}: {
+interface ProviderCardProps {
   orgId: string
   provider: ModelProviderConfig
   /** Models and the provider page are manage-only, so members see just the provider itself. */
@@ -190,22 +182,74 @@ function ProviderCard({
   modelActions: ModelActions
   defaultExpanded: boolean
   actions: ReactNode
-}) {
+}
+
+function ProviderCard({ canManage, ...props }: ProviderCardProps) {
+  if (canManage) return <ManagedProviderCard {...props} />
+  const { provider, actions } = props
+  return (
+    <AgentCard
+      icon={<ProviderGlyph provider={provider} />}
+      title={<ProviderTitle provider={provider} linked={false} />}
+      subtitle={<ProviderSubtitle provider={provider} />}
+      meta={
+        <>
+          <AgentCardTime label="Updated" value={provider.updated_at} />
+          {actions}
+        </>
+      }
+    />
+  )
+}
+
+function ProviderTitle({ provider, linked }: { provider: ModelProviderConfig; linked: boolean }) {
+  return (
+    <>
+      {linked ? (
+        <Link
+          to="/models/providers/$providerId"
+          params={{ providerId: provider.id }}
+          className={agentCardLinkClass}
+        >
+          {provider.name}
+        </Link>
+      ) : (
+        <span className="truncate font-medium">{provider.name}</span>
+      )}
+      {provider.management_kind === 'cluster' && <OmnaraManagedTag />}
+    </>
+  )
+}
+
+/** The first few models of a provider, plus whether more exist and how to label the count. */
+function useProviderPreview(orgId: string, providerId: string) {
   // One small page: enough for the preview, and one extra row tells us whether there are more.
-  const preview = useConfiguredModels(orgId, provider.id, {
-    enabled: canManage,
-    pageSize: previewLimit + 1,
-  })
-  const firstPage = preview.data?.pages[0]?.data ?? []
+  const query = useConfiguredModels(orgId, providerId, { pageSize: previewLimit + 1 })
+  const firstPage = query.data?.pages[0]?.data ?? []
   const hasMore = firstPage.length > previewLimit
   const models = firstPage.slice(0, previewLimit)
-  const { isPending, isError } = preview
+  const loaded = !query.isPending && !query.isError
+  return {
+    query,
+    models,
+    hasMore,
+    countValue: loaded ? `${formatCount(models.length)}${hasMore ? '+' : ''}` : undefined,
+    countLabel: models.length === 1 && !hasMore ? 'model' : 'models',
+  }
+}
+
+function ManagedProviderCard({
+  orgId,
+  provider,
+  pricing,
+  modelActions,
+  defaultExpanded,
+  actions,
+}: Omit<ProviderCardProps, 'canManage'>) {
+  const { query, models, hasMore, countValue, countLabel } = useProviderPreview(orgId, provider.id)
   const [expanded, setExpanded] = useState(defaultExpanded)
   const expansionId = useId()
-  const countValue =
-    !isPending && !isError ? `${formatCount(models.length)}${hasMore ? '+' : ''}` : undefined
-  const countLabel = models.length === 1 && !hasMore ? 'model' : 'models'
-  const expandable = models.length > 0 || modelActions.onCreate !== undefined || isError
+  const expandable = models.length > 0 || modelActions.onCreate !== undefined || query.isError
   const expansion = {
     id: expansionId,
     open: expanded && expandable,
@@ -213,10 +257,10 @@ function ProviderCard({
       <ProviderModelList
         provider={provider}
         models={models}
-        isPending={isPending}
-        isError={isError}
+        isPending={query.isPending}
+        isError={query.isError}
         onRetry={() => {
-          void preview.refetch()
+          void query.refetch()
         }}
         pricing={pricing}
         actions={modelActions}
@@ -234,40 +278,11 @@ function ProviderCard({
       />
     ),
   }
-  const toggle = () => {
-    setExpanded((open) => !open)
-  }
-  const stat = expandable ? (
-    <AgentCardStatToggle
-      icon={Box}
-      label={countLabel}
-      value={countValue}
-      expansion={expansion}
-      onToggle={toggle}
-    />
-  ) : (
-    <AgentCardStat icon={Box} label={countLabel} value={countValue} />
-  )
 
   return (
     <AgentCard
       icon={<ProviderGlyph provider={provider} />}
-      title={
-        <>
-          {canManage ? (
-            <Link
-              to="/models/providers/$providerId"
-              params={{ providerId: provider.id }}
-              className={agentCardLinkClass}
-            >
-              {provider.name}
-            </Link>
-          ) : (
-            <span className="truncate font-medium">{provider.name}</span>
-          )}
-          {provider.management_kind === 'cluster' && <OmnaraManagedTag />}
-        </>
-      }
+      title={<ProviderTitle provider={provider} linked />}
       subtitle={<ProviderSubtitle provider={provider} />}
       meta={
         <>
@@ -275,8 +290,22 @@ function ProviderCard({
           {actions}
         </>
       }
-      stats={canManage ? stat : undefined}
-      expansion={canManage ? expansion : undefined}
+      stats={
+        expandable ? (
+          <AgentCardStatToggle
+            icon={Box}
+            label={countLabel}
+            value={countValue}
+            expansion={expansion}
+            onToggle={() => {
+              setExpanded((open) => !open)
+            }}
+          />
+        ) : (
+          <AgentCardStat icon={Box} label={countLabel} value={countValue} />
+        )
+      }
+      expansion={expansion}
     />
   )
 }

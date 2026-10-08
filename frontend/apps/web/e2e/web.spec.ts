@@ -815,6 +815,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
+    // The Conversations tab stays selected through reconnecting; the profile lives on the launcher tab.
+    await openIntegrationTab(page, integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions')
     await expect(selectedProfile).toBeVisible()
     if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
     const reconnected = await readIntegration(page, apiProjectPath, integration.id)

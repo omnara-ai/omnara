@@ -269,7 +269,6 @@ function ByoMachinesCard({ orgId, emptyAction }: { orgId: string; emptyAction: R
       }
       subtitle={<span className="truncate">Machines you connect and run yourself</span>}
       meta={machines[0] && <AgentCardTime label="Updated" value={machines[0].updated_at} />}
-      footer={<span className="truncate">Not part of any pool</span>}
       stats={
         <AgentCardStatToggle
           icon={Server}
