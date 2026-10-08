@@ -92,6 +92,7 @@ export {
   useIntegration,
   useIntegrationDefinitions,
   useIntegrations,
+  useOrgIntegrations,
   useUpdateIntegration,
 } from './domains/integrations'
 export {

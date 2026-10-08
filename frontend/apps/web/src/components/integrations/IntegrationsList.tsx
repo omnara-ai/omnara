@@ -3,9 +3,10 @@ import {
   githubIntegrationSettings,
   type Integration,
   profileIntegrationProfiles,
+  type VisibleProject,
 } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { useId, useState } from 'react'
+import { type ReactNode, useId, useState } from 'react'
 
 import {
   AgentCard,
@@ -15,6 +16,7 @@ import {
   AgentCardStatToggle,
   AgentCardTime,
 } from '@/components/agents/AgentCardList'
+import { ProjectTag } from '@/components/agents/ProjectTag'
 import { Bot } from '@/components/icons'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Button } from '@/components/ui/button'
@@ -53,54 +55,107 @@ export function IntegrationsList({
           </Button>
         )}
       </SearchHeader>
-      {query.isPending ? (
-        <div className="flex flex-col gap-5">
-          {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-[4.25rem] rounded-xl" />
-          ))}
-        </div>
-      ) : query.isError ? (
-        <Empty className="rounded-xl border">
-          <EmptyHeader>
-            <EmptyDescription role="alert">Could not load integrations.</EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-              Retry
-            </Button>
-          </EmptyContent>
-        </Empty>
-      ) : integrations.length === 0 && canManage ? (
-        <IntegrationCatalog orgId={orgId} projectId={projectId} />
-      ) : integrations.length === 0 ? (
-        <Empty className="rounded-xl border">
-          <EmptyHeader>
-            <EmptyDescription>
-              No integrations yet. Ask a project administrator to add one.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <ul className="flex flex-col gap-5">
-            {integrations.map((integration) => (
-              <li key={integration.id}>
-                <IntegrationCard orgId={orgId} projectId={projectId} integration={integration} />
-              </li>
-            ))}
-          </ul>
-          {query.hasNextPage && (
-            <Button
-              className="self-start"
-              variant="outline"
-              size="sm"
-              disabled={query.isFetchingNextPage}
-              onClick={() => void query.fetchNextPage()}
-            >
-              Load more integrations
-            </Button>
-          )}
-        </div>
+      <IntegrationCardList
+        orgId={orgId}
+        query={query}
+        integrations={integrations}
+        empty={
+          canManage ? (
+            <IntegrationCatalog orgId={orgId} projectId={projectId} />
+          ) : (
+            <Empty className="rounded-xl border">
+              <EmptyHeader>
+                <EmptyDescription>
+                  No integrations yet. Ask a project administrator to add one.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )
+        }
+      />
+    </div>
+  )
+}
+
+interface IntegrationListQuery {
+  isPending: boolean
+  isError: boolean
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  refetch: () => void
+  fetchNextPage: () => void
+}
+
+/**
+ * Loading, error, empty, and paged states for a list of integration cards. `projectOf` tags
+ * each card with its project, for lists that span projects.
+ */
+export function IntegrationCardList({
+  orgId,
+  query,
+  integrations,
+  empty,
+  projectOf,
+}: {
+  orgId: string
+  query: IntegrationListQuery
+  integrations: Integration[]
+  empty: ReactNode
+  projectOf?: (integration: Integration) => VisibleProject | undefined
+}) {
+  if (query.isPending)
+    return (
+      <div className="flex flex-col gap-5">
+        {[0, 1, 2].map((index) => (
+          <Skeleton key={index} className="h-[4.25rem] rounded-xl" />
+        ))}
+      </div>
+    )
+  if (query.isError)
+    return (
+      <Empty className="rounded-xl border">
+        <EmptyHeader>
+          <EmptyDescription role="alert">Could not load integrations.</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              query.refetch()
+            }}
+          >
+            Retry
+          </Button>
+        </EmptyContent>
+      </Empty>
+    )
+  if (integrations.length === 0) return empty
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-5">
+        {integrations.map((integration) => (
+          <li key={integration.id}>
+            <IntegrationCard
+              orgId={orgId}
+              integration={integration}
+              project={projectOf?.(integration)}
+            />
+          </li>
+        ))}
+      </ul>
+      {query.hasNextPage && (
+        <Button
+          className="self-start"
+          variant="outline"
+          size="sm"
+          disabled={query.isFetchingNextPage}
+          onClick={() => {
+            query.fetchNextPage()
+          }}
+        >
+          Load more integrations
+        </Button>
       )}
     </div>
   )
@@ -108,13 +163,14 @@ export function IntegrationsList({
 
 function IntegrationCard({
   orgId,
-  projectId,
   integration,
+  project,
 }: {
   orgId: string
-  projectId: string
   integration: Integration
+  project?: VisibleProject
 }) {
+  const projectId = integration.project_id
   const [expanded, setExpanded] = useState(false)
   const expansionId = useId()
   const profileIds = launcherProfileIds(integration)
@@ -152,6 +208,12 @@ function IntegrationCard({
           <span className="shrink-0">{integrationKindLabel(integration.integration_kind)}</span>
           <span aria-hidden="true">·</span>
           <span className="truncate">{launchSummary(integration)}</span>
+          {project && (
+            <>
+              <span aria-hidden="true">·</span>
+              <ProjectTag project={project} />
+            </>
+          )}
         </>
       }
       meta={
