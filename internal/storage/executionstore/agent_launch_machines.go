@@ -261,7 +261,7 @@ func ensurePoolCapacityForConfigTx(
 		return fmt.Errorf("get active pool machine usage: %w", err)
 	}
 	if int(poolUsage.Machines)+requestedMachines > int(poolGrant.PoolMaxTotalMachines) {
-		return fmt.Errorf("machine pool capacity exceeded: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("machine pool capacity exceeded")
 	}
 	if err := checkLaunchResourceCaps(
 		poolUsage.Cpu,
@@ -292,7 +292,7 @@ func ensurePoolCapacityForConfigTx(
 	}
 	if poolGrant.GrantMaxTotalMachines != nil &&
 		int(projectPoolUsage.Machines)+requestedMachines > int(*poolGrant.GrantMaxTotalMachines) {
-		return fmt.Errorf("project machine pool capacity exceeded: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("project machine pool capacity exceeded")
 	}
 	if err := checkLaunchResourceCaps(
 		projectPoolUsage.Cpu,

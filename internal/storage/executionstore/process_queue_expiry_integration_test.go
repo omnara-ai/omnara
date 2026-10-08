@@ -140,6 +140,7 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 		name    string
 		granted bool
 		offline bool
+		deleted bool
 		reason  string
 	}{
 		{name: "unreachable", reason: executionstore.ProcessToolReasonMachineUnreachable},
@@ -155,6 +156,7 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 			reason: daemonprotocol.ProcessReasonMachineStorageExhausted,
 		},
 		{name: "offline_granted", offline: true, granted: true},
+		{name: "deleted_machine_granted", offline: true, granted: true, deleted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -178,14 +180,19 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 			if test.offline {
 				expireDaemonRuntimeForTest(t, ctx, fixture)
 			}
+			if test.deleted {
+				_, err = fixture.Store.pool.Exec(ctx,
+					`UPDATE machines SET lifecycle_state = 'deleted', deleted_at = now() WHERE id = $1`, fixture.MachineID)
+				require.NoError(t, err)
+			}
 			action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 				ProjectID: testProjectID, AgentID: fixture.AgentID, ToolCallID: ids[1], RuntimeLockID: fixture.Lock.ID,
 			}, executionstore.CreateProcessActionInput{
 				ProcessID: process.ID, ActionKind: executionstore.ProcessActionKindRead, Payload: json.RawMessage(`{}`),
 			})
-			if test.granted && test.reason == "" && test.offline {
+			if test.granted && test.reason == "" && test.offline && !test.deleted {
 				require.ErrorIs(t, err, storeerr.ErrNoOnlineDaemonRuntime)
-			} else if test.granted && test.reason == "" {
+			} else if test.granted && test.reason == "" && !test.offline {
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ProcessActionStateQueued, action.State)
 			} else {

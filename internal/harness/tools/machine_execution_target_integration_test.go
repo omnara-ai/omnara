@@ -423,7 +423,8 @@ tools:
 	}
 	staleBody := toolResultMapFromTestParts(t, staleResult.ContentParts)
 	if staleBody["error_code"] != ErrMachineIDUnavailable.Error() ||
-		staleBody["error"] != "machine_id is unavailable" ||
+		staleBody["error"] != "machine_id is unavailable; "+
+			"it may be provisioning, offline, failed, deleted, or not attached to this agent" ||
 		staleBody["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("stale inspect_machine result = %+v", staleBody)
 	}

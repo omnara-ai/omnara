@@ -387,7 +387,15 @@ func (q *Queries) GetProcessActionByToolCall(ctx context.Context, arg GetProcess
 const getProcessActionCreateBlocker = `-- name: GetProcessActionCreateBlocker :one
 SELECT process.state,
   coalesce(process.execution_granted_at IS NOT NULL
-    AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted', false)::boolean AS terminal_read_supported,
+    AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted'
+    AND EXISTS (
+      SELECT 1
+      FROM machines machine
+      WHERE machine.org_id = process.org_id
+        AND machine.id = process.machine_id
+        AND machine.deleted_at IS NULL
+        AND machine.lifecycle_state NOT IN ('deleting', 'delete_failed')
+    ), false)::boolean AS terminal_read_supported,
   EXISTS (
     SELECT 1
     FROM process_actions terminate_action
