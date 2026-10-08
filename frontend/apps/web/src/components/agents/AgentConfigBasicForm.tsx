@@ -126,7 +126,10 @@ export function AgentConfigBasicForm({
               <ChevronRightIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
               Advanced
             </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-3 pt-4">
+            <CollapsibleContent
+              forceMount
+              className="flex flex-col gap-3 pt-4 data-[state=closed]:hidden"
+            >
               <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
                 <AgentConfigEventWebhookField
                   orgId={orgId}
