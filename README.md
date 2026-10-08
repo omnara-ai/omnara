@@ -194,7 +194,8 @@ memory filesystem; see the
   your agents can run commands and edit files there, with no inbound ports or
   SSH keys. Or use sandboxes from nine providers (Arker, Blaxel, boxd,
   CreateOS, Daytona, Freestyle, Modal, Tenki, Unikraft). An agent can use
-  several machines at once, like a set of GPU servers, and move between them:
+  several machines at once (for example, a set of GPU servers) and move between
+  them:
   if your laptop goes offline, it can continue in a sandbox and sync back with
   git.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
