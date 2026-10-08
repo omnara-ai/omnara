@@ -29,8 +29,8 @@
 
 Omnara is an open-source managed agent platform. It runs durable AI agents
 through one API on any model and any machine, with tools, secrets, approvals,
-and streaming built in. Use [Omnara Cloud](https://app.omnara.com), the hosted
-version we run, or self-host it under Apache 2.0.
+and streaming built in. Use [Omnara Cloud](https://app.omnara.com) or self-host it
+under Apache 2.0.
 
 Put agents inside your product, run them from Slack, Discord, or GitHub, or
 start them on a schedule. Omnara keeps each agent's state and runs its tools;
