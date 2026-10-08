@@ -315,12 +315,26 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		archivedReplayAgent["state"] != "archived" {
 		t.Fatalf("archived agent launch replay = %+v, want current archived agent", archivedReplay)
 	}
-	requestJSONWithHeaders(
+	profileOnly := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
 		`{"profile":"`+profileID+`"}`,
+		"idem-agent-launch-profile-only",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	profileOnlyAgent := testutil.RequireType[map[string]any](t, profileOnly["agent"])
+	if profileOnlyAgent["current_config_id"] != retargetedConfigID || profileOnlyAgent["agent_profile_id"] != profileID {
+		t.Fatalf("profile-only launch should run the profile's current config: %+v", profileOnlyAgent)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		`{}`,
 		"idem-agent-launch-missing-config",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -698,7 +712,9 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "agent-config-json-source")
-	sourceJSON := `{"instruction":"Configured from JSON.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`
+	sourceJSON := "{\n  \"instruction\": \"Configured from <JSON> & text.\",\n" +
+		"  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"}\n}\n"
+	canonicalJSON := `{"instruction":"Configured from <JSON> & text.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
 
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -710,11 +726,194 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	if config["source_format"] != "json" || config["source"] != sourceJSON {
-		t.Fatalf("JSON-authored config source was not preserved: %+v", config)
+	if config["source_format"] != "json" || config["source"] != canonicalJSON {
+		t.Fatalf("JSON text config source was not stored canonicalized: %+v", config)
+	}
+	if _, ok := config["definition"]; ok {
+		t.Fatalf("agent config responses should return source, not definition: %+v", config)
 	}
 	model := testutil.RequireType[map[string]any](t, config["model"])
 	if model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" || config["instruction_hash"] == "" {
 		t.Fatalf("JSON-authored config did not compile into runtime projection: %+v", config)
+	}
+}
+
+func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-config-object-source")
+	create := func(body, idempotencyKey string, status int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/agent-configs", body,
+			idempotencyKey, status, authHeaders(project.AdminToken),
+		)
+	}
+
+	config := create(
+		`{"source_format":"json","source":`+
+			`{"instruction":"Configured from an object.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}`,
+		"idem-object-source", http.StatusCreated,
+	)
+	canonicalJSON := `{"instruction":"Configured from an object.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
+	if config["source_format"] != "json" || config["source"] != canonicalJSON {
+		t.Fatalf("JSON object config source was not stored canonicalized: %+v", config)
+	}
+	reordered := create(
+		`{"source": { "model": {"name": "gpt-test", "provider_config": "openai-prod"},`+
+			` "instruction": "Configured from an object." }, "source_format": "json"}`,
+		"idem-object-source-reordered", http.StatusOK,
+	)
+	if reordered["id"] != config["id"] {
+		t.Fatalf("reordered JSON object should dedupe to %v, got %+v", config["id"], reordered)
+	}
+	asText := create(
+		`{"source_format":"json","source":`+quotedJSONString(
+			"{\n  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"},\n"+
+				"  \"instruction\": \"Configured from an object.\"\n}\n",
+		)+`}`,
+		"idem-object-source-as-text", http.StatusOK,
+	)
+	if asText["id"] != config["id"] || asText["source"] != canonicalJSON {
+		t.Fatalf("formatted JSON text should dedupe to the object config %v, got %+v", config["id"], asText)
+	}
+
+	sourceYAML := "instruction: Configured from YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	for name, body := range map[string]string{
+		"missing source":        `{"source_format":"json"}`,
+		"missing source_format": `{"source":{"instruction":"x"}}`,
+		"object with yaml": `{"source_format":"yaml","source":` +
+			`{"instruction":"x","model":{"provider_config":"openai-prod","name":"gpt-test"}}}`,
+		"array source":  `{"source_format":"json","source":[]}`,
+		"null source":   `{"source_format":"json","source":null}`,
+		"unknown field": `{"source_format":"yaml","source":` + quotedJSONString(sourceYAML) + `,"definition":{}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			create(body, "", http.StatusBadRequest)
+		})
+	}
+
+	invalid := create(
+		`{"source_format":"json","source":{"instruction":"x","model":{"provider_config":"openai-prod","name":"gpt-test"},`+
+			`"tools":{"run_command":{"enabled":"nope"}}}}`,
+		"", http.StatusBadRequest,
+	)
+	issues := testutil.RequireType[[]any](t, invalid["issues"])
+	if len(issues) == 0 || testutil.RequireType[map[string]any](t, issues[0])["path"] != "/tools/run_command/enabled" {
+		t.Fatalf("invalid JSON object should report compiler issues by path: %+v", invalid)
+	}
+
+	yamlConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-config-object-source-yaml", "yaml", sourceYAML,
+		project.AdminToken, http.StatusCreated,
+	)
+	if yamlConfig["source"] != sourceYAML || yamlConfig["source_format"] != "yaml" {
+		t.Fatalf("YAML source should be stored verbatim: %+v", yamlConfig)
+	}
+}
+
+func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "agent-launch-profile-combos")
+	profileConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-launch-profile-combos-profile", "yaml",
+		"instruction: Profile default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated,
+	)
+	profile := createPublicHTTPAgentProfile(
+		t, handler, project, "agent-launch-profile-combos", "Profile Combos",
+		testutil.RequireType[string](t, profileConfig["id"]), project.AdminToken, http.StatusCreated,
+	)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	unrelatedConfig := createPublicHTTPAgentConfig(
+		t, handler, project, "agent-launch-profile-combos-unrelated", "yaml",
+		"instruction: Not a profile version.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated,
+	)
+	unrelatedConfigID := testutil.RequireType[string](t, unrelatedConfig["id"])
+	launch := func(body, idempotencyKey string, status int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/agents", body,
+			idempotencyKey, status, authHeaders(project.AdminToken),
+		)
+	}
+
+	custom := testutil.RequireType[map[string]any](t, launch(
+		`{"profile":"`+profileID+`","config":"`+unrelatedConfigID+`"}`, "idem-combo-custom", http.StatusCreated,
+	)["agent"])
+	if custom["agent_profile_id"] != profileID || custom["current_config_id"] != unrelatedConfigID {
+		t.Fatalf("profile + unrelated config should attribute to profile and run that config: %+v", custom)
+	}
+
+	inline := launch(
+		`{"profile":"`+profileID+`","config_source":{"source_format":"json","source":`+
+			`{"instruction":"Inline override.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}}`,
+		"idem-combo-inline", http.StatusCreated,
+	)
+	inlineAgent := testutil.RequireType[map[string]any](t, inline["agent"])
+	inlineConfig := testutil.RequireType[map[string]any](t, inline["agent_config"])
+	const canonicalInline = `{"instruction":"Inline override.",` +
+		`"model":{"name":"gpt-test","provider_config":"openai-prod"}}`
+	if inlineAgent["agent_profile_id"] != profileID ||
+		inlineAgent["current_config_id"] == profileConfig["id"] ||
+		inlineAgent["current_config_id"] != inlineConfig["id"] ||
+		inlineConfig["source"] != canonicalInline {
+		t.Fatalf("profile + config_source should launch a new config attributed to the profile: %+v", inline)
+	}
+
+	yamlOnly := testutil.RequireType[map[string]any](t, launch(
+		`{"config_source":{"source_format":"yaml","source":`+quotedJSONString(
+			"instruction: Inline YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		)+`}}`,
+		"idem-combo-yaml-only", http.StatusCreated,
+	)["agent"])
+	if _, ok := yamlOnly["agent_profile_id"]; ok {
+		t.Fatalf("config_source-only launch should not be attributed to a profile: %+v", yamlOnly)
+	}
+	// A retry replays the original launch without recompiling, even when the
+	// source's references no longer resolve.
+	replayed := testutil.RequireType[map[string]any](t, launch(
+		`{"config_source":{"source_format":"yaml","source":`+quotedJSONString(
+			"instruction: Inline YAML.\nmodel:\n  provider_config: deleted-provider\n  name: gpt-test\n",
+		)+`}}`,
+		"idem-combo-yaml-only", http.StatusOK,
+	)["agent"])
+	if replayed["id"] != yamlOnly["id"] {
+		t.Fatalf("idempotent config_source retry should replay agent %v, got %+v", yamlOnly["id"], replayed)
+	}
+
+	launch(
+		`{"config":"`+unrelatedConfigID+`","config_source":{"source_format":"yaml","source":"instruction: x"}}`,
+		"idem-combo-both", http.StatusBadRequest,
+	)
+	invalid := launch(
+		`{"profile":"`+profileID+`","config_source":{"source_format":"json","source":{"instruction":"x"}}}`,
+		"idem-combo-invalid", http.StatusBadRequest,
+	)
+	if _, ok := invalid["issues"]; !ok {
+		t.Fatalf("invalid config_source should report compiler issues: %+v", invalid)
+	}
+	// Postgres rejects U+0000 in TEXT and JSONB, so it must fail validation
+	// rather than the write.
+	for format, source := range map[string]string{
+		"json": `{"instruction":"Bad \u0000 byte.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`,
+		"yaml": `"instruction: \"Bad \\0 byte.\"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"`,
+	} {
+		nul := launch(
+			`{"profile":"`+profileID+`","config_source":{"source_format":"`+format+`","source":`+source+`}}`,
+			"idem-combo-nul-"+format, http.StatusBadRequest,
+		)
+		if message, _ := nul["error"].(string); !strings.Contains(message, "U+0000") {
+			t.Fatalf("%s config_source with U+0000 should be rejected as invalid: %+v", format, nul)
+		}
 	}
 }

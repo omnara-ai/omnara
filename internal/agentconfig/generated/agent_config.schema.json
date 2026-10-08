@@ -1,10 +1,75 @@
 {
   "$defs": {
-    "AgentConfigIntegrationCapabilitySource": {
+    "AgentConfigDefinitionEventWebhook": {
       "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "enum": [
+              "agent_input",
+              "model_output",
+              "tool_result",
+              "context_checkpoint",
+              "tool_call_update"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "signing_secret_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "events"
+      ],
       "type": "object"
     },
-    "AgentConfigMCPAuthSource": {
+    "AgentConfigDefinitionGitCredentials": {
+      "additionalProperties": false,
+      "description": "Integration whose git credentials the agent's machines use.",
+      "properties": {
+        "integration": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "integration"
+      ],
+      "type": "object"
+    },
+    "AgentConfigDefinitionInteractionHandler": {
+      "additionalProperties": false,
+      "description": "Enables an integration's interaction handler. Takes no settings.",
+      "type": "object"
+    },
+    "AgentConfigDefinitionInteractionHandlers": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionInteractionHandler"
+          },
+          "propertyNames": {
+            "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Interaction handlers keyed by integration name."
+    },
+    "AgentConfigDefinitionMCPAuth": {
       "additionalProperties": false,
       "properties": {
         "region": {
@@ -34,11 +99,11 @@
       ],
       "type": "object"
     },
-    "AgentConfigMCPSource": {
+    "AgentConfigDefinitionMCPServer": {
       "additionalProperties": false,
       "properties": {
         "auth": {
-          "$ref": "#/$defs/AgentConfigMCPAuthSource"
+          "$ref": "#/$defs/AgentConfigDefinitionMCPAuth"
         },
         "default_enabled": {
           "anyOf": [
@@ -54,11 +119,11 @@
           "type": "boolean"
         },
         "permission": {
-          "$ref": "#/$defs/ToolPermissionSelection"
+          "$ref": "#/$defs/AgentConfigDefinitionToolPermission"
         },
         "tools": {
           "additionalProperties": {
-            "$ref": "#/$defs/AgentConfigMCPToolSource"
+            "$ref": "#/$defs/AgentConfigDefinitionMCPTool"
           },
           "propertyNames": {
             "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
@@ -76,7 +141,24 @@
       ],
       "type": "object"
     },
-    "AgentConfigMCPToolSource": {
+    "AgentConfigDefinitionMCPServers": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionMCPServer"
+          },
+          "propertyNames": {
+            "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "AgentConfigDefinitionMCPTool": {
       "additionalProperties": false,
       "properties": {
         "deferred": {
@@ -100,12 +182,12 @@
           ]
         },
         "permission": {
-          "$ref": "#/$defs/ToolPermissionSelection"
+          "$ref": "#/$defs/AgentConfigDefinitionToolPermission"
         }
       },
       "type": "object"
     },
-    "AgentConfigMachineSource": {
+    "AgentConfigDefinitionMachineSource": {
       "additionalProperties": false,
       "oneOf": [
         {
@@ -156,9 +238,7 @@
                 ]
               },
               "propertyNames": {
-                "minLength": 1,
-                "pattern": "^[^=\u0000]+$",
-                "type": "string"
+                "$ref": "#/$defs/EnvironmentVariableName"
               },
               "type": "object"
             },
@@ -182,16 +262,10 @@
           "type": "integer"
         },
         "machine_name": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
+          "$ref": "#/$defs/ResourceNameReference"
         },
         "machine_pool_name": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
+          "$ref": "#/$defs/ResourceNameReference"
         },
         "machine_provider_options_overlay": {
           "anyOf": [
@@ -222,9 +296,7 @@
                 ]
               },
               "propertyNames": {
-                "minLength": 1,
-                "pattern": "^[^=\u0000]+$",
-                "type": "string"
+                "$ref": "#/$defs/EnvironmentVariableName"
               },
               "type": "object"
             },
@@ -236,7 +308,53 @@
       },
       "type": "object"
     },
-    "AgentConfigModelSource": {
+    "AgentConfigDefinitionMachineSources": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentConfigDefinitionMachineSource"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "AgentConfigDefinitionMemoryStore": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "enum": [
+            "read",
+            "read_write"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/MemoryStoreName"
+        }
+      },
+      "required": [
+        "name",
+        "access"
+      ],
+      "type": "object"
+    },
+    "AgentConfigDefinitionMemoryStores": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AgentConfigDefinitionMemoryStore"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "AgentConfigDefinitionModel": {
       "additionalProperties": false,
       "properties": {
         "cache_retention": {
@@ -255,16 +373,10 @@
           "type": "integer"
         },
         "name": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
+          "$ref": "#/$defs/ResourceNameReference"
         },
         "provider_config": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
+          "$ref": "#/$defs/ResourceNameReference"
         },
         "reasoning": {
           "additionalProperties": false,
@@ -287,71 +399,22 @@
       ],
       "type": "object"
     },
-    "AgentConfigSubagentInstructionSource": {
-      "additionalProperties": false,
-      "properties": {
-        "append": {
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "AgentConfigSubagentModelSource": {
-      "additionalProperties": false,
-      "dependentRequired": {
-        "name": [
-          "provider_config"
-        ],
-        "provider_config": [
-          "name"
-        ]
-      },
-      "properties": {
-        "cache_retention": {
-          "enum": [
-            "none",
-            "short",
-            "long"
-          ]
-        },
-        "context_window_tokens": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "default_max_output_tokens": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "name": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
-        },
-        "provider_config": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
-        },
-        "reasoning": {
-          "additionalProperties": false,
-          "properties": {
-            "effort": {
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string"
-            }
+    "AgentConfigDefinitionSkills": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^skl_[a-z2-7]{26}$",
+            "type": "string"
           },
-          "required": [
-            "effort"
-          ],
-          "type": "object"
+          "type": "array",
+          "uniqueItems": true
+        },
+        {
+          "type": "null"
         }
-      },
-      "type": "object"
+      ]
     },
-    "AgentConfigSubagentSource": {
+    "AgentConfigDefinitionSubagent": {
       "additionalProperties": false,
       "else": {
         "not": {
@@ -382,7 +445,7 @@
           "type": "string"
         },
         "instruction": {
-          "$ref": "#/$defs/AgentConfigSubagentInstructionSource"
+          "$ref": "#/$defs/AgentConfigDefinitionSubagentInstruction"
         },
         "max_instances": {
           "maximum": 2147483647,
@@ -390,13 +453,10 @@
           "type": "integer"
         },
         "model": {
-          "$ref": "#/$defs/AgentConfigSubagentModelSource"
+          "$ref": "#/$defs/AgentConfigDefinitionSubagentModel"
         },
         "profile": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^\\S(?:.*\\S)?$",
-          "type": "string"
+          "$ref": "#/$defs/ResourceNameReference"
         },
         "type": {
           "enum": [
@@ -415,7 +475,82 @@
       },
       "type": "object"
     },
-    "AgentConfigToolSource": {
+    "AgentConfigDefinitionSubagentInstruction": {
+      "additionalProperties": false,
+      "properties": {
+        "append": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigDefinitionSubagentModel": {
+      "additionalProperties": false,
+      "dependentRequired": {
+        "name": [
+          "provider_config"
+        ],
+        "provider_config": [
+          "name"
+        ]
+      },
+      "properties": {
+        "cache_retention": {
+          "enum": [
+            "none",
+            "short",
+            "long"
+          ]
+        },
+        "context_window_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "default_max_output_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "$ref": "#/$defs/ResourceNameReference"
+        },
+        "provider_config": {
+          "$ref": "#/$defs/ResourceNameReference"
+        },
+        "reasoning": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "required": [
+            "effort"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigDefinitionSubagents": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionSubagent"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "AgentConfigDefinitionTool": {
       "additionalProperties": false,
       "else": {
         "not": {
@@ -465,10 +600,10 @@
           ]
         },
         "input_schema": {
-          "$ref": "#/$defs/AgentToolInputSchema"
+          "$ref": "#/$defs/AgentConfigDefinitionToolInputSchema"
         },
         "permission": {
-          "$ref": "#/$defs/ToolPermissionSelection"
+          "$ref": "#/$defs/AgentConfigDefinitionToolPermission"
         },
         "type": {
           "enum": [
@@ -485,7 +620,7 @@
       },
       "type": "object"
     },
-    "AgentToolInputSchema": {
+    "AgentConfigDefinitionToolInputSchema": {
       "properties": {
         "properties": {
           "additionalProperties": {
@@ -509,52 +644,7 @@
       ],
       "type": "object"
     },
-    "EventWebhook": {
-      "additionalProperties": false,
-      "properties": {
-        "events": {
-          "items": {
-            "enum": [
-              "agent_input",
-              "model_output",
-              "tool_result",
-              "context_checkpoint",
-              "tool_call_update"
-            ]
-          },
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "signing_secret_id": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "url": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "url",
-        "events"
-      ],
-      "type": "object"
-    },
-    "GitCredentialsSource": {
-      "additionalProperties": false,
-      "properties": {
-        "integration": {
-          "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
-          "type": "string"
-        }
-      },
-      "required": [
-        "integration"
-      ],
-      "type": "object"
-    },
-    "ToolPermissionSelection": {
+    "AgentConfigDefinitionToolPermission": {
       "additionalProperties": false,
       "properties": {
         "mode": {
@@ -570,15 +660,71 @@
         "mode"
       ],
       "type": "object"
+    },
+    "AgentConfigDefinitionTools": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentConfigDefinitionTool"
+          },
+          "propertyNames": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                    "type": "string"
+                  },
+                  {
+                    "maxLength": 64,
+                    "pattern": "^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
+                    "type": "string"
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "pattern": "^mcp__",
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "EnvironmentVariableName": {
+      "minLength": 1,
+      "pattern": "^[^=\\x00]+$",
+      "type": "string"
+    },
+    "MemoryStoreName": {
+      "description": "Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "ResourceNameReference": {
+      "description": "Name of an existing resource, resolved when the config is compiled.",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$",
+      "type": "string"
     }
   },
   "additionalProperties": false,
+  "description": "An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.",
   "properties": {
     "event_webhook": {
-      "$ref": "#/$defs/EventWebhook"
+      "$ref": "#/$defs/AgentConfigDefinitionEventWebhook"
     },
     "git_credentials": {
-      "$ref": "#/$defs/GitCredentialsSource"
+      "$ref": "#/$defs/AgentConfigDefinitionGitCredentials"
     },
     "instruction": {
       "minLength": 1,
@@ -586,27 +732,10 @@
       "type": "string"
     },
     "interaction_handlers": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigIntegrationCapabilitySource"
-      },
-      "propertyNames": {
-        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
-        "type": "string"
-      },
-      "type": "object"
+      "$ref": "#/$defs/AgentConfigDefinitionInteractionHandlers"
     },
     "machine_sources": {
-      "anyOf": [
-        {
-          "items": {
-            "$ref": "#/$defs/AgentConfigMachineSource"
-          },
-          "type": "array"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "$ref": "#/$defs/AgentConfigDefinitionMachineSources"
     },
     "max_depth": {
       "maximum": 8,
@@ -619,96 +748,22 @@
       "type": "integer"
     },
     "mcp": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigMCPSource"
-      },
-      "propertyNames": {
-        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
-        "type": "string"
-      },
-      "type": "object"
+      "$ref": "#/$defs/AgentConfigDefinitionMCPServers"
     },
     "memory_stores": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "access": {
-            "enum": [
-              "read",
-              "read_write"
-            ]
-          },
-          "name": {
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "access"
-        ],
-        "type": "object"
-      },
-      "type": "array"
+      "$ref": "#/$defs/AgentConfigDefinitionMemoryStores"
     },
     "model": {
-      "$ref": "#/$defs/AgentConfigModelSource"
+      "$ref": "#/$defs/AgentConfigDefinitionModel"
     },
     "skills": {
-      "anyOf": [
-        {
-          "items": {
-            "pattern": "^skl_[a-z2-7]{26}$",
-            "type": "string"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "$ref": "#/$defs/AgentConfigDefinitionSkills"
     },
     "subagents": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigSubagentSource"
-      },
-      "propertyNames": {
-        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-        "type": "string"
-      },
-      "type": "object"
+      "$ref": "#/$defs/AgentConfigDefinitionSubagents"
     },
     "tools": {
-      "additionalProperties": {
-        "$ref": "#/$defs/AgentConfigToolSource"
-      },
-      "propertyNames": {
-        "allOf": [
-          {
-            "anyOf": [
-              {
-                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-                "type": "string"
-              },
-              {
-                "maxLength": 64,
-                "pattern": "^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
-                "type": "string"
-              }
-            ]
-          },
-          {
-            "not": {
-              "pattern": "^mcp__",
-              "type": "string"
-            }
-          }
-        ]
-      },
-      "type": "object"
+      "$ref": "#/$defs/AgentConfigDefinitionTools"
     },
     "version": {
       "enum": [

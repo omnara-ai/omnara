@@ -125,6 +125,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 	}
 	for _, raw := range []string{
 		`{}`, `{"instruction":"", "model":{}, "mcp":{}}`,
+		`{"mcp":null, "tools":null, "subagents":null, "memory_stores":null, "skills":null, "machine_sources":null}`,
 	} {
 		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
 		if err != nil || len(tools) != 0 {
@@ -132,7 +133,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
-		`null`, `[]`, `{`, `{} {}`, `{"tools":null}`, `{"tools":{"run_command":{"enabled":"false"}}}`,
+		`null`, `[]`, `{`, `{} {}`, `{"tools":{"run_command":{"enabled":"false"}}}`,
 		`{"tools":{"not_registered":{}}}`, `{"tools":{"run_command":{"permission":{"mode":"bogus"}}}}`,
 		`{"memory_stores":[{"name":"notes","access":"invalid"}]}`, `{"machine_sources":[{}]}`, `{"skills":["invalid"]}`, `{"tools":{"run_command":{"typo":true}}}`,
 		`{"subagents":{"worker":{"type":"profile"}}}`, `{"subagents":{"worker":{"type":"unknown"}}}`,

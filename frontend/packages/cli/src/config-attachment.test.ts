@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { renderConfigSource } from './config-attachment.ts'
+import { renderConfigSource, renderLaunchConfig } from './config-attachment.ts'
 import { CliInputError } from './output.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'omnara-config-attachment-'))
@@ -33,6 +33,18 @@ describe('renderConfigSource', () => {
       source: '{"instruction":"hi"}\n',
       source_format: 'json',
     })
+  })
+
+  it('rejects a json file with invalid JSON', () => {
+    const file = writeTemp('broken.json', '{"instruction":')
+    expect(() => renderConfigSource({ file })).toThrow(
+      /broken\.json is not a valid JSON agent config/,
+    )
+  })
+
+  it('rejects a json file that is not an object', () => {
+    const file = writeTemp('list.json', '["instruction"]')
+    expect(() => renderConfigSource({ file })).toThrow(/expected a JSON object/)
   })
 
   it('rejects a file with an unknown extension', () => {
@@ -64,5 +76,31 @@ describe('renderConfigSource', () => {
   it('rejects a file and inline source together', () => {
     const file = writeTemp('agent.yaml', 'instruction: hi\n')
     expect(() => renderConfigSource({ file, source: 'instruction: hi' })).toThrow(CliInputError)
+  })
+})
+
+describe('renderLaunchConfig', () => {
+  it('runs the profile config when no config is given', () => {
+    expect(renderLaunchConfig('apf_1', {})).toEqual({})
+  })
+
+  it('passes an existing config ID', () => {
+    expect(renderLaunchConfig('apf_1', { config: 'apc_1' })).toEqual({ config: 'apc_1' })
+  })
+
+  it('sends an inline source as config_source', () => {
+    expect(renderLaunchConfig(undefined, { source: 'instruction: hi' })).toEqual({
+      config_source: { source: 'instruction: hi', source_format: 'yaml' },
+    })
+  })
+
+  it('requires a profile or a config', () => {
+    expect(() => renderLaunchConfig(undefined, {})).toThrow(CliInputError)
+  })
+
+  it('rejects a config ID and a source together', () => {
+    expect(() =>
+      renderLaunchConfig('apf_1', { config: 'apc_1', source: 'instruction: hi' }),
+    ).toThrow(CliInputError)
   })
 })

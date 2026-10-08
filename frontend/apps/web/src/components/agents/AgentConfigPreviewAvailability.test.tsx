@@ -13,6 +13,7 @@ import { act, type ReactNode, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import {
   createBasicConfigSession,
@@ -236,7 +237,7 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   const request = schemas.zResolveAgentConfigToolsRequest.parse(requests[0])
-  expect(JSON.parse(request.source)).toHaveProperty('subagents.worker', {
+  expect(request.source).toHaveProperty('subagents.worker', {
     type: 'profile',
     profile: 'helper',
   })
@@ -273,8 +274,8 @@ it.each([
 
 function ToolPreviewHarness({ source }: { source: string }) {
   const query = useAgentConfigTools('org-test', 'project-test', {
-    source_format: 'yaml',
     source,
+    source_format: 'yaml',
   })
   return (
     <output data-status={query.status} data-fetching={query.isFetching}>
@@ -332,7 +333,7 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) => {
-        const { source } = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        const source = z.string().parse(schemas.zResolveAgentConfigToolsRequest.parse(body).source)
         requests.push(source)
         if (source === original) return previewResponse(['read_file'])
         if (source === updated) return previewResponse(['read_file', 'run_command'])
