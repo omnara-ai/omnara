@@ -7,7 +7,7 @@ description: Deploy or update the SRE Agent on Omnara, a production investigator
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
 folder. The goal: an agent profile the user has watched run once, reachable
-wherever the user wants it, and optionally running a daily health check.
+wherever the user wants it.
 
 The steps below are the usual path, with the exact commands. Skip anything
 that's already done (for example, the secrets and profile exist and the user
@@ -19,8 +19,14 @@ different order.
   it and tell them what you changed.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
-- When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default where there's a sensible one, but don't assume it.
+- Stop only where a step says to ask the user. Ask in a sentence or two of
+  plain language, together with the next step's question if one comes right
+  after, then end your turn and wait for the reply.
+- Where a step gives a default, use it without asking and say in a line what
+  you picked, so the user can change it.
+- When a step needs a token, the user can paste it in the chat or add it to a
+  `.env` file in the current directory, whichever they prefer; offer both. If
+  they paste it, write it to `.env` yourself so the commands work as written.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -40,10 +46,10 @@ should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
-there's one of each, otherwise ask, suggesting the defaults from
-`npx omnara config` or the project named `Default`. Save the choice with
-`npx omnara config --org <org-id> --project <project-id>`; later steps need the
-project ID.
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Describe the system
 
@@ -78,7 +84,7 @@ contents or secret values.
 
 If a secret named `sre-agent-aws` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name sre-agent-aws --json`),
-ask whether to reuse it (suggest yes) and note its `id`. Otherwise:
+reuse it and note its `id`. Otherwise:
 
 1. Create the IAM user, either way:
    - **You do it**, if the user has the AWS CLI signed in to the production
@@ -99,8 +105,7 @@ ask whether to reuse it (suggest yes) and note its `id`. Otherwise:
    - **The user does it** in the IAM console: **Users** → **Create user** →
      **Attach policies directly** (`ViewOnlyAccess`,
      `CloudWatchReadOnlyAccess`), then on the user's **Security credentials**
-     tab, **Create access key**. Ask them to add the keys to a `.env` file in
-     the current directory (pasting them in the chat also works):
+     tab, **Create access key**. Get the keys from the user as:
 
      ```sh
      AGENT_AWS_ACCESS_KEY_ID=...
@@ -130,8 +135,8 @@ error to the code behind it and cite the exact lines. Ask which repository
 - **Public repository:** nothing to store.
 - **Private repository:** the user creates a
   [fine-grained token](https://github.com/settings/personal-access-tokens/new)
-  with read-only **Contents** access to that repository and adds it to `.env`
-  as `AGENT_GITHUB_TOKEN=...`. Check for an existing secret named
+  with read-only **Contents** access to that repository and gives it to you
+  as `AGENT_GITHUB_TOKEN`. Check for an existing secret named
   `sre-agent-github` as in step 3, otherwise create it:
 
   ```sh
@@ -146,13 +151,13 @@ error to the code behind it and cite the exact lines. Ask which repository
 ## 5. Pick the model (and machine pool)
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Ask the user which model to use, suggesting
-   `openai/gpt-6-astra` on `omnara-openrouter` if it's granted (the instruction
-   was tested with it), otherwise the strongest reasoning model on the list. The
-   choice gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
+   and `model.name`. Use `openai/gpt-6-astra` on `omnara-openrouter` if it's
+   granted (the instruction was tested with it), otherwise the strongest
+   reasoning model on the list. The choice gives `MODEL_PROVIDER_CONFIG` and
+   `MODEL_NAME`.
 2. Only if the agent reads the code (step 4):
    `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
+   candidate `MACHINE_POOL`. Use `default-pool` if it's granted: its
    machines come with `git`. Otherwise use the only one, or ask if there are
    several. If there are none, tell the user the project needs a machine pool
    for code access, and continue without it if they prefer.
@@ -206,8 +211,8 @@ user wants that data.
 
 ## 8. Choose where to use it
 
-Ask where the user wants to talk to the agent, then wait for their reply; don't
-assume the console. Any combination works:
+Right after sharing the link, ask where the user wants to talk to the agent.
+Wait for the reply; don't assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
   small UI built for it. Anything that can call the API, like their alerting
@@ -224,12 +229,8 @@ if you don't have the repo). For this agent, name the integrations
 `sre-agent-slack` and `sre-agent-discord`, call the bot "SRE Agent", and have
 the user try it with "@SRE Agent why are checkout requests failing?"
 
-## 9. Run a daily health check (optional)
-
-A schedule works with any of the above. Ask whether the user wants a daily
-health check, and for the time and timezone (default: weekdays at 9am in the
-user's timezone). Wait for the reply, and create it only if they say yes, with
-`--cron` and `--timezone` from their answer:
+If the user asks for a daily health check, create it with `--cron` and
+`--timezone` for the time they want:
 
 ```sh
 npx omnara crons create --name sre-agent-daily \
@@ -247,7 +248,7 @@ and the user's app can pick it up through the SDK or API. To post every check in
 one Slack or Discord thread instead, see "Scheduled runs in a channel" in
 `integrations.md`.
 
-## 10. Wrap up
+## 9. Wrap up
 
 Summarize what you created: the secrets, the IAM user if you made it, the
 profile, and any integrations or cron trigger. Remind the user to delete `.env`

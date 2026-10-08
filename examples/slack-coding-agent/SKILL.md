@@ -27,8 +27,14 @@ order.
   writes appear under that person's name.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
-- When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default where there's a sensible one, but don't assume it.
+- Stop only where a step says to ask the user. Ask in a sentence or two of
+  plain language, together with the next step's question if one comes right
+  after, then end your turn and wait for the reply.
+- Where a step gives a default, use it without asking and say in a line what
+  you picked, so the user can change it.
+- When a step needs a token, the user can paste it in the chat or add it to a
+  `.env` file in the current directory, whichever they prefer; offer both. If
+  they paste it, write it to `.env` yourself so the commands work as written.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -48,10 +54,10 @@ should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
-there's one of each, otherwise ask, suggesting the defaults from
-`npx omnara config` or the project named `Default`. Save the choice with
-`npx omnara config --org <org-id> --project <project-id>`; later steps need the
-project ID.
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Choose the repository and store a GitHub token
 
@@ -71,11 +77,10 @@ may need to approve the token.
 
 If a secret named `slack-coding-agent-github` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name slack-coding-agent-github --json`),
-ask whether to reuse it (suggest yes) and note its `id`; if the value changed,
-the user updates it on the dashboard's **Secrets** page (the ID stays the same).
-Otherwise have the user add `AGENT_GITHUB_TOKEN=github_pat_...` to a `.env` file
-in the current directory (pasting it in the chat also works), then create the
-secret and note its `id` (`sec_…`) as `GITHUB_TOKEN_SECRET_ID`:
+reuse it and note its `id`; if the value changed, the user updates it on the
+dashboard's **Secrets** page (the ID stays the same). Otherwise get
+`AGENT_GITHUB_TOKEN` from the user, then create the secret and note its `id`
+(`sec_…`) as `GITHUB_TOKEN_SECRET_ID`:
 
 ```sh
 set -a && . ./.env && set +a
@@ -87,13 +92,12 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
 ## 3. Pick the model and machine pool
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Ask the user which model to use, suggesting
-   `anthropic/claude-opus-5.5` on `omnara-openrouter` if it's granted
-   (`agent.yaml` runs it at high reasoning effort), otherwise the strongest
-   coding model on the list. The choice gives `MODEL_PROVIDER_CONFIG` and
-   `MODEL_NAME`.
+   and `model.name`. Use `anthropic/claude-opus-5.5` on `omnara-openrouter` if
+   it's granted (`agent.yaml` runs it at high reasoning effort), otherwise the
+   strongest coding model on the list. The choice gives `MODEL_PROVIDER_CONFIG`
+   and `MODEL_NAME`.
 2. `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
+   candidate `MACHINE_POOL`. Use `default-pool` if it's granted: its
    machines come with `git`, `gh`, and common language toolchains. Otherwise
    use the only pool, or ask if there are several. If there are none, tell
    the user the project needs a machine pool; the agent can't work on code

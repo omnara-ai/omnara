@@ -19,8 +19,14 @@ different order.
   tell them what you changed.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
-- When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default where there's a sensible one, but don't assume it.
+- Stop only where a step says to ask the user. Ask in a sentence or two of
+  plain language, together with the next step's question if one comes right
+  after, then end your turn and wait for the reply.
+- Where a step gives a default, use it without asking and say in a line what
+  you picked, so the user can change it.
+- When a step needs a token, the user can paste it in the chat or add it to a
+  `.env` file in the current directory, whichever they prefer; offer both. If
+  they paste it, write it to `.env` yourself so the commands work as written.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -40,21 +46,21 @@ should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
-there's one of each, otherwise ask, suggesting the defaults from
-`npx omnara config` or the project named `Default`. Save the choice with
-`npx omnara config --org <org-id> --project <project-id>`; later steps need the
-project ID.
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Choose what to report (optional)
 
 By default the report covers yesterday's active users, total event volume, top
 events, and anything that moved more than about 30% against the 7-day
-average. Ask whether there are specific events the user always wants to see,
-such as signups, purchases, or a key feature. If so, add a line to the
-instruction's numbered Fetch list in your copy of `agent.yaml` in step 5, for
-example `3. Daily counts of user_signed_up and checkout_completed over the
-same 8 days.`, and mention them in the Report section. Otherwise keep the
-default.
+average. If the user has named events they always want to see, such as
+signups, purchases, or a key feature, add a line to the instruction's numbered
+Fetch list in your copy of `agent.yaml` in step 5, for example `3. Daily counts
+of user_signed_up and checkout_completed over the same 8 days.`, and mention
+them in the Report section. Otherwise keep the default; they can ask for more
+after the first report.
 
 ## 3. Store the PostHog key
 
@@ -69,10 +75,9 @@ key to the right region.
 
 If a secret named `posthog-analytics-agent-api-key` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name posthog-analytics-agent-api-key --json`),
-ask whether to reuse it (suggest yes) and note its `id`; if the value changed,
-the user updates it on the dashboard's **Secrets** page (the ID stays the same).
-Otherwise have the user add `POSTHOG_API_KEY=phx_...` to a `.env` file in the
-current directory (pasting it in the chat also works), then create the secret
+reuse it and note its `id`; if the value changed, the user updates it on the
+dashboard's **Secrets** page (the ID stays the same). Otherwise get
+`POSTHOG_API_KEY` (it starts with `phx_`) from the user, then create the secret
 and note its `id` (`sec_…`):
 
 ```sh
@@ -85,9 +90,9 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
 ## 4. Pick the model
 
 `npx omnara grant models list --json`: each item has `model.provider_config` and
-`model.name`. Ask the user which model to use, suggesting `openai/gpt-6.1-sol`
-on `omnara-openrouter` if it's granted, otherwise a strong general-purpose model
-from the list. The choice gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
+`model.name`. Use `openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted,
+otherwise a strong general-purpose model from the list. The choice gives
+`MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 
 This agent needs no machine pool: PostHog's MCP server does all the querying.
 
@@ -126,10 +131,12 @@ calls show up as `mcp__posthog__…` tools, and a report takes about a minute.
 The user can reply in the console to dig into any number, for example "why
 did signups spike?".
 
-## 7. Choose where to use it
+## 7. Choose where and when to use it
 
-Ask where the user wants to talk to the agent, then wait for their reply; don't
-assume the console. Any combination works:
+Right after sharing the link, ask in one message where the user wants to talk to
+the agent and whether it should send a daily report (suggest every day at 9am in
+their timezone). Wait for the reply; don't assume the console or a schedule. Any
+combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
   small UI built for it.
@@ -146,12 +153,8 @@ if you don't have the repo). For this agent, name the integrations
 bot "PostHog Analytics", and have the user try it with "@PostHog Analytics run
 today's report".
 
-## 8. Run it daily (optional)
-
-A schedule works with any of the above. Ask whether the user wants a daily
-report, and for the time and timezone (default: every day at 9am in the user's
-timezone). Wait for the reply, and create it only if they say yes, with `--cron`
-and `--timezone` from their answer:
+If they want a daily report, create it with `--cron` and `--timezone` from their
+answer:
 
 ```sh
 npx omnara crons create --name posthog-analytics-agent-daily \
@@ -170,7 +173,7 @@ no state between runs. It shows up in the console, and the user's app can pick
 it up through the SDK or API. To post every report in one Slack or Discord
 thread instead, see "Scheduled runs in a channel" in `integrations.md`.
 
-## 9. Wrap up
+## 8. Wrap up
 
 Summarize what you created: the secret, the profile, and any integrations or
 cron trigger. Remind the user to delete `.env` or move what's in it somewhere

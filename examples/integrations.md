@@ -25,8 +25,9 @@ for anything not covered here.
   `npx omnara integrations profiles <integration-id> --profile-ids <id>`
   replaces the whole list, so repeat any already there. GitHub starts exactly
   one profile, `settings.launcher.profile`.
-- **Credentials.** Have the user put tokens in `.env` (pasting them in the chat
-  also works), and load it with `set -a && . ./.env && set +a` in the same
+- **Credentials.** The user can paste tokens in the chat or add them to
+  `.env`, whichever they prefer; offer both. Write pasted tokens to `.env`
+  yourself, and load it with `set -a && . ./.env && set +a` in the same
   command that uses them. Reuse a secret that already exists under the expected
   name. The CLI can't change a secret's value, so if the token changed, the user
   pastes the new one on the dashboard's **Secrets** page (the ID stays the
@@ -53,7 +54,7 @@ same agent.
 
 1. The user generates an app configuration token at
    [api.slack.com/apps](https://api.slack.com/apps) (**Your App Configuration
-   Tokens** → **Generate Token**) and adds it to `.env` as
+   Tokens** → **Generate Token**) and gives it to you as
    `SLACK_APP_CONFIG_TOKEN`. It expires after about 12 hours.
 2. Create the integration with the profile in its launcher:
 
@@ -88,9 +89,9 @@ messages, and attachments are limited to 8 MiB.
    **Application ID** and **Public Key**. Under **Bot** they select **Reset
    Token** to get the bot token, turn on **Message Content Intent**, and turn
    off **Public Bot** so only they can add it (if Discord refuses, first set
-   **Installation** → **Install Link** to **None**). They add
-   `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, and `DISCORD_BOT_TOKEN` to
-   `.env`. Resetting the token again invalidates the stored one.
+   **Installation** → **Install Link** to **None**). They give you
+   `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, and `DISCORD_BOT_TOKEN`.
+   Resetting the token again invalidates the stored one.
 2. Store the token as a project secret named `<name>-bot-token`, unless
    `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name <name>-bot-token --json`
    already finds one:

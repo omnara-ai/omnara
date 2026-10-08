@@ -11,9 +11,10 @@ web apps, has signed in to each account once while the user watched, and is
 reachable where they want it, on a schedule if they want one.
 
 Interview first, then build. Don't create anything in Omnara until the user has
-confirmed your summary in step 2. When a step says to ask the user, end your
-turn and wait for their reply. Suggest a default where there's a sensible one,
-but don't assume it.
+confirmed your summary in step 2. When a step says to ask the user, ask in
+plain language, then end your turn and wait for their reply. Where a step gives
+a default, use it without asking and say in a line what you picked, so the user
+can change it.
 
 `agent.yaml` is a guide, not a form. Its browser, sign-in, and machine settings
 were tested together: the agent-browser commands, the vault and two-factor
@@ -43,10 +44,10 @@ should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
-there's one of each, otherwise ask, suggesting the defaults from
-`npx omnara config` or the project named `Default`. Save the choice with
-`npx omnara config --org <org-id> --project <project-id>`; later steps need the
-project ID.
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Interview the user
 
@@ -138,9 +139,8 @@ since everything it does appears under that account.
 1. Check for existing secrets named `browser-agent-<name>-username`,
    `-password`, and `-totp`:
    `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name <secret-name> --json`.
-   If they exist, ask whether to reuse them (suggest yes). To change a value,
-   have the user update it on the **Secrets** page of the Omnara dashboard; the
-   ID stays the same.
+   Reuse any that exist. To change a value, have the user update it on the
+   **Secrets** page of the Omnara dashboard; the ID stays the same.
 2. Ask the user to put the missing values in a `.env` file in the current
    directory rather than pasting passwords into the chat. `TOTP` is the
    authenticator setup key, only for sites that use one. The file is read by the
@@ -167,10 +167,10 @@ since everything it does appears under that account.
 
 1. `npx omnara grant models list --json` lists `model.provider_config` and
    `model.name` pairs. The agent looks at screenshots, so the model must
-   accept images. Suggest `anthropic/claude-opus-5.5` on `omnara-openrouter`
-   if it's granted, otherwise the strongest image-capable model listed.
+   accept images. Use `anthropic/claude-opus-5.5` on `omnara-openrouter` if
+   it's granted, otherwise the strongest image-capable model listed.
 2. `npx omnara grant pools list --json` lists the pools as
-   `machine_pool.name`. Suggest `default-pool` if it's granted; its machines
+   `machine_pool.name`. Use `default-pool` if it's granted; its machines
    have the Node.js 24 the startup script needs. Otherwise use the only pool,
    or ask. A custom pool's image needs Node.js 24, npm, and root for
    installing Chrome's system packages. On a Daytona, Modal, or Tenki pool,

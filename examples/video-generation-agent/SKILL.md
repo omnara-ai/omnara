@@ -19,8 +19,11 @@ order.
   tell them what you changed.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
-- When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default where there's a sensible one, but don't assume it.
+- Stop only where a step says to ask the user. Ask in a sentence or two of
+  plain language, together with the next step's question if one comes right
+  after, then end your turn and wait for the reply.
+- Where a step gives a default, use it without asking and say in a line what
+  you picked, so the user can change it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -40,10 +43,10 @@ should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
-there's one of each, otherwise ask, suggesting the defaults from
-`npx omnara config` or the project named `Default`. Save the choice with
-`npx omnara config --org <org-id> --project <project-id>`; later steps need the
-project ID.
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Upload the Remotion skill
 
@@ -54,9 +57,9 @@ folders next to it, so upload the whole folder, not just `SKILL.md`.
 
 If an upload named `remotion-best-practices` already exists
 (`npx omnara skills list --owner-kind project --owner-project-id <project-id> --name remotion-best-practices --json`),
-ask whether to reuse it as is (suggest this) or refresh it with the latest
-Remotion release. Otherwise, or to refresh it, clone the skills and upload the
-folder; the CLI packs the directory itself:
+reuse it as is unless the user wants the latest Remotion release. Otherwise, or
+to refresh it, clone the skills and upload the folder; the CLI packs the
+directory itself:
 
 ```sh
 git clone --depth 1 https://github.com/remotion-dev/skills /tmp/remotion-skills
@@ -71,14 +74,13 @@ change.
 ## 3. Pick the model and machine pool
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Suggest Claude Opus 5.5 (the instruction was tested with
-   it, and it reviews its own frames well): the user's own Anthropic provider
-   config if they have one with Opus 5.5, otherwise `anthropic/claude-opus-5.5`
-   on `omnara-openrouter`. If Opus 5.5 isn't granted, suggest another strong
-   model that accepts images. The choice gives `MODEL_PROVIDER_CONFIG` and
-   `MODEL_NAME`.
+   and `model.name`. Use Claude Opus 5.5 (the instruction was tested with it,
+   and it reviews its own frames well): the user's own Anthropic provider config
+   if they have one with Opus 5.5, otherwise `anthropic/claude-opus-5.5` on
+   `omnara-openrouter`. If Opus 5.5 isn't granted, use another strong model that
+   accepts images. The choice gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 2. `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
+   candidate `MACHINE_POOL`. Use `default-pool` if it's granted: its
    machines come with Node.js and headless Chromium, which Remotion needs.
    Otherwise use the only pool, or ask if there are several. If there are
    none, tell the user the project needs a machine pool; the agent can't
@@ -111,7 +113,8 @@ change.
 
 ## 5. Make a first video
 
-Ask the user for a brief. If they don't have one in mind, use this:
+Use the user's brief if they gave one. Otherwise launch this one and tell them
+they can send their own in the conversation:
 
 ```sh
 npx omnara agents launch --profile <agent-profile-id> --config <current-config-id> \
@@ -128,8 +131,8 @@ music for the agent to use.
 
 ## 6. Choose where to use it
 
-Ask where the user wants to talk to the agent, then wait for their reply; don't
-assume the console. Any combination works:
+Right after sharing the link, ask where the user wants to talk to the agent.
+Wait for the reply; don't assume the console. Any combination works:
 
 - **Their own app (recommended):** inside their product or internal tool, or a
   small UI built for it. Anything that can call the API, like a CMS hook or a
