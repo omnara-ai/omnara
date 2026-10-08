@@ -46,7 +46,7 @@ function fileFormat(filePath: string): 'yaml' | 'json' {
   throw new CliInputError(`config file must end in .yaml, .yml, or .json: ${filePath}`)
 }
 
-// The server validates definitions fully when compiling them, so only the object shape is checked here.
+// The server validates the full definition.
 const zDefinitionText = zJsonText.pipe(
   z.custom<AgentConfigDefinition>(
     (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
@@ -54,7 +54,6 @@ const zDefinitionText = zJsonText.pipe(
   ),
 )
 
-// The server canonicalizes JSON sources, so text and object forms save the same config.
 function jsonSource(text: string, label: string): CreateAgentConfigRequest {
   const parsed = zDefinitionText.safeParse(text)
   if (!parsed.success) {

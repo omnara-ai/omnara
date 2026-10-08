@@ -84,10 +84,8 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	}, nil
 }
 
-// relaxAgentConfigDefinitionValidation reduces the definition schemas to "any
-// object" for request validation. The agent config compiler validates
-// definitions with path-specific issues; the generic middleware error would
-// hide them.
+// relaxAgentConfigDefinitionValidation leaves definition validation to the
+// compiler, which reports path-specific issues.
 func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
 	for _, name := range []string{
 		agentconfig.OpenAPIDefinitionComponent,

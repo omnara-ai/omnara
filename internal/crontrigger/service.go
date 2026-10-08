@@ -164,8 +164,6 @@ func (s *Service) launchFromProfile(
 		return err
 	}
 	launch, err := s.execution.LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		// With no config, the launch runs the profile's current config, read
-		// under the profile lock.
 		ProjectID: trigger.ProjectID,
 		ProfileID: trigger.Target.ID,
 		LaunchedBy: identitystore.PrincipalRecord{

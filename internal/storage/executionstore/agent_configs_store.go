@@ -206,8 +206,7 @@ func insertAgentConfigTx(
 	} else if input.SourceFormat != "" || input.SourceHash != "" {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(errors.New("source metadata requires source"))
 	}
-	// Postgres TEXT and JSONB reject U+0000 and invalid UTF-8; report them as
-	// invalid configs rather than failing the write.
+	// Postgres rejects U+0000 and invalid UTF-8; report them as invalid configs.
 	if err := dbsafe.Text(input.Source); err != nil {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config source %w", err))
 	}

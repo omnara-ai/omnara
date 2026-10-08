@@ -854,11 +854,14 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 		t.Fatalf("profile + unrelated config should attribute to profile and run that config: %+v", custom)
 	}
 
-	inline := launch(
-		`{"profile":"`+profileID+`","config_source":{"source_format":"json","source":`+
-			`{"instruction":"Inline override.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}}`,
-		"idem-combo-inline", http.StatusCreated,
+	inlineBody := `{"profile":"` + profileID + `","config_source":{"source_format":"json","source":` +
+		`{"instruction":"Inline override.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}}`
+	operatorToken := createHTTPProjectMemberToken(t, ctx, pool, project, "agent-launch-combos-operator", "operator")
+	requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/agents", inlineBody,
+		"idem-combo-inline-operator", http.StatusForbidden, authHeaders(operatorToken),
 	)
+	inline := launch(inlineBody, "idem-combo-inline", http.StatusCreated)
 	inlineAgent := testutil.RequireType[map[string]any](t, inline["agent"])
 	inlineConfig := testutil.RequireType[map[string]any](t, inline["agent_config"])
 	const canonicalInline = `{"instruction":"Inline override.",` +
