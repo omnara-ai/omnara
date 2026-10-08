@@ -1,5 +1,8 @@
 import {
   type AgentConfig,
+  type AgentConfigDefinition,
+  type AgentConfigDefinitionMcpServer,
+  type CreateAgentConfigRequest,
   type McpoAuthStartRequest,
   type OmnaraClient,
   sdk,
@@ -24,7 +27,7 @@ interface ProjectScope {
 
 interface PreparedConfig {
   currentConfigId: string
-  render(secretId: string): { source: string; sourceFormat: 'yaml' | 'json' }
+  render(secretId: string): CreateAgentConfigRequest
 }
 
 const SERVER_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
@@ -49,46 +52,52 @@ function targetLabel(target: McpAddTarget): string {
   return target === 'agent' ? 'agent' : 'agent profile'
 }
 
-function serverEntry(url: string, secretId: string) {
+function serverEntry(url: string, secretId: string): AgentConfigDefinitionMcpServer {
   return { url, auth: { type: 'oauth', secret_id: secretId } }
 }
 
+// The server validates definitions fully when compiling them, so only the object shapes edited here are checked.
 const zJsonRecord = z.record(z.string(), z.json())
+const zDefinitionText = zJsonText.pipe(
+  z.custom<AgentConfigDefinition>((value) => zJsonRecord.safeParse(value).success),
+)
 
 function prepareJsonConfig(
-  config: AgentConfig,
+  configId: string,
+  source: string,
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  const json = zJsonText.safeParse(config.source ?? '')
-  if (!json.success) throw new CliInputError('the current agent config contains invalid JSON')
-  const parsed = zJsonRecord.safeParse(json.data)
-  if (!parsed.success) throw new CliInputError('the current agent config must be an object')
-  const mcp = zJsonRecord.optional().safeParse(parsed.data.mcp)
-  if (!mcp.success) {
+  const parsed = zDefinitionText.safeParse(source)
+  if (!parsed.success) throw new CliInputError('the current agent config is not a JSON object')
+  const definition = parsed.data
+  if (!zJsonRecord.nullish().safeParse(definition.mcp).success) {
     throw new CliInputError('the current agent config has an invalid mcp section')
   }
-  if (mcp.data !== undefined && Object.hasOwn(mcp.data, serverName)) {
+  if (definition.mcp != null && Object.hasOwn(definition.mcp, serverName)) {
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
   }
   return {
-    currentConfigId: config.id,
+    currentConfigId: configId,
     render(secretId) {
-      const updated = {
-        ...parsed.data,
-        mcp: { ...mcp.data, [serverName]: serverEntry(mcpUrl, secretId) },
+      return {
+        source: {
+          ...definition,
+          mcp: { ...definition.mcp, [serverName]: serverEntry(mcpUrl, secretId) },
+        },
+        source_format: 'json',
       }
-      return { source: `${JSON.stringify(updated, null, 2)}\n`, sourceFormat: 'json' }
     },
   }
 }
 
 function prepareYamlConfig(
-  config: AgentConfig,
+  configId: string,
+  source: string,
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  const doc = parseDocument(config.source ?? '')
+  const doc = parseDocument(source)
   if (doc.errors.length > 0) {
     throw new CliInputError('the current agent config contains invalid YAML')
   }
@@ -104,14 +113,14 @@ function prepareYamlConfig(
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
   }
   return {
-    currentConfigId: config.id,
+    currentConfigId: configId,
     render(secretId) {
       if (isMap(mcp)) {
         doc.setIn(['mcp', serverName], serverEntry(mcpUrl, secretId))
       } else {
         doc.set('mcp', { [serverName]: serverEntry(mcpUrl, secretId) })
       }
-      return { source: doc.toString(), sourceFormat: 'yaml' }
+      return { source: doc.toString(), source_format: 'yaml' }
     },
   }
 }
@@ -121,8 +130,8 @@ function prepareConfig(config: AgentConfig, serverName: string, mcpUrl: string):
     throw new CliInputError('the current agent config source is unavailable')
   }
   return config.source_format === 'json'
-    ? prepareJsonConfig(config, serverName, mcpUrl)
-    : prepareYamlConfig(config, serverName, mcpUrl)
+    ? prepareJsonConfig(config.id, config.source, serverName, mcpUrl)
+    : prepareYamlConfig(config.id, config.source, serverName, mcpUrl)
 }
 
 async function loadConfig(
@@ -161,18 +170,14 @@ async function applyConfig(
     const { data } = await sdk.updateAgentConfig({
       client,
       path: { ...path, agentID: targetId },
-      body: {
-        source: rendered.source,
-        source_format: rendered.sourceFormat,
-        expected_current_config_id: prepared.currentConfigId,
-      },
+      body: { ...rendered, expected_current_config_id: prepared.currentConfigId },
     })
     return data.agent_config.id
   }
   const { data: config } = await sdk.createAgentConfig({
     client,
     path,
-    body: { source: rendered.source, source_format: rendered.sourceFormat },
+    body: rendered,
   })
   try {
     await sdk.updateAgentProfile({

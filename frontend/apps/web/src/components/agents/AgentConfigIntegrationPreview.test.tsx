@@ -24,7 +24,7 @@ it('sends integration selection to preview and exposes the resolver issue to the
       path: `/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/agent-configs/tools`,
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        expect(JSON.parse(request.source)).toHaveProperty('tools.int__chat__post_message', tool)
+        expect(request.source).toHaveProperty('tools.int__chat__post_message', tool)
         return jsonResponse(
           {
             code: 'invalid_request',

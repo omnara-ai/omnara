@@ -1,38 +1,36 @@
 import { describe, expect, it } from 'vitest'
 
 import { createBasicConfigSession, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
-import { agentBuilderToolsSource } from '@/components/agents/useAgentBuilderTools'
+import { agentBuilderToolsDefinition } from '@/components/agents/useAgentBuilderTools'
 
-describe('agentBuilderToolsSource', () => {
+describe('agentBuilderToolsDefinition', () => {
   it('forwards tool overrides and MCP loading settings without auth', () => {
-    const payload: unknown = JSON.parse(
-      agentBuilderToolsSource({
-        ...emptyBasicConfig,
-        tools: [
-          { name: 'web_search', permission: null },
-          { name: 'web_fetch', permission: { mode: 'always_ask', parameters: {} }, deferred: true },
-          { name: 'ask_question', enabled: false, permission: null },
-        ],
-        mcpServers: [
-          {
-            id: 'server-1',
-            name: 'docs',
-            url: 'https://mcp.example.com',
-            permission: null,
-            defaultEnabled: false,
-            deferred: true,
-            authType: 'bearer',
-            secretId: 'sec_123',
-            service: '',
-            region: '',
-            tools: [
-              { name: 'lookup', enabled: true, permission: null, deferred: false },
-              { name: 'ignored', enabled: null, permission: null },
-            ],
-          },
-        ],
-      }),
-    )
+    const payload = agentBuilderToolsDefinition({
+      ...emptyBasicConfig,
+      tools: [
+        { name: 'web_search', permission: null },
+        { name: 'web_fetch', permission: { mode: 'always_ask', parameters: {} }, deferred: true },
+        { name: 'ask_question', enabled: false, permission: null },
+      ],
+      mcpServers: [
+        {
+          id: 'server-1',
+          name: 'docs',
+          url: 'https://mcp.example.com',
+          permission: null,
+          defaultEnabled: false,
+          deferred: true,
+          authType: 'bearer',
+          secretId: 'sec_123',
+          service: '',
+          region: '',
+          tools: [
+            { name: 'lookup', enabled: true, permission: null, deferred: false },
+            { name: 'ignored', enabled: null, permission: null },
+          ],
+        },
+      ],
+    })
     expect(payload).toEqual({
       interaction_handlers: {},
       tools: {
@@ -77,7 +75,7 @@ describe('agentBuilderToolsSource', () => {
       instruction: 'Updated instruction',
       reasoningEffort: 'medium',
     }
-    const preview: unknown = JSON.parse(agentBuilderToolsSource(changed))
+    const preview = agentBuilderToolsDefinition(changed)
     expect(preview).toMatchObject({
       tools: { int__chat__post_message: tool },
       interaction_handlers: source.interaction_handlers,

@@ -5,6 +5,209 @@ export type ClientOptions = {
 };
 
 /**
+ * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
+ */
+export type AgentConfigDefinition = {
+    event_webhook?: AgentConfigDefinitionEventWebhook;
+    git_credentials?: AgentConfigDefinitionGitCredentials;
+    instruction: string;
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
+    max_depth?: number;
+    max_subagents?: number;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
+    model: AgentConfigDefinitionModel;
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
+    version?: 'v1';
+};
+
+/**
+ * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+ */
+export type AgentConfigToolsDefinition = {
+    git_credentials?: AgentConfigDefinitionGitCredentials;
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
+    [key: string]: unknown;
+};
+
+export type AgentConfigDefinitionEventWebhook = {
+    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
+    signing_secret_id?: string;
+    url: string;
+};
+
+/**
+ * Integration whose git credentials the agent's machines use.
+ */
+export type AgentConfigDefinitionGitCredentials = {
+    integration: string;
+};
+
+/**
+ * Enables an integration's interaction handler. Takes no settings.
+ */
+export type AgentConfigDefinitionInteractionHandler = {
+    [key: string]: never;
+};
+
+/**
+ * Interaction handlers keyed by integration name.
+ */
+export type AgentConfigDefinitionInteractionHandlers = {
+    [key: string]: AgentConfigDefinitionInteractionHandler;
+} | null;
+
+export type AgentConfigDefinitionMcpAuth = {
+    region?: string;
+    secret_id: string;
+    service?: string;
+    type: 'bearer' | 'oauth' | 'sigv4';
+};
+
+export type AgentConfigDefinitionMcpServer = {
+    auth?: AgentConfigDefinitionMcpAuth;
+    default_enabled?: boolean | null;
+    deferred?: boolean;
+    permission?: AgentConfigDefinitionToolPermission;
+    tools?: {
+        [key: string]: AgentConfigDefinitionMcpTool;
+    };
+    url: string;
+};
+
+export type AgentConfigDefinitionMcpServers = {
+    [key: string]: AgentConfigDefinitionMcpServer;
+} | null;
+
+export type AgentConfigDefinitionMcpTool = {
+    deferred?: boolean | null;
+    enabled?: boolean | null;
+    permission?: AgentConfigDefinitionToolPermission;
+};
+
+export type AgentConfigDefinitionMachineSource = ({
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+}) & {
+    cwd?: string;
+    delete_after_idle_minutes?: 0 | number;
+    description?: string;
+    env_overlay?: {
+        [key in EnvironmentVariableName]?: string | null;
+    } | null;
+    initial_num_machines?: number;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    machine_name?: ResourceNameReference;
+    machine_pool_name?: ResourceNameReference;
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    } | null;
+    max_machines?: number;
+    secret_env_overlay?: {
+        [key in EnvironmentVariableName]?: string | null;
+    } | null;
+};
+
+export type AgentConfigDefinitionMachineSources = Array<AgentConfigDefinitionMachineSource> | null;
+
+export type AgentConfigDefinitionMemoryStore = {
+    name: MemoryStoreName;
+    access: 'read' | 'read_write';
+};
+
+export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore> | null;
+
+export type AgentConfigDefinitionModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name: ResourceNameReference;
+    provider_config: ResourceNameReference;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionSkills = Array<string> | null;
+
+export type AgentConfigDefinitionSubagent = {
+    archive_after_idle_minutes?: number;
+    description?: string;
+    instruction?: AgentConfigDefinitionSubagentInstruction;
+    max_instances?: number;
+    model?: AgentConfigDefinitionSubagentModel;
+    profile?: ResourceNameReference;
+    type: 'profile' | 'self';
+};
+
+export type AgentConfigDefinitionSubagentInstruction = {
+    append?: string;
+};
+
+export type AgentConfigDefinitionSubagentModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name?: ResourceNameReference;
+    provider_config?: ResourceNameReference;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionSubagents = {
+    [key: string]: AgentConfigDefinitionSubagent;
+} | null;
+
+export type AgentConfigDefinitionTool = {
+    deferred?: boolean;
+    description?: string;
+    enabled?: boolean | null;
+    input_schema?: AgentConfigDefinitionToolInputSchema;
+    permission?: AgentConfigDefinitionToolPermission;
+    type?: 'built_in' | 'custom';
+};
+
+export type AgentConfigDefinitionToolInputSchema = {
+    properties?: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    required?: Array<string>;
+    type: 'object';
+};
+
+export type AgentConfigDefinitionToolPermission = {
+    mode: string;
+    parameters?: {
+        [key: string]: unknown;
+    };
+};
+
+export type AgentConfigDefinitionTools = {
+    [key: string]: AgentConfigDefinitionTool;
+} | null;
+
+export type EnvironmentVariableName = string;
+
+/**
+ * Name of an existing resource, resolved when the config is compiled.
+ */
+export type ResourceNameReference = string;
+
+/**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
  */
 export type ResourceName = string;
@@ -1074,7 +1277,10 @@ export type SlackSetup = {
 };
 
 export type ResolveAgentConfigToolsRequest = {
-    source: string;
+    /**
+     * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object. Only the fields that determine tools are read.
+     */
+    source: string | AgentConfigToolsDefinition;
     source_format: 'yaml' | 'json';
 };
 
@@ -1088,16 +1294,24 @@ export type ResolvedAgentConfigTool = {
     permission: ToolPermissionSelection;
 };
 
+/**
+ * An agent config to compile. YAML sources are stored verbatim, so comments and formatting survive; JSON sources, as text or as an object, are stored canonicalized, so the same JSON definition always maps to the same config.
+ */
 export type CreateAgentConfigRequest = {
-    source: string;
+    source: AgentConfigSourceInput;
     source_format: 'yaml' | 'json';
 };
+
+/**
+ * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
+ */
+export type AgentConfigSourceInput = string | AgentConfigDefinition;
 
 /**
  * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export type UpdateAgentConfigRequest = {
-    source: string;
+    source: AgentConfigSourceInput;
     source_format: 'yaml' | 'json';
     expected_current_config_id?: AgentConfigId;
 };
@@ -1549,6 +1763,9 @@ export type AgentConfig = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
+    /**
+     * Saved source text. YAML sources keep their original text; JSON sources are stored canonicalized.
+     */
     source?: string;
     source_format?: 'yaml' | 'json';
     effective_definition_hash: string;
@@ -1755,9 +1972,13 @@ export type ListCronTriggersResponse = {
     next_cursor: string | null;
 };
 
+/**
+ * Send at least one of profile, config, or config_source, and not both config and config_source. With only profile, the agent runs the profile's current config. With profile and config or config_source, the agent is attributed to the profile but runs the given config, which need not be one of the profile's versions. config_source is compiled and saved as a new config during the launch.
+ */
 export type CreateAgentRequest = {
     profile?: AgentProfileId;
-    config: AgentConfigId;
+    config?: AgentConfigId;
+    config_source?: CreateAgentConfigRequest;
     /**
      * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
@@ -1770,7 +1991,7 @@ export type CreateAgentRequest = {
      * Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
      */
     tools?: {
-        [key: string]: ConfigToolSource;
+        [key: string]: AgentConfigDefinitionTool;
     };
     /**
      * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
@@ -1780,7 +2001,7 @@ export type CreateAgentRequest = {
      * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
      */
     interaction_handlers?: {
-        [key: string]: ConfigIntegrationCapabilitySource;
+        [key: string]: AgentConfigDefinitionInteractionHandler;
     };
     initial_input?: AgentLaunchInitialInput;
 };
@@ -3995,36 +4216,6 @@ export type IntegrationRuntimeFailure = {
 export type ListIntegrationsResponse = {
     data: Array<Integration>;
     next_cursor: string | null;
-};
-
-export type ConfigAgentToolInputSchema = {
-    properties?: {
-        [key: string]: {
-            [key: string]: unknown;
-        };
-    };
-    required?: Array<string>;
-    type: 'object';
-};
-
-export type ConfigIntegrationCapabilitySource = {
-    [key: string]: never;
-};
-
-export type ConfigToolPermissionSelection = {
-    mode: string;
-    parameters?: {
-        [key: string]: unknown;
-    };
-};
-
-export type ConfigToolSource = {
-    deferred?: boolean;
-    description?: string;
-    enabled?: boolean | null;
-    input_schema?: ConfigAgentToolInputSchema;
-    permission?: ConfigToolPermissionSelection;
-    type?: 'built_in' | 'custom';
 };
 
 /**

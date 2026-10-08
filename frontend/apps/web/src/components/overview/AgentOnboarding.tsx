@@ -176,7 +176,7 @@ function CliProfileOptions({
     setError(null)
     try {
       const config = await createAgentConfig.mutateAsync({
-        source: spec.json,
+        source: spec.definition,
         source_format: 'json',
       })
       await createAgentProfile.mutateAsync({ name: spec.name, config: config.id })

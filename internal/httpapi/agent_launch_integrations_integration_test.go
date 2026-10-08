@@ -272,7 +272,7 @@ func TestPublicIntegrationLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) 
 	require.Equal(t, before, f.counts(t))
 }
 
-func TestPublicIntegrationLaunchPreservesPinnedProfileConfigContract(t *testing.T) {
+func TestPublicIntegrationLaunchDerivesFromAnyConfigUnderProfile(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationLaunchHTTPFixture(t, "integration-launch-profile")
 	otherConfig := createPublicHTTPAgentConfig(t, f.handler, f.project, "unrelated-config", "yaml",
@@ -281,10 +281,15 @@ func TestPublicIntegrationLaunchPreservesPinnedProfileConfigContract(t *testing.
 	otherID := testutil.RequireType[string](t, otherConfig["id"])
 	body := f.body()
 	body["config"] = otherID
-	before := f.counts(t)
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		integrationHTTPJSON(t, body), "foreign-profile-config", http.StatusNotFound, authHeaders(f.launchToken))
-	require.Equal(t, before, f.counts(t), "derivation must not bypass profile membership")
+	// A profile may run any config; launch-time additions derive from the given one.
+	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		integrationHTTPJSON(t, body), "foreign-profile-config", http.StatusCreated, authHeaders(f.launchToken))
+	agent := testutil.RequireType[map[string]any](t, launched["agent"])
+	require.Equal(t, f.profileID, agent["agent_profile_id"])
+	derived := testutil.RequireType[map[string]any](t, launched["agent_config"])
+	definition := testutil.RequireType[map[string]any](t, derived["compiled_definition"])
+	require.Equal(t, "A different base.", definition["instruction"])
+	require.NotEqual(t, otherID, derived["id"], "additions derive a new config from the given one")
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
 		f.project.ProjectPath+"/agent-profiles/"+f.profileID+"/config",
 		integrationHTTPJSON(t, map[string]any{"config": otherID, "expected_current_config_id": f.configID}),

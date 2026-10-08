@@ -10,6 +10,13 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \
   -H "Content-Type: application/json" \
   -d @-
+
+# or send a JSON config as an object:
+jq '{source: ., source_format: "json"}' agent.json |
+curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
 ```
 
 ```typescript SDK
@@ -23,5 +30,18 @@ const config = await sdk.createAgentConfig({
   body: { source, source_format: 'yaml' },
 })
 console.log(config.data.id)
+
+// or pass the config as an object:
+await sdk.createAgentConfig({
+  client,
+  path: { orgID, projectID },
+  body: {
+    source: {
+      instruction: 'You are a support triage assistant.',
+      model: { provider_config: 'omnara-openrouter', name: 'anthropic/claude-fable-5.1' },
+    },
+    source_format: 'json',
+  },
+})
 ```
 </CodeGroup>

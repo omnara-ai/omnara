@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 import { createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
-import { agentBuilderToolsSource } from '@/components/agents/useAgentBuilderTools'
+import { agentBuilderToolsDefinition } from '@/components/agents/useAgentBuilderTools'
 
 const source = `instruction: Help
 model: {provider_config: provider, name: model}
@@ -50,7 +50,7 @@ interaction_handlers: {chat: {}}
         int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
       },
     })
-    expect(JSON.parse(agentBuilderToolsSource(changed))).toMatchObject({
+    expect(agentBuilderToolsDefinition(changed)).toMatchObject({
       interaction_handlers: { chat: {} },
       memory_stores: changed.memoryStores,
       tools: {
@@ -88,7 +88,7 @@ interaction_handlers: {chat: {}}
     })
     const next = createBasicConfigSession(updated)
     expect(next.initialDraft && next.apply(next.initialDraft)).toBe(updated)
-    expect(JSON.parse(agentBuilderToolsSource(draft))).toMatchObject({
+    expect(agentBuilderToolsDefinition(draft)).toMatchObject({
       memory_stores: draft.memoryStores,
     })
   })

@@ -50,7 +50,10 @@ export function AgentProfileConfigEditor({
     event.preventDefault()
     setError(noConfigError)
     try {
-      const config = await createConfig.mutateAsync({ source: editor.yaml, source_format: 'yaml' })
+      const config = await createConfig.mutateAsync({
+        source: editor.yaml,
+        source_format: 'yaml',
+      })
       await updateProfile.mutateAsync({
         agentProfileID: profile.id,
         config: config.id,

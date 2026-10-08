@@ -720,7 +720,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
       previewResponse.request().postDataJSON(),
     )
-    expect(JSON.parse(previewRequest.source)).toMatchObject({
+    expect(previewRequest.source).toMatchObject({
       tools: { [selectedTool]: {} },
       interaction_handlers: selectedHandlers,
     })

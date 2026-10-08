@@ -479,8 +479,7 @@ it('does not offer the Slack tool when it is absent from the source', async () =
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   expect(requests).toEqual([
     {
-      source_format: 'json',
-      source: JSON.stringify({
+      source: {
         interaction_handlers: {},
         tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
         mcp: {},
@@ -488,7 +487,8 @@ it('does not offer the Slack tool when it is absent from the source', async () =
         skills: [],
         memory_stores: [],
         subagents: {},
-      }),
+      },
+      source_format: 'json',
     },
   ])
 })
@@ -500,7 +500,7 @@ it('includes configured MCP servers in previews and removes them after deletion'
       ...previewToolsRoute(() => []),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(JSON.parse(request.source))
+        requests.push(request.source)
         return toolResponse([])
       },
     },
@@ -669,7 +669,7 @@ it('updates resource defaults without writing or removing explicit entries', asy
       ...previewToolsRoute(() => preview),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(JSON.parse(request.source))
+        requests.push(request.source)
         return toolResponse(preview)
       },
     },
