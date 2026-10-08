@@ -143,7 +143,9 @@ flowchart TB
   agent's state, so any worker can pick an agent back up after a crash or
   restart.
 - **Workers.** Stateless processes that build the model context, call the
-  model, and run tools. Add workers to run more agents.
+  model, and run tools. An agent only uses a worker while it's taking a turn,
+  so one worker can serve many agents. Add workers to handle more turns at
+  once.
 - **Machines.** Each machine runs the `omnarad` daemon, which connects out to
   Omnara, so agents can run commands there without any inbound ports.
 
