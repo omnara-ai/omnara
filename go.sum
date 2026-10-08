@@ -135,8 +135,8 @@ github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsRe
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 github.com/mfridman/interpolate v0.0.2 h1:pnuTK7MQIxxFz1Gr+rjSIx9u7qVjf5VOoM/u6BbAxPY=
 github.com/mfridman/interpolate v0.0.2/go.mod h1:p+7uk6oE07mpE/Ik1b8EckO0O4ZXiGAfshKBWLUM9Xg=
-github.com/modal-labs/modal-client/go v0.10.1 h1:sj6AnPBY9zSvMgyTHQXKHxYC4syEsLwjeoC3ZjOBGfA=
-github.com/modal-labs/modal-client/go v0.10.1/go.mod h1:8jvKba8kejJuPZisuyYYl4n4kPhou+jEcg5w3XLymTo=
+github.com/modal-labs/modal-client/go v0.11.0 h1:K8S7z9drgti9MP8ImwiL5bKdSnFyFGbU2N3fE0ceve0=
+github.com/modal-labs/modal-client/go v0.11.0/go.mod h1:8jvKba8kejJuPZisuyYYl4n4kPhou+jEcg5w3XLymTo=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
