@@ -26,10 +26,10 @@
   <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
 </p>
 
-Omnara is an open-source managed agent platform. You write an agent's
-instructions and pick any model, tools, and machines for it; Omnara runs it,
-calling the model, running tools, pausing for approvals, and saving every step
-so the agent survives crashes and restarts. Self-host it for free under
+Omnara is an open-source managed agent platform: an API that runs AI agents
+for you. Write an agent's instructions and pick any model, tools, and machines;
+Omnara calls the model, runs the tools, pauses for approvals, and saves every
+step so the agent survives crashes and restarts. Self-host it for free under
 Apache 2.0, or use [Omnara Cloud](https://app.omnara.com).
 
 Put agents inside your product, run them from Slack, Discord, or GitHub, or
@@ -312,9 +312,9 @@ coding agent through setting up Omnara for your project.
 
 ## FAQ
 
-**What is Omnara?** An open-source managed agent platform. You write an agent's
-instructions and pick its model, tools, and machines, and Omnara runs it for
-you.
+**What is Omnara?** An open-source managed agent platform: an API that runs AI
+agents for you. You write an agent's instructions and pick its model, tools,
+and machines, and Omnara runs it.
 
 **How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
 fee: bring your own model keys and machines for free, or pay as you go for our
