@@ -189,15 +189,12 @@ memory filesystem; see the
 
 ### Run them anywhere
 
-- **[Machines](https://docs.omnara.com/machines/overview).** Run commands in
-  sandboxes from Blaxel, Daytona, Modal, Unikraft, Freestyle, Tenki, Arker,
-  boxd, or CreateOS, or on your own laptop, VM, or container through the Omnara
-  daemon, which connects outbound so you never open inbound ports. An agent can
-  use several machines at once, such as GPU servers for a training run.
-  Machines don't own the agent, so it can move work between them with git,
-  like a person would. If your laptop goes offline, ask the agent to continue
-  in a sandbox: it clones the latest commit, keeps going, and syncs the changes
-  back to your laptop when it reconnects.
+- **[Machines](https://docs.omnara.com/machines/overview).** Sandboxes from nine
+  providers (Arker, Blaxel, boxd, CreateOS, Daytona, Freestyle, Modal, Tenki,
+  Unikraft), or your own laptop, VM, or container. An agent can use several
+  machines at once, like a set of GPU servers, and move between them: if your
+  laptop goes offline, it can continue in a sandbox and sync back with git. The
+  Omnara daemon connects outbound, so you never open inbound ports.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
   saved, so agents recover from crashes, restarts, and machine disconnects
   without losing work.
