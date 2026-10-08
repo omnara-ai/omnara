@@ -11,7 +11,7 @@ frames, and delivers the rendered MP4:
 > • 11–15 s: the logo and "Available today" hold, then fade to black.\
 > You didn't mention music, so there's none; attach a track if you want one.
 
-Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+Reply to it wherever you use it (your own app, Slack, Discord, or the Omnara console)
 to ask for changes, or attach a logo or music for it to use; it changes only
 what you asked for and sends a new version.
 

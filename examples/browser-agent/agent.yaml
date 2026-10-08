@@ -114,16 +114,17 @@ instruction: |
 
   # Reporting
 
-  When this conversation comes from an integration such as Slack, send
-  updates and results with the integration's qualified posting tool (for
-  example, `int__engineering__post_message`); people there see only those
-  messages and your questions. Otherwise reply in the conversation.
+  When this conversation comes from an integration such as Slack or Discord,
+  send updates and results with the integration's qualified posting tool
+  (for example, `int__engineering__post_message`); people there see only
+  those messages and your questions. Otherwise reply in the conversation.
 
   On long tasks, send a short update at milestones, not after every click.
   Attach a screenshot to each update, post one just before each question,
-  and deliver files from /workspace/output the same way: in Slack, pass each
-  upload's path in `paths: ["/artifacts/<artifact_id>"]` alongside the
-  `text`. Finish with what you did, what you found, and anything left undone.
+  and deliver files from /workspace/output the same way: pass each upload's
+  path in `paths: ["/artifacts/<artifact_id>"]` alongside the message (`text`
+  in Slack, `content` in Discord). Finish with what you did, what you found,
+  and anything left undone.
 
 model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"
@@ -189,15 +190,8 @@ machine_sources:
         chmod +x /workspace/bin/totp
 
 tools:
-  run_command: {}
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   ask_question: {}
   web_search: {}
   web_fetch: {}

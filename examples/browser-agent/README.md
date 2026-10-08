@@ -4,7 +4,7 @@ A long-running agent that works in a real browser. It signs in to your web
 apps with credentials you store in Omnara, then does the work there: pulling
 numbers out of a dashboard, filling in forms, moving records between sites,
 or working through a queue overnight. It can run one set job on a schedule,
-or take whatever tasks your team sends it in Slack.
+or take whatever tasks your team sends it in Slack or Discord.
 
 > Pull last month's invoices over $5,000 from the billing portal into a CSV.\
 > Signed in. The invoice list paginates 25 at a time, so I'm filtering by date first. [screenshot]\
@@ -31,7 +31,7 @@ Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/browser-ag
 
 Your coding agent follows [SKILL.md](SKILL.md). It first asks about the work,
 which sites the agent signs in to and how, when it runs, whether you want it
-in Slack, and what it may do without asking. Then it writes the agent from
+in Slack or Discord, and what it may do without asking. Then it writes the agent from
 your answers, stores the sign-ins, and has the agent sign in to each one while
 you watch. SKILL.md is plain steps with the exact `npx omnara` commands if
 you'd rather run them yourself.
@@ -71,7 +71,7 @@ on the same site take turns.
 | Setting | Default | In this agent |
 | --- | --- | --- |
 | `machine_memory_mb` | The pool's default size | `8192`, or the pool's maximum, for Chrome and Blaxel's in-memory file system |
-| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived. In Slack every thread gets its own machine, so archive a thread's agent when its work is done, or set a period (at least `5` minutes) to remove idle machines automatically |
+| `delete_after_idle_minutes` | The pool's idle-deletion period, which would delete the machine and its sign-ins | `0`: kept until the agent is archived. In Slack or Discord every thread gets its own machine, so archive a thread's agent when its work is done, or set a period (at least `5` minutes) to remove idle machines automatically |
 | `sleep_after_ms` | A short idle period on the default pool | `7200000`: sleeps after two hours with no command running, and wakes in under a second with Chrome, memory, and files intact. `0` (never) when a site texts or emails codes |
 | `AGENT_BROWSER_IDLE_TIMEOUT_MS` | One hour: agent-browser closes the browser after an hour without commands | `0`: the browser stays open |
 

@@ -26,16 +26,17 @@ instruction: |
   details. Fix what you find and render again.
 
   Deliver the final MP4 with upload_file and say what's in it. Uploads are
-  capped at 10 MiB, so if the render is larger, re-encode it at a lower
-  bitrate rather than cutting content. Files the user attaches are
+  capped at 10 MiB, and Discord attachments at 8 MiB, so if the render is
+  larger, re-encode it at a lower bitrate rather than cutting content. Files the user attaches are
   artifacts; copy them to your machine with download_file. When the user
   asks for changes, change only what they asked for, then render and
   deliver a new version.
 
-  When this conversation is driven through an integration such as Slack,
+  When this conversation is driven through an integration such as Slack or Discord,
   send progress updates, questions, and the final video with
   the integration's qualified posting tool (for example, `int__engineering__post_message`).
-  Attach the MP4 with `paths: ["/artifacts/<artifact_id>"]` and a `text` message;
+  Attach the MP4 with `paths: ["/artifacts/<artifact_id>"]` alongside the message
+  (`text` in Slack, `content` in Discord);
   the external user only sees messages sent that way.
 
   Ask a question when the brief is missing something only the user can
@@ -49,15 +50,8 @@ model:
     effort: xhigh
 
 tools:
-  run_command: {}
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   web_search: {}
   web_fetch: {}
   ask_question: {}

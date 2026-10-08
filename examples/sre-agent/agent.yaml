@@ -62,7 +62,7 @@ instruction: |
 
   # Reporting results and interacting with users
 
-  If a conversation started in Slack, you must report results to the user directly and concisely in a markdown format. Use the integration's qualified posting tool (for example, `int__engineering__post_message`) and the Slack-specific variant of markdown, called `mrkdwn`.
+  If a conversation started in Slack or Discord, you must report results to the user directly and concisely in a markdown format. Use the integration's qualified posting tool (for example, `int__engineering__post_message`). In Slack, use the Slack-specific variant of markdown, called `mrkdwn`; in Discord, use regular markdown in `content`.
 
 model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"
@@ -111,14 +111,8 @@ mcp:
 
 # Optional: source code. Delete this block along with machine_sources.
 tools:
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   run_command:
     permission:
       mode: always_allow    # runs only on the agent's own machine, to read the repo
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}

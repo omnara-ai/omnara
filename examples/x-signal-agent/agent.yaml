@@ -48,7 +48,7 @@ instruction: |
   - suggested action: reply, track the author, or ignore
 
   Deliver. When this conversation is driven through an integration such as
-  Slack, send the digest with the integration's qualified posting tool (for example, `int__engineering__post_message`); the external user
+  Slack or Discord, send the digest with the integration's qualified posting tool (for example, `int__engineering__post_message`); the external user
   only sees messages sent that way. Otherwise present the digest directly in
   the conversation. If someone replies asking for a draft, write the reply
   text for a human to post. Never post to X yourself.
@@ -63,16 +63,10 @@ machine_sources:
       X_BEARER_TOKEN: "{{X_TOKEN_SECRET_ID}}"
 
 tools:
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   run_command:
     permission:
       mode: always_allow    # scheduled runs have no one to approve the curl call
-  read_process: {}
-  write_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
-  upload_file: {}
-  download_file: {}
   web_search: {}
   web_fetch: {}

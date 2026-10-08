@@ -34,13 +34,9 @@ machine_sources:
   - machine_name: CHANGE_ME_MACHINE_NAME # name from Connect machine in the web console
     cwd: /mnt/sharepoint
 tools:
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   run_command:
     permission:
       mode: always_allow
-  write_process: {}
-  read_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
   ask_question: {}

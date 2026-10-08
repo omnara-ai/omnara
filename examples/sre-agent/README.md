@@ -14,7 +14,7 @@ likely cause and the evidence behind it:
 > Rolling back to revision 211 should restore checkout; the pool size needs fixing before redeploying.
 
 It never changes production: its AWS credentials are read-only. Reply to it
-wherever you use it (your own app, Slack, or the Omnara console) to dig
+wherever you use it (your own app, Slack, Discord, or the Omnara console) to dig
 further.
 
 ## What you need

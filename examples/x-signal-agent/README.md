@@ -11,7 +11,7 @@ action:
 > **Author:** @jdoe, CTO at a 20-person fintech\
 > **Suggested action:** reply with how you handle long-running agents.
 
-Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+Reply to it wherever you use it (your own app, Slack, Discord, or the Omnara console)
 to ask for reply drafts or push back on the filtering. It never posts to X.
 
 ## What you need
