@@ -77,10 +77,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	return input, nil
 }
 
-// publicLaunchBaseConfig returns the config that launch-time additions extend:
-// the compiled config_source, the given config, or the profile's current config.
-// Only the last is recorded as the derived base, so the launch rechecks under the
-// profile lock that it is still one of the profile's versions.
+// publicLaunchBaseConfig returns the config that launch-time additions extend.
 func (s strictOpenAPIServer) publicLaunchBaseConfig(
 	ctx context.Context,
 	project identitystore.ProjectRecord,

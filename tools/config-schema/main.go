@@ -13,8 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
-// configSchemaPath is the agent config JSON Schema for the web editor. It is
-// derived from the AgentConfigDefinition schema in api/openapi/openapi.yaml.
+// configSchemaPath is the web editor's JSON Schema, derived from api/openapi/openapi.yaml.
 const configSchemaPath = "internal/agentconfig/generated/agent_config.schema.json"
 
 func main() {

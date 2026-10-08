@@ -644,9 +644,8 @@ func (s strictOpenAPIServer) createAgent(
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	}
-	// Replay before compiling config_source or resolving integration references, which may
-	// have changed or been deleted since launch. The kernel repeats this lookup under the
-	// launch key lock before writing.
+	// Replay before compiling config_source or resolving integration references, which may have
+	// changed since launch. The kernel repeats this lookup under the launch key lock.
 	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
 		ctx, project.ID, idempotencyKey,
 	); err != nil {
@@ -659,6 +658,10 @@ func (s strictOpenAPIServer) createAgent(
 		return openapi.CreateAgent200JSONResponse(response), nil
 	}
 	if configSource != nil {
+		// config_source saves a new config, so it needs the same access as CreateAgentConfig.
+		if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
+			return nil, *err
+		}
 		compiled, err := s.server.compileAgentConfigSourceForProject(
 			ctx, project, string(configSource.SourceFormat), configSource.Source,
 		)
@@ -1177,10 +1180,8 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-// agentConfigSourceInput resolves the source and source_format carried by
-// every config-accepting request into compiler input. YAML text is kept
-// verbatim. JSON, as text or as an object, is canonicalized, so the same JSON
-// definition maps to the same saved config however it was sent.
+// agentConfigSourceInput resolves a request's source and source_format into compiler input.
+// JSON is canonicalized, so the same definition maps to the same saved config however it was sent.
 func agentConfigSourceInput(
 	sourceFormatRaw string,
 	source json.RawMessage,

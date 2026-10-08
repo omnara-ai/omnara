@@ -23,10 +23,8 @@ import (
 
 type LaunchAgentInput struct {
 	ProjectID uuid.UUID
-	// ProfileID attributes the agent to a profile. With no AgentConfigID or
-	// DerivedConfig, the agent runs the profile's current config; otherwise it
-	// runs the given config, which need not be one of the profile's versions
-	// unless DerivedBaseConfigID names the version it was derived from.
+	// ProfileID attributes the agent to a profile. Without AgentConfigID or
+	// DerivedConfig, the agent runs the profile's current config.
 	ProfileID     uuid.UUID
 	AgentConfigID uuid.UUID
 	LaunchedBy    identitystore.PrincipalRecord
@@ -38,8 +36,7 @@ type LaunchAgentInput struct {
 	MessageActor            *ActorParams
 	IdempotencyKey          string
 	ArchiveAfterIdleMinutes *int
-	// DerivedConfig is saved during the launch and used instead of
-	// AgentConfigID.
+	// DerivedConfig is saved during the launch and used instead of AgentConfigID.
 	DerivedConfig *CreateAgentConfigInput
 	// DerivedBaseConfigID, when set, must be one of the profile's versions.
 	DerivedBaseConfigID uuid.UUID
@@ -157,8 +154,8 @@ func (s *Store) launchAgentTx(
 	for _, subscription := range input.Subscriptions {
 		originIntegrations = append(originIntegrations, subscription.IntegrationID)
 	}
-	// A profile-only launch runs the profile's current config. Integration locks come before
-	// the profile lock, so read it now and recheck it once the profile is locked.
+	// Integration locks come before the profile lock, so read the profile's config now and
+	// recheck it once the profile is locked.
 	profileConfigID, err := launchProfileConfigIDTx(ctx, qtx, input)
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
@@ -499,8 +496,7 @@ func launchReplayMaybeTx(
 	return LaunchAgentResult{Agent: agent}, true, nil
 }
 
-// launchProfileConfigIDTx returns the current config of the profile a
-// profile-only launch runs, or uuid.Nil when the launch names its config.
+// launchProfileConfigIDTx returns a profile-only launch's current profile config, or uuid.Nil.
 func launchProfileConfigIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -519,8 +515,7 @@ func launchProfileConfigIDTx(
 	return profile.CurrentConfigID, nil
 }
 
-// requireProfileConfigTx checks that configID is one of the profile's
-// versions, or, with no profile, that it exists in the project.
+// requireProfileConfigTx checks that configID is one of the profile's versions.
 func requireProfileConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

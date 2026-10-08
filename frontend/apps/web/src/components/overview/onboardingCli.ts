@@ -16,7 +16,7 @@ function shellLines(parts: string[]) {
   return parts.join(' \\\n  ')
 }
 
-// The server validates definitions fully when compiling them, so only the object shape is checked here.
+// The server validates the full definition.
 const zDefinitionObject = z.custom<AgentConfigDefinition>(
   (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
 )

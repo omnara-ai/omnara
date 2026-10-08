@@ -3,9 +3,6 @@ import {
   zAgentConfigDefinition,
   zAgentConfigDefinitionEventWebhook,
   zAgentConfigDefinitionInteractionHandler,
-  zAgentConfigDefinitionMachineSource,
-  zAgentConfigDefinitionMcpAuth,
-  zAgentConfigDefinitionMcpServer,
   zAgentConfigDefinitionMcpTool,
   zAgentConfigDefinitionMemoryStore,
   zAgentConfigDefinitionModel,
@@ -29,16 +26,13 @@ import type {
 import { type SecretRow, type TextRow } from '@/components/key-value/keyValueRows'
 import {
   emptyProviderOptions,
+  idleDeletionMinutesValid,
   type ProviderOptionsDraft,
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
 
-// These schemas reuse the generated AgentConfigDefinition schemas, so their
-// fields and value rules follow the OpenAPI spec. Where they differ, it is for
-// the builder: every object is strict, so a config with fields the builder
-// cannot show stays in YAML mode rather than losing them; some entries are
-// narrowed to what the builder can edit; and unfinished drafts are accepted.
+// Strict objects keep configs the builder cannot show in YAML mode; free text accepts unfinished rows.
 
 const permissionParameters = z.record(z.string(), z.json())
 
@@ -58,54 +52,43 @@ export function permissionSelection(selection: ToolPermissionSelection): Permiss
   return { mode: selection.mode, parameters: permissionParameters.parse(selection.parameters) }
 }
 
-// The builder writes rows as soon as they are added, before their names, URLs,
-// and secrets are filled in, so references it edits accept any text here and
-// the form and server validate them instead.
-const draftText = z.string()
-const draftSecretOverlay = z.record(z.string(), draftText.nullable()).nullish()
-
-// The generated machine source intersects "exactly one of machine_name or
-// machine_pool_name" with the fields; the builder splits the two kinds itself.
-const machineSourceFields = zAgentConfigDefinitionMachineSource.def.right.shape
-// The builder edits provider options as text fields.
+const positiveCount = z.number().int().positive().optional()
+const nonNegativeCount = z.number().int().nonnegative().optional()
+const idleDeletionMinutes = z.number().refine(idleDeletionMinutesValid).optional()
+const overlay = z.record(z.string(), z.string().nullable()).nullish()
 const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
 const machineEntry = z.strictObject({
-  machine_name: draftText,
-  cwd: machineSourceFields.cwd,
-  env_overlay: machineSourceFields.env_overlay,
-  secret_env_overlay: draftSecretOverlay,
+  machine_name: z.string(),
+  cwd: z.string().optional(),
+  env_overlay: overlay,
+  secret_env_overlay: overlay,
 })
 
 export type MachineEntry = z.infer<typeof machineEntry>
 
 const poolEntry = z.strictObject({
-  machine_pool_name: draftText,
-  initial_num_machines: machineSourceFields.initial_num_machines,
-  max_machines: machineSourceFields.max_machines,
-  delete_after_idle_minutes: machineSourceFields.delete_after_idle_minutes,
-  machine_cpu: machineSourceFields.machine_cpu,
-  machine_memory_mb: machineSourceFields.machine_memory_mb,
+  machine_pool_name: z.string(),
+  initial_num_machines: nonNegativeCount,
+  max_machines: nonNegativeCount,
+  delete_after_idle_minutes: idleDeletionMinutes,
+  machine_cpu: positiveCount,
+  machine_memory_mb: positiveCount,
   machine_provider_options_overlay: providerOptionsOverlay,
-  cwd: machineSourceFields.cwd,
-  env_overlay: machineSourceFields.env_overlay,
-  secret_env_overlay: draftSecretOverlay,
+  cwd: z.string().optional(),
+  env_overlay: overlay,
+  secret_env_overlay: overlay,
 })
 
 export type PoolEntry = z.infer<typeof poolEntry>
 
-const authFields = zAgentConfigDefinitionMcpAuth.shape
-// The builder's SigV4 form requires a service and region.
 const mcpAuth = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.enum(['oauth', 'bearer']), secret_id: z.string() }),
   z.strictObject({
-    type: authFields.type.extract(['oauth', 'bearer']),
-    secret_id: draftText,
-  }),
-  z.strictObject({
-    type: authFields.type.extract(['sigv4']),
-    secret_id: draftText,
-    service: draftText,
-    region: draftText,
+    type: z.literal('sigv4'),
+    secret_id: z.string(),
+    service: z.string(),
+    region: z.string(),
   }),
 ])
 
@@ -117,18 +100,18 @@ const mcpToolEntry = z.strictObject({
 export type McpToolEntry = z.infer<typeof mcpToolEntry>
 
 const mcpEntry = z.strictObject({
-  ...zAgentConfigDefinitionMcpServer.shape,
-  url: draftText,
+  url: z.string(),
   permission: permission.optional(),
+  default_enabled: z.boolean().nullish(),
+  deferred: z.boolean().optional(),
   auth: mcpAuth.optional(),
   tools: z.record(z.string(), mcpToolEntry).optional(),
 })
 
 export type McpEntry = z.infer<typeof mcpEntry>
 
-// The builder shows built-in tools only; custom tools stay in YAML mode.
 const toolEntry = z.strictObject({
-  type: zAgentConfigDefinitionTool.shape.type.unwrap().extract(['built_in']).optional(),
+  type: z.literal('built_in').optional(),
   enabled: zAgentConfigDefinitionTool.shape.enabled,
   permission: permission.optional(),
   deferred: zAgentConfigDefinitionTool.shape.deferred,
@@ -142,7 +125,6 @@ const subagentModelEntry = z
     ...subagentModelFields,
     reasoning: z.strictObject(subagentModelFields.reasoning.unwrap().shape).optional(),
   })
-  // The spec's dependentRequired rule, which the generated schema omits.
   .refine((model) => (model.provider_config === undefined) === (model.name === undefined), {
     message: 'Model provider_config and name must be provided together.',
   })
@@ -150,7 +132,7 @@ export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
 
 const subagentEntry = z.strictObject({
   ...zAgentConfigDefinitionSubagent.shape,
-  profile: draftText.optional(),
+  profile: z.string().optional(),
   model: subagentModelEntry.optional(),
   instruction: z.strictObject(zAgentConfigDefinitionSubagentInstruction.shape).optional(),
 })
@@ -158,16 +140,14 @@ export type SubagentEntry = z.infer<typeof subagentEntry>
 
 const memoryStoreEntry = z.strictObject({
   ...zAgentConfigDefinitionMemoryStore.shape,
-  name: draftText,
+  name: z.string(),
 })
 export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
 
 const definitionFields = zAgentConfigDefinition.shape
 const webhookFields = zAgentConfigDefinitionEventWebhook.shape
-const optionalText = z.string().nullable().optional()
+const optionalText = z.string().nullish()
 
-// The document itself stays loose and accepts unfinished drafts, such as an
-// empty instruction or a model without a name yet.
 const basicDocument = z.looseObject({
   version: definitionFields.version,
   instruction: optionalText,
@@ -179,22 +159,20 @@ const basicDocument = z.looseObject({
         .strictObject(zAgentConfigDefinitionModel.shape.reasoning.unwrap().shape)
         .optional(),
     })
-    .nullable()
-    .optional(),
-  machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
-  tools: z.record(z.string(), toolEntry).optional(),
+    .nullish(),
+  machine_sources: z.array(z.union([poolEntry, machineEntry])).nullish(),
+  tools: z.record(z.string(), toolEntry).nullish(),
   interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).nullish(),
   skills: definitionFields.skills,
-  memory_stores: z.array(memoryStoreEntry).optional(),
-  mcp: z.record(z.string(), mcpEntry).optional(),
+  memory_stores: z.array(memoryStoreEntry).nullish(),
+  mcp: z.record(z.string(), mcpEntry).nullish(),
   event_webhook: z
     .strictObject({
       ...webhookFields,
-      // A webhook being set up in the builder may have no events selected yet.
       events: z.array(webhookFields.events.element).optional(),
     })
     .optional(),
-  subagents: z.record(z.string(), subagentEntry).optional(),
+  subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
   max_depth: definitionFields.max_depth,
 })

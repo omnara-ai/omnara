@@ -428,6 +428,21 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
+  it('accepts null config sections', () => {
+    const config = mustDeserialize(`${minimalYaml}machine_sources:
+tools:
+mcp:
+memory_stores:
+subagents:
+interaction_handlers:
+`)
+    expect(config.machineSources).toEqual([])
+    expect(config.mcpServers).toEqual([])
+    expect(config.memoryStores).toEqual([])
+    expect(config.subagents).toEqual([])
+    expect(config.interactionHandlers).toEqual({})
+  })
+
   it('rejects unknown fields inside builder-owned entries', () => {
     expect(
       deserialize(`${minimalYaml}tools:
