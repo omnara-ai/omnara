@@ -12,7 +12,8 @@ reachable where they want it, on a schedule if they want one.
 
 Interview first, then build. Don't create anything in Omnara until the user has
 confirmed your summary in step 2. When a step says to ask the user, end your
-turn and wait for their reply. Suggest a default, but don't assume it.
+turn and wait for their reply. Suggest a default where there's a sensible one,
+but don't assume it.
 
 `agent.yaml` is a guide, not a form. Its browser, sign-in, and machine settings
 were tested together: the agent-browser commands, the vault and two-factor
@@ -137,9 +138,9 @@ since everything it does appears under that account.
 1. Check for existing secrets named `browser-agent-<name>-username`,
    `-password`, and `-totp`:
    `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name <secret-name> --json`.
-   If they exist, ask whether to reuse them. To change a value, have the
-   user update it on the **Secrets** page of the Omnara dashboard; the ID
-   stays the same.
+   If they exist, ask whether to reuse them (suggest yes). To change a value,
+   have the user update it on the **Secrets** page of the Omnara dashboard; the
+   ID stays the same.
 2. Ask the user to put the missing values in a `.env` file in the current
    directory rather than pasting passwords into the chat. `TOTP` is the
    authenticator setup key, only for sites that use one. The file is read by the

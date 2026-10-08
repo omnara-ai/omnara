@@ -20,7 +20,7 @@ different order.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
 - When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default, but don't assume it.
+  Suggest a default where there's a sensible one, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -69,8 +69,8 @@ key to the right region.
 
 If a secret named `posthog-analytics-agent-api-key` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name posthog-analytics-agent-api-key --json`),
-ask whether to reuse it and note its `id`; if the value changed, the user
-updates it on the dashboard's **Secrets** page (the ID stays the same).
+ask whether to reuse it (suggest yes) and note its `id`; if the value changed,
+the user updates it on the dashboard's **Secrets** page (the ID stays the same).
 Otherwise have the user add `POSTHOG_API_KEY=phx_...` to a `.env` file in the
 current directory (pasting it in the chat also works), then create the secret
 and note its `id` (`sec_…`):

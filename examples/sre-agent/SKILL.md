@@ -20,7 +20,7 @@ different order.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
 - When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default, but don't assume it.
+  Suggest a default where there's a sensible one, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -78,7 +78,7 @@ contents or secret values.
 
 If a secret named `sre-agent-aws` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name sre-agent-aws --json`),
-ask whether to reuse it and note its `id`. Otherwise:
+ask whether to reuse it (suggest yes) and note its `id`. Otherwise:
 
 1. Create the IAM user, either way:
    - **You do it**, if the user has the AWS CLI signed in to the production
@@ -152,9 +152,10 @@ error to the code behind it and cite the exact lines. Ask which repository
    choice gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 2. Only if the agent reads the code (step 4):
    `npx omnara grant pools list --json`; each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`. Use the only one, or ask if there are several. If
-   there are none, tell the user the project needs a machine pool for code
-   access, and continue without it if they prefer.
+   candidate `MACHINE_POOL`. Suggest `default-pool` if it's granted: its
+   machines come with `git`. Otherwise use the only one, or ask if there are
+   several. If there are none, tell the user the project needs a machine pool
+   for code access, and continue without it if they prefer.
 
 ## 6. Create the agent
 

@@ -19,7 +19,7 @@ wants a new topic), and follow the user's lead if they want a different order.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
 - When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default, but don't assume it.
+  Suggest a default where there's a sensible one, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -68,8 +68,8 @@ tokens**. A daily scan costs on the order of cents.
 
 If a secret named `x-signal-agent-bearer-token` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name x-signal-agent-bearer-token --json`),
-ask whether to reuse it and note its `id`; if the value changed, the user
-updates it on the dashboard's **Secrets** page (the ID stays the same).
+ask whether to reuse it (suggest yes) and note its `id`; if the value changed,
+the user updates it on the dashboard's **Secrets** page (the ID stays the same).
 Otherwise have the user add `X_BEARER_TOKEN=...` to a `.env` file in the current
 directory (pasting it in the chat also works), then create the secret and note
 its `id` (`sec_…`):
@@ -84,9 +84,10 @@ npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
 ## 4. Pick the machine pool and model
 
 1. `npx omnara grant pools list --json`: each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`; the agent runs `curl` on a machine from this
-   pool. Use the only one, or ask if there are several. If there are none,
-   stop and tell the user the project needs a machine pool.
+   candidate `MACHINE_POOL`; the agent runs `curl` on a machine from this pool.
+   Suggest `default-pool` if it's granted; otherwise use the only one, or ask if
+   there are several. If there are none, stop and tell the user the project
+   needs a machine pool.
 2. `npx omnara grant models list --json`: each item has `model.provider_config`
    and `model.name`. Ask the user which model to use, suggesting
    `openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted, otherwise a

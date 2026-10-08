@@ -19,7 +19,7 @@ wants new queries), and follow the user's lead if they want a different order.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
 - When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default, but don't assume it.
+  Suggest a default where there's a sensible one, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -86,12 +86,12 @@ search posts plus 10 per tracked feed, about $0.50 at most.
 
 If a secret named `linkedin-signal-agent-apify-token` already exists
 (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name linkedin-signal-agent-apify-token --json`),
-ask whether to reuse it and note its `id`; if the value changed, the user
-updates it on the dashboard's **Secrets** page (the ID stays the same). If only
-`reddit-signal-agent-apify-token` exists, it holds the same kind of Apify token;
-offer to reuse it. Otherwise have the user add `APIFY_TOKEN=...` to a `.env`
-file in the current directory (pasting it in the chat also works), then create
-the secret and note its `id` (`sec_…`):
+ask whether to reuse it (suggest yes) and note its `id`; if the value changed,
+the user updates it on the dashboard's **Secrets** page (the ID stays the same).
+If only `reddit-signal-agent-apify-token` exists, it holds the same kind of
+Apify token; offer to reuse it. Otherwise have the user add `APIFY_TOKEN=...` to
+a `.env` file in the current directory (pasting it in the chat also works), then
+create the secret and note its `id` (`sec_…`):
 
 ```sh
 set -a && . ./.env && set +a

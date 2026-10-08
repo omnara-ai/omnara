@@ -20,7 +20,7 @@ order.
 - If a command fails, `npx omnara <command> --help` and
   [docs.omnara.com](https://docs.omnara.com) have the details.
 - When a step says to ask the user, end your turn and wait for their reply.
-  Suggest a default, but don't assume it.
+  Suggest a default where there's a sensible one, but don't assume it.
 
 The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
 They're a reference, not a requirement: the Omnara MCP tools, the
@@ -54,9 +54,9 @@ folders next to it, so upload the whole folder, not just `SKILL.md`.
 
 If an upload named `remotion-best-practices` already exists
 (`npx omnara skills list --owner-kind project --owner-project-id <project-id> --name remotion-best-practices --json`),
-ask whether to reuse it as is or refresh it with the latest Remotion release.
-Otherwise, or to refresh it, clone the skills and upload the folder; the CLI
-packs the directory itself:
+ask whether to reuse it as is (suggest this) or refresh it with the latest
+Remotion release. Otherwise, or to refresh it, clone the skills and upload the
+folder; the CLI packs the directory itself:
 
 ```sh
 git clone --depth 1 https://github.com/remotion-dev/skills /tmp/remotion-skills
