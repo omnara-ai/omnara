@@ -157,10 +157,19 @@ const skillRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/SkillPage'), 'SkillPage'),
 })
 
-const apiTokensRoute = createRoute({
+const orgApiTokensRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/api-tokens',
+  component: lazyRouteComponent(() => import('@/routes/OrgApiTokensPage'), 'OrgApiTokensPage'),
+})
+
+const personalAccessTokensRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/user/api-tokens',
-  component: lazyRouteComponent(() => import('@/routes/ApiTokensPage'), 'ApiTokensPage'),
+  component: lazyRouteComponent(
+    () => import('@/routes/PersonalAccessTokensPage'),
+    'PersonalAccessTokensPage',
+  ),
 })
 
 // Not under onboardedRoute: users with no organization must still be able to
@@ -234,9 +243,14 @@ const createIntegrationRoute = createRoute({
   ),
 })
 
+const integrationSearch = z.object({
+  tab: z.enum(['schedules', 'conversations', 'advanced']).optional().catch(undefined),
+})
+
 const integrationDetailRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations/$integrationId',
+  validateSearch: integrationSearch,
   component: lazyRouteComponent(() => import('@/routes/IntegrationPage'), 'IntegrationPage'),
 })
 
@@ -488,7 +502,8 @@ const routeTree = rootRoute.addChildren([
       skillsRoute,
       skillRoute,
       organizationMemoryRoute,
-      apiTokensRoute,
+      orgApiTokensRoute,
+      personalAccessTokensRoute,
       organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,

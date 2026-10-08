@@ -16,6 +16,7 @@ import { ManagedLogo, OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { Monitor, Server } from '@/components/icons'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { ConnectMachineDialog } from '@/components/org/ConnectMachineDialog'
 import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { MachinePoolProviderLogo } from '@/components/org/MachinePoolProviderLogo'
 import {
@@ -42,6 +43,19 @@ export function MachinePoolsSection() {
   const query = useMachinePools(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
   const [poolDialog, setPoolDialog] = useState<MachinePoolDialog>(null)
+  const [connectOpen, setConnectOpen] = useState(false)
+
+  const connectButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => {
+        setConnectOpen(true)
+      }}
+    >
+      Connect machine
+    </Button>
+  )
 
   const newPoolButton = () =>
     canManage ? (
@@ -72,9 +86,10 @@ export function MachinePoolsSection() {
             />
           }
         >
+          {connectButton}
           {newPoolButton()}
         </SearchHeader>
-        <ByoMachinesCard orgId={activeOrg.id} />
+        <ByoMachinesCard orgId={activeOrg.id} emptyAction={connectButton} />
         <AgentCardList
           items={paged.rows}
           getId={(pool) => pool.id}
@@ -99,6 +114,7 @@ export function MachinePoolsSection() {
           emptyAction={newPoolButton()}
         />
       </div>
+      <ConnectMachineDialog open={connectOpen} onOpenChange={setConnectOpen} orgId={activeOrg.id} />
       {canManage && (
         <MachinePoolDialogs
           orgId={activeOrg.id}
@@ -207,7 +223,7 @@ export function PoolSubtitle({ pool }: { pool: MachinePool }) {
   )
 }
 
-function ByoMachinesCard({ orgId }: { orgId: string }) {
+function ByoMachinesCard({ orgId, emptyAction }: { orgId: string; emptyAction: ReactNode }) {
   // One small page: enough for the preview, and one extra row tells us whether there are more.
   const preview = useMachines(orgId, {
     filters: { source_kind: 'byo' },
@@ -228,6 +244,7 @@ function ByoMachinesCard({ orgId }: { orgId: string }) {
         isPending={preview.isPending}
         isError={preview.isError}
         emptyMessage="No machines connected yet. Connect a machine you operate to run agents on it."
+        emptyAction={emptyAction}
         viewAll={
           hasMore && (
             <Link to="/machines/byo" className={agentCardMoreLinkClass}>

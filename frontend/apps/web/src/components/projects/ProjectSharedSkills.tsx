@@ -63,7 +63,6 @@ export function ProjectSharedSkills({
         getId={(access) => access.skill.id}
         renderCard={(access) => (
           <SkillCard
-            orgId={orgId}
             skill={access.skill}
             projectId={projectId}
             source={`Shared from ${skillOwnerLabel(access.skill).toLowerCase()}`}

@@ -57,7 +57,11 @@ export function ModelProvidersSection() {
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
   // `?provider=` deep-links to adding a model; that provider may not be on the current page.
-  const linkedProvider = useModelProvider(activeOrg.id, search.provider ?? '').data
+  // Reading one provider is manage-only, so members skip the lookup.
+  const linkedProvider = useModelProvider(
+    activeOrg.id,
+    canManage ? (search.provider ?? '') : '',
+  ).data
   const dialogProviders =
     linkedProvider && !paged.rows.some((provider) => provider.id === linkedProvider.id)
       ? [linkedProvider, ...paged.rows]
@@ -105,6 +109,7 @@ export function ModelProvidersSection() {
             <ProviderCard
               orgId={activeOrg.id}
               provider={provider}
+              canManage={canManage}
               pricing={pricing}
               modelActions={modelActions}
               defaultExpanded={search.provider === provider.id}
@@ -171,6 +176,7 @@ export function ProviderSubtitle({ provider }: { provider: ModelProviderConfig }
 function ProviderCard({
   orgId,
   provider,
+  canManage,
   pricing,
   modelActions,
   defaultExpanded,
@@ -178,13 +184,18 @@ function ProviderCard({
 }: {
   orgId: string
   provider: ModelProviderConfig
+  /** Models and the provider page are manage-only, so members see just the provider itself. */
+  canManage: boolean
   pricing: ModelPricingLookup
   modelActions: ModelActions
   defaultExpanded: boolean
   actions: ReactNode
 }) {
   // One small page: enough for the preview, and one extra row tells us whether there are more.
-  const preview = useConfiguredModels(orgId, provider.id, { pageSize: previewLimit + 1 })
+  const preview = useConfiguredModels(orgId, provider.id, {
+    enabled: canManage,
+    pageSize: previewLimit + 1,
+  })
   const firstPage = preview.data?.pages[0]?.data ?? []
   const hasMore = firstPage.length > previewLimit
   const models = firstPage.slice(0, previewLimit)
@@ -226,19 +237,34 @@ function ProviderCard({
   const toggle = () => {
     setExpanded((open) => !open)
   }
+  const stat = expandable ? (
+    <AgentCardStatToggle
+      icon={Box}
+      label={countLabel}
+      value={countValue}
+      expansion={expansion}
+      onToggle={toggle}
+    />
+  ) : (
+    <AgentCardStat icon={Box} label={countLabel} value={countValue} />
+  )
 
   return (
     <AgentCard
       icon={<ProviderGlyph provider={provider} />}
       title={
         <>
-          <Link
-            to="/models/providers/$providerId"
-            params={{ providerId: provider.id }}
-            className={agentCardLinkClass}
-          >
-            {provider.name}
-          </Link>
+          {canManage ? (
+            <Link
+              to="/models/providers/$providerId"
+              params={{ providerId: provider.id }}
+              className={agentCardLinkClass}
+            >
+              {provider.name}
+            </Link>
+          ) : (
+            <span className="truncate font-medium">{provider.name}</span>
+          )}
           {provider.management_kind === 'cluster' && <OmnaraManagedTag />}
         </>
       }
@@ -249,20 +275,8 @@ function ProviderCard({
           {actions}
         </>
       }
-      stats={
-        expandable ? (
-          <AgentCardStatToggle
-            icon={Box}
-            label={countLabel}
-            value={countValue}
-            expansion={expansion}
-            onToggle={toggle}
-          />
-        ) : (
-          <AgentCardStat icon={Box} label={countLabel} value={countValue} />
-        )
-      }
-      expansion={expansion}
+      stats={canManage ? stat : undefined}
+      expansion={canManage ? expansion : undefined}
     />
   )
 }

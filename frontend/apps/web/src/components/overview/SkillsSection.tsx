@@ -106,7 +106,6 @@ function SkillsList({
           getId={(skill) => skill.id}
           renderCard={(skill) => (
             <SkillCard
-              orgId={activeOrg.id}
               skill={skill}
               projectId={owner.kind === 'project' ? owner.project_id : undefined}
               actions={
