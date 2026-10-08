@@ -194,8 +194,10 @@ memory filesystem; see the
   boxd, or CreateOS, or on your own laptop, VM, or container through the Omnara
   daemon, which connects outbound so you never open inbound ports. An agent can
   use several machines at once, such as GPU servers for a training run.
-  Machines don't own the agent: if your laptop goes offline, the agent keeps
-  its full history and can start a sandbox to keep working.
+  Machines don't own the agent, so it can move work between them with git,
+  like a person would. If your laptop goes offline, ask the agent to continue
+  in a sandbox: it clones the latest commit, keeps going, and syncs the changes
+  back to your laptop when it reconnects.
 - **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
   saved, so agents recover from crashes, restarts, and machine disconnects
   without losing work.
