@@ -27,7 +27,7 @@
 </p>
 
 Omnara is an open-source managed agent platform. Use the API to run AI agents
-on any model and any machine, with tools, secrets, approvals, and streaming
+on any model and any machine, with tools, secrets, permissions, and streaming
 built in. Self-host it for free under Apache 2.0, or use
 [Omnara Cloud](https://app.omnara.com).
 
@@ -239,9 +239,9 @@ memory filesystem. The
   [webhooks](https://docs.omnara.com/events/webhooks).** Stream every event as
   it happens or receive it as a webhook, and send new messages while the agent
   works.
-- **[Approvals](https://docs.omnara.com/events/interactions).** Each tool can
+- **[Permissions](https://docs.omnara.com/tools/permissions).** Each tool can
   run immediately, ask a person first, or be blocked. The platform enforces the
-  setting, and the agent waits until someone responds.
+  setting, and the agent waits until someone approves or denies the call.
 - **[API, SDK, and CLI](https://docs.omnara.com/api/overview).** A REST API
   defined in [`api/openapi/openapi.yaml`](api/openapi/openapi.yaml), a
   TypeScript SDK ([`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk)),
