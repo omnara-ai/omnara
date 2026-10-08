@@ -302,10 +302,13 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		data.AllowedMentions = &allowedMentions{Parse: []string{}}
 		response.Data = &data
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	payload, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, "invalid interaction response", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(append(payload, '\n'))
 }
 
 func validResponse(interactionType int, response InteractionResponse) bool {

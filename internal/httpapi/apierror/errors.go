@@ -1,7 +1,6 @@
 package apierror
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -218,12 +217,12 @@ func (err ResponseError) write(w http.ResponseWriter) error {
 		err.Message = def.message
 	}
 
-	var buf bytes.Buffer
-	if encodeErr := json.NewEncoder(&buf).Encode(err.body()); encodeErr != nil {
+	data, encodeErr := json.Marshal(err.body())
+	if encodeErr != nil {
 		return encodeErr
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(def.status)
-	_, writeErr := buf.WriteTo(w)
+	_, writeErr := w.Write(append(data, '\n'))
 	return writeErr
 }
