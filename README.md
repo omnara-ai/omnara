@@ -250,6 +250,10 @@ memory filesystem. The
   and project roles for users and API keys. Credentials for
   models, machines, and MCP servers are stored once and shared with each
   project explicitly.
+- **[Multi-tenant](https://docs.omnara.com/concepts).** One deployment serves
+  many organizations, each with its own members, projects, secrets, model
+  providers, and machines. Self-hosted operators can give every new
+  organization default models and sandboxes, as Omnara Cloud does.
 - **Your data.** Self-hosted deployments keep every agent's history in your own
   Postgres, where you can query it for analytics, evals, and training datasets.
 
