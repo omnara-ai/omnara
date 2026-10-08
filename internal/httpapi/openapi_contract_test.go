@@ -418,12 +418,12 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"AgentConfigDefinitionMemoryStore.name": "#/components/schemas/MemoryStoreName",
 		// Config definitions reference existing resources by name; the agent
 		// config compiler resolves them.
-		"AgentConfigDefinitionMachineSource.machine_name":         resourceNameReferenceRef,
-		"AgentConfigDefinitionMachineSource.machine_pool_name":    resourceNameReferenceRef,
-		"AgentConfigDefinitionModel.name":                         resourceNameReferenceRef,
-		"AgentConfigDefinitionModel.provider_config":              resourceNameReferenceRef,
-		"AgentConfigDefinitionSubagentModel.name":                 resourceNameReferenceRef,
-		"AgentConfigDefinitionSubagentModel.provider_config":      resourceNameReferenceRef,
+		"AgentConfigDefinitionMachineSource.machine_name":      resourceNameReferenceRef,
+		"AgentConfigDefinitionMachineSource.machine_pool_name": resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.name":                      resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.provider_config":           resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.name":              resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.provider_config":   resourceNameReferenceRef,
 		"Integration.name":                                        "#/components/schemas/IntegrationName",
 		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
 		"Agent.name":                                              "#/components/schemas/AgentName",
