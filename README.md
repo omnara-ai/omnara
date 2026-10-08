@@ -312,10 +312,9 @@ coding agent through setting up Omnara for your project.
 
 ## FAQ
 
-**What is Omnara?** An open-source managed agent platform. You define agents in
-YAML and launch them through an API; Omnara runs the agent loop, keeps durable
-state, connects models, tools, and machines, and streams events back to your
-app.
+**What is Omnara?** An open-source managed agent platform. You write an agent's
+instructions and pick its model, tools, and machines, and Omnara runs it for
+you.
 
 **How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
 fee: bring your own model keys and machines for free, or pay as you go for our
