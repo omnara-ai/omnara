@@ -30,8 +30,10 @@ Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` without
 piping its output, and keep it running: it waits until the user approves. It
 opens the approval page in the user's browser and prints the page's link and a
 code. Show the user both right away, since you may be on a different machine
-than their browser, and ask them to approve once the code matches. When it
-exits, `npx omnara whoami` should succeed.
+than their browser, and ask them to approve once the code matches. If the
+request expires, run it again. If login says the account has no organization
+yet, have the user create one at the link it prints. Then `npx omnara whoami`
+should succeed.
 
 Pick the org and project (`npx omnara whoami --json` lists orgs,
 `npx omnara projects list --org <org-id> --json` their projects): use them if
