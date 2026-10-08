@@ -62,8 +62,11 @@ npx omnara agents launch --file agent.yaml \
 Chat with the agent in your terminal with `npx omnara agents chat <agent-id>`,
 or open it in the dashboard to watch its tool calls and reply.
 
-To launch agents from your own code, create an API key in the dashboard and use
-the TypeScript SDK (`npm install @omnara/sdk`) with the org and project IDs that
+<details>
+<summary>Launch it from your code with the TypeScript SDK</summary>
+
+Create an API key in the dashboard, install the SDK with
+`npm install @omnara/sdk`, and use the org and project IDs that
 `npx omnara config` prints:
 
 ```ts
@@ -92,6 +95,8 @@ for await (const event of openAgentEventStream({ client, path: { ...path, agentI
 
 The [quickstart](https://docs.omnara.com/quickstart) shows the same flow with
 the REST API.
+
+</details>
 
 To have your coding agent do the setup, give it this prompt:
 
