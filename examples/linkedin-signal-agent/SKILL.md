@@ -184,7 +184,7 @@ instructions to the agent.
 
 If `npx omnara integrations list` already shows an active `slack_thread`
 integration for this agent, from an earlier run of this skill, reuse it: skip
-to step 4, and if `npx omnara integrations get <integration-id>` doesn't list
+to its last step, and if `npx omnara integrations get <integration-id>` doesn't list
 the profile under `settings.launcher.profiles`, add it with
 `npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`.
 The flag replaces the offered profiles, so repeat it for each one already listed.
@@ -226,7 +226,7 @@ same agent. It doesn't answer direct messages.
 If `npx omnara integrations list` already shows an active `discord_thread`
 integration for this agent, reuse it the same way as for Slack: add the
 profile with `npx omnara integrations profiles` if
-`settings.launcher.profiles` doesn't list it, then skip to step 6.
+`settings.launcher.profiles` doesn't list it, then skip to its last step.
 
 1. The user creates an application named "LinkedIn Signal Agent" in the
    [Discord Developer Portal](https://discord.com/developers/applications);

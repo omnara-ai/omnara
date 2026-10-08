@@ -144,7 +144,7 @@ thread or pull request, and replies there go to the same agent.
 
 **Slack.** If `npx omnara integrations list` already shows an active
 `slack_thread` integration for this agent, from an earlier run of this skill,
-reuse it: skip to step 4, and if `npx omnara integrations get <integration-id>` doesn't list
+reuse it: skip to its last step, and if `npx omnara integrations get <integration-id>` doesn't list
 the profile under `settings.launcher.profiles`, add it with
 `npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`.
 The flag replaces the offered profiles, so repeat it for each one already listed.
@@ -184,7 +184,7 @@ server channel; it doesn't answer direct messages.
 If `npx omnara integrations list` already shows an active `discord_thread`
 integration for this agent, reuse it the same way as for Slack: add the
 profile with `npx omnara integrations profiles` if
-`settings.launcher.profiles` doesn't list it, then skip to step 6.
+`settings.launcher.profiles` doesn't list it, then skip to its last step.
 
 1. The user creates an application named "Coding Agent" in the
    [Discord Developer Portal](https://discord.com/developers/applications);
@@ -250,7 +250,7 @@ If `npx omnara integrations list` already shows an active `github_pr`
 integration for this agent, reuse it: if
 `npx omnara integrations get <integration-id>` doesn't show this profile under
 `settings.launcher.profile`, set it with the `update` command below, then skip
-to step 4.
+to its last step.
 
 1. Create the integration with this profile in its launcher, and note the
    `itg_…` ID it returns:
@@ -270,8 +270,9 @@ to step 4.
 2. Registering the GitHub App happens in the browser. Have the user open
    `https://app.omnara.com/projects/<project-id>/integrations/<integration-id>`,
    pick the account that owns `GITHUB_REPO`, and select **Continue to
-   GitHub**. On GitHub they name the App (suggest "Coding Agent"); its slug,
-   such as `coding-agent`, is how the team mentions it. Back in Omnara they
+   GitHub**. On GitHub they name the App. Names are unique across GitHub, so
+   suggest one with the team's name, such as "Acme Coding Agent"; its slug
+   (`acme-coding-agent`) is how the team mentions it. Back in Omnara they
    select **Choose repositories on GitHub**, grant only `GITHUB_REPO`, and
    then **Connect integration**. An organization's owners may need to approve
    the installation first.
@@ -286,7 +287,7 @@ to step 4.
    `https://app.omnara.com/api/integrations/github/events`, and correct it if
    not; mentions don't reach Omnara otherwise.
 4. Tell the user to comment on an open pull request in `GITHUB_REPO`:
-   "@coding-agent summarize this PR" (with their App's slug).
+   "@acme-coding-agent summarize this PR", with their App's slug.
 
 ## 6. Give it a first task
 
