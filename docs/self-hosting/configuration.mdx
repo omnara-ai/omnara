@@ -194,11 +194,6 @@ The storage backend must support conditional `PutObject` requests (`If-None-Matc
 Grant the service credentials `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject`
 on the bucket's `artifacts/*` and `skills/*` objects.
 
-Local Compose supplies RustFS development credentials and creates the required
-buckets automatically. For a separate RustFS deployment,
-[create an application user and policy](https://docs.rustfs.com/en/security-compliance/iam)
-with the permissions above, then configure its access key and secret below.
-
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose RustFS bucket `omnara` | Yes |
