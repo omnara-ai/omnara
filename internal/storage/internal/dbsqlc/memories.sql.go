@@ -267,26 +267,28 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 const listMemoryStores = `-- name: ListMemoryStores :many
 SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
-WHERE project_id = $1
+WHERE project_id = ANY($1::uuid[])
   AND deleted_at IS NULL
   AND ($2::text = '' OR name ILIKE $2::text ESCAPE '\')
-  AND (name COLLATE "C") > $3::text COLLATE "C"
-ORDER BY name COLLATE "C"
-LIMIT $4
+  AND (name COLLATE "C", id) > ($3::text COLLATE "C", $4::uuid)
+ORDER BY name COLLATE "C", id
+LIMIT $5
 `
 
 type ListMemoryStoresParams struct {
-	ProjectID   uuid.UUID
+	ProjectIds  []uuid.UUID
 	NamePattern string
 	AfterName   string
+	AfterID     uuid.UUID
 	RowLimit    int32
 }
 
 func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresParams) ([]MemoryStore, error) {
 	rows, err := q.db.Query(ctx, listMemoryStores,
-		arg.ProjectID,
+		arg.ProjectIds,
 		arg.NamePattern,
 		arg.AfterName,
+		arg.AfterID,
 		arg.RowLimit,
 	)
 	if err != nil {

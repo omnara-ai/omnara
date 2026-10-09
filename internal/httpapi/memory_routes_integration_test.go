@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,8 +21,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func TestMemoryStoreManagementAPI(t *testing.T) {
@@ -369,6 +374,77 @@ func TestMemoryStorePagination(t *testing.T) {
 			t, handler, http.MethodGet, path+"?cursor="+invalidCursor, "", "", http.StatusBadRequest, headers,
 		)
 	}
+}
+
+func TestListOrgMemoryStores(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServerWithStoreOptions(pool, []storage.Option{memoryFileOption(t)})
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "org-memory")
+	orgPath := "/api/v1/orgs/" + project.OrgID
+	headers := authHeaders(project.AdminToken)
+	second := requestJSONWithHeaders(
+		t, handler, http.MethodPost, orgPath+"/projects", `{"name":"Org Memory Second"}`,
+		"idem-org-memory-second-project", http.StatusCreated, headers,
+	)
+	secondProjectID := testutil.RequireType[string](t, second["id"])
+	createStore := func(projectID, name string) string {
+		created := requestJSONWithHeaders(
+			t, handler, http.MethodPost, orgPath+"/projects/"+projectID+"/memory-stores",
+			`{"name":"`+name+`"}`, "", http.StatusCreated, headers,
+		)
+		return testutil.RequireType[string](t, created["id"])
+	}
+	alpha := createStore(project.ProjectID, "alpha")
+	firstShared := createStore(project.ProjectID, "shared")
+	secondShared := createStore(secondProjectID, "shared")
+
+	path := orgPath + "/memory-stores?limit=1"
+	var ids []string
+	for range 4 {
+		page := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK, headers)
+		for _, row := range testutil.RequireType[[]any](t, page["data"]) {
+			ids = append(ids, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, row)["id"]))
+		}
+		next, ok := page["next_cursor"].(string)
+		if !ok {
+			break
+		}
+		path = orgPath + "/memory-stores?limit=1&cursor=" + url.QueryEscape(next)
+	}
+	if want := []string{alpha, firstShared, secondShared}; !slices.Equal(ids, want) {
+		t.Fatalf("paged ids = %v, want %v", ids, want)
+	}
+	assertOrgRows(t, "admin stores", listOrgRows(t, handler, orgPath+"/memory-stores", project.AdminToken),
+		map[string]string{alpha: project.ProjectID, firstShared: project.ProjectID, secondShared: secondProjectID})
+
+	viewer, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "org-memory-viewer@example.com", DisplayName: "Viewer"},
+	)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	viewerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx, identitystore.CreatePersonalAccessTokenInput{UserID: viewer.ID, Name: "viewer"},
+	)
+	if err != nil {
+		t.Fatalf("create viewer token: %v", err)
+	}
+	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+		OrgID: project.OrgUUID, UserID: viewer.ID, Role: "member",
+	}); err != nil {
+		t.Fatalf("add viewer org membership: %v", err)
+	}
+	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+		OrgID: project.OrgUUID, ProjectID: mustPublicHTTPID(t, publicid.KindProject, secondProjectID),
+		UserID: viewer.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatalf("add viewer project membership: %v", err)
+	}
+	assertOrgRows(t, "viewer stores", listOrgRows(t, handler, orgPath+"/memory-stores", viewerPAT.Token),
+		map[string]string{secondShared: secondProjectID})
 }
 
 func memoryFileOption(t *testing.T) storage.Option {

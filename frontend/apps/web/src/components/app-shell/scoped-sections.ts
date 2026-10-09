@@ -28,6 +28,7 @@ export const organizationPaths = {
   machines: '/machines',
   secrets: '/secrets',
   skills: '/skills',
+  memory: '/memory',
 } as const satisfies Partial<Record<ScopedSection, string>>
 
 /** Whether the section also has an all-projects page. */

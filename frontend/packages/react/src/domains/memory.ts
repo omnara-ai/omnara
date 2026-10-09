@@ -1,6 +1,7 @@
 import {
   FILE_DIGEST_HEADER,
   type ListMemoryStoresData,
+  type ListOrgMemoryStoresData,
   MAX_MEMORY_FILE_BYTES,
   sdk,
 } from '@omnara/sdk'
@@ -12,6 +13,8 @@ import {
   listMemoryFilesQueryKey,
   listMemoryStoresInfiniteOptions,
   listMemoryStoresQueryKey,
+  listOrgMemoryStoresInfiniteOptions,
+  listOrgMemoryStoresQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
   type QueryClient,
@@ -50,6 +53,36 @@ export function useMemoryStores(
     ),
     enabled: list.enabled,
   })
+}
+
+export function useOrgMemoryStores(
+  orgID: string,
+  options?: PaginatedListOptions<ListOrgMemoryStoresData>,
+) {
+  const client = useOmnaraClient()
+  const list = paginatedListOptions(options)
+  return useInfiniteQuery({
+    ...cursorPaginated(
+      listOrgMemoryStoresInfiniteOptions({ path: { orgID }, query: list.query, client }),
+    ),
+    enabled: list.enabled,
+  })
+}
+
+function invalidateMemoryStoreLists(
+  queryClient: QueryClient,
+  client: ReturnType<typeof useOmnaraClient>,
+  orgID: string,
+  projectID: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: listMemoryStoresQueryKey({ path: { orgID, projectID }, client }),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: listOrgMemoryStoresQueryKey({ path: { orgID }, client }),
+    }),
+  ])
 }
 
 export function useMemoryStore(scope: MemoryScope) {
@@ -137,12 +170,7 @@ export function useCreateMemoryStore(orgID: string, projectID: string) {
   return useScopedMutation(
     sdk.createMemoryStore,
     { orgID, projectID },
-    {
-      onSuccess: () =>
-        queryClient.invalidateQueries({
-          queryKey: listMemoryStoresQueryKey({ path: { orgID, projectID }, client }),
-        }),
-    },
+    { onSuccess: () => invalidateMemoryStoreLists(queryClient, client, orgID, projectID) },
   )
 }
 
@@ -152,12 +180,7 @@ export function useUpdateMemoryStore(scope: MemoryScope) {
   return useScopedMutation(sdk.updateMemoryStore, scope, {
     onSuccess: (store) => {
       queryClient.setQueryData(getMemoryStoreQueryKey({ path: scope, client }), store)
-      return queryClient.invalidateQueries({
-        queryKey: listMemoryStoresQueryKey({
-          path: { orgID: scope.orgID, projectID: scope.projectID },
-          client,
-        }),
-      })
+      return invalidateMemoryStoreLists(queryClient, client, scope.orgID, scope.projectID)
     },
   })
 }
@@ -169,12 +192,7 @@ export function useDeleteMemoryStore(scope: MemoryScope) {
     mutationFn: () => sdk.deleteMemoryStore({ path: scope, client }),
     onSuccess: async () => {
       removeQueryWhenInactive(queryClient, getMemoryStoreQueryKey({ path: scope, client }))
-      await queryClient.invalidateQueries({
-        queryKey: listMemoryStoresQueryKey({
-          path: { orgID: scope.orgID, projectID: scope.projectID },
-          client,
-        }),
-      })
+      await invalidateMemoryStoreLists(queryClient, client, scope.orgID, scope.projectID)
     },
   })
 }

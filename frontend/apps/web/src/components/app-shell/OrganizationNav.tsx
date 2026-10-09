@@ -5,6 +5,7 @@ import { NavExternalLink, type NavItem, NavSection } from '@/components/app-shel
 import {
   Bot,
   Box,
+  Brain,
   ChartBar,
   CreditCard,
   Fingerprint,
@@ -50,6 +51,7 @@ export function OrganizationNav() {
           item('/machines', 'Machines', Server),
           item('/secrets', 'Secrets', KeyRound),
           item('/skills', 'Skills', Sparkles),
+          item('/memory', 'Memory', Brain),
         ]}
       />
       <NavSection
