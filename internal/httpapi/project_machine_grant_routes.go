@@ -194,9 +194,17 @@ func (s strictOpenAPIServer) listVisibleProjectMachines(
 			executionstore.MachineSourceKind(*request.Params.SourceKind),
 		}
 	}
+	if request.Params.MachinePoolId != nil {
+		poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, *request.Params.MachinePoolId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid machine_pool_id")
+		}
+		filters.MachinePoolID = poolID
+	}
 	extra := struct {
-		SourceKinds []executionstore.MachineSourceKind
-	}{filters.SourceKinds}
+		SourceKinds   []executionstore.MachineSourceKind
+		MachinePoolID uuid.UUID `json:",omitzero"`
+	}{filters.SourceKinds, filters.MachinePoolID}
 	scopeKey := org.ID.String() + "/" + project.ID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: request.Params.Name, Sort: optionalString(request.Params.Sort),

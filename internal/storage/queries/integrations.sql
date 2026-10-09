@@ -72,6 +72,15 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
+-- name: ListIntegrationsForProjects :many
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_kind, settings, setup_revision
+FROM integrations
+WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[]) AND deleted_at IS NULL
+  AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
+  AND (NOT sqlc.arg(cursor_set)::boolean OR (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(row_limit);
+
 -- name: ListIntegrationsByProviderIdentity :many
 SELECT integration.id, integration.org_id, integration.project_id, integration.installed_by_user_id, integration.state, integration.provider_tenant_id, integration.provider_account_ref, integration.provider_agent_display_name, integration.credential_secret_id, integration.provider_config, integration.provider_identity, integration.provider_metadata, integration.last_oauth_flow_id, integration.deleted_at, integration.created_at, integration.updated_at, integration.name, integration.integration_kind, integration.settings, integration.setup_revision
 FROM integrations integration

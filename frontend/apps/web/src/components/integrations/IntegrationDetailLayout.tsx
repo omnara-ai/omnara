@@ -35,7 +35,8 @@ export function IntegrationDetailLayout({
   refreshFailed: boolean
   onRefresh: () => void
   oauth: SlackOAuthOutcome | null
-  children: ReactNode
+  /** Receives the delete button, or null while the connection form already offers it. */
+  children: (removeAction: ReactNode) => ReactNode
 }) {
   const navigate = useNavigate()
   const actions = useIntegrationActions(orgId, projectId)
@@ -63,7 +64,7 @@ export function IntegrationDetailLayout({
     />
   ) : null
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-10">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
       <IntegrationConnectionStatus
         integration={integration}
         actions={actions}
@@ -104,8 +105,7 @@ export function IntegrationDetailLayout({
           providerId={integration.provider_tenant_id}
         />
       )}
-      {children}
-      {!showConnection && removeAction}
+      {children(showConnection ? null : removeAction)}
     </div>
   )
 }

@@ -123,11 +123,7 @@ func (s strictOpenAPIServer) listMachinePools(
 		if err != nil {
 			return nil, err
 		}
-		response.Usage = &openapi.MachinePoolUsage{
-			Machines: record.Usage.Machines,
-			Cpu:      record.Usage.CPU,
-			MemoryMb: record.Usage.MemoryMB,
-		}
+		response.Usage = machinePoolUsageResponse(record.Usage)
 		out = append(out, response)
 	}
 	nextCursor, err := encodeResourceListNextCursor(
@@ -258,10 +254,15 @@ func (s strictOpenAPIServer) getMachinePool(
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}
+	usage, err := s.server.store.Execution().GetMachinePoolUsage(ctx, org.ID, poolID)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
 	response, err := s.server.machinePoolResponse(record)
 	if err != nil {
 		return nil, err
 	}
+	response.Usage = machinePoolUsageResponse(usage)
 	return openapi.GetMachinePool200JSONResponse(response), nil
 }
 
@@ -380,4 +381,8 @@ func (s strictOpenAPIServer) deleteMachinePool(
 	}
 	s.server.startPoolMachineDeletion(ctx, machines)
 	return openapi.DeleteMachinePool204Response{}, nil
+}
+
+func machinePoolUsageResponse(usage executionstore.MachinePoolUsageRecord) *openapi.MachinePoolUsage {
+	return &openapi.MachinePoolUsage{Machines: usage.Machines, Cpu: usage.CPU, MemoryMb: usage.MemoryMB}
 }

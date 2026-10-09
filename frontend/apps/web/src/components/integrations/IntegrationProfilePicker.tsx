@@ -2,9 +2,11 @@ import { useAgentProfiles, useOmnaraClient } from '@omnara/react'
 import type { AgentProfile } from '@omnara/sdk'
 import { getAgentProfileOptions } from '@omnara/sdk/tanstack'
 import { useQueries } from '@tanstack/react-query'
-import { useId } from 'react'
+import { type AnyRouter, Link, useRouter } from '@tanstack/react-router'
+import { type ComponentProps, type ReactNode, useId } from 'react'
 
 import { AgentIcon } from '@/components/agents/AgentIcon'
+import { ArrowRight } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -19,7 +21,7 @@ const ProfilesCombobox = createResourceMultiCombobox<ProfileOption>({
   itemKey: (profile) => profile.id,
   itemLabel: (profile) => profile.name,
   renderItem: profileLabel,
-  renderValue: profileLabel,
+  renderValue: (profile) => <LinkedProfileLabel profile={profile} />,
   placeholder: 'Search agent profiles…',
   emptyMessage: 'No agent profiles found.',
 })
@@ -108,6 +110,9 @@ export function IntegrationProfilePicker({
           disabled={disabled}
         />
       )}
+      {single && value[0] && selected[0] && (
+        <ProfilePageLink projectId={projectId} profile={selected[0]} />
+      )}
       {description && <FieldDescription>{description}</FieldDescription>}
       {!single && value.length >= 16 && (
         <FieldDescription>Up to 16 profiles can be offered.</FieldDescription>
@@ -143,5 +148,82 @@ function profileLabel(profile: ProfileOption) {
       <AgentIcon icon={profileIcon(profile.id)} className="size-5 rounded-[2px]" />
       <span className="truncate">{profile.name}</span>
     </span>
+  )
+}
+
+/** A chosen profile whose name opens its page, so it's easy to check what an integration runs. */
+function LinkedProfileLabel({ profile }: { profile: ProfileOption }) {
+  const projectId = useProjectIdIfRouted()
+  if (!projectId) return profileLabel(profile)
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <AgentIcon icon={profileIcon(profile.id)} className="size-5 rounded-[2px]" />
+      <ProfileLink
+        projectId={projectId}
+        profileId={profile.id}
+        className="truncate hover:underline"
+        onPointerDown={(event) => {
+          // Keep the picker closed; the link navigates instead.
+          event.stopPropagation()
+        }}
+      >
+        {profile.name}
+      </ProfileLink>
+    </span>
+  )
+}
+
+function ProfilePageLink({ projectId, profile }: { projectId: string; profile: ProfileOption }) {
+  return (
+    <ProfileLink
+      projectId={projectId}
+      profileId={profile.id}
+      className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-sm"
+    >
+      Open {profile.name}
+      <ArrowRight className="size-3.5" aria-hidden="true" />
+    </ProfileLink>
+  )
+}
+
+/** The router, or undefined where the picker renders without one (e.g. component tests). */
+function useOptionalRouter(): AnyRouter | undefined {
+  // SAFETY: useRouter returns the raw context value, which is undefined outside a RouterProvider.
+  return useRouter({ warn: false }) as AnyRouter | undefined
+}
+
+/** The project in the URL, or undefined when the picker renders outside a router. */
+function useProjectIdIfRouted() {
+  const router = useOptionalRouter()
+  return router && /^\/projects\/([^/]+)/.exec(router.state.location.pathname)?.[1]
+}
+
+/** A router link to the profile page, or a plain anchor where there's no router. */
+function ProfileLink({
+  projectId,
+  profileId,
+  children,
+  ...props
+}: {
+  projectId: string
+  profileId: string
+  children: ReactNode
+} & Omit<ComponentProps<'a'>, 'href' | 'children'>) {
+  const router = useOptionalRouter()
+  if (!router) {
+    return (
+      <a href={`/projects/${projectId}/agent-profiles/${profileId}`} {...props}>
+        {children}
+      </a>
+    )
+  }
+  return (
+    <Link
+      to="/projects/$projectId/agent-profiles/$profileId"
+      params={{ projectId, profileId }}
+      {...props}
+    >
+      {children}
+    </Link>
   )
 }

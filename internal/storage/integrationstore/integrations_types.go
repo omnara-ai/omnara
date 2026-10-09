@@ -50,6 +50,14 @@ type ListIntegrationsInput struct {
 	Limit       int
 }
 
+// ListIntegrationsForProjectsInput lists integrations across several projects, newest first.
+type ListIntegrationsForProjectsInput struct {
+	ProjectIDs  []uuid.UUID
+	NamePattern string
+	After       listing.KeysetCursor
+	Limit       int
+}
+
 type ListIntegrationsResult struct {
 	Integrations []IntegrationRecord
 	HasMore      bool

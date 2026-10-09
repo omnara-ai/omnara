@@ -10,6 +10,7 @@ import {
   usageBucketEnd,
   type UsageChartData,
   type UsageColumn,
+  type UsageMeasure,
   type UsageSeries,
   usageTicks,
 } from '@/components/usage/usage-chart-data'
@@ -22,6 +23,12 @@ const barWidth = 'min(72px, calc(100% - max(2px, 16%)))'
 const tooltipWidth = '14rem'
 const inProgressHatch =
   'repeating-linear-gradient(135deg, color-mix(in oklab, var(--muted-foreground) 32%, transparent) 0 1px, transparent 1px 5px)'
+
+const axisTitles = {
+  tokens: 'Tokens',
+  cost: 'Cost (USD)',
+  calls: 'Model calls',
+} satisfies Record<UsageMeasure, string>
 
 export function UsageChart({ data, label }: { data: UsageChartData; label: string }) {
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
@@ -57,7 +64,12 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
   }
 
   return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3">
+    <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-3">
+      <div aria-hidden="true" className={cn('flex items-center justify-center', plotHeightClass)}>
+        <span className="text-muted-foreground rotate-180 whitespace-nowrap text-xs [writing-mode:vertical-rl]">
+          {axisTitles[data.measure]}
+        </span>
+      </div>
       <div aria-hidden="true" className={cn('relative w-11', plotHeightClass)}>
         {ticks
           .filter((tick) => tick > 0)
@@ -128,6 +140,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
           />
         )}
       </div>
+      <span />
       <span />
       <div aria-hidden="true" className="relative h-8">
         {data.columns.map((column, index) =>

@@ -6,6 +6,8 @@ import {
   type InspectGitHubInstallationsRequest,
   type Integration,
   type ListIntegrationsData,
+  type ListOrgIntegrationsData,
+  type OmnaraClient,
   sdk,
   type UpdateIntegrationRequest,
 } from '@omnara/sdk'
@@ -18,8 +20,16 @@ import {
   listIntegrationsInfiniteOptions,
   listIntegrationsQueryKey,
   listOrgAgentsQueryKey,
+  listOrgIntegrationsInfiniteOptions,
+  listOrgIntegrationsQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import { type PaginatedListOptions, paginatedListOptions } from './list-options'
@@ -51,9 +61,7 @@ export function useCreateIntegration(orgID: string, projectID: string) {
           }),
           integration,
         )
-        await queryClient.invalidateQueries({
-          queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
-        })
+        await invalidateIntegrationLists(queryClient, client, orgID, projectID)
       },
     },
   )
@@ -90,9 +98,7 @@ export function useUpdateIntegration(orgID: string, projectID: string) {
         queryClient.invalidateQueries({
           queryKey,
         }),
-        queryClient.invalidateQueries({
-          queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
-        }),
+        invalidateIntegrationLists(queryClient, client, orgID, projectID),
       ])
     },
   })
@@ -117,6 +123,42 @@ export function useIntegrations(
   })
 }
 
+/** Integrations across every project in the org the caller can read, newest first. */
+export function useOrgIntegrations(
+  orgID: string,
+  options?: PaginatedListOptions<ListOrgIntegrationsData>,
+) {
+  const client = useOmnaraClient()
+  const list = paginatedListOptions<ListOrgIntegrationsData>(options)
+  return useInfiniteQuery({
+    ...cursorPaginated(
+      listOrgIntegrationsInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
+    enabled: list.enabled,
+  })
+}
+
+/** Refreshes a project's integration list and the org-wide list that includes it. */
+function invalidateIntegrationLists(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  orgID: string,
+  projectID: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: listOrgIntegrationsQueryKey({ path: { orgID }, client }),
+    }),
+  ])
+}
+
 export function useDeleteIntegration(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
@@ -136,9 +178,7 @@ export function useDeleteIntegration(orgID: string, projectID: string) {
       await queryClient.cancelQueries({ queryKey })
       queryClient.removeQueries({ queryKey })
       await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
-        }),
+        invalidateIntegrationLists(queryClient, client, orgID, projectID),
         queryClient.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
         }),
@@ -259,9 +299,7 @@ export function useConfigureIntegration(orgID: string, projectID: string) {
       })
       await cache.cancelQueries({ queryKey })
       cache.setQueryData(queryKey, integration)
-      await cache.invalidateQueries({
-        queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
-      })
+      await invalidateIntegrationLists(cache, client, orgID, projectID)
     },
     onError: async (_, { integrationID }) => {
       await cache.invalidateQueries({
@@ -293,9 +331,7 @@ export function useDisconnectIntegration(orgID: string, projectID: string) {
       await cache.cancelQueries({ queryKey })
       cache.setQueryData(queryKey, integration)
       await Promise.all([
-        cache.invalidateQueries({
-          queryKey: listIntegrationsQueryKey({ path: { orgID, projectID }, client }),
-        }),
+        invalidateIntegrationLists(cache, client, orgID, projectID),
         cache.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
         }),

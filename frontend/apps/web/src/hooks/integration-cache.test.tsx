@@ -10,6 +10,7 @@ import {
   listCronTriggersQueryKey,
   listIntegrationsQueryKey,
   listOrgAgentsQueryKey,
+  listOrgIntegrationsQueryKey,
 } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
@@ -58,6 +59,8 @@ it('invalidates organization and project agent lists when deleting a target, wit
   const scope = { path: { orgID, projectID }, client }
   const changed = [
     listIntegrationsQueryKey(scope),
+    listOrgIntegrationsQueryKey({ path: { orgID }, client }),
+    listOrgIntegrationsQueryKey({ path: { orgID }, query: { name: '*Support*' }, client }),
     listAgentsQueryKey(scope),
     listAgentsQueryKey({ ...scope, query: { limit: 1 } }),
     listOrgAgentsQueryKey({ path: { orgID }, client }),
@@ -67,6 +70,7 @@ it('invalidates organization and project agent lists when deleting a target, wit
   ]
   const unaffected = [
     listOrgAgentsQueryKey({ path: { orgID: `org_${'b'.repeat(26)}` }, client }),
+    listOrgIntegrationsQueryKey({ path: { orgID: `org_${'b'.repeat(26)}` }, client }),
     listAgentsQueryKey({ path: { orgID, projectID: `proj_${'b'.repeat(26)}` }, client }),
     listCronTriggersQueryKey({ path: { orgID, projectID: `proj_${'b'.repeat(26)}` }, client }),
     getAgentConfigQueryKey({

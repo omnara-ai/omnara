@@ -24,7 +24,7 @@ export function UsageOverview({
   reportLink?: ReactNode
 }) {
   return (
-    <section className="flex flex-col gap-6">
+    <section className="flex flex-col gap-6 pb-10">
       <OverviewSectionHeader
         title="Usage"
         subtitle={`Last ${usageDays} days`}

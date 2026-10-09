@@ -18,6 +18,7 @@ export interface Crumb {
   label: string
   to?: LinkProps['to']
   params?: LinkProps['params']
+  search?: LinkProps['search']
   icon?: ReactNode
 }
 
@@ -55,6 +56,7 @@ export function PageBreadcrumb({ items }: { items: Crumb[] }) {
                     <Link
                       to={item.to}
                       params={item.params}
+                      search={item.search}
                       activeOptions={{ exact: true }}
                       className={crumbClass}
                     >

@@ -90,6 +90,24 @@ const organizationMachinesRoute = createRoute({
   ),
 })
 
+const byoMachinesRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/machines/byo',
+  component: lazyRouteComponent(() => import('@/routes/ByoMachinesPage'), 'ByoMachinesPage'),
+})
+
+const modelProviderRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/models/providers/$providerId',
+  component: lazyRouteComponent(() => import('@/routes/ModelProviderPage'), 'ModelProviderPage'),
+})
+
+const machinePoolRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/machines/pools/$poolId',
+  component: lazyRouteComponent(() => import('@/routes/MachinePoolPage'), 'MachinePoolPage'),
+})
+
 const organizationModelsSearch = z.object({ provider: z.string().optional().catch(undefined) })
 
 const organizationModelsRoute = createRoute({
@@ -99,6 +117,15 @@ const organizationModelsRoute = createRoute({
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationModelsPage'),
     'OrganizationModelsPage',
+  ),
+})
+
+const organizationIntegrationsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/integrations',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrgIntegrationsPage'),
+    'OrgIntegrationsPage',
   ),
 })
 
@@ -120,13 +147,29 @@ const secretsRoute = createRoute({
 const skillsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/skills',
+  validateSearch: z.object({ owner: z.enum(['organization']).optional().catch(undefined) }),
   component: lazyRouteComponent(() => import('@/routes/SkillsPage'), 'SkillsPage'),
 })
 
-const apiTokensRoute = createRoute({
+const skillRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/skills/$skillId',
+  component: lazyRouteComponent(() => import('@/routes/SkillPage'), 'SkillPage'),
+})
+
+const orgApiTokensRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/api-tokens',
+  component: lazyRouteComponent(() => import('@/routes/OrgApiTokensPage'), 'OrgApiTokensPage'),
+})
+
+const personalAccessTokensRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/user/api-tokens',
-  component: lazyRouteComponent(() => import('@/routes/ApiTokensPage'), 'ApiTokensPage'),
+  component: lazyRouteComponent(
+    () => import('@/routes/PersonalAccessTokensPage'),
+    'PersonalAccessTokensPage',
+  ),
 })
 
 // Not under onboardedRoute: users with no organization must still be able to
@@ -200,9 +243,14 @@ const createIntegrationRoute = createRoute({
   ),
 })
 
+const integrationSearch = z.object({
+  tab: z.enum(['schedules', 'conversations', 'advanced']).optional().catch(undefined),
+})
+
 const integrationDetailRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations/$integrationId',
+  validateSearch: integrationSearch,
   component: lazyRouteComponent(() => import('@/routes/IntegrationPage'), 'IntegrationPage'),
 })
 
@@ -218,6 +266,24 @@ const projectMachinesRoute = createRoute({
   component: lazyRouteComponent(
     () => import('@/routes/ProjectMachinesPage'),
     'ProjectMachinesPage',
+  ),
+})
+
+const projectByoMachinesRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/machines/byo',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectByoMachinesPage'),
+    'ProjectByoMachinesPage',
+  ),
+})
+
+const projectMachinePoolRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/machines/pools/$poolId',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectMachinePoolPage'),
+    'ProjectMachinePoolPage',
   ),
 })
 
@@ -237,6 +303,12 @@ const projectSkillsRoute = createRoute({
   path: '/projects/$projectId/skills',
   validateSearch: projectSharingSearch,
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
+})
+
+const projectSkillRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/skills/$skillId',
+  component: lazyRouteComponent(() => import('@/routes/ProjectSkillPage'), 'ProjectSkillPage'),
 })
 
 const projectMemoryRoute = createRoute({
@@ -413,12 +485,18 @@ const routeTree = rootRoute.addChildren([
       overviewRoute,
       membersRoute,
       organizationMachinesRoute,
+      byoMachinesRoute,
+      machinePoolRoute,
       organizationModelsRoute,
+      modelProviderRoute,
       organizationAgentsRoute,
+      organizationIntegrationsRoute,
       organizationUsageRoute,
       secretsRoute,
       skillsRoute,
-      apiTokensRoute,
+      skillRoute,
+      orgApiTokensRoute,
+      personalAccessTokensRoute,
       organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,
@@ -428,8 +506,11 @@ const routeTree = rootRoute.addChildren([
       integrationDetailRoute,
       projectModelsRoute,
       projectMachinesRoute,
+      projectByoMachinesRoute,
+      projectMachinePoolRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectSkillRoute,
       projectMemoryRoute,
       memoryStoreRoute,
       projectUsageRoute,

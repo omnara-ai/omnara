@@ -92,6 +92,7 @@ export {
   useIntegration,
   useIntegrationDefinitions,
   useIntegrations,
+  useOrgIntegrations,
   useUpdateIntegration,
 } from './domains/integrations'
 export {
@@ -171,6 +172,7 @@ export {
   useDeleteConfiguredModel,
   useDeleteModelProvider,
   useModelCatalog,
+  useModelProvider,
   useModelProviders,
   useUpdateConfiguredModel,
   useUpdateModelProvider,

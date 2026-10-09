@@ -1,16 +1,7 @@
 import { Link } from '@tanstack/react-router'
 
-import { ChevronDown, Folder } from '@/components/icons'
-import { NewProjectButton } from '@/components/projects/NewProjectButton'
+import { ProjectPickerButton } from '@/components/projects/ProjectPickerButton'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { useProjectDirectory } from '@/hooks/use-project-directory'
 
 const defaultLabel = 'Create agent profile'
 
@@ -31,11 +22,7 @@ export function CreateAgentProfileButton({
   )
 }
 
-/**
- * Org-wide variant: profiles live in a project, so this links straight to the
- * only manageable project, asks which one when there are several, and can offer
- * to create a project when there are none.
- */
+/** Org-wide variant: profiles live in a project, so this picks one first. */
 export function OrgCreateAgentProfileButton({
   orgId,
   label = defaultLabel,
@@ -43,42 +30,15 @@ export function OrgCreateAgentProfileButton({
 }: {
   orgId: string
   label?: string
-  /**
-   * Offer to create a project when the viewer can't manage any; otherwise render nothing.
-   * Only org admins can create projects, so callers pass canManageOrg.
-   */
+  /** Offer to create a project when the viewer can't manage any. */
   offerNewProject?: boolean
 }) {
-  const directory = useProjectDirectory(orgId)
-  const projects = [...directory.projects.values()].filter((project) => project.access.can_manage)
-  // Choosing between one project, several, or none needs the whole list.
-  if (!directory.isLoaded) return null
-
-  const [first, second] = projects
-  if (first && !second) return <CreateAgentProfileButton projectId={first.id} label={label} />
-  if (!first)
-    return offerNewProject ? <NewProjectButton orgId={orgId} label="Create a project" /> : null
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm">
-          {label}
-          <ChevronDown aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-72 min-w-56" align="center">
-        <DropdownMenuLabel className="text-muted-foreground text-xs">
-          Choose a project
-        </DropdownMenuLabel>
-        {projects.map((project) => (
-          <DropdownMenuItem key={project.id} asChild className="gap-2">
-            <Link to="/projects/$projectId/agents/new" params={{ projectId: project.id }}>
-              <Folder />
-              <span className="truncate">{project.name}</span>
-            </Link>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <ProjectPickerButton
+      orgId={orgId}
+      to="/projects/$projectId/agents/new"
+      label={label}
+      offerNewProject={offerNewProject}
+    />
   )
 }

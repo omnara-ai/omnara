@@ -5439,6 +5439,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -5890,6 +5896,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -6925,6 +6937,12 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only the grant for this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -7583,6 +7601,44 @@ paths:
           $ref: "#/components/responses/ClientError"
         5XX:
           $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/integrations:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgIntegrations
+      tags: [Integrations]
+      summary: List integrations across projects
+      description: >-
+        Lists integrations in every project of the organization the caller can
+        read. Each integration carries its project_id. Items are ordered by
+        created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Integrations across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/integrations:
     parameters:
       - name: orgID
@@ -13818,7 +13874,7 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         usage:
-          description: Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+          description: Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
           $ref: '#/components/schemas/MachinePoolUsage'
     MachinePoolUsage:
       type: object

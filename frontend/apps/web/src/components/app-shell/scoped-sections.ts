@@ -23,6 +23,7 @@ export const projectPaths = {
 
 export const organizationPaths = {
   agents: '/agents',
+  integrations: '/integrations',
   usage: '/usage',
   models: '/models',
   machines: '/machines',

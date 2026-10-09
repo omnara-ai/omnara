@@ -899,6 +899,15 @@ func (s *Store) GetMachinePool(ctx context.Context, orgID, id uuid.UUID) (Machin
 	return machinePoolRecordFromSQLC(row), nil
 }
 
+// GetMachinePoolUsage reports the quota-consuming machines a pool has provisioned.
+func (s *Store) GetMachinePoolUsage(ctx context.Context, orgID, id uuid.UUID) (MachinePoolUsageRecord, error) {
+	row, err := s.q.GetMachinePoolUsage(ctx, dbsqlc.GetMachinePoolUsageParams{OrgID: orgID, MachinePoolID: id})
+	if err != nil {
+		return MachinePoolUsageRecord{}, fmt.Errorf("get machine pool usage: %w", err)
+	}
+	return MachinePoolUsageRecord{Machines: row.ActiveMachines, CPU: row.ActiveCpu, MemoryMB: row.ActiveMemoryMb}, nil
+}
+
 func (s *Store) GetMachinePoolForLifecycle(
 	ctx context.Context,
 	orgID, id uuid.UUID,

@@ -3210,7 +3210,7 @@ export type MachinePool = {
     created_at: Timestamp;
     updated_at: Timestamp;
     /**
-     * Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+     * Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
      */
     usage?: MachinePoolUsage;
 };
@@ -12414,6 +12414,10 @@ export type ListVisibleProjectMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -13114,6 +13118,10 @@ export type ListVisibleMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -14891,6 +14899,10 @@ export type ListProjectMachinePoolGrantsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Return only the grant for this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -16013,6 +16025,78 @@ export type UploadDaemonFileResponses = {
 };
 
 export type UploadDaemonFileResponse = UploadDaemonFileResponses[keyof UploadDaemonFileResponses];
+
+export type ListOrgIntegrationsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/integrations';
+};
+
+export type ListOrgIntegrationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgIntegrationsError = ListOrgIntegrationsErrors[keyof ListOrgIntegrationsErrors];
+
+export type ListOrgIntegrationsResponses = {
+    /**
+     * Integrations across the caller's readable projects, newest first.
+     */
+    200: ListIntegrationsResponse;
+};
+
+export type ListOrgIntegrationsResponse = ListOrgIntegrationsResponses[keyof ListOrgIntegrationsResponses];
 
 export type ListIntegrationsData = {
     body?: never;

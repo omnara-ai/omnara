@@ -145,6 +145,16 @@ WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
 FOR UPDATE;
 
+-- name: GetMachinePoolUsage :one
+SELECT count(*)::integer AS active_machines,
+       coalesce(sum(cpu), 0)::bigint AS active_cpu,
+       coalesce(sum(memory_mb), 0)::bigint AS active_memory_mb
+FROM machines
+WHERE org_id = sqlc.arg(org_id)
+  AND machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND source_kind = 'pool'
+  AND deleted_at IS NULL;
+
 -- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
        default_machine_memory_mb, default_machine_env, default_machine_secret_env,

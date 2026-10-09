@@ -262,12 +262,39 @@ func (s *Store) ListIntegrations(
 	if err != nil {
 		return ListIntegrationsResult{}, err
 	}
+	return integrationPage(rows, input.Limit)
+}
+
+// ListIntegrationsForProjects lists integrations in any of the given projects. Callers pass only
+// projects the principal may read; an empty list returns no integrations.
+func (s *Store) ListIntegrationsForProjects(
+	ctx context.Context,
+	input ListIntegrationsForProjectsInput,
+) (ListIntegrationsResult, error) {
+	if input.Limit < 1 || input.Limit > 100 {
+		return ListIntegrationsResult{}, storeerr.InvalidRequest(errors.New("limit between 1 and 100 is required"))
+	}
+	if len(input.ProjectIDs) == 0 {
+		return ListIntegrationsResult{Integrations: []IntegrationRecord{}}, nil
+	}
+	rows, err := s.q.ListIntegrationsForProjects(ctx, dbsqlc.ListIntegrationsForProjectsParams{
+		ProjectIds: input.ProjectIDs, NamePattern: input.NamePattern, RowLimit: int32(input.Limit + 1),
+		CursorSet: input.After.Set, CursorCreatedAt: input.After.CreatedAt, CursorID: input.After.ID,
+	})
+	if err != nil {
+		return ListIntegrationsResult{}, err
+	}
+	return integrationPage(rows, input.Limit)
+}
+
+// integrationPage maps up to limit rows; one extra row signals another page.
+func integrationPage(rows []dbsqlc.Integration, limit int) (ListIntegrationsResult, error) {
 	result := ListIntegrationsResult{
-		Integrations: make([]IntegrationRecord, 0, min(len(rows), input.Limit)),
-		HasMore:      len(rows) > input.Limit,
+		Integrations: make([]IntegrationRecord, 0, min(len(rows), limit)),
+		HasMore:      len(rows) > limit,
 	}
 	if result.HasMore {
-		rows = rows[:input.Limit]
+		rows = rows[:limit]
 	}
 	for _, row := range rows {
 		record, err := integrationRecord(row)
