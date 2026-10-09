@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -21,7 +20,6 @@ import (
 )
 
 type inboxS3Options struct {
-	denyGet bool
 	denyPut bool
 }
 
@@ -58,7 +56,7 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 		}
 		switch r.Method {
 		case http.MethodGet:
-			if options.denyGet || !exists {
+			if !exists {
 				fail(http.StatusForbidden, "AccessDenied")
 			} else {
 				w.Header().Set("X-Amz-Meta-Omnara-Digest", object.digest)
@@ -69,9 +67,8 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 				fail(http.StatusForbidden, "AccessDenied")
 				return
 			}
-			assert.Equal(t, "*", r.Header.Get("If-None-Match"))
-			if exists {
-				fail(http.StatusPreconditionFailed, "PreconditionFailed")
+			if r.Header.Get("If-None-Match") != "" {
+				fail(http.StatusNotImplemented, "NotImplemented")
 				return
 			}
 			content, err := io.ReadAll(r.Body)
@@ -91,43 +88,29 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 	return store, state
 }
 
-func TestIntegrationConsumerS3AuthorizationFailures(t *testing.T) {
-	for _, options := range []inboxS3Options{{denyPut: true}, {denyGet: true}} {
-		t.Run(fmt.Sprintf("deny_get=%t", options.denyGet), func(t *testing.T) {
-			blobs, state := newInboxS3Store(t, options)
-			artifacts := artifactstore.New(nil, blobs)
-			file := IntegrationInboxFile{Content: []byte("image"), ContentType: "image/png", Filename: "image.png"}
-			expected := artifactstore.PreparedArtifact{
-				ID: uuid.Must(uuid.NewV7()), ContentType: file.ContentType, Filename: file.Filename,
-				Digest: blobstore.ContentDigest(file.Content), SizeBytes: int64(len(file.Content)),
-			}
-			recipient := IntegrationInboxRecipient{AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{expected.ID}}
-			message := executionstore.InboxMessage{
-				ContentBlocks: []byte(`[{"type":"media_ref","artifact_id":"` + expected.ID.String() + `"}]`),
-				Files: []executionstore.InboxPlannedFile{{
-					ArtifactID: expected.ID, ProviderFileID: "F123", Expected: &expected,
-				}},
-			}
-			if options.denyGet {
-				require.NoError(t, artifacts.UploadPreparedArtifact(t.Context(), recipient.AgentID, expected, file.Content))
-			}
-			consumer := NewIntegrationInboxConsumer(nil, nil, artifacts, nil, nil, nil)
-			prepared, err := consumer.prepareFiles(t.Context(), &integrationConsumerProvider{file: file},
-				integrationstore.IntegrationRecord{}, nil, message, recipient, nil)
-			require.Empty(t, prepared)
-			require.NotErrorIs(t, err, blobstore.ErrNotFound)
-			var apiError smithy.APIError
-			require.ErrorAs(t, err, &apiError)
-			require.Equal(t, "AccessDenied", apiError.ErrorCode())
-			if options.denyGet {
-				require.NotErrorIs(t, err, blobstore.ErrContentConflict)
-				require.ErrorContains(t, err, "test-PUT-3")
-				require.ErrorContains(t, err, "test-GET-4")
-			}
-			if options.denyPut {
-				objects, _ := state.snapshot()
-				require.Empty(t, objects)
-			}
-		})
+func TestIntegrationConsumerS3AuthorizationFailure(t *testing.T) {
+	blobs, state := newInboxS3Store(t, inboxS3Options{denyPut: true})
+	artifacts := artifactstore.New(nil, blobs)
+	file := IntegrationInboxFile{Content: []byte("image"), ContentType: "image/png", Filename: "image.png"}
+	expected := artifactstore.PreparedArtifact{
+		ID: uuid.Must(uuid.NewV7()), ContentType: file.ContentType, Filename: file.Filename,
+		Digest: blobstore.ContentDigest(file.Content), SizeBytes: int64(len(file.Content)),
 	}
+	recipient := IntegrationInboxRecipient{AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{expected.ID}}
+	message := executionstore.InboxMessage{
+		ContentBlocks: []byte(`[{"type":"media_ref","artifact_id":"` + expected.ID.String() + `"}]`),
+		Files: []executionstore.InboxPlannedFile{{
+			ArtifactID: expected.ID, ProviderFileID: "F123", Expected: &expected,
+		}},
+	}
+	consumer := NewIntegrationInboxConsumer(nil, nil, artifacts, nil, nil, nil)
+	prepared, err := consumer.prepareFiles(t.Context(), &integrationConsumerProvider{file: file},
+		integrationstore.IntegrationRecord{}, nil, message, recipient, map[string]IntegrationInboxFile{})
+	require.Empty(t, prepared)
+	require.NotErrorIs(t, err, blobstore.ErrNotFound)
+	require.ErrorContains(t, err, "AccessDenied")
+	require.ErrorContains(t, err, "test-GET-1")
+	require.ErrorContains(t, err, "test-PUT-2")
+	objects, _ := state.snapshot()
+	require.Empty(t, objects)
 }

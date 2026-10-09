@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,9 +31,6 @@ type failedIntegrationBlobs struct {
 }
 
 func (b *failedIntegrationBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
-	if existing, ok := b.content[key]; ok && !bytes.Equal(existing, content) {
-		return blobstore.Metadata{}, blobstore.ErrContentConflict
-	}
 	b.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }

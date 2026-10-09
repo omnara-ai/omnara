@@ -425,9 +425,7 @@ func (c *IntegrationInboxConsumer) prepareFiles(
 			blobstore.ContentDigest(content.Content) != expected.Digest {
 			return nil, storeerr.ErrIdempotencyConflict
 		}
-		if cache != nil {
-			cache[file.ProviderFileID] = content
-		}
+		cache[file.ProviderFileID] = content
 		if err = c.artifacts.UploadPreparedArtifact(ctx, recipient.AgentID, expected, content.Content); err != nil {
 			return nil, errors.Join(probeErr, err)
 		}

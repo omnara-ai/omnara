@@ -1,7 +1,6 @@
 package artifactstore
 
 import (
-	"bytes"
 	"context"
 	"sync"
 	"testing"
@@ -20,9 +19,6 @@ type preparedUploadBlobs struct {
 func (s *preparedUploadBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.content[key]; ok && !bytes.Equal(existing, content) {
-		return blobstore.Metadata{}, blobstore.ErrContentConflict
-	}
 	s.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
@@ -73,9 +69,9 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	changed := expected
 	changed.Digest = blobstore.ContentDigest([]byte("changed"))
 	changed.SizeBytes = 7
-	err = store.UploadPreparedArtifact(t.Context(), agentID, changed, []byte("changed"))
+	present, err = store.PreparedArtifactUploaded(t.Context(), agentID, changed)
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
-	require.ErrorIs(t, err, blobstore.ErrContentConflict)
+	require.False(t, present)
 	stored, _, err := blobs.GetBlob(t.Context(), artifactObjectKey(agentID, expected.ID))
 	require.NoError(t, err)
 	require.Equal(t, content, stored)

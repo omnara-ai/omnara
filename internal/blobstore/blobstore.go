@@ -12,16 +12,13 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/smithy-go"
 )
 
 var ErrNotFound = errors.New("blob not found")
-var ErrContentConflict = errors.New("blob key has different content")
 
 // ContentDigest is the canonical digest format for blob content; artifact
 // idempotent-replay validation compares these digests.
@@ -36,7 +33,6 @@ type Metadata struct {
 }
 
 type Store interface {
-	// PutBlob stores immutable content: identical replays succeed; different bytes return ErrContentConflict.
 	PutBlob(ctx context.Context, key string, content []byte) (Metadata, error)
 	GetBlob(ctx context.Context, key string) ([]byte, Metadata, error)
 	DeleteBlob(ctx context.Context, key string) error
@@ -91,7 +87,6 @@ func NewS3Store(ctx context.Context, cfg S3Config) (*S3Store, error) {
 			options.BaseEndpoint = aws.String(cfg.Endpoint)
 		}
 		options.UsePathStyle = cfg.UsePathStyle
-		options.Retryer = retry.AddWithErrorCodes(options.Retryer, "ConditionalRequestConflict")
 	})
 	return &S3Store{client: client, bucket: cfg.Bucket}, nil
 }
@@ -101,25 +96,13 @@ func (s *S3Store) PutBlob(ctx context.Context, key string, content []byte) (Meta
 		return Metadata{}, errors.New("blob key is required")
 	}
 	digest := ContentDigest(content)
-	input := &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(content),
-		Metadata:    map[string]string{digestMetadataKey: digest},
-		IfNoneMatch: aws.String("*"),
-	}
-	if _, err := s.client.PutObject(ctx, input); err != nil {
-		var apiError smithy.APIError
-		if !errors.As(err, &apiError) || apiError.ErrorCode() != "PreconditionFailed" {
-			return Metadata{}, fmt.Errorf("put blob %q: %w", key, err)
-		}
-		existing, _, verifyErr := s.GetBlob(ctx, key)
-		if verifyErr != nil {
-			return Metadata{}, fmt.Errorf("verify existing blob %q: %w", key, errors.Join(verifyErr, err))
-		}
-		if !bytes.Equal(existing, content) {
-			return Metadata{}, fmt.Errorf("put blob %q: %w: %w", key, ErrContentConflict, err)
-		}
+	if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:   aws.String(s.bucket),
+		Key:      aws.String(key),
+		Body:     bytes.NewReader(content),
+		Metadata: map[string]string{digestMetadataKey: digest},
+	}); err != nil {
+		return Metadata{}, fmt.Errorf("put blob %q: %w", key, err)
 	}
 	return Metadata{Digest: digest, SizeBytes: int64(len(content))}, nil
 }
@@ -132,7 +115,7 @@ func (s *S3Store) GetBlob(ctx context.Context, key string) ([]byte, Metadata, er
 	if err != nil {
 		var noSuchKey *types.NoSuchKey
 		if errors.As(err, &noSuchKey) {
-			err = errors.Join(ErrNotFound, err)
+			return nil, Metadata{}, ErrNotFound
 		}
 		return nil, Metadata{}, fmt.Errorf("get blob %q: %w", key, err)
 	}

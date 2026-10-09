@@ -50,8 +50,5 @@ func (s *Store) UploadPreparedArtifact(
 		return storeerr.ErrIdempotencyConflict
 	}
 	_, err := s.blobs.PutBlob(ctx, artifactObjectKey(agentID, expected.ID), content)
-	if errors.Is(err, blobstore.ErrContentConflict) {
-		return errors.Join(storeerr.ErrIdempotencyConflict, err)
-	}
 	return err
 }

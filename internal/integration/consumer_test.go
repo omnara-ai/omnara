@@ -159,9 +159,9 @@ func TestIntegrationConsumerPresenceProbeFailures(t *testing.T) {
 	}{
 		{name: "known conflict stops before downloading", probeErr: storeerr.ErrIdempotencyConflict,
 			wantErr: storeerr.ErrIdempotencyConflict},
-		{name: "transient probe failure permits conditional create", probeErr: probeFailure,
+		{name: "transient probe failure permits upload", probeErr: probeFailure,
 			wantDownloads: 1, wantUploads: 1},
-		{name: "failed create preserves probe diagnostics", probeErr: probeFailure, uploadErr: uploadFailure,
+		{name: "failed upload preserves probe diagnostics", probeErr: probeFailure, uploadErr: uploadFailure,
 			wantErr: uploadFailure, wantDownloads: 1, wantUploads: 1},
 		{name: "failed download preserves probe diagnostics", probeErr: probeFailure, downloadErr: downloadFailure,
 			wantErr: downloadFailure, wantDownloads: 1},
@@ -184,7 +184,7 @@ func TestIntegrationConsumerPresenceProbeFailures(t *testing.T) {
 			prepared, err := consumer.prepareFiles(t.Context(), provider, integrationstore.IntegrationRecord{}, nil,
 				message, IntegrationInboxRecipient{
 					AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{expected.ID},
-				}, nil)
+				}, map[string]IntegrationInboxFile{})
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				require.ErrorIs(t, err, tc.probeErr)
