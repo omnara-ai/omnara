@@ -3,8 +3,10 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -99,16 +101,26 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			}
 			receipt := accept("root", f.message)
 			router := NewIntegrationRouter(store.Execution(), store.Integrations())
+			providers := map[integrationdefinition.Provider]IntegrationInboxProvider{
+				integrationdefinition.ProviderDiscord: provider,
+			}
+			launchers := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Kind]IntegrationLauncher{
+				integrationdefinition.DiscordThread: testProfileIntegrationLauncher,
+			}, providers)
 			consumer := NewIntegrationInboxConsumer(
 				router,
 				store.Integrations(),
 				nil,
-				map[integrationdefinition.Provider]IntegrationInboxProvider{integrationdefinition.ProviderDiscord: provider},
+				providers,
 				nil,
-				testIntegrationLaunchWorkflow(router),
+				launchers,
 			)
+			var warnings bytes.Buffer
+			launchers.Log = slog.New(slog.NewTextHandler(&warnings, &slog.HandlerOptions{Level: slog.LevelWarn}))
+			consumer.Log = launchers.Log
 			worker := NewIntegrationInboxWorker(store.Integrations(), consumer, IntegrationInboxWorkerOptions{})
 			identityReads := 0
+			var replies []string
 			reactions := func() []string {
 				f.mu.Lock()
 				defer f.mu.Unlock()
@@ -158,6 +170,15 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 					)
 					assert.Zero(t, count)
 				}
+				if r.Method == http.MethodPost && r.URL.Path == "/api/v10/channels/300/messages" {
+					var body struct{ Content, Nonce string }
+					assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+					replies = append(replies, body.Content)
+					assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+						"id": "900", "channel_id": "300", "nonce": body.Nonce, "author": map[string]string{"id": "22"},
+					}))
+					return true
+				}
 				return false
 			}
 			worked, err := worker.RunOnce(ctx)
@@ -172,11 +193,23 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			if scenario == "no launcher" || scenario == "unsupported channel" {
 				require.Zero(t, f.posts)
 				require.Empty(t, reactions())
-				require.Equal(t, []string{"GET /api/v10/channels/300"}, f.requests)
+				wantRequests, wantReplies := []string{"GET /api/v10/channels/300"}, []string(nil)
+				if scenario == "no launcher" {
+					wantRequests = append(wantRequests, "GET /api/v10/users/@me", "GET /api/v10/applications/@me",
+						"GET /api/v10/channels/300", "POST /api/v10/channels/300/messages")
+					wantReplies = []string{launchNotSetUpMessage}
+				}
+				require.Equal(t, wantRequests, f.requests)
 				latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 				require.NoError(t, err)
 				require.Equal(t, integrationstore.IntegrationInboxCompleted, latest.State)
 				require.JSONEq(t, `{"recipients":{}}`, string(latest.Plan))
+				_, err = consumer.Consume(ctx, integrationstore.IntegrationInboxLease{
+					ProjectID: ids.ProjectID, ReceiptID: receipt.ID, Token: uuid.New(),
+				})
+				require.NoError(t, err)
+				require.Equal(t, wantReplies, replies, "replay must not repeat feedback")
+				require.Empty(t, warnings.String())
 				return
 			}
 			require.Equal(t, 1, f.posts)
