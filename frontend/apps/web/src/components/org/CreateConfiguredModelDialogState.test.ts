@@ -7,6 +7,7 @@ import {
   configuredModelSuggestedName,
   configuredModelTokenLimitsError,
   discoveredModelMatches,
+  reasoningSource,
 } from './CreateConfiguredModelDialogState'
 
 const discovered = {
@@ -25,6 +26,8 @@ describe('configured model drafts', () => {
       name: discovered.slug,
       contextWindowTokens: '262144',
       maxOutputTokens: '16384',
+      supportsReasoning: false,
+      supportedReasoningEfforts: [],
     })
     expect(configuredModelDraftError(draft)).toBe('')
     expect(configuredModelDraftRequest(draft)).toEqual({
@@ -35,6 +38,28 @@ describe('configured model drafts', () => {
       supports_tools: true,
       supports_reasoning: false,
     })
+  })
+
+  it('keeps the reasoning support a discovered model reports', () => {
+    const draft = configuredModelDraft({
+      ...discovered,
+      supports_reasoning: true,
+      supported_reasoning_efforts: ['low', 'high'],
+    })
+    expect(configuredModelDraftRequest(draft)).toMatchObject({
+      supports_reasoning: true,
+      supported_reasoning_efforts: ['low', 'high'],
+    })
+  })
+
+  it('takes reasoning from a configuration with it on, or else from the catalog', () => {
+    const listed = { slug: 'model', supports_reasoning: true, supported_reasoning_efforts: ['low'] }
+    const on = { supports_reasoning: true, supported_reasoning_efforts: ['high'] }
+    const off = { supports_reasoning: false, supported_reasoning_efforts: [] }
+    expect(reasoningSource(on, listed)).toBe(on)
+    expect(reasoningSource(on, { slug: 'model' })).toBe(on)
+    expect(reasoningSource(off, listed)).toBe(listed)
+    expect(reasoningSource(off, undefined)).toBe(off)
   })
 
   it('gives each draft its own id, so a slug can be picked twice', () => {

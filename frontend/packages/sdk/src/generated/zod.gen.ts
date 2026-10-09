@@ -208,6 +208,8 @@ export const zDiscoveredProviderModel = z.object({
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    supports_reasoning: z.boolean().optional(),
+    supported_reasoning_efforts: z.array(z.string()).optional(),
     pricing: zDiscoveredModelPricing.optional()
 });
 

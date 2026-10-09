@@ -8874,6 +8874,14 @@ components:
           minimum: 1
           maximum: 2147483647
           description: Provider-advertised maximum output limit in tokens, when available.
+        supports_reasoning:
+          type: boolean
+          description: Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+        supported_reasoning_efforts:
+          type: array
+          description: Reasoning effort values the model accepts, when reported.
+          items:
+            type: string
         pricing:
           $ref: '#/components/schemas/DiscoveredModelPricing'
     DiscoveredModelPricing:
