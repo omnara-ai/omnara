@@ -5686,7 +5686,7 @@ model:
   provider_config: openai-prod
   name: gpt-test
 `)
-	if _, err := store.Execution().LaunchAgent(
+	foreign, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
@@ -5696,10 +5696,11 @@ model:
 			Message:        "foreign",
 			IdempotencyKey: "idem-launch-foreign",
 		},
-	); !errors.Is(
-		err,
-		storeerr.ErrNotFound,
-	) {
-		t.Fatalf("launch with foreign config should fail lineage check with ErrNotFound, got %v", err)
+	)
+	if err != nil {
+		t.Fatalf("launch with config from another profile: %v", err)
+	}
+	if foreign.Agent.AgentProfileID != profile.ID || foreign.Agent.CurrentConfigID != other.CurrentConfigID {
+		t.Fatalf("launch with foreign config should run it under this profile: %+v", foreign.Agent)
 	}
 }

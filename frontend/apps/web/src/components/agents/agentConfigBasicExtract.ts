@@ -1,5 +1,17 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { zConfigIntegrationCapabilitySource } from '@omnara/sdk/zod'
+import {
+  zAgentConfigDefinition,
+  zAgentConfigDefinitionEventWebhook,
+  zAgentConfigDefinitionInteractionHandler,
+  zAgentConfigDefinitionMcpTool,
+  zAgentConfigDefinitionMemoryStore,
+  zAgentConfigDefinitionModel,
+  zAgentConfigDefinitionSubagent,
+  zAgentConfigDefinitionSubagentInstruction,
+  zAgentConfigDefinitionSubagentModel,
+  zAgentConfigDefinitionTool,
+  zAgentConfigDefinitionToolPermission,
+} from '@omnara/sdk/zod'
 import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
@@ -20,10 +32,12 @@ import {
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
 
+// Strict objects keep configs the builder cannot show in YAML mode; free text accepts unfinished rows.
+
 const permissionParameters = z.record(z.string(), z.json())
 
 const permission = z.strictObject({
-  mode: z.string(),
+  ...zAgentConfigDefinitionToolPermission.shape,
   parameters: permissionParameters.optional(),
 })
 
@@ -41,7 +55,7 @@ export function permissionSelection(selection: ToolPermissionSelection): Permiss
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
 const idleDeletionMinutes = z.number().refine(idleDeletionMinutesValid).optional()
-const overlay = z.record(z.string(), z.string().nullable()).optional()
+const overlay = z.record(z.string(), z.string().nullable()).nullish()
 const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
 const machineEntry = z.strictObject({
@@ -69,8 +83,7 @@ const poolEntry = z.strictObject({
 export type PoolEntry = z.infer<typeof poolEntry>
 
 const mcpAuth = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('oauth'), secret_id: z.string() }),
-  z.strictObject({ type: z.literal('bearer'), secret_id: z.string() }),
+  z.strictObject({ type: z.enum(['oauth', 'bearer']), secret_id: z.string() }),
   z.strictObject({
     type: z.literal('sigv4'),
     secret_id: z.string(),
@@ -80,9 +93,8 @@ const mcpAuth = z.discriminatedUnion('type', [
 ])
 
 const mcpToolEntry = z.strictObject({
-  enabled: z.boolean().nullable().optional(),
+  ...zAgentConfigDefinitionMcpTool.shape,
   permission: permission.optional(),
-  deferred: z.boolean().nullable().optional(),
 })
 
 export type McpToolEntry = z.infer<typeof mcpToolEntry>
@@ -90,7 +102,7 @@ export type McpToolEntry = z.infer<typeof mcpToolEntry>
 const mcpEntry = z.strictObject({
   url: z.string(),
   permission: permission.optional(),
-  default_enabled: z.boolean().nullable().optional(),
+  default_enabled: z.boolean().nullish(),
   deferred: z.boolean().optional(),
   auth: mcpAuth.optional(),
   tools: z.record(z.string(), mcpToolEntry).optional(),
@@ -100,23 +112,18 @@ export type McpEntry = z.infer<typeof mcpEntry>
 
 const toolEntry = z.strictObject({
   type: z.literal('built_in').optional(),
-  enabled: z.boolean().nullable().optional(),
+  enabled: zAgentConfigDefinitionTool.shape.enabled,
   permission: permission.optional(),
-  deferred: z.boolean().optional(),
+  deferred: zAgentConfigDefinitionTool.shape.deferred,
 })
 
 export type ToolEntry = z.infer<typeof toolEntry>
 
-const optionalText = z.string().nullable().optional()
-
+const subagentModelFields = zAgentConfigDefinitionSubagentModel.shape
 const subagentModelEntry = z
   .strictObject({
-    provider_config: z.string().optional(),
-    name: z.string().optional(),
-    context_window_tokens: positiveCount,
-    default_max_output_tokens: positiveCount,
-    cache_retention: z.string().optional(),
-    reasoning: z.strictObject({ effort: z.string() }).optional(),
+    ...subagentModelFields,
+    reasoning: z.strictObject(subagentModelFields.reasoning.unwrap().shape).optional(),
   })
   .refine((model) => (model.provider_config === undefined) === (model.name === undefined), {
     message: 'Model provider_config and name must be provided together.',
@@ -124,49 +131,50 @@ const subagentModelEntry = z
 export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
 
 const subagentEntry = z.strictObject({
-  type: z.enum(['profile', 'self']),
+  ...zAgentConfigDefinitionSubagent.shape,
   profile: z.string().optional(),
-  description: z.string().optional(),
   model: subagentModelEntry.optional(),
-  instruction: z.strictObject({ append: z.string().optional() }).optional(),
-  max_instances: positiveCount,
-  archive_after_idle_minutes: positiveCount,
+  instruction: z.strictObject(zAgentConfigDefinitionSubagentInstruction.shape).optional(),
 })
 export type SubagentEntry = z.infer<typeof subagentEntry>
 
 const memoryStoreEntry = z.strictObject({
+  ...zAgentConfigDefinitionMemoryStore.shape,
   name: z.string(),
-  access: z.enum(['read', 'read_write']),
 })
 export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
 
+const definitionFields = zAgentConfigDefinition.shape
+const webhookFields = zAgentConfigDefinitionEventWebhook.shape
+const optionalText = z.string().nullish()
+
 const basicDocument = z.looseObject({
-  version: z.literal('v1').optional(),
+  version: definitionFields.version,
   instruction: optionalText,
   model: z
     .looseObject({
       provider_config: optionalText,
       name: optionalText,
-      reasoning: z.strictObject({ effort: z.string() }).optional(),
+      reasoning: z
+        .strictObject(zAgentConfigDefinitionModel.shape.reasoning.unwrap().shape)
+        .optional(),
     })
-    .nullable()
-    .optional(),
-  machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
-  tools: z.record(z.string(), toolEntry).optional(),
-  interaction_handlers: z.record(z.string(), zConfigIntegrationCapabilitySource).optional(),
-  skills: z.array(z.string()).optional(),
-  memory_stores: z.array(memoryStoreEntry).optional(),
-  mcp: z.record(z.string(), mcpEntry).optional(),
+    .nullish(),
+  machine_sources: z.array(z.union([poolEntry, machineEntry])).nullish(),
+  tools: z.record(z.string(), toolEntry).nullish(),
+  interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).nullish(),
+  skills: definitionFields.skills,
+  memory_stores: z.array(memoryStoreEntry).nullish(),
+  mcp: z.record(z.string(), mcpEntry).nullish(),
   event_webhook: z
     .strictObject({
-      url: z.string(),
-      signing_secret_id: z.string().optional(),
-      events: z.array(z.string()).optional(),
+      ...webhookFields,
+      events: z.array(webhookFields.events.element).optional(),
     })
     .optional(),
-  subagents: z.record(z.string(), subagentEntry).optional(),
-  max_subagents: positiveCount,
-  max_depth: positiveCount,
+  subagents: z.record(z.string(), subagentEntry).nullish(),
+  max_subagents: definitionFields.max_subagents,
+  max_depth: definitionFields.max_depth,
 })
 
 export function extractBasicConfig(document: Document): BasicConfig | null {

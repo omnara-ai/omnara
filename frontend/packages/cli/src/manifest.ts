@@ -7,6 +7,7 @@ import { formatAgentEventList } from './agent-rendering.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
+  renderLaunchConfig,
   resolveConfigId,
   zConfigAttachment,
   zConfigSourceAttachment,
@@ -57,15 +58,17 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zCreateAgentPath,
         body: zConfigAttachment.extend({
-          profile: schemas.zAgentProfileId.optional(),
+          profile: schemas.zAgentProfileId
+            .optional()
+            .describe('agent profile ID; runs its current config unless a config is given'),
           name: schemas.zAgentName.optional(),
           message: z.string().optional(),
         }),
-        transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
+        transformBody: ({ profile, name, message, ...attachment }) => ({
           profile,
           name,
           message,
-          config: await resolveConfigId(client, path, attachment),
+          ...renderLaunchConfig(profile, attachment),
         }),
       }),
       op({

@@ -16,6 +16,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
@@ -32,6 +33,9 @@ func newOpenAPIRequestValidator() (middleware, error) {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
 	spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
+	if err := relaxAgentConfigDefinitionValidation(spec); err != nil {
+		return nil, err
+	}
 	queryRouter, err := gorillamux.NewRouter(spec)
 	if err != nil {
 		return nil, fmt.Errorf("build openapi query validator: %w", err)
@@ -78,6 +82,23 @@ func newOpenAPIRequestValidator() (middleware, error) {
 			validated.ServeHTTP(w, r)
 		})
 	}, nil
+}
+
+// relaxAgentConfigDefinitionValidation leaves definition validation to the
+// compiler, which reports path-specific issues.
+func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
+	for _, name := range []string{
+		agentconfig.OpenAPIDefinitionComponent,
+		agentconfig.OpenAPIToolsDefinitionComponent,
+	} {
+		ref, ok := spec.Components.Schemas[name]
+		if !ok || ref.Value == nil {
+			return fmt.Errorf("openapi spec has no %s schema", name)
+		}
+		// Overwrite in place: resolved $refs share this schema value.
+		*ref.Value = openapi3.Schema{Type: &openapi3.Types{openapi3.TypeObject}}
+	}
+	return nil
 }
 
 func rejectUnexpectedOpenAPIRequestBody(r *http.Request) error {

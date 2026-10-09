@@ -62,12 +62,9 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	if !hasConfigAdditions {
 		return input, nil
 	}
-	base, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, input.AgentConfigID)
+	base, err := s.publicLaunchBaseConfig(ctx, project, &input)
 	if err != nil {
-		return input, apierror.ProjectScoped(err)
-	}
-	if !found {
-		return input, apierror.FromCode(openapi.ErrorCodeNotFound, "agent config not found")
+		return input, err
 	}
 	derived, err := agentconfigcompile.DeriveIntegrationConfig(
 		ctx, s.server.store, project.OrgID, project.ID, s.server.agentConfigOptions, base, additions,
@@ -76,9 +73,39 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 		return input, agentConfigCompileError(err)
 	}
 	config := derived.CreateInput(project.ID)
-	input.DerivedBaseConfigID = base.ID
 	input.AgentConfigID, input.DerivedConfig = uuid.Nil, &config
 	return input, nil
+}
+
+// publicLaunchBaseConfig returns the config that launch-time additions extend.
+func (s strictOpenAPIServer) publicLaunchBaseConfig(
+	ctx context.Context,
+	project identitystore.ProjectRecord,
+	input *executionstore.LaunchAgentInput,
+) (executionstore.AgentConfigRecord, error) {
+	if input.DerivedConfig != nil {
+		return executionstore.AgentConfigRecord{
+			ConfiguredModelID:  input.DerivedConfig.ConfiguredModelID,
+			CompiledDefinition: input.DerivedConfig.CompiledDefinition,
+		}, nil
+	}
+	configID := input.AgentConfigID
+	if configID == uuid.Nil {
+		profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, input.ProfileID)
+		if err != nil {
+			return executionstore.AgentConfigRecord{}, apierror.ProjectScoped(err)
+		}
+		configID = profile.CurrentConfigID
+		input.DerivedBaseConfigID = configID
+	}
+	base, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, configID)
+	if err != nil {
+		return executionstore.AgentConfigRecord{}, apierror.ProjectScoped(err)
+	}
+	if !found {
+		return executionstore.AgentConfigRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "agent config not found")
+	}
+	return base, nil
 }
 
 func publicLaunchInitialInput(

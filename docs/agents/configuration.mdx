@@ -303,11 +303,11 @@ The CLI's `omnara memory-stores` commands manage stores; `omnara memory-stores f
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
+  Send the config in `source` with its `source_format`. YAML is stored verbatim with its comments and formatting. With `source_format: json`, `source` can be JSON text or the config as a JSON object; either way it is stored canonicalized (compact, keys sorted), so the same JSON definition maps to the same config however it is formatted. `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. Responses include the saved `source` text and its `source_format`. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
 
   <AgentConfigCreate />
 
-  The response includes the config ID and final model settings after config overrides and project limits are applied. The CLI uploads the config first, reusing the existing ID when the same definition was already created. Validation errors identify the field that needs to be fixed.
+  The response includes the config ID and final model settings after config overrides and project limits are applied. Validation errors identify the field that needs to be fixed.
 
   <Info>
   Full schema and playground: [Create agent config](/api-reference/endpoints/configs-and-profiles/create-agent-config) · [Get agent config](/api-reference/endpoints/configs-and-profiles/get-agent-config).
@@ -364,7 +364,7 @@ Updating a profile points it to a new immutable config. Future launches use the 
 
 ### Use or delete a profile
 
-To launch from a profile, click **Launch** on its card under **Agents → Profiles**, pass `--profile` to `omnara agents launch`, or pass `profile` and `config` to the API. See [Launch an agent](/agents/overview#launch-an-agent).
+To launch from a profile, click **Launch** on its card under **Agents → Profiles**, pass `--profile` to `omnara agents launch`, or pass `profile` to the API. Add `config` or `config_source` to run a different config under the profile's name. See [Launch an agent](/agents/overview#launch-an-agent).
 
 Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the dashboard, open the profile's **Configuration** tab and click **Delete profile**, or run `omnara profiles delete {agent-profile-id}`. Integration settings can retain its public ID; future launches report the profile as unavailable until you choose an available profile. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
 

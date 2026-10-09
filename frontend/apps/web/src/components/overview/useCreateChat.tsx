@@ -28,7 +28,6 @@ export function useCreateChat(
     try {
       await createAgent.mutateAsync({
         profile: profile.id,
-        config: profile.current_config_id,
         message,
       })
     } catch (err) {

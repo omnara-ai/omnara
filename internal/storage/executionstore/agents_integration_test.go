@@ -126,9 +126,78 @@ model:
 		ProjectID:      testProjectID,
 		ProfileID:      profile.ID,
 		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "idem-deleted-profile-only-launch",
+	}); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("profile-only launch from deleted profile error = %v, want ErrNotFound", err)
+	}
+	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		LaunchedBy:     userPrincipal(user.ID),
 		IdempotencyKey: "idem-missing-config-launch",
-	}); err == nil || !strings.Contains(err.Error(), "agent config") {
-		t.Fatalf("launch without config error = %v, want agent config required", err)
+	}); err == nil || !strings.Contains(err.Error(), "agent profile, agent config, or derived config is required") {
+		t.Fatalf("launch without profile or config error = %v, want one required", err)
+	}
+}
+
+func TestAgentLaunchFromProfileResolvesCurrentConfigOrAcceptsAnyConfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+
+	store := newIntegrationStore(pool)
+	user, err := store.Identity().CreateVerifiedUser(
+		ctx,
+		storagetest.CreateVerifiedUserInput{Email: "agent-profile-only@example.com", DisplayName: "Agent Profile Only"},
+	)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-profile-only", "Profile Only", `
+instruction: Launch from the profile's current config.
+model:
+  provider_config: openai-prod
+  name: profile-only
+`)
+	profileOnly, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "idem-profile-only-launch",
+	})
+	if err != nil {
+		t.Fatalf("profile-only launch: %v", err)
+	}
+	if profileOnly.Agent.CurrentConfigID != profile.CurrentConfigID || profileOnly.Agent.AgentProfileID != profile.ID {
+		t.Fatalf("profile-only launch agent = %+v, want profile %s on config %s",
+			profileOnly.Agent, profile.ID, profile.CurrentConfigID)
+	}
+
+	unrelatedConfigID := mustCreateAgentConfig(t, ctx, store, testProjectID)
+	custom, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  unrelatedConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "idem-profile-custom-config-launch",
+	})
+	if err != nil {
+		t.Fatalf("profile launch with unrelated config: %v", err)
+	}
+	if custom.Agent.CurrentConfigID != unrelatedConfigID || custom.Agent.AgentProfileID != profile.ID {
+		t.Fatalf("profile launch with unrelated config agent = %+v, want profile %s on config %s",
+			custom.Agent, profile.ID, unrelatedConfigID)
+	}
+
+	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  unrelatedConfigID,
+		DerivedConfig:  &executionstore.CreateAgentConfigInput{},
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "idem-profile-both-configs-launch",
+	}); err == nil || !strings.Contains(err.Error(), "only one of agent config or derived config") {
+		t.Fatalf("launch with config and new config error = %v, want only one", err)
 	}
 }
 

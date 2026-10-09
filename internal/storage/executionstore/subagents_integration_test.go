@@ -297,14 +297,17 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	unrelated := mustCreateAgentConfigFromYAML(
 		t, ctx, store, strings.Replace(subagentParentYAML, "Coordinate helpers.", "Coordinate helpers alone.", 1),
 	)
-	_, err = spawnSubagentForTest(
+	outside, err := spawnSubagentForTest(
 		t, ctx, store, parent, unrelated.ID, "worker-2", "subagent-derived-child-2", nil,
 		func(input *executionstore.LaunchAgentInput) {
 			input.ProfileID = profile.ID
 		},
 	)
-	if !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("existing config outside the profile history: err = %v, want not found", err)
+	if err != nil {
+		t.Fatalf("existing config outside the profile history: %v", err)
+	}
+	if outside.Agent.AgentProfileID != profile.ID || outside.Agent.CurrentConfigID != unrelated.ID {
+		t.Fatalf("config outside the profile history should keep profile attribution: %+v", outside.Agent)
 	}
 }
 

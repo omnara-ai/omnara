@@ -17,7 +17,13 @@ export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
 
 ## Launch an agent
 
-Create an agent from a [config](/agents/configuration), or from a [profile](/agents/configuration#profiles) if you want the launch tied to a named template.
+Create an agent from a [config](/agents/configuration), or from a [profile](/agents/configuration#profiles) if you want the launch tied to a named template. Send at least one of `profile`, `config` (an existing config ID), or `config_source` (a config to compile and save during the launch, with the same `source` and `source_format` fields as creating a config), and not both `config` and `config_source`:
+
+- `profile` alone runs the profile's current config.
+- `config` or `config_source` alone runs that config.
+- `profile` with `config` or `config_source` attributes the agent to the profile but runs the given config, which need not be one of the profile's versions.
+
+The CLI takes `--profile`, and `--config`, `--file`, or `--source` for the config.
 
 <Tabs>
 <Tab title="API">

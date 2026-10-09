@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -47,7 +48,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
 		string(request.Body.SourceFormat),
@@ -609,16 +610,26 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid profile")
 		}
 	}
-	if request.Body.Config == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
-	}
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.Config)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+	configID := uuid.Nil
+	if request.Body.Config != nil {
+		configID, ok = parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.Config)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+		}
 	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
+	}
+	configSource := request.Body.ConfigSource
+	if configSource != nil && configID != uuid.Nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
+	}
+	if profileID == uuid.Nil && configID == uuid.Nil && configSource == nil {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"one of profile, config, or config_source is required",
+		)
 	}
 	message := ""
 	if request.Body.Message != nil {
@@ -633,8 +644,8 @@ func (s strictOpenAPIServer) createAgent(
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	}
-	// Replay before resolving integration references, which may have been deleted since launch.
-	// The kernel repeats this lookup under the launch key lock before writing.
+	// Replay before compiling config_source or resolving integration references, which may have
+	// changed since launch. The kernel repeats this lookup under the launch key lock.
 	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
 		ctx, project.ID, idempotencyKey,
 	); err != nil {
@@ -645,6 +656,20 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, err
 		}
 		return openapi.CreateAgent200JSONResponse(response), nil
+	}
+	if configSource != nil {
+		// config_source saves a new config, so it needs the same access as CreateAgentConfig.
+		if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
+			return nil, *err
+		}
+		compiled, err := s.server.compileAgentConfigSourceForProject(
+			ctx, project, string(configSource.SourceFormat), configSource.Source,
+		)
+		if err != nil {
+			return nil, agentConfigCompileError(err)
+		}
+		config := compiled.CreateInput(project.ID)
+		input.DerivedConfig = &config
 	}
 	input, err := s.preparePublicAgentLaunch(ctx, project, principal, *request.Body, input)
 	if err != nil {
@@ -699,7 +724,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated account principal is required to change an agent config")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
 		string(request.Body.SourceFormat),
@@ -1155,16 +1180,50 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-func (s *Server) compileAgentConfigBodyForProject(
+// agentConfigSourceInput resolves a request's source and source_format into compiler input.
+// JSON is canonicalized, so the same definition maps to the same saved config however it was sent.
+func agentConfigSourceInput(
+	sourceFormatRaw string,
+	source json.RawMessage,
+) (agentconfig.SourceFormat, string, error) {
+	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	if err != nil {
+		return "", "", err
+	}
+	trimmed := bytes.TrimSpace(source)
+	switch {
+	case len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")):
+		return "", "", errors.New("source is required")
+	case trimmed[0] == '"':
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return "", "", fmt.Errorf("source must be a string or JSON object: %w", err)
+		}
+		if sourceFormat == agentconfig.SourceFormatJSON {
+			text = string(agentconfig.CanonicalDefinitionJSON([]byte(text)))
+		}
+		return sourceFormat, text, nil
+	case trimmed[0] == '{':
+		if sourceFormat != agentconfig.SourceFormatJSON {
+			return "", "", errors.New("a JSON object source requires source_format json")
+		}
+		return sourceFormat, string(agentconfig.CanonicalDefinitionJSON(trimmed)), nil
+	default:
+		return "", "", errors.New("source must be a string or JSON object")
+	}
+}
+
+func (s *Server) compileAgentConfigSourceForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
-	sourceFormatRaw, source string,
+	sourceFormatRaw string,
+	rawSource json.RawMessage,
 ) (agentconfigcompile.Body, error) {
-	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	sourceFormat, source, err := agentConfigSourceInput(sourceFormatRaw, rawSource)
 	if err != nil {
 		return agentconfigcompile.Body{}, err
 	}
-	body, err := agentconfigcompile.Compile(
+	return agentconfigcompile.Compile(
 		ctx,
 		s.store,
 		project.OrgID,
@@ -1173,10 +1232,6 @@ func (s *Server) compileAgentConfigBodyForProject(
 		sourceFormat,
 		source,
 	)
-	if err != nil {
-		return agentconfigcompile.Body{}, err
-	}
-	return body, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {

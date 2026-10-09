@@ -1,5 +1,5 @@
 import { useAgentConfigTools } from '@omnara/react'
-import { ApiError } from '@omnara/sdk'
+import { type AgentConfigToolsDefinition, ApiError } from '@omnara/sdk'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
@@ -10,8 +10,8 @@ import {
   toolWire,
 } from '@/components/agents/useAgentBuilderForm'
 
-export function agentBuilderToolsSource(source: BasicConfig): string {
-  return JSON.stringify({
+export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToolsDefinition {
+  return {
     interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(
@@ -32,7 +32,7 @@ export function agentBuilderToolsSource(source: BasicConfig): string {
         return [row.key, { type, profile }]
       }),
     ),
-  })
+  }
 }
 
 function mcpPreviewWire(server: BasicMcpServer): McpEntry {
@@ -49,8 +49,8 @@ export function useAgentBuilderTools(
   scope: { orgId: string; projectId: string },
 ) {
   const query = useAgentConfigTools(scope.orgId, scope.projectId, {
+    source: agentBuilderToolsDefinition(source),
     source_format: 'json',
-    source: agentBuilderToolsSource(source),
   })
   const error = query.error
   const detail =

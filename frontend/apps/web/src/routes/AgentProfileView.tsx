@@ -353,7 +353,6 @@ function useProfileActions(
     try {
       const launched = await createAgent.mutateAsync({
         profile: profile.id,
-        config: profile.current_config_id,
       })
       await navigate({
         to: '/projects/$projectId/agents/$agentId/events',
