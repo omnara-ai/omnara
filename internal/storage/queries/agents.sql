@@ -193,6 +193,7 @@ WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL
 
 -- name: GetAgentProfileName :one
 -- @sqlc-vet-disable agent-profiles-deleted-at
+-- Generated config sources must still name subagent profiles after they are soft deleted.
 SELECT name
 FROM agent_profiles
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);

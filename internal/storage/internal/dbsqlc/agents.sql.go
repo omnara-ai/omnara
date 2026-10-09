@@ -514,6 +514,7 @@ type GetAgentProfileNameParams struct {
 }
 
 // @sqlc-vet-disable agent-profiles-deleted-at
+// Generated config sources must still name subagent profiles after they are soft deleted.
 func (q *Queries) GetAgentProfileName(ctx context.Context, arg GetAgentProfileNameParams) (string, error) {
 	row := q.db.QueryRow(ctx, getAgentProfileName, arg.ProjectID, arg.ID)
 	var name string
