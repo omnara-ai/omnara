@@ -1,15 +1,20 @@
 import type { MemoryStore, MemoryStoreList, VisibleProject } from '@omnara/sdk'
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
+import {
+  AgentCard,
+  AgentCardGlyph,
+  agentCardLinkClass,
+  AgentCardList,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { useListToolbarVisibility, type useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
-import { formatDateTime } from '@/lib/format'
 
 export function MemoryStoresSection({
   list,
@@ -24,11 +29,11 @@ export function MemoryStoresSection({
 }) {
   const paged = usePagedQuery(query, list.queryKey)
   const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
-  const navigate = useNavigate()
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Memory"
+        description="Configure files your agents keep between conversations and share with other agents."
         guide={guides.memory}
         toolbar={
           <ResourceListToolbar
@@ -41,72 +46,52 @@ export function MemoryStoresSection({
       >
         {action}
       </SearchHeader>
-      <DataTable
-        columns={[
-          {
-            id: 'name',
-            header: 'Name',
-            cell: (store) => (
-              <Link
-                className="font-medium"
-                to="/projects/$projectId/memory/$storeId"
-                params={{ projectId: store.project_id, storeId: store.id }}
-                onClick={(event) => {
-                  event.stopPropagation()
-                }}
-              >
-                {store.name}
-              </Link>
-            ),
-          },
-          ...(projectOf
-            ? [
-                {
-                  id: 'project',
-                  header: 'Project',
-                  cell: (store: MemoryStore) => (
-                    <span className="text-muted-foreground">{projectOf(store)?.name}</span>
-                  ),
-                },
-              ]
-            : []),
-          {
-            id: 'description',
-            header: 'Description',
-            cell: (store) => (
-              <span className="text-muted-foreground line-clamp-2">{store.description || '—'}</span>
-            ),
-          },
-          {
-            id: 'access',
-            header: 'Agent access',
-            cell: (store) => (store.agent_access === 'read' ? 'Read-only' : 'Read & write'),
-          },
-          {
-            id: 'updated',
-            header: 'Updated',
-            cell: (store) => (
-              <span className="text-muted-foreground text-sm">
-                {formatDateTime(store.updated_at)}
-              </span>
-            ),
-          },
-        ]}
-        data={paged.rows}
-        getRowId={(store) => store.id}
+      <AgentCardList
+        items={paged.rows}
+        getId={(store) => store.id}
+        renderCard={(store) => <MemoryStoreCard store={store} project={projectOf?.(store)} />}
         pagination={paged.pagination}
         isFiltered={list.isFiltering}
         isPending={query.isPending}
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No memory stores yet. Create one to share files with your agents."
-        onRowClick={(store) =>
-          void navigate({
-            to: '/projects/$projectId/memory/$storeId',
-            params: { projectId: store.project_id, storeId: store.id },
-          })
-        }
+        emptyAction={action}
       />
     </div>
+  )
+}
+
+function MemoryStoreCard({ store, project }: { store: MemoryStore; project?: VisibleProject }) {
+  return (
+    <AgentCard
+      icon={
+        <AgentCardGlyph>
+          <span aria-hidden="true" className="text-sm font-medium">
+            {store.name.charAt(0).toUpperCase()}
+          </span>
+        </AgentCardGlyph>
+      }
+      title={
+        <Link
+          to="/projects/$projectId/memory/$storeId"
+          params={{ projectId: store.project_id, storeId: store.id }}
+          className={agentCardLinkClass}
+        >
+          {store.name}
+        </Link>
+      }
+      subtitle={
+        <>
+          {project && <span className="truncate">{project.name}</span>}
+          {project && <span aria-hidden="true">·</span>}
+          <span className="shrink-0">
+            {store.agent_access === 'read' ? 'Read-only for agents' : 'Read & write for agents'}
+          </span>
+        </>
+      }
+      meta={<AgentCardTime label="Updated" value={store.updated_at} />}
+      footer={<span className="truncate">{store.description || 'No description'}</span>}
+    />
   )
 }

@@ -1,4 +1,10 @@
-import type { ComponentType, ReactNode, SVGProps } from 'react'
+import {
+  type ComponentType,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  type SVGProps,
+} from 'react'
 
 import { AgentIcon } from '@/components/agents/AgentIcon'
 import { DataTablePagination } from '@/components/data-table/DataTable'
@@ -103,7 +109,8 @@ export function AgentCard({
   stats,
   expansion,
 }: {
-  icon: AgentIconSpec
+  /** A generated agent icon, or an element drawn in its place (e.g. a brand mark). */
+  icon: AgentIconSpec | ReactElement
   animated?: boolean
   title: ReactNode
   subtitle: ReactNode
@@ -127,7 +134,7 @@ export function AgentCard({
             'bg-card group-hover/card:border-foreground/20 -mx-px -mt-px rounded-xl border transition-colors',
         )}
       >
-        <AgentIcon icon={icon} animated={animated} />
+        {isValidElement(icon) ? icon : <AgentIcon icon={icon} animated={animated} />}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">{title}</div>
           <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
@@ -242,5 +249,14 @@ export function AgentCardTime({
     >
       {status ?? formatTimeAgo(value)}
     </time>
+  )
+}
+
+/** Square tile matching AgentIcon's footprint, for cards that show a logo or icon instead. */
+export function AgentCardGlyph({ children }: { children: ReactNode }) {
+  return (
+    <span className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-[4px] border [&_svg]:size-5">
+      {children}
+    </span>
   )
 }
