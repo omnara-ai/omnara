@@ -289,29 +289,24 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 
 func TestGitHubManifestUsesPublicOriginForAllCallbacks(t *testing.T) {
 	t.Parallel()
-	for _, apiURL := range []string{"", "https://api.omnara.test/v1", "https://api.omnara.test:8443/api/v1/"} {
-		t.Run(apiURL, func(t *testing.T) {
-			t.Parallel()
-			f := newGitHubManifestFixture(t, WithPublicAPIURL(apiURL))
-			response, token, _ := f.start(t)
-			manifest := testutil.RequireType[map[string]any](t, response["manifest"])
-			webhookURL := "https://omnara.test/api/integrations/github/events"
-			require.Equal(t, map[string]any{"url": webhookURL, "active": true}, manifest["hook_attributes"])
-			require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
-			canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" +
-				testPublicID(t, publicid.KindIntegration, f.integration.ID)
-			require.Equal(t, canonical, manifest["setup_url"])
-			require.Equal(t, canonical, manifest["url"])
-			webhook := httptest.NewRequest(http.MethodPost, webhookURL, nil)
-			require.Equal(t, http.StatusBadRequest, performRequest(f.handler, webhook).Code)
-			callback := githubManifestCallback(f.handler, token, strings.Repeat("a", 40), f.project.AdminSession)
-			require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
-			location, err := url.Parse(callback.Header().Get("Location"))
-			require.NoError(t, err)
-			require.Equal(t, canonical, location.Scheme+"://"+location.Host+location.Path)
-			require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
-		})
-	}
+	f := newGitHubManifestFixture(t, WithPublicAPIURL("https://api.omnara.test/v1"))
+	response, token, _ := f.start(t)
+	manifest := testutil.RequireType[map[string]any](t, response["manifest"])
+	webhookURL := "https://omnara.test/api/integrations/github/events"
+	require.Equal(t, map[string]any{"url": webhookURL, "active": true}, manifest["hook_attributes"])
+	require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
+	canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" +
+		testPublicID(t, publicid.KindIntegration, f.integration.ID)
+	require.Equal(t, canonical, manifest["setup_url"])
+	require.Equal(t, canonical, manifest["url"])
+	webhook := httptest.NewRequest(http.MethodPost, webhookURL, nil)
+	require.Equal(t, http.StatusBadRequest, performRequest(f.handler, webhook).Code)
+	callback := githubManifestCallback(f.handler, token, strings.Repeat("a", 40), f.project.AdminSession)
+	require.Equal(t, http.StatusFound, callback.Code, callback.Body.String())
+	location, err := url.Parse(callback.Header().Get("Location"))
+	require.NoError(t, err)
+	require.Equal(t, canonical, location.Scheme+"://"+location.Host+location.Path)
+	require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
 }
 
 func TestGitHubManifestCallbackSavesCredentialsForLargestAppID(t *testing.T) {

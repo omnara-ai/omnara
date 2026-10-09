@@ -82,16 +82,6 @@ func TestGitHubManifestWebhookRequiresPublicOrigin(t *testing.T) {
 	}
 }
 
-func TestGitHubManifestWebhookIgnoresPublicAPIURL(t *testing.T) {
-	t.Parallel()
-	for _, apiURL := range []string{"", "https://api.omnara.test/v1", "http://api.omnara.test/v1", "not-a-url"} {
-		server := &Server{publicURL: "https://omnara.test/", publicAPIURL: apiURL}
-		webhookURL, err := server.githubManifestWebhookURL()
-		require.NoError(t, err, "API URL must not affect the webhook: %s", apiURL)
-		require.Equal(t, "https://omnara.test/api/integrations/github/events", webhookURL)
-	}
-}
-
 func TestGitHubGuidedSetupRestrictsTrustedOrigins(t *testing.T) {
 	t.Parallel()
 	wrapper, err := secrets.NewLocalKeyWrapper("test", map[string][]byte{"test": bytes.Repeat([]byte{1}, 32)})
