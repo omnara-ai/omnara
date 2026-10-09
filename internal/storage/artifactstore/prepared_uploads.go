@@ -54,12 +54,13 @@ func (s *Store) UploadPreparedArtifact(
 	// uploaders from overwriting conflicting bytes. Never delete uncertain uploads.
 	metadata, err := s.blobs.PutBlobIfAbsent(ctx, artifactObjectKey(agentID, expected.ID), content)
 	if errors.Is(err, blobstore.ErrAlreadyExists) {
-		present, err := s.PreparedArtifactUploaded(ctx, agentID, expected)
-		if err != nil {
-			return fmt.Errorf("verify existing prepared artifact %s: %w", expected.ID, err)
+		present, verifyErr := s.PreparedArtifactUploaded(ctx, agentID, expected)
+		if verifyErr != nil {
+			return fmt.Errorf("verify existing prepared artifact %s: %w", expected.ID, errors.Join(verifyErr, err))
 		}
 		if !present {
-			return fmt.Errorf("prepared artifact disappeared after conditional upload: %w", blobstore.ErrNotFound)
+			return fmt.Errorf("prepared artifact disappeared after conditional upload: %w",
+				errors.Join(blobstore.ErrNotFound, err))
 		}
 		return nil
 	}

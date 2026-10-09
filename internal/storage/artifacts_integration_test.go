@@ -47,13 +47,8 @@ func (s *recordingBlobStore) PutBlob(ctx context.Context, key string, content []
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
 
-func (s *recordingBlobStore) PutBlobIfAbsent(
-	ctx context.Context, key string, content []byte,
-) (blobstore.Metadata, error) {
-	if _, ok := s.content[key]; ok {
-		return blobstore.Metadata{}, blobstore.ErrAlreadyExists
-	}
-	return s.PutBlob(ctx, key, content)
+func (*recordingBlobStore) PutBlobIfAbsent(context.Context, string, []byte) (blobstore.Metadata, error) {
+	panic("unexpected conditional write: recording blob store tests ordinary artifact creation")
 }
 
 func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, blobstore.Metadata, error) {

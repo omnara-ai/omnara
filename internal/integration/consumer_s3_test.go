@@ -16,7 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,6 +55,7 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 		object, exists := state.objects[r.URL.Path]
 		fail := func(status int, code string) {
 			w.Header().Set("Content-Type", "application/xml")
+			w.Header().Set("X-Amz-Request-Id", fmt.Sprintf("test-%s-%d", r.Method, len(state.requests)))
 			w.WriteHeader(status)
 			_, _ = fmt.Fprintf(w, "<Error><Code>%s</Code><Message>%s</Message></Error>", code, code)
 		}
@@ -82,9 +82,6 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 			content, err := io.ReadAll(r.Body)
 			assert.NoError(t, err)
 			state.objects[r.URL.Path] = inboxS3Object{content: content, digest: r.Header.Get("X-Amz-Meta-Omnara-Digest")}
-		case http.MethodDelete:
-			delete(state.objects, r.URL.Path)
-			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Errorf("unexpected S3 method %s", r.Method)
 			w.WriteHeader(http.StatusBadRequest)
@@ -143,15 +140,6 @@ func TestIntegrationConsumerS3PreparedUploads(t *testing.T) {
 					message, recipient, nil)
 				require.NoError(t, err)
 				require.Equal(t, []artifactstore.PreparedArtifact{expected}, prepared)
-				// A concurrent worker with cached bytes also succeeds without overwriting the object.
-				require.NoError(t, artifacts.UploadPreparedArtifact(t.Context(), recipient.AgentID, expected, file.Content))
-				changed := expected
-				changed.Digest = blobstore.ContentDigest([]byte("different bytes"))
-				changed.SizeBytes = int64(len("different bytes"))
-				require.ErrorIs(t, artifacts.UploadPreparedArtifact(t.Context(), recipient.AgentID, changed,
-					[]byte("different bytes")), storeerr.ErrIdempotencyConflict)
-				objects, _ = state.snapshot()
-				require.Equal(t, inboxS3Object{content: file.Content, digest: expected.Digest}, objects[key])
 			})
 		}
 	}
@@ -186,6 +174,11 @@ func TestIntegrationConsumerS3AuthorizationFailures(t *testing.T) {
 			var apiError smithy.APIError
 			require.ErrorAs(t, err, &apiError)
 			require.Equal(t, "AccessDenied", apiError.ErrorCode())
+			if options.denyGet {
+				require.ErrorIs(t, err, blobstore.ErrAlreadyExists)
+				require.ErrorContains(t, err, "test-PUT-3")
+				require.ErrorContains(t, err, "test-GET-4")
+			}
 			if options.denyPut {
 				objects, _ := state.snapshot()
 				require.Empty(t, objects)

@@ -420,14 +420,14 @@ func (c *IntegrationInboxConsumer) prepareFiles(
 			if err != nil {
 				return nil, errors.Join(probeErr, err)
 			}
-			if cache != nil {
-				cache[file.ProviderFileID] = content
-			}
 		}
 		if content.ContentType != expected.ContentType || content.Filename != expected.Filename ||
 			int64(len(content.Content)) != expected.SizeBytes ||
 			blobstore.ContentDigest(content.Content) != expected.Digest {
 			return nil, storeerr.ErrIdempotencyConflict
+		}
+		if cache != nil {
+			cache[file.ProviderFileID] = content
 		}
 		if err = c.artifacts.UploadPreparedArtifact(ctx, recipient.AgentID, expected, content.Content); err != nil {
 			return nil, errors.Join(probeErr, err)

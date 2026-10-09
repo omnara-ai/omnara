@@ -121,19 +121,32 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, []artifactstore.PreparedArtifact{expected}, prepared)
 	require.Equal(t, 1, uploads.uploads)
-	uploads.present = false
-	provider.file.Content = []byte("changed upstream")
-	_, err = consumer.prepareFiles(
-		t.Context(),
-		provider,
-		integrationstore.IntegrationRecord{},
-		nil,
-		message,
-		recipient,
-		map[string]IntegrationInboxFile{},
-	)
-	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
-	require.Equal(t, 1, uploads.uploads)
+	for _, changed := range []IntegrationInboxFile{
+		{Content: []byte("changed upstream"), ContentType: file.ContentType, Filename: file.Filename},
+		{Content: content, ContentType: file.ContentType, Filename: "renamed.txt"},
+	} {
+		uploads.present = false
+		provider.file = changed
+		cache = map[string]IntegrationInboxFile{}
+		_, err = consumer.prepareFiles(t.Context(), provider, integrationstore.IntegrationRecord{}, nil,
+			message, recipient, cache)
+		require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+		require.Equal(t, 1, uploads.uploads)
+
+		// A rejected download must not prevent a sibling from recovering its uploaded copy.
+		uploads.present = true
+		sibling := IntegrationInboxRecipient{
+			AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{uuid.Must(uuid.NewV7())},
+		}
+		prepared, err = consumer.prepareFiles(t.Context(), nil, integrationstore.IntegrationRecord{}, nil,
+			message, sibling, cache)
+		require.NoError(t, err)
+		want := expected
+		want.ID = sibling.ArtifactIDs[0]
+		require.Equal(t, []artifactstore.PreparedArtifact{want}, prepared)
+		require.Empty(t, cache)
+		require.Equal(t, 1, uploads.uploads)
+	}
 }
 
 func TestIntegrationConsumerPresenceProbeFailures(t *testing.T) {

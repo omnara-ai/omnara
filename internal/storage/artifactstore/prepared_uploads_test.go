@@ -81,11 +81,9 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	changed := expected
 	changed.Digest = blobstore.ContentDigest([]byte("changed"))
 	changed.SizeBytes = 7
-	require.ErrorIs(
-		t,
-		store.UploadPreparedArtifact(t.Context(), agentID, changed, []byte("changed")),
-		storeerr.ErrIdempotencyConflict,
-	)
+	err = store.UploadPreparedArtifact(t.Context(), agentID, changed, []byte("changed"))
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	require.ErrorIs(t, err, blobstore.ErrAlreadyExists)
 	stored, _, err := blobs.GetBlob(t.Context(), artifactObjectKey(agentID, expected.ID))
 	require.NoError(t, err)
 	require.Equal(t, content, stored)
