@@ -59,7 +59,7 @@ not narrow the installation access granted through [Git credentials](#git-creden
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
    if agents will comment, and **Issues: Read-only** for incoming PR conversation
    comments. For private clone/fetch, also request **Contents: Read-only**.
-2. Enable webhooks with URL `https://YOUR_OMNARA_API_HOST/api/integrations/github/events`
+2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
    `pull_request_review` and `pull_request_review_comment`.

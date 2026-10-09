@@ -25,7 +25,7 @@ export function IntegrationAdvanced({ integration }: { integration: Integration 
 }
 
 function IntegrationConnectionDetails({ integration }: { integration: Integration }) {
-  const { apiOrigin, unavailable } = useIntegrationSetupURLs()
+  const { publicURL, unavailable } = useIntegrationSetupURLs()
   const providerId = integration.provider_tenant_id ?? ''
   return (
     <div className="flex flex-col gap-2">
@@ -42,10 +42,10 @@ function IntegrationConnectionDetails({ integration }: { integration: Integratio
         <p className="text-muted-foreground">
           Webhook URL:{' '}
           <code className="text-foreground break-all">
-            {apiOrigin
-              ? `${apiOrigin}/api/integrations/github/events`
+            {publicURL
+              ? `${publicURL}/api/integrations/github/events`
               : unavailable
-                ? 'Public API URL unavailable'
+                ? 'Public URL unavailable'
                 : 'Loading setup URL…'}
           </code>
           . Subscribe to pull requests, issue comments, pull request reviews, and pull request
@@ -56,10 +56,10 @@ function IntegrationConnectionDetails({ integration }: { integration: Integratio
         <p className="text-muted-foreground">
           Interactions Endpoint URL:{' '}
           <code className="text-foreground break-all">
-            {apiOrigin
-              ? `${apiOrigin}/api/integrations/discord/${providerId || 'APPLICATION_ID'}/interactions`
+            {publicURL
+              ? `${publicURL}/api/integrations/discord/${providerId || 'APPLICATION_ID'}/interactions`
               : unavailable
-                ? 'Public API URL unavailable'
+                ? 'Public URL unavailable'
                 : 'Loading setup URL…'}
           </code>
         </p>
