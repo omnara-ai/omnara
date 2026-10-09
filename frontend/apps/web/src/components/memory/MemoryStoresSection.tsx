@@ -56,7 +56,6 @@ export function MemoryStoresSection({
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No memory stores yet. Create one to share files with your agents."
-        emptyAction={action}
       />
     </div>
   )
