@@ -12,6 +12,7 @@ import (
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -90,6 +91,7 @@ func NewS3Store(ctx context.Context, cfg S3Config) (*S3Store, error) {
 			options.BaseEndpoint = aws.String(cfg.Endpoint)
 		}
 		options.UsePathStyle = cfg.UsePathStyle
+		options.Retryer = retry.AddWithErrorCodes(options.Retryer, "ConditionalRequestConflict")
 	})
 	return &S3Store{client: client, bucket: cfg.Bucket}, nil
 }
@@ -130,7 +132,7 @@ func (s *S3Store) GetBlob(ctx context.Context, key string) ([]byte, Metadata, er
 	if err != nil {
 		var noSuchKey *types.NoSuchKey
 		if errors.As(err, &noSuchKey) {
-			return nil, Metadata{}, ErrNotFound
+			err = errors.Join(ErrNotFound, err)
 		}
 		return nil, Metadata{}, fmt.Errorf("get blob %q: %w", key, err)
 	}

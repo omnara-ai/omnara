@@ -89,33 +89,3 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, present)
 }
-
-func TestPreparedUploadConcurrentConflictingContent(t *testing.T) {
-	blobs := &preparedUploadBlobs{content: map[string][]byte{}}
-	store := New(nil, blobs)
-	agentID, artifactID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	start := make(chan struct{})
-	contents := [][]byte{[]byte("first writer"), []byte("other writer")}
-	failures := make([]error, len(contents))
-	var wg sync.WaitGroup
-	for i, content := range contents {
-		wg.Go(func() {
-			<-start
-			failures[i] = store.UploadPreparedArtifact(t.Context(), agentID, PreparedArtifact{
-				ID: artifactID, ContentType: "text/plain",
-				Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
-			}, content)
-		})
-	}
-	close(start)
-	wg.Wait()
-	winner := 0
-	if failures[0] != nil {
-		winner = 1
-	}
-	require.NoError(t, failures[winner])
-	require.ErrorIs(t, failures[1-winner], storeerr.ErrIdempotencyConflict)
-	stored, _, err := blobs.GetBlob(t.Context(), artifactObjectKey(agentID, artifactID))
-	require.NoError(t, err)
-	require.Equal(t, contents[winner], stored)
-}

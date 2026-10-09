@@ -38,6 +38,7 @@ func TestS3GetBlobMissingKeyPermissions(t *testing.T) {
 			store := s3HTTPStore(t, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				w.Header().Set("Content-Type", "application/xml")
+				w.Header().Set("X-Amz-Request-Id", "test-get-request")
 				w.WriteHeader(tc.status)
 				_, _ = fmt.Fprintf(w, "<Error><Code>%s</Code><Message>denied or absent</Message></Error>", tc.code)
 			})
@@ -46,10 +47,11 @@ func TestS3GetBlobMissingKeyPermissions(t *testing.T) {
 				require.ErrorIs(t, err, ErrNotFound)
 			} else {
 				require.NotErrorIs(t, err, ErrNotFound)
-				var apiError smithy.APIError
-				require.ErrorAs(t, err, &apiError)
-				require.Equal(t, tc.code, apiError.ErrorCode())
 			}
+			var apiError smithy.APIError
+			require.ErrorAs(t, err, &apiError)
+			require.Equal(t, tc.code, apiError.ErrorCode())
+			require.ErrorContains(t, err, "test-get-request")
 		})
 	}
 }
@@ -122,16 +124,20 @@ func TestS3PutBlobRecoversCommittedWrite(t *testing.T) {
 		assert.Equal(t, http.MethodPut, r.Method)
 		assert.Equal(t, "*", r.Header.Get("If-None-Match"))
 		w.Header().Set("Content-Type", "application/xml")
-		if puts.Add(1) == 1 {
+		switch puts.Add(1) {
+		case 1:
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("<Error><Code>InternalError</Code></Error>"))
-		} else {
+		case 2:
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte("<Error><Code>ConditionalRequestConflict</Code></Error>"))
+		default:
 			w.WriteHeader(http.StatusPreconditionFailed)
 			_, _ = w.Write([]byte("<Error><Code>PreconditionFailed</Code></Error>"))
 		}
 	})
 	metadata, err := store.PutBlob(t.Context(), "artifacts/agent/file", content)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, puts.Load())
+	require.EqualValues(t, 3, puts.Load())
 	require.Equal(t, Metadata{Digest: ContentDigest(content), SizeBytes: int64(len(content))}, metadata)
 }
