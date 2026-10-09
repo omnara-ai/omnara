@@ -3,6 +3,7 @@
 package executionstore_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,12 +42,11 @@ func (b *overflowBlobs) PutBlob(_ context.Context, key string, content []byte) (
 		return blobstore.Metadata{}, errors.New("injected blob failure")
 	}
 	b.puts++
+	if existing, ok := b.content[key]; ok && !bytes.Equal(existing, content) {
+		return blobstore.Metadata{}, blobstore.ErrContentConflict
+	}
 	b.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
-}
-
-func (*overflowBlobs) PutBlobIfAbsent(context.Context, string, []byte) (blobstore.Metadata, error) {
-	panic("unexpected conditional write: tool overflow uses ordinary artifact creation")
 }
 
 func (b *overflowBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstore.Metadata, error) {

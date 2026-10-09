@@ -120,7 +120,7 @@ func TestIntegrationConsumerS3AuthorizationFailures(t *testing.T) {
 			require.ErrorAs(t, err, &apiError)
 			require.Equal(t, "AccessDenied", apiError.ErrorCode())
 			if options.denyGet {
-				require.ErrorIs(t, err, blobstore.ErrAlreadyExists)
+				require.NotErrorIs(t, err, blobstore.ErrContentConflict)
 				require.ErrorContains(t, err, "test-PUT-3")
 				require.ErrorContains(t, err, "test-GET-4")
 			}

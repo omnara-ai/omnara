@@ -58,12 +58,6 @@ func (s *coordinatedSkillBlobStore) PutBlob(
 	}
 }
 
-func (s *coordinatedSkillBlobStore) PutBlobIfAbsent(
-	ctx context.Context, key string, content []byte,
-) (blobstore.Metadata, error) {
-	return s.delegate.PutBlobIfAbsent(ctx, key, content)
-}
-
 func (s *coordinatedSkillBlobStore) GetBlob(
 	ctx context.Context,
 	key string,

@@ -40,15 +40,14 @@ func newRecordingBlobStore() *recordingBlobStore {
 func (s *recordingBlobStore) PutBlob(ctx context.Context, key string, content []byte) (blobstore.Metadata, error) {
 	_ = ctx
 	s.putKeys = append(s.putKeys, key)
+	if existing, ok := s.content[key]; ok && !bytes.Equal(existing, content) {
+		return blobstore.Metadata{}, blobstore.ErrContentConflict
+	}
 	s.content[key] = append([]byte(nil), content...)
 	if s.afterPut != nil {
 		s.afterPut()
 	}
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
-}
-
-func (*recordingBlobStore) PutBlobIfAbsent(context.Context, string, []byte) (blobstore.Metadata, error) {
-	panic("unexpected conditional write: recording blob store tests ordinary artifact creation")
 }
 
 func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, blobstore.Metadata, error) {

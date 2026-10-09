@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,17 +32,11 @@ type failedIntegrationBlobs struct {
 }
 
 func (b *failedIntegrationBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
+	if existing, ok := b.content[key]; ok && !bytes.Equal(existing, content) {
+		return blobstore.Metadata{}, blobstore.ErrContentConflict
+	}
 	b.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
-}
-
-func (b *failedIntegrationBlobs) PutBlobIfAbsent(
-	ctx context.Context, key string, content []byte,
-) (blobstore.Metadata, error) {
-	if _, ok := b.content[key]; ok {
-		return blobstore.Metadata{}, blobstore.ErrAlreadyExists
-	}
-	return b.PutBlob(ctx, key, content)
 }
 
 func (b *failedIntegrationBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstore.Metadata, error) {

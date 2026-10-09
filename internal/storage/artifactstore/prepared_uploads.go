@@ -49,23 +49,9 @@ func (s *Store) UploadPreparedArtifact(
 	if int64(len(content)) != expected.SizeBytes || blobstore.ContentDigest(content) != expected.Digest {
 		return storeerr.ErrIdempotencyConflict
 	}
-	metadata, err := s.blobs.PutBlobIfAbsent(ctx, artifactObjectKey(agentID, expected.ID), content)
-	if errors.Is(err, blobstore.ErrAlreadyExists) {
-		present, verifyErr := s.PreparedArtifactUploaded(ctx, agentID, expected)
-		if verifyErr != nil {
-			return fmt.Errorf("verify existing prepared artifact %s: %w", expected.ID, errors.Join(verifyErr, err))
-		}
-		if !present {
-			return fmt.Errorf("prepared artifact disappeared after conditional upload: %w",
-				errors.Join(blobstore.ErrNotFound, err))
-		}
-		return nil
+	_, err := s.blobs.PutBlob(ctx, artifactObjectKey(agentID, expected.ID), content)
+	if errors.Is(err, blobstore.ErrContentConflict) {
+		return errors.Join(storeerr.ErrIdempotencyConflict, err)
 	}
-	if err != nil {
-		return err
-	}
-	if metadata.SizeBytes != expected.SizeBytes || metadata.Digest != expected.Digest {
-		return storeerr.ErrIdempotencyConflict
-	}
-	return nil
+	return err
 }
