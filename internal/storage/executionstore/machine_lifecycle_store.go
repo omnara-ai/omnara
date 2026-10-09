@@ -197,9 +197,9 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineProvisioningAdmission{}, fmt.Errorf(
-			"pool machine grant is unavailable: %w",
+		return PoolMachineProvisioningAdmission{}, storeerr.Tag(
 			storeerr.ErrStateTransitionConflict,
+			errors.New("machine pool is no longer available to this project"),
 		)
 	}
 	if err != nil {
@@ -267,9 +267,9 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineProvisioningAdmission{}, fmt.Errorf(
-			"pool machine grant is unavailable: %w",
+		return PoolMachineProvisioningAdmission{}, storeerr.Tag(
 			storeerr.ErrStateTransitionConflict,
+			errors.New("machine pool is no longer available to this project"),
 		)
 	}
 	if err != nil {
