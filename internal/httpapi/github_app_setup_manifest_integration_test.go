@@ -161,7 +161,7 @@ func (f *githubManifestFixture) headers() map[string]string {
 	return map[string]string{
 		"Cookie": httpauth.BrowserSessionHostCookieName + "=" + f.project.AdminSession + "; " +
 			httpauth.CSRFHostCookieName + "=" + f.project.AdminCSRF,
-		"Origin":                "https://omnara.test",
+		"Origin":                "http://example.com",
 		httpauth.CSRFHeaderName: f.project.AdminCSRF,
 	}
 }
@@ -191,7 +191,7 @@ func (f *githubManifestFixture) start(t *testing.T) (map[string]any, string, git
 func githubManifestCallback(handler http.Handler, token, code, session string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(
 		http.MethodGet,
-		"https://omnara.test"+githubManifestCallbackPath+"?"+url.Values{"state": {token}, "code": {code}}.Encode(),
+		githubManifestCallbackPath+"?"+url.Values{"state": {token}, "code": {code}}.Encode(),
 		nil,
 	)
 	if session != "" {
@@ -287,20 +287,18 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	require.NoError(t, err)
 }
 
-func TestGitHubManifestUsesAPIOriginOnlyForWebhook(t *testing.T) {
+func TestGitHubManifestUsesPublicOriginForAllCallbacks(t *testing.T) {
 	t.Parallel()
-	for _, apiURL := range []string{"https://api.omnara.test", "https://api.omnara.test:8443/api/v1/"} {
+	for _, apiURL := range []string{"", "https://api.example.com/v1", "https://api.example.com:8443/api/v1/"} {
 		t.Run(apiURL, func(t *testing.T) {
 			t.Parallel()
-			f := newGitHubManifestFixture(t, WithPublicAPIURL(apiURL))
+			f := newGitHubManifestFixture(t, WithPublicURL("https://app.example.com"), WithPublicAPIURL(apiURL))
 			response, token, _ := f.start(t)
 			manifest := testutil.RequireType[map[string]any](t, response["manifest"])
-			api, err := url.Parse(apiURL)
-			require.NoError(t, err)
-			webhookURL := api.Scheme + "://" + api.Host + GitHubEventsPath
+			webhookURL := "https://app.example.com/api/integrations/github/events"
 			require.Equal(t, map[string]any{"url": webhookURL, "active": true}, manifest["hook_attributes"])
-			require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
-			canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" +
+			require.Equal(t, "https://app.example.com"+githubManifestCallbackPath, manifest["redirect_url"])
+			canonical := "https://app.example.com/projects/" + f.project.ProjectID + "/integrations/" +
 				testPublicID(t, publicid.KindIntegration, f.integration.ID)
 			require.Equal(t, canonical, manifest["setup_url"])
 			require.Equal(t, canonical, manifest["url"])

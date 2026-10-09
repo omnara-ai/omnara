@@ -73,12 +73,22 @@ func TestGitHubManifestStateHasIndependentOneHourWindow(t *testing.T) {
 	require.Equal(t, 10*time.Minute, integrationOAuthStateTTL, "Slack OAuth keeps its existing lifetime")
 }
 
-func TestGitHubManifestWebhookRequiresPublicAPIOrigin(t *testing.T) {
+func TestGitHubManifestWebhookRequiresPublicOrigin(t *testing.T) {
 	t.Parallel()
-	for _, apiURL := range []string{"http://api.omnara.test/api/v1", "https://localhost/api/v1", "not-a-url"} {
-		server := &Server{publicURL: "https://omnara.test", publicAPIURL: apiURL}
+	for _, publicURL := range []string{"", "http://app.example.com", "https://localhost", "not-a-url"} {
+		server := &Server{publicURL: publicURL, publicAPIURL: "https://api.example.com/v1"}
 		_, err := server.githubManifestWebhookURL()
-		require.Error(t, err, "invalid API origin must not silently use the browser origin: %s", apiURL)
+		require.Error(t, err, "invalid public origin must not fall back to the API origin: %s", publicURL)
+	}
+}
+
+func TestGitHubManifestWebhookIgnoresPublicAPIURL(t *testing.T) {
+	t.Parallel()
+	for _, apiURL := range []string{"", "https://api.example.com/v1", "http://api.example.com/v1", "not-a-url"} {
+		server := &Server{publicURL: "https://app.example.com/", publicAPIURL: apiURL}
+		webhookURL, err := server.githubManifestWebhookURL()
+		require.NoError(t, err, "API URL must not affect the webhook: %s", apiURL)
+		require.Equal(t, "https://app.example.com/api/integrations/github/events", webhookURL)
 	}
 }
 

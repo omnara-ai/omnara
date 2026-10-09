@@ -39,61 +39,70 @@ function render(content: ReactNode, config: { api_url?: string; public_url?: str
   }
 }
 
-it('uses the configured API origin for the shared GitHub webhook before an App ID exists', async () => {
+it('uses the public URL for the shared GitHub webhook even with a separate API origin', async () => {
   render(<IntegrationPortalSetup integrationKind="github_pr" providerId="" />, {
     api_url: 'https://public-api.example/api/v1',
     public_url: 'https://public-dashboard.example',
   })
   await waitForUI(() => {
     expect(field('Webhook URL').value).toBe(
-      'https://public-api.example/api/integrations/github/events',
+      'https://public-dashboard.example/api/integrations/github/events',
     )
   })
   expect(container.textContent).toContain('pull_request_review,')
 })
 
-it('uses the configured API origin for Discord interactions', async () => {
+it('uses the public URL for Discord interactions even with a separate API origin', async () => {
   render(<IntegrationPortalSetup integrationKind="discord_thread" providerId="123" />, {
     api_url: 'https://public-api.example/api/v1',
+    public_url: 'https://public-dashboard.example',
   })
   await waitForUI(() => {
     expect(field('Interactions Endpoint URL').value).toBe(
-      'https://public-api.example/api/integrations/discord/123/interactions',
+      'https://public-dashboard.example/api/integrations/discord/123/interactions',
     )
   })
   expect(container.textContent).toContain('even without an Omnara account')
 })
 
-it('uses the configured public URL when the API shares the dashboard origin', async () => {
-  render(<IntegrationPortalSetup integrationKind="github_pr" />, {
-    public_url: 'https://public-dashboard.example/',
-  })
-  await waitForUI(() => {
-    expect(field('Webhook URL').value).toBe(
-      'https://public-dashboard.example/api/integrations/github/events',
-    )
-  })
-})
+it.each([
+  ['github_pr', 'Webhook URL', 'github/events'],
+  ['discord_thread', 'Interactions Endpoint URL', 'discord/123/interactions'],
+] as const)(
+  'uses only the public URL for %s when no API URL is configured',
+  async (kind, label, path) => {
+    render(<IntegrationPortalSetup integrationKind={kind} providerId="123" />, {
+      public_url: 'https://public-dashboard.example/',
+    })
+    await waitForUI(() => {
+      expect(field(label).value).toBe(`https://public-dashboard.example/api/integrations/${path}`)
+    })
+  },
+)
 
-it('does not offer a browser-origin webhook when public configuration is missing', async () => {
-  render(<IntegrationPortalSetup integrationKind="github_pr" />, {})
-  await waitForUI(() => {
-    expect(field('Webhook URL').placeholder).toBe('Public API URL unavailable')
-  })
-  expect(field('Webhook URL').value).toBe('')
-  expect(button('Copy').disabled).toBe(true)
-})
+it.each([{}, { api_url: 'https://public-api.example/api/v1' }])(
+  'does not offer a webhook when the public URL is missing: %j',
+  async (config) => {
+    render(<IntegrationPortalSetup integrationKind="github_pr" />, config)
+    await waitForUI(() => {
+      expect(field('Webhook URL').placeholder).toBe('Public URL unavailable')
+    })
+    expect(field('Webhook URL').value).toBe('')
+    expect(button('Copy').disabled).toBe(true)
+  },
+)
 
-it('shows all four events and the shared URL in advanced GitHub setup', async () => {
+it('shows all four events and the public URL in advanced GitHub setup with a separate API origin', async () => {
   render(<IntegrationAdvanced integration={integration({ integration_kind: 'github_pr' })} />, {
     api_url: 'https://public-api.example/api/v1',
+    public_url: 'https://public-dashboard.example',
   })
   act(() => {
     button('Advanced').click()
   })
   await waitForUI(() => {
     expect(container.textContent).toContain(
-      'https://public-api.example/api/integrations/github/events',
+      'https://public-dashboard.example/api/integrations/github/events',
     )
   })
   expect(container.textContent).toContain('pull request reviews,')
@@ -104,7 +113,7 @@ it.each([
   { providerId: '', expectedId: 'APPLICATION_ID' },
   { providerId: '123', expectedId: '123' },
 ])(
-  'shows the Discord endpoint with a usable application ID: %j',
+  'shows the Discord endpoint on the public URL with a separate API origin: %j',
   async ({ providerId, expectedId }) => {
     render(
       <IntegrationAdvanced
@@ -113,16 +122,35 @@ it.each([
           provider_tenant_id: providerId,
         })}
       />,
-      { api_url: 'https://public-api.example/api/v1' },
+      {
+        api_url: 'https://public-api.example/api/v1',
+        public_url: 'https://public-dashboard.example',
+      },
     )
     act(() => {
       button('Advanced').click()
     })
     await waitForUI(() => {
       expect(container.textContent).toContain(
-        `https://public-api.example/api/integrations/discord/${expectedId}/interactions`,
+        `https://public-dashboard.example/api/integrations/discord/${expectedId}/interactions`,
       )
     })
+  },
+)
+
+it.each(['github_pr', 'discord_thread'] as const)(
+  'shows an unavailable public URL in advanced %s setup even with an API URL',
+  async (kind) => {
+    render(<IntegrationAdvanced integration={integration({ integration_kind: kind })} />, {
+      api_url: 'https://public-api.example/api/v1',
+    })
+    act(() => {
+      button('Advanced').click()
+    })
+    await waitForUI(() => {
+      expect(container.textContent).toContain('Public URL unavailable')
+    })
+    expect(container.textContent).not.toContain('https://public-api.example')
   },
 )
 

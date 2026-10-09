@@ -116,14 +116,10 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 }
 
 func (s *Server) githubManifestWebhookURL() (string, error) {
-	base := s.publicAPIURL
-	if base == "" {
-		base = s.publicURL
+	if validateSlackSetupPublicURL(s.publicURL) != nil {
+		return "", apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "GitHub webhooks require a public HTTPS URL")
 	}
-	if validateSlackSetupPublicURL(base) != nil {
-		return "", apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "GitHub webhooks require a public HTTPS API URL")
-	}
-	origin, err := parseConfiguredOrigin(base)
+	origin, err := parseConfiguredOrigin(s.publicURL)
 	if err != nil {
 		return "", err
 	}
