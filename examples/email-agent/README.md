@@ -50,11 +50,9 @@ The defaults are open so you can try it right away:
 | Bccs it | Wakes and replies privately to the sender |
 | Is automated (auto-replies, mailing lists, bulk, no-reply senders), spam, or sent by the agent itself | Ignores it |
 
-Anyone can email it, and it replies without waiting for approval. Each of
-these is a setting you can change: limit senders to an allowlist that also
-checks DMARC, change how Cc works, require approval before it sends, or add
-more agents, each with its own address, profile, and role. SKILL.md lists
-them all.
+Anyone can email it, and it replies on its own. You can limit senders to an
+allowlist that also checks DMARC, change how Cc works, or add more agents,
+each with its own address, profile, and role. SKILL.md lists every setting.
 
 Things to know:
 

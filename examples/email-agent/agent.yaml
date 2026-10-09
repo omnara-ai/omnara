@@ -99,7 +99,7 @@ mcp:
       secret_id: "{{PRIMITIVE_KEY_SECRET_ID}}"
     default_enabled: false  # expose only the mail tools below; domain, route, and endpoint admin stay off
     permission:
-      mode: always_allow    # mail arrives with no one watching; set a tool to always_ask to require approval
+      mode: always_allow    # mail arrives with no one watching, so the agent sends without asking
     tools:
       getConversation:
         enabled: true
