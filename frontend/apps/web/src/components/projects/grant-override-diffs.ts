@@ -90,6 +90,11 @@ function memory(value: number | null) {
   return formatMemoryGb(value) ?? 'No limit'
 }
 
+function idleDeletion(minutes: number | null) {
+  if (!minutes) return 'Off'
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`
+}
+
 function variables(count: number) {
   return count === 1 ? '1 variable' : `${count} variables`
 }
@@ -144,6 +149,13 @@ export function poolGrantOverrides(
       'Max memory per machine',
       memory(grant.max_machine_memory_mb),
       pool && memory(pool.max_machine_memory_mb),
+    )
+  }
+  if (grant.delete_after_idle_minutes !== null) {
+    add(
+      'Idle deletion',
+      idleDeletion(grant.delete_after_idle_minutes),
+      pool && idleDeletion(pool.delete_after_idle_minutes),
     )
   }
   if (grant.default_cwd) {
