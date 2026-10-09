@@ -156,7 +156,7 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 			reason: daemonprotocol.ProcessReasonMachineStorageExhausted,
 		},
 		{name: "offline_granted", offline: true, granted: true},
-		{name: "deleted_machine_granted", offline: true, granted: true, deleted: true},
+		{name: "deleted_machine_granted", granted: true, deleted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -181,8 +181,9 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 				expireDaemonRuntimeForTest(t, ctx, fixture)
 			}
 			if test.deleted {
-				_, err = fixture.Store.pool.Exec(ctx,
-					`UPDATE machines SET lifecycle_state = 'deleted', deleted_at = now() WHERE id = $1`, fixture.MachineID)
+				_, err = fixture.Store.Execution().DeleteMachine(ctx, executionstore.DeleteMachineInput{
+					OrgID: fixture.OrgID, MachineID: fixture.MachineID,
+				})
 				require.NoError(t, err)
 			}
 			action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
