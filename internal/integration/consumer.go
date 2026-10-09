@@ -401,9 +401,8 @@ func (c *IntegrationInboxConsumer) prepareFiles(
 		content, found := cache[file.ProviderFileID]
 		var probeErr error
 		if !found {
-			// A successful probe avoids downloading again after an uncertain upload.
-			// An error does not prove absence (S3 may deny reads of missing keys).
-			// Let the conditional upload resolve it without overwriting existing data.
+			// S3 returns 403 for missing keys without s3:ListBucket:
+			// https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
 			var present bool
 			present, probeErr = c.artifacts.PreparedArtifactUploaded(ctx, recipient.AgentID, expected)
 			if probeErr == nil && present {

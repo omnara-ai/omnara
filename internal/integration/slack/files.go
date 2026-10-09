@@ -36,7 +36,6 @@ type FileDownloadOptions struct {
 }
 
 const (
-	// Prepared means downloaded and pinned in an inbox plan; it does not prove a durable upload.
 	EventFileStatusPrepared = "prepared"
 	EventFileStatusSkipped  = "skipped"
 )

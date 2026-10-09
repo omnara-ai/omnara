@@ -106,7 +106,6 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 					}
 					fileUnavailable.Store(true)
 				}
-				// Discard expansion.Files as a restarted worker would.
 			}
 			consumer := NewIntegrationInboxConsumer(router, inbox, artifacts,
 				map[integrationdefinition.Provider]IntegrationInboxProvider{integrationdefinition.ProviderSlack: provider},
@@ -165,7 +164,6 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 			}
 			require.Equal(t, wantDownloads, downloads.Load())
 			require.EqualValues(t, 1, acknowledgments.Load())
-			// Replaying a completed receipt creates neither a second input nor another object.
 			replayed, err := consumer.Consume(ctx, receipt.Lease())
 			require.NoError(t, err)
 			require.Len(t, replayed, 1)

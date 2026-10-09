@@ -36,9 +36,6 @@ type Metadata struct {
 
 type Store interface {
 	PutBlob(ctx context.Context, key string, content []byte) (Metadata, error)
-	// PutBlobIfAbsent atomically creates a blob, returning ErrAlreadyExists
-	// without changing the existing object when the key is occupied.
-	// Backends must enforce the condition; unsupported conditions must fail.
 	PutBlobIfAbsent(ctx context.Context, key string, content []byte) (Metadata, error)
 	GetBlob(ctx context.Context, key string) ([]byte, Metadata, error)
 	DeleteBlob(ctx context.Context, key string) error

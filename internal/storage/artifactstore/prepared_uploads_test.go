@@ -75,7 +75,6 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	present, err := store.PreparedArtifactUploaded(t.Context(), agentID, expected)
 	require.NoError(t, err)
 	require.True(t, present)
-	// Validate the caller's bytes even when a matching object already exists.
 	require.ErrorIs(t, store.UploadPreparedArtifact(t.Context(), agentID, expected, []byte("changed")),
 		storeerr.ErrIdempotencyConflict)
 	changed := expected

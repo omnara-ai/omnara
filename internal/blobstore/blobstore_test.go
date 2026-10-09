@@ -29,8 +29,8 @@ func TestS3GetBlobMissingKeyPermissions(t *testing.T) {
 		code   string
 		status int
 	}{
-		{"NoSuchKey", http.StatusNotFound},     // Missing key with ListBucket.
-		{"AccessDenied", http.StatusForbidden}, // Missing key without ListBucket, or a real denial.
+		{"NoSuchKey", http.StatusNotFound},
+		{"AccessDenied", http.StatusForbidden},
 		{"NoSuchBucket", http.StatusNotFound},
 	} {
 		t.Run(tc.code, func(t *testing.T) {

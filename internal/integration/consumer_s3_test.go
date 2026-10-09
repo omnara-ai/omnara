@@ -20,8 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Exercise the AWS SDK's wire protocol, including S3's ambiguous missing-key
-// response. Local S3-compatible servers do not all reproduce AWS IAM behavior.
 type inboxS3Options struct {
 	listBucket bool
 	denyGet    bool
@@ -135,7 +133,6 @@ func TestIntegrationConsumerS3PreparedUploads(t *testing.T) {
 				key := "/test/artifacts/" + recipient.AgentID.String() + "/" + expected.ID.String()
 				require.Equal(t, inboxS3Object{content: file.Content, digest: expected.Digest}, objects[key])
 
-				// A process restart after upload must recover even if Slack can no longer download the file.
 				prepared, err = consumer.prepareFiles(t.Context(), nil, integrationstore.IntegrationRecord{}, nil,
 					message, recipient, nil)
 				require.NoError(t, err)
@@ -163,7 +160,6 @@ func TestIntegrationConsumerS3AuthorizationFailures(t *testing.T) {
 				}},
 			}
 			if options.denyGet {
-				// An existing but unreadable object cannot be trusted or overwritten.
 				require.NoError(t, artifacts.UploadPreparedArtifact(t.Context(), recipient.AgentID, expected, file.Content))
 			}
 			consumer := NewIntegrationInboxConsumer(nil, nil, artifacts, nil, nil, nil)

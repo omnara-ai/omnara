@@ -133,7 +133,6 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 		require.Equal(t, 1, uploads.uploads)
 
-		// A rejected download must not prevent a sibling from recovering its uploaded copy.
 		uploads.present = true
 		sibling := IntegrationInboxRecipient{
 			AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{uuid.Must(uuid.NewV7())},

@@ -49,9 +49,6 @@ func (s *Store) UploadPreparedArtifact(
 	if int64(len(content)) != expected.SizeBytes || blobstore.ContentDigest(content) != expected.Digest {
 		return storeerr.ErrIdempotencyConflict
 	}
-	// Create before reading: S3 can return AccessDenied for a missing key when
-	// the caller lacks ListBucket. The conditional write also prevents concurrent
-	// uploaders from overwriting conflicting bytes. Never delete uncertain uploads.
 	metadata, err := s.blobs.PutBlobIfAbsent(ctx, artifactObjectKey(agentID, expected.ID), content)
 	if errors.Is(err, blobstore.ErrAlreadyExists) {
 		present, verifyErr := s.PreparedArtifactUploaded(ctx, agentID, expected)
