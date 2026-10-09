@@ -1,0 +1,19 @@
+---
+title: Email agent
+description: An agent with its own email address that people can email, Cc, or @mention
+icon: "envelope"
+---
+
+Gives an agent its own email address on [Primitive](https://www.primitive.dev). Email it a question and it replies in the thread. Cc it with `@assistant` in the message to pull it into a conversation, or Bcc it for a private answer. Each email thread is its own Omnara conversation, so you can watch and steer every thread from the console. There's no server to run: a small Primitive Function wakes the agent, and the agent reads and sends mail through Primitive's MCP server.
+
+The defaults are open so you can try it right away: anyone can email it, and it replies without asking for approval. Setup shows how to limit who can wake it, change how Cc works, require approval before sending, or add more agents with their own addresses.
+
+## Deploy
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It walks you through setup, creates the agent in your Omnara project, and deploys the function to Primitive.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/email-agent/SKILL.md and follow it to deploy the email agent.
+```
+
+To see how it works or adapt it, browse [`examples/email-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/email-agent) on GitHub.
