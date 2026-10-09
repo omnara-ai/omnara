@@ -200,9 +200,9 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 					if err != nil {
 						log.WarnContext(ctx, "check shared integration bot", "integration_id", integrationSetup.ID, "error", err)
 					} else if !shared {
-						c.launchers.launchUnavailable(ctx, IntegrationLaunchContext{
+						c.launchers.notifyMention(ctx, log, IntegrationLaunchContext{
 							Receipt: receipt, Integration: integrationSetup, Event: unroutedEvent,
-						}, errIntegrationMentionUnrouted)
+						}, launchNotSetUpMessage)
 					}
 				}
 				return c.router.Admit(ctx, lease, nil)
