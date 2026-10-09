@@ -3091,7 +3091,8 @@ export const zAgentConfig = z.object({
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
     created_at: zTimestamp,
-    compiled_definition: zCompiledAgentConfig
+    compiled_definition: zCompiledAgentConfig,
+    generated_source: z.string().optional()
 });
 
 export const zAgentProfile = z.object({

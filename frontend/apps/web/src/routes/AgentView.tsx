@@ -175,19 +175,21 @@ export function AgentView() {
                 ]}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
-                <PillTabs
-                  value={view}
-                  tabs={viewTabs}
-                  onValueChange={(nextView) => {
-                    void navigate({
-                      to:
-                        nextView === 'chat'
-                          ? '/projects/$projectId/agents/$agentId/chat'
-                          : '/projects/$projectId/agents/$agentId/events',
-                      params: { projectId, agentId },
-                    })
-                  }}
-                />
+                {!configOpen && (
+                  <PillTabs
+                    value={view}
+                    tabs={viewTabs}
+                    onValueChange={(nextView) => {
+                      void navigate({
+                        to:
+                          nextView === 'chat'
+                            ? '/projects/$projectId/agents/$agentId/chat'
+                            : '/projects/$projectId/agents/$agentId/events',
+                        params: { projectId, agentId },
+                      })
+                    }}
+                  />
+                )}
                 {agent.current_config_id !== undefined && (
                   <Button
                     size="icon"
@@ -210,7 +212,7 @@ export function AgentView() {
                 orgId={activeOrg.id}
                 projectId={projectId}
                 agent={agent}
-                canManage={project?.access.can_manage ?? false}
+                canManage={(project?.access.can_manage ?? false) && !archived}
                 onDirtyChange={(dirty) => {
                   configDirty.current = dirty
                 }}

@@ -10,9 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 type integrationLaunchHTTPFixture struct {
@@ -291,6 +293,60 @@ func TestPublicIntegrationLaunchPreservesPinnedProfileConfigContract(t *testing.
 		"retarget-profile", http.StatusOK, authHeaders(f.project.AdminToken))
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		integrationHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
+}
+
+func TestPublicIntegrationLaunchConfigIsEditable(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationLaunchHTTPFixture(t, "integration-launch-editable")
+	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		integrationHTTPJSON(t, f.body()), "editable-launch", http.StatusCreated, authHeaders(f.launchToken))
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent_config"])["id"])
+	config := requestJSONWithHeaders(t, f.handler, http.MethodGet, f.project.ProjectPath+"/agent-configs/"+configID,
+		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
+	require.NotContains(t, config, "source")
+	var source map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(testutil.RequireType[string](t, config["generated_source"])), &source))
+	source["instruction"] = "Help with urgent tickets."
+	updated := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents/"+agentID+"/config",
+		integrationHTTPJSON(t, map[string]any{
+			"source_format": "json", "source": integrationHTTPJSON(t, source), "expected_current_config_id": configID,
+		}), "edit-launched-config", http.StatusOK, authHeaders(f.project.AdminToken))
+	saved := testutil.RequireType[map[string]any](t, updated["agent_config"])
+	require.Contains(t, saved, "source")
+	before := testutil.RequireType[map[string]any](t, config["compiled_definition"])
+	after := testutil.RequireType[map[string]any](t, saved["compiled_definition"])
+	require.Equal(t, "Help with urgent tickets.", after["instruction"])
+	require.Equal(t, before["tools"], after["tools"])
+	require.Equal(t, before["interaction_handlers"], after["interaction_handlers"])
+}
+
+func TestLaunchedAgentConfigKeepsDeletedReferenceNames(t *testing.T) {
+	t.Parallel()
+	pool := openIntegrationDB(t, t.Context())
+	handler := newIntegrationServerWithStoreOptions(pool, []storage.Option{memoryFileOption(t)})
+	project := bootstrapPublicHTTPProject(t, handler, "launch-deleted-reference")
+	memoryStore := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/memory-stores",
+		`{"name":"notes"}`, "", http.StatusCreated, authHeaders(project.AdminToken))
+	config := createPublicHTTPAgentConfig(t, handler, project, "launch-deleted-reference", "yaml",
+		"instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"+
+			"memory_stores:\n  - name: notes\n    access: read_write\n",
+		project.AdminToken, http.StatusCreated)
+	configID := testutil.RequireType[string](t, config["id"])
+	profile := createPublicHTTPAgentProfile(t, handler, project, "launch-deleted-reference", "Notes", configID,
+		project.AdminToken, http.StatusCreated)
+	launched := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		integrationHTTPJSON(t, map[string]any{
+			"profile": profile["id"], "config": configID,
+			"tools": map[string]any{toolcatalog.ToolNameListInteractionHandlers: map[string]any{}},
+		}), "", http.StatusCreated, authHeaders(project.AdminToken))
+	derivedID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent_config"])["id"])
+	requestJSONWithHeaders(t, handler, http.MethodDelete,
+		project.ProjectPath+"/memory-stores/"+testutil.RequireType[string](t, memoryStore["id"]),
+		"", "", http.StatusNoContent, authHeaders(project.AdminToken))
+	derived := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/agent-configs/"+derivedID,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	require.Contains(t, testutil.RequireType[string](t, derived["generated_source"]), "name: notes")
 }
 
 func TestPublicIntegrationLaunchInitialInputReplay(t *testing.T) {

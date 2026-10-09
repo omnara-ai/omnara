@@ -502,6 +502,25 @@ func (q *Queries) GetAgentProfileIDByName(ctx context.Context, arg GetAgentProfi
 	return id, err
 }
 
+const getAgentProfileName = `-- name: GetAgentProfileName :one
+SELECT name
+FROM agent_profiles
+WHERE project_id = $1 AND id = $2
+`
+
+type GetAgentProfileNameParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+// @sqlc-vet-disable agent-profiles-deleted-at
+func (q *Queries) GetAgentProfileName(ctx context.Context, arg GetAgentProfileNameParams) (string, error) {
+	row := q.db.QueryRow(ctx, getAgentProfileName, arg.ProjectID, arg.ID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getAgentProfileVersionByGeneration = `-- name: GetAgentProfileVersionByGeneration :one
 SELECT version.id, project.org_id, version.project_id, version.profile_id, version.generation, version.agent_config_id,
        version.reason, coalesce(version.idempotency_key, '') AS idempotency_key,

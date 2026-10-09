@@ -191,6 +191,12 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL;
 
+-- name: GetAgentProfileName :one
+-- @sqlc-vet-disable agent-profiles-deleted-at
+SELECT name
+FROM agent_profiles
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
+
 -- name: GetAgentProfileDisplayNames :many
 SELECT id, name
 FROM agent_profiles
