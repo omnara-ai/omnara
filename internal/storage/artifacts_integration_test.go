@@ -47,6 +47,15 @@ func (s *recordingBlobStore) PutBlob(ctx context.Context, key string, content []
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
 
+func (s *recordingBlobStore) PutBlobIfAbsent(
+	ctx context.Context, key string, content []byte,
+) (blobstore.Metadata, error) {
+	if _, ok := s.content[key]; ok {
+		return blobstore.Metadata{}, blobstore.ErrAlreadyExists
+	}
+	return s.PutBlob(ctx, key, content)
+}
+
 func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, blobstore.Metadata, error) {
 	_ = ctx
 	content, ok := s.content[key]
@@ -111,6 +120,39 @@ func TestCreateArtifactContentRoundTrip(t *testing.T) {
 	}
 	if loaded.Digest != record.Digest || loaded.Filename != "diagram.png" {
 		t.Fatalf("loaded record mismatch: %+v vs %+v", loaded, record)
+	}
+}
+
+func TestPreparedArtifactConditionalUploadRoundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	blobs := integrationblob.MustOpen(t, ctx)
+	artifacts := artifactstore.New(nil, blobs)
+	agentID, artifactID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	key := "artifacts/" + agentID.String() + "/" + artifactID.String()
+	t.Cleanup(func() { _ = blobs.DeleteBlob(context.WithoutCancel(ctx), key) })
+	content := []byte("pinned prepared artifact")
+	expected := artifactstore.PreparedArtifact{
+		ID: artifactID, ContentType: "text/plain", Filename: "prepared.txt",
+		Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
+	}
+	for range 2 {
+		if err := artifacts.UploadPreparedArtifact(ctx, agentID, expected, content); err != nil {
+			t.Fatalf("conditional upload or replay: %v", err)
+		}
+	}
+	changed := expected
+	changed.Digest, changed.SizeBytes = blobstore.ContentDigest([]byte("changed")), 7
+	err := artifacts.UploadPreparedArtifact(ctx, agentID, changed, []byte("changed"))
+	if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting conditional upload = %v, want ErrIdempotencyConflict", err)
+	}
+	stored, metadata, err := blobs.GetBlob(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored, content) || metadata.Digest != expected.Digest || metadata.SizeBytes != expected.SizeBytes {
+		t.Fatalf("conditional upload changed pinned content: %q, %+v", stored, metadata)
 	}
 }
 

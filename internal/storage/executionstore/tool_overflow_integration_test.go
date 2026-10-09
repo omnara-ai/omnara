@@ -32,6 +32,14 @@ type overflowBlobs struct {
 }
 
 func (b *overflowBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
+	return b.put(key, content, false)
+}
+
+func (b *overflowBlobs) PutBlobIfAbsent(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
+	return b.put(key, content, true)
+}
+
+func (b *overflowBlobs) put(key string, content []byte, ifAbsent bool) (blobstore.Metadata, error) {
 	if b.beforeIO != nil {
 		b.beforeIO()
 	}
@@ -39,6 +47,9 @@ func (b *overflowBlobs) PutBlob(_ context.Context, key string, content []byte) (
 	defer b.mu.Unlock()
 	if b.fail {
 		return blobstore.Metadata{}, errors.New("injected blob failure")
+	}
+	if _, exists := b.content[key]; ifAbsent && exists {
+		return blobstore.Metadata{}, blobstore.ErrAlreadyExists
 	}
 	b.puts++
 	b.content[key] = append([]byte(nil), content...)

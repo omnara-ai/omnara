@@ -22,6 +22,17 @@ func (s *preparedUploadBlobs) PutBlob(_ context.Context, key string, content []b
 	s.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
+func (s *preparedUploadBlobs) PutBlobIfAbsent(
+	_ context.Context, key string, content []byte,
+) (blobstore.Metadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.content[key]; ok {
+		return blobstore.Metadata{}, blobstore.ErrAlreadyExists
+	}
+	s.content[key] = append([]byte(nil), content...)
+	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
+}
 func (s *preparedUploadBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstore.Metadata, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,6 +75,9 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	present, err := store.PreparedArtifactUploaded(t.Context(), agentID, expected)
 	require.NoError(t, err)
 	require.True(t, present)
+	// Validate the caller's bytes even when a matching object already exists.
+	require.ErrorIs(t, store.UploadPreparedArtifact(t.Context(), agentID, expected, []byte("changed")),
+		storeerr.ErrIdempotencyConflict)
 	changed := expected
 	changed.Digest = blobstore.ContentDigest([]byte("changed"))
 	changed.SizeBytes = 7
@@ -84,4 +98,34 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	present, err = store.PreparedArtifactUploaded(t.Context(), agentID, expected)
 	require.NoError(t, err)
 	require.False(t, present)
+}
+
+func TestPreparedUploadConcurrentConflictingContent(t *testing.T) {
+	blobs := &preparedUploadBlobs{content: map[string][]byte{}}
+	store := New(nil, blobs)
+	agentID, artifactID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	start := make(chan struct{})
+	contents := [][]byte{[]byte("first writer"), []byte("other writer")}
+	failures := make([]error, len(contents))
+	var wg sync.WaitGroup
+	for i, content := range contents {
+		wg.Go(func() {
+			<-start
+			failures[i] = store.UploadPreparedArtifact(t.Context(), agentID, PreparedArtifact{
+				ID: artifactID, ContentType: "text/plain",
+				Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
+			}, content)
+		})
+	}
+	close(start)
+	wg.Wait()
+	winner := 0
+	if failures[0] != nil {
+		winner = 1
+	}
+	require.NoError(t, failures[winner])
+	require.ErrorIs(t, failures[1-winner], storeerr.ErrIdempotencyConflict)
+	stored, _, err := blobs.GetBlob(t.Context(), artifactObjectKey(agentID, artifactID))
+	require.NoError(t, err)
+	require.Equal(t, contents[winner], stored)
 }

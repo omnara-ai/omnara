@@ -16,9 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 var ErrNotFound = errors.New("blob not found")
+var ErrAlreadyExists = errors.New("blob already exists")
 
 // ContentDigest is the canonical digest format for blob content; artifact
 // idempotent-replay validation compares these digests.
@@ -34,6 +36,10 @@ type Metadata struct {
 
 type Store interface {
 	PutBlob(ctx context.Context, key string, content []byte) (Metadata, error)
+	// PutBlobIfAbsent atomically creates a blob, returning ErrAlreadyExists
+	// without changing the existing object when the key is occupied.
+	// Backends must enforce the condition; unsupported conditions must fail.
+	PutBlobIfAbsent(ctx context.Context, key string, content []byte) (Metadata, error)
 	GetBlob(ctx context.Context, key string) ([]byte, Metadata, error)
 	DeleteBlob(ctx context.Context, key string) error
 }
@@ -92,16 +98,32 @@ func NewS3Store(ctx context.Context, cfg S3Config) (*S3Store, error) {
 }
 
 func (s *S3Store) PutBlob(ctx context.Context, key string, content []byte) (Metadata, error) {
+	return s.putBlob(ctx, key, content, false)
+}
+
+func (s *S3Store) PutBlobIfAbsent(ctx context.Context, key string, content []byte) (Metadata, error) {
+	return s.putBlob(ctx, key, content, true)
+}
+
+func (s *S3Store) putBlob(ctx context.Context, key string, content []byte, ifAbsent bool) (Metadata, error) {
 	if key == "" {
 		return Metadata{}, errors.New("blob key is required")
 	}
 	digest := ContentDigest(content)
-	if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket:   aws.String(s.bucket),
 		Key:      aws.String(key),
 		Body:     bytes.NewReader(content),
 		Metadata: map[string]string{digestMetadataKey: digest},
-	}); err != nil {
+	}
+	if ifAbsent {
+		input.IfNoneMatch = aws.String("*")
+	}
+	if _, err := s.client.PutObject(ctx, input); err != nil {
+		var apiError smithy.APIError
+		if ifAbsent && errors.As(err, &apiError) && apiError.ErrorCode() == "PreconditionFailed" {
+			return Metadata{}, fmt.Errorf("put blob %q: %w: %w", key, ErrAlreadyExists, err)
+		}
 		return Metadata{}, fmt.Errorf("put blob %q: %w", key, err)
 	}
 	return Metadata{Digest: digest, SizeBytes: int64(len(content))}, nil

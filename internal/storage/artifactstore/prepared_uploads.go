@@ -40,15 +40,29 @@ func (s *Store) UploadPreparedArtifact(
 	expected PreparedArtifact,
 	content []byte,
 ) error {
-	// All writers use the frozen digest, so an expired uploader can only write
-	// identical bytes. Uncertain uploads must not delete possibly admitted data.
-	if present, err := s.PreparedArtifactUploaded(ctx, agentID, expected); err != nil || present {
+	if agentID == uuid.Nil || s.blobs == nil {
+		return fmt.Errorf("planned agent and blob store are required")
+	}
+	if err := expected.Validate(); err != nil {
 		return err
 	}
 	if int64(len(content)) != expected.SizeBytes || blobstore.ContentDigest(content) != expected.Digest {
 		return storeerr.ErrIdempotencyConflict
 	}
-	metadata, err := s.blobs.PutBlob(ctx, artifactObjectKey(agentID, expected.ID), content)
+	// Create before reading: S3 can return AccessDenied for a missing key when
+	// the caller lacks ListBucket. The conditional write also prevents concurrent
+	// uploaders from overwriting conflicting bytes. Never delete uncertain uploads.
+	metadata, err := s.blobs.PutBlobIfAbsent(ctx, artifactObjectKey(agentID, expected.ID), content)
+	if errors.Is(err, blobstore.ErrAlreadyExists) {
+		present, err := s.PreparedArtifactUploaded(ctx, agentID, expected)
+		if err != nil {
+			return fmt.Errorf("verify existing prepared artifact %s: %w", expected.ID, err)
+		}
+		if !present {
+			return fmt.Errorf("prepared artifact disappeared after conditional upload: %w", blobstore.ErrNotFound)
+		}
+		return nil
+	}
 	if err != nil {
 		return err
 	}

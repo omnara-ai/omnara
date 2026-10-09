@@ -236,7 +236,7 @@ func TestInboundEventMetadataSerializesTypedFileResults(t *testing.T) {
 				ContentType:       "image/png",
 				Filename:          "pixel.png",
 				SizeBytes:         12,
-				Status:            EventFileStatusStored,
+				Status:            EventFileStatusPrepared,
 			},
 			{
 				Status:     EventFileStatusSkipped,
@@ -260,7 +260,7 @@ func TestInboundEventMetadataSerializesTypedFileResults(t *testing.T) {
 	if !ok {
 		t.Fatalf("first file metadata = %#v", files[0])
 	}
-	if first["ordinal"] != float64(0) || first["id"] != "F123" || first["status"] != EventFileStatusStored {
+	if first["ordinal"] != float64(0) || first["id"] != "F123" || first["status"] != EventFileStatusPrepared {
 		t.Fatalf("first file metadata = %#v", first)
 	}
 	if _, ok := first["content"]; ok {
