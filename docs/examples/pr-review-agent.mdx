@@ -1,0 +1,17 @@
+---
+title: PR review agent
+description: Reviews your GitHub pull requests against a checkout of the repository and leaves inline findings
+icon: "code-compare"
+---
+
+A GitHub App that reviews pull requests on every new pull request, when mentioned, or both. It reads the change against a fresh checkout of your repository, publishes one review with inline findings and one-click suggestions, and answers replies to its comments. It focuses on bugs, security, breaking changes, and missing tests, and follows your repository's `AGENTS.md` and `CONTRIBUTING.md`.
+
+## Deploy
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It asks when the agent should review, creates it in your Omnara project, and walks you through registering its GitHub App.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/pr-review-agent/SKILL.md and follow it to deploy the PR review agent.
+```
+
+To see how it works or adapt it, browse [`examples/pr-review-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/pr-review-agent) on GitHub.
