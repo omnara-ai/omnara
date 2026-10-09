@@ -718,8 +718,11 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		effective.DefaultReasoningEffort != "high" {
 		t.Fatalf("unexpected effective runtime options: %+v", effective)
 	}
-	if effective.MaxOutputTokens == nil || *effective.MaxOutputTokens != 200 {
-		t.Fatalf("runtime max_output_tokens changed ceiling = %d, want 200", effective.MaxOutputTokens)
+	if effective.MaxOutputTokens == nil {
+		t.Fatal("runtime max_output_tokens cleared ceiling, want 200")
+	}
+	if *effective.MaxOutputTokens != 200 {
+		t.Fatalf("runtime max_output_tokens changed ceiling = %d, want 200", *effective.MaxOutputTokens)
 	}
 
 	for _, tc := range []struct {
