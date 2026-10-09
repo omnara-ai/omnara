@@ -57,7 +57,7 @@ export function AgentConfigPanel({
           configId={snapshot.id}
           source={source ?? ''}
           compiledDefinition={snapshot.compiled_definition}
-          canManage={canManage}
+          canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}

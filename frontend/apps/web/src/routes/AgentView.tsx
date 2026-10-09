@@ -175,21 +175,12 @@ export function AgentView() {
                 ]}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
-                {!configOpen && (
-                  <PillTabs
-                    value={view}
-                    tabs={viewTabs}
-                    onValueChange={(nextView) => {
-                      void navigate({
-                        to:
-                          nextView === 'chat'
-                            ? '/projects/$projectId/agents/$agentId/chat'
-                            : '/projects/$projectId/agents/$agentId/events',
-                        params: { projectId, agentId },
-                      })
-                    }}
-                  />
-                )}
+                <AgentViewTabs
+                  hidden={configOpen}
+                  view={view}
+                  projectId={projectId}
+                  agentId={agentId}
+                />
                 {agent.current_config_id !== undefined && (
                   <Button
                     size="icon"
@@ -212,7 +203,7 @@ export function AgentView() {
                 orgId={activeOrg.id}
                 projectId={projectId}
                 agent={agent}
-                canManage={(project?.access.can_manage ?? false) && !archived}
+                canManage={project?.access.can_manage ?? false}
                 onDirtyChange={(dirty) => {
                   configDirty.current = dirty
                 }}
@@ -267,6 +258,36 @@ export function AgentView() {
         canManage={project?.access.can_manage ?? false}
       />
     </SidebarProvider>
+  )
+}
+
+function AgentViewTabs({
+  hidden,
+  view,
+  projectId,
+  agentId,
+}: {
+  hidden: boolean
+  view: AgentViewMode
+  projectId: string
+  agentId: string
+}) {
+  const navigate = useNavigate()
+  if (hidden) return null
+  return (
+    <PillTabs
+      value={view}
+      tabs={viewTabs}
+      onValueChange={(nextView) => {
+        void navigate({
+          to:
+            nextView === 'chat'
+              ? '/projects/$projectId/agents/$agentId/chat'
+              : '/projects/$projectId/agents/$agentId/events',
+          params: { projectId, agentId },
+        })
+      }}
+    />
   )
 }
 
