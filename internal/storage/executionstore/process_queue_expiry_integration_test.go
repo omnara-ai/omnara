@@ -190,9 +190,11 @@ func TestTerminalProcessReadRequiresGrantAndAvailableStorage(t *testing.T) {
 			}, executionstore.CreateProcessActionInput{
 				ProcessID: process.ID, ActionKind: executionstore.ProcessActionKindRead, Payload: json.RawMessage(`{}`),
 			})
-			if test.granted && test.reason == "" && test.offline && !test.deleted {
+			if test.deleted {
+				require.ErrorIs(t, err, executionstore.ErrProcessMachineDeleted)
+			} else if test.granted && test.reason == "" && test.offline {
 				require.ErrorIs(t, err, storeerr.ErrNoOnlineDaemonRuntime)
-			} else if test.granted && test.reason == "" && !test.offline {
+			} else if test.granted && test.reason == "" {
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ProcessActionStateQueued, action.State)
 			} else {

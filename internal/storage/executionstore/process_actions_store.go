@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+var ErrProcessMachineDeleted = storeerr.Tag(storeerr.ErrProcessTerminal, errors.New("process machine was deleted"))
+
 func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
 	input CreateProcessActionInput,
@@ -70,6 +72,9 @@ func (t *toolCallTransaction) createProcessAction(
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if input.ActionKind == ProcessActionKindRead {
+				return ProcessActionRecord{}, ErrProcessMachineDeleted
+			}
 			return ProcessActionRecord{}, t.processActionCreateBlocker(ctx, input)
 		}
 		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", err)

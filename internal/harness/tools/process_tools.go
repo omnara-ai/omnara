@@ -464,10 +464,14 @@ func createProcessAction(
 				)
 			}
 			if errors.Is(err, storeerr.ErrProcessTerminal) {
+				message := "process is already terminal"
+				if errors.Is(err, executionstore.ErrProcessMachineDeleted) {
+					message = "process output is unavailable because its machine is deleted or being deleted"
+				}
 				return failProcessTransaction(
 					err,
 					processToolErrorTerminal,
-					"process is already terminal",
+					message,
 					false,
 					processID,
 					"",
