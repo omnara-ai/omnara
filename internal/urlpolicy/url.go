@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,14 @@ func RequireHTTPSOrLoopback(rawURL string) error {
 	}
 	if parsed.Fragment != "" {
 		return errors.New("URL must not include a fragment")
+	}
+	if port := parsed.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return errors.New("URL must include a valid port")
+		}
+	} else if strings.HasSuffix(parsed.Host, ":") {
+		return errors.New("URL must include a valid port")
 	}
 	if strings.EqualFold(parsed.Scheme, "https") {
 		return nil
