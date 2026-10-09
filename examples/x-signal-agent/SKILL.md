@@ -7,47 +7,48 @@ description: Deploy or update the X Signal Agent on Omnara, an agent that search
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
 folder. The goal: an agent profile the user has watched run once, reachable
-wherever they want it (their own app, Slack, Discord, or the Omnara
-console), and
-optionally running on a daily schedule.
+wherever the user wants it, and optionally running on a daily schedule.
 
-The steps below are the usual path and have the exact commands. Skip anything
-that's already done (for example, the token and profile exist and the user
-only wants a new topic), follow the user's lead if they want a different
-order, and narrate briefly as you go.
+The steps below are the usual path, with the exact commands. Skip anything
+that's already done (for example, the token and profile exist and the user only
+wants a new topic), and follow the user's lead if they want a different order.
 
 - Start from `agent.yaml` as written. If the user wants something different
   (the instruction, tools, model, or how they reach the agent), change it and
   tell them what you changed.
-- If a command fails, read the error and fix it; `npx omnara <command> --help`
-  and [docs.omnara.com](https://docs.omnara.com) have the details. If you're
-  stuck, show the user the error.
+- If a command fails, `npx omnara <command> --help` and
+  [docs.omnara.com](https://docs.omnara.com) have the details.
+- Stop only where a step says to ask the user. Ask in a sentence or two of
+  plain language, together with the next step's question if one comes right
+  after, then end your turn and wait for the reply.
+- Where a step gives a default, use it without asking and say in a line what
+  you picked, so the user can change it.
+- When a step needs a token, the user can paste it in the chat or add it to a
+  `.env` file in the current directory, whichever they prefer; offer both. If
+  they paste it, write it to `.env` yourself so the commands work as written.
 
-The commands use the Omnara CLI (`npx omnara`) because its login handles auth
-in one step; add `--json` when you need to read IDs from the output. They're a
-reference, not a requirement: the Omnara MCP tools, the
-[REST API](https://docs.omnara.com/api-reference/openapi.yaml), or the SDK work
-too, and the flags map directly to API fields. What matters is the result:
-a secret with the token, a profile from the filled-in `agent.yaml`, and
-whatever the user picks in steps 7 and 8. Slack and Discord setup is simplest
-with the CLI.
+The commands use the Omnara CLI (`npx omnara`); add `--json` to read IDs.
+They're a reference, not a requirement: the Omnara MCP tools, the
+[REST API](https://docs.omnara.com/api-reference/openapi.yaml), and the SDK work
+too, and the flags map directly to API fields.
 
 ## 1. Connect to Omnara
 
-1. Run `npx omnara whoami`. If it reports that you aren't logged in, run
-   `npx omnara login` in an interactive terminal, share the approval link it
-   prints, and wait until the user approves.
-2. Pick the org and project. `npx omnara whoami --json` lists the user's orgs,
-   and `npx omnara projects list --org <org-id> --json` lists an org's
-   projects.
-   - If there's only one org and one project, use them.
-   - If there are several of either, ask the user which to use. Suggest the
-     current defaults from `npx omnara config` if they're set, otherwise the
-     project named `Default`.
+Run `npx omnara whoami`. If you aren't logged in, run `npx omnara login` without
+piping its output, and keep it running: it waits until the user approves. It
+opens the approval page in the user's browser and prints the page's link and a
+code. Show the user both right away, since you may be on a different machine
+than their browser, and ask them to approve once the code matches. If the
+request expires, run it again. If login says the account has no organization
+yet, have the user create one at the link it prints. Then `npx omnara whoami`
+should succeed.
 
-   Save the choice with `npx omnara config --org <org-id> --project <project-id>`.
-
-Remember the project ID; later steps need it.
+Pick the org and project (`npx omnara whoami --json` lists orgs,
+`npx omnara projects list --org <org-id> --json` their projects): use them if
+there's one of each, otherwise the defaults from `npx omnara config` or the
+project named `Default`; ask only if there's still no clear choice. Save the
+choice with `npx omnara config --org <org-id> --project <project-id>`; later
+steps need the project ID.
 
 ## 2. Choose what to track
 
@@ -71,44 +72,31 @@ The agent needs an X API bearer token with pay-per-use billing. The user gets
 it at [console.x.com](https://console.x.com) under their app's **Keys and
 tokens**. A daily scan costs on the order of cents.
 
-1. Check for an existing secret:
-   `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name x-signal-agent-bearer-token --json`.
-   If one exists, ask whether to reuse it. To reuse it, note its `id` and skip
-   to step 4. To change its value, have the user update it on the
-   **Secrets** page of the Omnara dashboard (the ID stays the same) and skip to
-   step 4.
-2. Ask the user to add the token to a `.env` file in the current directory
-   and tell you when it's saved (pasting it in the chat also works):
+If a secret named `x-signal-agent-bearer-token` already exists
+(`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name x-signal-agent-bearer-token --json`),
+reuse it and note its `id`; if the value changed, the user updates it on the
+dashboard's **Secrets** page (the ID stays the same). Otherwise get
+`X_BEARER_TOKEN` from the user, then create the secret and note its `id`
+(`sec_…`):
 
-   ```sh
-   X_BEARER_TOKEN=...
-   ```
-
-3. Create the secret:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
-     --name x-signal-agent-bearer-token --material-kind generic \
-     --material-value "$X_BEARER_TOKEN" --json
-   ```
-
-   Note the `id` (`sec_…`) from the output.
+```sh
+set -a && . ./.env && set +a
+npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
+  --name x-signal-agent-bearer-token --material-kind generic \
+  --material-value "$X_BEARER_TOKEN" --json
+```
 
 ## 4. Pick the machine pool and model
 
 1. `npx omnara grant pools list --json`: each grant's `machine_pool.name` is a
-   candidate `MACHINE_POOL`; the agent runs `curl` on a machine from this
-   pool. Use the only one, or ask if there are several. If there are none,
-   stop and tell the user the project needs a machine pool.
+   candidate `MACHINE_POOL`; the agent runs `curl` on a machine from this pool.
+   Use `default-pool` if it's granted; otherwise use the only one, or ask if
+   there are several. If there are none, stop and tell the user the project
+   needs a machine pool.
 2. `npx omnara grant models list --json`: each item has `model.provider_config`
-   and `model.name`. Ask the user which model to use. Suggest
-   `openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted (it replaces
-   GPT-6 Sol, which the instruction was tested with); otherwise suggest a
-   strong general-purpose model from
-   the list. Name a couple of alternatives rather than the whole list, and show
-   everything if they ask. The choice gives `MODEL_PROVIDER_CONFIG` and
-   `MODEL_NAME`.
+   and `model.name`. Use `openai/gpt-6.1-sol` on `omnara-openrouter` if it's
+   granted, otherwise a strong general-purpose model from the list. The choice
+   gives `MODEL_PROVIDER_CONFIG` and `MODEL_NAME`.
 
 ## 5. Create the agent
 
@@ -147,144 +135,29 @@ Give the user the link to watch it work:
 takes a minute or two. The user can reply in the console to ask for reply
 drafts or push back on the filtering.
 
-## 7. Choose where to use it
+## 7. Choose where and when to use it
 
-Ask where the user wants to talk to the agent, offering these in this order.
-Any combination is fine.
+Right after sharing the link, ask in one message where the user wants to talk to
+the agent and whether it should run a daily scan (suggest weekdays at 9am in
+their timezone). Wait for the reply; don't assume the console or a schedule. Any
+combination works:
 
-**Their own app, existing or new (recommended).** Put the agent where the
-user's team already works: inside their existing product or internal tool, or, if there's no
-natural home, a small UI built for it. Both are the same integration: launch
-agents from the profile and stream their replies with the TypeScript SDK
-(`@omnara/sdk`) or the REST API; see [docs.omnara.com](https://docs.omnara.com).
-Anything else that can call the API (an alerting webhook, a CI job, a script)
-can start the agent the same way. The app needs an org API key: the user
-creates one on the dashboard's **API Tokens** page (**Organization** tab →
-**New token**), then grants it a role on this project from the key's detail
-panel. Help them wire it in, or build the UI with them.
+- **Their own app (recommended):** inside their product or internal tool, or a
+  small UI built for it.
+- **Slack or Discord:** the team mentions the bot, and replies in the thread go
+  to the same agent.
+- **Only the Omnara console:** nothing to set up; every agent launched from the
+  profile shows up there.
 
-**Slack.** The bot answers wherever it's mentioned, and thread replies become
-instructions to the agent.
+Set up whichever the user picks with [`integrations.md`](../integrations.md)
+(read it from
+https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+if you don't have the repo). For this agent, name the integrations
+`x-signal-agent-slack` and `x-signal-agent-discord`, call the bot "X Signal
+Agent", and have the user try it with "@X Signal Agent run the scan".
 
-If `npx omnara integrations list --json` already has an integration named
-`x-signal-agent-slack` from an earlier run of this skill, reuse it whatever its
-state, since names are unique in a project. If
-`npx omnara integrations get <integration-id> --json` doesn't list this profile
-under `settings.launcher.profiles`, add it with
-`npx omnara integrations profiles <integration-id> --profile-ids <agent-profile-id>`;
-the flag replaces the list, so repeat each profile already there. Then, if its
-`state` is `active`, skip to its last step. If it's `disconnected`, setup didn't
-finish: skip step 2, and redo step 1 only if the token in `.env` has expired.
-
-1. The user creates an app configuration token at
-   [api.slack.com/apps](https://api.slack.com/apps) under **Your App
-   Configuration Tokens** → **Generate Token**. It expires after about 12
-   hours. Have the user add it to `.env` as `SLACK_APP_CONFIG_TOKEN=...`.
-2. Create the integration with this profile in its launcher, so a mention
-   starts this agent, and note the `itg_…` ID it returns:
-
-   ```sh
-   npx omnara integrations create --name x-signal-agent-slack \
-     --integration-kind slack_thread \
-     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
-   ```
-
-   The name is permanent and names the agent's Slack tools
-   (`int__x-signal-agent-slack__post_message`).
-3. Create the Slack app and connect it:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara integrations slack <integration-id> --app-name "X Signal Agent" \
-     --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
-   ```
-
-   Ask before choosing a different app name; it's how the team mentions the
-   bot. It opens a Slack authorization page that the user approves before it
-   expires.
-4. Tell the user to invite the bot to a channel (`/invite @X Signal Agent`)
-   and mention it: "@X Signal Agent run the scan".
-
-**Discord.** Works like Slack: the bot answers in a new thread wherever
-it's mentioned in a server channel, and replies in the thread go to the
-same agent. It doesn't answer direct messages.
-
-If an integration named `x-signal-agent-discord` already exists, reuse it the
-same way: add this profile if it's missing. If it's `active`, skip to step 5;
-Omnara can't tell whether steps 5 and 6 were done in Discord, so check them with
-the user. If it's `disconnected`, skip step 3 and do the steps that weren't
-done, passing the current `setup_revision` from
-`npx omnara integrations get <integration-id> --json` in step 4.
-
-1. The user creates an application named "X Signal Agent" in the
-   [Discord Developer Portal](https://discord.com/developers/applications);
-   ask before choosing a different name, since it's how the team mentions
-   the bot. They copy the **Application ID** and **Public Key** from
-   **General Information**. Under **Bot**, they select **Reset Token** to copy
-   the bot token, turn on **Message Content Intent**, and turn off **Public
-   Bot** so only they can add it (if Discord refuses, first set
-   **Installation** → **Install Link** to **None**). Have the user add the
-   values to `.env`:
-
-   ```sh
-   DISCORD_APPLICATION_ID=...
-   DISCORD_PUBLIC_KEY=...
-   DISCORD_BOT_TOKEN=...
-   ```
-
-2. Store the bot token and note the `sec_…` ID. If a secret named
-   `x-signal-agent-discord-bot-token` already exists
-   (`npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name x-signal-agent-discord-bot-token --json`),
-   reuse its ID; if the user has reset the token since, have them paste the new
-   one into it on the dashboard's **Secrets** page (the ID stays the same).
-   Otherwise:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
-     --name x-signal-agent-discord-bot-token --material-kind generic \
-     --material-value "$DISCORD_BOT_TOKEN" --json
-   ```
-
-3. Create the integration with this profile in its launcher, and note the
-   `itg_…` ID and `setup_revision` it returns:
-
-   ```sh
-   npx omnara integrations create --name x-signal-agent-discord \
-     --integration-kind discord_thread \
-     --settings '{"launcher":{"profiles":["<agent-profile-id>"]}}' --json
-   ```
-
-   The name is permanent and names the agent's Discord tools
-   (`int__x-signal-agent-discord__post_message`).
-4. Connect the bot. Omnara checks the token and finds the bot's user:
-
-   ```sh
-   set -a && . ./.env && set +a
-   npx omnara integrations configure <integration-id> \
-     --expected-setup-revision <setup-revision> \
-     --provider-tenant-id "$DISCORD_APPLICATION_ID" \
-     --credential-secret-id <secret-id> \
-     --provider-config "{\"public_key\":\"$DISCORD_PUBLIC_KEY\"}" --json
-   ```
-
-5. Under **General Information**, the user sets **Interactions Endpoint URL**
-   to `https://app.omnara.com/api/integrations/discord/<application-id>/interactions`
-   and saves; the buttons on the bot's questions need it. Discord checks the
-   URL when it's saved, so this has to come after step 4.
-6. The user adds the bot to their server by opening this link, which asks
-   only for the permissions the bot needs:
-   `https://discord.com/oauth2/authorize?client_id=<application-id>&scope=bot&permissions=309237746752&integration_type=0`.
-   Then they mention it in a channel: "@X Signal Agent run the scan".
-
-**Omnara console.** Already done: every agent launched from the profile shows
-up in the console.
-
-## 8. Run it daily (optional)
-
-A schedule works with any of the above. Ask whether the user wants a daily
-scan, and for the time and timezone (default: weekdays at 9am in the user's
-timezone). Set `--cron` and `--timezone` from their answer:
+If they want a daily scan, create it with `--cron` and `--timezone` from their
+answer:
 
 ```sh
 npx omnara crons create --name x-signal-agent-daily \
@@ -297,27 +170,20 @@ If `npx omnara crons list --name x-signal-agent-daily --json` already shows a
 trigger, change it with `npx omnara crons update <cron-trigger-id>` (same
 flags) instead of creating a second one.
 
-Each firing launches a fresh agent from the profile. It shows up in the
-console, and the user's app can pick it up through the SDK or API. To get
-each digest in a Slack or Discord channel, mention the bot in that channel
-once, then
-create the trigger with `--target-type agent --target-agent-id <agent-id>`
-(the agent ID from that conversation's console URL), so every digest posts to
-that thread.
+Each firing launches a fresh agent from the profile. It shows up in the console,
+and the user's app can pick it up through Omnara's SDK or API. To post every
+digest in one Slack or Discord thread instead, see "Scheduled runs in a channel"
+in `integrations.md`.
 
-## 9. Wrap up
+## 8. Wrap up
 
-Summarize what you created: the secret name, the profile, and the Slack or
-Discord integration or cron trigger if any. Then tell the user:
+Summarize what you created: the secret, the profile, and any integrations or
+cron trigger. Remind the user to delete `.env` or move what's in it somewhere
+safe. Then tell them:
 
 - **Change the topic or anything else:** ask a coding agent with this skill.
   It reuses the secret and updates the profile in place.
 - **Remove it:** delete the cron trigger (`npx omnara crons delete <id>`),
-  delete the Slack and Discord integrations, if any
-  (`npx omnara integrations delete <integration-id>`), or, if other agents
-  share it, rerun `npx omnara integrations profiles` with only their
-  profiles. Then run `npx omnara profiles delete <agent-profile-id>` and
+  remove its integrations, if any (see "Removing" in `integrations.md`),
+  then run `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>`.
-  With Discord, also delete the bot token secret
-  (`npx omnara secrets delete <secret-id>`) and the application in the
-  Discord Developer Portal.
