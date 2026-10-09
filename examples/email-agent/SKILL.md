@@ -21,7 +21,7 @@ that's already done, follow the user's lead if they want a different order,
 and narrate briefly as you go.
 
 - Start from the files as written. The defaults are deliberately open: anyone
-  can email the agent, and it replies without asking for approval. If the user
+  can email the agent, and it replies on its own. If the user
   wants something different, step 9 lists the settings; change them and tell
   the user what you changed.
 - If a command fails, read the error and fix it; `npx omnara <command> --help`,
@@ -249,7 +249,6 @@ Tell the user the defaults and that each one is a single change:
 | When a Cc wakes it | Only when the new text mentions `@<agent-name>` or the full address | Function setting `CC_MODE`: `addressed`, `always`, or `never`. To and Bcc always wake it. |
 | Automated mail | Skipped (Auto-Submitted, mailing lists, bulk, no-reply senders, bounces) | Function setting `SKIP_AUTOMATED`: `false` to deliver it anyway |
 | Spam | Skipped at SpamAssassin score 5 or above | Function setting `MAX_SPAM_SCORE` |
-| Approval before sending | None | In `email-agent.yaml`, set `permission.mode: always_ask` on `sendEmail` or `replyToEmail`, then `npx omnara profiles update` |
 | What the agent does | Answers questions, with web search | Edit the instruction's "Your role" section, then update the profile |
 
 Function settings change with `functions set-secret ... --redeploy` (step 7).
