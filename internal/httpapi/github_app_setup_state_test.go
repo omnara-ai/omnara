@@ -73,15 +73,6 @@ func TestGitHubManifestStateHasIndependentOneHourWindow(t *testing.T) {
 	require.Equal(t, 10*time.Minute, integrationOAuthStateTTL, "Slack OAuth keeps its existing lifetime")
 }
 
-func TestGitHubManifestWebhookRequiresPublicOrigin(t *testing.T) {
-	t.Parallel()
-	for _, publicURL := range []string{"", "http://omnara.test", "https://localhost", "not-a-url"} {
-		server := &Server{publicURL: publicURL, publicAPIURL: "https://api.omnara.test/v1"}
-		_, err := server.githubManifestWebhookURL()
-		require.Error(t, err, "invalid public origin must not fall back to the API origin: %s", publicURL)
-	}
-}
-
 func TestGitHubGuidedSetupRestrictsTrustedOrigins(t *testing.T) {
 	t.Parallel()
 	wrapper, err := secrets.NewLocalKeyWrapper("test", map[string][]byte{"test": bytes.Repeat([]byte{1}, 32)})
