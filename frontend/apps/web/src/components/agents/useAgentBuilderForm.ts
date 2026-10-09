@@ -1,12 +1,12 @@
 import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
 import { useState } from 'react'
-import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
+import { Document, isNode, type Node } from 'yaml'
 
 import {
   type BasicMemoryStore,
-  extractBasicConfig,
   type MachineEntry,
   normalizeMultiline,
+  parseBasicConfigSource,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -87,6 +87,7 @@ export interface BasicConfig {
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
   interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
+  gitCredentialsIntegration: string
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
   eventWebhookUrl: string
@@ -125,6 +126,7 @@ export const emptyBasicConfig: BasicConfig = {
   machineSources: [],
   tools: [],
   interactionHandlers: {},
+  gitCredentialsIntegration: '',
   mcpServers: [],
   eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
@@ -142,8 +144,7 @@ export interface BasicConfigSession {
 }
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
-  const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc)
+  const { doc, initialDraft } = parseBasicConfigSource(source)
   return {
     initialDraft,
     apply(config) {
@@ -199,6 +200,7 @@ export function useAgentBuilderForm(
     machineSources: draft.machineSources,
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
+    gitCredentialsIntegration: draft.gitCredentialsIntegration,
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
@@ -223,6 +225,9 @@ export function useAgentBuilderForm(
     },
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
+    },
+    setGitCredentialsIntegration: (gitCredentialsIntegration: string) => {
+      patch({ gitCredentialsIntegration })
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
@@ -300,16 +305,6 @@ function machineSourceValid(source: BasicMachineSource) {
   )
 }
 
-function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
-  }
-}
-
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
 
 interface WireObject {
@@ -378,6 +373,10 @@ function applyToDocument(
     set,
     del,
   )
+  if (config.gitCredentialsIntegration !== (baseline?.gitCredentialsIntegration ?? '')) {
+    if (config.gitCredentialsIntegration === '') del(['git_credentials'])
+    else set(['git_credentials', 'integration'], config.gitCredentialsIntegration)
+  }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(
