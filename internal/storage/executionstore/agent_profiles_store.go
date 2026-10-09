@@ -321,6 +321,14 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id uuid.UUID) (A
 	return record, nil
 }
 
+func (s *Store) GetAgentProfileName(ctx context.Context, projectID, id uuid.UUID) (string, error) {
+	name, err := s.q.GetAgentProfileName(ctx, dbsqlc.GetAgentProfileNameParams{ProjectID: projectID, ID: id})
+	if err != nil {
+		return "", fmt.Errorf("get agent profile name: %w", err)
+	}
+	return name, nil
+}
+
 func (s *Store) GetAgentProfileDisplayNames(
 	ctx context.Context, projectID uuid.UUID, ids []uuid.UUID,
 ) (map[uuid.UUID]string, error) {

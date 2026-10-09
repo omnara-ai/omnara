@@ -35,10 +35,11 @@ export function AgentConfigPanel({
   if (snapshot === null && configQuery.data !== undefined) {
     setSnapshot(configQuery.data)
   }
+  const source = snapshot?.source ?? snapshot?.generated_source
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      {snapshot !== null && (agent.parent_agent_id || snapshot.source === undefined) ? (
+      {snapshot !== null && (agent.parent_agent_id || source === undefined) ? (
         <>
           <h2 className="type-card-title">Agent configuration</h2>
           <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
@@ -54,9 +55,9 @@ export function AgentConfigPanel({
           projectId={projectId}
           agentId={agent.id}
           configId={snapshot.id}
-          source={snapshot.source ?? ''}
+          source={source ?? ''}
           compiledDefinition={snapshot.compiled_definition}
-          canManage={canManage}
+          canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}

@@ -101,6 +101,14 @@ func (s strictOpenAPIServer) getAgentConfig(
 	if err != nil {
 		return nil, err
 	}
+	if config.Source == "" {
+		source, err := agentconfigcompile.GenerateSource(ctx, s.server.store, project.OrgID, project.ID, config)
+		if err != nil {
+			s.server.log.Warn("generate agent config source failed", "agent_config_id", config.ID, "error", err)
+		} else {
+			response.GeneratedSource = &source
+		}
+	}
 	return openapi.GetAgentConfig200JSONResponse(response), nil
 }
 

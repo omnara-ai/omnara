@@ -190,6 +190,14 @@ func (s *Store) Resolve(ctx context.Context, projectID uuid.UUID, name string) (
 	return record(r), nil
 }
 
+func (s *Store) Name(ctx context.Context, projectID, id uuid.UUID) (string, error) {
+	name, err := s.q.GetMemoryStoreName(ctx, dbsqlc.GetMemoryStoreNameParams{ProjectID: projectID, ID: id})
+	if err != nil {
+		return "", fmt.Errorf("get memory store name: %w", mapped(err))
+	}
+	return name, nil
+}
+
 type ListResult struct {
 	Records []Record
 	HasMore bool

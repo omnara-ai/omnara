@@ -1556,6 +1556,10 @@ export type AgentConfig = {
     instruction_hash?: string;
     created_at: Timestamp;
     compiled_definition: CompiledAgentConfig;
+    /**
+     * YAML source rebuilt from compiled_definition, present on get responses when the config has no saved source.
+     */
+    generated_source?: string;
 };
 
 export type CreateAgentProfileRequest = {

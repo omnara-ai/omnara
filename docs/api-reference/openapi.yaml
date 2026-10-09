@@ -10922,6 +10922,11 @@ components:
           $ref: '#/components/schemas/Timestamp'
         compiled_definition:
           $ref: '#/components/schemas/CompiledAgentConfig'
+        generated_source:
+          description: >-
+            YAML source rebuilt from compiled_definition, present on get
+            responses when the config has no saved source.
+          type: string
     CreateAgentProfileRequest:
       type: object
       additionalProperties: false
