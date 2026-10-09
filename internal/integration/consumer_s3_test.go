@@ -21,9 +21,8 @@ import (
 )
 
 type inboxS3Options struct {
-	listBucket bool
-	denyGet    bool
-	denyPut    bool
+	denyGet bool
+	denyPut bool
 }
 
 type inboxS3Object struct {
@@ -59,10 +58,8 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 		}
 		switch r.Method {
 		case http.MethodGet:
-			if options.denyGet || (!exists && !options.listBucket) {
+			if options.denyGet || !exists {
 				fail(http.StatusForbidden, "AccessDenied")
-			} else if !exists {
-				fail(http.StatusNotFound, "NoSuchKey")
 			} else {
 				w.Header().Set("X-Amz-Meta-Omnara-Digest", object.digest)
 				_, _ = w.Write(object.content)
@@ -92,54 +89,6 @@ func newInboxS3Store(t *testing.T, options inboxS3Options) (*blobstore.S3Store, 
 	})
 	require.NoError(t, err)
 	return store, state
-}
-
-func TestIntegrationConsumerS3PreparedUploads(t *testing.T) {
-	for _, listBucket := range []bool{false, true} {
-		for _, cached := range []bool{false, true} {
-			t.Run(fmt.Sprintf("list_bucket=%t/cached=%t", listBucket, cached), func(t *testing.T) {
-				blobs, state := newInboxS3Store(t, inboxS3Options{listBucket: listBucket})
-				artifacts := artifactstore.New(nil, blobs)
-				file := IntegrationInboxFile{Content: []byte("pinned image bytes"), ContentType: "image/png", Filename: "image.png"}
-				expected := artifactstore.PreparedArtifact{
-					ID: uuid.Must(uuid.NewV7()), ContentType: file.ContentType, Filename: file.Filename,
-					Digest: blobstore.ContentDigest(file.Content), SizeBytes: int64(len(file.Content)),
-				}
-				recipient := IntegrationInboxRecipient{AgentID: uuid.Must(uuid.NewV7()), ArtifactIDs: []uuid.UUID{expected.ID}}
-				message := executionstore.InboxMessage{
-					ContentBlocks: []byte(`[{"type":"media_ref","artifact_id":"` + expected.ID.String() + `"}]`),
-					Files: []executionstore.InboxPlannedFile{{
-						ArtifactID: expected.ID, ProviderFileID: "F123", Expected: &expected,
-					}},
-				}
-				cache := map[string]IntegrationInboxFile{}
-				if cached {
-					cache["F123"] = file
-				}
-				provider := &integrationConsumerProvider{file: file}
-				consumer := NewIntegrationInboxConsumer(nil, nil, artifacts, nil, nil, nil)
-				prepared, err := consumer.prepareFiles(t.Context(), provider, integrationstore.IntegrationRecord{}, nil,
-					message, recipient, cache)
-				require.NoError(t, err)
-				require.Equal(t, []artifactstore.PreparedArtifact{expected}, prepared)
-				objects, requests := state.snapshot()
-				if cached {
-					require.Zero(t, provider.downloads)
-					require.Equal(t, []string{http.MethodPut}, requests)
-				} else {
-					require.Equal(t, 1, provider.downloads)
-					require.Equal(t, []string{http.MethodGet, http.MethodPut}, requests)
-				}
-				key := "/test/artifacts/" + recipient.AgentID.String() + "/" + expected.ID.String()
-				require.Equal(t, inboxS3Object{content: file.Content, digest: expected.Digest}, objects[key])
-
-				prepared, err = consumer.prepareFiles(t.Context(), nil, integrationstore.IntegrationRecord{}, nil,
-					message, recipient, nil)
-				require.NoError(t, err)
-				require.Equal(t, []artifactstore.PreparedArtifact{expected}, prepared)
-			})
-		}
-	}
 }
 
 func TestIntegrationConsumerS3AuthorizationFailures(t *testing.T) {

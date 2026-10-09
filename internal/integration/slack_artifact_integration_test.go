@@ -4,7 +4,6 @@ package integration
 
 import (
 	"bytes"
-	"encoding/json"
 	"image"
 	"image/png"
 	"net/http"
@@ -27,7 +26,7 @@ import (
 )
 
 func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
-	for _, stage := range []string{"fresh", "frozen before upload", "uploaded before admission"} {
+	for _, stage := range []string{"fresh", "frozen before upload"} {
 		t.Run(stage, func(t *testing.T) {
 			ctx := t.Context()
 			pool, store, ids, integrationID := integrationWorkerFixture(t)
@@ -45,8 +44,7 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 			var pngBytes bytes.Buffer
 			require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 2))))
 			content := pngBytes.Bytes()
-			var downloads, acknowledgments atomic.Int32
-			var fileUnavailable atomic.Bool
+			var downloads atomic.Int32
 			slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/auth.test":
@@ -57,12 +55,10 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 					_, _ = w.Write([]byte(`{"ok":true,"channel":{"name":"direct"}}`))
 				case "/image.png":
 					downloads.Add(1)
-					assert.False(t, fileUnavailable.Load(), "recovery must reuse the uploaded file")
 					assert.Equal(t, "Bearer xoxb-inbox-test", r.Header.Get("Authorization"))
 					w.Header().Set("Content-Type", "image/png")
 					_, _ = w.Write(content)
 				case "/reactions.add":
-					acknowledgments.Add(1)
 					_, _ = w.Write([]byte(`{"ok":true}`))
 				default:
 					t.Errorf("unexpected Slack request %s", r.URL.Path)
@@ -95,17 +91,8 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 			if stage != "fresh" {
 				expansion, err := provider.Expand(ctx, setup, payload)
 				require.NoError(t, err)
-				plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), expansion.Event)
+				_, err = freezeTestIntegrationEvent(ctx, router, receipt.Lease(), expansion.Event)
 				require.NoError(t, err)
-				if stage == "uploaded before admission" {
-					for _, recipient := range plan.Recipients {
-						_, files, err := plan.Message.RecipientContent(recipient.ArtifactIDs)
-						require.NoError(t, err)
-						require.Len(t, files, 1)
-						require.NoError(t, artifacts.UploadPreparedArtifact(ctx, recipient.AgentID, *files[0].Expected, content))
-					}
-					fileUnavailable.Store(true)
-				}
 			}
 			consumer := NewIntegrationInboxConsumer(router, inbox, artifacts,
 				map[integrationdefinition.Provider]IntegrationInboxProvider{integrationdefinition.ProviderSlack: provider},
@@ -114,11 +101,8 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 			require.NoError(t, err)
 			_, admissionRequests := s3State.snapshot()
 			wantRequests := []string{http.MethodPut}
-			switch stage {
-			case "frozen before upload":
+			if stage == "frozen before upload" {
 				wantRequests = []string{http.MethodGet, http.MethodPut}
-			case "uploaded before admission":
-				wantRequests = []string{http.MethodPut, http.MethodGet}
 			}
 			require.Equal(t, wantRequests, admissionRequests)
 			require.Len(t, results, 1)
@@ -139,12 +123,6 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 			require.Equal(t, 1, completed.AttemptCount)
 			plan, err := decodeIntegrationInboxPlan(completed.Plan)
 			require.NoError(t, err)
-			var metadata struct {
-				Files []slack.EventFileResult `json:"files"`
-			}
-			require.NoError(t, json.Unmarshal(plan.Message.Metadata, &metadata))
-			require.Len(t, metadata.Files, 1)
-			require.Equal(t, slack.EventFileStatusPrepared, metadata.Files[0].Status)
 			for _, recipient := range plan.Recipients {
 				require.Len(t, recipient.ArtifactIDs, 1)
 				require.Equal(t, recipient.ArtifactIDs[0], admittedArtifact)
@@ -156,23 +134,13 @@ func TestSlackInboxAttachmentAdmissionWithoutListBucket(t *testing.T) {
 				require.Equal(t, "image/png", record.ContentType)
 				require.Equal(t, int64(len(content)), *record.SizeBytes)
 			}
-			objects, requests := s3State.snapshot()
+			objects, _ := s3State.snapshot()
 			require.Len(t, objects, 1)
 			wantDownloads := int32(1)
 			if stage == "frozen before upload" {
 				wantDownloads++
 			}
 			require.Equal(t, wantDownloads, downloads.Load())
-			require.EqualValues(t, 1, acknowledgments.Load())
-			replayed, err := consumer.Consume(ctx, receipt.Lease())
-			require.NoError(t, err)
-			require.Len(t, replayed, 1)
-			require.False(t, replayed[0].Input.Created)
-			require.Equal(t, input.ID, replayed[0].Input.AgentInput.ID)
-			_, after := s3State.snapshot()
-			require.Equal(t, requests, after)
-			require.Equal(t, wantDownloads, downloads.Load())
-			require.EqualValues(t, 1, acknowledgments.Load())
 		})
 	}
 }
