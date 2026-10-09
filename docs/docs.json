@@ -91,6 +91,7 @@
                 ]
               },
               "examples/posthog-analytics-agent",
+              "examples/email-agent",
               "examples/sre-agent",
               "examples/slack-coding-agent",
               "examples/browser-agent",
