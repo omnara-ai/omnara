@@ -208,6 +208,8 @@ export const zDiscoveredProviderModel = z.object({
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    supports_reasoning: z.boolean().optional(),
+    supported_reasoning_efforts: z.array(z.string()).optional(),
     pricing: zDiscoveredModelPricing.optional()
 });
 
@@ -606,6 +608,7 @@ export const zMemoryStoreAccess = z.enum(['read', 'read_write']);
 
 export const zMemoryStore = z.object({
     id: zMemoryStoreId,
+    project_id: zProjectId,
     name: zMemoryStoreName,
     description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }),
     agent_access: zMemoryStoreAccess,
@@ -4017,6 +4020,21 @@ export const zListProjectAvailableSkillsQuery = z.object({
  * Skills available to the project with their availability source.
  */
 export const zListProjectAvailableSkillsResponse = zListProjectSkillAccessesResponse;
+
+export const zListOrgMemoryStoresPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgMemoryStoresQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    name: z.string().min(1).max(200).optional(),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Memory stores across the caller's readable projects.
+ */
+export const zListOrgMemoryStoresResponse = zMemoryStoreList;
 
 export const zListMemoryStoresPath = z.object({
     orgID: zOrganizationId,

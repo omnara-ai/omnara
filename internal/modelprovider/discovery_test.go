@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -259,6 +260,49 @@ func TestDiscoverModelsAnthropicHeadersAndDisplayNames(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelsAnthropicReasoningEfforts(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"claude-adaptive","capabilities":{
+			 "effort":{"supported":true,"low":{"supported":true},"medium":{"supported":true},
+			           "high":{"supported":true},"xhigh":{"supported":false},"max":{"supported":true},
+			           "ultra":{"supported":true}},
+			 "thinking":{"supported":true,"types":{"adaptive":{"supported":true}}}}},
+			{"id":"claude-manual","capabilities":{
+			 "effort":{"supported":true,"low":{"supported":true}},
+			 "thinking":{"supported":true,"types":{"enabled":{"supported":true},"adaptive":{"supported":false}}}}},
+			{"id":"claude-unreported"},
+			{"id":"claude-malformed","capabilities":["effort"],
+			 "supported_parameters":["reasoning"],"reasoning":{"supported_efforts":["minimal"]}}
+		]}`))
+	}))
+	defer server.Close()
+
+	config := discoveryProviderConfig(
+		server.URL+"/v1",
+		modelprotocol.APIFormatAnthropicMessages,
+		modelstore.ModelProviderAuthKindAPIKeyHeader,
+		`{"header_name":"x-api-key"}`,
+	)
+	models, err := DiscoverModels(context.Background(), config, "sk-ant", nil, true)
+	if err != nil {
+		t.Fatalf("DiscoverModels: %v", err)
+	}
+	if len(models) != 4 {
+		t.Fatalf("unexpected anthropic models: %+v", models)
+	}
+	if models[0].SupportsReasoning == nil || !*models[0].SupportsReasoning ||
+		!slices.Equal(models[0].SupportedReasoningEfforts, []string{"low", "medium", "high", "max"}) {
+		t.Fatalf("adaptive model should list its supported efforts: %+v", models[0])
+	}
+	for _, model := range models[1:] {
+		if model.SupportsReasoning == nil || *model.SupportsReasoning || model.SupportedReasoningEfforts != nil {
+			t.Fatalf("model %q should not support reasoning: %+v", model.Slug, model)
+		}
+	}
+}
+
 func TestDiscoverModelsOpenRouterCapabilityMetadata(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +328,8 @@ func TestDiscoverModelsOpenRouterCapabilityMetadata(t *testing.T) {
 			 "context_length":131072,
 			 "pricing":{"prompt":"0.000003","completion":"0.000015",
 			            "input_cache_read":"0.0000003","input_cache_write":"0.00000375","request":"0"},
-			 "architecture":{"output_modalities":["text"]},"supported_parameters":["tools"],
+			 "architecture":{"output_modalities":["text"]},"supported_parameters":["tools","reasoning"],
+			 "reasoning":{"mandatory":false,"supported_efforts":["high","low"]},
 			 "top_provider":{"context_length":131072,"max_completion_tokens":8192}},
 			{"id":"maker/equal-limits","created":150,
 			 "context_length":8192,
@@ -329,6 +374,13 @@ func TestDiscoverModelsOpenRouterCapabilityMetadata(t *testing.T) {
 	}
 	if models[1].Pricing != nil || models[2].Pricing != nil {
 		t.Fatalf("expected no pricing without a pricing object: %+v %+v", models[1].Pricing, models[2].Pricing)
+	}
+	if models[0].SupportsReasoning == nil || !*models[0].SupportsReasoning ||
+		!slices.Equal(models[0].SupportedReasoningEfforts, []string{"high", "low"}) {
+		t.Fatalf("unexpected OpenRouter reasoning support: %+v", models[0])
+	}
+	if models[1].SupportsReasoning == nil || *models[1].SupportsReasoning {
+		t.Fatalf("model without the reasoning parameter should not support reasoning: %+v", models[1])
 	}
 
 	if _, err := DiscoverModels(context.Background(), config, "sk-bad", nil, true); err == nil ||

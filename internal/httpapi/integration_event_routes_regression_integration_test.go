@@ -184,7 +184,27 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 	t.Parallel()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
-	provider := newSlackEventsTestServer(t)
+	base := newSlackEventsTestServer(t)
+	t.Cleanup(base.Close)
+	posts := make(chan map[string]any, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat.postMessage" {
+			base.Config.Handler.ServeHTTP(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		select {
+		case posts <- body:
+		default:
+			t.Error("unexpected extra Slack reply")
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "channel": body["channel"], "ts": "777.888"})
+	}))
 	t.Cleanup(provider.Close)
 	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "channel-subscription")
 	integration, err := f.Project.Store.Integrations().UpdateIntegration(
@@ -244,8 +264,44 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 		require.Equal(t, event.inputs, inputs, event.key)
 		require.Equal(t, 1, subscriptions, "delivery must use the channel subscription without adding a follow")
 	}
+	require.Len(t, posts, 1, "only the unrouted mention replies")
+	require.Equal(t, map[string]any{
+		"channel": "COTHER", "thread_ts": "222.111",
+		"text": "This bot isn't available for requests. Ask its owner for help.",
+	}, <-posts)
 	target, err := slackJourneyTarget(t, pool, f.Project.Store.Integrations(), ctx,
 		f.Project.ProjectUUID, integration.ID, "C123:111.222")
 	require.NoError(t, err)
 	require.Equal(t, launched.Agent.ID, target.AgentID)
+}
+
+func TestSlackUnroutedMentionStaysSilentWhenAnotherIntegrationSharesTheBot(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	provider := newSlackEventsTestServer(t)
+	t.Cleanup(provider.Close)
+	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "shared-unrouted")
+	_, err := f.Project.Store.Integrations().UpdateIntegration(ctx, f.Install.ID, integrationstore.SaveIntegrationInput{
+		OrgID: f.Install.OrgID, ProjectID: f.Install.ProjectID, Name: f.Install.Name,
+		IntegrationKind: f.Install.IntegrationKind,
+	})
+	require.NoError(t, err)
+	createSlackHTTPInstall(t, ctx, f.Project, f.ProfileID, "A123", "T123", "U_BOT", "signing-secret")
+	body := integrationHTTPJSON(t, map[string]any{
+		"type": "event_callback", "team_id": "T123", "api_app_id": "A123", "event_id": "shared-mention",
+		"authorizations": []any{map[string]any{"team_id": "T123", "user_id": "U_BOT", "is_bot": true}},
+		"event": map[string]any{"type": "app_mention", "user": "U123", "text": "<@U_BOT> help",
+			"channel": "C123", "channel_type": "channel", "ts": "111.222", "team": "T123"},
+	})
+	requestJSONWithHeaders(t, f.Handler, http.MethodPost, slackEventsPath, body, "", http.StatusOK,
+		unitSlackSignedHeaders(body, "signing-secret"))
+	drainSlackJourney(t, ctx, f.Project, f.Slack)
+	var plan string
+	var agents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT
+		(SELECT plan::text FROM integration_inbox WHERE integration_id=$1 AND state='completed'),
+		(SELECT count(*) FROM agents WHERE project_id=$2)`, f.Install.ID, f.Project.ProjectUUID).Scan(&plan, &agents))
+	require.JSONEq(t, `{"recipients":{}}`, plan)
+	require.Equal(t, 1, agents, "the sharing integration launches from the mention")
 }

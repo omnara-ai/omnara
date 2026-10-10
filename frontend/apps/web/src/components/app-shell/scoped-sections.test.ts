@@ -16,6 +16,8 @@ describe('currentSection', () => {
   it('keeps memory pages in the Memory section', () => {
     expect(currentSection('/projects/proj_x/memory')).toBe('memory')
     expect(currentSection('/projects/proj_x/memory/mem_y')).toBe('memory')
+    expect(currentSection('/memory')).toBe('memory')
+    expect(hasOrganizationPath('memory')).toBe(true)
   })
 
   it('keeps integration setup and instance links in the project-only Integrations section', () => {

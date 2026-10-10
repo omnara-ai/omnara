@@ -418,6 +418,10 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		}
 		entry.ContextWindowTokens = model.ContextWindowTokens
 		entry.MaxOutputTokens = model.MaxOutputTokens
+		entry.SupportsReasoning = model.SupportsReasoning
+		if len(model.SupportedReasoningEfforts) > 0 {
+			entry.SupportedReasoningEfforts = &model.SupportedReasoningEfforts
+		}
 		entry.Pricing = discoveredModelPricingResponse(model.Pricing)
 		discovered = append(discovered, entry)
 	}

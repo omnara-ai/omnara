@@ -8,6 +8,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 )
 
@@ -37,8 +39,13 @@ func memoryStoreScope(ctx context.Context, publicID string) (memorystore.Scope, 
 
 func memoryStoreResponse(r memorystore.Record) (openapi.MemoryStore, error) {
 	id, err := publicID(publicid.KindMemoryStore, r.ID)
+	if err != nil {
+		return openapi.MemoryStore{}, err
+	}
+	projectID, err := publicID(publicid.KindProject, r.ProjectID)
 	return openapi.MemoryStore{
 		Id:          id,
+		ProjectId:   projectID,
 		Name:        r.Name,
 		Description: r.Description,
 		AgentAccess: openapi.MemoryStoreAccess(r.AgentAccess),
@@ -133,36 +140,72 @@ func (s strictOpenAPIServer) ListMemoryStores(
 	if err != nil {
 		return nil, err
 	}
-	limit, err := parseOpenAPIPageLimit(req.Params.Limit)
+	out, err := listMemoryStores(
+		req.Params, scope.OrgID.String()+"/"+scope.ProjectID.String(),
+		func(list listing.Options, limit int) (memorystore.ListResult, error) {
+			return s.server.store.Memories().List(ctx, scope, list, limit)
+		},
+	)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, err
+	}
+	return openapi.ListMemoryStores200JSONResponse(out), nil
+}
+
+func (s strictOpenAPIServer) ListOrgMemoryStores(
+	ctx context.Context,
+	req openapi.ListOrgMemoryStoresRequestObject,
+) (openapi.ListOrgMemoryStoresResponseObject, error) {
+	scope, err := s.orgListScope(ctx, identitystore.ProjectActionRead)
+	if err != nil {
+		return nil, err
+	}
+	out, err := listMemoryStores(
+		openapi.ListMemoryStoresParams(req.Params), scope.key,
+		func(list listing.Options, limit int) (memorystore.ListResult, error) {
+			return s.server.store.Memories().ListForProjects(ctx, scope.projectIDs, list, limit)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListOrgMemoryStores200JSONResponse(out), nil
+}
+
+func listMemoryStores(
+	params openapi.ListMemoryStoresParams,
+	listScope string,
+	listPage func(listing.Options, int) (memorystore.ListResult, error),
+) (openapi.MemoryStoreList, error) {
+	limit, err := parseOpenAPIPageLimit(params.Limit)
+	if err != nil {
+		return openapi.MemoryStoreList{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	sort := "name"
-	listScope := scope.OrgID.String() + "/" + scope.ProjectID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{
-		Name: req.Params.Name, Sort: &sort, Cursor: req.Params.Cursor, ListKind: "memory_stores",
+		Name: params.Name, Sort: &sort, Cursor: params.Cursor, ListKind: "memory_stores",
 		Scope: listScope, IDKind: publicid.KindMemoryStore, AllowedSorts: sortSet("name"),
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.MemoryStoreList{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Memories().List(ctx, scope, list, limit)
+	page, err := listPage(list, limit)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return openapi.MemoryStoreList{}, apierror.ProjectScoped(err)
 	}
 	next, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "memory_stores", listScope, publicid.KindMemoryStore, nil,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.MemoryStoreList{}, err
 	}
 	out := openapi.MemoryStoreList{Data: []openapi.MemoryStore{}, NextCursor: nullableFromPtr(next)}
 	for _, r := range page.Records {
 		item, e := memoryStoreResponse(r)
 		if e != nil {
-			return nil, e
+			return openapi.MemoryStoreList{}, e
 		}
 		out.Data = append(out.Data, item)
 	}
-	return openapi.ListMemoryStores200JSONResponse(out), nil
+	return out, nil
 }

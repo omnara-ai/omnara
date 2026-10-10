@@ -166,6 +166,7 @@ const (
 	operationGetProjectMachinePoolGrant    operationID = "GetProjectMachinePoolGrant"
 	operationCreateMemoryStore             operationID = "CreateMemoryStore"
 	operationListMemoryStores              operationID = "ListMemoryStores"
+	operationListOrgMemoryStores           operationID = "ListOrgMemoryStores"
 	operationGetMemoryStore                operationID = "GetMemoryStore"
 	operationUpdateMemoryStore             operationID = "UpdateMemoryStore"
 	operationDeleteMemoryStore             operationID = "DeleteMemoryStore"
@@ -334,6 +335,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListOrgAgents:              accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListOrgAgentProfiles:       accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationListOrgMemoryStores:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),

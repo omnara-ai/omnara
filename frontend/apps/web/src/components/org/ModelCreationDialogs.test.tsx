@@ -79,7 +79,12 @@ const discoveredModels: JsonValue[] = [
   { slug: 'model-one', context_window_tokens: 100000, max_output_tokens: 32000 },
   { slug: 'model-two', context_window_tokens: 200000 },
   { slug: 'model-three' },
-  { slug: 'model-zero', context_window_tokens: 100000 },
+  {
+    slug: 'model-zero',
+    context_window_tokens: 100000,
+    supports_reasoning: true,
+    supported_reasoning_efforts: ['low', 'high'],
+  },
 ]
 const existingModel = {
   ...model,
@@ -370,7 +375,8 @@ it('configures an already-added slug again under another name', async () => {
       context_window_tokens: 100000,
       max_output_tokens: 4096,
       supports_tools: true,
-      supports_reasoning: false,
+      supports_reasoning: true,
+      supported_reasoning_efforts: ['low', 'high'],
     },
   ])
 })

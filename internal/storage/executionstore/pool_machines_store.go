@@ -44,6 +44,17 @@ func validateRuntimeMachineSources(sources []agentconfig.RuntimeMachine) error {
 	return nil
 }
 
+var (
+	errMachineAlreadyDeleted = storeerr.Tag(
+		storeerr.ErrNotFound,
+		errors.New("machine is already deleted or being deleted"),
+	)
+	errMachineChangedDuringDeletion = storeerr.Tag(
+		storeerr.ErrStateTransitionConflict,
+		errors.New("machine changed while it was being deleted; retry delete_machine"),
+	)
+)
+
 type CreatePoolMachineInput struct {
 	MachinePoolID uuid.UUID
 	CPU           *int
@@ -176,7 +187,10 @@ func (t *toolCallTransaction) createPoolMachine(
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return CreatePoolMachineResult{}, fmt.Errorf("machine pool is unavailable: %w", storeerr.ErrNotFound)
+			return CreatePoolMachineResult{}, storeerr.Tag(
+				storeerr.ErrNotFound,
+				errors.New("machine pool is no longer available to this project"),
+			)
 		}
 		return CreatePoolMachineResult{}, fmt.Errorf("load agent machine pool grant: %w", err)
 	}
@@ -233,7 +247,19 @@ func (t *toolCallTransaction) createPoolMachine(
 		return CreatePoolMachineResult{}, err
 	}
 	if machineCount >= currentSource.MaxMachines {
-		return CreatePoolMachineResult{}, fmt.Errorf("machine pool limit reached: %w", storeerr.ErrStateTransitionConflict)
+		if currentSource.MaxMachines == 0 {
+			return CreatePoolMachineResult{}, storeerr.Tag(storeerr.ErrStateTransitionConflict, fmt.Errorf(
+				"this agent is not allowed to create machines from machine pool %q", poolGrant.PoolName,
+			))
+		}
+		return CreatePoolMachineResult{}, storeerr.Tag(storeerr.ErrStateTransitionConflict, fmt.Errorf(
+			"this agent's machine limit for machine pool %q is %d and it already has %d; "+
+				"use list_machines to see them and delete_machine to free a slot "+
+				"(a machine counts until its deletion finishes)",
+			poolGrant.PoolName,
+			currentSource.MaxMachines,
+			machineCount,
+		))
 	}
 	if err := ensurePoolCapacityForConfigTx(
 		ctx,
@@ -350,10 +376,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, fmt.Errorf(
-			"mark agent machine binding delete requested: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
+		return PoolMachineRecord{}, errMachineChangedDuringDeletion
 	}
 	if err != nil {
 		return PoolMachineRecord{}, fmt.Errorf("mark agent machine binding delete requested: %w", err)
@@ -366,7 +389,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 		ExpectedLifecycleVersion: record.Machine.LifecycleVersion,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, fmt.Errorf("mark pool machine deleting: %w", storeerr.ErrStateTransitionConflict)
+		return PoolMachineRecord{}, errMachineChangedDuringDeletion
 	}
 	if err != nil {
 		return PoolMachineRecord{}, fmt.Errorf("mark pool machine deleting: %w", err)
@@ -382,14 +405,17 @@ func (t *toolCallTransaction) loadPoolMachineForDeletion(
 ) (PoolMachineRecord, bool, error) {
 	record, err := poolMachineByIDTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, machineID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, false, storeerr.ErrNotFound
+		return PoolMachineRecord{}, false, storeerr.Tag(
+			storeerr.ErrNotFound,
+			errors.New(`machine_id cannot be deleted; only machines with binding_kind "pool" in list_machines can be deleted`),
+		)
 	}
 	if err != nil {
 		return PoolMachineRecord{}, false, err
 	}
 	if record.Binding.DeleteToolCallID != uuid.Nil {
 		if record.Binding.DeleteToolCallID != t.input.ToolCallID {
-			return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+			return PoolMachineRecord{}, false, errMachineAlreadyDeleted
 		}
 		return record, true, nil
 	}
@@ -397,7 +423,7 @@ func (t *toolCallTransaction) loadPoolMachineForDeletion(
 		record.Machine.LifecycleState == MachineLifecycleStateDeleting ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleteFailed ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleted {
-		return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+		return PoolMachineRecord{}, false, errMachineAlreadyDeleted
 	}
 	if record.Machine.SourceKind != MachineSourceKindPool || record.Machine.MachinePoolID == uuid.Nil {
 		return PoolMachineRecord{}, false, fmt.Errorf("machine is not pool-backed: %w", storeerr.ErrStateTransitionConflict)
@@ -656,9 +682,9 @@ func currentAgentPoolMachineSourceTx(
 		return agentconfig.RuntimeMachine{}, err
 	}
 	if !found {
-		return agentconfig.RuntimeMachine{}, fmt.Errorf(
-			"machine pool is no longer configured for this agent: %w",
+		return agentconfig.RuntimeMachine{}, storeerr.Tag(
 			storeerr.ErrStateTransitionConflict,
+			errors.New("machine pool is no longer configured for this agent"),
 		)
 	}
 	return currentSource, nil

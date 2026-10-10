@@ -88,6 +88,29 @@ func TestLaunchFeedbackWaitsForCommittedFreezeAndPreservesObserver(t *testing.T)
 	require.Equal(t, []string{launchUnavailableMessage}, f.provider.notices, "replay must not resend feedback")
 }
 
+func TestLaunchFeedbackReportsMentionWithoutLauncher(t *testing.T) {
+	t.Parallel()
+	f, provider := newPendingLaunchJourney(t, 1)
+	ctx := t.Context()
+	_, err := f.store.Integrations().UpdateIntegration(ctx, f.integration.ID, integrationstore.SaveIntegrationInput{
+		OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, Name: f.integration.Name,
+		IntegrationKind: f.integration.IntegrationKind, Settings: integrationstore.IntegrationSettings(`{}`),
+	})
+	require.NoError(t, err)
+	for _, key := range []string{"message", "mention"} {
+		receipt := provider.accept(f, key, key == "mention")
+		for range 2 {
+			results, err := f.consumer.Consume(ctx, receipt.Lease())
+			require.NoError(t, err)
+			require.Empty(t, results)
+		}
+		saved, err := f.store.Integrations().GetIntegrationInbox(ctx, f.ids.ProjectID, receipt.ID)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"recipients":{}}`, string(saved.Plan))
+	}
+	require.Equal(t, []string{launchNotSetUpMessage}, f.provider.notices, "only the mention replies, once")
+}
+
 type launchFeedbackFreezeFailure struct {
 	IntegrationRoutingStore
 	rollback bool

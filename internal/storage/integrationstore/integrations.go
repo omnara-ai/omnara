@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -299,6 +300,12 @@ func (s *Store) ListIntegrationsForProviderEventVerification(
 		return nil, storeerr.InvalidRequest(errors.New("provider identity and limit between 1 and 100 are required"))
 	}
 	return s.listIntegrationsByProviderIdentity(ctx, provider, tenant, &account, after, limit, true)
+}
+
+func (s *Store) SharesProviderIdentity(ctx context.Context, integration IntegrationRecord) (bool, error) {
+	active, err := s.listIntegrationsByProviderIdentity(ctx, integration.Provider,
+		integration.ProviderTenantID, &integration.ProviderAccountRef, uuid.Nil, 2, false)
+	return slices.ContainsFunc(active, func(other IntegrationRecord) bool { return other.ID != integration.ID }), err
 }
 
 func (s *Store) ListIntegrationsByProviderTenant(

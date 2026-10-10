@@ -26,6 +26,7 @@ const apiUrl = 'https://omnara.example/api/v1'
 const storeUrl = `${apiUrl}/orgs/${orgID}/projects/${projectID}/memory-stores`
 const store = {
   id: storeID,
+  project_id: projectID,
   name: 'engineering',
   description: '',
   agent_access: 'read_write',

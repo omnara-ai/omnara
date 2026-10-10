@@ -36,8 +36,8 @@ type FileDownloadOptions struct {
 }
 
 const (
-	EventFileStatusStored  = "stored"
-	EventFileStatusSkipped = "skipped"
+	EventFileStatusPrepared = "prepared"
+	EventFileStatusSkipped  = "skipped"
 )
 
 type EventFileResult struct {
@@ -657,7 +657,7 @@ func SkippedFileSummary(files []EventFileResult) string {
 	}
 	lines := make([]string, 0, len(files))
 	for _, file := range files {
-		if file.Status == EventFileStatusStored {
+		if file.Status == EventFileStatusPrepared {
 			continue
 		}
 		lines = append(lines, "- "+skippedEventFileSummaryLine(file))

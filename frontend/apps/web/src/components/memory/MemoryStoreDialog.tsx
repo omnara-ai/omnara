@@ -20,11 +20,13 @@ import { errorMessage } from '@/lib/submit-status'
 export function MemoryStoreDialog({
   orgId,
   projectId,
+  projectName,
   store,
   onClose,
 }: {
   orgId: string
   projectId: string
+  projectName?: string
   store?: MemoryStore
   onClose: () => void
 }) {
@@ -72,7 +74,7 @@ export function MemoryStoreDialog({
           <DialogDescription>
             {store
               ? 'Manage how this store is used.'
-              : 'Share files and knowledge across agents in this project.'}
+              : `Share files and knowledge across agents in ${projectName ?? 'this project'}.`}
           </DialogDescription>
         </DialogHeader>
         <form
