@@ -190,6 +190,9 @@ Skill archive offers use a short-lived capability bound to one machine, skill, a
 
 Artifact content lives in S3-compatible object storage; a bucket is required.
 
+Grant the service credentials `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject`
+on the bucket's `artifacts/*` and `skills/*` objects.
+
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose RustFS bucket `omnara` | Yes |
