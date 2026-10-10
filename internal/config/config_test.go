@@ -1106,6 +1106,35 @@ func TestValidateWorkerLoadsExplicitWorkerCapacity(t *testing.T) {
 	}
 }
 
+func TestValidateWorkerLoadsExplicitClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "2")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker: %v", err)
+	}
+	if cfg.WorkerClaimConcurrency != 2 {
+		t.Fatalf("unexpected claim concurrency: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerRejectsInvalidClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected invalid claim concurrency error")
+	}
+}
+
 func TestValidateWorkerLoadsExplicitAsyncToolCapacity(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_WORKER_ASYNC_TOOL_CAPACITY", "64")

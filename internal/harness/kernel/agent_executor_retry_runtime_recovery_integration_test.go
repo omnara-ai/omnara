@@ -58,7 +58,8 @@ WHERE context.project_id = $1
 		t.Fatalf("load malformed response attempt: %v", err)
 	}
 	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryRetry ||
-		errorCode != "malformed_success_response" || strings.Contains(errorMessage, "\x00") ||
+		errorCode != "malformed_success_response" ||
+		strings.Contains(errorMessage, "\x00") ||
 		!kernelModelCallOutcomeAmbiguous(t, errorDetails) {
 		t.Fatalf(
 			"malformed response attempt = %q/%q/%q message=%q",
@@ -96,24 +97,20 @@ func TestAgentExecutorRetriesInterruptedModelContext(t *testing.T) {
 		"recover interrupted model call",
 		fixture.Now.Add(time.Second),
 	)
-	watermark, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
+	_, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
 	if err != nil {
 		t.Fatalf("max event sequence: %v", err)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
-		ctx, kernelTestProjectID, agentID, watermark,
-	)
-	if err != nil {
-		t.Fatalf("capture config snapshot: %v", err)
-	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          kernelTestProjectID,
-		AgentID:            agentID,
-		RuntimeLockID:      turn.RuntimeLockID,
-		OpeningInputIDs:    turn.InputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: watermark,
-	})
+
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   turn.RuntimeLockID,
+			OpeningInputIDs: turn.InputIDs,
+		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim initial model context: %v", err)
 	}
@@ -184,7 +181,10 @@ WHERE project_id = $1
   AND operation_kind = 'normal'
 ORDER BY attempt_number DESC
 LIMIT 1
-`, kernelTestProjectID, agentID, modelClaim.Context.InputEventSequence).Scan(&recoveredContextID); err != nil {
+`,
+		kernelTestProjectID,
+		agentID,
+		modelClaim.Context.InputEventSequence).Scan(&recoveredContextID); err != nil {
 		t.Fatalf("load recovered context id: %v", err)
 	}
 	recovered, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -212,7 +212,11 @@ LIMIT 1
 		  AND agent_id = $2
 		  AND input_event_sequence = $3
 		  AND operation_kind = 'normal'
-	`, kernelTestProjectID, agentID, modelClaim.Context.InputEventSequence).Scan(&interruptedAttempts, &succeededAttempts); err != nil {
+	`,
+		kernelTestProjectID,
+		agentID,
+		modelClaim.Context.InputEventSequence).Scan(&interruptedAttempts,
+		&succeededAttempts); err != nil {
 		t.Fatalf("count interrupted context attempts: %v", err)
 	}
 	if interruptedAttempts != 1 || succeededAttempts != 1 {

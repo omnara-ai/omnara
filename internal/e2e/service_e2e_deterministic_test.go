@@ -82,7 +82,9 @@ func TestServiceE2EDeterministicWorkerRunsModelTurn(t *testing.T) {
 		err := env.db.QueryRow(
 			ctx,
 			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
-			projectUUID, agentUUID, modelText,
+			projectUUID,
+			agentUUID,
+			modelText,
 		).
 			Scan(&count)
 		if err != nil {
@@ -290,7 +292,9 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 		err := env.db.QueryRow(
 			ctx,
 			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
-			projectUUID, agentUUID, modelText,
+			projectUUID,
+			agentUUID,
+			modelText,
 		).
 			Scan(&count)
 		if err != nil {
@@ -380,12 +384,17 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 	defer openai.Close()
 
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-config-change-runtime", strings.Join([]string{
-		"instruction: Initial runtime instruction.",
-		"model:",
-		"  provider_config: openai-prod",
-		"  name: service-e2e-local",
-	}, "\n")+"\n")
+	project := env.bootstrapProjectViaAPIWithSource(
+		t,
+		ctx,
+		"deterministic-config-change-runtime",
+		strings.Join([]string{
+			"instruction: Initial runtime instruction.",
+			"model:",
+			"  provider_config: openai-prod",
+			"  name: service-e2e-local",
+		}, "\n")+"\n",
+	)
 	agentID := project.createAgent(t, ctx)
 	project.createInput(t, ctx, agentID, "first turn before config change")
 	firstWorker := env.startWorker(
@@ -401,13 +410,15 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 		err := env.db.QueryRow(
 			ctx,
 			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 1'`,
-			projectUUID, agentUUID,
+			projectUUID,
+			agentUUID,
 		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
 		}
-		return count == 1, "first config-change runtime output not recorded; worker_logs=" + firstWorker.logExcerpt()
+		return count == 1,
+			"first config-change runtime output not recorded; worker_logs=" + firstWorker.logExcerpt()
 	})
 	firstWorker.stop()
 
@@ -432,13 +443,15 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 		err := env.db.QueryRow(
 			ctx,
 			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 2'`,
-			projectUUID, agentUUID,
+			projectUUID,
+			agentUUID,
 		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
 		}
-		return count == 1, "second config-change runtime output not recorded; worker_logs=" + secondWorker.logExcerpt()
+		return count == 1,
+			"second config-change runtime output not recorded; worker_logs=" + secondWorker.logExcerpt()
 	})
 
 	requestsMu.Lock()
@@ -724,7 +737,9 @@ WHERE input.project_id = $1
 		err := env.db.QueryRow(
 			ctx,
 			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
-			projectUUID, agentUUID, finalText,
+			projectUUID,
+			agentUUID,
+			finalText,
 		).
 			Scan(&count)
 		if err != nil {
@@ -770,16 +785,12 @@ WHERE call.project_id = $1
 	var contextCount, distinctTurns int
 	if err := env.db.QueryRow(ctx, `
 SELECT count(*),
-       count(DISTINCT context_turn.turn_id),
+       count(DISTINCT context.turn_id),
        coalesce(string_agg(
          context.state || ':' || provider_config.api_format,
          ',' ORDER BY context.input_event_sequence, context.attempt_number, context.created_at, context.id
        ), '')
 FROM model_call_contexts context
-JOIN model_call_context_turns context_turn
-  ON context_turn.project_id = context.project_id
- AND context_turn.agent_id = context.agent_id
- AND context_turn.model_call_context_id = context.id
 JOIN configured_model_revisions revision
   ON revision.org_id = context.org_id
  AND revision.id = context.configured_model_revision_id
@@ -834,7 +845,8 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 			if !strings.Contains(requestText, "steering priority message") {
 				t.Errorf("first request did not admit steering input: %+v", body)
 			}
-			if strings.Contains(requestText, "queued second message") || strings.Contains(requestText, "queued third message") ||
+			if strings.Contains(requestText, "queued second message") ||
+				strings.Contains(requestText, "queued third message") ||
 				strings.Contains(requestText, "queued canceled message") {
 				t.Errorf("first request should not admit queued backlog while steering exists: %+v", body)
 			}
@@ -843,7 +855,8 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 			if strings.Contains(requestText, "queued canceled message") {
 				t.Errorf("second request included canceled backlog input: %+v", body)
 			}
-			if !strings.Contains(requestText, "queued third message") || strings.Contains(requestText, "queued second message") {
+			if !strings.Contains(requestText, "queued third message") ||
+				strings.Contains(requestText, "queued second message") {
 				t.Errorf("second request should admit only the reordered front queued input: %+v", body)
 			}
 			writeOpenAIMessage(w, nil, "resp_queued_controls_first", "queued third turn complete")
@@ -909,7 +922,8 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 		http.StatusOK,
 	)
 	backlogData := testutil.RequireType[[]any](t, backlog["data"])
-	if len(backlogData) != 3 || testutil.RequireType[map[string]any](t, backlogData[0])["id"] != steeringInputID ||
+	if len(backlogData) != 3 ||
+		testutil.RequireType[map[string]any](t, backlogData[0])["id"] != steeringInputID ||
 		testutil.RequireType[map[string]any](t, backlogData[1])["id"] != thirdInputID ||
 		testutil.RequireType[map[string]any](t, backlogData[2])["id"] != secondInputID {
 		t.Fatalf(
@@ -1119,7 +1133,10 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		ctx,
 		http.MethodPost,
 		projectPath+"/agent-profiles",
-		map[string]any{"name": "Deterministic Service E2E", "config": testutil.RequireType[string](t, config["id"])},
+		map[string]any{
+			"name":   "Deterministic Service E2E",
+			"config": testutil.RequireType[string](t, config["id"]),
+		},
 		"idem-"+seed+"-agent-profile",
 		adminToken,
 		http.StatusCreated,
@@ -1466,7 +1483,10 @@ func (p *deterministicProject) createInputWithDeliveryMode(
 		p.adminToken,
 		http.StatusCreated,
 	)
-	return testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["agent_input"])["id"])
+	return testutil.RequireType[string](
+		t,
+		testutil.RequireType[map[string]any](t, created["agent_input"])["id"],
+	)
 }
 
 func waitForServiceE2ECondition(t *testing.T, ctx context.Context, ready func() (bool, string)) {

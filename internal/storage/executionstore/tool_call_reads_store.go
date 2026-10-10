@@ -14,7 +14,7 @@ import (
 
 func getToolCallTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID, id uuid.UUID,
 ) (ToolCallRecord, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {

@@ -73,7 +73,7 @@ func newInboxFixture(t *testing.T) inboxFixture {
 		},
 	})
 	require.NoError(t, err)
-	store := integrationstore.New(pool, executionstore.IntegrationAccess{})
+	store := integrationstore.New(pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	integration, err := store.CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-integration",
 		IntegrationKind: integrationdefinition.SlackThread,
@@ -631,7 +631,7 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	f.store = integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	f.store = integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	wrapper, err := secrets.NewLocalKeyWrapper("inbox-test", map[string][]byte{
 		"inbox-test": []byte("0123456789abcdef0123456789abcdef"),
 	})

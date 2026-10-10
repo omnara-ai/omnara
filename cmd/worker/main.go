@@ -241,8 +241,13 @@ func main() {
 		StreamLog:       log,
 	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
+		Continuation: &workerpkg.ContinuationOptions{
+			MaxModelStarts: cfg.WorkerContinuationMaxModelStarts,
+			MaxDuration:    cfg.WorkerContinuationMaxDuration,
+		},
 		Log:               log,
 		Capacity:          cfg.WorkerCapacity,
+		ClaimConcurrency:  cfg.WorkerClaimConcurrency,
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
 		ControlSubscriber: redisBus,
 	})

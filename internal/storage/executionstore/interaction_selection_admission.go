@@ -5,17 +5,30 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func selectAdmittedInteractionDestinationTx(
+func applyAdmissionDestination(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	projectID, agentID uuid.UUID,
-	inputs []AgentInputRecord,
+	admission agentexecution.InputAdmission,
 ) error {
+	if len(admission.Inputs) == 0 {
+		return nil
+	}
+	tx := unit.DB()
+	inputs := make([]AgentInputRecord, len(admission.Inputs))
+	for i, input := range admission.Inputs {
+		inputs[i] = AgentInputRecord{
+			ID:                  input.ID,
+			ActorID:             input.ActorID,
+			IntegrationTargetID: input.IntegrationTargetID,
+			InputKind:           "content",
+		}
+	}
 	q := dbsqlc.New(tx)
 	row, err := q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
 		ProjectID: projectID, AgentID: agentID,
@@ -59,21 +72,35 @@ func selectAdmittedInteractionDestinationTx(
 			return fmt.Errorf("load admitted input actor identities: %w", err)
 		}
 		for _, actor := range actors {
-			preserves[actor.ID] = internalInputPreservesInteractionSelection(ActorProvider(actor.Provider), actor.ProviderUserID)
+			preserves[actor.ID] = internalInputPreservesInteractionSelection(
+				ActorProvider(actor.Provider),
+				actor.ProviderUserID,
+			)
 		}
 	}
 	for i := len(inputs) - 1; i >= 0; i-- {
 		input := inputs[i]
-		if input.InputKind != "content" || (input.IntegrationTargetID == uuid.Nil && preserves[input.ActorID]) {
+		if input.InputKind != "content" ||
+			(input.IntegrationTargetID == uuid.Nil && preserves[input.ActorID]) {
 			continue
 		}
-		selection, err := resolveInteractionSelectionForOriginTx(
+		selection, err := interactionSelectionForOrigin(
 			ctx, tx, projectID, agentID, row.CurrentConfigID, input.IntegrationTargetID,
 		)
 		if err != nil || selection == interactionSelectionFromRow(row) {
 			return err
 		}
-		return writeInteractionSelection(ctx, q, projectID, agentID, selection)
+		h, err := unit.Handle(projectID, agentID)
+		if err != nil {
+			return err
+		}
+		_, err = h.SetInteractionTarget(
+			ctx,
+			selection.IntegrationTargetID,
+			selection.HandlerKey,
+			selection.AutoSelect,
+		)
+		return err
 	}
 	return nil
 }

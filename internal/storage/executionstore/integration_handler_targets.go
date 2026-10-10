@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 type integrationConversation struct {
@@ -17,7 +17,7 @@ type integrationConversation struct {
 
 func lockIntegrationConversationsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID uuid.UUID,
 	origins ...AgentInputOrigin,
 ) error {

@@ -103,8 +103,12 @@ INSERT INTO agent_mcp_connections VALUES
 	require.True(t, defaultIsNull)
 	for _, state := range []string{"initializing", "ready", "failed", "expired"} {
 		for _, value := range []sql.NullString{{}, {String: "", Valid: true}, {String: "failure", Valid: true}} {
-			_, err := db.ExecContext(ctx,
-				`UPDATE agent_mcp_connections SET state = $1, initialize_error = $2 WHERE id = 9`, state, value)
+			_, err := db.ExecContext(
+				ctx,
+				`UPDATE agent_mcp_connections SET state = $1, initialize_error = $2 WHERE id = 9`,
+				state,
+				value,
+			)
 			if !value.Valid || (value.String != "" && (state == "failed" || state == "expired")) {
 				require.NoError(t, err, "state=%s error=%+v", state, value)
 			} else {
@@ -259,12 +263,18 @@ INSERT INTO projects(org_id, name, created_at, updated_at)
 VALUES ($1, 'immutable-project', statement_timestamp(), statement_timestamp())
 RETURNING id::text
 `, originalOrgID).Scan(&projectID))
-	if _, err := db.ExecContext(ctx, `UPDATE projects SET org_id = $1 WHERE id = $2`, otherOrgID, projectID); err == nil {
+	if _,
+		err := db.ExecContext(ctx,
+		`UPDATE projects SET org_id = $1 WHERE id = $2`,
+		otherOrgID,
+		projectID); err == nil {
 		t.Fatal("project organization update succeeded")
 	}
 	var retainedOrgID string
 	require.NoError(
-		t, db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID),
+		t,
+		db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).
+			Scan(&retainedOrgID),
 	)
 	if retainedOrgID != originalOrgID {
 		t.Fatalf("project org_id = %s, want %s", retainedOrgID, originalOrgID)
@@ -355,7 +365,11 @@ func TestPostgresExplicitConstraintNamesStayBelowTruncationLimit(t *testing.T) {
 				name = strings.ReplaceAll(strings.Trim(name, `"`), `""`, `"`)
 			}
 			if len([]byte(name)) >= 63 {
-				t.Errorf("explicit constraint name %q in %s reaches PostgreSQL's 63-byte truncation limit", name, migrationFile)
+				t.Errorf(
+					"explicit constraint name %q in %s reaches PostgreSQL's 63-byte truncation limit",
+					name,
+					migrationFile,
+				)
 			}
 		}
 	}
@@ -442,7 +456,10 @@ SELECT coalesce(string_agg(
 FROM redundant_unique_constraints
 `).Scan(&redundant))
 	if redundant != "" {
-		t.Fatalf("unique constraints redundantly contain primary keys without a referencing foreign key: %s", redundant)
+		t.Fatalf(
+			"unique constraints redundantly contain primary keys without a referencing foreign key: %s",
+			redundant,
+		)
 	}
 }
 
@@ -545,7 +562,10 @@ func mutatingForeignKeysWithoutSupportingIndexes(
 ) string {
 	t.Helper()
 	var unsupported string
-	require.NoError(t, db.QueryRowContext(ctx, mutatingForeignKeysWithoutSupportingIndexesQuery).Scan(&unsupported))
+	require.NoError(
+		t,
+		db.QueryRowContext(ctx, mutatingForeignKeysWithoutSupportingIndexesQuery).Scan(&unsupported),
+	)
 	return unsupported
 }
 
@@ -805,7 +825,10 @@ WHERE id = $1
 `, grantID); err != nil {
 		t.Fatalf("set valid grant minimums: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`, poolID); err == nil {
+	if _,
+		err := db.ExecContext(ctx,
+		`UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`,
+		poolID); err == nil {
 		t.Fatal("pool minimum above maximum unexpectedly succeeded")
 	}
 	if _, err := db.ExecContext(
@@ -1269,7 +1292,10 @@ func TestProcessExecutionSpecMigration(t *testing.T) {
 		{1, "echo hello", "default", "pipe"}, {2, "python", "bash", "pty"},
 	} {
 		var spec processcmd.ExecutionSpec
-		require.NoError(t, pool.QueryRow(ctx, `SELECT execution_spec FROM processes WHERE id = $1`, expected.id).Scan(&spec))
+		require.NoError(
+			t,
+			pool.QueryRow(ctx, `SELECT execution_spec FROM processes WHERE id = $1`, expected.id).Scan(&spec),
+		)
 		require.Equal(t, processcmd.ForShell(
 			expected.command, processcmd.ShellSelector(expected.shell), processcmd.IOMode(expected.ioMode),
 		), spec)

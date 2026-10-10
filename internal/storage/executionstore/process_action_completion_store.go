@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -45,7 +46,10 @@ func replayDaemonProcessActionReportTx(
 		return DaemonProcessActionReportApplication{}, false, nil
 	}
 	if err != nil {
-		return DaemonProcessActionReportApplication{}, false, fmt.Errorf("load process action report replay: %w", err)
+		return DaemonProcessActionReportApplication{}, false, fmt.Errorf(
+			"load process action report replay: %w",
+			err,
+		)
 	}
 	record := processActionRecordFromSQLC(row)
 	if record.ID != input.ID || !isProcessActionTerminal(record.State) {
@@ -62,7 +66,8 @@ func replayDaemonProcessActionReportTx(
 			reportMatchesAction = false
 		}
 	case ProcessActionStateFailed, ProcessActionStateUnknown:
-		if record.StateReasonCode != input.StateReasonCode || record.StateReasonMessage != input.StateReasonMessage {
+		if record.StateReasonCode != input.StateReasonCode ||
+			record.StateReasonMessage != input.StateReasonMessage {
 			reportMatchesAction = false
 		}
 		outcome = ToolResultOutcomeFailed
@@ -96,9 +101,9 @@ func replayDaemonProcessActionReportTx(
 						processErr,
 					)
 				}
-				result, err = canonicalProcessReadFailureResult(
-					processRecordFromSQLC(processRow),
-					record,
+				result, err = processresult.ReadFailure(
+					processRecordFromSQLC(processRow).resultFacts(),
+					record.resultFacts(),
 					input.StateReasonCode,
 					input.StateReasonMessage,
 				)
@@ -109,11 +114,9 @@ func replayDaemonProcessActionReportTx(
 		}
 	}
 	if len(result) == 0 || string(result) == "null" {
-		result, err = processActionToolResult(
+		result, err = processresult.ActionResult(
 			input.ProcessID,
-			input.ID,
-			state,
-			input.StateReasonCode,
+			input.ID, string(state), input.StateReasonCode,
 			errText,
 		)
 		if err != nil {
@@ -220,15 +223,19 @@ func (s *Store) completeDaemonProcessAction(
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return DaemonProcessActionReportApplication{}, err
 	}
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ProcessID == uuid.Nil || input.ID == uuid.Nil {
-		return DaemonProcessActionReportApplication{}, errors.New("project, agent, process, and action are required")
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ProcessID == uuid.Nil ||
+		input.ID == uuid.Nil {
+		return DaemonProcessActionReportApplication{}, errors.New(
+			"project, agent, process, and action are required",
+		)
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, fmt.Errorf("begin complete process action: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
 	qtx := dbsqlc.New(tx)
 	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 		return DaemonProcessActionReportApplication{}, err
@@ -242,11 +249,11 @@ func (s *Store) completeDaemonProcessAction(
 		StateReasonMessage: input.StateReasonMessage,
 		Result:             input.Result,
 	}
-	application, err := completeDaemonProcessActionTx(ctx, txNotifications, tx, qtx, completion, state)
+	application, err := completeDaemonProcessActionTx(ctx, unit, qtx, completion, state)
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete process action"); err != nil {
+	if err := unit.Commit(ctx, "complete process action"); err != nil {
 		return DaemonProcessActionReportApplication{}, err
 	}
 	return application, nil
@@ -254,21 +261,20 @@ func (s *Store) completeDaemonProcessAction(
 
 func completeDaemonProcessActionTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input processActionCompletionInput,
 	state ProcessActionState,
 ) (DaemonProcessActionReportApplication, error) {
-	_, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: input.ProjectID,
-			ID:        input.AgentID,
-		},
-	)
+	_, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	}, agentexecution.ExternalAuthority{})
 	if err != nil {
-		return DaemonProcessActionReportApplication{}, fmt.Errorf("lock agent for process action completion: %w", err)
+		return DaemonProcessActionReportApplication{}, fmt.Errorf(
+			"lock agent for process action completion: %w",
+			err,
+		)
 	}
 	actionRow, err := qtx.GetProcessActionForReport(
 		ctx,
@@ -322,9 +328,9 @@ func completeDaemonProcessActionTx(
 		process := processRecordFromSQLC(processRow)
 		action := processActionRecordFromSQLC(actionRow)
 		if state == ProcessActionStateApplied {
-			canonical, nextCursor, canonicalErr := canonicalProcessReadResult(
-				process,
-				action,
+			canonical, nextCursor, canonicalErr := processresult.Read(
+				process.resultFacts(),
+				action.resultFacts(),
 				input.Result,
 			)
 			if canonicalErr != nil {
@@ -348,9 +354,9 @@ func completeDaemonProcessActionTx(
 			reportAccepted = false
 		}
 		if state != ProcessActionStateApplied {
-			input.Result, err = canonicalProcessReadFailureResult(
-				process,
-				action,
+			input.Result, err = processresult.ReadFailure(
+				process.resultFacts(),
+				action.resultFacts(),
 				input.StateReasonCode,
 				input.StateReasonMessage,
 			)
@@ -396,7 +402,10 @@ func completeDaemonProcessActionTx(
 			},
 		)
 	default:
-		return DaemonProcessActionReportApplication{}, fmt.Errorf("unsupported process action completion state %q", state)
+		return DaemonProcessActionReportApplication{}, fmt.Errorf(
+			"unsupported process action completion state %q",
+			state,
+		)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		application, resolved, replayErr := replayDaemonProcessActionReportTx(ctx, qtx, input, state)
@@ -442,121 +451,20 @@ func completeDaemonProcessActionTx(
 	record := processActionRecordFromSQLC(row)
 	resultCommitted := record.ToolCallID == uuid.Nil
 	if record.ToolCallID != uuid.Nil {
-		outcome := ToolResultOutcomeSucceeded
-		errText := ""
-		if state != ProcessActionStateApplied {
-			outcome = ToolResultOutcomeFailed
-			errText = input.StateReasonMessage
-			if errText == "" {
-				errText = input.StateReasonCode
-			}
-		}
-		result := input.Result
-		if len(result) == 0 || string(result) == "null" {
-			result, err = processActionToolResult(
-				input.ProcessID,
-				input.ID,
-				state,
-				input.StateReasonCode,
-				errText,
-			)
-			if err != nil {
-				return DaemonProcessActionReportApplication{}, err
-			}
-		}
-		contentParts, err := ToolResultContentParts(result)
+		h, err := unit.Handle(input.ProjectID, input.AgentID)
 		if err != nil {
 			return DaemonProcessActionReportApplication{}, err
 		}
-		completedToolCall := false
-		toolRow, err := qtx.CompleteToolCallFromProcessAction(
+		completed, err := h.CompleteProcessAction(
 			ctx,
-			dbsqlc.CompleteToolCallFromProcessActionParams{
-				ProjectID:       input.ProjectID,
-				AgentID:         input.AgentID,
-				ToolCallID:      record.ToolCallID,
-				ProcessID:       input.ProcessID,
-				ProcessActionID: input.ID,
-				Outcome:         string(outcome),
-			},
+			agentexecution.ActionResult{ID: record.ID, Observed: input.Result},
 		)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				publication, checkErr := inspectPublishedToolCallResultTx(
-					ctx,
-					qtx,
-					input.ProjectID,
-					input.AgentID,
-					record.ToolCallID,
-					outcome,
-					contentParts,
-				)
-				if checkErr != nil {
-					return DaemonProcessActionReportApplication{}, checkErr
-				}
-				if !publication.Published {
-					return DaemonProcessActionReportApplication{}, fmt.Errorf(
-						"terminal process action %s has no durable result for linked tool call %s",
-						record.ID,
-						record.ToolCallID,
-					)
-				}
-				resultCommitted = publication.Matches
-			} else {
-				return DaemonProcessActionReportApplication{}, fmt.Errorf(
-					"complete tool call from process action: %w",
-					err,
-				)
-			}
-		} else {
-			resultCommitted = true
-			completedToolCall = true
-			resultRecord := toolCallRecordFromProcessActionCompleteSQLC(toolRow)
-			resultRecord.ResultContentParts = contentParts
-			if _, err := appendToolResultEventTx(
-				ctx,
-				txNotifications,
-				tx,
-				resultRecord,
-				nil,
-			); err != nil {
-				return DaemonProcessActionReportApplication{}, err
-			}
+			return DaemonProcessActionReportApplication{}, err
 		}
-		if completedToolCall {
-			metadata, err := marshalJSON(struct {
-				Reason          string    `json:"reason"`
-				ProcessID       uuid.UUID `json:"process_id"`
-				ProcessActionID uuid.UUID `json:"process_action_id"`
-				ToolCallID      uuid.UUID `json:"tool_call_id"`
-			}{
-				Reason:          "process_action_result",
-				ProcessID:       input.ProcessID,
-				ProcessActionID: input.ID,
-				ToolCallID:      record.ToolCallID,
-			})
-			if err != nil {
-				return DaemonProcessActionReportApplication{}, fmt.Errorf(
-					"marshal process action wakeup metadata: %w",
-					err,
-				)
-			}
-			if err := qtx.MarkAgentWakeup(
-				ctx,
-				dbsqlc.MarkAgentWakeupParams{
-					ProjectID: input.ProjectID,
-					AgentID:   input.AgentID,
-					Metadata:  metadata,
-				},
-			); err != nil {
-				return DaemonProcessActionReportApplication{}, fmt.Errorf(
-					"mark process action tool result wakeup: %w",
-					err,
-				)
-			}
-		}
+		resultCommitted = completed.Matches
 	}
-	if resultCommitted &&
+	if record.ToolCallID == uuid.Nil && resultCommitted &&
 		readNextCursor != nil &&
 		state == ProcessActionStateApplied {
 		if _, err := qtx.AdvanceProcessDefaultOutputCursor(
@@ -578,32 +486,6 @@ func completeDaemonProcessActionTx(
 		Action:              record,
 		ToolResultCommitted: reportAccepted && resultCommitted,
 	}, nil
-}
-
-func processActionToolResult(
-	processID uuid.UUID,
-	actionID uuid.UUID,
-	state ProcessActionState,
-	reasonCode string,
-	errText string,
-) (json.RawMessage, error) {
-	body, err := marshalJSON(struct {
-		ProcessID       string             `json:"process_id"`
-		ProcessActionID string             `json:"process_action_id"`
-		State           ProcessActionState `json:"state"`
-		StateReasonCode string             `json:"state_reason_code"`
-		Error           string             `json:"error"`
-	}{
-		ProcessID:       publicResourceID(publicid.KindProcess, processID),
-		ProcessActionID: publicResourceID(publicid.KindProcessAction, actionID),
-		State:           state,
-		StateReasonCode: reasonCode,
-		Error:           errText,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal process action tool result: %w", err)
-	}
-	return body, nil
 }
 
 func publicResourceID(kind publicid.Kind, id uuid.UUID) string {

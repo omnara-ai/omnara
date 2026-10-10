@@ -77,15 +77,20 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 	filename := slashPath(pass.Fset.Position(file.Pos()).Filename)
 	packagePath := pass.Pkg.Path()
 	inStorage := packageWithin(packagePath, storagePackage)
-	inGeneratedDBSQLC := packageWithin(packagePath, dbsqlcImport) || packageWithin(packagePath, stateDBSQLCImport)
+	inGeneratedDBSQLC := packageWithin(packagePath, dbsqlcImport) ||
+		packageWithin(packagePath, stateDBSQLCImport)
 	inInternal := packageWithin(packagePath, internalPackage)
 	inTestutil := packageWithin(packagePath, testutilPackage)
 	isTest := strings.HasSuffix(filename, "_test.go")
+	checkExecutionAccess(pass, file, isTest)
 
 	for _, imp := range file.Imports {
 		importPath := strings.Trim(imp.Path.Value, `"`)
 		if importPath == dbsqlcImport && !inStorage {
-			pass.Reportf(imp.Pos(), "internal/storage/internal/dbsqlc imports must stay inside internal/storage")
+			pass.Reportf(
+				imp.Pos(),
+				"internal/storage/internal/dbsqlc imports must stay inside internal/storage",
+			)
 		}
 		if forbiddenStateDBImport(packagePath, importPath) {
 			pass.Reportf(
@@ -106,7 +111,8 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 			}
 		case *ast.InterfaceType:
 			if inGeneratedDBSQLC && !isAllowedDBSQLCInterface(pass, n) {
-				pass.Reportf(n.Pos(), "unexpected interface{} in generated dbsqlc; add an explicit SQL cast at the query boundary")
+				pass.Reportf(n.Pos(),
+					"unexpected interface{} in generated dbsqlc; add an explicit SQL cast at the query boundary")
 			}
 		case *ast.SelectorExpr:
 			if inGeneratedDBSQLC {

@@ -141,8 +141,11 @@ linters:
   exclusions:
     generated: disable
     rules:
-      - path: internal/storage/internal/storeutil/pool\.go
-        source: '\.Query\(ctx, sql, args\.\.\.\)'
+      - path: internal/storage/internal/agentexecution/internal/executiondb/batch\.go
+        linters:
+          - intrange
+      - path: internal/storage/internal/(storeutil/pool|agentexecution/database)\.go
+        source: '(\.Query\(ctx, (sql|query), args\.\.\.\)|b\.BatchResults\.Query\(\))'
         linters:
           - rowserrcheck
       # oapi-codegen's oneOf wrappers intentionally mix value accessors with
@@ -180,7 +183,7 @@ linters:
       - linters:
           - lll
         source: '^\s*\)\.[A-Za-z]'
-      - path: (internal/storage/internal/dbsqlc/|internal/machinedaemon/statedb/internal/dbsqlc/)
+      - path: (internal/storage/internal/dbsqlc/|internal/storage/internal/agentexecution/internal/executiondb/|internal/machinedaemon/statedb/internal/dbsqlc/)
         linters:
           - errcheck
           - govet

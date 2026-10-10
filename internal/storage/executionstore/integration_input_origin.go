@@ -7,10 +7,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -60,7 +59,7 @@ func prepareOriginContentInput(
 
 func (s *Store) resolveInputOriginTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input CreateAgentContentInputInput,
 ) (CreateAgentContentInputInput, integrationstore.IntegrationRecord, error) {
 	integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, input.Origin.IntegrationID)
@@ -90,16 +89,16 @@ func validateIntegrationInputActor(integration integrationstore.IntegrationRecor
 
 func (s *Store) admitOriginContentTx(
 	ctx context.Context,
-	tx pgx.Tx,
-	notifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	input CreateAgentContentInputInput,
 	blocks []CreateContentBlockInput,
 	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
-	if err := lifecyclelock.Agents(
+	tx := unit.DB()
+	if err := unit.LockAgentRefs(
 		ctx,
-		tx,
 		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
+		agentexecution.IngressAuthority{},
 	); err != nil {
 		return InboxInputResult{}, err
 	}
@@ -125,7 +124,7 @@ func (s *Store) admitOriginContentTx(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), input, blocks)
+	created, err := createAgentContentInputTx(ctx, unit, dbsqlc.New(tx), input, blocks)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
@@ -141,7 +140,7 @@ func (s *Store) admitOriginContentTx(
 
 func (s *Store) originContentReplayTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input CreateAgentContentInputInput,
 ) (InboxInputResult, bool, error) {
 	q := dbsqlc.New(tx)

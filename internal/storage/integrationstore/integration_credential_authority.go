@@ -16,7 +16,7 @@ import (
 // gates. Call it before conversation or agent locks. Credential rotation preserves
 // callback authority; revoking project access does not.
 func LockIntegrationCredentialAccessTx(
-	ctx context.Context, tx pgx.Tx, projectID, integrationID uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, projectID, integrationID uuid.UUID,
 ) error {
 	integration, err := getIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
 	if errors.Is(err, storeerr.ErrNotFound) {
@@ -36,7 +36,7 @@ func LockIntegrationCredentialAccessTx(
 }
 
 func lockAvailableIntegrationCredential(
-	ctx context.Context, tx pgx.Tx, orgID, projectID, secretID uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, orgID, projectID, secretID uuid.UUID,
 ) (dbsqlc.GetProjectAvailableSecretRow, error) {
 	if _, err := secretops.LockReference(ctx, tx, orgID, secretID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

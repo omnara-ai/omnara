@@ -65,6 +65,10 @@ func (s *Store) ListContextEvents(
 	if err != nil {
 		return nil, fmt.Errorf("list context events: %w", err)
 	}
+	return contextEventsFromSQLC(rows, projectID, agentID), nil
+}
+
+func contextEventsFromSQLC(rows []dbsqlc.ListContextEventsRow, projectID, agentID uuid.UUID) []ContextEventRecord {
 	out := make([]ContextEventRecord, 0, len(rows))
 	for _, row := range rows {
 		record := ContextEventRecord{
@@ -92,7 +96,7 @@ func (s *Store) ListContextEvents(
 		}
 		out = append(out, record)
 	}
-	return out, nil
+	return out
 }
 
 func (s *Store) IsOutputLimitBoundary(ctx context.Context, projectID, agentID uuid.UUID, sequence int64) (bool, error) {

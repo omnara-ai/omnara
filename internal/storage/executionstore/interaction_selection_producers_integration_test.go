@@ -36,14 +36,15 @@ func TestSubagentCompletedReportPreservesInteractionSelection(t *testing.T) {
 	)
 	require.True(t, found)
 	require.Len(t, opening.Inputs, 1)
-	claim, err := f.store.Execution().ClaimNormalModelCall(f.ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            child.Agent.ID,
-		RuntimeLockID:      childLock.ID,
-		OpeningInputIDs:    []uuid.UUID{opening.Inputs[0].ID},
-		AgentConfigID:      child.AgentConfig.ID,
-		InputEventSequence: opening.Events[len(opening.Events)-1].Sequence,
-	})
+	prepared1, err := f.store.Execution().
+		PrepareNormalModelCall(f.ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         child.Agent.ID,
+			RuntimeLockID:   childLock.ID,
+			OpeningInputIDs: []uuid.UUID{opening.Inputs[0].ID},
+		})
+	claim := prepared1.Claim
+
 	require.NoError(t, err)
 	providerModelSlug := modelProviderSlugForContext(
 		t, f.ctx, f.store, testProjectID, child.Agent.ID, claim.Context.ID,
@@ -86,7 +87,12 @@ func TestSubagentCompletedReportPreservesInteractionSelection(t *testing.T) {
 	require.Contains(t, string(turnEvents[0].ContentBlocks), report)
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, parent.ID)
 	require.NoError(t, err)
-	require.Equal(t, before, selection, "admitting the completed subagent report must preserve the Slack selection")
+	require.Equal(
+		t,
+		before,
+		selection,
+		"admitting the completed subagent report must preserve the Slack selection",
+	)
 }
 
 func TestCronTriggerAgentInputPreservesInteractionSelection(t *testing.T) {
@@ -99,7 +105,8 @@ func TestCronTriggerAgentInputPreservesInteractionSelection(t *testing.T) {
 	input := cronTriggerInput("Scheduled review", f.process.AgentID, true)
 	trigger, err := f.store.Execution().CreateCronTrigger(f.ctx, input)
 	require.NoError(t, err)
-	_, err = f.store.pool.Exec(f.ctx,
+	_, err = f.store.pool.Exec(
+		f.ctx,
 		`UPDATE cron_triggers SET next_fire_after = statement_timestamp() - interval '1 minute' WHERE id = $1`,
 		trigger.ID,
 	)

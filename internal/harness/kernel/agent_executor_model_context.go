@@ -76,6 +76,15 @@ func (e AgentExecutor) modelContextToolRuntime(
 	if !found {
 		return nil, errors.New("model context agent config is missing")
 	}
+	return e.toolRuntimeFromConfig(ctx, projectID, agentID, config, now)
+}
+
+func (e AgentExecutor) toolRuntimeFromConfig(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+	config executionstore.AgentConfigRecord,
+	now time.Time,
+) ([]modelcontext.ToolSpec, error) {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
 		config.EffectiveDefinitionHash,

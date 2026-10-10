@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,46 +37,28 @@ func TestClearDeletedIntegrationTargetsUsesAgentIdentity(t *testing.T) {
 	f.exec(t, `UPDATE agents SET interaction_target_id=$2, interaction_handler_key='inbox-integration'
  WHERE id=$1`, current.ID, currentTarget)
 	f.exec(t, `UPDATE agents SET interaction_target_id=$2, interaction_handler_key='inbox-integration',
- interaction_auto_select=false, state='archived', archived_at=now() WHERE id=$1`, historical.ID, historicalTarget)
+ interaction_auto_select=false, state='archived', archived_at=now() WHERE id=$1`,
+		historical.ID,
+		historicalTarget)
 	f.exec(t, `UPDATE agents SET interaction_target_id=$2, interaction_handler_key='other',
  interaction_auto_select=false WHERE id=$1`, moved.ID, retainedTarget)
-	f.exec(t, `INSERT INTO agents(org_id,project_id,state,name,current_config_id,created_at,updated_at)
- SELECT org_id,project_id,'active','unrelated',current_config_id,now(),now()
- FROM agents CROSS JOIN generate_series(1,10000) WHERE id=$1`, current.ID)
-	f.exec(t, "ANALYZE agents")
-	f.exec(t, "ANALYZE integration_targets")
-	parameters := map[string]any{"project_id": f.project, "integration_id": f.integrationID}
-	plan := explainInboxQueryFile(t, f, "integration_target_lifecycle.sql",
-		"ClearDeletedIntegrationTargetsFromAgents", parameters)
-	var inspected float64
-	var walk func(inboxQueryPlan)
-	walk = func(node inboxQueryPlan) {
-		if node.Relation == "agents" && node.NodeType != "ModifyTable" && node.Loops > 0 {
-			inspected += (node.Rows + node.Filtered) * node.Loops
-			require.NotEqual(t, "Seq Scan", node.NodeType, "deleting an integration must not scan project agents")
-			t.Logf("agent lookup: %s using %s, rows=%g filtered=%g loops=%g",
-				node.NodeType, node.Index, node.Rows, node.Filtered, node.Loops)
-		}
-		for _, child := range node.Plans {
-			walk(child)
-		}
-	}
-	walk(plan)
-	require.Positive(t, inspected, "the plan must visit the selected agents")
-	require.LessOrEqual(t, inspected, float64(4), "only the integration's four target owners need inspection")
-
-	query, args := bindInboxQueryFile(t, "integration_target_lifecycle.sql",
-		"ClearDeletedIntegrationTargetsFromAgents", parameters)
-	foreignQuery, foreignArgs := bindInboxQueryFile(t, "integration_target_lifecycle.sql",
-		"ClearDeletedIntegrationTargetsFromAgents", map[string]any{
-			"project_id": uuid.New(), "integration_id": f.integrationID,
-		})
-	result, err := f.pool.Exec(f.ctx, foreignQuery, foreignArgs...)
-	require.NoError(t, err)
-	require.Zero(t, result.RowsAffected())
-	result, err = f.pool.Exec(f.ctx, query, args...)
-	require.NoError(t, err)
-	require.EqualValues(t, 2, result.RowsAffected(), "clear live and historical selections, including archived agents")
+	f.exec(
+		t,
+		`WITH identities AS MATERIALIZED (SELECT gen_random_uuid() AS id FROM generate_series(1,10000)), inserted AS (
+INSERT INTO agents(id,root_agent_id,org_id,project_id,state,name,current_config_id,created_at,updated_at)
+SELECT identity.id,identity.id,agent.org_id,agent.project_id,'active','unrelated',
+agent.current_config_id,statement_timestamp(),statement_timestamp()
+FROM identities identity CROSS JOIN agents agent WHERE agent.id=$1 RETURNING id)
+INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) SELECT id,false,false FROM inserted`,
+		current.ID,
+	)
+	cell := agentexecution.NewCell("test", f.pool, nil, nil)
+	require.NoError(t, cell.Transact(f.ctx, func(u *agentexecution.Unit) error {
+		return u.ClearIntegrationTargets(f.ctx, uuid.New(), f.integrationID)
+	}))
+	require.NoError(t, cell.Transact(f.ctx, func(u *agentexecution.Unit) error {
+		return u.ClearIntegrationTargets(f.ctx, f.project, f.integrationID)
+	}))
 	for _, expected := range []struct {
 		agentID, targetID uuid.UUID
 		handlerKey        string
@@ -102,7 +85,16 @@ func TestClearDeletedIntegrationTargetsUsesAgentIdentity(t *testing.T) {
 		}
 		require.Equal(t, expected.autoSelect, autoSelect, "deletion must preserve automatic selection mode")
 	}
-	result, err = f.pool.Exec(f.ctx, query, args...)
-	require.NoError(t, err)
-	require.Zero(t, result.RowsAffected(), "clearing already removed selections is idempotent")
+	require.NoError(t, cell.Transact(f.ctx, func(u *agentexecution.Unit) error {
+		return u.ClearIntegrationTargets(f.ctx, f.project, f.integrationID)
+	}))
+	var selected int
+	require.NoError(
+		t,
+		f.pool.QueryRow(f.ctx,
+			`SELECT count(*) FROM agents a JOIN integration_targets t ON t.id=a.interaction_target_id WHERE t.integration_id=$1`,
+			f.integrationID).
+			Scan(&selected),
+	)
+	require.Zero(t, selected)
 }

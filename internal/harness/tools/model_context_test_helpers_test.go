@@ -39,16 +39,17 @@ func claimNormalModelCallForToolsTest(
 		}
 		sourceModelOutputID = output.ID
 	}
-	claim, err := store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:                projectID,
-		AgentID:                  agentID,
-		RuntimeLockID:            runtime.ID,
-		OpeningInputIDs:          openingInputIDs,
-		AgentConfigID:            agentConfigID,
-		InputEventSequence:       inputEventSequence,
-		SourceModelCallContextID: sourceModelCallContextID,
-		SourceModelOutputID:      sourceModelOutputID,
-	})
+	prepared1, err := store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       projectID,
+			AgentID:         agentID,
+			RuntimeLockID:   runtime.ID,
+			OpeningInputIDs: openingInputIDs,
+			SourceModelCallContextID: sourceModelCallContextID,
+			SourceModelOutputID:      sourceModelOutputID,
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim normal model call: %v", err)
 	}

@@ -1,10 +1,3 @@
--- name: NextTurnSequence :one
-SELECT (coalesce(max(turn.turn_sequence), 0) + 1)::bigint
-FROM agent_turns turn
-JOIN agents agent ON agent.id = turn.agent_id
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND turn.agent_id = sqlc.arg(agent_id);
-
 -- name: ListAgentTurnsForRead :many
 SELECT turn.id,
        agent.project_id,
@@ -141,68 +134,6 @@ WHERE projection.project_id = sqlc.arg(project_id)
   )
 ORDER BY projection.turn_sequence DESC, projection.sequence ASC;
 
--- name: InsertAgentTurn :one
-WITH inserted AS (
-  INSERT INTO agent_turns(id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id)
-  SELECT sqlc.arg(id), sqlc.arg(agent_id),
-         sqlc.arg(turn_sequence), event.id, sqlc.arg(latest_semantic_event_id)
-  FROM agent_events event
-  JOIN agents agent ON agent.id = event.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND event.agent_id = sqlc.arg(agent_id)
-    AND event.turn_id = sqlc.arg(id)
-    AND event.id = sqlc.arg(latest_event_id)
-  RETURNING id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id
-)
-SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.turn_sequence,
-       inserted.latest_event_id, inserted.latest_semantic_event_id
-FROM inserted
-JOIN agents agent ON agent.id = inserted.agent_id;
-
--- name: UpdateAgentTurnLatestEvent :execrows
-UPDATE agent_turns
-SET latest_event_id = sqlc.arg(latest_event_id),
-    latest_semantic_event_id = coalesce(sqlc.narg(latest_semantic_event_id), latest_semantic_event_id)
-FROM agent_events event
-WHERE agent_turns.agent_id = sqlc.arg(agent_id)
-  AND agent_turns.id = sqlc.arg(id)
-  AND event.agent_id = agent_turns.agent_id
-  AND event.turn_id = agent_turns.id
-  AND event.id = sqlc.arg(latest_event_id)
-  AND EXISTS (
-    SELECT 1
-    FROM agents agent
-    WHERE agent.id = agent_turns.agent_id
-      AND agent.project_id = sqlc.arg(project_id)
-  );
-
--- name: CurrentContinuableAgentTurn :one
-WITH latest_turn AS MATERIALIZED (
-  SELECT turn.id, agent.project_id, turn.agent_id, turn.turn_sequence, turn.latest_event_id,
-         turn.latest_semantic_event_id
-  FROM agent_turns turn
-  JOIN agents agent ON agent.id = turn.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND turn.agent_id = sqlc.arg(agent_id)
-  ORDER BY turn.turn_sequence DESC
-  LIMIT 1
-)
-SELECT turn.id, turn.project_id, turn.agent_id, turn.turn_sequence, turn.latest_event_id,
-       turn.latest_semantic_event_id
-FROM latest_turn turn
-WHERE EXISTS (
-    SELECT 1
-    FROM agent_continuable_model_contexts(turn.project_id, turn.agent_id)
-      AS context(turn_id, model_call_context_id, input_event_sequence, has_later_semantic_event)
-    WHERE context.turn_id = turn.id
-  )
-  OR agent_has_incomplete_tool_batch(turn.project_id, turn.agent_id)
-  OR EXISTS (
-    SELECT 1
-    FROM agent_next_model_work(turn.project_id, turn.agent_id) frontier
-    WHERE frontier.turn_id = turn.id
-  );
-
 -- name: IsOutputLimitBoundary :one
 SELECT EXISTS (
   SELECT 1
@@ -294,3 +225,8 @@ GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   output.provider_replay, output.stop_reason, input.input_kind
 ORDER BY event.sequence ASC
 LIMIT sqlc.arg(page_limit);
+
+-- name: GetAgentTurn :one
+SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id
+FROM agent_turns t JOIN agents a ON a.id=t.agent_id
+WHERE a.project_id=sqlc.arg(project_id) AND t.agent_id=sqlc.arg(agent_id) AND t.id=sqlc.arg(id);

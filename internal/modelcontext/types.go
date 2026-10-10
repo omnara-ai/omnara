@@ -18,6 +18,7 @@ type BuildInput struct {
 	OpeningInputIDs     []uuid.UUID
 	Now                 time.Time
 	AgentConfigSnapshot *executionstore.AgentConfigSnapshotRecord
+	ContextData         *executionstore.ModelContextData
 	CheckpointOverride  *CheckpointRef
 	MediaProjector      MediaProjector
 }

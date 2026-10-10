@@ -7,10 +7,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -58,20 +57,20 @@ func (s *Store) CreateAgentContentInput(
 	if err != nil {
 		return AgentInputRecord{}, nil, false, err
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return AgentInputRecord{}, nil, false, fmt.Errorf(
 			"begin create agent content input: %w",
 			err,
 		)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	qtx := dbsqlc.New(tx)
 	result, err := createAgentContentInputTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		input,
 		contentBlocks,
@@ -79,12 +78,7 @@ func (s *Store) CreateAgentContentInput(
 	if err != nil {
 		return AgentInputRecord{}, nil, false, err
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"create agent content input",
-	); err != nil {
+	if err := unit.Commit(ctx, "create agent content input"); err != nil {
 		return AgentInputRecord{}, nil, false, err
 	}
 	return result.agentInput, result.contentBlocks, result.created, nil
@@ -106,7 +100,7 @@ func prepareCreateAgentContentInput(
 			"cancel_open_interactions is allowed only for steering inputs",
 		))
 	}
-	if input.IdempotencyScope == "" {
+	if input.IdempotencyKey != "" && input.IdempotencyScope == "" {
 		input.IdempotencyScope = "content_input"
 	}
 	return input, nil
@@ -121,15 +115,21 @@ type createAgentContentInputTxResult struct {
 
 func createAgentContentInputTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (createAgentContentInputTxResult, error) {
-	agent, err := qtx.LockAgentInProject(
+	var err error
+	input, err = prepareCreateAgentContentInput(input)
+	if err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
+	tx := unit.DB()
+	agent, err := unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
+		agentexecution.IngressAuthority{},
 	)
 	if err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)
@@ -204,78 +204,35 @@ func createAgentContentInputTx(
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
-	agentInput, err := insertAgentInputTx(ctx, tx, insertAgentInputInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		DeliveryMode:        input.DeliveryMode,
-		ActorID:             actorID,
-		IntegrationTargetID: input.IntegrationTargetID,
-		IdempotencyScope:    input.IdempotencyScope,
-		InputIdempotencyKey: input.IdempotencyKey,
-		Metadata:            input.Metadata,
+	h, err := unit.Handle(input.ProjectID, input.AgentID)
+	if err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
+	parts, err := executionContent(contentBlocks)
+	if err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
+	received, err := h.ReceiveContent(ctx, agentexecution.ReceiveContentInput{
+		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
+		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
+		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
-	if err := createAgentInputContentBlocksTx(
+	row, err := qtx.GetAgentInput(
 		ctx,
-		tx,
-		agentInput,
-		contentBlocks,
-	); err != nil {
+		dbsqlc.GetAgentInputParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: received.ID},
+	)
+	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
-	result := createAgentContentInputTxResult{
-		agentInput:    agentInput,
-		contentBlocks: input.ContentBlocks,
-		created:       true,
+	result := createAgentContentInputTxResult{agentInput: agentInputRecordFromGetSQLC(row),
+		contentBlocks: input.ContentBlocks, created: received.Created}
+	if received.Created && input.CancelOpenInteractions {
+		result.canceledInteractionIDs, err = h.SupersedeInteractions(ctx, received.ID)
 	}
-	if input.CancelOpenInteractions {
-		result.canceledInteractionIDs, err = cancelOpenInteractionsForSteeringInputTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			agentInput.ID,
-		)
-		if err != nil {
-			return createAgentContentInputTxResult{}, err
-		}
-	}
-	if err := qtx.ReconcileAgentWakeup(
-		ctx,
-		dbsqlc.ReconcileAgentWakeupParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-			Metadata:  []byte(`{"reason":"agent_input"}`),
-		},
-	); err != nil {
-		return createAgentContentInputTxResult{}, fmt.Errorf(
-			"reconcile agent wakeup after input: %w",
-			err,
-		)
-	}
-	return result, nil
-}
-
-func createAgentInputContentBlocksTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	input AgentInputRecord,
-	blocks []CreateContentBlockInput,
-) error {
-	for _, block := range blocks {
-		block.ProjectID = input.ProjectID
-		block.AgentID = input.AgentID
-		block.OwnerKind = ContentBlockOwnerAgentInput
-		block.OwnerAgentInputID = input.ID
-		if _, err := createContentBlockTx(ctx, tx, block); err != nil {
-			return err
-		}
-	}
-	return nil
+	return result, err
 }
 
 func agentInputContentBlocks(

@@ -12,27 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const clearDeletedIntegrationTargetsFromAgents = `-- name: ClearDeletedIntegrationTargetsFromAgents :exec
-UPDATE agents agent SET interaction_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
-FROM integration_targets target
-WHERE agent.project_id = $1
-  AND target.project_id = agent.project_id
-  AND target.integration_id = $2
-  AND agent.id = target.agent_id
-  AND agent.interaction_target_id = target.id
-`
-
-type ClearDeletedIntegrationTargetsFromAgentsParams struct {
-	ProjectID     uuid.UUID
-	IntegrationID uuid.UUID
-}
-
-// @sqlc-vet-disable integration-targets-deleted-at
-func (q *Queries) ClearDeletedIntegrationTargetsFromAgents(ctx context.Context, arg ClearDeletedIntegrationTargetsFromAgentsParams) error {
-	_, err := q.db.Exec(ctx, clearDeletedIntegrationTargetsFromAgents, arg.ProjectID, arg.IntegrationID)
-	return err
-}
-
 const deleteIntegrationTargets = `-- name: DeleteIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1 AND integration_id = $2

@@ -86,17 +86,25 @@ func TestListMachinesDispatchRejectsInvalidCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Disposition != DispatchCompleted ||
-		!strings.Contains(string(result.ContentParts), `"error_code":"malformed"`) {
+	if result.Disposition != DispatchCompleted {
 		t.Fatalf("invalid cursor result = %+v, want completed malformed-input result", result)
 	}
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "structured_data", parts[0].Type)
+	require.Equal(t, "malformed", parts[0].Value["error_code"])
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.State != executionstore.ToolCallStateCompleted || record.Outcome != executionstore.ToolResultOutcomeFailed {
+	if record.State != executionstore.ToolCallStateCompleted ||
+		record.Outcome != executionstore.ToolResultOutcomeFailed {
 		t.Fatalf("invalid cursor tool call = %+v, want completed failure", record)
 	}
 }
@@ -171,7 +179,14 @@ func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {
 	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
 	require.NoError(t, err)
 	require.Equal(t, DispatchCompleted, result.Disposition)
-	require.Contains(t, string(result.ContentParts), `"error_code":"spawn_agent_failed"`)
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "structured_data", parts[0].Type)
+	require.Equal(t, "spawn_agent_failed", parts[0].Value["error_code"])
 	require.Contains(t, string(result.ContentParts), "does not support tools")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
@@ -1285,7 +1300,12 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			fixture := newIntegrationToolFixtureWithOptions(
 				t, ctx, "file-approval-"+name, toolFixtureOptions{withMemory: tc.memory},
 			)
-			machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, name, fixture.Now.Add(time.Second))
+			machine := createExecutableBinding(t,
+				ctx,
+				fixture.Store,
+				fixture.User.ID,
+				name,
+				fixture.Now.Add(time.Second))
 			var bindingID uuid.UUID
 			err := fixture.Pool.QueryRow(ctx, `
 				INSERT INTO agent_machine_bindings(
@@ -1330,14 +1350,22 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, string(input), fixture.Now.Add(20*time.Second))
+			call := fixture.recordPendingToolCall(t,
+				ctx,
+				"call_file",
+				name,
+				string(input),
+				fixture.Now.Add(20*time.Second))
 			turn := fixture.turn()
 			turn.Tools = map[string]ToolSpec{name: {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}}
 			wakes := 0
 			executor := Executor{
 				Store: fixture.Store,
-
-				BackgroundRunner: backgroundRunnerFunc(func(string, func(context.Context) error) bool { wakes++; return true }),
+				BackgroundRunner: backgroundRunnerFunc(func(string,
+					func(context.Context) error) bool {
+					wakes++
+					return true
+				}),
 			}
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 				t.Fatal(err)
@@ -1410,7 +1438,8 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 					t.Fatalf("expected digest was not saved: %+v", target)
 				}
 				if _, err := fixture.Pool.Exec(ctx,
-					`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE id = $1`, target.StoreID); err != nil {
+					`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE id = $1`,
+					target.StoreID); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := fixture.Pool.Exec(ctx,
@@ -1419,9 +1448,18 @@ SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err 
 					t.Fatal(err)
 				}
 				execution, err := fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
-					ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
+					ProjectID:     toolsTestProjectID,
+					AgentID:       fixture.Agent.ID,
+					ToolCallID:    callID,
+					RuntimeLockID: fixture.Lock.ID,
 				}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-					prepared, err := fileTransferProcessInput(ctx, reader, direction, "report.pdf", serverPath, target.ExpectedDigest)
+					prepared,
+						err := fileTransferProcessInput(ctx,
+						reader,
+						direction,
+						"report.pdf",
+						serverPath,
+						target.ExpectedDigest)
 					if err != nil {
 						return nil, err
 					}
@@ -1432,7 +1470,9 @@ SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err 
 					t.Fatal(err)
 				}
 				replay, ok := execution.CommandResult.(executionstore.ProcessRecord)
-				if !ok || replay.ID != process.ID || replay.ExecutionSpec.FileTransfer.Target.Memory.StoreID != target.StoreID {
+				if !ok ||
+					replay.ID != process.ID ||
+					replay.ExecutionSpec.FileTransfer.Target.Memory.StoreID != target.StoreID {
 					t.Fatalf("replay changed the saved memory target: %+v", execution)
 				}
 			}
@@ -1475,7 +1515,12 @@ func TestFileToolsUnavailableMemoryStoreFailsDispatch(t *testing.T) {
 					"path": "/memory/" + storeName + "/report.pdf", tool.localField: "report.pdf",
 				})
 				require.NoError(t, err)
-				call := fixture.recordToolCall(t, ctx, "call_file", tool.name, string(input), fixture.Now.Add(20*time.Second))
+				call := fixture.recordToolCall(t,
+					ctx,
+					"call_file",
+					tool.name,
+					string(input),
+					fixture.Now.Add(20*time.Second))
 				turn := fixture.turn()
 				turn.Tools[tool.name] = ToolSpec{Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)}
 				executor := Executor{Store: fixture.Store}
@@ -1511,7 +1556,9 @@ func TestRemovedArtifactToolsFailDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Disposition != DispatchCompleted || !strings.Contains(string(result.ContentParts), "unsupported") {
+			if result.Disposition != DispatchCompleted ||
+				!strings.Contains(string(result.ContentParts),
+					"unsupported") {
 				t.Fatalf("removed tool result=%+v", result)
 			}
 		})

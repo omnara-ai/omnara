@@ -4,26 +4,6 @@ FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id
 WHERE agent.project_id = sqlc.arg(project_id) AND event.agent_id = sqlc.arg(agent_id) AND event.idempotency_key = sqlc.arg(idempotency_key)::text;
 
--- name: AllocateEventSequence :one
-SELECT project_id, next_event_sequence
-FROM agents AS agents
-WHERE id = $1
-FOR UPDATE;
-
--- name: LatestAgentEvent :one
-SELECT event.id, event.agent_id, event.turn_id, event.is_opening_event, event.sequence, event.event_kind, event.created_at, coalesce(event.idempotency_key, '') AS idempotency_key
-FROM agent_events event
-JOIN agents agent ON agent.id = event.agent_id
-WHERE agent.project_id = $1 AND event.agent_id = $2
-ORDER BY sequence DESC
-LIMIT 1;
-
--- name: AdvanceEventSequence :exec
-UPDATE agents
-SET next_event_sequence = next_event_sequence + 1, updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(id);
-
 -- name: MaxEventSequence :one
 SELECT coalesce(max(event.sequence), 0)::bigint
 FROM agent_events event

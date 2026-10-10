@@ -2,14 +2,10 @@ package executionstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 )
 
 type PromoteQueuedInputToSteeringInput struct {
@@ -29,24 +25,15 @@ func (s *Store) PromoteQueuedInputToSteering(
 	ctx context.Context,
 	input PromoteQueuedInputToSteeringInput,
 ) error {
-	return s.changeAgentInputDeliveryMode(
+	return s.changeBacklog(
 		ctx,
 		input.ProjectID,
 		input.AgentID,
-		input.InputID,
-		input.CancelOpenInteractions,
-		func(qtx *dbsqlc.Queries, ctx context.Context) (bool, bool, error) {
-			result, err := qtx.PromoteQueuedInputToSteering(
-				ctx,
-				dbsqlc.PromoteQueuedInputToSteeringParams{
-					RankStride: agentInputRankStride,
-					ProjectID:  input.ProjectID,
-					AgentID:    input.AgentID,
-					ID:         input.InputID,
-				},
-			)
-			return result.Changed, result.Effective != nil && *result.Effective, err
+		agentexecution.BacklogChange{
+			ID:           input.InputID,
+			DeliveryMode: "steering",
 		},
+		input.CancelOpenInteractions,
 	)
 }
 
@@ -54,83 +41,28 @@ func (s *Store) DemoteSteeringInputToQueued(
 	ctx context.Context,
 	input DemoteSteeringInputToQueuedInput,
 ) error {
-	return s.changeAgentInputDeliveryMode(
-		ctx,
-		input.ProjectID,
-		input.AgentID,
-		input.InputID,
-		false,
-		func(qtx *dbsqlc.Queries, ctx context.Context) (bool, bool, error) {
-			changed, err := qtx.DemoteSteeringInputToQueued(
-				ctx,
-				dbsqlc.DemoteSteeringInputToQueuedParams{
-					RankStride: agentInputRankStride,
-					ProjectID:  input.ProjectID,
-					AgentID:    input.AgentID,
-					ID:         input.InputID,
-				},
-			)
-			return changed == 1, changed == 1, err
-		},
-	)
+	return s.changeBacklog(ctx, input.ProjectID, input.AgentID,
+		agentexecution.BacklogChange{ID: input.InputID, DeliveryMode: "queued"}, false)
 }
 
-func (s *Store) changeAgentInputDeliveryMode(
-	ctx context.Context,
-	projectID, agentID, inputID uuid.UUID,
-	cancelOpenInteractions bool,
-	mutate func(*dbsqlc.Queries, context.Context) (bool, bool, error),
-) error {
-	if projectID == uuid.Nil || agentID == uuid.Nil || inputID == uuid.Nil {
-		return errors.New("project id, agent id, and input id are required")
+func (s *Store) changeBacklog(ctx context.Context, projectID, agentID uuid.UUID,
+	change agentexecution.BacklogChange, cancelInteractions bool) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil || change.ID == uuid.Nil {
+		return errors.New("project, agent and input are required")
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, h, err := beginExecution(ctx, s, projectID, agentID)
 	if err != nil {
-		return fmt.Errorf("begin change agent input delivery mode: %w", err)
+		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		return fmt.Errorf("lock agent for input delivery mode change: %w", err)
-	}
-	changed, effective, err := mutate(qtx, ctx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	changed, err := h.ChangeBacklog(ctx, change)
 	if err != nil {
-		return fmt.Errorf("change agent input delivery mode: %w", err)
+		return err
 	}
-	if !effective {
-		return storeerr.ErrStateTransitionConflict
-	}
-	if !changed {
-		return nil
-	}
-	if cancelOpenInteractions {
-		if _, err := cancelOpenInteractionsForSteeringInputTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			projectID,
-			agentID,
-			inputID,
-		); err != nil {
+	if changed && cancelInteractions {
+		if _, err = h.SupersedeInteractions(ctx, change.ID); err != nil {
 			return err
 		}
 	}
-	if err := qtx.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
-		ProjectID: projectID,
-		AgentID:   agentID,
-		Metadata:  json.RawMessage(`{"reason":"input_delivery_mode_changed"}`),
-	}); err != nil {
-		return fmt.Errorf("reconcile wakeup after input delivery mode change: %w", err)
-	}
-	return s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"change agent input delivery mode",
-	)
+	return unit.Commit(ctx, "change input backlog")
 }

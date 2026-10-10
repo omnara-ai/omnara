@@ -16,6 +16,7 @@ func TestQueuedInputWaitsForAmbiguousCompactionRetry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "queued_waits_compaction")
+
 	queued := createFrontierRaceInput(
 		t,
 		ctx,
@@ -48,7 +49,8 @@ func TestQueuedInputWaitsForAmbiguousCompactionRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim ambiguous compaction retry: %v", err)
 	}
-	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkResume ||
+	if !found || work.Kind != executionstore.AgentWorkModel ||
+		work.Model.Kind != executionstore.ModelWorkResume ||
 		work.Model.ModelCallContextID != compaction.Context.ID {
 		t.Fatalf(
 			"claimed work = %+v found=%v, want compaction context %s before queued input",
@@ -100,7 +102,8 @@ func TestSteeringStartsNewFrontierAfterAmbiguousNormalSendWithCapacity(t *testin
 	if err != nil {
 		t.Fatalf("claim steering after ambiguous normal send: %v", err)
 	}
-	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
+	if !found || work.Kind != executionstore.AgentWorkModel ||
+		work.Model.Kind != executionstore.ModelWorkStart ||
 		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
@@ -118,6 +121,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "steering_ambiguous_compaction")
+
 	parent, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
 		ctx,
 		testProjectID,
@@ -159,14 +163,21 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 	if err != nil {
 		t.Fatalf("claim steering after ambiguous compaction send: %v", err)
 	}
-	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
+	if !found || work.Kind != executionstore.AgentWorkModel ||
+		work.Model.Kind != executionstore.ModelWorkStart ||
 		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
 		t.Fatalf("steering work = %+v found=%v, want fresh admitted turn", work, found)
 	}
 	fresh := claimTestNormalModelCallForWork(t, ctx, fixture, work, time.Now().UTC())
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextFailed)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		compaction.Context.ID,
+		executionstore.ModelCallContextFailed,
+	)
 	assertFrontierRaceContextState(
 		t,
 		ctx,
@@ -184,6 +195,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "completed_compaction_wins")
+
 	parent, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
 		ctx,
 		testProjectID,
@@ -216,7 +228,13 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	if checkpoint.ID == uuid.Nil || checkpoint.CheckpointEventID == uuid.Nil {
 		t.Fatalf("published checkpoint = %+v, want durable checkpoint and event", checkpoint)
 	}
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextSucceeded)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		compaction.Context.ID,
+		executionstore.ModelCallContextSucceeded,
+	)
 	assertFrontierRaceContextState(
 		t,
 		ctx,
@@ -241,7 +259,8 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim steering after accepted checkpoint: %v", err)
 	}
-	if !found || work.Kind != executionstore.AgentWorkModel || work.Model.Kind != executionstore.ModelWorkStart ||
+	if !found || work.Kind != executionstore.AgentWorkModel ||
+		work.Model.Kind != executionstore.ModelWorkStart ||
 		work.Model.AdmittedInputTurn.Turn.ID == uuid.Nil ||
 		len(work.Model.InputIDs) == 0 ||
 		work.Model.InputIDs[len(work.Model.InputIDs)-1] != steering.ID {
@@ -278,14 +297,15 @@ func createFrontierRaceInput(
 	now time.Time,
 ) executionstore.AgentInputRecord {
 	t.Helper()
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"new frontier input"}]`),
-		DeliveryMode:   deliveryMode,
-		IdempotencyKey: idempotencyKey,
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"new frontier input"}]`),
+			DeliveryMode:   deliveryMode,
+			IdempotencyKey: idempotencyKey,
+		})
 	if err != nil {
 		t.Fatalf("create %s input: %v", deliveryMode, err)
 	}

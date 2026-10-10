@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type CompleteToolCallInput struct {
@@ -148,14 +147,14 @@ func (s *Store) CompleteToolCall(
 	}
 	input.ResultContentParts = parts
 	record, err := s.completeToolCallOnce(ctx, input)
-	var read *toolResultArtifactReadRequiredError
-	if !errors.As(err, &read) {
-		return record, err
+	if err == nil {
+		return record, nil
 	}
-	ctx, err = s.loadToolResultForReplay(ctx, read)
+	parts, err = s.replayToolContent(ctx, input.ProjectID, input.AgentID, input.ResultContentParts, err)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
+	input.ResultContentParts = parts
 	return s.completeToolCallOnce(ctx, input)
 }
 
@@ -163,277 +162,94 @@ func (s *Store) completeToolCallOnce(
 	ctx context.Context,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return ToolCallRecord{}, fmt.Errorf("begin complete tool call: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	record, err := completeToolCallTx(ctx, txNotifications, tx, input)
+	defer func() { _ = unit.Rollback(ctx) }()
+
+	record, err := completeExecutionTool(ctx, unit, input)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete tool call"); err != nil {
+	if err := unit.Commit(ctx, "complete tool call"); err != nil {
 		return ToolCallRecord{}, err
 	}
 	return record, nil
 }
 
-func (s *Store) MarkToolCallReady(
-	ctx context.Context,
-	input MarkToolCallReadyInput,
-) (ToolCallRecord, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
-		input.RuntimeLockID == uuid.Nil {
-		return ToolCallRecord{}, errors.New(
-			"project, agent, tool call id, and runtime lock are required",
-		)
-	}
-	txNotifications := s.newTxNotifications()
-	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
-		ctx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	)
+func (s *Store) MarkToolCallReady(ctx context.Context, input MarkToolCallReadyInput) (ToolCallRecord, error) {
+	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := qtx.MarkToolCallReady(
-		ctx,
-		dbsqlc.MarkToolCallReadyParams{
-			ProjectID:     input.ProjectID,
-			AgentID:       input.AgentID,
-			ID:            input.ID,
-			RuntimeLockID: input.RuntimeLockID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
-		if loadErr != nil {
-			return ToolCallRecord{}, loadErr
-		}
-		if err := agentRuntimeLockActiveTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			input.RuntimeLockID,
-		); err != nil {
-			return ToolCallRecord{}, err
-		}
-		if existing.State == ToolCallStateReady && existing.CompletedAt == nil {
-			if err := s.commitTxWithNotifications(
-				ctx,
-				tx,
-				txNotifications,
-				"mark tool call ready",
-			); err != nil {
-				return ToolCallRecord{}, err
-			}
-			return existing, nil
-		}
-		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
+	defer func() { _ = unit.Rollback(ctx) }()
+	if _,
+		err = h.AuthorizeTool(ctx,
+		agentexecution.ToolRef{ID: input.ID,
+			RuntimeLockID: input.RuntimeLockID}); err != nil {
+		return ToolCallRecord{}, err
 	}
+	record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
 	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("mark tool call ready: %w", err)
+		return ToolCallRecord{}, err
 	}
-	record := toolCallRecordFromReadySQLC(row)
-	txNotifications.AddToolCallUpdate(record.AgentID, record.ID, string(record.State), nil)
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"mark tool call ready",
-	); err != nil {
+	if err = unit.Commit(ctx, "authorize tool"); err != nil {
 		return ToolCallRecord{}, err
 	}
 	return record, nil
 }
 
-func (s *Store) RequeueRuntimeToolCall(
-	ctx context.Context,
-	input RequeueRuntimeToolCallInput,
-) error {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
-		input.RuntimeLockID == uuid.Nil {
-		return errors.New("project, agent, tool call, and runtime lock are required")
-	}
-	txNotifications := s.newTxNotifications()
-	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
-		ctx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	)
+func (s *Store) RequeueRuntimeToolCall(ctx context.Context, input RequeueRuntimeToolCallInput) error {
+	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	changed, err := qtx.RequeueRuntimeToolCall(
-		ctx,
-		dbsqlc.RequeueRuntimeToolCallParams{
-			ProjectID:     input.ProjectID,
-			AgentID:       input.AgentID,
-			ID:            input.ToolCallID,
-			RuntimeLockID: input.RuntimeLockID,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("requeue runtime tool call: %w", err)
-	}
-	if changed == 0 {
-		existing, err := qtx.GetToolCallDispatchState(
-			ctx,
-			dbsqlc.GetToolCallDispatchStateParams{
-				ProjectID: input.ProjectID,
-				AgentID:   input.AgentID,
-				ID:        input.ToolCallID,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("load tool call after requeue miss: %w", err)
-		}
-		if existing.State != string(ToolCallStateReady) ||
-			existing.RuntimeLockID != nil {
-			return storeerr.ErrStateTransitionConflict
-		}
-	} else {
-		txNotifications.AddToolCallUpdate(
-			input.AgentID,
-			input.ToolCallID,
-			string(ToolCallStateReady),
-			nil,
-		)
-	}
-	metadata, err := marshalJSON(map[string]any{
-		"reason":       "async_preflight_retry",
-		"tool_call_id": input.ToolCallID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal requeued runtime tool wakeup: %w", err)
-	}
-	if err := qtx.MarkAgentWakeup(
-		ctx,
-		dbsqlc.MarkAgentWakeupParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-			Metadata:  metadata,
-		},
-	); err != nil {
-		return fmt.Errorf("mark requeued runtime tool wakeup: %w", err)
-	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"requeue runtime tool call",
-	); err != nil {
+	defer func() { _ = unit.Rollback(ctx) }()
+	if _,
+		err = h.RequeueTool(ctx,
+		agentexecution.ToolRef{ID: input.ToolCallID,
+			RuntimeLockID: input.RuntimeLockID}); err != nil {
 		return err
 	}
-	return nil
+	return unit.Commit(ctx, "requeue tool")
 }
 
-func completeToolCallTx(
+func completeExecutionTool(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
-		input.RuntimeLockID == uuid.Nil {
-		return ToolCallRecord{}, errors.New(
-			"project, agent, tool call id, and runtime lock are required",
-		)
+
+	err := unit.LockAgentRefs(ctx,
+		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
+		agentexecution.IngressAuthority{},
+	)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return ToolCallRecord{}, storeerr.ErrRuntimeLockInactive
 	}
-	if !input.Outcome.IsTerminal() {
-		return ToolCallRecord{}, fmt.Errorf("invalid tool result outcome %q", input.Outcome)
+	if err != nil {
+		return ToolCallRecord{}, err
 	}
-	if len(input.ResultContentParts) == 0 {
-		input.ResultContentParts = json.RawMessage(`[]`)
-	}
+
 	blocks, err := parseToolResultContentBlocks(input.ResultContentParts)
 	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("invalid model-visible content parts: %w", err)
+		return ToolCallRecord{}, err
 	}
-	normalizedParts, err := marshalToolResultContentBlocks(blocks)
+	parts, err := executionContent(blocks)
 	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("canonicalize model-visible content parts: %w", err)
-	}
-	input.ResultContentParts = normalizedParts
-	qtx := dbsqlc.New(tx)
-	if err := lockAgentRuntimeForOwnedMutationTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
 		return ToolCallRecord{}, err
 	}
-	row, err := qtx.CompleteToolCall(
-		ctx,
-		dbsqlc.CompleteToolCallParams{
-			ProjectID:     input.ProjectID,
-			AgentID:       input.AgentID,
-			ID:            input.ID,
-			RuntimeLockID: input.RuntimeLockID,
-			Outcome:       string(input.Outcome),
-		})
-	if err == nil {
-		record := toolCallRecordFromCompleteSQLC(row)
-		record.ResultContentParts = input.ResultContentParts
-		admitted, err := appendToolResultRecordTx(
-			ctx,
-			txNotifications,
-			tx,
-			record,
-			nil,
-		)
-		if err != nil {
-			return ToolCallRecord{}, err
-		}
-		applyAdmittedToolResult(&record, admitted)
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ToolCallRecord{}, fmt.Errorf("complete tool call: %w", err)
-	}
-	existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
-	if loadErr != nil {
-		return ToolCallRecord{}, loadErr
-	}
-	if err := agentRuntimeLockActiveTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
+	h, err := unit.Handle(input.ProjectID, input.AgentID)
+	if err != nil {
 		return ToolCallRecord{}, err
 	}
-	if toolcatalog.IsPlatformManagedToolType(existing.Type) &&
-		existing.State == ToolCallStateCompleted &&
-		existing.Outcome == input.Outcome {
-		ok, err := completedToolCallMatchesTx(
-			ctx,
-			dbsqlc.New(tx),
-			input.ProjectID,
-			input.AgentID,
-			input.ID,
-			input.Outcome,
-			input.ResultContentParts,
-		)
-		if err != nil {
-			return ToolCallRecord{}, err
-		}
-		if !ok {
-			return ToolCallRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		return existing, nil
+	_, err = h.CompleteTool(ctx, agentexecution.ToolCompletion{ToolRef: agentexecution.ToolRef{ID: input.ID,
+		RuntimeLockID: input.RuntimeLockID}, Outcome: string(input.Outcome), Content: parts})
+	if err != nil {
+		return ToolCallRecord{}, err
 	}
-	return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
+	return getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
 }
 
 func (s *Store) CompleteRuntimeToolCall(
@@ -446,14 +262,14 @@ func (s *Store) CompleteRuntimeToolCall(
 	}
 	input.ResultContentParts = parts
 	record, err := s.completeRuntimeToolCallOnce(ctx, input)
-	var read *toolResultArtifactReadRequiredError
-	if !errors.As(err, &read) {
-		return record, err
+	if err == nil {
+		return record, nil
 	}
-	ctx, err = s.loadToolResultForReplay(ctx, read)
+	parts, err = s.replayToolContent(ctx, input.ProjectID, input.AgentID, input.ResultContentParts, err)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
+	input.ResultContentParts = parts
 	return s.completeRuntimeToolCallOnce(ctx, input)
 }
 
@@ -461,173 +277,28 @@ func (s *Store) completeRuntimeToolCallOnce(
 	ctx context.Context,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	record, err := completeRuntimeToolCallTx(ctx, txNotifications, tx, input)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"complete runtime tool call",
-	); err != nil {
-		return ToolCallRecord{}, err
-	}
-	return record, nil
-}
-
-func completeRuntimeToolCallTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	input CompleteRuntimeToolCallInput,
-) (ToolCallRecord, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil ||
-		input.RuntimeLockID == uuid.Nil {
-		return ToolCallRecord{}, errors.New(
-			"project, agent, tool call id, and runtime lock are required",
-		)
-	}
 	if !input.Outcome.IsTerminal() || input.Outcome == ToolResultOutcomeDenied {
-		return ToolCallRecord{}, fmt.Errorf(
-			"invalid runtime tool result outcome %q",
-			input.Outcome,
-		)
+		return ToolCallRecord{}, errors.New("invalid runtime tool outcome")
 	}
-	if len(input.ResultContentParts) == 0 {
-		input.ResultContentParts = json.RawMessage(`[]`)
-	}
-	blocks, err := parseToolResultContentBlocks(input.ResultContentParts)
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("invalid model-visible content parts: %w", err)
-	}
-	normalizedParts, err := marshalToolResultContentBlocks(blocks)
-	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("canonicalize model-visible content parts: %w", err)
-	}
-	input.ResultContentParts = normalizedParts
-	qtx := dbsqlc.New(tx)
-	if err := lockAgentRuntimeForOwnedMutationTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
 		return ToolCallRecord{}, err
 	}
-	row, err := qtx.CompleteRuntimeToolCall(
+	defer func() { _ = unit.Rollback(ctx) }()
+	record, err := completeExecutionTool(
 		ctx,
-		dbsqlc.CompleteRuntimeToolCallParams{
-			ProjectID:     input.ProjectID,
-			AgentID:       input.AgentID,
-			ID:            input.ID,
-			RuntimeLockID: input.RuntimeLockID,
-			Outcome:       string(input.Outcome),
-		},
-	)
-	if err == nil {
-		return finishCompletedToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			toolCallRecordFromRuntimeCompleteSQLC(row),
-			toolCallResultInput{
-				Outcome:            input.Outcome,
-				ResultContentParts: input.ResultContentParts,
-			},
-		)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ToolCallRecord{}, fmt.Errorf("complete runtime tool call: %w", err)
-	}
-	existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
-	if loadErr != nil {
-		return ToolCallRecord{}, loadErr
-	}
-	if err := agentRuntimeLockActiveTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
-		return ToolCallRecord{}, err
-	}
-	if toolcatalog.IsPlatformManagedToolType(existing.Type) &&
-		existing.State == ToolCallStateCompleted &&
-		existing.Outcome == input.Outcome {
-		ok, err := completedToolCallMatchesTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			input.ID,
-			input.Outcome,
-			input.ResultContentParts,
-		)
-		if err != nil {
-			return ToolCallRecord{}, err
-		}
-		if ok {
-			return existing, nil
-		}
-	}
-	return ToolCallRecord{}, storeerr.ErrIdempotencyConflict
-}
-
-type toolCallResultInput struct {
-	Outcome            ToolResultOutcome
-	ResultContentParts json.RawMessage
-}
-
-func finishCompletedToolCallTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	record ToolCallRecord,
-	input toolCallResultInput,
-) (ToolCallRecord, error) {
-	record.ResultContentParts = input.ResultContentParts
-	admitted, err := appendToolResultRecordTx(
-		ctx,
-		txNotifications,
-		tx,
-		record,
-		nil,
+		unit,
+		CompleteToolCallInput{ProjectID: input.ProjectID, AgentID: input.AgentID,
+			ID:                 input.ID,
+			RuntimeLockID:      input.RuntimeLockID,
+			Outcome:            input.Outcome,
+			ResultContentParts: input.ResultContentParts},
 	)
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
-	applyAdmittedToolResult(&record, admitted)
-	metadata, err := marshalJSON(
-		map[string]any{
-			"reason":                "tool_result",
-			"tool_call_id":          record.ID,
-			"model_call_context_id": record.ModelCallContextID,
-			"outcome":               input.Outcome,
-		},
-	)
-	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("marshal runtime tool result wakeup metadata: %w", err)
-	}
-	if err := qtx.MarkAgentWakeup(
-		ctx,
-		dbsqlc.MarkAgentWakeupParams{
-			ProjectID: record.ProjectID,
-			AgentID:   record.AgentID,
-			Metadata:  metadata,
-		},
-	); err != nil {
-		return ToolCallRecord{}, fmt.Errorf("mark runtime tool result wakeup: %w", err)
+	if err = unit.Commit(ctx, "complete runtime tool"); err != nil {
+		return ToolCallRecord{}, err
 	}
 	return record, nil
 }
@@ -641,22 +312,17 @@ func (s *Store) CompleteCustomToolCall(
 		return CompleteCustomToolCallResult{}, err
 	}
 	input.ContentBlocks = parts
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	result, err := completeCustomToolCallTx(ctx, txNotifications, tx, input)
+	defer func() { _ = unit.Rollback(ctx) }()
+
+	result, err := completeCustomToolCallTx(ctx, unit, input)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"complete custom tool call",
-	); err != nil {
+	if err := unit.Commit(ctx, "complete custom tool call"); err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
 	return result, nil
@@ -664,101 +330,40 @@ func (s *Store) CompleteCustomToolCall(
 
 func completeCustomToolCallTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
-		return CompleteCustomToolCallResult{}, errors.New(
-			"project, agent, and tool call ids are required",
-		)
-	}
-	switch input.Outcome {
-	case ToolResultOutcomeSucceeded, ToolResultOutcomeFailed:
-	default:
-		return CompleteCustomToolCallResult{}, errors.New(
-			"custom tool result outcome must be succeeded or failed",
-		)
+	if err := unit.LockAgentRefs(ctx,
+		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID,
+			AgentID: input.AgentID}},
+		agentexecution.ExternalAuthority{}); err != nil {
+		return CompleteCustomToolCallResult{}, err
 	}
 	blocks, err := parseToolResultContentBlocks(input.ContentBlocks)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
-	resultContentParts, err := marshalToolResultContentBlocks(blocks)
+	parts, err := executionContent(blocks)
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
-	qtx := dbsqlc.New(tx)
-	row, err := qtx.CompleteCustomToolCall(
-		ctx,
-		dbsqlc.CompleteCustomToolCallParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-			ID:        input.ID,
-			Outcome:   string(input.Outcome),
-		},
-	)
-	if err == nil {
-		record := toolCallRecordFromCustomCompleteSQLC(row)
-		record.ResultContentParts = resultContentParts
-		admitted, err := appendToolResultRecordTx(
-			ctx,
-			txNotifications,
-			tx,
-			record,
-			nil,
-		)
-		if err != nil {
-			return CompleteCustomToolCallResult{}, err
-		}
-		if !admitted.Inserted {
-			return CompleteCustomToolCallResult{}, storeerr.ErrIdempotencyConflict
-		}
-		applyAdmittedToolResult(&record, admitted)
-		metadata, err := marshalJSON(
-			map[string]any{
-				"reason":                "custom_tool_result",
-				"tool_call_id":          record.ID,
-				"model_call_context_id": record.ModelCallContextID,
-			},
-		)
-		if err != nil {
-			return CompleteCustomToolCallResult{}, fmt.Errorf(
-				"marshal custom tool result wakeup metadata: %w",
-				err,
-			)
-		}
-		if err := qtx.MarkAgentWakeup(
-			ctx,
-			dbsqlc.MarkAgentWakeupParams{
-				ProjectID: record.ProjectID,
-				AgentID:   record.AgentID,
-				Metadata:  metadata,
-			},
-		); err != nil {
-			return CompleteCustomToolCallResult{}, fmt.Errorf(
-				"mark custom tool result wakeup: %w",
-				err,
-			)
-		}
-		return CompleteCustomToolCallResult{
-			ToolCall:      record,
-			Event:         admitted.Event,
-			ContentBlocks: admitted.ContentBlocks,
-		}, nil
+	h, err := unit.Handle(input.ProjectID, input.AgentID)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return CompleteCustomToolCallResult{}, fmt.Errorf(
-			"complete custom tool call: %w",
-			err,
-		)
+	completed, err := h.CompleteCustomTool(ctx, input.ID, string(input.Outcome), parts)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
 	}
-	existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
-	if loadErr != nil {
-		return CompleteCustomToolCallResult{}, loadErr
+	record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
 	}
-	if existing.Type != toolcatalog.ToolTypeCustom {
-		return CompleteCustomToolCallResult{}, storeerr.ErrNotFound
-	}
-	return CompleteCustomToolCallResult{}, storeerr.ErrStateTransitionConflict
+	return CompleteCustomToolCallResult{ToolCall: record, Event: TypedAgentEventRecord{
+		Event: executionEvent(
+			input.AgentID,
+			completed.Event,
+			events.KindToolResult,
+		), TurnID: completed.Event.TurnID,
+		ToolCallResultID: completed.ResultID}, ContentBlocks: record.ResultContentParts}, nil
 }

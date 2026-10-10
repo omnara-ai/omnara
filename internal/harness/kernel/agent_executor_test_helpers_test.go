@@ -222,7 +222,8 @@ func (f kernelFixture) createNamedAgentWithModelOptions(
 	t.Helper()
 	providerConfigBaseName, configuredModelName, ok := strings.Cut(modelSelection, "/")
 	if !ok {
-		t.Fatalf("kernel test model selection %q must be provider-config-base/configured-model-name", modelSelection)
+		t.Fatalf("kernel test model selection %q must be provider-config-base/configured-model-name",
+			modelSelection)
 	}
 	providerConfigName := providerConfigBaseName + "-prod"
 	agentProfileIdempotencyKey := "kernel-agent-" + providerConfigName + "-" + configuredModelName + "-" + now.Format(
@@ -331,41 +332,48 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	if err != nil {
 		t.Fatalf("parse agent config source: %v", err)
 	}
-	configuredModel := f.ensureModelSelection(t, ctx, source.Model.ProviderConfig, source.Model.Name, modelOptions)
-	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(
-			providerConfigName string,
-			configuredModelName string,
-		) (agentconfig.ResolvedModelSelection, error) {
-			return resolvedKernelAgentConfigModel(configuredModel), nil
-		},
-		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
-			machinePoolID, err := f.Store.Execution().ResolveAgentConfigMachinePoolName(
-				ctx,
-				kernelTestOrgID,
-				kernelTestProjectID,
-				machinePoolName,
-			)
-			if err != nil {
-				return uuid.Nil, err
-			}
-			return machinePoolID, nil
-		},
-		ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
-			records, _, err := f.Store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
-				OrgID:     kernelTestOrgID,
-				ProjectID: kernelTestProjectID,
-				IDs:       []string{skillID},
-			})
-			if err != nil {
-				return agentconfig.SkillResolution{}, err
-			}
-			if len(records) != 1 {
-				return agentconfig.SkillResolution{}, storeerr.ErrNotFound
-			}
-			return agentconfig.SkillResolution{ID: records[0].ID, Name: records[0].Name}, nil
-		},
-	})
+	configuredModel := f.ensureModelSelection(t,
+		ctx,
+		source.Model.ProviderConfig,
+		source.Model.Name,
+		modelOptions)
+	compiled,
+		err := agentconfig.Compile(agentconfig.SourceFormatYAML,
+		[]byte(sourceYAML),
+		agentconfig.CompileOptions{
+			ResolveModelSelection: func(
+				providerConfigName string,
+				configuredModelName string,
+			) (agentconfig.ResolvedModelSelection, error) {
+				return resolvedKernelAgentConfigModel(configuredModel), nil
+			},
+			ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
+				machinePoolID, err := f.Store.Execution().ResolveAgentConfigMachinePoolName(
+					ctx,
+					kernelTestOrgID,
+					kernelTestProjectID,
+					machinePoolName,
+				)
+				if err != nil {
+					return uuid.Nil, err
+				}
+				return machinePoolID, nil
+			},
+			ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
+				records, _, err := f.Store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
+					OrgID:     kernelTestOrgID,
+					ProjectID: kernelTestProjectID,
+					IDs:       []string{skillID},
+				})
+				if err != nil {
+					return agentconfig.SkillResolution{}, err
+				}
+				if len(records) != 1 {
+					return agentconfig.SkillResolution{}, storeerr.ErrNotFound
+				}
+				return agentconfig.SkillResolution{ID: records[0].ID, Name: records[0].Name}, nil
+			},
+		})
 	if err != nil {
 		t.Fatalf("compile resolved agent config: %v", err)
 	}
@@ -390,7 +398,9 @@ func (f kernelFixture) ensureModelSelection(
 ) modelstore.ConfiguredModelRecord {
 	t.Helper()
 	provider := storagefixture.EnsureModelProvider(t, ctx, f.Store.Models(), f.Store.Secrets(),
-		storagefixture.ModelProviderInput{OrgID: kernelTestOrgID, UserID: kernelTestUserID, Name: providerConfigName})
+		storagefixture.ModelProviderInput{OrgID: kernelTestOrgID,
+			UserID: kernelTestUserID,
+			Name:   providerConfigName})
 	if provider.ManagementKind == management.Cluster {
 		configuredModel, err := f.Store.Models().GetConfiguredModelByName(
 			ctx, kernelTestOrgID, provider.ID, configuredModelName,
@@ -534,7 +544,11 @@ func currentProjectModelGrantIDForKernelConfiguredModelID(
 	configuredModelID uuid.UUID,
 ) uuid.UUID {
 	t.Helper()
-	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(ctx, orgID, projectID, configuredModelID)
+	grant,
+		err := store.Models().GetActiveProjectModelGrantForConfiguredModel(ctx,
+		orgID,
+		projectID,
+		configuredModelID)
 	if err != nil {
 		t.Fatalf("load project model grant for configured model %s: %v", configuredModelID, err)
 	}
@@ -594,13 +608,17 @@ func (f kernelFixture) admitContentInputTurn(
 	now time.Time,
 ) ModelWorkExecution {
 	t.Helper()
-	input, _, _, err := f.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      kernelTestProjectID,
-		AgentID:        agentID,
-		Actor:          kernelTestOmnaraActorParams(t, userID),
-		ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": text}}),
-		IdempotencyKey: "kernel-input-" + agentID.String() + "-" + text,
-	})
+	input,
+		_,
+		_,
+		err := f.Store.Execution().CreateAgentContentInput(ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        agentID,
+			Actor:          kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": text}}),
+			IdempotencyKey: "kernel-input-" + agentID.String() + "-" + text,
+		})
 	if err != nil {
 		t.Fatalf("create agent input: %v", err)
 	}
@@ -629,7 +647,8 @@ func (f kernelFixture) admitContentInputTurn(
 	}
 }
 
-func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentWork, now time.Time) ModelWorkExecution {
+func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentWork,
+	now time.Time) ModelWorkExecution {
 	return ModelWorkExecution{
 		Kind:                     claim.Model.Kind,
 		OrgID:                    claim.OrgID,
@@ -834,7 +853,9 @@ func continueTurnOnNewLeaseForKernelTest(
 			prior.AgentID,
 		).Scan(&checkpoints)
 		_ = fixture.Pool.QueryRow(
-			ctx, `SELECT count(*) FROM agent_unconsumed_context_checkpoint_frontiers($1, $2)`, prior.ProjectID,
+			ctx,
+			`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.pending_checkpoint_id IS NOT NULL`,
+			prior.ProjectID,
 			prior.AgentID,
 		).Scan(&checkpointFrontiers)
 		_ = fixture.Pool.QueryRow(
@@ -971,7 +992,9 @@ func (m *sequenceKernelModel) Capabilities() model.Capabilities {
 	return capabilities
 }
 
-func (m *sequenceKernelModel) Prepare(_ context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
+func (m *sequenceKernelModel) Prepare(_ context.Context,
+	input model.PrepareInput) (model.PreparedRequest,
+	error) {
 	if m.prepareErr != nil {
 		return model.PreparedRequest{}, m.prepareErr
 	}
@@ -1250,7 +1273,10 @@ func (c *fakeKernelMCPClient) Initialize(
 	}, nil
 }
 
-func (c *fakeKernelMCPClient) Notify(_ context.Context, conn mcp.Conn, method string, _ json.RawMessage) error {
+func (c *fakeKernelMCPClient) Notify(_ context.Context,
+	conn mcp.Conn,
+	method string,
+	_ json.RawMessage) error {
 	c.mu.Lock()
 	c.notifyCount++
 	agentID := c.expectedAgentIDLocked()
@@ -1264,7 +1290,12 @@ func (c *fakeKernelMCPClient) Notify(_ context.Context, conn mcp.Conn, method st
 	return nil
 }
 
-func (c *fakeKernelMCPClient) Call(context.Context, mcp.Conn, string, json.RawMessage, int64) (json.RawMessage, error) {
+func (c *fakeKernelMCPClient) Call(context.Context,
+	mcp.Conn,
+	string,
+	json.RawMessage,
+	int64) (json.RawMessage,
+	error) {
 	return nil, errors.New("unexpected generic mcp call")
 }
 

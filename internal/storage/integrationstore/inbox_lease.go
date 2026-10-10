@@ -22,14 +22,14 @@ import (
 // caller-owned transaction. CheckLease must succeed after admission writes and
 // before commit. Roll back on any error.
 type IntegrationInboxLeaseTx struct {
-	tx     pgx.Tx
+	tx     dbsqlc.DBTX
 	q      *dbsqlc.Queries
 	lease  IntegrationInboxLease
 	record IntegrationInboxRecord
 }
 
 func (s *Store) LockIntegrationInboxLeaseTx(
-	ctx context.Context, tx pgx.Tx, lease IntegrationInboxLease, additional ...uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, lease IntegrationInboxLease, additional ...uuid.UUID,
 ) (*IntegrationInboxLeaseTx, error) {
 	// Include every integration from the frozen admission plan so no new integration gate is
 	// acquired beneath the receipt lock.

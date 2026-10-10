@@ -74,7 +74,7 @@ func expandLaunchMachineBindingRequests(
 
 func (s *Store) resolveLaunchMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
@@ -90,7 +90,7 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 
 func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
@@ -151,7 +151,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 
 func lockLaunchMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID uuid.UUID,
 	sources []launchMachineSource,
 	additionalMachineIDs []uuid.UUID,

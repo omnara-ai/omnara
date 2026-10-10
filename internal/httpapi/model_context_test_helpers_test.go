@@ -23,14 +23,15 @@ func claimNormalModelCallForHTTPTest(
 	inputEventSequence int64,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	claim, err := store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          projectID,
-		AgentID:            agentID,
-		RuntimeLockID:      runtime.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agentConfigID,
-		InputEventSequence: inputEventSequence,
-	})
+	prepared1, err := store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       projectID,
+			AgentID:         agentID,
+			RuntimeLockID:   runtime.ID,
+			OpeningInputIDs: openingInputIDs,
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim normal model call: %v", err)
 	}

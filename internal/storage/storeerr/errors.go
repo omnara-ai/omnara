@@ -46,16 +46,18 @@ var (
 	ErrMachineSleepPendingWork       = errors.New("machine has pending daemon work")
 	ErrMachineNotWakeCapable         = errors.New("machine is not wake capable")
 	ErrMachineWakeUnresolved         = errors.New("machine wake outcome is unresolved")
-	ErrProcessActionReportBlocked    = errors.New("process action report is blocked by earlier non-terminal action")
-	ErrStateTransitionConflict       = errors.New("state transition conflict")
-	ErrMachineProviderUnavailable    = errors.New("machine provider unavailable")
-	ErrPermanentEnvironment          = errors.New("permanent environment resolution error")
-	ErrModelGrantUnavailable         = errors.New("model grant unavailable")
-	ErrUnauthorized                  = errors.New("unauthorized")
-	ErrOAuthScopeExceedsGrant        = errors.New("requested scope exceeds the granted scope")
-	ErrNotFound                      = errors.New("not found")
-	ErrMCPOAuthFlowConsumed          = errors.New("mcp oauth flow already consumed")
-	ErrIntegrationOAuthFlowConsumed  = errors.New("integration oauth flow already consumed")
+	ErrProcessActionReportBlocked    = errors.New(
+		"process action report is blocked by earlier non-terminal action",
+	)
+	ErrStateTransitionConflict      = errors.New("state transition conflict")
+	ErrMachineProviderUnavailable   = errors.New("machine provider unavailable")
+	ErrPermanentEnvironment         = errors.New("permanent environment resolution error")
+	ErrModelGrantUnavailable        = errors.New("model grant unavailable")
+	ErrUnauthorized                 = errors.New("unauthorized")
+	ErrOAuthScopeExceedsGrant       = errors.New("requested scope exceeds the granted scope")
+	ErrNotFound                     = errors.New("not found")
+	ErrMCPOAuthFlowConsumed         = errors.New("mcp oauth flow already consumed")
+	ErrIntegrationOAuthFlowConsumed = errors.New("integration oauth flow already consumed")
 )
 
 type FileContentConflictError struct {
@@ -109,3 +111,5 @@ func InvalidRequest(err error) error {
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows)
 }
+
+var ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")

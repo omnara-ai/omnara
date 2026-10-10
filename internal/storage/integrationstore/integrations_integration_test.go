@@ -3,8 +3,9 @@
 package integrationstore_test
 
 import (
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
@@ -17,7 +18,7 @@ import (
 func TestIntegrationReferencesAndLifecycle(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	s := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	s := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	execution := executionstore.New(f.pool, executionstore.Config{})
 	var configID uuid.UUID
 	require.NoError(
@@ -69,7 +70,7 @@ func TestIntegrationReferencesAndLifecycle(t *testing.T) {
 func TestIntegrationIndependentCapabilitiesAndPagination(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	s := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	s := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	input := integrationstore.SaveIntegrationInput{
 		OrgID:           f.org,
 		ProjectID:       f.project,

@@ -78,15 +78,15 @@ model:
 	if err != nil {
 		t.Fatalf("capture agent config: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().
-		ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      turn.RuntimeLockID,
-			OpeningInputIDs:    turn.InputIDs,
-			AgentConfigID:      snapshot.AgentConfig.ID,
-			InputEventSequence: turn.OpeningEventSequence,
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         launch.Agent.ID,
+			RuntimeLockID:   turn.RuntimeLockID,
+			OpeningInputIDs: turn.InputIDs,
 		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model call context: %v", err)
 	}
@@ -625,7 +625,8 @@ func (f kernelFixture) admitSlackContentInputTurn(
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
 		"queued Slack content must not select a destination before turn admission")
-	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
+	claim, found, err := f.Store.Execution().
+		ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)

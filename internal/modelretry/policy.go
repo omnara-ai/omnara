@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -258,7 +259,7 @@ func deterministicInputFailure(kind model.ErrorKind) bool {
 }
 
 func backoff(attemptNumber int, contextID string) time.Duration {
-	return executionstore.ModelCallRetryBackoff(attemptNumber, contextID)
+	return modelprotocol.RetryBackoff(attemptNumber, contextID)
 }
 
 func errorText(err error) string {

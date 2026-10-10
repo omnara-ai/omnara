@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -73,11 +74,12 @@ func (s *Store) DeleteIntegration(ctx context.Context, orgID, projectID, id uuid
 }
 
 func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id uuid.UUID) error {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
 		return err
 	}
@@ -102,7 +104,7 @@ func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id 
 	for _, agentID := range ids {
 		refs = append(refs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
 	}
-	if err := lifecyclelock.Agents(ctx, tx, refs); err != nil {
+	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationSubscriptions(ctx, dbsqlc.DeleteIntegrationSubscriptionsParams{
@@ -110,7 +112,7 @@ func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id 
 	}); err != nil {
 		return err
 	}
-	if err := s.access.ClearIntegrationTargetsFromAgents(ctx, tx, projectID, id); err != nil {
+	if err := s.access.ClearIntegrationTargetsFromAgents(ctx, unit, projectID, id); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationTargets(
@@ -131,5 +133,5 @@ func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id 
 	if rows == 0 {
 		return storeerr.ErrNotFound
 	}
-	return tx.Commit(ctx)
+	return unit.Commit(ctx, "deleteIntegrationOnce")
 }

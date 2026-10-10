@@ -130,6 +130,12 @@ skills:
 	}
 }
 
+func (e *requeueingToolWorkExecutor) DispatchRecordedToolCall(
+	ctx context.Context, turn tools.Turn, record executionstore.ToolCallRecord,
+) (tools.Result, error) {
+	return e.Dispatch(ctx, turn, modelToolCallFromRecord(record))
+}
+
 func (e *requeueingToolWorkExecutor) Dispatch(
 	ctx context.Context,
 	turn tools.Turn,

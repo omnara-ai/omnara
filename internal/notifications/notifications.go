@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/google/uuid"
 )
@@ -381,4 +383,37 @@ func (n *TxNotifications) Flush(ctx context.Context, publisher PostCommitPublish
 	for _, intent := range n.workerControls {
 		publisher.PublishPostCommit(ctx, intent)
 	}
+}
+
+func (n *TxNotifications) Clone() *TxNotifications {
+	cloned := *n
+	cloned.daemonWorkByMachine = maps.Clone(n.daemonWorkByMachine)
+	cloned.runtimeEndedByID = maps.Clone(n.runtimeEndedByID)
+	cloned.processTerminationByMachine = make(map[uuid.UUID]map[uuid.UUID]struct{}, len(n.processTerminationByMachine))
+	for id, processes := range n.processTerminationByMachine {
+		cloned.processTerminationByMachine[id] = maps.Clone(processes)
+	}
+	cloned.agentEventByID = make(map[uuid.UUID][]AgentEventReference, len(n.agentEventByID))
+	for id, events := range n.agentEventByID {
+		cloned.agentEventByID[id] = slices.Clone(events)
+	}
+	cloned.toolCallUpdates = slices.Clone(n.toolCallUpdates)
+	for i, update := range cloned.toolCallUpdates {
+		if update.InteractionUpdate != nil {
+			interaction := *update.InteractionUpdate
+			cloned.toolCallUpdates[i].InteractionUpdate = &interaction
+		}
+	}
+	cloned.workerControls = slices.Clone(n.workerControls)
+	for i, control := range cloned.workerControls {
+		if control.Control.Cancel != nil {
+			cancel := *control.Control.Cancel
+			cloned.workerControls[i].Control.Cancel = &cancel
+		}
+	}
+	return &cloned
+}
+
+func (n *TxNotifications) Restore(snapshot *TxNotifications) {
+	*n = *snapshot.Clone()
 }

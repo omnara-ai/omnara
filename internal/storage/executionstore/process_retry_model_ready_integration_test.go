@@ -20,19 +20,20 @@ import (
 func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "concurrent_retry_claim")
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "concurrent_retry_claim")
 	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[len(admitted.Events)-1].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: openingInputIDs,
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim initial model call: %v", err)
 	}
@@ -111,11 +112,19 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	if first.claim.Context.ID != second.claim.Context.ID ||
 		first.claim.Context.ID == claim.Context.ID ||
 		first.claim.Context.AttemptNumber != 2 || second.claim.Context.AttemptNumber != 2 {
-		t.Fatalf("concurrent retry claims = %+v / %+v, want one shared retry context 2", first.claim, second.claim)
+		t.Fatalf(
+			"concurrent retry claims = %+v / %+v, want one shared retry context 2",
+			first.claim,
+			second.claim,
+		)
 	}
 	if first.claim.Created == second.claim.Created || first.claim.Claimed == second.claim.Claimed ||
 		first.claim.Created != first.claim.Claimed || second.claim.Created != second.claim.Claimed {
-		t.Fatalf("concurrent retry claims = %+v / %+v, want exactly one creator and sender", first.claim, second.claim)
+		t.Fatalf(
+			"concurrent retry claims = %+v / %+v, want exactly one creator and sender",
+			first.claim,
+			second.claim,
+		)
 	}
 	var contextRows, liveRows int
 	if err := fixture.Store.pool.QueryRow(ctx, `
@@ -167,10 +176,10 @@ func TestRetryClaimRejectedAfterStopEvent(t *testing.T) {
 	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
-FROM model_call_context_turns
+FROM model_call_contexts
 WHERE project_id = $1
   AND agent_id = $2
-  AND model_call_context_id = $3
+  AND id = $3
 `, testProjectID, fixture.AgentID, claim.Context.ID).Scan(&turnID); err != nil {
 		t.Fatalf("load failed context turn: %v", err)
 	}
@@ -182,12 +191,13 @@ WHERE project_id = $1
 		retryAt.Add(time.Millisecond),
 	)
 
-	next, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     testProjectID,
-		AgentID:                       fixture.AgentID,
-		PredecessorModelCallContextID: claim.Context.ID,
-		RuntimeLockID:                 fixture.Lock.ID,
-	})
+	next, err := fixture.Store.Execution().
+		ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     testProjectID,
+			AgentID:                       fixture.AgentID,
+			PredecessorModelCallContextID: claim.Context.ID,
+			RuntimeLockID:                 fixture.Lock.ID,
+		})
 	if err != nil {
 		t.Fatalf("claim retry after stop: %v", err)
 	}
@@ -311,13 +321,14 @@ func TestParentRetryWaitsWhileCompactionContextIsLive(t *testing.T) {
 		t.Fatalf("release one-live fixture runtime: %v", err)
 	}
 	now := time.Now().UTC()
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise runtime context uniqueness"}]`),
-		IdempotencyKey: "one-live-model-context-per-runtime",
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise runtime context uniqueness"}]`),
+			IdempotencyKey: "one-live-model-context-per-runtime",
+		})
 	if err != nil {
 		t.Fatalf("create one-live input: %v", err)
 	}
@@ -325,7 +336,8 @@ func TestParentRetryWaitsWhileCompactionContextIsLive(t *testing.T) {
 		ctx,
 		testClaimNextAgentWorkInput(),
 	)
-	if err != nil || !found || work.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(work, input.ID) {
+	if err != nil || !found || work.Kind != executionstore.AgentWorkModel ||
+		!claimedOpeningInputIDsEqual(work, input.ID) {
 		t.Fatalf("claim one-live work = %+v found=%v err=%v", work, found, err)
 	}
 	parent := claimTestNormalModelCallForWork(t, ctx, fixture, work, now.Add(2*time.Second))
@@ -353,12 +365,13 @@ func TestParentRetryWaitsWhileCompactionContextIsLive(t *testing.T) {
 		t.Fatalf("one-live compaction handoff = %+v", handoff)
 	}
 
-	retry, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     testProjectID,
-		AgentID:                       fixture.AgentID,
-		PredecessorModelCallContextID: parent.Context.ID,
-		RuntimeLockID:                 work.RuntimeLock.ID,
-	})
+	retry, err := fixture.Store.Execution().
+		ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     testProjectID,
+			AgentID:                       fixture.AgentID,
+			PredecessorModelCallContextID: parent.Context.ID,
+			RuntimeLockID:                 work.RuntimeLock.ID,
+		})
 	if err != nil {
 		t.Fatalf("claim parent retry during live compaction: %v", err)
 	}
@@ -510,13 +523,14 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"try the provider"}]`),
-		IdempotencyKey: "terminal-model-error",
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"try the provider"}]`),
+			IdempotencyKey: "terminal-model-error",
+		})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -524,7 +538,8 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel ||
+		!claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, claim, now.Add(2*time.Second))
@@ -543,14 +558,16 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 		ErrorDetails:            json.RawMessage(`{"retryable":false}`),
 		ProviderReportedCostUSD: "0.0000015",
 	}
-	errorEvent, err := fixture.Store.Execution().RecordModelCallErrorAndCompleteContext(ctx, terminalErrorInput)
+	errorEvent, err := fixture.Store.Execution().
+		RecordModelCallErrorAndCompleteContext(ctx, terminalErrorInput)
 	if err != nil {
 		t.Fatalf("record terminal model error: %v", err)
 	}
 	if errorEvent.Kind != "model_output" {
 		t.Fatalf("terminal error event = %+v, want model_output", errorEvent)
 	}
-	replayedErrorEvent, err := fixture.Store.Execution().RecordModelCallErrorAndCompleteContext(ctx, terminalErrorInput)
+	replayedErrorEvent, err := fixture.Store.Execution().
+		RecordModelCallErrorAndCompleteContext(ctx, terminalErrorInput)
 	if err != nil {
 		t.Fatalf("replay terminal model error after ambiguous commit: %v", err)
 	}
@@ -639,7 +656,11 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
 		t.Fatalf("terminal-model-error wakeups = %d, want 0", wakeups)
 	}
-	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
+	if seed,
+		found,
+		err := fixture.Store.Execution().NextAgentModelWork(ctx,
+		testProjectID,
+		fixture.AgentID); err != nil {
 		t.Fatalf("load seed after terminal model error: %v", err)
 	} else if found {
 		t.Fatalf("terminal model error continuation seed = %+v, want none", seed)
@@ -664,7 +685,8 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input after terminal model error: %v", err)
 	}
-	if !found || newWork.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(newWork, newInput.ID) ||
+	if !found || newWork.Kind != executionstore.AgentWorkModel ||
+		!claimedOpeningInputIDsEqual(newWork, newInput.ID) ||
 		newWork.Model.TurnID == claim.Model.TurnID {
 		t.Fatalf("new work after terminal model error = %+v found=%v, want a fresh turn", newWork, found)
 	}

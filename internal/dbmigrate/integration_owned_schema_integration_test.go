@@ -192,6 +192,7 @@ func TestIntegrationActorMigrationPreservesLegacySlackAttribution(t *testing.T) 
 	require.NoError(t, pool.QueryRow(ctx, `SELECT i.actor_id FROM agent_events e
 		JOIN agent_inputs i ON i.id=e.agent_input_id WHERE e.id=$1`, eventID).Scan(&historicalActorID))
 	require.Equal(t, id, historicalActorID, "historical inputs/events retain their actor UUID")
+	require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 	for range 2 {
 		actor, err := executionstore.IntegrationActorParams(integrationstore.IntegrationRecord{
 			ID: uuid.New(), ProjectID: ids.ProjectID, IntegrationKind: integrationdefinition.SlackThread,

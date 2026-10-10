@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -51,16 +51,17 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 		return err
 	}
 
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin cron trigger input delivery: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	qtx := dbsqlc.New(tx)
 	// Input creation locks the agent before completion locks the trigger, matching
 	// the lock order used when archiving an agent and deleting its cron triggers.
-	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, contentInput, contentBlocks); err != nil {
+	if _, err := createAgentContentInputTx(ctx, unit, qtx, contentInput, contentBlocks); err != nil {
 		return err
 	}
 	if err := completeCronTriggerFiringTx(ctx, qtx, CompleteCronTriggerFiringInput{
@@ -71,5 +72,5 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 	}); err != nil {
 		return err
 	}
-	return s.commitTxWithNotifications(ctx, tx, txNotifications, "deliver cron trigger input")
+	return unit.Commit(ctx, "deliver cron trigger input")
 }

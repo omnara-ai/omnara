@@ -28,10 +28,21 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY` | Maximum event webhook deliveries in flight per worker process | `128` | No |
 | `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
+| `OMNARA_WORKER_CLAIM_CONCURRENCY` | Maximum claim transactions each worker process runs at once; keep it small, since claims share one queue | `4` | No |
+| `OMNARA_WORKER_CONTINUATION_MAX_MODEL_STARTS` | Additional model calls a worker may start for an agent it already owns before releasing it back to the queue; `0` releases after every step | `2` | No |
+| `OMNARA_WORKER_CONTINUATION_MAX_DURATION` | Longest a worker keeps continuing an owned agent, checked between steps; never interrupts a running step (Go duration) | `30s` | No |
 | `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+
+### Agent execution
+
+Agents have typed execution state maintained by the execution store. Each transition
+updates domain records and publishes the agent's execution state and wakeup in the
+same transaction. Workers claim wakeups under fenced runtime leases and may
+continue ready work within the configured continuation budget. Rollbacks discard
+all pending state and notifications.
 
 ### Integration inbox operation
 

@@ -1193,28 +1193,6 @@ func (q *Queries) RetargetAgentProfile(ctx context.Context, arg RetargetAgentPro
 	return i, err
 }
 
-const updateAgentCurrentConfig = `-- name: UpdateAgentCurrentConfig :execrows
-UPDATE agents
-SET current_config_id = $1,
-    updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND id = $3
-`
-
-type UpdateAgentCurrentConfigParams struct {
-	AgentConfigID uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-}
-
-func (q *Queries) UpdateAgentCurrentConfig(ctx context.Context, arg UpdateAgentCurrentConfigParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateAgentCurrentConfig, arg.AgentConfigID, arg.ProjectID, arg.AgentID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const upsertAgentConfigByHash = `-- name: UpsertAgentConfigByHash :one
 WITH inserted_config AS (
 INSERT INTO agent_configs(

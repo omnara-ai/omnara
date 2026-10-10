@@ -41,13 +41,14 @@ func (s *Store) endExpiredDaemonRuntime(
 	ctx context.Context,
 	candidate dbsqlc.ListExpiredDaemonRuntimeCandidatesRow,
 ) (DaemonRuntimeRecord, bool, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonRuntimeRecord{}, false, fmt.Errorf("begin end expired daemon runtime: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 
-	txNotifications := s.newTxNotifications()
 	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForLifecycle(
 		ctx,
@@ -66,12 +67,7 @@ func (s *Store) endExpiredDaemonRuntime(
 		dbsqlc.EndExpiredDaemonRuntimeParams(candidate),
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped expired daemon runtime",
-		); err != nil {
+		if err := unit.Commit(ctx, "skipped expired daemon runtime"); err != nil {
 			return DaemonRuntimeRecord{}, false, err
 		}
 		return DaemonRuntimeRecord{}, false, nil
@@ -85,12 +81,7 @@ func (s *Store) endExpiredDaemonRuntime(
 		record.MachineID,
 		notifications.DaemonRuntimeEndReconnect,
 	)
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"end expired daemon runtime",
-	); err != nil {
+	if err := unit.Commit(ctx, "end expired daemon runtime"); err != nil {
 		return DaemonRuntimeRecord{}, false, err
 	}
 	return record, true, nil

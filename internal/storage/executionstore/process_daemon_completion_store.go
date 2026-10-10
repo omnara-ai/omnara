@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processresult"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -31,25 +33,25 @@ func (s *Store) MarkProcessStarted(
 		)
 	}
 	input.SourceStartedAt = canonicalSourceTime(input.SourceStartedAt)
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonProcessReportApplication{}, fmt.Errorf("begin mark process started: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	qtx := dbsqlc.New(tx)
 	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
-	_, err = qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: input.ProjectID,
-			ID:        input.AgentID,
-		},
-	)
+	_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	}, agentexecution.ExternalAuthority{})
 	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("lock agent for process start observation: %w", err)
+		return DaemonProcessReportApplication{}, fmt.Errorf(
+			"lock agent for process start observation: %w",
+			err,
+		)
 	}
 	row, err := qtx.MarkProcessStarted(
 		ctx,
@@ -84,106 +86,29 @@ func (s *Store) MarkProcessStarted(
 		record = processRecordFromStartedSQLC(row)
 	}
 	resultCommitted := false
-	var committedResult json.RawMessage
 	if record.ToolCallID != uuid.Nil && record.ExecutionSpec.FileTransfer == nil {
-		startedRecord := record
-		startedRecord.State = ProcessStateRunning
-		result, err := startedProcessToolResult(startedRecord, input.Result)
+		h, err := unit.Handle(input.ProjectID, input.AgentID)
 		if err != nil {
 			return DaemonProcessReportApplication{}, err
 		}
-		contentParts, err := ToolResultContentParts(result)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		outcome := ToolResultOutcomeSucceeded
-		toolRow, err := qtx.CompleteToolCallFromStartedProcess(
+		completed, err := h.CompleteProcess(
 			ctx,
-			dbsqlc.CompleteToolCallFromStartedProcessParams{
-				ProjectID: input.ProjectID,
-				AgentID:   input.AgentID,
-				ID:        record.ToolCallID,
-				ProcessID: record.ID,
-				Outcome:   string(outcome),
-			},
+			agentexecution.ProcessResult{ID: record.ID, Started: true, Observed: input.Result},
 		)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				publication, checkErr := inspectPublishedToolCallResultTx(
-					ctx,
-					qtx,
-					input.ProjectID,
-					input.AgentID,
-					record.ToolCallID,
-					outcome,
-					contentParts,
-				)
-				if checkErr != nil {
-					return DaemonProcessReportApplication{}, checkErr
-				}
-				if publication.Matches {
-					resultCommitted = true
-					committedResult = result
-				} else if !publication.Published {
-					return DaemonProcessReportApplication{}, fmt.Errorf(
-						"linked tool call %s has no durable result for started process %s",
-						record.ToolCallID,
-						record.ID,
-					)
-				}
-			} else {
-				return DaemonProcessReportApplication{}, fmt.Errorf("complete tool call from started process: %w", err)
-			}
-		} else {
-			resultCommitted = true
-			committedResult = result
-			resultRecord := toolCallRecordFromStartedProcessCompleteSQLC(toolRow)
-			resultRecord.ResultContentParts = contentParts
-			if _, err := appendToolResultEventTx(
-				ctx,
-				txNotifications,
-				tx,
-				resultRecord,
-				nil,
-			); err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
-			metadata, err := marshalJSON(
-				map[string]any{
-					"reason":       "process_started",
-					"process_id":   record.ID,
-					"tool_call_id": record.ToolCallID,
-				},
-			)
-			if err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("marshal process started wakeup metadata: %w", err)
-			}
-			if err := qtx.MarkAgentWakeup(
-				ctx,
-				dbsqlc.MarkAgentWakeupParams{
-					ProjectID: input.ProjectID,
-					AgentID:   input.AgentID,
-					Metadata:  metadata,
-				},
-			); err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("mark started process tool result wakeup: %w", err)
-			}
+			return DaemonProcessReportApplication{}, err
 		}
-	}
-	if resultCommitted {
-		if err := advanceProcessDefaultOutputCursorFromResult(
+		resultCommitted = completed.Matches
+		row, err := qtx.GetProcess(
 			ctx,
-			qtx,
-			&record,
-			committedResult,
-		); err != nil {
-			return DaemonProcessReportApplication{}, fmt.Errorf(
-				"advance started process output cursor: %w",
-				err,
-			)
+			dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
+		)
+		if err != nil {
+			return DaemonProcessReportApplication{}, err
 		}
+		record = processRecordFromSQLC(row)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "mark process started"); err != nil {
+	if err := unit.Commit(ctx, "mark process started"); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
 	return DaemonProcessReportApplication{
@@ -222,25 +147,26 @@ func (s *Store) CompleteDaemonProcess(
 	if !input.SourceEndedAt.IsZero() {
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonProcessReportApplication{}, fmt.Errorf("begin complete daemon process: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
 	qtx := dbsqlc.New(tx)
 	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
-	_, err = qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: input.ProjectID,
-			ID:        input.AgentID,
-		},
-	)
+	_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	}, agentexecution.ExternalAuthority{})
 	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("lock agent for daemon process completion: %w", err)
+		return DaemonProcessReportApplication{}, fmt.Errorf(
+			"lock agent for daemon process completion: %w",
+			err,
+		)
 	}
 	var startedAt *time.Time
 	if !input.SourceStartedAt.IsZero() {
@@ -292,93 +218,50 @@ func (s *Store) CompleteDaemonProcess(
 	}
 	reportMatchesProcess := processUpdated || daemonTerminalReportMatchesRecord(record, input)
 	resultCommitted := false
-	var committedResult json.RawMessage
 	if reportMatchesProcess && record.ToolCallID != uuid.Nil {
-		outcome, result, resultErr := processToolResult(record)
-		if resultErr != nil {
-			return DaemonProcessReportApplication{}, resultErr
-		}
-		if len(input.Result) > 0 && string(input.Result) != "null" {
-			result, err = commandTerminalToolResult(record.ID, input.Result)
+		request := agentexecution.ProcessResult{ID: record.ID, Observed: input.Result}
+		if record.ExecutionSpec.FileTransfer != nil {
+			_, result, err := processresult.Terminal(record.resultFacts())
 			if err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
+			if len(input.Result) > 0 && string(input.Result) != "null" {
+				result, err = commandTerminalToolResult(record.ID, input.Result)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			}
+			outcome, raw, err := fileTransferToolResultContentParts(ctx, qtx, record, result)
+			if err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+			parts, err := parseToolResultContentBlocks(raw)
+			if err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+			request.Content, err = executionContent(parts)
+			if err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+			request.Outcome = string(outcome)
 		}
-		var contentParts json.RawMessage
-		if record.ExecutionSpec.FileTransfer != nil {
-			outcome, contentParts, err = fileTransferToolResultContentParts(ctx, qtx, record, result)
-		} else {
-			contentParts, err = ToolResultContentParts(result)
-		}
+		h, err := unit.Handle(input.ProjectID, input.AgentID)
 		if err != nil {
 			return DaemonProcessReportApplication{}, err
 		}
-		toolRow, err := qtx.CompleteToolCallFromProcess(
+		completed, err := h.CompleteProcess(ctx, request)
+		if err != nil {
+			return DaemonProcessReportApplication{}, err
+		}
+		resultCommitted = completed.Matches
+		row, err := qtx.GetProcess(
 			ctx,
-			dbsqlc.CompleteToolCallFromProcessParams{
-				ProjectID: input.ProjectID,
-				AgentID:   input.AgentID,
-				ID:        record.ToolCallID,
-				ProcessID: record.ID,
-				Outcome:   string(outcome),
-			},
+			dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
 		)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				publication, checkErr := inspectPublishedToolCallResultTx(
-					ctx,
-					qtx,
-					input.ProjectID,
-					input.AgentID,
-					record.ToolCallID,
-					outcome,
-					contentParts,
-				)
-				if checkErr != nil {
-					return DaemonProcessReportApplication{}, checkErr
-				}
-				if publication.Matches {
-					resultCommitted = true
-					committedResult = result
-				} else if !publication.Published {
-					return DaemonProcessReportApplication{}, fmt.Errorf(
-						"linked tool call %s has no durable result for process %s",
-						record.ToolCallID,
-						record.ID,
-					)
-				}
-			} else {
-				return DaemonProcessReportApplication{}, fmt.Errorf("complete tool call from daemon process: %w", err)
-			}
-		} else {
-			resultCommitted = true
-			committedResult = result
-			resultRecord := toolCallRecordFromProcessCompleteSQLC(toolRow)
-			resultRecord.ResultContentParts = contentParts
-			if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
-			metadata, err := marshalJSON(
-				map[string]any{
-					"reason":       "process_result",
-					"process_id":   record.ID,
-					"tool_call_id": record.ToolCallID,
-				},
-			)
-			if err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("marshal process result wakeup metadata: %w", err)
-			}
-			if err := qtx.MarkAgentWakeup(
-				ctx,
-				dbsqlc.MarkAgentWakeupParams{
-					ProjectID: input.ProjectID,
-					AgentID:   input.AgentID,
-					Metadata:  metadata,
-				},
-			); err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("mark process tool result wakeup: %w", err)
-			}
+			return DaemonProcessReportApplication{}, err
 		}
+		record = processRecordFromSQLC(row)
 	} else if record.ToolCallID != uuid.Nil {
 		published, checkErr := publishedToolCallResultExistsTx(
 			ctx,
@@ -397,24 +280,10 @@ func (s *Store) CompleteDaemonProcess(
 			)
 		}
 	}
-	if resultCommitted {
-		if err := advanceProcessDefaultOutputCursorFromResult(
-			ctx,
-			qtx,
-			&record,
-			committedResult,
-		); err != nil {
-			return DaemonProcessReportApplication{}, fmt.Errorf(
-				"advance completed process output cursor: %w",
-				err,
-			)
-		}
-	}
 	if input.StorageExhausted {
 		if err := completeUnresolvedProcessActionsForClosedProcessTx(
 			ctx,
-			txNotifications,
-			tx,
+			unit,
 			qtx,
 			record.OrgID,
 			record.ID,
@@ -425,15 +294,14 @@ func (s *Store) CompleteDaemonProcess(
 	} else if processUpdated {
 		if err := completeQueuedProcessActionsForTerminalProcessTx(
 			ctx,
-			txNotifications,
-			tx,
+			unit,
 			qtx,
 			record,
 		); err != nil {
 			return DaemonProcessReportApplication{}, err
 		}
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete daemon process"); err != nil {
+	if err := unit.Commit(ctx, "complete daemon process"); err != nil {
 		return DaemonProcessReportApplication{}, err
 	}
 	return DaemonProcessReportApplication{
@@ -569,7 +437,11 @@ func publishedToolCallResultExistsTx(
 	}
 	result, err := qtx.GetToolCallResultByToolCall(
 		ctx,
-		dbsqlc.GetToolCallResultByToolCallParams{ProjectID: projectID, AgentID: agentID, ToolCallID: toolCallID},
+		dbsqlc.GetToolCallResultByToolCallParams{
+			ProjectID:  projectID,
+			AgentID:    agentID,
+			ToolCallID: toolCallID,
+		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -579,7 +451,11 @@ func publishedToolCallResultExistsTx(
 	}
 	eventExists, err := qtx.ToolCallResultHasTypedEvent(
 		ctx,
-		dbsqlc.ToolCallResultHasTypedEventParams{ProjectID: projectID, AgentID: agentID, ToolCallResultID: &result.ID},
+		dbsqlc.ToolCallResultHasTypedEventParams{
+			ProjectID:        projectID,
+			AgentID:          agentID,
+			ToolCallResultID: &result.ID,
+		},
 	)
 	if err != nil {
 		return false, fmt.Errorf("check linked tool result event: %w", err)
@@ -650,13 +526,11 @@ func inspectPublishedToolCallResultTx(
 	if !eventExists {
 		return toolCallResultPublication{}, nil
 	}
-	storedParts, err := toolCallResultContentBlocksTx(
+	tool, err := qtx.GetToolCall(
 		ctx,
-		qtx,
-		projectID,
-		agentID,
-		result.ID,
+		dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: toolCallID},
 	)
+	storedParts := tool.ResultContentParts
 	if err != nil {
 		return toolCallResultPublication{}, err
 	}
@@ -665,115 +539,4 @@ func inspectPublishedToolCallResultTx(
 		Matches: result.Outcome == string(outcome) &&
 			sameJSON(storedParts, normalizedJSON(contentParts)),
 	}, nil
-}
-
-func completedToolCallMissIsBenignTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID uuid.UUID,
-	allowStartedProcessResult bool,
-) (bool, error) {
-	existing, err := qtx.GetToolCall(
-		ctx,
-		dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: toolCallID},
-	)
-	if err != nil {
-		return false, fmt.Errorf("load linked tool call after completion miss: %w", err)
-	}
-	if existing.State != "completed" || existing.CompletedAt == nil {
-		return false, nil
-	}
-	result, err := qtx.GetToolCallResultByToolCall(
-		ctx,
-		dbsqlc.GetToolCallResultByToolCallParams{
-			ProjectID:  projectID,
-			AgentID:    agentID,
-			ToolCallID: toolCallID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("load linked tool result after completion miss: %w", err)
-	}
-	contentParts, err := toolCallResultContentBlocksTx(
-		ctx,
-		qtx,
-		projectID,
-		agentID,
-		result.ID,
-	)
-	if err != nil {
-		return false, err
-	}
-	canceled := result.Outcome == string(ToolResultOutcomeCanceled)
-	machineUnreachable := structuredContentStringFieldEquals(
-		contentParts,
-		"error_code",
-		ProcessToolReasonMachineUnreachable,
-	)
-	startedProcess := allowStartedProcessResult &&
-		result.Outcome == string(ToolResultOutcomeSucceeded) &&
-		structuredContentStringFieldEquals(
-			contentParts,
-			"state",
-			string(ProcessStateRunning),
-		)
-	if !canceled && !machineUnreachable && !startedProcess {
-		return false, nil
-	}
-	eventExists, err := qtx.ToolCallResultHasTypedEvent(
-		ctx,
-		dbsqlc.ToolCallResultHasTypedEventParams{
-			ProjectID:        projectID,
-			AgentID:          agentID,
-			ToolCallResultID: &result.ID,
-		},
-	)
-	if err != nil {
-		return false, fmt.Errorf(
-			"check linked tool result event after completion miss: %w",
-			err,
-		)
-	}
-	return eventExists, nil
-}
-
-func structuredContentStringFieldEquals(
-	raw json.RawMessage,
-	field string,
-	want string,
-) bool {
-	var parts []struct {
-		Type  string          `json:"type"`
-		Value json.RawMessage `json:"value"`
-	}
-	if json.Unmarshal(raw, &parts) != nil {
-		return false
-	}
-	for _, part := range parts {
-		if part.Type == "structured_data" &&
-			jsonObjectStringFieldEquals(part.Value, field, want) {
-			return true
-		}
-	}
-	return false
-}
-
-func jsonObjectStringFieldEquals(
-	raw json.RawMessage,
-	field string,
-	want string,
-) bool {
-	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil {
-		return false
-	}
-	value, ok := object[field]
-	if !ok {
-		return false
-	}
-	var got string
-	return json.Unmarshal(value, &got) == nil && got == want
 }

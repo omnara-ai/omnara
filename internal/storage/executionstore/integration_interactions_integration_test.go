@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -81,7 +82,11 @@ func newIntegrationInteractionFixture(t *testing.T) integrationInteractionFixtur
 	)
 	require.NoError(
 		t,
-		lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{ProjectID: testProjectID, AgentID: f.process.AgentID}}),
+		lifecyclelock.Agents(
+			ctx,
+			tx,
+			[]lifecyclelock.AgentRef{{ProjectID: testProjectID, AgentID: f.process.AgentID}},
+		),
 	)
 	for _, target := range []integrationstore.IntegrationTargetRecord{f.a, f.b} {
 		require.NoError(
@@ -225,16 +230,18 @@ func (f integrationInteractionFixture) selectOrigin(
 	targetID uuid.UUID,
 ) executionstore.InteractionSelection {
 	t.Helper()
-	tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	_, err := dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+	txUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
+	require.NoError(t, unitErr)
+	defer func() { _ = txUnit.Rollback(f.ctx) }()
+	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	})
+	}, agentexecution.ExternalAuthority{})
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
-		f.ctx, tx, testProjectID, f.process.AgentID, targetID,
+		f.ctx, txUnit, testProjectID, f.process.AgentID, targetID,
 	)
 	require.NoError(t, err)
-	require.NoError(t, tx.Commit(f.ctx))
+	require.NoError(t, txUnit.Commit(f.ctx, "fixture admission"))
 	stored, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
@@ -434,7 +441,11 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 			case "integration disconnected":
 				f.disable(t)
 			case "integration deleted":
-				_, err := f.store.pool.Exec(f.ctx, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, f.integration.ID)
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`UPDATE integrations SET deleted_at=now() WHERE id=$1`,
+					f.integration.ID,
+				)
 				require.NoError(t, err)
 			case "assignment removed":
 				_, err := f.store.pool.Exec(
@@ -457,17 +468,19 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 				require.NoError(t, err)
 
 			}
-			tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-			_, err := dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+			unit, err := f.store.Execution().IntegrationBeginUnit(f.ctx)
+			require.NoError(t, err)
+			defer func() { _ = unit.Rollback(f.ctx) }()
+			_, err = dbsqlc.New(unit.DB()).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
 				ProjectID: testProjectID, ID: f.process.AgentID,
 			})
 			require.NoError(t, err)
-			selection, err := f.store.Execution().ReconcileInteractionSelectionTx(
-				f.ctx, tx, testProjectID, f.process.AgentID,
+			selection, err := f.store.Execution().ReconcileInteractionSelectionInUnit(
+				f.ctx, unit, testProjectID, f.process.AgentID,
 			)
 			require.NoError(t, err)
 			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
-			require.NoError(t, tx.Commit(f.ctx))
+			require.NoError(t, unit.Commit(f.ctx, "selection reconciliation"))
 			_, err = f.store.Execution().GetAgentInteractionForPresentation(
 				f.ctx, testProjectID, f.process.AgentID, question.ID,
 			)
@@ -518,18 +531,20 @@ func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 	}
 	otherAgent := mustCreateAgent(t, f.ctx, f.store)
 	foreign := f.target(t, otherAgent, "C123:111.222")
-	tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	_, err := dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+	txUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
+	require.NoError(t, unitErr)
+	defer func() { _ = txUnit.Rollback(f.ctx) }()
+	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	})
+	}, agentexecution.ExternalAuthority{})
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
-		f.ctx, tx, testProjectID, f.process.AgentID, foreign.ID,
+		f.ctx, txUnit, testProjectID, f.process.AgentID, foreign.ID,
 	)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
 		"another agent's target is ineligible and must clear automatic selection")
-	require.NoError(t, tx.Commit(f.ctx))
+	require.NoError(t, txUnit.Commit(f.ctx, "fixture admission"))
 	_, err = f.store.Execution().
 		GetAgentInteractionForPresentation(f.ctx, uuid.New(), f.process.AgentID, question.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -592,10 +607,12 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 	integrationGate := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	require.NoError(t, dbsqlc.New(integrationGate).LockIntegrationLifecycleExclusive(f.ctx,
 		dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
-	selectionTx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	_, err = dbsqlc.New(selectionTx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+	selectionTxUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
+	require.NoError(t, unitErr)
+	defer func() { _ = selectionTxUnit.Rollback(f.ctx) }()
+	_, err = selectionTxUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	})
+	}, agentexecution.ExternalAuthority{})
 	require.NoError(t, err)
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
@@ -606,10 +623,10 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
 	_, err = executionstore.IntegrationSelectInteractionDestinationForOriginTx(
-		f.ctx, selectionTx, testProjectID, f.process.AgentID, f.b.ID,
+		f.ctx, selectionTxUnit, testProjectID, f.process.AgentID, f.b.ID,
 	)
 	require.NoError(t, err)
-	require.NoError(t, selectionTx.Commit(f.ctx))
+	require.NoError(t, selectionTxUnit.Commit(f.ctx, "fixture admission"))
 	interaction := integrationdb.AwaitSuccess(
 		t,
 		done,
@@ -854,8 +871,10 @@ func TestIntegrationInteractionsCallbackRechecksConfigAfterAgentLockWait(t *test
 	definition := f.definition(t, "handler revoked while callback waits", nil)
 	config, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 	require.NoError(t, err)
-	activation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	_, err = dbsqlc.New(activation).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+	activation, err := f.store.Execution().IntegrationBeginUnit(f.ctx)
+	require.NoError(t, err)
+	defer func() { _ = activation.Rollback(f.ctx) }()
+	_, err = dbsqlc.New(activation.DB()).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
@@ -865,7 +884,7 @@ func TestIntegrationInteractionsCallbackRechecksConfigAfterAgentLockWait(t *test
 			ResolveAgentInteractionFromHandler(f.ctx, doneInput)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
-	_, err = activation.Exec(
+	_, err = activation.DB().Exec(
 		f.ctx,
 		`UPDATE agents SET current_config_id=$3 WHERE project_id=$1 AND id=$2`,
 		testProjectID,
@@ -874,9 +893,9 @@ func TestIntegrationInteractionsCallbackRechecksConfigAfterAgentLockWait(t *test
 	)
 	require.NoError(t, err)
 	_, err = f.store.Execution().
-		ReconcileInteractionSelectionTx(f.ctx, activation, testProjectID, f.process.AgentID)
+		ReconcileInteractionSelectionInUnit(f.ctx, activation, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.NoError(t, activation.Commit(f.ctx))
+	require.NoError(t, activation.Commit(f.ctx, "config activation"))
 	result := integrationdb.Await(t, done, "callback after config activation")
 	require.ErrorIs(t, result.Err, storeerr.ErrUnauthorized)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, question.ID).State)

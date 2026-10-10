@@ -36,18 +36,31 @@ type AgentExecutor struct {
 }
 
 func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) error {
+	_, _, err := e.executeModelWork(ctx, input, nil)
+	return err
+}
+
+func (e AgentExecutor) ExecuteModelWorkAndAdvance(
+	ctx context.Context, input ModelWorkExecution, advance ModelWorkAdvanceOptions,
+) (executionstore.OwnedAgentWorkTransition, bool, error) {
+	return e.executeModelWork(ctx, input, &advance)
+}
+
+func (e AgentExecutor) executeModelWork(
+	ctx context.Context, input ModelWorkExecution, advance *ModelWorkAdvanceOptions,
+) (executionstore.OwnedAgentWorkTransition, bool, error) {
 	if e.Store == nil {
-		return errors.New("kernel store is required")
+		return executionstore.OwnedAgentWorkTransition{}, false, errors.New("kernel store is required")
 	}
 	if err := validateModelWorkExecution(input); err != nil {
-		return err
+		return executionstore.OwnedAgentWorkTransition{}, false, err
 	}
 	if input.Now.IsZero() {
 		input.Now = e.now()
 	}
 	builder := e.contextBuilder()
 	if e.ModelResolver == nil {
-		return errors.New("kernel model resolver is required")
+		return executionstore.OwnedAgentWorkTransition{}, false, errors.New("kernel model resolver is required")
 	}
 
 	if input.Kind == executionstore.ModelWorkResume {
@@ -58,13 +71,13 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 			input.ModelCallContextID,
 		)
 		if loadErr != nil {
-			return loadErr
+			return executionstore.OwnedAgentWorkTransition{}, false, loadErr
 		}
 		if !found {
-			return errors.New("resume model context is missing")
+			return executionstore.OwnedAgentWorkTransition{}, false, errors.New("resume model context is missing")
 		}
 		if contextRow.OperationKind == executionstore.ModelCallOperationCompaction {
-			return e.resumeCompactionContext(
+			return executionstore.OwnedAgentWorkTransition{}, false, e.resumeCompactionContext(
 				ctx,
 				input,
 				builder,
@@ -74,13 +87,16 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 		}
 	}
 
-	step, err := e.executeModelStep(ctx, input, builder, e.ModelResolver)
+	step, err := e.executeModelStepWithAdvance(ctx, input, builder, e.ModelResolver, advance)
 	if err != nil {
-		return err
+		return executionstore.OwnedAgentWorkTransition{}, false, err
+	}
+	if step.Transition != nil {
+		return *step.Transition, true, nil
 	}
 	switch step.State {
 	case modelStepWaiting, modelStepDone:
-		return nil
+		return executionstore.OwnedAgentWorkTransition{}, false, nil
 	case modelStepToolUse:
 		if _, err := e.recordToolCallSourceEvent(
 			ctx,
@@ -91,11 +107,11 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 			step.Bundle.ToolSpecs,
 			step.StreamedToolCallIDs,
 		); err != nil {
-			return fmt.Errorf("record tool-call source event: %w", err)
+			return executionstore.OwnedAgentWorkTransition{}, false, fmt.Errorf("record tool-call source event: %w", err)
 		}
-		return nil
+		return executionstore.OwnedAgentWorkTransition{}, false, nil
 	default:
-		return fmt.Errorf("unsupported model step state %q", step.State)
+		return executionstore.OwnedAgentWorkTransition{}, false, fmt.Errorf("unsupported model step state %q", step.State)
 	}
 }
 

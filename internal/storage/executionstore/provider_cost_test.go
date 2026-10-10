@@ -14,11 +14,7 @@ func TestProviderReportedCostUSDSQLCRoundTrip(t *testing.T) {
 		"100",
 	} {
 		t.Run(string(cost), func(t *testing.T) {
-			sqlValue := providerReportedCostUSDToSQLC(cost)
-			stored := ""
-			if sqlValue != nil {
-				stored = *sqlValue
-			}
+			stored := string(cost)
 			if got := providerReportedCostUSDFromSQLC(stored); got != cost {
 				t.Fatalf("provider-reported cost round trip = %q, want %q", got, cost)
 			}

@@ -92,7 +92,11 @@ func TestCheckerRules(t *testing.T) {
 			sql:     "SELECT id FROM jobs WHERE created_at < 'now'",
 		},
 		{name: "today label", command: "many", sql: "SELECT id FROM jobs WHERE label = 'today'"},
-		{name: "tomorrow JSON value", command: "one", sql: "SELECT jsonb_build_object('schedule', 'tomorrow')"},
+		{
+			name:    "tomorrow JSON value",
+			command: "one",
+			sql:     "SELECT jsonb_build_object('schedule', 'tomorrow')",
+		},
 		{
 			name:    "temporal conversion around text comparison",
 			command: "many",
@@ -219,18 +223,36 @@ func TestCheckerRules(t *testing.T) {
 			sql: "WITH locked AS (SELECT id FROM jobs WHERE id = sqlc.arg(id) FOR UPDATE) " +
 				"UPDATE jobs SET state = 'done' FROM locked WHERE jobs.id = locked.id",
 		},
-		reject("update without predicate", "exec", "UPDATE users SET display_name = 'updated'", ruleMutationPredicate),
+		reject(
+			"update without predicate",
+			"exec",
+			"UPDATE users SET display_name = 'updated'",
+			ruleMutationPredicate,
+		),
 		reject("delete without predicate", "exec", "DELETE FROM users", ruleMutationPredicate),
-		{name: "update with predicate", command: "exec", sql: "UPDATE users SET display_name = 'updated' WHERE id = 1"},
+		{
+			name:    "update with predicate",
+			command: "exec",
+			sql:     "UPDATE users SET display_name = 'updated' WHERE id = 1",
+		},
 		{name: "delete with predicate", command: "exec", sql: "DELETE FROM users WHERE id = 1"},
 		reject("implicit insert columns", "exec", "INSERT INTO users VALUES (1)", ruleExplicitInsertColumns),
-		reject("implicit insert select columns", "exec", "INSERT INTO users SELECT 1", ruleExplicitInsertColumns),
+		reject(
+			"implicit insert select columns",
+			"exec",
+			"INSERT INTO users SELECT 1",
+			ruleExplicitInsertColumns,
+		),
 		{name: "default values", command: "exec", sql: "INSERT INTO users DEFAULT VALUES"},
 		{name: "explicit insert columns", command: "exec", sql: "INSERT INTO users (id) VALUES (1)"},
 		reject("comma join", "many", "SELECT first.id FROM first, second", ruleExplicitJoins),
 		reject("natural join", "many", "SELECT first.id FROM first NATURAL JOIN second", ruleExplicitJoins),
 		{name: "cross join", command: "many", sql: "SELECT first.id FROM first CROSS JOIN second"},
-		{name: "join on", command: "many", sql: "SELECT first.id FROM first JOIN second ON second.id = first.id"},
+		{
+			name:    "join on",
+			command: "many",
+			sql:     "SELECT first.id FROM first JOIN second ON second.id = first.id",
+		},
 		{name: "join using", command: "many", sql: "SELECT first.id FROM first JOIN second USING (id)"},
 		reject(
 			"unaliased relation function",
@@ -295,9 +317,22 @@ func TestCheckerRules(t *testing.T) {
 			"SELECT value FROM (SELECT 1 AS value)",
 			ruleExplicitDerivedAliases,
 		),
-		{name: "aliased derived subquery", command: "one", sql: "SELECT derived.value FROM (SELECT 1 AS value) AS derived"},
-		reject("unordered limited collection", "many", "SELECT id FROM users LIMIT 10", ruleLimitedCollectionOrder),
-		{name: "ordered limited collection", command: "many", sql: "SELECT id FROM users ORDER BY id LIMIT 10"},
+		{
+			name:    "aliased derived subquery",
+			command: "one",
+			sql:     "SELECT derived.value FROM (SELECT 1 AS value) AS derived",
+		},
+		reject(
+			"unordered limited collection",
+			"many",
+			"SELECT id FROM users LIMIT 10",
+			ruleLimitedCollectionOrder,
+		),
+		{
+			name:    "ordered limited collection",
+			command: "many",
+			sql:     "SELECT id FROM users ORDER BY id LIMIT 10",
+		},
 		reject(
 			"unordered limited batch collection",
 			"batchmany",
@@ -315,7 +350,12 @@ func TestCheckerRules(t *testing.T) {
 			command: "many",
 			sql:     "SELECT id FROM users WHERE EXISTS (SELECT 1 FROM projects LIMIT 1)",
 		},
-		reject("offset pagination", "many", "SELECT id FROM users ORDER BY id OFFSET 10", ruleNoOffsetPagination),
+		reject(
+			"offset pagination",
+			"many",
+			"SELECT id FROM users ORDER BY id OFFSET 10",
+			ruleNoOffsetPagination,
+		),
 		reject("utility statement", "exec", "TRUNCATE users", ruleProductDMLOnly),
 		reject("select into", "exec", "SELECT id INTO archived_users FROM users", ruleProductDMLOnly),
 		{
@@ -410,7 +450,10 @@ func TestCheckerRejectsFileContainingOnlyUnnamedSQL(t *testing.T) {
 }
 
 func TestCheckerAllowsCommentOnlyPreamble(t *testing.T) {
-	issues := checkSource("fixture.sql", []byte("-- product query definitions\n\n-- name: Safe :one\nSELECT 1;\n"))
+	issues := checkSource(
+		"fixture.sql",
+		[]byte("-- product query definitions\n\n-- name: Safe :one\nSELECT 1;\n"),
+	)
 	if len(issues) != 0 {
 		t.Fatalf("issues = %+v, want none", issues)
 	}
@@ -424,9 +467,12 @@ func TestParseErrorDiagnostic(t *testing.T) {
 }
 
 func TestSecondStatementRequiresItsOwnQueryAnnotation(t *testing.T) {
-	source := []byte("-- name: Multiple :many\nSELECT id FROM users ORDER BY id LIMIT 1;\nSELECT id FROM users;\n")
+	source := []byte(
+		"-- name: Multiple :many\nSELECT id FROM users ORDER BY id LIMIT 1;\nSELECT id FROM users;\n",
+	)
 	issues := checkSource("fixture.sql", source)
-	if len(issues) != 1 || issues[0].Rule != ruleNamedQueryRequired || issues[0].Line != 3 || issues[0].Column != 1 {
+	if len(issues) != 1 || issues[0].Rule != ruleNamedQueryRequired || issues[0].Line != 3 ||
+		issues[0].Column != 1 {
 		t.Fatalf("issues = %+v, want a line 3:1 %s violation", issues, ruleNamedQueryRequired)
 	}
 }
@@ -436,7 +482,15 @@ func TestProductionQueryCorpus(t *testing.T) {
 	if !ok {
 		t.Fatal("resolve test file path")
 	}
-	queryDirectory := filepath.Join(filepath.Dir(filename), "..", "..", "..", "internal", "storage", "queries")
+	queryDirectory := filepath.Join(
+		filepath.Dir(filename),
+		"..",
+		"..",
+		"..",
+		"internal",
+		"storage",
+		"queries",
+	)
 	issues, err := checkDirectory(queryDirectory)
 	if err != nil {
 		t.Fatal(err)
@@ -525,5 +579,34 @@ func TestRunRejectsEmptyQueryDirectory(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no SQL query files found") {
 		t.Fatalf("stderr = %q, want missing-query diagnostic", stderr.String())
+	}
+}
+
+func TestExecutionDMLOwnership(t *testing.T) {
+	for _, sql := range []string{
+		`INSERT INTO agents(id) VALUES ($1)`,
+		`UPDATE public.agent_inputs SET state='canceled' WHERE id=$1`,
+		`DELETE FROM "public"."agent_events" WHERE id=$1`,
+		`WITH changed AS (UPDATE tool_calls SET state='ready' WHERE id=$1 RETURNING id) SELECT id FROM changed`,
+		`INSERT INTO agent_execution_state(agent_id) VALUES ($1) ON CONFLICT(agent_id) DO UPDATE SET stop_sequence=0`,
+		`INSERT /* comment */ INTO model_call_contexts(id) VALUES ($1)`,
+	} {
+		t.Run(sql, func(t *testing.T) {
+			source := []byte("-- name: Mutation :exec\n" + sql + ";\n")
+			public := checkSource("internal/storage/queries/escape.sql", source)
+			var found bool
+			for _, issue := range public {
+				found = found || issue.Rule == "execution-dml-ownership"
+			}
+			if !found {
+				t.Fatalf("missing ownership rejection: %+v", public)
+			}
+			private := checkSource("internal/storage/internal/agentexecution/queries/command.sql", source)
+			for _, issue := range private {
+				if issue.Rule == "execution-dml-ownership" {
+					t.Fatalf("private command rejected: %+v", issue)
+				}
+			}
+		})
 	}
 }

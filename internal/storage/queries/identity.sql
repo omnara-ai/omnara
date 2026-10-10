@@ -1251,11 +1251,6 @@ FROM orgs
 WHERE id = $1 AND deleted_at IS NULL
 FOR UPDATE;
 
--- name: CountOrgMemberships :one
-SELECT count(*)::bigint
-FROM org_memberships
-WHERE org_id = $1;
-
 -- name: ListProjectAuthorizationRolesForPrincipal :many
 SELECT role
 FROM principal_project_authorization_roles
@@ -1496,3 +1491,8 @@ SELECT encrypted_private_key FROM oidc_signing_keys WHERE id = 'default';
 INSERT INTO oidc_signing_keys(id, encrypted_private_key)
 VALUES ('default', sqlc.arg(encrypted_private_key))
 ON CONFLICT (id) DO NOTHING;
+
+-- name: CountOrgMemberships :one
+SELECT count(*)::bigint
+FROM org_memberships
+WHERE org_id = $1;

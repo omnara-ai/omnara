@@ -2,8 +2,6 @@ package executionstore
 
 import (
 	"encoding/json"
-	"fmt"
-	"hash/fnv"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,9 +11,6 @@ import (
 
 const (
 	MaxModelCallRetriesPerOperation = 8
-
-	baseModelCallRetryBackoff = time.Second
-	maxModelCallRetryBackoff  = 30 * time.Second
 
 	ModelCallOperationNormal     ModelCallOperation = "normal"
 	ModelCallOperationCompaction ModelCallOperation = "compaction"
@@ -66,44 +61,10 @@ type ModelCallContextRecord struct {
 	CompletedAt               *time.Time                            `json:"completed_at,omitempty"`
 }
 
-func ModelCallRetryBackoff(attemptNumber int, contextID string) time.Duration {
-	if attemptNumber < 1 {
-		attemptNumber = 1
-	}
-	delay := baseModelCallRetryBackoff
-	for i := 1; i < attemptNumber && delay < maxModelCallRetryBackoff; i++ {
-		delay *= 2
-	}
-
-	percent := deterministicModelCallRetryJitterPercent(contextID, attemptNumber)
-	delay = time.Duration(int64(delay) * int64(percent) / 100)
-	if delay > maxModelCallRetryBackoff {
-		return maxModelCallRetryBackoff
-	}
-	return delay
-}
-
-func deterministicModelCallRetryJitterPercent(contextID string, attemptNumber int) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(fmt.Sprintf("%s:%d", contextID, attemptNumber)))
-	return 80 + int(hash.Sum32()%41)
-}
-
 type ModelCallClaim struct {
 	Context ModelCallContextRecord
 	Created bool
 	Claimed bool
-}
-
-type ClaimNormalModelCallInput struct {
-	ProjectID                uuid.UUID
-	AgentID                  uuid.UUID
-	RuntimeLockID            uuid.UUID
-	OpeningInputIDs          []uuid.UUID
-	AgentConfigID            uuid.UUID
-	InputEventSequence       int64
-	SourceModelCallContextID uuid.UUID
-	SourceModelOutputID      uuid.UUID
 }
 
 type ClaimCompactionModelCallInput struct {

@@ -6,6 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -22,30 +23,26 @@ type Config struct {
 }
 
 type Service struct {
-	pool                *storeutil.Pool
-	q                   *dbsqlc.Queries
-	blobs               blobstore.Store
-	postCommitPublisher notifications.PostCommitPublisher
-	identity            *identitystore.Store
-	execution           *executionstore.Store
-	models              *modelstore.Store
-	secrets             *secretstore.Store
+	cell      *agentexecution.AgentCell
+	pool      *storeutil.Pool
+	q         *dbsqlc.Queries
+	blobs     blobstore.Store
+	identity  *identitystore.Store
+	execution *executionstore.Store
+	models    *modelstore.Store
+	secrets   *secretstore.Store
 }
 
 func New(pool *pgxpool.Pool, config Config) *Service {
 	db := storeutil.WrapPool(pool)
 	return &Service{
-		pool:                db,
-		q:                   dbsqlc.New(db),
-		blobs:               config.Blobs,
-		postCommitPublisher: config.PostCommitPublisher,
-		identity:            config.Identity,
-		execution:           config.Execution,
-		models:              config.Models,
-		secrets:             config.Secrets,
+		cell:      agentexecution.NewCell("primary", pool, config.PostCommitPublisher, nil),
+		pool:      db,
+		q:         dbsqlc.New(db),
+		blobs:     config.Blobs,
+		identity:  config.Identity,
+		execution: config.Execution,
+		models:    config.Models,
+		secrets:   config.Secrets,
 	}
-}
-
-func (s *Service) newTxNotifications() *notifications.TxNotifications {
-	return notifications.NewTxNotifications()
 }

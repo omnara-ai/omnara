@@ -1151,6 +1151,72 @@ func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcess
 	return items, nil
 }
 
+const listAgentsForExecutionRevoked = `-- name: ListAgentsForExecutionRevoked :many
+SELECT agent.id
+FROM agents agent
+WHERE agent.project_id = $1
+  AND (
+    ($2::uuid IS NOT NULL AND agent.id = $2::uuid)
+    OR (
+      $2::uuid IS NULL
+      AND ($3::uuid IS NOT NULL OR $4::uuid IS NOT NULL)
+      AND EXISTS (
+        SELECT 1
+        FROM agent_machine_bindings binding
+        JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
+          AND pmgrant.machine_id = binding.machine_id
+        WHERE binding.project_id = agent.project_id
+          AND binding.agent_id = agent.id
+          AND binding.state = 'attached'
+          AND (
+            $3::uuid IS NULL
+            OR pmgrant.id = $3::uuid
+          )
+          AND (
+            $4::uuid IS NULL
+            OR (
+              pmgrant.source_kind = 'pool'
+              AND pmgrant.project_machine_pool_grant_id = $4::uuid
+            )
+          )
+      )
+    )
+  )
+ORDER BY agent.id
+`
+
+type ListAgentsForExecutionRevokedParams struct {
+	ProjectID                 uuid.UUID
+	AgentID                   *uuid.UUID
+	ProjectMachineGrantID     *uuid.UUID
+	ProjectMachinePoolGrantID *uuid.UUID
+}
+
+func (q *Queries) ListAgentsForExecutionRevoked(ctx context.Context, arg ListAgentsForExecutionRevokedParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAgentsForExecutionRevoked,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ProjectMachineGrantID,
+		arg.ProjectMachinePoolGrantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDaemonProcessOffers = `-- name: ListDaemonProcessOffers :many
 WITH runtime AS MATERIALIZED (
   SELECT runtime.org_id, runtime.machine_id
@@ -1590,73 +1656,6 @@ func (q *Queries) ListProcessesForMachineReconciliation(ctx context.Context, arg
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const lockAgentsForExecutionRevoked = `-- name: LockAgentsForExecutionRevoked :many
-SELECT agent.id
-FROM agents agent
-WHERE agent.project_id = $1
-  AND (
-    ($2::uuid IS NOT NULL AND agent.id = $2::uuid)
-    OR (
-      $2::uuid IS NULL
-      AND ($3::uuid IS NOT NULL OR $4::uuid IS NOT NULL)
-      AND EXISTS (
-        SELECT 1
-        FROM agent_machine_bindings binding
-        JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-          AND pmgrant.machine_id = binding.machine_id
-        WHERE binding.project_id = agent.project_id
-          AND binding.agent_id = agent.id
-          AND binding.state = 'attached'
-          AND (
-            $3::uuid IS NULL
-            OR pmgrant.id = $3::uuid
-          )
-          AND (
-            $4::uuid IS NULL
-            OR (
-              pmgrant.source_kind = 'pool'
-              AND pmgrant.project_machine_pool_grant_id = $4::uuid
-            )
-          )
-      )
-    )
-  )
-ORDER BY agent.id
-FOR UPDATE
-`
-
-type LockAgentsForExecutionRevokedParams struct {
-	ProjectID                 uuid.UUID
-	AgentID                   *uuid.UUID
-	ProjectMachineGrantID     *uuid.UUID
-	ProjectMachinePoolGrantID *uuid.UUID
-}
-
-func (q *Queries) LockAgentsForExecutionRevoked(ctx context.Context, arg LockAgentsForExecutionRevokedParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockAgentsForExecutionRevoked,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.ProjectMachineGrantID,
-		arg.ProjectMachinePoolGrantID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -8,32 +8,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentInputRecordFromInsertSQLC(row dbsqlc.InsertAgentInputRow) AgentInputRecord {
-	return agentInputRecordFromNewFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.State,
-		row.InputRank,
-		row.ActorID,
-		row.InputKind,
-		row.IntegrationTargetID,
-		row.IdempotencyScope,
-		row.InputIdempotencyKey,
-		row.QueuedAt,
-		row.AdmittedEventID,
-		row.AdmittedAt,
-		row.CanceledAt,
-		row.DeliveryMode,
-		row.ControlType,
-		row.TargetInteractionID,
-		row.AgentConfigID,
-		row.ResolvedAt,
-		row.RejectedReason,
-		row.Metadata,
-	)
-}
-
 func agentInputRecordFromIdempotencySQLC(row dbsqlc.GetAgentInputByIdempotencyRow) AgentInputRecord {
 	return agentInputRecordFromNewFields(
 		row.ID,
@@ -54,112 +28,6 @@ func agentInputRecordFromIdempotencySQLC(row dbsqlc.GetAgentInputByIdempotencyRo
 		row.ControlType,
 		row.TargetInteractionID,
 		row.AgentConfigID,
-		row.ResolvedAt,
-		row.RejectedReason,
-		row.Metadata,
-	)
-}
-
-func agentInputRecordFromControlSQLC(row dbsqlc.InsertControlAgentInputRow) AgentInputRecord {
-	return agentInputRecordFromNewFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.State,
-		row.InputRank,
-		row.ActorID,
-		row.InputKind,
-		nil,
-		row.IdempotencyScope,
-		row.InputIdempotencyKey,
-		row.QueuedAt,
-		row.AdmittedEventID,
-		row.AdmittedAt,
-		row.CanceledAt,
-		row.DeliveryMode,
-		row.ControlType,
-		row.TargetInteractionID,
-		row.AgentConfigID,
-		row.ResolvedAt,
-		row.RejectedReason,
-		row.Metadata,
-	)
-}
-
-func agentInputRecordFromInteractionResponseInsertSQLC(
-	row dbsqlc.InsertInteractionResponseAgentInputRow,
-) AgentInputRecord {
-	return agentInputRecordFromNewFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.State,
-		row.InputRank,
-		row.ActorID,
-		row.InputKind,
-		nil,
-		row.IdempotencyScope,
-		row.InputIdempotencyKey,
-		row.QueuedAt,
-		row.AdmittedEventID,
-		row.AdmittedAt,
-		row.CanceledAt,
-		row.DeliveryMode,
-		row.ControlType,
-		row.TargetInteractionID,
-		row.AgentConfigID,
-		row.ResolvedAt,
-		row.RejectedReason,
-		row.Metadata,
-	)
-}
-
-func agentInputRecordFromSteeringAdmissionSQLC(row dbsqlc.ListSteeringAgentInputsForAdmissionRow) AgentInputRecord {
-	return agentInputRecordFromNewFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.State,
-		row.InputRank,
-		row.ActorID,
-		row.InputKind,
-		row.IntegrationTargetID,
-		row.IdempotencyScope,
-		row.InputIdempotencyKey,
-		row.QueuedAt,
-		row.AdmittedEventID,
-		row.AdmittedAt,
-		row.CanceledAt,
-		row.DeliveryMode,
-		row.ControlType,
-		row.TargetInteractionID,
-		nil,
-		row.ResolvedAt,
-		row.RejectedReason,
-		row.Metadata,
-	)
-}
-
-func agentInputRecordFromQueuedAdmissionSQLC(row dbsqlc.GetNextQueuedAgentInputForAdmissionRow) AgentInputRecord {
-	return agentInputRecordFromNewFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.State,
-		row.InputRank,
-		row.ActorID,
-		row.InputKind,
-		row.IntegrationTargetID,
-		row.IdempotencyScope,
-		row.InputIdempotencyKey,
-		row.QueuedAt,
-		row.AdmittedEventID,
-		row.AdmittedAt,
-		row.CanceledAt,
-		row.DeliveryMode,
-		row.ControlType,
-		row.TargetInteractionID,
-		nil,
 		row.ResolvedAt,
 		row.RejectedReason,
 		row.Metadata,
@@ -236,4 +104,30 @@ func agentInputRecordFromNewFields(
 		RejectedReason:      rejectedReason,
 		Metadata:            metadata,
 	}
+}
+
+func agentInputRecordFromGetSQLC(row dbsqlc.GetAgentInputRow) AgentInputRecord {
+	return agentInputRecordFromNewFields(
+		row.ID,
+		row.ProjectID,
+		row.AgentID,
+		row.State,
+		row.InputRank,
+		row.ActorID,
+		row.InputKind,
+		row.IntegrationTargetID,
+		row.IdempotencyScope,
+		row.InputIdempotencyKey,
+		row.QueuedAt,
+		row.AdmittedEventID,
+		row.AdmittedAt,
+		row.CanceledAt,
+		row.DeliveryMode,
+		row.ControlType,
+		row.TargetInteractionID,
+		row.AgentConfigID,
+		row.ResolvedAt,
+		row.RejectedReason,
+		row.Metadata,
+	)
 }

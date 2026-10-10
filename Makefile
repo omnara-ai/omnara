@@ -23,6 +23,7 @@ MIGRATION_CHECK ?= $(GO) -C tools/ci run ./migrationcheck
 OMNARAD_VERSION ?= 0.0.0-dev
 MIGRATION_DIRS := migrations internal/machinedaemon/statedb/migrations
 SQLC_OWNED_PATHS := internal/storage/internal/dbsqlc internal/storage/queries \
+	internal/storage/internal/agentexecution/internal/executiondb internal/storage/internal/agentexecution/queries \
 	internal/machinedaemon/statedb/internal/dbsqlc internal/machinedaemon/statedb/queries
 OMNARALINT_SOURCES := $(shell find tools/omnaralint -name '*.go' -print)
 GO_MODULE_DIRS := . observability tools/ci tools/goose tools/omnaralint
@@ -259,6 +260,7 @@ sqlc-check:
 
 sql-rules:
 	CGO_ENABLED=0 $(GO) -C tools/ci run ./sqlrules ../../internal/storage/queries
+	CGO_ENABLED=0 $(GO) -C tools/ci run ./sqlrules ../../internal/storage/internal/agentexecution/queries
 
 sqlc-vet:
 	$(SQLC) vet -f sqlc.yaml
@@ -267,7 +269,7 @@ migrate-test-db:
 	$(TEST_DB_ENV) $(GO) test -count=1 -run '^TestMigrateLocalDatabase$$' ./internal/testutil/integrationdb
 
 sqlc-vet-db:
-	SQLC_DATABASE_URL=$${SQLC_DATABASE_URL:-$${OMNARA_TEST_DATABASE_URL:-$(TEST_DATABASE_URL)}} $(SQLC) vet -f sqlc.vet-db.yaml
+	OMNARA_TEST_DATABASE_URL=$${SQLC_DATABASE_URL:-$${OMNARA_TEST_DATABASE_URL:-$(TEST_DATABASE_URL)}} $(GO) test -count=1 -tags=integration ./internal/storage/internal/agentexecution -run '^TestExecutionSQLCPrepare$$'
 
 sqlc-vet-local-db: db-up migrate-test-db sqlc-vet-db
 

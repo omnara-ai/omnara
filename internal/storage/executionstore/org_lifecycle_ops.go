@@ -8,29 +8,30 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (s *Store) ArchiveAgentTx(
+func (s *Store) ArchiveAgentInUnit(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	return archiveAgentTreeTx(ctx, tx, s.q.WithTx(tx), txNotifications, projectID, agentID, actor)
+
+	tx := unit.DB()
+	return archiveAgentTreeTx(ctx, unit, dbsqlc.New(tx), projectID, agentID, actor)
 }
 
 func (s *Store) ProvisionOrganizationDefaultsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID, projectID uuid.UUID,
 	templates []DefaultMachinePoolTemplate,
 ) error {
-	qtx := s.q.WithTx(tx)
+	qtx := dbsqlc.New(tx)
 	for _, template := range templates {
 		input := template.createInput(orgID)
 		poolDefaults, err := prepareMachinePoolCreateInput(&input)

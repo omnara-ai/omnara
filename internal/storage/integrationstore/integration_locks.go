@@ -6,13 +6,12 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func LockIntegrationsTx(
-	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced []uuid.UUID, additional ...uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, projectID uuid.UUID, referenced []uuid.UUID, additional ...uuid.UUID,
 ) error {
 	// Compiled references remain readable after revocation; only additional integrations
 	// supply live authority.
@@ -20,7 +19,7 @@ func LockIntegrationsTx(
 }
 
 func lockIntegrationsTx(
-	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced, required []uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, projectID uuid.UUID, referenced, required []uuid.UUID,
 ) error {
 	ids := make(map[uuid.UUID]bool)
 	for _, id := range referenced {
