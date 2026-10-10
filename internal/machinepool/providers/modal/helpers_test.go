@@ -33,6 +33,7 @@ func testProvider(t *testing.T, rpc *fakeControlPlane) *provider {
 	t.Cleanup(server.Stop)
 	t.Setenv("MODAL_SERVER_URL", "http://"+listener.Addr().String())
 	t.Setenv("MODAL_LOGLEVEL", "ERROR")
+	t.Setenv("MODAL_SANDBOX_V2", "1")
 	return &provider{
 		app:          "agents",
 		environment:  "staging",
@@ -89,6 +90,7 @@ func testPolicy(
 }
 
 func fakeSandboxID(seed string) string {
+	// Use the V2 ID length; the SDK routes 22-character suffixes to V1.
 	id := make([]byte, 0, 26)
 	for _, ch := range []byte(seed) {
 		if ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' {
