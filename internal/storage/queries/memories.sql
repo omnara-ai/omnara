@@ -38,11 +38,11 @@ RETURNING id, project_id, name, description, agent_access, created_at, updated_a
 -- name: ListMemoryStores :many
 SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
 FROM memory_stores
-WHERE project_id = sqlc.arg(project_id)
+WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (name COLLATE "C") > sqlc.arg(after_name)::text COLLATE "C"
-ORDER BY name COLLATE "C"
+  AND (name COLLATE "C", id) > (sqlc.arg(after_name)::text COLLATE "C", sqlc.arg(after_id)::uuid)
+ORDER BY name COLLATE "C", id
 LIMIT sqlc.arg(row_limit);
 
 -- name: CountMemoryStores :one

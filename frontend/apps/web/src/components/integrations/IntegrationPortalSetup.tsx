@@ -33,13 +33,13 @@ export function IntegrationPortalSetup({
   providerId?: string
   title?: string
 }) {
-  const { apiOrigin, unavailable } = useIntegrationSetupURLs()
+  const { publicURL, unavailable } = useIntegrationSetupURLs()
   const github = integrationKind === 'github_pr'
-  const url = apiOrigin
+  const url = publicURL
     ? github
-      ? `${apiOrigin}/api/integrations/github/events`
+      ? `${publicURL}/api/integrations/github/events`
       : /^[1-9][0-9]*$/.test(providerId)
-        ? `${apiOrigin}/api/integrations/discord/${providerId}/interactions`
+        ? `${publicURL}/api/integrations/discord/${providerId}/interactions`
         : ''
     : ''
   return (
@@ -52,9 +52,9 @@ export function IntegrationPortalSetup({
         <SetupURLInput
           url={url}
           placeholder={
-            !apiOrigin
+            !publicURL
               ? unavailable
-                ? 'Public API URL unavailable'
+                ? 'Public URL unavailable'
                 : 'Loading setup URL…'
               : 'Enter the App ID above'
           }

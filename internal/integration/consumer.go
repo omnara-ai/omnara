@@ -174,6 +174,7 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 		}
 		if expanded == nil {
 			unrouted := false
+			var unroutedEvent IntegrationEvent
 			if provider, ok := adapter.(IntegrationInboxRoutingProvider); ok {
 				expansion, err = provider.ExpandRouted(
 					ctx,
@@ -182,6 +183,7 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 					func(event IntegrationEvent) (bool, error) {
 						var err error
 						unrouted, err = c.router.freezeEmptyIfUnrouted(ctx, lease, integrationSetup, event)
+						unroutedEvent = event
 						return !unrouted, err
 					},
 				)
@@ -192,6 +194,17 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 				return nil, err
 			}
 			if unrouted {
+				if c.launchers != nil && unroutedEvent.Event.Mentioned &&
+					integrationSetup.Provider != integrationdefinition.ProviderGitHub {
+					shared, err := c.inbox.SharesProviderIdentity(ctx, integrationSetup)
+					if err != nil {
+						log.WarnContext(ctx, "check shared integration bot", "integration_id", integrationSetup.ID, "error", err)
+					} else if !shared {
+						c.launchers.notifyMention(ctx, log, IntegrationLaunchContext{
+							Receipt: receipt, Integration: integrationSetup, Event: unroutedEvent,
+						}, launchNotSetUpMessage)
+					}
+				}
 				return c.router.Admit(ctx, lease, nil)
 			}
 			if c.launchers == nil {
@@ -385,30 +398,44 @@ func (c *IntegrationInboxConsumer) prepareFiles(
 			return nil, fmt.Errorf("file content was not pinned in the frozen plan")
 		}
 		expected := *file.Expected
-		present, err := c.artifacts.PreparedArtifactUploaded(ctx, recipient.AgentID, expected)
-		if err != nil {
-			return nil, err
+		content, found := cache[file.ProviderFileID]
+		var probeErr error
+		if !found {
+			// S3 returns 403 for missing keys without s3:ListBucket:
+			// https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
+			var present bool
+			present, probeErr = c.artifacts.PreparedArtifactUploaded(ctx, recipient.AgentID, expected)
+			if probeErr == nil && present {
+				prepared = append(prepared, expected)
+				continue
+			}
+			if errors.Is(probeErr, storeerr.ErrIdempotencyConflict) {
+				return nil, probeErr
+			}
+			if adapter == nil {
+				return nil, errors.Join(probeErr, fmt.Errorf("file download provider is unavailable"))
+			}
+			content, err = adapter.DownloadFile(ctx, integrationSetup, payload, file.ProviderFileID)
+			if err != nil {
+				return nil, errors.Join(probeErr, err)
+			}
 		}
-		if !present {
-			content, found := cache[file.ProviderFileID]
-			if !found {
-				if adapter == nil {
-					return nil, fmt.Errorf("file download provider is unavailable")
-				}
-				content, err = adapter.DownloadFile(ctx, integrationSetup, payload, file.ProviderFileID)
-				if err != nil {
-					return nil, err
-				}
-				cache[file.ProviderFileID] = content
+		if content.ContentType != expected.ContentType || content.Filename != expected.Filename ||
+			int64(len(content.Content)) != expected.SizeBytes ||
+			blobstore.ContentDigest(content.Content) != expected.Digest {
+			return nil, storeerr.ErrIdempotencyConflict
+		}
+		cache[file.ProviderFileID] = content
+		if err = c.artifacts.UploadPreparedArtifact(ctx, recipient.AgentID, expected, content.Content); err != nil {
+			return nil, errors.Join(probeErr, err)
+		}
+		if probeErr != nil {
+			log := c.Log
+			if log == nil {
+				log = slog.Default()
 			}
-			if content.ContentType != expected.ContentType || content.Filename != expected.Filename ||
-				int64(len(content.Content)) != expected.SizeBytes ||
-				blobstore.ContentDigest(content.Content) != expected.Digest {
-				return nil, storeerr.ErrIdempotencyConflict
-			}
-			if err = c.artifacts.UploadPreparedArtifact(ctx, recipient.AgentID, expected, content.Content); err != nil {
-				return nil, err
-			}
+			log.DebugContext(ctx, "Prepared artifact uploaded after inconclusive presence check",
+				"agent_id", recipient.AgentID, "artifact_id", expected.ID, "error", probeErr)
 		}
 		prepared = append(prepared, expected)
 	}

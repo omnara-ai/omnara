@@ -332,6 +332,14 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    /**
+     * Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+     */
+    supports_reasoning?: boolean;
+    /**
+     * Reasoning effort values the model accepts, when reported.
+     */
+    supported_reasoning_efforts?: Array<string>;
     pricing?: DiscoveredModelPricing;
 };
 
@@ -875,6 +883,7 @@ export type MemoryStoreAccess = 'read' | 'read_write';
 
 export type MemoryStore = {
     id: MemoryStoreId;
+    project_id: ProjectId;
     name: MemoryStoreName;
     description: string;
     agent_access: MemoryStoreAccess;
@@ -7656,6 +7665,82 @@ export type ListProjectAvailableSkillsResponses = {
 };
 
 export type ListProjectAvailableSkillsResponse = ListProjectAvailableSkillsResponses[keyof ListProjectAvailableSkillsResponses];
+
+export type ListOrgMemoryStoresData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/memory-stores';
+};
+
+export type ListOrgMemoryStoresErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgMemoryStoresError = ListOrgMemoryStoresErrors[keyof ListOrgMemoryStoresErrors];
+
+export type ListOrgMemoryStoresResponses = {
+    /**
+     * Memory stores across the caller's readable projects.
+     */
+    200: MemoryStoreList;
+};
+
+export type ListOrgMemoryStoresResponse = ListOrgMemoryStoresResponses[keyof ListOrgMemoryStoresResponses];
 
 export type ListMemoryStoresData = {
     body?: never;

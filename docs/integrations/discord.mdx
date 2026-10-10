@@ -92,7 +92,9 @@ Discord REST requests. Omnara checks exact thread subscriptions and pending laun
 before looking up the channel. Role mentions require a guild-role lookup unless the
 bot user is also mentioned. Bot mentions require a channel lookup and share
 the bot's [REST quota](https://docs.discord.com/developers/topics/rate-limits) with replies.
-Identity checks and attachment downloads happen only after routing finds a recipient.
+Identity checks happen only after routing finds a recipient, or before replying to a mention
+with no matching subscription or launcher. Attachment downloads happen only after routing
+finds a recipient.
 
 ## Launch from mentions
 
@@ -140,7 +142,9 @@ Change **Profiles for mentions** directly on the integration page and select **S
 to update future launches; existing agents keep their configs.
 Selecting profiles enables mention launches without a separate enable switch.
 An empty selection leaves schedules and existing conversations available. With
-no matching subscription or launcher, messages receive no response.
+no matching subscription or launcher, a mention gets a reply saying the bot isn't available
+for requests; other messages receive no response. That reply is skipped when another
+integration uses the same bot.
 
 ## Scheduled threads
 
@@ -198,7 +202,7 @@ Configure the integration's public key, then set the Discord registration's
 **Interactions Endpoint URL** to:
 
 ```text
-https://YOUR_OMNARA_API_HOST/api/integrations/discord/APPLICATION_ID/interactions
+https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions
 ```
 
 Use the numeric Discord Application ID, not Omnara's `itg_…` ID. One public

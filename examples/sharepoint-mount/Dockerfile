@@ -1,7 +1,7 @@
 # Runs the Omnara machine daemon with a SharePoint document library mounted at
 # /mnt/sharepoint via rclone. Build with the repo root as context; see
 # connect-machine.sh.
-FROM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS build
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY observability/ observability/

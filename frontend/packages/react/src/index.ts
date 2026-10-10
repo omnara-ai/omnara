@@ -154,6 +154,7 @@ export {
   useMemoryFiles,
   useMemoryStore,
   useMemoryStores,
+  useOrgMemoryStores,
   useUpdateMemoryStore,
   useWriteMemoryFile,
 } from './domains/memory'

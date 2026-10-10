@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,8 +25,10 @@ const (
 var catalogDateSuffixPattern = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
 
 type catalogLimits struct {
-	contextWindowTokens *int
-	maxOutputTokens     *int
+	contextWindowTokens       *int
+	maxOutputTokens           *int
+	supportsReasoning         *bool
+	supportedReasoningEfforts []string
 }
 
 type catalogModel struct {
@@ -54,7 +57,7 @@ func NewLimitsCatalog() *LimitsCatalog {
 }
 
 func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []DiscoveredModel) []DiscoveredModel {
-	if !anyModelMissingLimits(models) {
+	if !slices.ContainsFunc(models, missingCatalogData) {
 		return models
 	}
 	entries := c.snapshot(ctx)
@@ -62,7 +65,7 @@ func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []Discover
 		return models
 	}
 	for i := range models {
-		if models[i].ContextWindowTokens != nil && models[i].MaxOutputTokens != nil {
+		if !missingCatalogData(models[i]) {
 			continue
 		}
 		limits, found := lookupCatalogLimits(entries, models[i].Slug)
@@ -77,17 +80,16 @@ func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []Discover
 			maxOutput = limits.maxOutputTokens
 		}
 		models[i].MaxOutputTokens = clampedMaxOutput(models[i].ContextWindowTokens, maxOutput)
+		if models[i].SupportsReasoning == nil {
+			models[i].SupportsReasoning = limits.supportsReasoning
+			models[i].SupportedReasoningEfforts = limits.supportedReasoningEfforts
+		}
 	}
 	return models
 }
 
-func anyModelMissingLimits(models []DiscoveredModel) bool {
-	for _, model := range models {
-		if model.ContextWindowTokens == nil || model.MaxOutputTokens == nil {
-			return true
-		}
-	}
-	return false
+func missingCatalogData(model DiscoveredModel) bool {
+	return model.ContextWindowTokens == nil || model.MaxOutputTokens == nil || model.SupportsReasoning == nil
 }
 
 func lookupCatalogLimits(entries map[string]catalogLimits, slug string) (catalogLimits, bool) {
@@ -162,9 +164,12 @@ func buildCatalogEntries(catalogEntries []discoveredModelEntry) (map[string]cata
 		if slug == "" || contextWindowTokens == nil {
 			continue
 		}
+		supportsReasoning, reasoningEfforts := entry.reasoning()
 		limits := catalogLimits{
-			contextWindowTokens: contextWindowTokens,
-			maxOutputTokens:     entry.maxOutputTokens(),
+			contextWindowTokens:       contextWindowTokens,
+			maxOutputTokens:           entry.maxOutputTokens(),
+			supportsReasoning:         supportsReasoning,
+			supportedReasoningEfforts: reasoningEfforts,
 		}
 		if base, _, isVariant := strings.Cut(slug, ":"); isVariant {
 			variants = append(variants, catalogModel{slug: base, limits: limits})
@@ -223,11 +228,13 @@ func mergeVariantCatalogEntries(
 }
 
 func sameCatalogLimits(a, b catalogLimits) bool {
-	return equalIntPtr(a.contextWindowTokens, b.contextWindowTokens) &&
-		equalIntPtr(a.maxOutputTokens, b.maxOutputTokens)
+	return equalPtr(a.contextWindowTokens, b.contextWindowTokens) &&
+		equalPtr(a.maxOutputTokens, b.maxOutputTokens) &&
+		equalPtr(a.supportsReasoning, b.supportsReasoning) &&
+		slices.Equal(a.supportedReasoningEfforts, b.supportedReasoningEfforts)
 }
 
-func equalIntPtr(a, b *int) bool {
+func equalPtr[T comparable](a, b *T) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

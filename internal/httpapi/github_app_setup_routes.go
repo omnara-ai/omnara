@@ -85,13 +85,9 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 	if organization != "" {
 		registration = "https://github.com/organizations/" + organization + "/settings/apps/new"
 	}
-	webhookURL, err := s.server.githubManifestWebhookURL()
-	if err != nil {
-		return nil, err
-	}
 	manifest := map[string]any{
 		"url":                      s.server.absolutePublicURL(path),
-		"hook_attributes":          map[string]any{"url": webhookURL, "active": true},
+		"hook_attributes":          map[string]any{"url": s.server.absolutePublicURL(GitHubEventsPath), "active": true},
 		"redirect_url":             s.server.absolutePublicURL(githubManifestCallbackPath),
 		"setup_url":                s.server.absolutePublicURL(path),
 		"public":                   false,
@@ -113,21 +109,6 @@ func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 		RegistrationUrl: registration + "?" + url.Values{"state": {token}}.Encode(),
 		Manifest:        manifest, ExpiresAt: expires,
 	}), nil
-}
-
-func (s *Server) githubManifestWebhookURL() (string, error) {
-	base := s.publicAPIURL
-	if base == "" {
-		base = s.publicURL
-	}
-	if validateSlackSetupPublicURL(base) != nil {
-		return "", apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "GitHub webhooks require a public HTTPS API URL")
-	}
-	origin, err := parseConfiguredOrigin(base)
-	if err != nil {
-		return "", err
-	}
-	return origin.url + GitHubEventsPath, nil
 }
 
 func (s *Server) validateGitHubGuidedSetup() error {

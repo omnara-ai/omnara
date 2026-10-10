@@ -115,7 +115,9 @@ requests without changing existing conversations.
 Selecting profiles enables mention launches; there is no separate enable switch.
 Leave the selection empty to use only scheduled launches. Removing the last
 profile removes the mention launcher, without affecting schedules or existing
-conversations. With no matching subscription or launcher, messages receive no response.
+conversations. With no matching subscription or launcher, a mention or DM gets a reply
+saying the bot isn't available for requests; other messages receive no response.
+That reply is skipped when another integration uses the same bot.
 
 A launch derives a config with read/post tools and a Slack interaction handler,
 and attaches a thread subscription before the first input. Existing explicit

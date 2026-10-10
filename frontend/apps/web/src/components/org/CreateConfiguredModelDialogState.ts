@@ -1,4 +1,8 @@
-import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
+import type {
+  ConfiguredModel,
+  CreateConfiguredModelRequest,
+  DiscoveredProviderModel,
+} from '@omnara/sdk'
 
 import { resourceNameError, resourceNameSuggestion } from '@/lib/resource-name'
 
@@ -10,6 +14,8 @@ export interface ConfiguredModelDraft {
   name: string
   contextWindowTokens: string
   maxOutputTokens: string
+  supportsReasoning: boolean
+  supportedReasoningEfforts: string[]
 }
 
 export function configuredModelSuggestedName(providerModelSlug: string) {
@@ -27,12 +33,12 @@ function uniqueConfiguredModelName(providerModelSlug: string, takenNames: Readon
 
 /**
  * A draft prefilled from the provider's catalog or an existing configuration of the same
- * slug: a name not already taken and the reported token limits.
+ * slug: a name not already taken and the reported token limits and reasoning support.
  */
 let draftCount = 0
 
 export function configuredModelDraft(
-  model: Pick<DiscoveredProviderModel, 'slug' | 'context_window_tokens' | 'max_output_tokens'>,
+  model: DiscoveredProviderModel,
   takenNames: ReadonlySet<string> = new Set(),
 ): ConfiguredModelDraft {
   draftCount += 1
@@ -43,6 +49,8 @@ export function configuredModelDraft(
     contextWindowTokens:
       model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
     maxOutputTokens: model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
+    supportsReasoning: model.supports_reasoning ?? false,
+    supportedReasoningEfforts: model.supported_reasoning_efforts ?? [],
   }
 }
 
@@ -102,9 +110,12 @@ export function configuredModelDraftRequest(
     provider_model_slug: draft.slug,
     context_window_tokens: Number(draft.contextWindowTokens),
     supports_tools: true,
-    supports_reasoning: false,
+    supports_reasoning: draft.supportsReasoning,
   }
   if (draft.maxOutputTokens.trim() !== '') request.max_output_tokens = Number(draft.maxOutputTokens)
+  if (draft.supportedReasoningEfforts.length > 0) {
+    request.supported_reasoning_efforts = draft.supportedReasoningEfforts
+  }
   return request
 }
 
@@ -115,4 +126,11 @@ export function discoveredModelMatches(model: DiscoveredProviderModel, search: s
     model.slug.toLowerCase().includes(query) ||
     (model.display_name?.toLowerCase().includes(query) ?? false)
   )
+}
+
+export function reasoningSource(
+  model: Pick<ConfiguredModel, 'supports_reasoning' | 'supported_reasoning_efforts'>,
+  discovered: DiscoveredProviderModel | undefined,
+) {
+  return model.supports_reasoning ? model : (discovered ?? model)
 }

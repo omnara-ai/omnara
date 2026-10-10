@@ -543,17 +543,13 @@ func selectPoolForMachineCreate(
 				return source, validateCreateMachineOverrides(source, input)
 			}
 		}
-		return executionstore.MachinePoolSourceRecord{}, fmt.Errorf(
-			"machine_pool_id is not available to this agent: %w",
-			storeerr.ErrNotFound,
+		return executionstore.MachinePoolSourceRecord{}, errors.New(
+			"machine_pool_id is not available to this agent; use list_machines to discover pools",
 		)
 	}
 	switch len(sources) {
 	case 0:
-		return executionstore.MachinePoolSourceRecord{}, fmt.Errorf(
-			"no machine pools are configured: %w",
-			storeerr.ErrNotFound,
-		)
+		return executionstore.MachinePoolSourceRecord{}, errors.New("no machine pools are configured for this agent")
 	case 1:
 		return sources[0], validateCreateMachineOverrides(sources[0], input)
 	default:

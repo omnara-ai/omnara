@@ -296,7 +296,7 @@ func liveTextContent(t *testing.T, text string) json.RawMessage {
 }
 
 func liveChatCompletionsToken() string {
-	stamp := time.Now().UTC().Format("20060102T150405000000000")
+	stamp := time.Now().UTC().Format("20060102T150405.000000000")
 	return "OMNARA_LIVE_CHAT_" + stamp
 }
 

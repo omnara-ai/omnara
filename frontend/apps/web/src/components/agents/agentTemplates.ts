@@ -82,6 +82,7 @@ export function agentTemplateBasicConfig(
 ): BasicConfig {
   return {
     interactionHandlers: {},
+    gitCredentialsIntegration: '',
     mcpServers: [],
     eventWebhookEvents: ['tool_call_update'],
     eventWebhookUrl: '',

@@ -374,7 +374,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 			Filename:    file.Filename,
 		}
 		blocks = append(blocks, map[string]any{"type": "media_ref", "artifact_id": id.String()})
-		file.Status = slack.EventFileStatusStored
+		file.Status = slack.EventFileStatusPrepared
 	}
 	if summary := slack.SkippedFileSummary(downloads); summary != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": "\n" + summary})

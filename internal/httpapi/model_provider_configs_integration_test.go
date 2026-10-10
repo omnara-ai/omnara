@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1096,7 +1097,8 @@ func TestGetModelCatalog(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":[
-			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
+			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048,
+			 "supported_parameters":["reasoning"],"reasoning":{"supported_efforts":["high","low"]}},
 			{"id":"gpt-b"}
 		]}`))
 	}))
@@ -1157,6 +1159,13 @@ func TestGetModelCatalog(t *testing.T) {
 	if firstModel["context_window_tokens"] != float64(65536) ||
 		firstModel["max_output_tokens"] != float64(2048) {
 		t.Fatalf("model catalog token limits mismatch: %+v", firstModel)
+	}
+	if firstModel["supports_reasoning"] != true ||
+		!slices.Equal(testutil.RequireType[[]any](t, firstModel["supported_reasoning_efforts"]), []any{"high", "low"}) {
+		t.Fatalf("model catalog reasoning support mismatch: %+v", firstModel)
+	}
+	if _, reported := testutil.RequireType[map[string]any](t, models[1])["supports_reasoning"]; reported {
+		t.Fatalf("model catalog should omit unreported reasoning support: %+v", models[1])
 	}
 
 	badConfigID := createProvider("catalog-failed", "catalog-bad-key", "sk-bad")

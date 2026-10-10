@@ -6,6 +6,7 @@ import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-que
 import {
   type ConfiguredModelDraft,
   discoveredModelMatches,
+  reasoningSource,
 } from './CreateConfiguredModelDialogState'
 
 /**
@@ -29,19 +30,22 @@ export function useModelPickerOptions({
   const catalogModels = catalog?.status === 'ok' ? (catalog.models ?? []) : []
   const configuredQuery = useConfiguredModels(orgId, providerId)
   const configured = useCompleteInfiniteQueryItems(configuredQuery, true)
+  const catalogBySlug = new Map(catalogModels.map((model) => [model.slug, model]))
   // One row per configured or picked slug, prefilled from its first configuration's limits,
   // or else the catalog's.
   const addedBySlug = new Map<string, DiscoveredProviderModel>()
   for (const model of configured.items) {
     if (addedBySlug.has(model.provider_model_slug)) continue
+    const reasoning = reasoningSource(model, catalogBySlug.get(model.provider_model_slug))
     addedBySlug.set(model.provider_model_slug, {
       slug: model.provider_model_slug,
       display_name: model.name,
       context_window_tokens: model.context_window_tokens,
       max_output_tokens: model.max_output_tokens ?? undefined,
+      supports_reasoning: reasoning.supports_reasoning,
+      supported_reasoning_efforts: reasoning.supported_reasoning_efforts,
     })
   }
-  const catalogBySlug = new Map(catalogModels.map((model) => [model.slug, model]))
   for (const draft of drafts) {
     if (addedBySlug.has(draft.slug)) continue
     addedBySlug.set(draft.slug, catalogBySlug.get(draft.slug) ?? { slug: draft.slug })
