@@ -166,10 +166,10 @@ LIMIT 1
 	}
 	prepared1, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       testProjectID,
-			AgentID:         fixture.AgentID,
-			RuntimeLockID:   fixture.Lock.ID,
-			OpeningInputIDs: []uuid.UUID{openingInputID},
+			ProjectID:                testProjectID,
+			AgentID:                  fixture.AgentID,
+			RuntimeLockID:            fixture.Lock.ID,
+			OpeningInputIDs:          []uuid.UUID{openingInputID},
 			SourceModelCallContextID: work.ModelCallContextID,
 			SourceModelOutputID:      work.SourceModelOutputID,
 		})
@@ -402,10 +402,10 @@ func claimNormalContextAtFrontierTest(
 	}
 	prepared2, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       testProjectID,
-			AgentID:         fixture.AgentID,
-			RuntimeLockID:   fixture.Lock.ID,
-			OpeningInputIDs: openingInputIDs,
+			ProjectID:                testProjectID,
+			AgentID:                  fixture.AgentID,
+			RuntimeLockID:            fixture.Lock.ID,
+			OpeningInputIDs:          openingInputIDs,
 			SourceModelCallContextID: work.ModelCallContextID,
 			SourceModelOutputID:      work.SourceModelOutputID,
 		})

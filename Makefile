@@ -33,6 +33,7 @@ INTEGRATION_STORAGE_PACKAGES := \
 	./internal/storage/executionstore \
 	./internal/storage/identitystore \
 	./internal/storage/integrationstore \
+	./internal/storage/internal/agentexecution \
 	./internal/testutil/storagetest
 INTEGRATION_HTTPAPI_PACKAGES := \
 	./internal/httpapi \

@@ -53,18 +53,18 @@ func inboxInputIntegration(
 		f.ctx,
 		integrationstore.ConfigureIntegrationInput{
 
-			OrgID:             testOrgID,
-			ProjectID:         testProjectID,
-			IntegrationID:     integration.ID,
-			InstalledByUserID: f.user.ID,
-			Provider:           provider,
-			ProviderTenantID:   "123",
-			ProviderAccountRef: "456",
-			CredentialAppID:    123,
+			OrgID:                 testOrgID,
+			ProjectID:             testProjectID,
+			IntegrationID:         integration.ID,
+			InstalledByUserID:     f.user.ID,
+			Provider:              provider,
+			ProviderTenantID:      "123",
+			ProviderAccountRef:    "456",
+			CredentialAppID:       123,
 			CredentialSecretID:    secret.ID,
 			CredentialVersionID:   secret.CurrentVersionID,
 			ExpectedSetupRevision: integration.SetupRevision,
-			ProviderIdentity: json.RawMessage(`{"bot_user_id":789,"bot_login":"kernel-test[bot]"}`),
+			ProviderIdentity:      json.RawMessage(`{"bot_user_id":789,"bot_login":"kernel-test[bot]"}`),
 		},
 	)
 	require.NoError(t, err)

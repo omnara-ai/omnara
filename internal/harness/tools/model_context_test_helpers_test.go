@@ -41,10 +41,10 @@ func claimNormalModelCallForToolsTest(
 	}
 	prepared1, err := store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       projectID,
-			AgentID:         agentID,
-			RuntimeLockID:   runtime.ID,
-			OpeningInputIDs: openingInputIDs,
+			ProjectID:                projectID,
+			AgentID:                  agentID,
+			RuntimeLockID:            runtime.ID,
+			OpeningInputIDs:          openingInputIDs,
 			SourceModelCallContextID: sourceModelCallContextID,
 			SourceModelOutputID:      sourceModelOutputID,
 		})
