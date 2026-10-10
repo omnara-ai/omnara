@@ -42,6 +42,9 @@ func assertCommandState(
 	t.Helper()
 	got, err := h.LoadExecution(t.Context())
 	require.NoError(t, err)
+	reloaded, err := agentexecution.ReloadExecution(t.Context(), h)
+	require.NoError(t, err)
+	require.Equal(t, reloaded.View, got.View)
 	rebuilt, err := h.ReconstructExecution(t.Context())
 	require.NoError(t, err)
 	left, right := got.Head, rebuilt.Head
@@ -221,6 +224,9 @@ func TestExecutionCommandSavepointAndReplay(t *testing.T) {
 		assertCommandState(t, u, h)
 		return sentinel
 	}), sentinel)
+	_, count, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+	require.NoError(t, err)
+	require.Zero(t, count)
 	got := assertCommandState(t, u, h)
 	require.Equal(t, expected.Head.CurrentTurnID, got.Head.CurrentTurnID)
 	require.Equal(t, agentexecution.AdmitOneQueued, got.Selection.Admission)
@@ -956,4 +962,26 @@ func TestExecutionContentRejectsDatabaseUnsafeValues(t *testing.T) {
 			require.Zero(t, count)
 		})
 	}
+}
+
+func TestExecutionPreparationOwnsCachedLineage(t *testing.T) {
+	f, a, lease := commandFixture(t)
+	u, h := f.handle(t, a)
+	input := receiveCommand(t, h, "queued", "initial")
+	_, err := h.AdmitInputs(t.Context())
+	require.NoError(t, err)
+	selected, err := h.LoadExecution(t.Context())
+	require.NoError(t, err)
+	prepared, err := h.PrepareModel(t.Context(), agentexecution.PrepareModelInput{
+		RuntimeLockID: lease, Selected: *selected.Selection.Model,
+	})
+	require.NoError(t, err)
+	selected.Selection.Model.Opening.InputIDs[0] = uuid.New()
+	prepared.Context.Opening.InputIDs[0] = uuid.New()
+	snapshot, count, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+	require.NoError(t, err)
+	require.Zero(t, count)
+	require.Equal(t, []uuid.UUID{input.ID}, snapshot.View.NormalContext.Opening.InputIDs)
+	snapshot.View.NormalContext.Opening.InputIDs[0] = uuid.New()
+	assertCommandState(t, u, h)
 }

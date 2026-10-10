@@ -45,8 +45,12 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			}
 			statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 			require.NoError(t, err)
-			require.Equal(t, 2, statements)
-			require.Equal(t, 2, roundTrips)
+			expected := 2
+			if step == "model" {
+				expected = 1
+			}
+			require.Equal(t, expected, statements)
+			require.Equal(t, expected, roundTrips)
 		})
 	}
 	for _, size := range []int{2, 1000} {

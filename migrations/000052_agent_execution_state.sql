@@ -117,12 +117,19 @@ ALTER TABLE context_checkpoints ENABLE TRIGGER context_checkpoints_immutable;
 
 -- +goose StatementBegin
 CREATE FUNCTION execution_opening_is_valid(ids uuid[], first_sequence bigint)
-RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT coalesce(ids IS NOT NULL AND array_ndims(ids) IS NOT DISTINCT FROM CASE WHEN cardinality(ids)=0 THEN NULL ELSE 1 END
-       AND (cardinality(ids)=0 AND first_sequence IS NULL OR cardinality(ids)>0 AND first_sequence>0)
-       AND NOT EXISTS(SELECT 1 FROM unnest(ids) id WHERE id IS NULL OR id='00000000-0000-0000-0000-000000000000'::uuid)
-       AND (cardinality(ids)=0 OR array_lower(ids,1)=1)
-       AND cardinality(ids)=(SELECT count(DISTINCT id) FROM unnest(ids) id), false)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+BEGIN
+    IF ids IS NULL THEN RETURN false; END IF;
+    IF cardinality(ids)=0 THEN RETURN first_sequence IS NULL; END IF;
+    IF first_sequence IS NULL OR first_sequence<=0 OR array_ndims(ids)<>1 OR array_lower(ids,1)<>1 THEN
+        RETURN false;
+    END IF;
+    IF cardinality(ids)=1 THEN
+        RETURN ids[1] IS NOT NULL AND ids[1]<>'00000000-0000-0000-0000-000000000000'::uuid;
+    END IF;
+    RETURN NOT EXISTS(SELECT 1 FROM unnest(ids) id WHERE id IS NULL OR id='00000000-0000-0000-0000-000000000000'::uuid)
+        AND cardinality(ids)=(SELECT count(DISTINCT id) FROM unnest(ids) id);
+END;
 $$;
 -- +goose StatementEnd
 

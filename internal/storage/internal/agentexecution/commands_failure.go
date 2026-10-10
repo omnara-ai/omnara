@@ -245,9 +245,11 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	if err = h.advanceTurn(ctx, event, true); err != nil {
 		return false, err
 	}
+	sourceContext := attemptRecord(row).Context
+	sourceContext.State = ContextFailed
 	if err = applyAcceptedOutput(m,
 		snapshot,
-		attemptRecord(row).Context,
+		sourceContext,
 		output.ID,
 		event,
 		false,

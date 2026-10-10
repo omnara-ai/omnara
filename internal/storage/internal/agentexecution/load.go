@@ -186,5 +186,5 @@ func executionSnapshot(
 	head.TurnContinuable = selected.TurnContinuable
 	head.IncompleteTools = selected.IncompleteTools
 	head.LogicalReadyAt = selected.LogicalReadyAt
-	return ExecutionSnapshot{Head: head, View: view, Selection: selected}, nil
+	return ExecutionSnapshot{Head: head, View: view, Selection: selected, databaseNow: now}, nil
 }

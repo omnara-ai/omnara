@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -109,34 +110,36 @@ func (h *Handle) PrepareModel(ctx context.Context, input PrepareModelInput) (Pre
 			desired.Context.RetryAt = nil
 			desired.RuntimeLockID = input.RuntimeLockID
 		}
-		id, err := q.LatestExecutionAttempt(
-			ctx,
-			h.unit.DB(),
-			executiondb.LatestExecutionAttemptParams{AgentID: h.route.AgentID,
-				Operation: string(desired.Context.Operation),
-				Watermark: desired.Context.InputEventSequence,
-				SourceEnd: optionalSequence(desired.Context.SourceEventSequenceEnd)},
-		)
-		if err == nil {
-			existing, err := q.ReadExecutionAttempt(
+		if desired.Context.InputEventSequence <= m.head.MaxContextInputSequence {
+			id, err := q.LatestExecutionAttempt(
 				ctx,
 				h.unit.DB(),
-				executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: id},
+				executiondb.LatestExecutionAttemptParams{AgentID: h.route.AgentID,
+					Operation: string(desired.Context.Operation),
+					Watermark: desired.Context.InputEventSequence,
+					SourceEnd: optionalSequence(desired.Context.SourceEventSequenceEnd)},
 			)
-			if err != nil {
+			if err == nil {
+				existing, err := q.ReadExecutionAttempt(
+					ctx,
+					h.unit.DB(),
+					executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: id},
+				)
+				if err != nil {
+					return PreparedModel{}, err
+				}
+				record := attemptRecord(existing)
+				if record.Context.Attempt >= desired.Context.Attempt {
+					if record.Context.TurnID != input.Selected.TurnID || record.ConfigID != desired.ConfigID ||
+						!slices.Equal(record.Context.Opening.InputIDs, input.Selected.Opening.InputIDs) ||
+						record.Context.Opening.EventSequence != input.Selected.Opening.EventSequence {
+						return PreparedModel{}, storeerr.ErrIdempotencyConflict
+					}
+					return record, nil
+				}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return PreparedModel{}, err
 			}
-			record := attemptRecord(existing)
-			if record.Context.Attempt >= desired.Context.Attempt {
-				if record.Context.TurnID != input.Selected.TurnID || record.ConfigID != desired.ConfigID ||
-					!slices.Equal(record.Context.Opening.InputIDs, input.Selected.Opening.InputIDs) ||
-					record.Context.Opening.EventSequence != input.Selected.Opening.EventSequence {
-					return PreparedModel{}, storeerr.ErrIdempotencyConflict
-				}
-				return record, nil
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return PreparedModel{}, err
 		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
@@ -167,7 +170,7 @@ func (h *Handle) createAttempt(
 	if err != nil {
 		return PreparedModel{}, err
 	}
-	c := desired.Context
+	c := cloneModel(desired.Context)
 	_, err = q.CreateExecutionAttempt(
 		ctx,
 		h.unit.DB(),
@@ -207,7 +210,28 @@ func (h *Handle) createAttempt(
 	} else {
 		m.head.CompactionContextID = c.ID
 	}
-	m.changed()
+	if c.Operation == OperationNormal {
+		snapshot.View.NormalContext = &c
+		snapshot.View.CompactionContext = nil
+		if m.head.PendingConfigInputID == uuid.Nil {
+			snapshot.View.Config = nil
+		}
+		if m.head.PendingCheckpointID == uuid.Nil {
+			snapshot.View.Checkpoint = nil
+		}
+		if m.head.PendingOutputLimitID == uuid.Nil {
+			snapshot.View.OutputLimit = nil
+		}
+	} else {
+		snapshot.View.CompactionContext = &c
+	}
+	if snapshot.View.Turn != nil && m.head.MaxContextInputSequence >= snapshot.View.Turn.FirstOpeningSequence {
+		snapshot.View.Turn.InitialOpening = Opening{}
+		snapshot.View.Turn.InitialReadyAt = time.Time{}
+	}
+	if err := m.updated(snapshot); err != nil {
+		return PreparedModel{}, err
+	}
 	desired.RevisionID = revision.CurrentRevisionID
 	desired.Created = true
 	desired.Claimed = revision.Allowed

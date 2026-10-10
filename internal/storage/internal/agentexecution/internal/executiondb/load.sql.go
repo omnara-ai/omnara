@@ -12,6 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const executionDatabaseTime = `-- name: ExecutionDatabaseTime :one
+SELECT statement_timestamp()::timestamptz
+`
+
+func (q *Queries) ExecutionDatabaseTime(ctx context.Context, db DBTX) (time.Time, error) {
+	row := db.QueryRow(ctx, executionDatabaseTime)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const loadExecutionBase = `-- name: LoadExecutionBase :one
 SELECT coalesce(h.agent_id,a.id)::uuid AS agent_id,h.current_turn_id,
        coalesce(h.stop_sequence,0)::bigint AS stop_sequence,

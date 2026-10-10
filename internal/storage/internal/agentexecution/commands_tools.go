@@ -54,7 +54,14 @@ func (h *Handle) transitionTool(
 	if n != 1 {
 		return storeerr.ErrStateTransitionConflict
 	}
-	m.changed()
+	runnable := func(state string) bool {
+		return state == "awaiting_authorization" || state == "ready" && (row.Type == "built_in" || row.Type == "mcp")
+	}
+	if (row.State == "completed") != (state == "completed") || runnable(row.State) != runnable(state) {
+		m.changed()
+	} else {
+		m.dirty = true
+	}
 	return nil
 }
 

@@ -47,7 +47,7 @@ func (h *Handle) Claim(
 			return OwnedWork{}, err
 		}
 		if snapshot.Selection.Work == WorkNone {
-			m.changed()
+			m.dirty = true
 			return OwnedWork{Selection: snapshot.Selection}, nil
 		}
 		result := OwnedWork{}
@@ -78,7 +78,8 @@ func (h *Handle) Claim(
 			return OwnedWork{}, err
 		}
 		h.unit.runtimeLocked = true
-		m.changed()
+		h.lockedRuntimeID = result.RuntimeID
+		m.dirty = true
 		if err = q.ConsumeExecutionWakeup(ctx,
 			h.unit.DB(),
 			executiondb.ConsumeExecutionWakeupParams{AgentID: h.route.AgentID}); err != nil {
@@ -155,7 +156,7 @@ func (h *Handle) Advance(
 				return OwnedWork{}, err
 			}
 		}
-		m.changed()
+		m.dirty = true
 		return result, nil
 	})
 }
@@ -181,20 +182,25 @@ func (h *Handle) lockRuntime(
 	id uuid.UUID,
 	skip bool,
 ) (executiondb.ReadExecutionRuntimeRow, error) {
+	if id == uuid.Nil {
+		return executiondb.ReadExecutionRuntimeRow{}, storeerr.ErrRuntimeLockInactive
+	}
 	q := executiondb.New()
 	var err error
-	if skip {
-		_, err = q.TryLockExecutionRuntime(
-			ctx,
-			h.unit.DB(),
-			executiondb.TryLockExecutionRuntimeParams{AgentID: h.route.AgentID, ID: id},
-		)
-	} else {
-		_,
-			err = q.LockExecutionRuntime(ctx,
-			h.unit.DB(),
-			executiondb.LockExecutionRuntimeParams{AgentID: h.route.AgentID,
-				ID: id})
+	if h.lockedRuntimeID != id {
+		if skip {
+			_, err = q.TryLockExecutionRuntime(
+				ctx,
+				h.unit.DB(),
+				executiondb.TryLockExecutionRuntimeParams{AgentID: h.route.AgentID, ID: id},
+			)
+		} else {
+			_,
+				err = q.LockExecutionRuntime(ctx,
+				h.unit.DB(),
+				executiondb.LockExecutionRuntimeParams{AgentID: h.route.AgentID,
+					ID: id})
+		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return executiondb.ReadExecutionRuntimeRow{}, storeerr.ErrRuntimeLockInactive
@@ -203,6 +209,7 @@ func (h *Handle) lockRuntime(
 		return executiondb.ReadExecutionRuntimeRow{}, err
 	}
 	h.unit.runtimeLocked = true
+	h.lockedRuntimeID = id
 	return q.ReadExecutionRuntime(
 		ctx,
 		h.unit.DB(),
@@ -417,6 +424,12 @@ func (h *Handle) releaseRuntime(
 	if n != 1 {
 		return storeerr.ErrRuntimeLockInactive
 	}
-	m.changed()
-	return nil
+	h.lockedRuntimeID = uuid.Nil
+	if m.loaded == nil {
+		m.changed()
+		return nil
+	}
+	m.loaded.databaseNow = runtime.DatabaseNow
+	m.dirty = true
+	return m.selectLoaded()
 }

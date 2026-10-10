@@ -15,7 +15,7 @@ import (
 
 const claimNextAgentWakeup = `-- name: ClaimNextAgentWakeup :one
 WITH locked_agent AS MATERIALIZED (
-  SELECT agent.id AS agent_id, agent.project_id
+  SELECT agent.id AS agent_id, agent.project_id, agent.root_agent_id
   FROM agent_wakeups wake
   JOIN agents agent ON agent.id = wake.agent_id
   WHERE agent.state <> 'archived'
@@ -30,7 +30,7 @@ WITH locked_agent AS MATERIALIZED (
   LIMIT 1
 ),
 locked_wake AS MATERIALIZED (
-  SELECT wake.agent_id, agent.project_id
+  SELECT wake.agent_id, agent.project_id, agent.root_agent_id
   FROM agent_wakeups wake
   JOIN locked_agent agent ON agent.agent_id = wake.agent_id
   WHERE NOT EXISTS (
@@ -40,13 +40,14 @@ locked_wake AS MATERIALIZED (
     )
   FOR UPDATE OF wake
 )
-SELECT agent_id, project_id
+SELECT agent_id, project_id, root_agent_id
 FROM locked_wake
 `
 
 type ClaimNextAgentWakeupRow struct {
-	AgentID   uuid.UUID
-	ProjectID uuid.UUID
+	AgentID     uuid.UUID
+	ProjectID   uuid.UUID
+	RootAgentID uuid.UUID
 }
 
 // The query walks wakeups in global ready order, but locks agents before wake
@@ -56,7 +57,7 @@ type ClaimNextAgentWakeupRow struct {
 func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeupRow, error) {
 	row := q.db.QueryRow(ctx, claimNextAgentWakeup)
 	var i ClaimNextAgentWakeupRow
-	err := row.Scan(&i.AgentID, &i.ProjectID)
+	err := row.Scan(&i.AgentID, &i.ProjectID, &i.RootAgentID)
 	return i, err
 }
 

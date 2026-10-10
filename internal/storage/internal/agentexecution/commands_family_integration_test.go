@@ -57,8 +57,8 @@ func TestExecutionCreatedAgentPublicationAndSavepoint(t *testing.T) {
 	require.ErrorIs(t, err, agentexecution.ErrUnitClosed)
 	statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 	require.NoError(t, err)
-	require.Equal(t, 2, statements)
-	require.Equal(t, 2, roundTrips)
+	require.Equal(t, 1, statements)
+	require.Equal(t, 1, roundTrips)
 	require.NoError(
 		t,
 		f.pool.QueryRow(t.Context(), `SELECT count(*) FROM agent_execution_state`).Scan(&heads),
@@ -175,8 +175,8 @@ func TestExecutionParentEffects(t *testing.T) {
 					require.Equal(t, 1, inputs)
 					statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 					require.NoError(t, err)
-					require.Equal(t, 4, statements)
-					require.Equal(t, 2, roundTrips)
+					require.Equal(t, 2, statements)
+					require.Equal(t, 1, roundTrips)
 				},
 			)
 		}

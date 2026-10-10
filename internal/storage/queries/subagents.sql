@@ -94,12 +94,6 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND agent.state = 'active';
 
--- name: GetAgentParentID :one
-SELECT parent_agent_id
-FROM agents
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(id);
-
 -- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent

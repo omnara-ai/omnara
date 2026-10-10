@@ -130,25 +130,6 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
-const getAgentParentID = `-- name: GetAgentParentID :one
-SELECT parent_agent_id
-FROM agents
-WHERE project_id = $1
-  AND id = $2
-`
-
-type GetAgentParentIDParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetAgentParentID(ctx context.Context, arg GetAgentParentIDParams) (*uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentParentID, arg.ProjectID, arg.ID)
-	var parent_agent_id *uuid.UUID
-	err := row.Scan(&parent_agent_id)
-	return parent_agent_id, err
-}
-
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent

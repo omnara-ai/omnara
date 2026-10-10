@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func beginExecution(
@@ -17,7 +16,11 @@ func beginExecution(
 	if err != nil {
 		return nil, nil, err
 	}
-	if err = lockAgentWithParentTx(ctx, unit, dbsqlc.New(unit.DB()), projectID, agentID); err != nil {
+	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, agentexecution.LifecycleAuthority{})
+	if err == nil {
+		err = unit.LockAgents(ctx, plan)
+	}
+	if err != nil {
 		_ = unit.Rollback(ctx)
 		return nil, nil, err
 	}

@@ -97,7 +97,11 @@ func reapExpiredAgentRuntimeLockTx(
 	unit *agentexecution.Unit,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
-	locked, err := tryLockAgentWithParentTx(ctx, unit, dbsqlc.New(unit.DB()), projectID, agentID)
+	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, agentexecution.LifecycleAuthority{})
+	var locked bool
+	if err == nil {
+		locked, err = unit.TryLockAgents(ctx, plan)
+	}
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return false, nil
 	}

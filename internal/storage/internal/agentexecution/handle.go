@@ -4,14 +4,17 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 type Handle struct {
-	unit     *Unit
-	route    AgentRoute
-	valid    bool
-	created  bool
-	mutation *executionMutation
+	unit            *Unit
+	route           AgentRoute
+	valid           bool
+	created         bool
+	mutation        *executionMutation
+	identity        *dbsqlc.LockAgentInProjectRow
+	lockedRuntimeID uuid.UUID
 }
 
 func (u *Unit) Agent(route AgentRoute) (*Handle, error) {

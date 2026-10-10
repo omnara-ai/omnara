@@ -19,15 +19,17 @@ WITH scope AS MATERIALIZED (
  AND i.delivery_mode='steering' AND i.state='received') AS steering,
  EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
  AND i.delivery_mode='queued' AND i.state='received') AS queued,
- coalesce((SELECT x.sequence FROM agent_events x WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ORDER BY x.sequence LIMIT 1),0)::bigint AS first_opening_sequence,
- coalesce((SELECT x.sequence FROM agent_events x WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ORDER BY x.sequence DESC LIMIT 1),0)::bigint AS last_opening_sequence,
- coalesce((SELECT x.sequence FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
- WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event AND i.input_kind='content'
- ORDER BY x.sequence LIMIT 1),0)::bigint AS first_content_sequence
+ coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
+ coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
+ coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
  FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=sqlc.narg(turn_id)
  LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
+ LEFT JOIN LATERAL (
+  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
+  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
+  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
+ ) o ON true
  WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id)
 ), outputs AS MATERIALIZED (
     SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
@@ -91,9 +93,9 @@ SELECT 'context'::text AS kind,
        'epoch'::timestamptz AS database_now,
        false AS steering,false AS queued,
        0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM model_call_contexts c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id IN (
-    SELECT sqlc.narg(normal_context_id)::uuid UNION SELECT sqlc.narg(compaction_context_id)::uuid
-    UNION SELECT model_call_context_id FROM outputs)
+FROM model_call_contexts c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=ANY(
+    ARRAY[sqlc.narg(normal_context_id)::uuid,sqlc.narg(compaction_context_id)::uuid]
+    || ARRAY(SELECT model_call_context_id FROM outputs))
 UNION ALL
 SELECT 'output'::text AS kind,
        o.id AS id,
@@ -258,14 +260,8 @@ FROM scope s
 SELECT f.kind,f.id,f.turn_id,f.context_id,f.event_id,f.sequence,f.event_time,f.operation,f.attempt,
  f.watermark,f.source_end,f.state,f.recovery,f.retry_at,f.opening_ids,f.opening_sequence,
  f.has_tools,f.incomplete,f.runnable,f.calls,f.results,f.events,f.stop_reason,f.root_agent_id,
- f.database_now,f.steering,f.queued,f.first_opening_sequence,f.last_opening_sequence,f.first_content_sequence,
- coalesce(w.org_id,'00000000-0000-0000-0000-000000000000'::uuid)::uuid AS webhook_org_id,
- coalesce(w.events,'[]'::jsonb)::jsonb AS webhook_events
-FROM facts f LEFT JOIN LATERAL (
- SELECT p.org_id,c.compiled_definition->'event_webhook'->'events' AS events
- FROM agents a JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
- JOIN projects p ON p.id=a.project_id JOIN orgs o ON o.id=p.org_id
- WHERE a.id=sqlc.arg(agent_id) AND p.deleted_at IS NULL AND o.deleted_at IS NULL
- AND coalesce(c.compiled_definition->'event_webhook'->>'url','')<>''
- AND sqlc.arg(capture_webhook)::boolean AND f.kind='scope'
-) w ON true ORDER BY f.kind,f.sequence;
+ f.database_now,f.steering,f.queued,f.first_opening_sequence,f.last_opening_sequence,f.first_content_sequence
+FROM facts f ORDER BY f.kind,f.sequence;
+
+-- name: ExecutionDatabaseTime :one
+SELECT statement_timestamp()::timestamptz;

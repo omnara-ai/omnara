@@ -99,7 +99,19 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err = h.writeContent(ctx, "agent_input", row.ID, input.Content); err != nil {
 			return ReceivedContent{}, err
 		}
-		m.changed()
+		if m.loaded != nil {
+			m.loaded.databaseNow = row.QueuedAt
+			if input.DeliveryMode == "steering" {
+				m.loaded.View.Inputs.Steering = true
+			} else {
+				m.loaded.View.Inputs.Queued = true
+			}
+			if err := m.updated(*m.loaded); err != nil {
+				return ReceivedContent{}, err
+			}
+		} else {
+			m.changed()
+		}
 		return ReceivedContent{ID: row.ID, Created: true}, nil
 	})
 }
@@ -170,7 +182,47 @@ func (h *Handle) admitInputs(
 		AgentID: h.route.AgentID, ID: result.TurnID, EventID: last.ID}); err != nil {
 		return InputAdmission{}, err
 	}
+	loaded := m.loaded
 	m.openTurn(result.TurnID)
+	if loaded == nil {
+		return result, nil
+	}
+	opening, err := q.CaptureExecutionOpening(ctx, h.unit.DB(), executiondb.CaptureExecutionOpeningParams{
+		AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, TurnID: result.TurnID,
+		Watermark: last.Sequence, StopSequence: m.head.StopSequence,
+	})
+	if err != nil {
+		return InputAdmission{}, err
+	}
+	if len(opening) == 0 {
+		return InputAdmission{}, ErrInvalidState
+	}
+	first := result.Inputs[0].Event
+	turn := &Turn{ID: result.TurnID, FirstOpeningSequence: first.Sequence, LastOpeningSequence: last.Sequence,
+		FirstContentSequence: first.Sequence, LatestSemantic: last.EventBoundary,
+		InitialOpening: Opening{EventSequence: opening[0].Sequence}, InitialReadyAt: opening[0].CreatedAt}
+	for _, row := range opening {
+		turn.InitialOpening.InputIDs = append(turn.InitialOpening.InputIDs, row.ID)
+	}
+	loaded.View = ExecutionView{AgentID: h.route.AgentID, State: loaded.View.State, Turn: turn}
+	admitted := make(map[uuid.UUID]bool, len(result.Inputs))
+	for _, input := range result.Inputs {
+		admitted[input.ID] = true
+	}
+	for _, row := range rows {
+		if admitted[row.ID] {
+			continue
+		}
+		if row.DeliveryMode == "steering" {
+			loaded.View.Inputs.Steering = true
+		} else {
+			loaded.View.Inputs.Queued = true
+		}
+	}
+	loaded.databaseNow = last.Time
+	if err := m.updated(*loaded); err != nil {
+		return InputAdmission{}, err
+	}
 	return result, nil
 }
 

@@ -133,6 +133,16 @@ created_at,updated_at)
 		)
 		require.Equal(t, tc.valid, valid)
 	}
+	for _, array := range []string{
+		"'[0:0]={11111111-1111-4111-8111-111111111111}'",
+		"'{{11111111-1111-4111-8111-111111111111}}'", "'{NULL}'",
+	} {
+		var valid bool
+		require.NoError(t, f.pool.QueryRow(t.Context(),
+			"SELECT execution_opening_is_valid("+array+"::uuid[],1)").Scan(&valid))
+		require.False(t, valid)
+	}
+
 }
 
 func TestExecutionReconstructionIgnoresCorruptHead(t *testing.T) {
@@ -184,6 +194,8 @@ SELECT normal_context_id IS NULL FROM agent_execution_state WHERE agent_id=$1
 	require.Equal(t, agentexecution.WorkModel, rebuilt.Selection.Work)
 	_, err = u.DB().Exec(t.Context(), `DELETE FROM agent_execution_state WHERE agent_id=$1`, agent)
 	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "corrupt head"))
+	_, h = f.handle(t, agent)
 	_, err = h.LoadExecution(t.Context())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	rebuilt, err = h.ReconstructExecution(t.Context())

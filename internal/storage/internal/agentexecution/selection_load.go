@@ -28,9 +28,10 @@ type ExecutionHead struct {
 }
 
 type ExecutionSnapshot struct {
-	Head      ExecutionHead
-	View      ExecutionView
-	Selection Selection
+	Head        ExecutionHead
+	View        ExecutionView
+	Selection   Selection
+	databaseNow time.Time
 }
 
 type executionLoader struct {
@@ -68,13 +69,29 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 	m := h.mutation
 	if m != nil {
 		head = &m.head
-		if m.loaded != nil && m.loaded.Selection.Wait != WaitModelDeadline {
+		if m.loaded != nil {
+			if m.loaded.Selection.Wait == WaitModelDeadline {
+				now, err := executiondb.New().ExecutionDatabaseTime(ctx, h.unit.DB())
+				if err != nil {
+					return ExecutionSnapshot{}, err
+				}
+				m.loaded.databaseNow = now
+				if err := m.selectLoaded(); err != nil {
+					return ExecutionSnapshot{}, err
+				}
+			}
 			return cloneExecutionSnapshot(*m.loaded), nil
 		}
 	}
 	snapshot, err := loadExecution(ctx, h.unit.DB(), route, head)
-	if err == nil && m != nil {
+	if err == nil {
+		if m == nil {
+			m = &executionMutation{}
+			h.mutation = m
+		}
+		m.head = snapshot.Head
 		m.loaded = &snapshot
+		m.selectionChanged = false
 	}
 	return cloneExecutionSnapshot(snapshot), err
 }

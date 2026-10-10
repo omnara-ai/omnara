@@ -121,12 +121,15 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 			continue
 		}
 		var err error
+		var identity dbsqlc.LockAgentInProjectRow
 		if skipLocked {
-			_, err = q.TryLockAgentInProject(ctx, dbsqlc.TryLockAgentInProjectParams{
+			var row dbsqlc.TryLockAgentInProjectRow
+			row, err = q.TryLockAgentInProject(ctx, dbsqlc.TryLockAgentInProjectParams{
 				ProjectID: route.ProjectID, ID: route.AgentID,
 			})
+			identity = dbsqlc.LockAgentInProjectRow(row)
 		} else {
-			_, err = q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
+			identity, err = q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
 				ProjectID: route.ProjectID, ID: route.AgentID,
 			})
 		}
@@ -139,20 +142,23 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 		if err != nil {
 			return false, err
 		}
-		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true}
+		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true, identity: &identity}
 	}
 	if owned, ok := plan.authority.(RuntimeAuthority); ok {
 		h := u.handles[owned.AgentID]
 		if h == nil || owned.RuntimeLockID == uuid.Nil {
 			return false, storeerr.ErrRuntimeLockInactive
 		}
-		if _, err := q.LockAgentRuntimeLockForOwnedMutation(ctx, dbsqlc.LockAgentRuntimeLockForOwnedMutationParams{
-			ProjectID: h.route.ProjectID, AgentID: owned.AgentID, ID: owned.RuntimeLockID,
-		}); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return false, storeerr.ErrRuntimeLockInactive
+		if h.lockedRuntimeID != owned.RuntimeLockID {
+			if _, err := q.LockAgentRuntimeLockForOwnedMutation(ctx, dbsqlc.LockAgentRuntimeLockForOwnedMutationParams{
+				ProjectID: h.route.ProjectID, AgentID: owned.AgentID, ID: owned.RuntimeLockID,
+			}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, storeerr.ErrRuntimeLockInactive
+				}
+				return false, err
 			}
-			return false, err
+			h.lockedRuntimeID = owned.RuntimeLockID
 		}
 		u.runtimeLocked = true
 	}
@@ -207,12 +213,8 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 	if err != nil {
 		return AgentRoute{}, err
 	}
-	plan, err := u.PlanAgents(ctx, []lifecyclelock.AgentRef{{ProjectID: wakeup.ProjectID, AgentID: wakeup.AgentID}},
-		IngressAuthority{})
-	if err != nil {
-		return AgentRoute{}, err
-	}
-	route := plan.agents[0]
+	route := AgentRoute{CellID: u.cell.id, ProjectID: wakeup.ProjectID,
+		AgentID: wakeup.AgentID, RootAgentID: wakeup.RootAgentID}
 	u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true}
 	return route, nil
 }
@@ -250,5 +252,36 @@ func (u *Unit) LockAgent(
 		}
 		return dbsqlc.LockAgentInProjectRow{}, err
 	}
-	return dbsqlc.New(u.DB()).LockAgentInProject(ctx, arg)
+	h := u.handles[arg.ID]
+	if h.identity != nil && (h.mutation == nil || !h.mutation.dirty) {
+		return *h.identity, nil
+	}
+	row, err := dbsqlc.New(u.DB()).LockAgentInProject(ctx, arg)
+	if err == nil {
+		h.identity = &row
+	}
+	return row, err
+}
+
+func (u *Unit) PlanAgentFamily(
+	ctx context.Context, projectID, agentID uuid.UUID, authority MutationAuthority,
+) (MutationPlan, error) {
+	if err := u.active(); err != nil {
+		return MutationPlan{}, err
+	}
+	row, err := executiondb.New().LoadExecutionFamily(ctx, u.DB(), executiondb.LoadExecutionFamilyParams{
+		ProjectID: projectID, ID: agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MutationPlan{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return MutationPlan{}, err
+	}
+	routes := []AgentRoute{{CellID: u.cell.id, ProjectID: projectID, AgentID: agentID, RootAgentID: row.RootAgentID}}
+	if row.ParentAgentID != nil {
+		routes = append(routes, AgentRoute{CellID: u.cell.id, ProjectID: projectID,
+			AgentID: *row.ParentAgentID, RootAgentID: row.RootAgentID})
+	}
+	return MutationPlan{unit: u, agents: routes, authority: authority}, nil
 }

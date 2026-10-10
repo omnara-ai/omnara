@@ -192,14 +192,22 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		); err != nil {
 			return AcceptedOutput{}, err
 		}
+		sourceContext := attemptRecord(source).Context
+		sourceContext.State = ContextSucceeded
 		if err = applyAcceptedOutput(m,
 			snapshot,
-			attemptRecord(source).Context,
+			sourceContext,
 			output.ID,
 			event,
 			len(proposals) > 0,
 			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens); err != nil {
 			return AcceptedOutput{}, err
+		}
+		for _, call := range proposals {
+			if call.Error != "" {
+				m.changed()
+				break
+			}
 		}
 		if !input.Response.HasToolCalls() {
 			kind := map[modelenvelope.StopReason]string{modelenvelope.StopReasonEndTurn: "result",
@@ -327,9 +335,20 @@ func applyAcceptedOutput(
 	tools, limit bool,
 ) error {
 	m.head.AnsweredThroughSequence = max(m.head.AnsweredThroughSequence, event.Sequence)
-	m.changed()
+	if snapshot.View.NormalContext != nil && snapshot.View.NormalContext.ID == source.ID {
+		snapshot.View.NormalContext = &source
+	}
+	if snapshot.View.CompactionContext != nil && snapshot.View.CompactionContext.ID == source.ID {
+		snapshot.View.CompactionContext = &source
+	}
+	if snapshot.View.ToolBatch != nil && snapshot.View.ToolBatch.Output.Context.ID == source.ID {
+		snapshot.View.ToolBatch.Output.Context = source
+	}
+	if snapshot.View.OutputLimit != nil && snapshot.View.OutputLimit.Context.ID == source.ID {
+		snapshot.View.OutputLimit.Context = source
+	}
 	if source.TurnID != m.head.CurrentTurnID || event.Sequence < m.head.StopSequence {
-		return nil
+		return m.updated(snapshot)
 	}
 	if snapshot.View.ToolBatch != nil {
 		completion := snapshot.View.ToolBatch.Completion
@@ -337,14 +356,23 @@ func applyAcceptedOutput(
 			return errors.New("accepted model output does not cover pending tool results")
 		}
 		m.head.PendingToolOutputID = uuid.Nil
+		snapshot.View.ToolBatch = nil
 	}
 	m.head.PendingOutputLimitID = uuid.Nil
+	snapshot.View.OutputLimit = nil
+	output := ModelOutput{ID: id, EventID: event.ID, Event: event.EventBoundary, Context: source}
 	if tools {
 		m.head.PendingToolOutputID = id
+		snapshot.View.ToolBatch = &ToolBatch{Output: output, HasIncomplete: true, HasRunnable: true}
 	} else if limit {
 		m.head.PendingOutputLimitID = id
+		snapshot.View.OutputLimit = &output
 	}
-	return nil
+	if !tools && snapshot.View.Turn != nil {
+		snapshot.View.Turn.LatestSemantic = event.EventBoundary
+	}
+	snapshot.databaseNow = event.Time
+	return m.updated(snapshot)
 }
 
 func (h *Handle) rejectProposal(ctx context.Context, m *executionMutation, call outputProposal) error {

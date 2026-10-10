@@ -40,6 +40,27 @@ func (q *Queries) LoadExecutionBoundaries(ctx context.Context, db DBTX, arg Load
 	return i, err
 }
 
+const loadExecutionFamily = `-- name: LoadExecutionFamily :one
+SELECT root_agent_id,parent_agent_id FROM agents WHERE project_id=$1 AND id=$2
+`
+
+type LoadExecutionFamilyParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+type LoadExecutionFamilyRow struct {
+	RootAgentID   uuid.UUID
+	ParentAgentID *uuid.UUID
+}
+
+func (q *Queries) LoadExecutionFamily(ctx context.Context, db DBTX, arg LoadExecutionFamilyParams) (LoadExecutionFamilyRow, error) {
+	row := db.QueryRow(ctx, loadExecutionFamily, arg.ProjectID, arg.ID)
+	var i LoadExecutionFamilyRow
+	err := row.Scan(&i.RootAgentID, &i.ParentAgentID)
+	return i, err
+}
+
 const loadExecutionScope = `-- name: LoadExecutionScope :one
 SELECT a.root_agent_id
 FROM agents a WHERE a.project_id=$1 AND a.id=$2

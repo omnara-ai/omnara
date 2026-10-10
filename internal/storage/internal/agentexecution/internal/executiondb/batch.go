@@ -27,38 +27,40 @@ WITH scope AS MATERIALIZED (
  AND i.delivery_mode='steering' AND i.state='received') AS steering,
  EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
  AND i.delivery_mode='queued' AND i.state='received') AS queued,
- coalesce((SELECT x.sequence FROM agent_events x WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ORDER BY x.sequence LIMIT 1),0)::bigint AS first_opening_sequence,
- coalesce((SELECT x.sequence FROM agent_events x WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ORDER BY x.sequence DESC LIMIT 1),0)::bigint AS last_opening_sequence,
- coalesce((SELECT x.sequence FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
- WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event AND i.input_kind='content'
- ORDER BY x.sequence LIMIT 1),0)::bigint AS first_content_sequence
- FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$3
+ coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
+ coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
+ coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
+ FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$1
  LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
- WHERE a.id=$1 AND a.project_id=$4
+ LEFT JOIN LATERAL (
+  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
+  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
+  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
+ ) o ON true
+ WHERE a.id=$2 AND a.project_id=$3
 ), outputs AS MATERIALIZED (
     SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
     FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
-    WHERE o.agent_id=$1 AND o.id IN ($5::uuid,$6::uuid)
+    WHERE o.agent_id=$2 AND o.id IN ($4::uuid,$5::uuid)
 ), batch AS MATERIALIZED (
-    SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1
-                     AND c.model_output_id=$5) AS has_tools,
-           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1
-                     AND c.model_output_id=$5 AND c.state<>'completed') AS incomplete,
-           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1
-                     AND c.model_output_id=$5 AND
+    SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
+                     AND c.model_output_id=$4) AS has_tools,
+           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
+                     AND c.model_output_id=$4 AND c.state<>'completed') AS incomplete,
+           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
+                     AND c.model_output_id=$4 AND
                      (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable
-    WHERE $5::uuid IS NOT NULL
+    WHERE $4::uuid IS NOT NULL
 ), boundary AS MATERIALIZED (
-    SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$1
+    SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$2
                     AND e.event_kind='model_output' AND e.sequence<=(SELECT last_opening_sequence FROM scope)
-                    ORDER BY e.sequence DESC LIMIT 1),0),$7::bigint)::bigint AS sequence
-    FROM scope WHERE scope.state='active' AND $8::bigint<scope.first_opening_sequence
- AND $7::bigint<=scope.first_opening_sequence
+                    ORDER BY e.sequence DESC LIMIT 1),0),$6::bigint)::bigint AS sequence
+    FROM scope WHERE scope.state='active' AND $7::bigint<scope.first_opening_sequence
+ AND $6::bigint<=scope.first_opening_sequence
 ), unanswered AS MATERIALIZED (
     SELECT i.id,e.sequence,e.created_at FROM boundary b
-    JOIN agent_events e ON e.agent_id=$1 AND e.is_opening_event
+    JOIN agent_events e ON e.agent_id=$2 AND e.is_opening_event
         AND e.sequence>b.sequence AND e.sequence<=(SELECT last_opening_sequence FROM scope)
     JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
         AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
@@ -66,7 +68,7 @@ WITH scope AS MATERIALIZED (
     SELECT id,sequence,created_at FROM unanswered
     UNION ALL
     SELECT i.id,e.sequence,e.created_at FROM boundary b
-    JOIN agent_events e ON e.agent_id=$1 AND e.turn_id=$3 AND e.is_opening_event
+    JOIN agent_events e ON e.agent_id=$2 AND e.turn_id=$1 AND e.is_opening_event
         AND e.sequence<=(SELECT last_opening_sequence FROM scope)
     JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
         AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
@@ -99,9 +101,9 @@ SELECT 'context'::text AS kind,
        'epoch'::timestamptz AS database_now,
        false AS steering,false AS queued,
        0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM model_call_contexts c WHERE c.agent_id=$1 AND c.id IN (
-    SELECT $9::uuid UNION SELECT $10::uuid
-    UNION SELECT model_call_context_id FROM outputs)
+FROM model_call_contexts c WHERE c.agent_id=$2 AND c.id=ANY(
+    ARRAY[$8::uuid,$9::uuid]
+    || ARRAY(SELECT model_call_context_id FROM outputs))
 UNION ALL
 SELECT 'output'::text AS kind,
        o.id AS id,
@@ -164,7 +166,7 @@ FROM batch b LEFT JOIN LATERAL (
            max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
     FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
     LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-    WHERE c.agent_id=$1 AND c.model_output_id=$5 AND NOT b.incomplete
+    WHERE c.agent_id=$2 AND c.model_output_id=$4 AND NOT b.incomplete
 ) r ON NOT b.incomplete
 UNION ALL
 SELECT 'config'::text AS kind,
@@ -195,7 +197,7 @@ SELECT 'config'::text AS kind,
        false AS steering,false AS queued,
        0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
 FROM agent_inputs i JOIN agent_events e ON e.agent_id=i.agent_id AND e.id=i.admitted_event_id
-WHERE i.agent_id=$1 AND i.id=$11 AND i.input_kind='config_change' AND i.state='resolved'
+WHERE i.agent_id=$2 AND i.id=$10 AND i.input_kind='config_change' AND i.state='resolved'
 UNION ALL
 SELECT 'checkpoint'::text AS kind,
        c.id AS id,
@@ -225,7 +227,7 @@ SELECT 'checkpoint'::text AS kind,
        false AS steering,false AS queued,
        0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
 FROM context_checkpoints c JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id
-WHERE c.agent_id=$1 AND c.id=$12
+WHERE c.agent_id=$2 AND c.id=$11
 UNION ALL
 SELECT 'opening'::text AS kind,
        o.id AS id,
@@ -266,17 +268,8 @@ FROM scope s
 SELECT f.kind,f.id,f.turn_id,f.context_id,f.event_id,f.sequence,f.event_time,f.operation,f.attempt,
  f.watermark,f.source_end,f.state,f.recovery,f.retry_at,f.opening_ids,f.opening_sequence,
  f.has_tools,f.incomplete,f.runnable,f.calls,f.results,f.events,f.stop_reason,f.root_agent_id,
- f.database_now,f.steering,f.queued,f.first_opening_sequence,f.last_opening_sequence,f.first_content_sequence,
- coalesce(w.org_id,'00000000-0000-0000-0000-000000000000'::uuid)::uuid AS webhook_org_id,
- coalesce(w.events,'[]'::jsonb)::jsonb AS webhook_events
-FROM facts f LEFT JOIN LATERAL (
- SELECT p.org_id,c.compiled_definition->'event_webhook'->'events' AS events
- FROM agents a JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
- JOIN projects p ON p.id=a.project_id JOIN orgs o ON o.id=p.org_id
- WHERE a.id=$1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
- AND coalesce(c.compiled_definition->'event_webhook'->>'url','')<>''
- AND $2::boolean AND f.kind='scope'
-) w ON true ORDER BY f.kind,f.sequence
+ f.database_now,f.steering,f.queued,f.first_opening_sequence,f.last_opening_sequence,f.first_content_sequence
+FROM facts f ORDER BY f.kind,f.sequence
 `
 
 type LoadExecutionFactsBatchResults struct {
@@ -286,9 +279,8 @@ type LoadExecutionFactsBatchResults struct {
 }
 
 type LoadExecutionFactsParams struct {
-	AgentID                 uuid.UUID
-	CaptureWebhook          bool
 	TurnID                  *uuid.UUID
+	AgentID                 uuid.UUID
 	ProjectID               uuid.UUID
 	ToolOutputID            *uuid.UUID
 	LimitOutputID           *uuid.UUID
@@ -331,17 +323,14 @@ type LoadExecutionFactsRow struct {
 	FirstOpeningSequence int64
 	LastOpeningSequence  int64
 	FirstContentSequence int64
-	WebhookOrgID         uuid.UUID
-	WebhookEvents        json.RawMessage
 }
 
 func (q *Queries) LoadExecutionFacts(ctx context.Context, db DBTX, arg []LoadExecutionFactsParams) *LoadExecutionFactsBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
-			a.AgentID,
-			a.CaptureWebhook,
 			a.TurnID,
+			a.AgentID,
 			a.ProjectID,
 			a.ToolOutputID,
 			a.LimitOutputID,
@@ -407,8 +396,6 @@ func (b *LoadExecutionFactsBatchResults) Query(f func(int, []LoadExecutionFactsR
 					&i.FirstOpeningSequence,
 					&i.LastOpeningSequence,
 					&i.FirstContentSequence,
-					&i.WebhookOrgID,
-					&i.WebhookEvents,
 				); err != nil {
 					return err
 				}
@@ -429,12 +416,12 @@ func (b *LoadExecutionFactsBatchResults) Close() error {
 
 const publishExecution = `-- name: PublishExecution :batchone
 WITH scope AS MATERIALIZED (
- SELECT a.id AS agent_id,$1::timestamptz AS logical_ready_at
- FROM agents a WHERE a.id=$2 AND ($3::boolean OR
+ SELECT a.id AS agent_id,$2::timestamptz AS logical_ready_at
+ FROM agents a WHERE a.id=$3 AND ($4::boolean OR
  EXISTS(SELECT 1 FROM agent_execution_state h WHERE h.agent_id=a.id))
 ), updated AS (
 INSERT INTO agent_execution_state AS h(agent_id,current_turn_id,stop_sequence,answered_through_sequence,max_normal_input_sequence,max_context_input_sequence,normal_context_id,compaction_context_id,pending_tool_output_id,pending_output_limit_id,pending_config_input_id,pending_checkpoint_id,turn_continuable,incomplete_tools,logical_ready_at)
-SELECT scope.agent_id,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,scope.logical_ready_at FROM scope
+SELECT scope.agent_id,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,scope.logical_ready_at FROM scope
 ON CONFLICT(agent_id) DO UPDATE SET
 current_turn_id=excluded.current_turn_id,
 stop_sequence=excluded.stop_sequence,
@@ -454,10 +441,10 @@ WHERE (h.current_turn_id,h.stop_sequence,h.answered_through_sequence,h.max_norma
 (excluded.current_turn_id,excluded.stop_sequence,excluded.answered_through_sequence,excluded.max_normal_input_sequence,excluded.max_context_input_sequence,excluded.normal_context_id,excluded.compaction_context_id,excluded.pending_tool_output_id,excluded.pending_output_limit_id,excluded.pending_config_input_id,excluded.pending_checkpoint_id,excluded.turn_continuable,excluded.incomplete_tools,excluded.logical_ready_at)
 RETURNING h.agent_id), desired AS MATERIALIZED (
  SELECT a.id,h.logical_ready_at AS ready_at FROM scope h JOIN agents a ON a.id=h.agent_id
- WHERE a.id=$2 AND a.state='active' AND h.logical_ready_at IS NOT NULL
+ WHERE a.id=$3 AND a.state='active' AND h.logical_ready_at IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id)
 ), removed AS (
- DELETE FROM agent_wakeups WHERE agent_id=$2 AND NOT EXISTS(SELECT 1 FROM desired)
+ DELETE FROM agent_wakeups WHERE agent_id=$3 AND NOT EXISTS(SELECT 1 FROM desired)
 ), published AS (
 INSERT INTO agent_wakeups(agent_id,ready_at,updated_at)
 SELECT id,ready_at,statement_timestamp() FROM desired
@@ -469,7 +456,17 @@ WHERE agent_wakeups.ready_at IS DISTINCT FROM CASE
  WHEN agent_wakeups.ready_at<=statement_timestamp() AND excluded.ready_at<=statement_timestamp()
  THEN least(agent_wakeups.ready_at,excluded.ready_at) ELSE excluded.ready_at END
 RETURNING agent_id
-) SELECT agent_id FROM scope
+) SELECT scope.agent_id,
+ coalesce(w.org_id,'00000000-0000-0000-0000-000000000000'::uuid)::uuid AS webhook_org_id,
+ coalesce(w.events,'[]'::jsonb)::jsonb AS webhook_events
+FROM scope LEFT JOIN LATERAL (
+ SELECT p.org_id,c.compiled_definition->'event_webhook'->'events' AS events
+ FROM agents a JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
+ JOIN projects p ON p.id=a.project_id JOIN orgs o ON o.id=p.org_id
+ WHERE a.id=scope.agent_id AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+ AND coalesce(c.compiled_definition->'event_webhook'->>'url','')<>''
+ AND $1::boolean
+) w ON true
 `
 
 type PublishExecutionBatchResults struct {
@@ -479,6 +476,7 @@ type PublishExecutionBatchResults struct {
 }
 
 type PublishExecutionParams struct {
+	CaptureWebhook          bool
 	LogicalReadyAt          *time.Time
 	AgentID                 uuid.UUID
 	InsertHead              bool
@@ -497,10 +495,17 @@ type PublishExecutionParams struct {
 	IncompleteTools         bool
 }
 
+type PublishExecutionRow struct {
+	AgentID       uuid.UUID
+	WebhookOrgID  uuid.UUID
+	WebhookEvents json.RawMessage
+}
+
 func (q *Queries) PublishExecution(ctx context.Context, db DBTX, arg []PublishExecutionParams) *PublishExecutionBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
+			a.CaptureWebhook,
 			a.LogicalReadyAt,
 			a.AgentID,
 			a.InsertHead,
@@ -524,20 +529,20 @@ func (q *Queries) PublishExecution(ctx context.Context, db DBTX, arg []PublishEx
 	return &PublishExecutionBatchResults{br, len(arg), false}
 }
 
-func (b *PublishExecutionBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+func (b *PublishExecutionBatchResults) QueryRow(f func(int, PublishExecutionRow, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
-		var agent_id uuid.UUID
+		var i PublishExecutionRow
 		if b.closed {
 			if f != nil {
-				f(t, agent_id, ErrBatchAlreadyClosed)
+				f(t, i, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
 		row := b.br.QueryRow()
-		err := row.Scan(&agent_id)
+		err := row.Scan(&i.AgentID, &i.WebhookOrgID, &i.WebhookEvents)
 		if f != nil {
-			f(t, agent_id, err)
+			f(t, i, err)
 		}
 	}
 }

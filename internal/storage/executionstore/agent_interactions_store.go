@@ -109,7 +109,11 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	ctx context.Context,
 	input CreateQuestionInteractionInput,
 ) (AgentInteractionRecord, error) {
-	if err := lockAgentWithParentTx(ctx, t.unit, t.q, t.input.ProjectID, t.input.AgentID); err != nil {
+	plan, err := t.unit.PlanAgentFamily(ctx, t.input.ProjectID, t.input.AgentID, agentexecution.LifecycleAuthority{})
+	if err == nil {
+		err = t.unit.LockAgents(ctx, plan)
+	}
+	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
 	destination, err := captureInteractionDestinationTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
