@@ -47,9 +47,8 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 			); diff != "" {
 				t.Fatal(diff)
 			}
-			env := rpc.secret.GetEnvDict()
-			if rpc.secret.GetEnvironmentName() != "staging" ||
-				env["APP_ENV"] != "production" ||
+			env := rpc.create.GetEphemeralSecrets().GetContents()
+			if env["APP_ENV"] != "production" ||
 				env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 				env[providers.ManagedBootstrapScriptEnvVar] == "" {
 				t.Fatalf("create env = %+v", env)
@@ -72,9 +71,6 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 				t.Fatalf("incorrect create request: %v", rpc.create)
 			}
 			if diff := cmp.Diff(providers.ManagedDaemonLauncherArgs(), definition.GetEntrypointArgs()); diff != "" {
-				t.Fatal(diff)
-			}
-			if diff := cmp.Diff([]string{"st-test"}, definition.GetSecretIds()); diff != "" {
 				t.Fatal(diff)
 			}
 			var regions []string
