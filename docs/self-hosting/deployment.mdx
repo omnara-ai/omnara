@@ -25,6 +25,13 @@ Open `http://localhost:8000` and sign up — the local email driver is `console`
 
 ## Production database upgrades
 
+The execution-state migration requires a writer-stop maintenance window. Stop API,
+worker, maintenance, and daemon-report handlers before running migrations, and
+restart them together on the new release after migration succeeds. Existing agent
+history is backfilled before the migration completes. Do not allow an older binary
+to resume writing, delete runtime leases, or clear external tool ownership during
+the upgrade. Unfinished work recovers through the normal lease and retry paths.
+
 Run the release's one-shot `migrate` image before starting its API, worker, and
 maintenance services. Connect the migrator directly to the PostgreSQL writer;
 do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services

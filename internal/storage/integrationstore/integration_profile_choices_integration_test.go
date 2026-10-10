@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
@@ -34,7 +35,7 @@ type profileChoiceFixture struct {
 func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 	t.Helper()
 	base := newInboxFixture(t)
-	base.store = integrationstore.New(base.pool, executionstore.IntegrationAccess{})
+	base.store = integrationstore.New(base.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	var profileID, configID uuid.UUID
 	require.NoError(t, base.pool.QueryRow(base.ctx,
 		`SELECT id FROM agent_profiles WHERE project_id=$1`, base.project).Scan(&profileID))
@@ -682,7 +683,7 @@ func TestIntegrationProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) 
 	require.NotEqual(t, f.source.ClaimToken, recovered.ClaimToken)
 	_, _, err = f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
-	restarted := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	restarted := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	resumed, created, err := restarted.EnsureIntegrationProfileChoice(f.ctx, recovered.Lease(), f.input)
 	require.NoError(t, err)
 	require.False(t, created)

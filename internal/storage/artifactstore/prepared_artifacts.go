@@ -44,7 +44,7 @@ func (p PreparedArtifact) Validate() error {
 
 func InsertPreparedArtifactsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 	artifacts []PreparedArtifact,
 ) ([]ArtifactRecord, error) {

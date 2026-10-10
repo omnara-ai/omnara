@@ -131,7 +131,8 @@ func (r Runner) run(
 	}
 	resolved, err := r.Resolver.Resolve(ctx, selection)
 	if err != nil {
-		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		if ctx.Err() != nil &&
+			(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return RunResult{}, err
 		}
 		return r.recordPreSendFailure(
@@ -265,7 +266,8 @@ func (r Runner) run(
 	providerAttempt.ProviderRequestStarted = true
 	providerAttempt.Response = response
 	if err != nil {
-		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		if ctx.Err() != nil &&
+			(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return RunResult{}, err
 		}
 		if _, classified := model.ClassifyError(err); !classified {
@@ -401,7 +403,7 @@ func (r Runner) run(
 		},
 	)
 	if err != nil {
-		if errors.Is(err, executionstore.ErrCheckpointBoundaryUnsafe) {
+		if errors.Is(err, storeerr.ErrCheckpointBoundaryUnsafe) {
 			nextEnd, adjustmentErr := r.nextSmallerSourceEnd(ctx, input.Plan)
 			if adjustmentErr != nil {
 				return RunResult{}, errors.Join(err, adjustmentErr)
@@ -509,7 +511,10 @@ func (r Runner) validate(input RunInput) error {
 	return nil
 }
 
-func (r Runner) resultForUnclaimed(ctx context.Context, claim executionstore.ModelCallClaim) (RunResult, error) {
+func (r Runner) resultForUnclaimed(
+	ctx context.Context,
+	claim executionstore.ModelCallClaim,
+) (RunResult, error) {
 	result := RunResult{
 		ModelCallContextID: claim.Context.ID,
 	}

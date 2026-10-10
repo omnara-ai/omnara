@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func claimReplacementAfterReapedNormalModelCall(
@@ -50,13 +49,14 @@ func claimReplacementAfterReapedNormalModelCallSetup(
 		t.Fatalf("release initial runtime lock: %v", err)
 	}
 	now := fixture.Now.Add(time.Minute)
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise stale worker fencing"}]`),
-		IdempotencyKey: fixtureName,
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise stale worker fencing"}]`),
+			IdempotencyKey: fixtureName,
+		})
 	if err != nil {
 		t.Fatalf("create stale-worker input: %v", err)
 	}
@@ -152,12 +152,13 @@ func claimReplacementModelCallContext(
 		work.Model.ModelCallContextID != predecessorContextID {
 		t.Fatalf("claim replacement model work = %+v found=%v err=%v", work, found, err)
 	}
-	claim, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     testProjectID,
-		AgentID:                       fixture.AgentID,
-		PredecessorModelCallContextID: predecessorContextID,
-		RuntimeLockID:                 work.RuntimeLock.ID,
-	})
+	claim, err := fixture.Store.Execution().
+		ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     testProjectID,
+			AgentID:                       fixture.AgentID,
+			PredecessorModelCallContextID: predecessorContextID,
+			RuntimeLockID:                 work.RuntimeLock.ID,
+		})
 	if err != nil {
 		t.Fatalf("claim replacement model context: %v", err)
 	}
@@ -242,13 +243,14 @@ func claimExhaustedCompactionModelContext(
 	); err != nil {
 		t.Fatalf("release compaction fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise compaction retry limit"}]`),
-		IdempotencyKey: fixtureName,
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise compaction retry limit"}]`),
+			IdempotencyKey: fixtureName,
+		})
 	if err != nil {
 		t.Fatalf("create compaction content input: %v", err)
 	}
@@ -397,13 +399,14 @@ func claimExhaustedNormalModelContext(
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise model call retry limit"}]`),
-		IdempotencyKey: fixtureName,
-	})
+	input, _, _, err := fixture.Store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise model call retry limit"}]`),
+			IdempotencyKey: fixtureName,
+		})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -655,7 +658,7 @@ func claimTestNormalModelCallForWork(
 	now time.Time,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	_, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("load agent for model context: %v", err)
 	}
@@ -668,14 +671,15 @@ func claimTestNormalModelCallForWork(
 		Scan(&openingEventSequence); err != nil {
 		t.Fatalf("load opening event sequence: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      claim.RuntimeLock.ID,
-		OpeningInputIDs:    claim.Model.InputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: openingEventSequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   claim.RuntimeLock.ID,
+			OpeningInputIDs: claim.Model.InputIDs,
+		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context: %v", err)
 	}
@@ -705,7 +709,8 @@ func requireAgentWakeupCoverage(
 	t.Helper()
 	var runnable, hasWakeup, hasRuntimeLock bool
 	if err := store.pool.QueryRow(ctx, `
-SELECT agent_next_wakeup_ready_at($1, $2) IS NOT NULL,
+SELECT EXISTS(SELECT 1 FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
+WHERE a.project_id=$1 AND a.id=$2 AND h.logical_ready_at IS NOT NULL),
        EXISTS (SELECT 1 FROM agent_wakeups WHERE agent_id = $2),
        EXISTS (SELECT 1 FROM agent_runtime_locks WHERE agent_id = $2)
 `, projectID, agentID).Scan(&runnable, &hasWakeup, &hasRuntimeLock); err != nil {
@@ -807,18 +812,19 @@ func retryBackoffWithQueuedInput(
 	if !found || len(admitted.Events) != 1 {
 		t.Fatalf("admit retry opening input found=%v turn=%+v", found, admitted)
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("load retry agent: %v", err)
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{openingInput.ID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared2, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: []uuid.UUID{openingInput.ID},
+		})
+	claim := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim retry model call: %v", err)
 	}
@@ -856,6 +862,12 @@ func retryBackoffWithQueuedInput(
 	if err != nil {
 		t.Fatalf("create queued input during retry backoff: %v", err)
 	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(ctx,
+		testProjectID,
+		fixture.AgentID,
+		fixture.Lock.ID); err != nil {
+		t.Fatal(err)
+	}
 	if readyAt := agentWakeupReadyAt(t, ctx, fixture.Store, fixture.AgentID); !readyAt.Equal(retryAt) {
 		t.Fatalf("initial retry wakeup = %s, want %s", readyAt, retryAt)
 	}
@@ -889,15 +901,38 @@ func requestAgentRuntimeCancelForTest(
 	ctx context.Context,
 	store *Store,
 	projectID, agentID uuid.UUID,
-	now time.Time,
+	_ time.Time,
 ) (executionstore.AgentRuntimeLockRecord, error) {
-	row, err := dbsqlc.New(store.pool).
-		RequestAgentRuntimeCancel(ctx, dbsqlc.RequestAgentRuntimeCancelParams{ProjectID: projectID, AgentID: agentID})
+	var r executionstore.AgentRuntimeLockRecord
+	err := store.pool.QueryRow(ctx,
+		`UPDATE agent_runtime_locks r SET cancel_requested_at=coalesce(cancel_requested_at,statement_timestamp()) FROM agents a WHERE a.id=r.agent_id AND a.project_id=$1 AND a.id=$2 AND r.cancel_requested_at IS NULL RETURNING r.id,r.agent_id,r.worker_process_id,r.started_at,r.renewed_at,r.lease_expires_at,r.cancel_requested_at`,
+		projectID,
+		agentID).
+		Scan(&r.ID,
+			&r.AgentID,
+			&r.WorkerProcessID,
+			&r.StartedAt,
+			&r.RenewedAt,
+			&r.LeaseExpiresAt,
+			&r.CancelRequestedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return executionstore.AgentRuntimeLockRecord{}, nil
 	}
-	if err != nil {
-		return executionstore.AgentRuntimeLockRecord{}, err
-	}
-	return executionstore.IntegrationAgentRuntimeLockRecordFromCancelSQLC(row), nil
+	return r, err
+}
+
+func currentContinuableTurnForTest(
+	ctx context.Context,
+	store *Store,
+	projectID, agentID uuid.UUID,
+) (executionstore.AgentTurnRecord, error) {
+	var r executionstore.AgentTurnRecord
+	err := store.pool.QueryRow(ctx,
+		`SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id JOIN agent_turns t ON t.agent_id=h.agent_id AND t.id=h.current_turn_id WHERE a.project_id=$1 AND a.id=$2 AND h.turn_continuable`,
+		projectID,
+		agentID).
+		Scan(&r.ID, &r.TurnSequence, &r.LatestEventID, &r.LatestSemanticEventID)
+	r.ProjectID = projectID
+	r.AgentID = agentID
+	return r, err
 }

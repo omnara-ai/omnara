@@ -8,26 +8,45 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func IntegrationSelectAdmittedInteractionDestinationTx(
-	ctx context.Context, tx pgx.Tx, projectID, agentID uuid.UUID, inputs []AgentInputRecord,
+func IntegrationApplyAdmissionDestination(
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	projectID, agentID uuid.UUID,
+	inputs []AgentInputRecord,
 ) error {
-	return selectAdmittedInteractionDestinationTx(ctx, tx, projectID, agentID, inputs)
+	admission := agentexecution.InputAdmission{}
+	for _, input := range inputs {
+		admission.Inputs = append(
+			admission.Inputs,
+			agentexecution.AdmittedContent{
+				ID:                  input.ID,
+				ActorID:             input.ActorID,
+				IntegrationTargetID: input.IntegrationTargetID,
+			},
+		)
+	}
+	return applyAdmissionDestination(ctx, unit, projectID, agentID, admission)
 }
 
 func IntegrationSelectInteractionDestinationForOriginTx(
-	ctx context.Context, tx pgx.Tx, projectID, agentID, originTargetID uuid.UUID,
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	projectID, agentID, originTargetID uuid.UUID,
 ) (InteractionSelection, error) {
-	if err := selectAdmittedInteractionDestinationTx(ctx, tx, projectID, agentID, []AgentInputRecord{{
-		InputKind: "content", IntegrationTargetID: originTargetID,
-	}}); err != nil {
+	if err := IntegrationApplyAdmissionDestination(ctx,
+		unit,
+		projectID,
+		agentID,
+		[]AgentInputRecord{{InputKind: "content",
+			IntegrationTargetID: originTargetID}}); err != nil {
 		return InteractionSelection{}, err
 	}
-	row, err := dbsqlc.New(tx).GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
-		ProjectID: projectID, AgentID: agentID,
-	})
+	row, err := dbsqlc.New(unit.DB()).
+		GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{ProjectID: projectID, AgentID: agentID})
 	return interactionSelectionFromRow(row), err
 }
 

@@ -293,7 +293,7 @@ func (s *Store) ListAgentArtifactsByIDs(
 
 func insertArtifactTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	artifactID uuid.UUID,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {

@@ -9,31 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
-	record := agentRecordFromSQLC(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.State,
-		row.Name,
-		row.AgentProfileID,
-		row.CurrentConfigID,
-		row.InteractionTargetID,
-		row.IdempotencyKey,
-		row.NextEventSequence,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-		row.ParentAgentID,
-		row.SubagentKey,
-	)
-	record.Model = AgentModelDisplay{
-		ProviderConfig: row.ModelProviderConfigName,
-		Name:           row.ModelName,
-	}
-	return record
-}
-
 func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) AgentRecord {
 	record := agentRecordFromSQLC(
 		row.ID,

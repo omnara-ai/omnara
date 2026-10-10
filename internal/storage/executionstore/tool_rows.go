@@ -9,68 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func toolCallRecordFromInsertSQLC(row dbsqlc.InsertToolCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, row.CompletedAt,
-	)
-}
-
-func toolCallRecordFromCompleteSQLC(row dbsqlc.CompleteToolCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromRuntimeCompleteSQLC(row dbsqlc.CompleteRuntimeToolCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromWaitingCompleteSQLC(
-	row dbsqlc.CompleteWaitingBuiltInToolCallRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromFailRuntimeSQLC(row dbsqlc.FailRuntimeToolCallsRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromCustomCompleteSQLC(row dbsqlc.CompleteCustomToolCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
 func toolCallRecordFromGetSQLC(row dbsqlc.GetToolCallRow) ToolCallRecord {
 	return toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,
@@ -82,16 +20,6 @@ func toolCallRecordFromGetSQLC(row dbsqlc.GetToolCallRow) ToolCallRecord {
 }
 
 func toolCallRecordFromProviderSQLC(row dbsqlc.GetToolCallByProviderCallRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, row.CompletedAt,
-	)
-}
-
-func toolCallRecordFromContextSQLC(row dbsqlc.ListToolCallsForModelContextRow) ToolCallRecord {
 	return toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,
 		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
@@ -138,86 +66,6 @@ func toolCallRecordFromWatermarkSQLC(
 	record.SourceEventSequence = row.SourceEventSequence
 	record.ToolResultEventSequence = row.ToolResultEventSequence
 	return record
-}
-
-func toolCallRecordFromReadySQLC(row dbsqlc.MarkToolCallReadyRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, row.CompletedAt,
-	)
-}
-
-func toolCallRecordFromProcessCompleteSQLC(
-	row dbsqlc.CompleteToolCallFromProcessRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromQuestionInteractionCompleteSQLC(
-	row dbsqlc.CompleteToolCallFromQuestionInteractionRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromStartedProcessCompleteSQLC(
-	row dbsqlc.CompleteToolCallFromStartedProcessRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromProcessActionCompleteSQLC(
-	row dbsqlc.CompleteToolCallFromProcessActionRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromCancelSQLC(row dbsqlc.CancelNonTerminalToolCallsForAgentRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
-}
-
-func toolCallRecordFromPermissionInteractionCompleteSQLC(
-	row dbsqlc.CompleteToolCallFromPermissionInteractionRow,
-) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, nil,
-	)
 }
 
 func toolCallRecordFromSQLC(

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -34,7 +35,9 @@ func (s *Store) GetDaemonGitCredentialsScope(
 	orgID, machineID, processID uuid.UUID,
 ) (DaemonGitCredentialsScope, bool, error) {
 	if orgID == uuid.Nil || machineID == uuid.Nil || processID == uuid.Nil {
-		return DaemonGitCredentialsScope{}, false, errors.New("organization, machine, and process are required")
+		return DaemonGitCredentialsScope{}, false, errors.New(
+			"organization, machine, and process are required",
+		)
 	}
 	row, err := s.q.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
 		OrgID: orgID, MachineID: machineID, ProcessID: processID,
@@ -119,6 +122,7 @@ func (t *toolCallTransaction) startProcess(
 			return ProcessRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		t.hasDurableCompletionOwner = true
+		t.owner.ProcessID = existing.ID
 		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return ProcessRecord{}, err
 		}
@@ -229,6 +233,8 @@ func (t *toolCallTransaction) startProcess(
 				if !processReplayMatches(existing, input) {
 					return ProcessRecord{}, storeerr.ErrIdempotencyConflict
 				}
+				t.owner.ProcessID = existing.ID
+				t.hasDurableCompletionOwner = true
 				return existing, nil
 			}
 			if _, found, loadErr := machineReachableForProjectMachineTx(
@@ -246,6 +252,7 @@ func (t *toolCallTransaction) startProcess(
 		return ProcessRecord{}, fmt.Errorf("start process: %w", err)
 	}
 	process := processRecordFromInsertSQLC(row)
+	t.owner.ProcessID = process.ID
 	t.hasDurableCompletionOwner = true
 	t.requiresWaitingDisposition = true
 	t.notifications.AddDaemonWork(process.MachineID)
@@ -322,16 +329,18 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 		return ProcessRecord{}, errors.New("source ended at is required")
 	}
 	input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
+	if _, err := unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
+		agentexecution.ExternalAuthority{},
 	); err != nil {
 		return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
 	}
@@ -356,14 +365,13 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 	process := processRecordFromCompleteSQLC(row)
 	if err := completeQueuedProcessActionsForTerminalProcessTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		process,
 	); err != nil {
 		return ProcessRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete process"); err != nil {
+	if err := unit.Commit(ctx, "complete process"); err != nil {
 		return ProcessRecord{}, err
 	}
 	return process, nil

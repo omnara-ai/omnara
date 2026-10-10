@@ -1,9 +1,14 @@
 package omnaralint
 
 import (
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/tools/go/analysis"
 
 	"golang.org/x/tools/go/analysis/analysistest"
 )
@@ -82,5 +87,67 @@ func TestStateSQLWildcardScan(t *testing.T) {
 	issues := scanStateSQLWildcardIssues(queries)
 	if len(issues) != 2 {
 		t.Fatalf("wildcard issues = %v, want 2", issues)
+	}
+}
+
+func TestExecutionSQLBoundary(t *testing.T) {
+	for _, sql := range []string{
+		`INSERT INTO agents(id) VALUES ($1)`,
+		`INSERT /* nested /* comment */ */ INTO "public"."agent_inputs"(id) VALUES ($1)`,
+		`UPDATE tool_calls SET state='ready' WHERE id=$1`,
+		`WITH changed AS (DELETE FROM agent_events WHERE id=$1 RETURNING id) SELECT id FROM changed`,
+		`COPY agents FROM STDIN`,
+		`MERGE INTO agent_inputs a USING old_inputs b ON a.id=b.id WHEN MATCHED THEN DELETE`,
+		`TRUNCATE agents`,
+		`DO $$ BEGIN DELETE FROM agents; END $$`,
+	} {
+		t.Run(sql, func(t *testing.T) {
+			writes, err := executionSQL(sql)
+			if err != nil || !writes {
+				t.Fatalf("writes=%v error=%v", writes, err)
+			}
+		})
+	}
+	for _, sql := range []string{`SELECT id FROM agents WHERE id=$1 FOR UPDATE`,
+		`SELECT 'INSERT INTO agents'`,
+		`UPDATE machines SET display_name=$2 WHERE id=$1`} {
+		writes, err := executionSQL(sql)
+		if err != nil || writes {
+			t.Fatalf("%s: writes=%v error=%v", sql, writes, err)
+		}
+	}
+}
+
+func TestExecutionGoBoundary(t *testing.T) {
+	analysistest.Run(
+		t,
+		analysistest.TestData(),
+		Analyzer,
+		"github.com/omnara-ai/omnara/internal/storage/executionstore",
+	)
+}
+
+func TestExecutionPrivateImport(t *testing.T) {
+	for _, test := range []struct{ path, message string }{
+		{executionPackage + "/internal/executiondb", "executiondb imports belong to agentexecution"},
+		{testutilPackage + "/storagetest", "production code cannot import execution test fixtures"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			set := token.NewFileSet()
+			file, err := parser.ParseFile(set, "escape.go", "package executionstore\n import \""+test.path+"\"", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var messages []string
+			pass := &analysis.Pass{
+				Fset:   set,
+				Pkg:    types.NewPackage(storagePackage+"/executionstore", "executionstore"),
+				Report: func(d analysis.Diagnostic) { messages = append(messages, d.Message) },
+			}
+			checkExecutionAccess(pass, file, false)
+			if len(messages) != 1 || messages[0] != test.message {
+				t.Fatalf("diagnostics=%v", messages)
+			}
+		})
 	}
 }

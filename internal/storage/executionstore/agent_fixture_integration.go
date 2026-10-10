@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
@@ -90,13 +90,14 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if input.CurrentConfigID == uuid.Nil {
 		return AgentRecord{}, errors.New("current config id is required")
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return AgentRecord{}, fmt.Errorf("begin create agent fixture: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	qtx := dbsqlc.New(tx)
 	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
 	if err != nil {
 		return AgentRecord{}, err
@@ -111,7 +112,10 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return AgentRecord{}, err
 	}
-	record, _, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
+	if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
+		return AgentRecord{}, err
+	}
+	record, _, err := insertAdmittedAgentTx(ctx, unit, qtx, insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		Name:            input.Name,
@@ -120,7 +124,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if err != nil {
 		return AgentRecord{}, err
 	}
-	if _, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+	if _, err := activateNewAgentConfigTx(ctx, unit, qtx, ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,
 		AgentID:        record.ID,
 		AgentConfigID:  input.CurrentConfigID,
@@ -130,7 +134,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	}); err != nil {
 		return AgentRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "create agent fixture"); err != nil {
+	if err := unit.Commit(ctx, "create agent fixture"); err != nil {
 		return AgentRecord{}, err
 	}
 	return record, nil

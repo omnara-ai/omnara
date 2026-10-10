@@ -19,7 +19,7 @@ const agentConversationStateKind = "agent_conversation"
 // AssignAgentIntegrationConversationTx requires the integration lifecycle gate and either the
 // agent lock or the agent's uncommitted insert in this transaction.
 func (s *Store) AssignAgentIntegrationConversationTx(
-	ctx context.Context, tx pgx.Tx, projectID, agentID, integrationID uuid.UUID, address ConversationAddress,
+	ctx context.Context, tx dbsqlc.DBTX, projectID, agentID, integrationID uuid.UUID, address ConversationAddress,
 ) error {
 	if projectID == uuid.Nil || agentID == uuid.Nil || integrationID == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("project, agent and integration are required"))
@@ -89,7 +89,7 @@ type AgentIntegrationConversationTarget struct {
 
 func GetAgentIntegrationConversationTargetTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID, integrationID uuid.UUID,
 ) (AgentIntegrationConversationTarget, bool, error) {
 	q := dbsqlc.New(tx)

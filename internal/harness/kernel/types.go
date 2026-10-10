@@ -8,6 +8,7 @@ import (
 )
 
 type ModelWorkExecution struct {
+	Prepared                 *executionstore.PreparedNormalModelCall
 	Kind                     executionstore.ModelWorkKind
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
@@ -23,6 +24,7 @@ type ModelWorkExecution struct {
 }
 
 type ToolWorkExecution struct {
+	Prepared           *executionstore.PreparedToolWork
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	TurnID             uuid.UUID
@@ -31,4 +33,9 @@ type ToolWorkExecution struct {
 	SourceEventID      uuid.UUID
 	RuntimeLockID      uuid.UUID
 	Now                time.Time
+}
+
+type ModelWorkAdvanceOptions struct {
+	Deadline       time.Time
+	AllowModelWork bool
 }

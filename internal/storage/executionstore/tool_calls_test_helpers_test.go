@@ -43,7 +43,7 @@ func createReadyToolCallsForTest(
 	if err != nil {
 		t.Fatalf("create tool-call seed input: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -54,17 +54,17 @@ func createReadyToolCallsForTest(
 	if !found {
 		t.Fatal("expected tool-call seed input admission")
 	}
-	claim, err := store.Execution().ClaimNormalModelCall(
+	prepared1, err := store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            agentID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      configID,
-			InputEventSequence: admitted.Events[0].Sequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
 		},
 	)
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim tool-call seed model context: %v", err)
 	}

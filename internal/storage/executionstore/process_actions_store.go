@@ -12,7 +12,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-var ErrProcessMachineDeleted = storeerr.Tag(storeerr.ErrProcessTerminal, errors.New("process machine was deleted"))
+var ErrProcessMachineDeleted = storeerr.Tag(
+	storeerr.ErrProcessTerminal,
+	errors.New("process machine was deleted"),
+)
 
 func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
@@ -45,6 +48,7 @@ func (t *toolCallTransaction) createProcessAction(
 			return ProcessActionRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		t.hasDurableCompletionOwner = true
+		t.owner.ActionID = record.ID
 		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return ProcessActionRecord{}, err
 		}
@@ -118,6 +122,7 @@ func (t *toolCallTransaction) createProcessAction(
 	}
 	record := processActionRecordFromSQLC(row)
 	t.hasDurableCompletionOwner = true
+	t.owner.ActionID = record.ID
 	t.requiresWaitingDisposition = true
 	t.notifications.AddDaemonWork(processRow.MachineID)
 	return record, nil
@@ -171,7 +176,10 @@ func (t *toolCallTransaction) processActionCreateBlocker(
 	return storeerr.ErrRuntimeLockInactive
 }
 
-func (s *Store) ListDaemonProcessOffers(ctx context.Context, input DaemonWorkInput) ([]DaemonProcessOffer, error) {
+func (s *Store) ListDaemonProcessOffers(
+	ctx context.Context,
+	input DaemonWorkInput,
+) ([]DaemonProcessOffer, error) {
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return nil, err
 	}
@@ -286,7 +294,10 @@ func (s *Store) AcceptDaemonProcess(
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if err := tx.Commit(ctx); err != nil {
-				return DaemonProcessOffer{}, false, fmt.Errorf("commit missing process for daemon accept: %w", err)
+				return DaemonProcessOffer{}, false, fmt.Errorf(
+					"commit missing process for daemon accept: %w",
+					err,
+				)
 			}
 			return DaemonProcessOffer{}, false, nil
 		}
@@ -411,7 +422,10 @@ func (s *Store) AcceptDaemonProcessAction(
 			}
 			return DaemonProcessActionGrant{}, false, nil
 		}
-		return DaemonProcessActionGrant{}, false, fmt.Errorf("lock machine for accept daemon process action: %w", err)
+		return DaemonProcessActionGrant{}, false, fmt.Errorf(
+			"lock machine for accept daemon process action: %w",
+			err,
+		)
 	}
 	if _, err := qtx.LockDaemonProcessForAccept(
 		ctx,
@@ -464,7 +478,10 @@ func (s *Store) AcceptDaemonProcessAction(
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
-			return DaemonProcessActionGrant{}, false, fmt.Errorf("commit accept daemon process action: %w", err)
+			return DaemonProcessActionGrant{}, false, fmt.Errorf(
+				"commit accept daemon process action: %w",
+				err,
+			)
 		}
 		return DaemonProcessActionGrant{}, false, nil
 	}
@@ -519,7 +536,11 @@ func (s *Store) GetProcessActionByToolCall(
 ) (ProcessActionRecord, bool, error) {
 	row, err := s.q.GetProcessActionByToolCall(
 		ctx,
-		dbsqlc.GetProcessActionByToolCallParams{ProjectID: projectID, AgentID: agentID, ToolCallID: toolCallID},
+		dbsqlc.GetProcessActionByToolCallParams{
+			ProjectID:  projectID,
+			AgentID:    agentID,
+			ToolCallID: toolCallID,
+		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProcessActionRecord{}, false, nil

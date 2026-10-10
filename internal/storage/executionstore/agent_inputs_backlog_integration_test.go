@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -629,17 +628,17 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	agentID := mustCreateAgent(t, ctx, store)
 	actor := mustOmnaraActorParams(t, user.ID)
 
-	waitingTx, err := pool.Begin(ctx)
+	waitingTx, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin waiting input transaction: %v", err)
 	}
 	defer func() { _ = waitingTx.Rollback(ctx) }()
-	blockingTx, err := pool.Begin(ctx)
+	blockingTx, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin blocking input transaction: %v", err)
 	}
 	defer func() { _ = blockingTx.Rollback(ctx) }()
-	blockingQueries := store.q.WithTx(blockingTx)
+	blockingQueries := dbsqlc.New(blockingTx.DB())
 	if _, err := blockingQueries.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
@@ -647,7 +646,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		t.Fatalf("lock agent for first input: %v", err)
 	}
 	var blockingPID int32
-	if err := blockingTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID); err != nil {
+	if err := blockingTx.DB().QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID); err != nil {
 		t.Fatalf("get blocking input backend: %v", err)
 	}
 
@@ -664,9 +663,8 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	go func() {
 		result, err := executionstore.IntegrationCreateAgentContentInputTx(
 			context.Background(),
-			notifications.NewTxNotifications(),
 			waitingTx,
-			store.q.WithTx(waitingTx),
+			dbsqlc.New(waitingTx.DB()),
 			executionstore.CreateAgentContentInputInput{
 				ProjectID:      testProjectID,
 				AgentID:        agentID,
@@ -677,7 +675,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 			secondBlocks,
 		)
 		if err == nil {
-			err = waitingTx.Commit(context.Background())
+			err = waitingTx.Commit(context.Background(), "second input")
 		}
 		waitingResult <- createResult{input: result.AgentInput, err: err}
 	}()
@@ -690,7 +688,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	}
 	first, err := executionstore.IntegrationCreateAgentContentInputTx(
 		ctx,
-		notifications.NewTxNotifications(),
 		blockingTx,
 		blockingQueries,
 		executionstore.CreateAgentContentInputInput{
@@ -706,10 +703,10 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		t.Fatalf("create first input: %v", err)
 	}
 	var releaseFloor time.Time
-	if err := blockingTx.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
+	if err := blockingTx.DB().QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
 		t.Fatalf("read input lock release floor: %v", err)
 	}
-	if err := blockingTx.Commit(ctx); err != nil {
+	if err := blockingTx.Commit(ctx, "first input"); err != nil {
 		t.Fatalf("commit first input: %v", err)
 	}
 

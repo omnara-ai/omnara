@@ -42,7 +42,7 @@ type AgentRef struct {
 	AgentID   uuid.UUID
 }
 
-func OrganizationShared(ctx context.Context, tx pgx.Tx, orgID uuid.UUID) error {
+func OrganizationShared(ctx context.Context, tx dbsqlc.DBTX, orgID uuid.UUID) error {
 	return organizationShared(ctx, dbsqlc.New(tx), orgID)
 }
 
@@ -56,7 +56,7 @@ func organizationShared(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID)
 	return nil
 }
 
-func EnterActiveOrganization(ctx context.Context, tx pgx.Tx, orgID uuid.UUID) error {
+func EnterActiveOrganization(ctx context.Context, tx dbsqlc.DBTX, orgID uuid.UUID) error {
 	q := dbsqlc.New(tx)
 	return enterActiveOrganization(ctx, q, orgID)
 }
@@ -76,7 +76,7 @@ func enterActiveOrganization(ctx context.Context, q *dbsqlc.Queries, orgID uuid.
 	return nil
 }
 
-func OrganizationExclusive(ctx context.Context, tx pgx.Tx, orgID uuid.UUID) error {
+func OrganizationExclusive(ctx context.Context, tx dbsqlc.DBTX, orgID uuid.UUID) error {
 	q := dbsqlc.New(tx)
 	if err := q.LockOrganizationLifecycleExclusive(
 		ctx,
@@ -99,7 +99,7 @@ func projectShared(ctx context.Context, q *dbsqlc.Queries, projectID uuid.UUID) 
 
 func EnterActiveProject(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID, projectID uuid.UUID,
 ) error {
 	return EnterActiveProjects(ctx, tx, orgID, []uuid.UUID{projectID})
@@ -107,7 +107,7 @@ func EnterActiveProject(
 
 func EnterActiveProjects(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID uuid.UUID,
 	projectIDs []uuid.UUID,
 ) error {
@@ -138,7 +138,7 @@ func EnterActiveProjects(
 	return nil
 }
 
-func ProjectExclusive(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) error {
+func ProjectExclusive(ctx context.Context, tx dbsqlc.DBTX, projectID uuid.UUID) error {
 	if err := dbsqlc.New(tx).LockProjectLifecycleExclusive(
 		ctx,
 		dbsqlc.LockProjectLifecycleExclusiveParams{ProjectID: projectID},
@@ -165,7 +165,7 @@ func orderedIDs(ids []uuid.UUID) []uuid.UUID {
 	return deduped
 }
 
-func AgentSources(ctx context.Context, tx pgx.Tx, agentIDs ...uuid.UUID) error {
+func AgentSources(ctx context.Context, tx dbsqlc.DBTX, agentIDs ...uuid.UUID) error {
 	q := dbsqlc.New(tx)
 	for _, agentID := range orderedIDs(agentIDs) {
 		if err := q.LockAgentMachineSources(
@@ -178,7 +178,7 @@ func AgentSources(ctx context.Context, tx pgx.Tx, agentIDs ...uuid.UUID) error {
 	return nil
 }
 
-func Pools(ctx context.Context, tx pgx.Tx, refs []PoolRef) error {
+func Pools(ctx context.Context, tx dbsqlc.DBTX, refs []PoolRef) error {
 	q := dbsqlc.New(tx)
 	ordered := append([]PoolRef(nil), refs...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -203,7 +203,7 @@ func Pools(ctx context.Context, tx pgx.Tx, refs []PoolRef) error {
 	return nil
 }
 
-func PoolGrants(ctx context.Context, tx pgx.Tx, grantIDs []uuid.UUID) error {
+func PoolGrants(ctx context.Context, tx dbsqlc.DBTX, grantIDs []uuid.UUID) error {
 	q := dbsqlc.New(tx)
 	for _, grantID := range orderedIDs(grantIDs) {
 		if _, err := q.LockProjectMachinePoolGrantForLifecycle(
@@ -218,7 +218,7 @@ func PoolGrants(ctx context.Context, tx pgx.Tx, grantIDs []uuid.UUID) error {
 	return nil
 }
 
-func Machines(ctx context.Context, tx pgx.Tx, refs []MachineRef) error {
+func Machines(ctx context.Context, tx dbsqlc.DBTX, refs []MachineRef) error {
 	q := dbsqlc.New(tx)
 	ordered := append([]MachineRef(nil), refs...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -243,7 +243,7 @@ func Machines(ctx context.Context, tx pgx.Tx, refs []MachineRef) error {
 	return nil
 }
 
-func Agents(ctx context.Context, tx pgx.Tx, refs []AgentRef) error {
+func Agents(ctx context.Context, tx dbsqlc.DBTX, refs []AgentRef) error {
 	q := dbsqlc.New(tx)
 	for _, ref := range orderedAgentRefs(refs) {
 		if _, err := q.LockAgentInProject(
@@ -254,22 +254,6 @@ func Agents(ctx context.Context, tx pgx.Tx, refs []AgentRef) error {
 		}
 	}
 	return nil
-}
-
-func TryAgents(ctx context.Context, tx pgx.Tx, refs []AgentRef) (bool, error) {
-	q := dbsqlc.New(tx)
-	for _, ref := range orderedAgentRefs(refs) {
-		if _, err := q.TryLockAgentInProject(
-			ctx,
-			dbsqlc.TryLockAgentInProjectParams{ProjectID: ref.ProjectID, ID: ref.AgentID},
-		); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return false, nil
-			}
-			return false, fmt.Errorf("try lock agent for lifecycle: %w", err)
-		}
-	}
-	return true, nil
 }
 
 func rowLockError(operation string, err error) error {

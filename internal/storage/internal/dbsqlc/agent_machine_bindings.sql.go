@@ -608,32 +608,6 @@ func (q *Queries) LockAgentMachineSources(ctx context.Context, arg LockAgentMach
 	return err
 }
 
-const lockAttachedAgentPoolMachines = `-- name: LockAttachedAgentPoolMachines :exec
-SELECT machine.id
-FROM machines machine
-JOIN agent_machine_bindings binding ON binding.org_id = machine.org_id
-  AND binding.machine_id = machine.id
-WHERE binding.project_id = $1
-  AND binding.agent_id = $2
-  AND binding.binding_kind = 'pool'
-  AND binding.state = 'attached'
-  AND machine.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-  AND machine.lifecycle_state NOT IN ('deleting', 'delete_failed', 'deleted')
-ORDER BY machine.id
-FOR UPDATE OF machine
-`
-
-type LockAttachedAgentPoolMachinesParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) LockAttachedAgentPoolMachines(ctx context.Context, arg LockAttachedAgentPoolMachinesParams) error {
-	_, err := q.db.Exec(ctx, lockAttachedAgentPoolMachines, arg.ProjectID, arg.AgentID)
-	return err
-}
-
 const markAgentMachineBindingDeleteRequested = `-- name: MarkAgentMachineBindingDeleteRequested :one
 UPDATE agent_machine_bindings
 SET delete_tool_call_id = $1::uuid,

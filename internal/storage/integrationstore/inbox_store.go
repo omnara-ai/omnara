@@ -55,7 +55,7 @@ func (s *Store) AcceptIntegrationReceipt(
 }
 
 func (s *Store) enterInboxIntegration(
-	ctx context.Context, tx pgx.Tx, projectID, integrationID uuid.UUID, additional ...uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, projectID, integrationID uuid.UUID, additional ...uuid.UUID,
 ) error {
 	integration, err := getIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
 	if err != nil {

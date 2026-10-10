@@ -70,12 +70,7 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("max event sequence before interrupted compaction: %v", err)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
-		ctx, kernelTestProjectID, agentID, watermark,
-	)
-	if err != nil {
-		t.Fatalf("capture config for interrupted compaction: %v", err)
-	}
+
 	recoveryModel := &sequenceKernelModel{
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
@@ -84,25 +79,30 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 		},
 		responses: []model.Response{
 			{
-				ID:         "resp_recovered_compaction_summary",
-				Content:    []model.ResponsePart{{Type: "text", Text: "Recovered summary for interrupted compaction."}},
+				ID: "resp_recovered_compaction_summary",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "Recovered summary for interrupted compaction."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_after_recovered_compaction",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after recovering interrupted compaction"}},
+				ID: "resp_after_recovered_compaction",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "continued after recovering interrupted compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
 	}
-	failedClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          kernelTestProjectID,
-		AgentID:            agentID,
-		RuntimeLockID:      retryTurn.RuntimeLockID,
-		OpeningInputIDs:    retryTurn.InputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: watermark,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   retryTurn.RuntimeLockID,
+			OpeningInputIDs: retryTurn.InputIDs,
+		})
+	failedClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim context-window model call: %v", err)
 	}
@@ -195,7 +195,10 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 		t.Fatalf("execute recovered interrupted compaction: %v", err)
 	}
 	if recoveryModel.respondedCount() != 1 {
-		t.Fatalf("recovery model prepared %d requests, want one compaction resend", recoveryModel.respondedCount())
+		t.Fatalf(
+			"recovery model prepared %d requests, want one compaction resend",
+			recoveryModel.respondedCount(),
+		)
 	}
 	parentContext, found, err := fixture.Store.Execution().GetModelCallContext(
 		ctx,
@@ -222,7 +225,10 @@ WHERE project_id = $1
   AND input_event_sequence = $3
 ORDER BY attempt_number DESC
 LIMIT 1
-`, kernelTestProjectID, agentID, failedClaim.Context.InputEventSequence).Scan(&recoveredCompactionContextID); err != nil {
+`,
+		kernelTestProjectID,
+		agentID,
+		failedClaim.Context.InputEventSequence).Scan(&recoveredCompactionContextID); err != nil {
 		t.Fatalf("load recovered compaction context id: %v", err)
 	}
 	reloadedCompaction, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -252,7 +258,8 @@ LIMIT 1
 	if err != nil {
 		t.Fatalf("claim normal work after recovered compaction: %v", err)
 	}
-	if !found || finalClaim.Kind != executionstore.AgentWorkModel || finalClaim.Model.ModelCallContextID != uuid.Nil {
+	if !found || finalClaim.Kind != executionstore.AgentWorkModel ||
+		finalClaim.Model.ModelCallContextID != uuid.Nil {
 		t.Fatalf("post-compaction work = %+v found=%v, want a fresh normal call", finalClaim, found)
 	}
 	finalTurn := modelWorkExecutionFromClaimForKernelTest(finalClaim, recoveryNow.Add(2*time.Second))
@@ -260,7 +267,10 @@ LIMIT 1
 		t.Fatalf("execute normal call after recovered compaction: %v", err)
 	}
 	if recoveryModel.respondedCount() != 2 {
-		t.Fatalf("recovery model prepared %d requests, want compaction and final call", recoveryModel.respondedCount())
+		t.Fatalf(
+			"recovery model prepared %d requests, want compaction and final call",
+			recoveryModel.respondedCount(),
+		)
 	}
 	var finalOutputs int
 	if err := fixture.Pool.QueryRow(
@@ -319,8 +329,10 @@ func TestAgentExecutorSteeringPreemptsCompactionCreatedFromInFlightOverflow(t *t
 				StopReason: model.StopReasonContextWindow,
 			},
 			{
-				ID:         "resp_after_inflight_steering",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "used the steered request"}},
+				ID: "resp_after_inflight_steering",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "used the steered request"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -331,10 +343,12 @@ func TestAgentExecutorSteeringPreemptsCompactionCreatedFromInFlightOverflow(t *t
 			steeringInput, _, _, steeringErr = fixture.Store.Execution().CreateAgentContentInput(
 				ctx,
 				executionstore.CreateAgentContentInputInput{
-					ProjectID:      kernelTestProjectID,
-					AgentID:        agentID,
-					Actor:          kernelTestOmnaraActorParams(t, userID),
-					ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "use the newer request"}}),
+					ProjectID: kernelTestProjectID,
+					AgentID:   agentID,
+					Actor:     kernelTestOmnaraActorParams(t, userID),
+					ContentBlocks: mustKernelJSON(
+						[]map[string]string{{"type": "text", "text": "use the newer request"}},
+					),
 					DeliveryMode:   executionstore.DeliveryModeSteering,
 					IdempotencyKey: "steering-during-overflow",
 				},
@@ -428,7 +442,10 @@ func TestAgentExecutorSteeringPreemptsCompactionCreatedFromInFlightOverflow(t *t
 	}
 	if modelClient.respondedCount() != 2 ||
 		!strings.Contains(string(modelClient.responded[1].ProviderRequest), "use the newer request") {
-		t.Fatalf("steered provider requests = %+v, want only the fresh request after overflow", modelClient.responded)
+		t.Fatalf(
+			"steered provider requests = %+v, want only the fresh request after overflow",
+			modelClient.responded,
+		)
 	}
 	var oldState, freshState executionstore.ModelCallState
 	var freshAttempt int
@@ -497,7 +514,12 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 	nextConfig := fixture.kernelAgentConfigInput(t, ctx, "Kernel Test", "truncated-compaction-config-next")
 	currentConfig := fixture.currentAgentConfig(t, ctx, agentID)
 	currentRevisionID := currentRevisionIDForKernelConfig(t, ctx, fixture.Store, currentConfig)
-	nextRevisionID := currentRevisionIDForKernelConfiguredModelID(t, ctx, fixture.Store, nextConfig.ConfiguredModelID)
+	nextRevisionID := currentRevisionIDForKernelConfiguredModelID(
+		t,
+		ctx,
+		fixture.Store,
+		nextConfig.ConfiguredModelID,
+	)
 
 	var changeResult executionstore.ChangeAgentConfigResult
 	var changeErr error
@@ -518,8 +540,10 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 				StopReason: model.StopReasonMaxTokens,
 			},
 			{
-				ID:         "resp_smaller_compaction_should_not_send",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "stale compaction"}},
+				ID: "resp_smaller_compaction_should_not_send",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "stale compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -527,20 +551,23 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 			if response.ID != "resp_truncated_summary_before_config" {
 				return
 			}
-			changeResult, changeErr = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-				CreateAgentConfigInput: nextConfig,
-				AgentID:                agentID,
-				ActorType:              identitystore.PrincipalTypeSystem,
-				Reason:                 "test_inflight_compaction_change",
-				IdempotencyKey:         "config-during-truncated-compaction",
-			})
+			changeResult, changeErr = fixture.Store.Execution().
+				ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+					CreateAgentConfigInput: nextConfig,
+					AgentID:                agentID,
+					ActorType:              identitystore.PrincipalTypeSystem,
+					Reason:                 "test_inflight_compaction_change",
+					IdempotencyKey:         "config-during-truncated-compaction",
+				})
 		},
 	}
 	newModel := &sequenceKernelModel{
 		providerModelSlug: "truncated-compaction-config-next",
 		responses: []model.Response{{
-			ID:         "resp_after_truncated_compaction_config",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "used the changed config"}},
+			ID: "resp_after_truncated_compaction_config",
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "used the changed config"},
+			},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -584,7 +611,8 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 	oldModel.mu.Lock()
 	remainingOldResponses := append([]model.Response(nil), oldModel.responses...)
 	oldModel.mu.Unlock()
-	if len(remainingOldResponses) != 1 || remainingOldResponses[0].ID != "resp_smaller_compaction_should_not_send" {
+	if len(remainingOldResponses) != 1 ||
+		remainingOldResponses[0].ID != "resp_smaller_compaction_should_not_send" {
 		t.Fatalf("smaller stale compaction consumed a provider response: %+v", remainingOldResponses)
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -715,13 +743,17 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 		},
 		responses: []model.Response{
 			{
-				ID:         "resp_context_window_before_new_input",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "context window exceeded"}},
+				ID: "resp_context_window_before_new_input",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "context window exceeded"},
+				},
 				StopReason: model.StopReasonContextWindow,
 			},
 			{
-				ID:         "resp_after_compaction_retry_supersession",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "handled the newer input"}},
+				ID: "resp_after_compaction_retry_supersession",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "handled the newer input"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -745,7 +777,10 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 		t.Fatalf("execute overflow and retrying compaction: %v", err)
 	}
 	if retryModel.respondedCount() != 2 {
-		t.Fatalf("prepared requests = %d, want normal overflow and compaction retry", retryModel.respondedCount())
+		t.Fatalf(
+			"prepared requests = %d, want normal overflow and compaction retry",
+			retryModel.respondedCount(),
+		)
 	}
 	var blockedContextID, compactionContextID uuid.UUID
 	var compactionRetryAt time.Time
@@ -794,8 +829,13 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 			ProjectID:          kernelTestProjectID,
 			AgentID:            agentID,
 			InputEventSequence: retryingCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(t, ctx, fixture.Store, retryingCompactionContext),
-			EventSequenceEnd:   *retryingCompactionContext.SourceEventSequenceEnd,
+			EventSequenceStart: compactionSourceStartForKernelTest(
+				t,
+				ctx,
+				fixture.Store,
+				retryingCompactionContext,
+			),
+			EventSequenceEnd: *retryingCompactionContext.SourceEventSequenceEnd,
 		},
 		TurnID:                   overflowTurn.TurnID,
 		OpeningInputIDs:          overflowTurn.InputIDs,

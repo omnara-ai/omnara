@@ -8,7 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -24,6 +26,7 @@ type ExecuteToolCallResult struct {
 	Disposition   ToolCallDisposition
 	Applied       bool
 	CommandResult any
+	Completed     *ToolCallRecord
 }
 
 type ToolCallDisposition uint8
@@ -45,8 +48,9 @@ type ToolCallReader struct {
 }
 
 type toolCallTransaction struct {
+	unit                       *agentexecution.Unit
 	store                      *Store
-	tx                         pgx.Tx
+	tx                         dbsqlc.DBTX
 	q                          *dbsqlc.Queries
 	notifications              *notifications.TxNotifications
 	input                      ExecuteToolCallInput
@@ -55,6 +59,8 @@ type toolCallTransaction struct {
 	applied                    bool
 	hasDurableCompletionOwner  bool
 	requiresWaitingDisposition bool
+	owner                      agentexecution.ToolOwner
+	completed                  *ToolCallRecord
 }
 
 func (s *Store) ExecuteToolCall(
@@ -81,16 +87,18 @@ func (s *Store) executeToolCallOnce(
 	input ExecuteToolCallInput,
 	plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return ExecuteToolCallResult{}, fmt.Errorf("begin tool call execution: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	toolTx := &toolCallTransaction{
+		unit:          unit,
 		store:         s,
 		tx:            tx,
 		q:             dbsqlc.New(tx),
-		notifications: s.newTxNotifications(),
+		notifications: unit.Notifications(),
 		input:         input,
 	}
 	command, err := plan(&ToolCallReader{transaction: toolTx})
@@ -119,13 +127,21 @@ func (s *Store) executeToolCallOnce(
 			storeerr.ErrInvalidToolCallDisposition,
 		)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, toolTx.notifications, "execute tool call"); err != nil {
+	if toolTx.disposition == ToolCallDispositionCompleted && toolTx.completed == nil {
+		record, err := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ToolCallID)
+		if err != nil {
+			return ExecuteToolCallResult{}, err
+		}
+		toolTx.completed = &record
+	}
+	if err := unit.Commit(ctx, "execute tool call"); err != nil {
 		return ExecuteToolCallResult{}, err
 	}
 	return ExecuteToolCallResult{
 		Disposition:   toolTx.disposition,
 		Applied:       toolTx.applied,
 		CommandResult: commandResult,
+		Completed:     toolTx.completed,
 	}, nil
 }
 
@@ -137,107 +153,64 @@ func (t *toolCallTransaction) lockOrAcceptExisting(ctx context.Context) error {
 	return t.lockToolCall(ctx, true)
 }
 
-func (t *toolCallTransaction) lockToolCall(
-	ctx context.Context,
-	acceptExisting bool,
-) error {
+func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting bool) error {
 	if t == nil || t.tx == nil || t.q == nil {
 		return errors.New("tool call transaction is required")
 	}
 	if t.locked || t.disposition != 0 {
 		return nil
 	}
-	if err := lockAgentRuntimeForOwnedMutationTx(
-		ctx,
-		t.q,
-		t.input.ProjectID,
-		t.input.AgentID,
-		t.input.RuntimeLockID,
-	); err != nil {
+	err := t.unit.LockAgentRefs(ctx,
+		[]lifecyclelock.AgentRef{{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID}},
+		agentexecution.IngressAuthority{},
+	)
+	if errors.Is(err, storeerr.ErrNotFound) {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	if err != nil {
 		return err
 	}
-	existing, err := t.q.GetToolCallDispatchState(
-		ctx,
-		dbsqlc.GetToolCallDispatchStateParams{
-			ProjectID: t.input.ProjectID,
-			AgentID:   t.input.AgentID,
-			ID:        t.input.ToolCallID,
-		},
+	h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
+	if err != nil {
+		return err
+	}
+	dispatch, err := h.DispatchTool(ctx,
+		agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}, acceptExisting,
 	)
 	if err != nil {
-		return fmt.Errorf("load tool call before execution: %w", err)
+		return err
 	}
-	switch ToolCallState(existing.State) {
-	case ToolCallStateReady:
+	switch dispatch {
+	case agentexecution.ToolDispatchReady:
 		t.locked = true
-		return nil
-	case ToolCallStateAwaitingAuthorization, ToolCallStateAwaitingPermission:
-		return storeerr.ErrIdempotencyConflict
-	case ToolCallStateRunning:
-		return storeerr.ErrToolCallInProgress
-	case ToolCallStateWaiting:
-		if acceptExisting {
-			t.disposition = ToolCallDispositionWaiting
-			return nil
-		}
-	case ToolCallStateCompleted:
-		if acceptExisting {
-			t.disposition = ToolCallDispositionCompleted
-			return nil
-		}
+	case agentexecution.ToolDispatchWaiting:
+		t.disposition = ToolCallDispositionWaiting
+	case agentexecution.ToolDispatchCompleted:
+		t.disposition = ToolCallDispositionCompleted
 	}
-	return storeerr.ErrIdempotencyConflict
+	return nil
 }
 
-func (t *toolCallTransaction) startToolCall(
-	ctx context.Context,
-	retainRuntimeOwnership bool,
-	interactionUpdate *notifications.AgentInteractionUpdate,
-) error {
-	if t == nil || t.tx == nil || t.q == nil {
-		return errors.New("tool call transaction is required")
-	}
+func (t *toolCallTransaction) startToolCall(ctx context.Context, retainRuntimeOwnership bool) error {
 	if t.disposition != 0 {
 		return nil
 	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return err
 	}
-	changed, err := t.q.StartToolCall(
-		ctx,
-		dbsqlc.StartToolCallParams{
-			RetainRuntimeOwnership: retainRuntimeOwnership,
-			ProjectID:              t.input.ProjectID,
-			AgentID:                t.input.AgentID,
-			ID:                     t.input.ToolCallID,
-			RuntimeLockID:          t.input.RuntimeLockID,
-		},
-	)
+	h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
 	if err != nil {
-		return fmt.Errorf("start tool call: %w", err)
+		return err
 	}
-	if changed == 0 {
-		if runtimeErr := agentRuntimeLockActiveTx(
-			ctx,
-			t.q,
-			t.input.ProjectID,
-			t.input.AgentID,
-			t.input.RuntimeLockID,
-		); runtimeErr != nil {
-			return runtimeErr
-		}
-		return storeerr.ErrIdempotencyConflict
-	}
-	state := ToolCallStateWaiting
+	ref := agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}
 	if retainRuntimeOwnership {
+		t.applied, err = h.RunTool(ctx, ref)
 		t.disposition = ToolCallDispositionRunning
-		state = ToolCallStateRunning
 	} else {
+		t.applied, err = h.WaitForTool(ctx, ref, t.owner)
 		t.disposition = ToolCallDispositionWaiting
 	}
-	t.notifications.AddToolCallUpdate(t.input.AgentID, t.input.ToolCallID, string(state), interactionUpdate)
-	t.applied = true
-	return nil
+	return err
 }
 
 func (t *toolCallTransaction) completeToolCall(
@@ -250,7 +223,7 @@ func (t *toolCallTransaction) completeToolCall(
 	if t.disposition != 0 {
 		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	record, err := completeToolCallTx(ctx, t.notifications, t.tx, CompleteToolCallInput{
+	record, err := completeExecutionTool(ctx, t.unit, CompleteToolCallInput{
 		ProjectID:          t.input.ProjectID,
 		AgentID:            t.input.AgentID,
 		ID:                 t.input.ToolCallID,
@@ -264,6 +237,7 @@ func (t *toolCallTransaction) completeToolCall(
 	t.locked = true
 	t.disposition = ToolCallDispositionCompleted
 	t.applied = true
+	t.completed = &record
 	return record, nil
 }
 

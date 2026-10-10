@@ -7,7 +7,6 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -119,79 +118,4 @@ func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractio
 		&i.InteractionAutoSelect,
 	)
 	return i, err
-}
-
-const recordAgentInteractionPresentationReceipt = `-- name: RecordAgentInteractionPresentationReceipt :execrows
-UPDATE agent_interactions interaction
-SET presentation_receipt = $1::jsonb
-WHERE interaction.agent_id = $2 AND interaction.id = $3
-  AND interaction.destination = $4::jsonb
-  AND interaction.presentation_receipt IS NULL
-  AND EXISTS (
-    SELECT 1 FROM agents agent
-    WHERE agent.project_id = $5 AND agent.id = interaction.agent_id
-  )
-`
-
-type RecordAgentInteractionPresentationReceiptParams struct {
-	Receipt     json.RawMessage
-	AgentID     uuid.UUID
-	ID          uuid.UUID
-	Destination json.RawMessage
-	ProjectID   uuid.UUID
-}
-
-func (q *Queries) RecordAgentInteractionPresentationReceipt(ctx context.Context, arg RecordAgentInteractionPresentationReceiptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, recordAgentInteractionPresentationReceipt,
-		arg.Receipt,
-		arg.AgentID,
-		arg.ID,
-		arg.Destination,
-		arg.ProjectID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const setInteractionSelection = `-- name: SetInteractionSelection :execrows
-UPDATE agents
-SET interaction_target_id = $1::uuid,
-    interaction_handler_key = $2::text,
-    interaction_auto_select = $3::boolean,
-    updated_at = statement_timestamp()
-WHERE agents.project_id = $4 AND agents.id = $5
-  AND (($1::uuid IS NULL AND $2::text IS NULL)
-    OR ($2::text <> '' AND EXISTS (
-      SELECT 1 FROM integration_targets target
-      JOIN integrations integration
-        ON integration.project_id = target.project_id
-       AND integration.id = target.integration_id
-      WHERE target.project_id = agents.project_id AND target.agent_id = agents.id
-        AND target.id = $1::uuid AND target.deleted_at IS NULL
-        AND integration.deleted_at IS NULL AND integration.state = 'active'
-    )))
-`
-
-type SetInteractionSelectionParams struct {
-	TargetID   *uuid.UUID
-	HandlerKey *string
-	AutoSelect bool
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-}
-
-func (q *Queries) SetInteractionSelection(ctx context.Context, arg SetInteractionSelectionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setInteractionSelection,
-		arg.TargetID,
-		arg.HandlerKey,
-		arg.AutoSelect,
-		arg.ProjectID,
-		arg.AgentID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

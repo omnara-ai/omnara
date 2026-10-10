@@ -8,9 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -44,60 +43,38 @@ func admitNextAgentInputAndOpenTurnForTestErr(
 			"project id, agent id, and runtime lock id are required",
 		)
 	}
-	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
-		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf("begin admit next agent input: %w", err)
+		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf(
+			"begin admit next agent input: %w",
+			err,
+		)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx, dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf("lock agent for input admission: %w", err)
-	}
-	if err := executionstore.IntegrationEnsureRuntimeLockActiveTx(ctx, tx, projectID, agentID, runtimeLockID); err != nil {
+	defer func() { _ = unit.Rollback(ctx) }()
+	if _,
+		err := unit.LockAgent(ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID,
+			ID: agentID},
+		agentexecution.RuntimeAuthority{AgentID: agentID,
+			RuntimeLockID: runtimeLockID}); err != nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, err
 	}
-	if incomplete, err := qtx.AgentHasIncompleteToolBatch(
-		ctx,
-		dbsqlc.AgentHasIncompleteToolBatchParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-		},
-	); err != nil {
-		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf("check incomplete tool batch: %w", err)
-	} else if incomplete {
-		return executionstore.AdmittedAgentInputTurn{}, false, nil
+	if err := executionstore.IntegrationEnsureRuntimeLockActiveTx(ctx,
+		unit,
+		projectID,
+		agentID,
+		runtimeLockID); err != nil {
+		return executionstore.AdmittedAgentInputTurn{}, false, err
 	}
-	selected, err := executionstore.IntegrationSelectLockedSteeringAgentInputsForAdmissionTx(ctx, qtx, projectID, agentID)
+	admitted, err := executionstore.IntegrationAdmitInputs(ctx, unit, projectID, agentID)
 	if err != nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, err
 	}
-	if len(selected) == 0 {
-		selected, err = executionstore.IntegrationSelectLockedQueuedAgentInputForAdmissionTx(ctx, qtx, projectID, agentID)
-		if err != nil {
-			return executionstore.AdmittedAgentInputTurn{}, false, err
-		}
+	if err := unit.Commit(ctx, "input admission"); err != nil {
+		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf(
+			"commit admit next agent input: %w",
+			err,
+		)
 	}
-	if len(selected) == 0 {
-		return executionstore.AdmittedAgentInputTurn{}, false, nil
-	}
-	admitted, err := executionstore.IntegrationAdmitLockedAgentInputsAndOpenTurnTx(
-		ctx,
-		notifications.NewTxNotifications(),
-		tx,
-		qtx,
-		executionstore.IntegrationAdmitAgentInputAndOpenTurnInput{
-			ProjectID: projectID,
-			AgentID:   agentID,
-		},
-		selected,
-	)
-	if err != nil {
-		return executionstore.AdmittedAgentInputTurn{}, false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf("commit admit next agent input: %w", err)
-	}
-	return admitted, true, nil
+	return admitted, len(admitted.Inputs) > 0, nil
 }

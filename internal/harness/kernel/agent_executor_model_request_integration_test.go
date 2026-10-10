@@ -169,7 +169,9 @@ WHERE project_id = $1 AND agent_id = $2 AND input_event_sequence = $3
 		t.Fatalf("count denied managed model contexts: %v", err)
 	}
 	if contexts != 1 || len(resolver.selections) != 0 {
-		t.Fatalf("denied managed model contexts/resolver calls = %d/%d, want 1/0", contexts, len(resolver.selections))
+		t.Fatalf("denied managed model contexts/resolver calls = %d/%d, want 1/0",
+			contexts,
+			len(resolver.selections))
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,
@@ -550,7 +552,8 @@ model:
 		t.Fatalf("resolver selections = %d, want 1", len(resolver.selections))
 	}
 	selection := resolver.selections[0]
-	if selection.Overrides.DefaultMaxOutputTokens == nil || *selection.Overrides.DefaultMaxOutputTokens != 1234 ||
+	if selection.Overrides.DefaultMaxOutputTokens == nil ||
+		*selection.Overrides.DefaultMaxOutputTokens != 1234 ||
 		selection.Overrides.CacheRetention != string(model.CacheRetentionShort) {
 		t.Fatalf("selection overrides = %+v", selection.Overrides)
 	}
@@ -681,7 +684,9 @@ func TestAgentExecutorCarriesDurableProviderReplayIntoNextTurn(t *testing.T) {
 	}
 
 	bundle, err := (modelcontext.Builder{
-		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
+		Store: modelcontext.NewStore(fixture.Store.Execution(),
+			fixture.Store.Artifacts(),
+			fixture.Store.Integrations()),
 	}).Build(
 		ctx,
 		modelcontext.BuildInput{
@@ -1095,6 +1100,7 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.input_event_sequence = $3
+ AND context.operation_kind='normal'
 `, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(
 		&state,
 		&recoveryKind,
@@ -1256,6 +1262,7 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.input_event_sequence = $3
+  AND context.operation_kind = 'normal'
 `, kernelTestProjectID, agentID, secondTurn.OpeningEventSequence).Scan(
 		&state,
 		&recoveryKind,
@@ -1263,7 +1270,8 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("load compactable serialized overflow attempt: %v", err)
 	}
-	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryCompact ||
+	if state != executionstore.ModelCallContextFailed ||
+		recoveryKind != executionstore.ModelCallRecoveryCompact ||
 		errorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
 			"compactable serialized overflow attempt = %q/%q/%q",

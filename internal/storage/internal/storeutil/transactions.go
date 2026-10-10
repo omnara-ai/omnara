@@ -3,11 +3,9 @@ package storeutil
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
@@ -88,18 +86,4 @@ func retryableTransactionSQLState(err error) string {
 		return "retry"
 	}
 	return ""
-}
-
-func CommitTxWithNotifications(
-	ctx context.Context,
-	tx interface{ Commit(context.Context) error },
-	txNotifications *notifications.TxNotifications,
-	publisher notifications.PostCommitPublisher,
-	operation string,
-) error {
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit %s: %w", operation, err)
-	}
-	txNotifications.Flush(context.WithoutCancel(ctx), publisher)
-	return nil
 }

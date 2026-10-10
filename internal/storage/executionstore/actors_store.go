@@ -164,7 +164,7 @@ func (s *Store) PutActor(ctx context.Context, input PutActorInput) (ActorRecord,
 
 func enterActiveActorProjectTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	projectID uuid.UUID,
 ) error {

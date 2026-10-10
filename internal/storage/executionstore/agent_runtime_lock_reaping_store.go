@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/errutil"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -78,25 +76,17 @@ func (s *Store) reapExpiredAgentRuntimeLock(
 	ctx context.Context,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin reap expired agent runtime lock: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	reaped, err := reapExpiredAgentRuntimeLockTx(
-		ctx,
-		txNotifications,
-		tx,
-		projectID,
-		agentID,
-		runtimeLockID,
-		s.modelCallRetryDelay,
-	)
+	defer func() { _ = unit.Rollback(ctx) }()
+
+	reaped, err := reapExpiredAgentRuntimeLockTx(ctx, unit, projectID, agentID, runtimeLockID)
 	if err != nil || !reaped {
 		return false, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "reap expired agent runtime lock"); err != nil {
+	if err := unit.Commit(ctx, "reap expired agent runtime lock"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -104,98 +94,23 @@ func (s *Store) reapExpiredAgentRuntimeLock(
 
 func reapExpiredAgentRuntimeLockTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	projectID, agentID, runtimeLockID uuid.UUID,
-	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
-	qtx := dbsqlc.New(tx)
-	lockedAgent, err := tryLockAgentWithParentTx(ctx, tx, qtx, projectID, agentID)
+	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, agentexecution.LifecycleAuthority{})
+	var locked bool
+	if err == nil {
+		locked, err = unit.TryLockAgents(ctx, plan)
+	}
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return false, nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("lock agent for expired runtime lock reap: %w", err)
-	}
-	if !lockedAgent {
-		return false, nil
-	}
-	locked, err := qtx.LockExpiredAgentRuntimeLockForReap(
-		ctx,
-		dbsqlc.LockExpiredAgentRuntimeLockForReapParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			ID:        runtimeLockID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("lock expired agent runtime lock for reap: %w", err)
-	}
-	if err := recoverRuntimeModelCallContextTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		locked.ProjectID,
-		locked.AgentID,
-		locked.ID,
-		runtimeModelCallRecoveryEvidence{
-			Code:    "runtime_lease_expired_before_model_result_acceptance",
-			Message: "runtime lease expired before the model result was durably accepted",
-		},
-		retryBackoff,
-	); err != nil {
+	if err != nil || !locked {
 		return false, err
 	}
-	if err := failRuntimeToolCallsTx(
-		ctx,
-		txNotifications,
-		tx,
-		locked.ProjectID,
-		locked.AgentID,
-		locked.ID,
-		"runtime_lock_stale",
-	); err != nil {
-		return false, err
-	}
-	if err := failQueuedRuntimeWorkTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		locked.ProjectID,
-		locked.AgentID,
-		locked.ID,
-		"runtime_lock_stale",
-	); err != nil {
-		return false, err
-	}
-	changed, err := qtx.DeleteAgentRuntimeLockForReap(
-		ctx,
-		dbsqlc.DeleteAgentRuntimeLockForReapParams{
-			ProjectID: locked.ProjectID,
-			AgentID:   locked.AgentID,
-			ID:        locked.ID,
-		},
-	)
+	h, err := unit.Handle(projectID, agentID)
 	if err != nil {
-		return false, fmt.Errorf("delete expired agent runtime lock: %w", err)
+		return false, err
 	}
-	if changed != 1 {
-		return false, storeerr.ErrRuntimeLockInactive
-	}
-	if err := qtx.ReconcileAgentWakeup(
-		ctx,
-		dbsqlc.ReconcileAgentWakeupParams{
-			ProjectID: locked.ProjectID,
-			AgentID:   locked.AgentID,
-			Metadata:  []byte(`{"reason":"runtime_lock_reap"}`),
-		},
-	); err != nil {
-		return false, fmt.Errorf("reconcile wakeup after expired runtime lock reap: %w", err)
-	}
-	return true, nil
+	return h.Reap(ctx, runtimeLockID)
 }

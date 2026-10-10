@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -88,7 +89,10 @@ func (s *Store) expireProcessToolCallsForMachine(
 			},
 		)
 		if err != nil {
-			return total, fmt.Errorf("list machine-unreachable accepted process tool calls for machine: %w", err)
+			return total, fmt.Errorf(
+				"list machine-unreachable accepted process tool calls for machine: %w",
+				err,
+			)
 		}
 		queuedActions, err := s.q.ListMachineUnreachableQueuedProcessActionToolCallsForMachine(
 			ctx,
@@ -100,7 +104,10 @@ func (s *Store) expireProcessToolCallsForMachine(
 			},
 		)
 		if err != nil {
-			return total, fmt.Errorf("list machine-unreachable queued process action tool calls for machine: %w", err)
+			return total, fmt.Errorf(
+				"list machine-unreachable queued process action tool calls for machine: %w",
+				err,
+			)
 		}
 		acceptedActions, err := s.q.ListMachineUnreachableAcceptedProcessActionToolCallsForMachine(
 			ctx,
@@ -112,7 +119,10 @@ func (s *Store) expireProcessToolCallsForMachine(
 			},
 		)
 		if err != nil {
-			return total, fmt.Errorf("list machine-unreachable accepted process action tool calls for machine: %w", err)
+			return total, fmt.Errorf(
+				"list machine-unreachable accepted process action tool calls for machine: %w",
+				err,
+			)
 		}
 		if len(queuedProcesses) == 0 && len(acceptedProcesses) == 0 && len(queuedActions) == 0 &&
 			len(acceptedActions) == 0 {
@@ -182,12 +192,12 @@ func (s *Store) expireQueuedProcessToolCall(
 	process ProcessRecord,
 	graceSeconds int32,
 ) (bool, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin queued process expiry: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	qtx := dbsqlc.New(tx)
 	unreachable, err := machineStillUnreachableForToolExpiryTx(
 		ctx,
@@ -200,13 +210,10 @@ func (s *Store) expireQueuedProcessToolCall(
 	if err != nil {
 		return false, err
 	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: process.ProjectID,
-			ID:        process.AgentID,
-		},
-	); err != nil {
+	if _, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: process.ProjectID,
+		ID:        process.AgentID,
+	}, agentexecution.ExternalAuthority{}); err != nil {
 		return false, fmt.Errorf("lock agent for queued process expiry: %w", err)
 	}
 	row, err := qtx.ExpireQueuedProcessToolCall(
@@ -222,12 +229,7 @@ func (s *Store) expireQueuedProcessToolCall(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"missed queued process expiry",
-		); err != nil {
+		if err := unit.Commit(ctx, "missed queued process expiry"); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -236,23 +238,19 @@ func (s *Store) expireQueuedProcessToolCall(
 		return false, fmt.Errorf("mark queued process failed: %w", err)
 	}
 	record := processRecordFromSQLC(row)
-	if err := completeProcessToolCallFromRecordTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		record,
-		nil,
-		record.StateReasonCode,
-	); err != nil {
+	h, err := unit.Handle(record.ProjectID, record.AgentID)
+	if err != nil {
 		return false, err
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"queued process expiry",
-	); err != nil {
+	if record.ToolCallID != uuid.Nil {
+		if _,
+			err := h.CompleteProcess(ctx,
+			agentexecution.ProcessResult{ID: record.ID,
+				Observed: nil}); err != nil {
+			return false, err
+		}
+	}
+	if err := unit.Commit(ctx, "queued process expiry"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -294,12 +292,12 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 	action ProcessActionRecord,
 	graceSeconds int32,
 ) (int64, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin machine-unreachable queued action expiry: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	qtx := dbsqlc.New(tx)
 	unreachable, err := machineStillUnreachableForToolExpiryTx(
 		ctx,
@@ -313,23 +311,15 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 		return 0, err
 	}
 	if !unreachable {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped machine-unreachable queued action expiry",
-		); err != nil {
+		if err := unit.Commit(ctx, "skipped machine-unreachable queued action expiry"); err != nil {
 			return 0, err
 		}
 		return 0, nil
 	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: action.ProjectID,
-			ID:        action.AgentID,
-		},
-	); err != nil {
+	if _, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: action.ProjectID,
+		ID:        action.AgentID,
+	}, agentexecution.ExternalAuthority{}); err != nil {
 		return 0, fmt.Errorf("lock agent for machine-unreachable queued action expiry: %w", err)
 	}
 	rows, err := qtx.MarkQueuedProcessActionsFailedForProcess(
@@ -347,24 +337,17 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 	}
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)
-		if err := completeTerminalProcessActionToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			record,
-			ProcessActionStateFailed,
-			ProcessToolReasonMachineUnreachable,
-		); err != nil {
+		h, err := unit.Handle(record.ProjectID, record.AgentID)
+		if err != nil {
 			return 0, err
 		}
+		if record.ToolCallID != uuid.Nil {
+			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
+				return 0, err
+			}
+		}
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"machine-unreachable queued action expiry",
-	); err != nil {
+	if err := unit.Commit(ctx, "machine-unreachable queued action expiry"); err != nil {
 		return 0, err
 	}
 	return int64(len(rows)), nil
@@ -410,15 +393,16 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 	if err != nil {
 		return false, err
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf(
 			"begin machine-unreachable process action completion: %w",
 			err,
 		)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
 	qtx := dbsqlc.New(tx)
 	unreachable, err := machineStillUnreachableForToolExpiryTx(
 		ctx,
@@ -432,12 +416,7 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 		return false, err
 	}
 	if !unreachable {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped machine-unreachable process action completion",
-		); err != nil {
+		if err := unit.Commit(ctx, "skipped machine-unreachable process action completion"); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -448,8 +427,7 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 	}
 	_, err = completeDaemonProcessActionTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		processActionCompletionInput{
 			ProjectID:       action.ProjectID,
@@ -462,12 +440,7 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 		state,
 	)
 	if errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"missed machine-unreachable process action completion",
-		); err != nil {
+		if err := unit.Commit(ctx, "missed machine-unreachable process action completion"); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -478,12 +451,7 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 			err,
 		)
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"machine-unreachable process action completion",
-	); err != nil {
+	if err := unit.Commit(ctx, "machine-unreachable process action completion"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -501,12 +469,12 @@ func (s *Store) completeMachineUnreachableToolCall(
 	if err != nil {
 		return false, err
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	qtx := dbsqlc.New(tx)
 	unreachable, err := machineStillUnreachableForToolExpiryTx(
 		ctx,
@@ -520,53 +488,45 @@ func (s *Store) completeMachineUnreachableToolCall(
 		return false, err
 	}
 	if !unreachable {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped machine-unreachable tool call completion",
-		); err != nil {
+		if err := unit.Commit(ctx, "skipped machine-unreachable tool call completion"); err != nil {
 			return false, err
 		}
 		return false, nil
 	}
-	row, err := qtx.CompleteWaitingBuiltInToolCall(
-		ctx,
-		dbsqlc.CompleteWaitingBuiltInToolCallParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			ID:        toolCallID,
-			Outcome:   string(ToolResultOutcomeFailed),
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+	if _,
+		err := unit.LockAgent(ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID,
+			ID: agentID},
+		agentexecution.ExternalAuthority{}); err != nil {
+		return false, err
 	}
+	process, found, err := getProcessByToolCallTx(ctx, tx, projectID, agentID, toolCallID)
 	if err != nil {
 		return false, err
 	}
-	if _, err := finishCompletedToolCallTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		toolCallRecordFromWaitingCompleteSQLC(row),
-		toolCallResultInput{
-			Outcome:            ToolResultOutcomeFailed,
-			ResultContentParts: parts,
-		},
-	); err != nil {
+	if !found {
+		return false, storeerr.ErrNotFound
+	}
+	blocks, err := parseToolResultContentBlocks(parts)
+	if err != nil {
 		return false, err
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"machine-unreachable tool call completion",
-	); err != nil {
+	content, err := executionContent(blocks)
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+	h, err := unit.Handle(projectID, agentID)
+	if err != nil {
+		return false, err
+	}
+	completed, err := h.FailProcessTool(ctx, process.ID, content)
+	if err != nil {
+		return false, err
+	}
+	if err := unit.Commit(ctx, "machine-unreachable tool call completion"); err != nil {
+		return false, err
+	}
+	return completed.Changed, nil
 }
 
 func machineStillUnreachableForToolExpiryTx(
@@ -588,12 +548,15 @@ func machineStillUnreachableForToolExpiryTx(
 		}
 		return false, fmt.Errorf("lock machine for machine-unreachable tool expiry: %w", err)
 	}
-	unreachable, err := qtx.CheckMachineUnreachableForToolExpiry(ctx, dbsqlc.CheckMachineUnreachableForToolExpiryParams{
-		OrgID:                          orgID,
-		MachineID:                      machineID,
-		FallbackAt:                     fallbackAt,
-		MachineUnreachableGraceSeconds: graceSeconds,
-	})
+	unreachable, err := qtx.CheckMachineUnreachableForToolExpiry(
+		ctx,
+		dbsqlc.CheckMachineUnreachableForToolExpiryParams{
+			OrgID:                          orgID,
+			MachineID:                      machineID,
+			FallbackAt:                     fallbackAt,
+			MachineUnreachableGraceSeconds: graceSeconds,
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

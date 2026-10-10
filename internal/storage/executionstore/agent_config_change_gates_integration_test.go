@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,7 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T) executionstore.LaunchAgentResult {
+func (f integrationActivationFixture) launchWithSelectedIntegration(
+	t *testing.T,
+) executionstore.LaunchAgentResult {
 	t.Helper()
 	definition := f.withSendingTools(t, f.definition(t, "Selected integration"))
 	var compiled agentconfig.Compiled
@@ -38,24 +41,27 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T
 		launch.Agent.ID,
 		"C123:111.222",
 	)
-	tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+	txUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
+	require.NoError(t, unitErr)
+	defer func() { _ = txUnit.Rollback(f.ctx) }()
+	tx := txUnit.DB()
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, testOrgID, testProjectID))
 	require.NoError(t, integrationstore.LockIntegrationsTx(f.ctx, tx, testProjectID, nil, f.integration.ID))
-	_, err = dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
+	_, err = txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: launch.Agent.ID,
-	})
+	}, agentexecution.ExternalAuthority{})
 	require.NoError(t, err)
 	require.NoError(t, f.store.Integrations().AssignAgentIntegrationConversationTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,
 		integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef},
 	))
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
-		f.ctx, tx, testProjectID, launch.Agent.ID, target.ID,
+		f.ctx, txUnit, testProjectID, launch.Agent.ID, target.ID,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "chat", selection.HandlerKey)
 	require.Equal(t, target.ID, selection.IntegrationTargetID)
-	require.NoError(t, tx.Commit(f.ctx))
+	require.NoError(t, txUnit.Commit(f.ctx, "fixture admission"))
 	return launch
 }
 
@@ -124,9 +130,21 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 						f.ctx, dbsqlc.LockAgentMachineSourcesParams{AgentID: launch.Agent.ID},
 					))
 					changed = integrationdb.RunAsync(change)
-					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentMachineSources", 1)
+					integrationdb.WaitForNamedLockWaiters(
+						t,
+						f.ctx,
+						f.store.pool,
+						"LockAgentMachineSources",
+						1,
+					)
 					revoked = integrationdb.RunAsyncError(revoke)
-					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleExclusive", 1)
+					integrationdb.WaitForNamedLockWaiters(
+						t,
+						f.ctx,
+						f.store.pool,
+						"LockIntegrationLifecycleExclusive",
+						1,
+					)
 				} else {
 					require.NoError(t, dbsqlc.New(control).LockIntegrationLifecycleShared(
 						f.ctx, dbsqlc.LockIntegrationLifecycleSharedParams{IntegrationID: f.integration.ID},
@@ -137,19 +155,36 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 				}
 				require.NoError(t, control.Commit(f.ctx))
-				result := integrationdb.AwaitSuccess(t, changed, "config change racing integration revocation")
-				require.NoError(t, integrationdb.Await(t, revoked, "integration revocation racing config change"))
+				result := integrationdb.AwaitSuccess(
+					t,
+					changed,
+					"config change racing integration revocation",
+				)
+				require.NoError(
+					t,
+					integrationdb.Await(t, revoked, "integration revocation racing config change"),
+				)
 				current, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, launch.Agent.ID)
 				require.NoError(t, err)
-				require.Equal(t, result.AgentConfig.ID, current.CurrentConfigID, "revoked references remain valid metadata")
+				require.Equal(
+					t,
+					result.AgentConfig.ID,
+					current.CurrentConfigID,
+					"revoked references remain valid metadata",
+				)
 				captureTx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 				destination, err := executionstore.IntegrationCaptureInteractionDestinationTx(
 					f.ctx, captureTx, testProjectID, launch.Agent.ID,
 				)
 				require.NoError(t, err)
-				require.Nil(t, destination, "config activation cannot grant live authority to a revoked integration")
+				require.Nil(
+					t,
+					destination,
+					"config activation cannot grant live authority to a revoked integration",
+				)
 				if state == "deleted" || order == "revocation-first" {
-					selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
+					selection, err := f.store.Execution().
+						GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 					require.NoError(t, err)
 					require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 				}
@@ -170,7 +205,12 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			t.Parallel()
 			f := newIntegrationActivationFixture(t)
 			launch := f.launchWithSelectedIntegration(t)
-			input := f.changeInput(t, launch.Agent.ID, "Accepted integration config", "accepted-integration-config")
+			input := f.changeInput(
+				t,
+				launch.Agent.ID,
+				"Accepted integration config",
+				"accepted-integration-config",
+			)
 			input.CreateAgentConfigInput = f.withSendingTools(t, input.CreateAgentConfigInput)
 			input.ExpectedCurrentConfigID = launch.Agent.CurrentConfigID
 			accepted, err := f.store.Execution().ChangeAgentConfig(f.ctx, input)
@@ -188,7 +228,11 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			ctx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 			defer cancel()
 			replayed, err := f.store.Execution().IntegrationChangeAgentConfigOnce(ctx, input)
-			require.NoError(t, err, "committed replay skips integration gates and stale expected-current validation")
+			require.NoError(
+				t,
+				err,
+				"committed replay skips integration gates and stale expected-current validation",
+			)
 			require.Equal(t, accepted.AgentConfig.ID, replayed.AgentConfig.ID)
 			require.Equal(t, accepted.ConfigChange.AgentInput.ID, replayed.ConfigChange.AgentInput.ID)
 			require.Equal(t, accepted.ConfigChange.Event.ID, replayed.ConfigChange.Event.ID)
@@ -197,9 +241,20 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 			current, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, launch.Agent.ID)
 			require.NoError(t, err)
-			require.Equal(t, latest.AgentConfig.ID, current.CurrentConfigID, "replay cannot reactivate the older config")
-			require.Equal(t, before, f.subscriptions(t, launch.Agent.ID), "replay cannot restore subscriptions")
-			selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
+			require.Equal(
+				t,
+				latest.AgentConfig.ID,
+				current.CurrentConfigID,
+				"replay cannot reactivate the older config",
+			)
+			require.Equal(
+				t,
+				before,
+				f.subscriptions(t, launch.Agent.ID),
+				"replay cannot restore subscriptions",
+			)
+			selection, err := f.store.Execution().
+				GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 			require.NoError(t, err)
 			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 			var events int

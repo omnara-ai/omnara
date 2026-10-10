@@ -20,25 +20,25 @@ import (
 func TestModelCallRowConstraintsProtectImmutableEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "model_call_database_guards")
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "model_call_database_guards")
 	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	frontier := admitted.Events[len(admitted.Events)-1].Sequence
-	claimInput := executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: frontier,
+	_ = admitted.Events[len(admitted.Events)-1].Sequence
+	claimInput := executionstore.PrepareNormalModelCallInput{
+		ProjectID:       testProjectID,
+		AgentID:         fixture.AgentID,
+		RuntimeLockID:   fixture.Lock.ID,
+		OpeningInputIDs: openingInputIDs,
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, claimInput)
+	prepared1, err := fixture.Store.Execution().PrepareNormalModelCall(ctx, claimInput)
+	claim := prepared1.Claim
 	if err != nil {
 		t.Fatalf("claim guarded model context: %v", err)
 	}
-	replayed, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, claimInput)
+	prepared2, err := fixture.Store.Execution().PrepareNormalModelCall(ctx, claimInput)
+	replayed := prepared2.Claim
 	if err != nil {
 		t.Fatalf("re-find normal model context: %v", err)
 	}
@@ -47,12 +47,13 @@ func TestModelCallRowConstraintsProtectImmutableEvidence(t *testing.T) {
 	}
 	_, terminalInsertErr := fixture.Store.pool.Exec(ctx, `
 INSERT INTO model_call_contexts(
-  org_id, project_id, agent_id, operation_kind,
+  turn_id, opening_input_ids, opening_event_sequence,
+org_id, project_id, agent_id, operation_kind,
   attempt_number, agent_config_id, configured_model_revision_id,
   input_event_sequence, runtime_lock_id, state,
   error_kind, error_message, created_at, completed_at
 )
-SELECT org_id, project_id, agent_id, operation_kind,
+SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, agent_id, operation_kind,
        attempt_number + 1000, agent_config_id, configured_model_revision_id,
        input_event_sequence, runtime_lock_id,
        'failed', 'invalid_request', 'inserted terminal', created_at, created_at
@@ -71,13 +72,14 @@ WHERE id = $1`, claim.Context.ID)
 	}
 	_, nullRangeErr := nullRangeTx.Exec(ctx, `
 INSERT INTO model_call_contexts(
-  org_id, project_id, agent_id, operation_kind,
+  turn_id, opening_input_ids, opening_event_sequence,
+org_id, project_id, agent_id, operation_kind,
   attempt_number,
   agent_config_id, configured_model_revision_id,
   input_event_sequence, source_event_sequence_end,
   runtime_lock_id, state, created_at
 )
-SELECT org_id, project_id, agent_id, 'compaction',
+SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, agent_id, 'compaction',
        attempt_number + 1001,
        agent_config_id, configured_model_revision_id,
        input_event_sequence, NULL, runtime_lock_id, 'started', created_at
@@ -166,7 +168,11 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 		t.Run(string(stopReason), func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
-			fixture, _, modelClaim := newStartedNormalModelCallTestFixture(t, ctx, "kernel_model_output_authority")
+			fixture, _, modelClaim := newStartedNormalModelCallTestFixture(
+				t,
+				ctx,
+				"kernel_model_output_authority",
+			)
 			now := fixture.Now.Add(time.Minute)
 			providerModelSlug := modelProviderSlugForContext(
 				t, ctx, fixture.Store, testProjectID, fixture.AgentID, modelClaim.Context.ID,
@@ -214,12 +220,19 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				t.Fatalf("replay typed model output: %v", err)
 			}
 			if replayed.ID != event.ID || replayed.Sequence != event.Sequence {
-				t.Fatalf("replayed event = %s/%d, want %s/%d", replayed.ID, replayed.Sequence, event.ID, event.Sequence)
+				t.Fatalf(
+					"replayed event = %s/%d, want %s/%d",
+					replayed.ID,
+					replayed.Sequence,
+					event.ID,
+					event.Sequence,
+				)
 			}
 			changedReason := recordInput
 			changedReason.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
 			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedReason); !errors.Is(
-				err, storeerr.ErrIdempotencyConflict,
+				err,
+				storeerr.ErrIdempotencyConflict,
 			) {
 				t.Fatalf("changed stop reason replay error = %v, want idempotency conflict", err)
 			}
@@ -227,7 +240,10 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			require.NoError(
 				t,
 				fixture.Store.pool.QueryRow(
-					ctx, `SELECT count(*) FROM agent_next_model_work($1,$2)`, testProjectID, fixture.AgentID,
+					ctx,
+					`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.logical_ready_at IS NOT NULL`,
+					testProjectID,
+					fixture.AgentID,
 				).
 					Scan(&pending),
 			)
@@ -249,7 +265,11 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				err,
 				storeerr.ErrIdempotencyConflict,
 			) {
-				t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
+				t.Fatalf(
+					"conflicting output replay error = %v, want %v",
+					err,
+					storeerr.ErrIdempotencyConflict,
+				)
 			}
 			conflictingCostInput := recordInput
 			conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
@@ -263,7 +283,10 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			var modelOutputID uuid.UUID
 			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id
-WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).
+WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`,
+				testProjectID,
+				fixture.AgentID,
+				event.ID).
 				Scan(&modelOutputID); err != nil {
 				t.Fatalf("load model output event pointer: %v", err)
 			}
@@ -348,7 +371,12 @@ JOIN model_call_contexts context
   ON context.agent_id = output.agent_id
  AND context.id = output.model_call_context_id
 WHERE context.project_id = $1 AND output.agent_id = $2 AND output.id = $3
-	`, testProjectID, fixture.AgentID, modelOutputID).Scan(&inputTokens, &outputTokens, &contentBlocks); err != nil {
+	`,
+				testProjectID,
+				fixture.AgentID,
+				modelOutputID).Scan(&inputTokens,
+				&outputTokens,
+				&contentBlocks); err != nil {
 				t.Fatalf("load model output usage: %v", err)
 			}
 			if inputTokens != 1 || outputTokens != 1 || contentBlocks != 1 {

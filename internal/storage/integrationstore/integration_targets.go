@@ -43,7 +43,7 @@ type EnsureConversationTargetInput struct {
 
 func LockConversationTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, integrationID uuid.UUID,
 	address ConversationAddress,
 ) error {
@@ -60,7 +60,7 @@ func LockConversationTx(
 
 func (s *Store) EnsureConversationTargetTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input EnsureConversationTargetInput,
 ) (IntegrationTargetRecord, error) {
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.IntegrationID == uuid.Nil {

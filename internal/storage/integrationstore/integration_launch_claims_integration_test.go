@@ -18,7 +18,7 @@ import (
 func TestIntegrationLaunchClaimFreezesEntireRecipientSet(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	store := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	var profileID uuid.UUID
 	require.NoError(
 		t,

@@ -32,13 +32,17 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 		providerModelSlug: "replay-compaction-model",
 		responses: []model.Response{
 			{
-				ID:         "resp-replay-compaction-padding",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "disposable old history accepted"}},
+				ID: "resp-replay-compaction-padding",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "disposable old history accepted"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-replay-compaction-seed",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "recent history that must remain exact"}},
+				ID: "resp-replay-compaction-seed",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "recent history that must remain exact"},
+				},
 				StopReason: model.StopReasonEndTurn,
 				ProviderReplay: json.RawMessage(
 					`[{"type":"reasoning","id":"rs_replay_compaction","encrypted_content":"large opaque replay"},` +
@@ -125,14 +129,19 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 		}},
 		responses: []model.Response{
 			{
-				ID:         "resp-replay-compaction-overflow",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "context window exceeded"}},
+				ID: "resp-replay-compaction-overflow",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "context window exceeded"},
+				},
 				StopReason: model.StopReasonContextWindow,
 			},
 			{
 				ID: "resp-replay-compaction-summary",
 				Content: []model.ResponsePart{
-					{Type: model.ResponsePartTypeText, Text: "The earlier replay-backed history was preserved."},
+					{
+						Type: model.ResponsePartTypeText,
+						Text: "The earlier replay-backed history was preserved.",
+					},
 				},
 				StopReason: model.StopReasonEndTurn,
 			},
@@ -149,8 +158,10 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 				),
 			},
 			{
-				ID:         "resp-replay-compaction-later",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "new replay remained eligible"}},
+				ID: "resp-replay-compaction-later",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "new replay remained eligible"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -256,7 +267,10 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 		}
 	}
 	if checkpointProjections < 3 {
-		t.Fatalf("checkpoint projections = %d, want planner, validator, and continuation", checkpointProjections)
+		t.Fatalf(
+			"checkpoint projections = %d, want planner, validator, and continuation",
+			checkpointProjections,
+		)
 	}
 
 	var checkpoints int
@@ -352,8 +366,10 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 				Usage:      model.Usage{InputTokens: 128000},
 			},
 			{
-				ID:         "resp_summary",
-				Content:    []model.ResponsePart{{Type: "text", Text: "The earlier turn established seed history."}},
+				ID: "resp_summary",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "The earlier turn established seed history."},
+				},
 				StopReason: model.StopReasonEndTurn,
 				Usage:      model.Usage{InputTokens: 20, OutputTokens: 8},
 			},
@@ -392,7 +408,9 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		)
 	}
 	if len(retryModel.responded[0].ToolSpecs) == 0 {
-		t.Fatal("normal request omitted the configured tool needed to make the compaction assertion meaningful")
+		t.Fatal(
+			"normal request omitted the configured tool needed to make the compaction assertion meaningful",
+		)
 	}
 	if len(retryModel.responded[1].ToolSpecs) != 0 {
 		t.Fatalf("compaction request exposed tools: %+v", retryModel.responded[1].ToolSpecs)
@@ -441,8 +459,13 @@ LIMIT 1
 			ProjectID:          kernelTestProjectID,
 			AgentID:            agentID,
 			InputEventSequence: completedCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(t, ctx, fixture.Store, completedCompactionContext),
-			EventSequenceEnd:   *completedCompactionContext.SourceEventSequenceEnd,
+			EventSequenceStart: compactionSourceStartForKernelTest(
+				t,
+				ctx,
+				fixture.Store,
+				completedCompactionContext,
+			),
+			EventSequenceEnd: *completedCompactionContext.SourceEventSequenceEnd,
 		},
 		TurnID:                   retryTurn.TurnID,
 		OpeningInputIDs:          retryTurn.InputIDs,
@@ -457,7 +480,10 @@ LIMIT 1
 		t.Fatalf("replayed compaction = %+v, want adopted checkpoint", replayedCompaction)
 	}
 	if retryModel.respondedCount() != 2 {
-		t.Fatalf("completed compaction replay made a provider request; prepared=%d", retryModel.respondedCount())
+		t.Fatalf(
+			"completed compaction replay made a provider request; prepared=%d",
+			retryModel.respondedCount(),
+		)
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,
@@ -521,7 +547,10 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 		  AND mcc.operation_kind = 'normal'
 		  AND mcc.state = 'succeeded'
 		  AND mcc.input_event_sequence >= checkpoint_event.sequence
-		  AND context_turn.turn_id = $3`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&retryContexts); err != nil {
+		  AND context_turn.turn_id = $3`,
+		kernelTestProjectID,
+		agentID,
+		retryTurn.TurnID).Scan(&retryContexts); err != nil {
 		t.Fatalf("count retry context checkpoint refs: %v", err)
 	}
 	if retryContexts != 1 {
@@ -549,8 +578,10 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 	seedModel := &sequenceKernelModel{
 		providerModelSlug: "kernel-test",
 		responses: []model.Response{{
-			ID:         "resp_interrupted_compaction_seed",
-			Content:    []model.ResponsePart{{Type: "text", Text: "closed history before interrupted compaction"}},
+			ID: "resp_interrupted_compaction_seed",
+			Content: []model.ResponsePart{
+				{Type: "text", Text: "closed history before interrupted compaction"},
+			},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -589,8 +620,10 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 		},
 		responses: []model.Response{
 			{
-				ID:         "resp_overflow_before_interrupted_handoff",
-				Content:    []model.ResponsePart{{Type: "text", Text: "context window exceeded before handoff"}},
+				ID: "resp_overflow_before_interrupted_handoff",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "context window exceeded before handoff"},
+				},
 				StopReason: model.StopReasonContextWindow,
 				Usage:      model.Usage{InputTokens: 128000},
 			},
@@ -608,8 +641,10 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_final_after_ambiguous_replay",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after interrupted compaction recovery"}},
+				ID: "resp_final_after_ambiguous_replay",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "continued after interrupted compaction recovery"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -723,7 +758,10 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 		t.Fatalf("execute ambiguous overflow replay and compaction: %v", err)
 	}
 	if modelClient.respondedCount() != 3 {
-		t.Fatalf("requests through replay compaction = %d, want overflow/overflow/summary", modelClient.respondedCount())
+		t.Fatalf(
+			"requests through replay compaction = %d, want overflow/overflow/summary",
+			modelClient.respondedCount(),
+		)
 	}
 
 	finalNow := claimAt.Add(time.Second)
@@ -733,7 +771,10 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 		t.Fatalf("execute continuation after interrupted compaction recovery: %v", err)
 	}
 	if modelClient.respondedCount() != 4 {
-		t.Fatalf("total requests after interrupted compaction recovery = %d, want four", modelClient.respondedCount())
+		t.Fatalf(
+			"total requests after interrupted compaction recovery = %d, want four",
+			modelClient.respondedCount(),
+		)
 	}
 	if summaryRequest := string(modelClient.responded[2].ProviderRequest); !strings.Contains(
 		summaryRequest,
@@ -906,7 +947,10 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 		t.Fatalf("execute retryable managed compaction: %v", err)
 	}
 	if journey.model.respondedCount() != 2 {
-		t.Fatalf("provider requests through retryable compaction = %d, want 2", journey.model.respondedCount())
+		t.Fatalf(
+			"provider requests through retryable compaction = %d, want 2",
+			journey.model.respondedCount(),
+		)
 	}
 
 	journey.fixture.setManagedWorkAdmission(t, ctx, false)
@@ -922,7 +966,10 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 		t.Fatalf("deny managed compaction retry: %v", err)
 	}
 	if journey.model.respondedCount() != 2 {
-		t.Fatalf("provider requests after denied compaction retry = %d, want 2", journey.model.respondedCount())
+		t.Fatalf(
+			"provider requests after denied compaction retry = %d, want 2",
+			journey.model.respondedCount(),
+		)
 	}
 	assertDurableModelErrorForKernelTest(
 		t,
@@ -959,7 +1006,7 @@ WHERE project_id = $1
 func TestManagedCompactionSourceReplacementStopsAfterAdmissionCloses(t *testing.T) {
 	ctx := context.Background()
 	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
-	frontier, err := journey.fixture.Store.Execution().MaxEventSequence(
+	_, err := journey.fixture.Store.Execution().MaxEventSequence(
 		ctx,
 		kernelTestProjectID,
 		journey.agentID,
@@ -967,26 +1014,18 @@ func TestManagedCompactionSourceReplacementStopsAfterAdmissionCloses(t *testing.
 	if err != nil {
 		t.Fatalf("load managed replacement frontier: %v", err)
 	}
-	snapshot, err := journey.fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
+
+	prepared1, err := journey.fixture.Store.Execution().PrepareNormalModelCall(
 		ctx,
-		kernelTestProjectID,
-		journey.agentID,
-		frontier,
-	)
-	if err != nil {
-		t.Fatalf("capture managed replacement config: %v", err)
-	}
-	parent, err := journey.fixture.Store.Execution().ClaimNormalModelCall(
-		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            journey.agentID,
-			RuntimeLockID:      journey.turn.RuntimeLockID,
-			OpeningInputIDs:    journey.turn.InputIDs,
-			AgentConfigID:      snapshot.AgentConfig.ID,
-			InputEventSequence: frontier,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         journey.agentID,
+			RuntimeLockID:   journey.turn.RuntimeLockID,
+			OpeningInputIDs: journey.turn.InputIDs,
 		},
 	)
+	parent := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim managed replacement parent: %v", err)
 	}
@@ -1154,8 +1193,10 @@ func newManagedCompactionAdmissionJourney(
 	seedModel := &sequenceKernelModel{
 		providerModelSlug: "managed-compaction-model",
 		responses: []model.Response{{
-			ID:         "resp_managed_seed",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "managed seed accepted"}},
+			ID: "resp_managed_seed",
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "managed seed accepted"},
+			},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -1183,13 +1224,17 @@ func newManagedCompactionAdmissionJourney(
 		},
 		responses: []model.Response{
 			{
-				ID:         "resp_managed_context_window",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "context window exceeded"}},
+				ID: "resp_managed_context_window",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "context window exceeded"},
+				},
 				StopReason: model.StopReasonContextWindow,
 			},
 			{
-				ID:         "resp_managed_summary",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Managed history summary."}},
+				ID: "resp_managed_summary",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "Managed history summary."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
@@ -1277,24 +1322,17 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 	if err != nil {
 		t.Fatalf("load malformed compaction frontier: %v", err)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		frontier,
-	)
-	if err != nil {
-		t.Fatalf("capture malformed compaction config: %v", err)
-	}
+
 	runNow := fixture.Now.Add(4 * time.Second)
-	parent, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          kernelTestProjectID,
-		AgentID:            agentID,
-		RuntimeLockID:      turn.RuntimeLockID,
-		OpeningInputIDs:    turn.InputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: frontier,
-	})
+	prepared2, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   turn.RuntimeLockID,
+			OpeningInputIDs: turn.InputIDs,
+		})
+	parent := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim malformed compaction parent: %v", err)
 	}
@@ -1331,8 +1369,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		malformedResponses[index] = model.Response{
 			ID:                      "resp\x00malformed_compaction_" + strconv.Itoa(index+1),
 			ServedProviderModelSlug: "served\x00malformed_compaction",
-			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "complete summary"}},
-			StopReason:              model.StopReasonEndTurn,
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "complete summary"},
+			},
+			StopReason: model.StopReasonEndTurn,
 		}
 	}
 	compactionModel := &sequenceKernelModel{
@@ -1397,22 +1437,40 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		}
 		if result.State != wantState || contextRecord.AttemptNumber != attemptNumber ||
 			contextRecord.State != executionstore.ModelCallContextFailed ||
-			contextRecord.RecoveryKind != wantRecoveryKind || contextRecord.ErrorCode != "malformed_success_response" ||
+			contextRecord.RecoveryKind != wantRecoveryKind ||
+			contextRecord.ErrorCode != "malformed_success_response" ||
 			contextRecord.ProviderResponseID != "" ||
 			!kernelModelCallOutcomeAmbiguous(t, contextRecord.ErrorDetails) {
-			t.Fatalf("malformed compaction attempt %d result=%+v context=%+v", attemptNumber, result, contextRecord)
+			t.Fatalf(
+				"malformed compaction attempt %d result=%+v context=%+v",
+				attemptNumber,
+				result,
+				contextRecord,
+			)
 		}
 		if attemptNumber < maxAttempts {
-			if result.RetryAt == nil || contextRecord.RetryAt == nil || !result.RetryAt.Equal(*contextRecord.RetryAt) {
-				t.Fatalf("malformed compaction retry %d result=%+v context=%+v", attemptNumber, result, contextRecord)
+			if result.RetryAt == nil || contextRecord.RetryAt == nil ||
+				!result.RetryAt.Equal(*contextRecord.RetryAt) {
+				t.Fatalf(
+					"malformed compaction retry %d result=%+v context=%+v",
+					attemptNumber,
+					result,
+					contextRecord,
+				)
 			}
 			currentNow = *result.RetryAt
 		} else if result.RetryAt != nil || contextRecord.RetryAt != nil {
-			t.Fatalf("terminal malformed compaction retained retry time: result=%+v context=%+v", result, contextRecord)
+			t.Fatalf("terminal malformed compaction retained retry time: result=%+v context=%+v",
+				result,
+				contextRecord)
 		}
 	}
 	if compactionModel.respondedCount() != maxAttempts {
-		t.Fatalf("malformed compaction provider calls = %d, want %d", compactionModel.respondedCount(), maxAttempts)
+		t.Fatalf(
+			"malformed compaction provider calls = %d, want %d",
+			compactionModel.respondedCount(),
+			maxAttempts,
+		)
 	}
 	var checkpoints int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -1465,8 +1523,8 @@ GROUP BY context.state, output.stop_reason`,
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE
     agent.project_id = $1 AND wake.agent_id = $2),
-       (SELECT count(*)::integer FROM agent_continuable_model_contexts($1, $2)
-        WHERE model_call_context_id = $3 AND NOT has_later_semantic_event)`,
+       (SELECT count(*)::integer FROM agent_execution_state h
+        WHERE h.agent_id=$2 AND h.normal_context_id=$3 AND h.turn_continuable)`,
 		kernelTestProjectID, agentID, result.ModelCallContextID).Scan(&wakeups, &resumable); err != nil {
 		t.Fatalf("load terminal compaction continuation state: %v", err)
 	}
@@ -1478,8 +1536,16 @@ SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON ag
 		wakeups != 0 || resumable != 0 {
 		t.Fatalf(
 			"terminal malformed compaction state context=%s producer=%s contexts=%d output=%s/%d block=%s/%q/%d wakeups=%d resumable=%d",
-			compactionState, producingState, contexts, outputStopReason, outputCount,
-			blockKind, blockText, blockCount, wakeups, resumable,
+			compactionState,
+			producingState,
+			contexts,
+			outputStopReason,
+			outputCount,
+			blockKind,
+			blockText,
+			blockCount,
+			wakeups,
+			resumable,
 		)
 	}
 }
@@ -1614,7 +1680,10 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	remainingResponses := append([]model.Response(nil), retryModel.responses...)
 	retryModel.mu.Unlock()
 	if len(remainingResponses) != 1 || remainingResponses[0].ID != "resp_compaction_should_not_send" {
-		t.Fatalf("compaction provider response was consumed after grant revoke; remaining=%+v", remainingResponses)
+		t.Fatalf(
+			"compaction provider response was consumed after grant revoke; remaining=%+v",
+			remainingResponses,
+		)
 	}
 	var errorOutputs int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -1696,7 +1765,8 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	); err != nil {
 		t.Fatalf("load terminal compaction lineage: %v", err)
 	}
-	if failedNormalContexts != 1 || failedCompactionContexts != 1 || normalContexts != 1 || compactionContexts != 1 {
+	if failedNormalContexts != 1 || failedCompactionContexts != 1 || normalContexts != 1 ||
+		compactionContexts != 1 {
 		t.Fatalf(
 			"terminal compaction lineage failed normal/compaction=%d/%d context rows=%d/%d, want 1/1 and 1/1",
 			failedNormalContexts,

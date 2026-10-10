@@ -11,15 +11,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-
-	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type CreateDaemonMachineInput struct {
@@ -553,29 +553,30 @@ func (s *Store) deleteMachineOnce(
 	ctx context.Context,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin delete machine: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	machine, err := s.DeleteMachineTx(ctx, tx, txNotifications, input)
+	defer func() { _ = unit.Rollback(ctx) }()
+
+	machine, err := s.DeleteMachineInUnit(ctx, unit, input)
 	if err != nil {
 		return MachineRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "delete machine"); err != nil {
+	if err := unit.Commit(ctx, "delete machine"); err != nil {
 		return MachineRecord{}, err
 	}
 	return machine, nil
 }
 
-func (s *Store) DeleteMachineTx(
+func (s *Store) DeleteMachineInUnit(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	qtx := s.q.WithTx(tx)
+	txNotifications := unit.Notifications()
+	tx := unit.DB()
+	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForLifecycle(
 		ctx,
 		dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
@@ -614,8 +615,7 @@ func (s *Store) DeleteMachineTx(
 	}
 	if err := completeMachineLifecycleTerminalWorkTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		input.OrgID,
 		input.MachineID,
@@ -1008,15 +1008,16 @@ func (s *Store) deleteProjectMachineGrantOnce(
 	ctx context.Context,
 	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return ProjectMachineGrantRecord{}, fmt.Errorf(
 			"begin delete project machine grant: %w",
 			err,
 		)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
 		return ProjectMachineGrantRecord{}, err
@@ -1045,7 +1046,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 	if err := completeExecutionRevokedProcessesTx(
 		ctx,
 		txNotifications,
-		tx,
+		unit,
 		qtx,
 		executionRevokedProcessScope{
 			projectID:             projectID,
@@ -1067,7 +1068,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 		return ProjectMachineGrantRecord{}, fmt.Errorf("delete project machine grant: %w", err)
 	}
 	record := projectMachineGrantFromDelete(row)
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "delete project machine grant"); err != nil {
+	if err := unit.Commit(ctx, "delete project machine grant"); err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}
 	return record, nil

@@ -37,113 +37,30 @@ func (q *Queries) AgentTurnExistsInProject(ctx context.Context, arg AgentTurnExi
 	return column_1, err
 }
 
-const currentContinuableAgentTurn = `-- name: CurrentContinuableAgentTurn :one
-WITH latest_turn AS MATERIALIZED (
-  SELECT turn.id, agent.project_id, turn.agent_id, turn.turn_sequence, turn.latest_event_id,
-         turn.latest_semantic_event_id
-  FROM agent_turns turn
-  JOIN agents agent ON agent.id = turn.agent_id
-  WHERE agent.project_id = $1
-    AND turn.agent_id = $2
-  ORDER BY turn.turn_sequence DESC
-  LIMIT 1
-)
-SELECT turn.id, turn.project_id, turn.agent_id, turn.turn_sequence, turn.latest_event_id,
-       turn.latest_semantic_event_id
-FROM latest_turn turn
-WHERE EXISTS (
-    SELECT 1
-    FROM agent_continuable_model_contexts(turn.project_id, turn.agent_id)
-      AS context(turn_id, model_call_context_id, input_event_sequence, has_later_semantic_event)
-    WHERE context.turn_id = turn.id
-  )
-  OR agent_has_incomplete_tool_batch(turn.project_id, turn.agent_id)
-  OR EXISTS (
-    SELECT 1
-    FROM agent_next_model_work(turn.project_id, turn.agent_id) frontier
-    WHERE frontier.turn_id = turn.id
-  )
+const getAgentTurn = `-- name: GetAgentTurn :one
+SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id
+FROM agent_turns t JOIN agents a ON a.id=t.agent_id
+WHERE a.project_id=$1 AND t.agent_id=$2 AND t.id=$3
 `
 
-type CurrentContinuableAgentTurnParams struct {
+type GetAgentTurnParams struct {
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
+	ID        uuid.UUID
 }
 
-type CurrentContinuableAgentTurnRow struct {
+type GetAgentTurnRow struct {
 	ID                    uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
 	TurnSequence          int64
 	LatestEventID         uuid.UUID
 	LatestSemanticEventID uuid.UUID
 }
 
-func (q *Queries) CurrentContinuableAgentTurn(ctx context.Context, arg CurrentContinuableAgentTurnParams) (CurrentContinuableAgentTurnRow, error) {
-	row := q.db.QueryRow(ctx, currentContinuableAgentTurn, arg.ProjectID, arg.AgentID)
-	var i CurrentContinuableAgentTurnRow
+func (q *Queries) GetAgentTurn(ctx context.Context, arg GetAgentTurnParams) (GetAgentTurnRow, error) {
+	row := q.db.QueryRow(ctx, getAgentTurn, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetAgentTurnRow
 	err := row.Scan(
 		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.TurnSequence,
-		&i.LatestEventID,
-		&i.LatestSemanticEventID,
-	)
-	return i, err
-}
-
-const insertAgentTurn = `-- name: InsertAgentTurn :one
-WITH inserted AS (
-  INSERT INTO agent_turns(id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id)
-  SELECT $1, $2,
-         $3, event.id, $4
-  FROM agent_events event
-  JOIN agents agent ON agent.id = event.agent_id
-  WHERE agent.project_id = $5
-    AND event.agent_id = $2
-    AND event.turn_id = $1
-    AND event.id = $6
-  RETURNING id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id
-)
-SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.turn_sequence,
-       inserted.latest_event_id, inserted.latest_semantic_event_id
-FROM inserted
-JOIN agents agent ON agent.id = inserted.agent_id
-`
-
-type InsertAgentTurnParams struct {
-	ID                    uuid.UUID
-	AgentID               uuid.UUID
-	TurnSequence          int64
-	LatestSemanticEventID uuid.UUID
-	ProjectID             uuid.UUID
-	LatestEventID         uuid.UUID
-}
-
-type InsertAgentTurnRow struct {
-	ID                    uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	TurnSequence          int64
-	LatestEventID         uuid.UUID
-	LatestSemanticEventID uuid.UUID
-}
-
-func (q *Queries) InsertAgentTurn(ctx context.Context, arg InsertAgentTurnParams) (InsertAgentTurnRow, error) {
-	row := q.db.QueryRow(ctx, insertAgentTurn,
-		arg.ID,
-		arg.AgentID,
-		arg.TurnSequence,
-		arg.LatestSemanticEventID,
-		arg.ProjectID,
-		arg.LatestEventID,
-	)
-	var i InsertAgentTurnRow
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
 		&i.TurnSequence,
 		&i.LatestEventID,
 		&i.LatestSemanticEventID,
@@ -763,64 +680,4 @@ func (q *Queries) ListTurnEventsForRead(ctx context.Context, arg ListTurnEventsF
 		return nil, err
 	}
 	return items, nil
-}
-
-const nextTurnSequence = `-- name: NextTurnSequence :one
-SELECT (coalesce(max(turn.turn_sequence), 0) + 1)::bigint
-FROM agent_turns turn
-JOIN agents agent ON agent.id = turn.agent_id
-WHERE agent.project_id = $1
-  AND turn.agent_id = $2
-`
-
-type NextTurnSequenceParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) NextTurnSequence(ctx context.Context, arg NextTurnSequenceParams) (int64, error) {
-	row := q.db.QueryRow(ctx, nextTurnSequence, arg.ProjectID, arg.AgentID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const updateAgentTurnLatestEvent = `-- name: UpdateAgentTurnLatestEvent :execrows
-UPDATE agent_turns
-SET latest_event_id = $1,
-    latest_semantic_event_id = coalesce($2, latest_semantic_event_id)
-FROM agent_events event
-WHERE agent_turns.agent_id = $3
-  AND agent_turns.id = $4
-  AND event.agent_id = agent_turns.agent_id
-  AND event.turn_id = agent_turns.id
-  AND event.id = $1
-  AND EXISTS (
-    SELECT 1
-    FROM agents agent
-    WHERE agent.id = agent_turns.agent_id
-      AND agent.project_id = $5
-  )
-`
-
-type UpdateAgentTurnLatestEventParams struct {
-	LatestEventID         uuid.UUID
-	LatestSemanticEventID *uuid.UUID
-	AgentID               uuid.UUID
-	ID                    uuid.UUID
-	ProjectID             uuid.UUID
-}
-
-func (q *Queries) UpdateAgentTurnLatestEvent(ctx context.Context, arg UpdateAgentTurnLatestEventParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateAgentTurnLatestEvent,
-		arg.LatestEventID,
-		arg.LatestSemanticEventID,
-		arg.AgentID,
-		arg.ID,
-		arg.ProjectID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

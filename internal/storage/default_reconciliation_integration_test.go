@@ -14,10 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -166,13 +166,15 @@ func TestReconcileDefaults(t *testing.T) {
 		Material: secrets.GenericMaterial{Value: "tenant-test-key"}, Actor: userPrincipal(user.ID),
 	})
 	require.NoError(t, err)
-	tenantProvider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID: created.Org.ID, Name: "tenant-timeouts", APIFormat: modelprotocol.APIFormatOpenAIResponses,
-		BaseURL: "https://example.test", CredentialSecretID: tenantCredential.ID,
-		RequestTimeoutMS: 600000, IdleTimeoutMS: 700000,
-	})
+	tenantProvider, err := store.Models().
+		CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+			OrgID: created.Org.ID, Name: "tenant-timeouts", APIFormat: modelprotocol.APIFormatOpenAIResponses,
+			BaseURL: "https://example.test", CredentialSecretID: tenantCredential.ID,
+			RequestTimeoutMS: 600000, IdleTimeoutMS: 700000,
+		})
 	require.NoError(t, err)
-	updateModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
+	updateModel, err := store.Models().
+		GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil {
 		t.Fatalf("get update model: %v", err)
 	}
@@ -220,18 +222,21 @@ model:
 		}
 		return config
 	}
-	removeModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "remove-model")
+	removeModel, err := store.Models().
+		GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "remove-model")
 	if err != nil {
 		t.Fatalf("get remove model: %v", err)
 	}
 	historicalConfig := createAgentConfig(removeModel)
-	retainedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model")
+	retainedModel, err := store.Models().
+		GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model")
 	if err != nil {
 		t.Fatalf("get retained model: %v", err)
 	}
-	manualProject, err := store.Identity().CreateProjectForPrincipal(ctx, identitystore.CreateProjectForPrincipalInput{
-		OrgID: created.Org.ID, Creator: userPrincipal(user.ID), Name: "Manual", IdempotencyKey: "manual",
-	})
+	manualProject, err := store.Identity().
+		CreateProjectForPrincipal(ctx, identitystore.CreateProjectForPrincipalInput{
+			OrgID: created.Org.ID, Creator: userPrincipal(user.ID), Name: "Manual", IdempotencyKey: "manual",
+		})
 	if err != nil {
 		t.Fatalf("create manual project: %v", err)
 	}
@@ -360,7 +365,12 @@ model:
 			ContextWindowTokens: 16384,
 			MaxOutputTokens:     new(2048),
 		},
-		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+		{
+			Name:                "add-model",
+			ProviderModelSlug:   "example/add",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     new(1024),
+		},
 		{
 			Name:                "tenant-model",
 			ProviderModelSlug:   "example/cluster-collision",
@@ -375,7 +385,11 @@ model:
 	assertRetainedModelWarnings := func(label string, result orglifecycle.ReconcileDefaultsResult) {
 		t.Helper()
 		if len(result.Warnings) != 3 {
-			t.Fatalf("%s warnings = %v, want tenant collision and two retained-model warnings", label, result.Warnings)
+			t.Fatalf(
+				"%s warnings = %v, want tenant collision and two retained-model warnings",
+				label,
+				result.Warnings,
+			)
 		}
 		warnings := strings.Join(result.Warnings, "\n")
 		for _, modelName := range []string{activeAgentModel.Name, profileModel.Name} {
@@ -441,17 +455,21 @@ model:
 		t.Fatal("runtime mismatch marker survived runtime protection change")
 	}
 
-	reconciledProvider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, desiredProvider.Name)
+	reconciledProvider, err := store.Models().
+		GetModelProviderConfigByName(ctx, created.Org.ID, desiredProvider.Name)
 	if err != nil {
 		t.Fatalf("get reconciled provider: %v", err)
 	}
-	if reconciledProvider.BaseURL != desiredProvider.BaseURL || reconciledProvider.RequestTimeoutMS != 120000 ||
+	if reconciledProvider.BaseURL != desiredProvider.BaseURL ||
+		reconciledProvider.RequestTimeoutMS != 120000 ||
 		reconciledProvider.IdleTimeoutMS != 45000 ||
 		reconciledProvider.CredentialSecretID != provider.CredentialSecretID {
 		t.Fatalf("unexpected reconciled provider: %+v", reconciledProvider)
 	}
-	updatedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
-	if err != nil || updatedModel.DefaultMaxOutputTokens != nil || updatedModel.ProviderModelSlug != "example/new" ||
+	updatedModel, err := store.Models().
+		GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
+	if err != nil || updatedModel.DefaultMaxOutputTokens != nil ||
+		updatedModel.ProviderModelSlug != "example/new" ||
 		(updatedModel.MaxOutputTokens == nil || *updatedModel.MaxOutputTokens != 2048) {
 		t.Fatalf("unexpected updated model: %+v, err %v", updatedModel, err)
 	}
@@ -607,7 +625,8 @@ model:
 		t.Fatalf("machine pool description = %q, want %q", poolRecord.Description, desiredPool.Description)
 	}
 	assertDecodedJSONEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
-	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
+	updatedModel, err = store.Models().
+		GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" ||
 		updatedModel.MaxOutputTokens != nil {
 		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)
@@ -992,20 +1011,19 @@ INSERT INTO machines(
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
-		deleteTx, deleteErr := pool.Begin(ctx)
+		deleteTx, deleteErr := agentexecution.NewCell("primary", pool, nil, nil).Begin(ctx)
 		if deleteErr != nil {
 			return deleteErr
 		}
 		defer func() { _ = deleteTx.Rollback(ctx) }()
-		_, deleteErr = store.Execution().DeleteMachinePoolTx(
+		_, deleteErr = store.Execution().DeleteMachinePoolInUnit(
 			ctx,
 			deleteTx,
-			notifications.NewTxNotifications(),
 			created.Org.ID,
 			poolBRow.ID,
 		)
 		if deleteErr == nil {
-			deleteErr = deleteTx.Commit(ctx)
+			deleteErr = deleteTx.Commit(ctx, "delete pool")
 		}
 		return deleteErr
 	})
@@ -1184,13 +1202,14 @@ machine_sources:
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	changeDone := integrationdb.RunAsyncError(func() error {
-		_, changeErr := store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: nextConfigInput,
-			AgentID:                launched.Agent.ID,
-			ActorType:              identitystore.PrincipalTypeUser,
-			ActorID:                user.ID,
-			IdempotencyKey:         "reconcile-config-order",
-		})
+		_, changeErr := store.Execution().
+			IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
+				CreateAgentConfigInput: nextConfigInput,
+				AgentID:                launched.Agent.ID,
+				ActorType:              identitystore.PrincipalTypeUser,
+				ActorID:                user.ID,
+				IdempotencyKey:         "reconcile-config-order",
+			})
 		return changeErr
 	})
 	waitForDefaultReconciliationLockWaiter(

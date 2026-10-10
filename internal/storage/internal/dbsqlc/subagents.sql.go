@@ -55,7 +55,7 @@ SELECT EXISTS (
           FROM agent_wakeups wake
           WHERE wake.agent_id = subtree.id
         )
-        OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
+        OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=subtree.id AND h.incomplete_tools)
     )
 )::boolean AS idle
 `
@@ -130,25 +130,6 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
-const getAgentParentID = `-- name: GetAgentParentID :one
-SELECT parent_agent_id
-FROM agents
-WHERE project_id = $1
-  AND id = $2
-`
-
-type GetAgentParentIDParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetAgentParentID(ctx context.Context, arg GetAgentParentIDParams) (*uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentParentID, arg.ProjectID, arg.ID)
-	var parent_agent_id *uuid.UUID
-	err := row.Scan(&parent_agent_id)
-	return parent_agent_id, err
-}
-
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent
@@ -218,8 +199,8 @@ SELECT agent.id,
            FROM agent_wakeups wake
            WHERE wake.agent_id = agent.id
          )
-         OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
        )::boolean AS is_running
 FROM agents agent
 WHERE agent.project_id = ANY($1::uuid[])
@@ -444,8 +425,8 @@ SELECT agent.id,
            FROM agent_wakeups wake
            WHERE wake.agent_id = agent.id
          )
-         OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
        )::boolean AS is_running
 FROM agents agent
 WHERE agent.project_id = $1
@@ -542,7 +523,7 @@ WHERE NOT EXISTS (
         FROM agent_wakeups wake
         WHERE wake.agent_id = subtree.id
       )
-      OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
+      OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=subtree.id AND h.incomplete_tools)
     )
 )
 ORDER BY candidate.created_at, candidate.id

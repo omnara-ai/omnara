@@ -177,7 +177,7 @@ func (s *Store) GetIntegrationByID(ctx context.Context, id uuid.UUID) (Integrati
 
 func (s *Store) GetIntegrationByIDTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	id uuid.UUID,
 ) (IntegrationRecord, error) {
 	return getIntegrationByID(ctx, dbsqlc.New(tx), id)

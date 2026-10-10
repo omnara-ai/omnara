@@ -115,6 +115,21 @@ func (s *Store) CaptureAgentConfigForModelContext(
 			err,
 		)
 	}
+	snapshot, err := captureAgentConfigForModelContextTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return AgentConfigSnapshotRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return AgentConfigSnapshotRecord{}, fmt.Errorf("commit capture agent config for model context: %w", err)
+	}
+	return snapshot, nil
+}
+
+func captureAgentConfigForModelContextTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) (AgentConfigSnapshotRecord, error) {
 	// The lock and the capture are deliberately separate statements. Under
 	// READ COMMITTED, the second statement gets a fresh snapshot after any
 	// transaction that previously held the agent lock has committed, so the
@@ -130,12 +145,6 @@ func (s *Store) CaptureAgentConfigForModelContext(
 	if err != nil {
 		return AgentConfigSnapshotRecord{}, fmt.Errorf(
 			"capture agent config for model context: %w",
-			err,
-		)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentConfigSnapshotRecord{}, fmt.Errorf(
-			"commit capture agent config for model context: %w",
 			err,
 		)
 	}

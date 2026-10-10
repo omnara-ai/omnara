@@ -4,591 +4,71 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
-
-func (s *Store) ClaimNormalModelCall(
-	ctx context.Context,
-	input ClaimNormalModelCallInput,
-) (ModelCallClaim, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
-		len(input.OpeningInputIDs) == 0 || input.AgentConfigID == uuid.Nil ||
-		input.InputEventSequence <= 0 {
-		return ModelCallClaim{}, errors.New(
-			"project, agent, runtime, opening inputs, agent config, and input event sequence are required",
-		)
-	}
-	if (input.SourceModelCallContextID == uuid.Nil) != (input.SourceModelOutputID == uuid.Nil) {
-		return ModelCallClaim{}, errors.New(
-			"continuation source model context and output must be provided together",
-		)
-	}
-	return s.claimModelCall(ctx, claimModelCallInput{normal: &input})
-}
 
 func (s *Store) ClaimCompactionModelCall(
 	ctx context.Context,
 	input ClaimCompactionModelCallInput,
 ) (ModelCallClaim, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
-		input.InputEventSequence <= 0 || input.SourceEventSequenceEnd <= 0 ||
-		input.SourceEventSequenceEnd > input.InputEventSequence ||
-		input.ParentContextID == uuid.Nil {
-		return ModelCallClaim{}, errors.New(
-			"project, agent, runtime, parent context, frontier, and a valid compaction source range are required",
-		)
-	}
-	return s.claimModelCall(ctx, claimModelCallInput{compaction: &input})
-}
-
-type claimModelCallInput struct {
-	normal     *ClaimNormalModelCallInput
-	compaction *ClaimCompactionModelCallInput
-}
-
-func (s *Store) claimModelCall(ctx context.Context, input claimModelCallInput) (ModelCallClaim, error) {
-	projectID, agentID, runtimeLockID := claimIdentity(input)
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return ModelCallClaim{}, fmt.Errorf("begin claim model call: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	q := dbsqlc.New(tx)
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		projectID,
-		agentID,
-		runtimeLockID,
-	); err != nil {
-		return ModelCallClaim{}, err
-	}
-
-	var claim modelCallContextClaimTx
-	if input.normal != nil {
-		claim, err = claimNormalContextTx(ctx, q, *input.normal)
-	} else {
-		claim, err = claimCompactionContextTx(ctx, q, *input.compaction)
-	}
+	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
 	if err != nil {
 		return ModelCallClaim{}, err
 	}
-	result, err := applyModelCallAdmissionTx(
-		ctx,
-		txNotifications,
-		tx,
-		q,
-		claim,
-		runtimeLockID,
-	)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "claim model call"); err != nil {
-		return ModelCallClaim{}, err
-	}
-	return result, nil
-}
-
-func applyModelCallAdmissionTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	q *dbsqlc.Queries,
-	claim modelCallContextClaimTx,
-	runtimeLockID uuid.UUID,
-) (ModelCallClaim, error) {
-	if !claim.created {
-		return ModelCallClaim{Context: claim.context}, nil
-	}
-	if claim.context.State != ModelCallContextStarted {
-		return ModelCallClaim{}, errors.New("new model call context was not started")
-	}
-	if claim.context.RuntimeLockID != runtimeLockID {
-		return ModelCallClaim{}, errors.New("new model call context was not runtime-owned")
-	}
-	if claim.newManagedWorkAllowed {
-		return ModelCallClaim{
-			Context: claim.context,
-			Created: true,
-			Claimed: true,
-		}, nil
-	}
-	failure, err := recordTerminalModelCallFailureTx(
-		ctx,
-		txNotifications,
-		tx,
-		q,
-		managedWorkAdmissionModelFailure(claim.context),
-		modelCallContextRuntimeOwned,
-		claim.context.OperationKind,
-	)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	return ModelCallClaim{Context: failure.context, Created: true}, nil
-}
-
-func managedWorkAdmissionModelFailure(
-	contextRow ModelCallContextRecord,
-) RecordModelCallErrorAndCompleteContextInput {
-	return RecordModelCallErrorAndCompleteContextInput{
-		ProjectID:          contextRow.ProjectID,
-		AgentID:            contextRow.AgentID,
-		RuntimeLockID:      contextRow.RuntimeLockID,
-		ModelCallContextID: contextRow.ID,
-		ErrorKind:          modelprotocol.ErrorKindRuntime,
-		ErrorCode:          storeerr.ManagedWorkAdmissionDeniedCode,
-		ErrorMessage:       storeerr.InsufficientOmnaraCreditsMessage,
-	}
-}
-
-func claimIdentity(input claimModelCallInput) (uuid.UUID, uuid.UUID, uuid.UUID) {
-	if input.normal != nil {
-		return input.normal.ProjectID, input.normal.AgentID, input.normal.RuntimeLockID
-	}
-	return input.compaction.ProjectID, input.compaction.AgentID, input.compaction.RuntimeLockID
-}
-
-func claimNormalContextTx(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	input ClaimNormalModelCallInput,
-) (modelCallContextClaimTx, error) {
-	latestEventSequence, err := q.MaxEventSequence(ctx, dbsqlc.MaxEventSequenceParams{
-		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
+	defer func() { _ = unit.Rollback(ctx) }()
+	result, err := h.ResumeCompaction(ctx, agentexecution.ResumeCompactionInput{
+		RuntimeLockID: input.RuntimeLockID, ParentID: input.ParentContextID,
+		Watermark: input.InputEventSequence, SourceEnd: input.SourceEventSequenceEnd,
 	})
 	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("load model call event frontier: %w", err)
+		return ModelCallClaim{}, err
 	}
-	if latestEventSequence != input.InputEventSequence {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-
-	matches, err := q.OpeningContentInputSetMatchesInputSequence(
-		ctx,
-		dbsqlc.OpeningContentInputSetMatchesInputSequenceParams{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			InputEventSequence: input.InputEventSequence,
-			InputIds:           input.OpeningInputIDs,
-		},
-	)
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("validate model call opening inputs: %w", err)
-	}
-	if !matches {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-
-	identity := dbsqlc.GetNormalModelCallContextByIdentityParams{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		InputEventSequence: input.InputEventSequence,
-	}
-	id, err := q.GetNormalModelCallContextByIdentity(ctx, identity)
-	if err == nil {
-		row, loadErr := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, id)
-		if loadErr == nil && row.AgentConfigID != input.AgentConfigID {
-			return modelCallContextClaimTx{}, fmt.Errorf(
-				"agent config changed after model call context creation: %w",
-				storeerr.ErrStateTransitionConflict,
-			)
-		}
-		return modelCallContextClaimTx{context: row}, loadErr
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("load normal model call context: %w", err)
-	}
-
-	work, err := q.NextAgentModelWork(
-		ctx,
-		dbsqlc.NextAgentModelWorkParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-		},
-	)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("validate selected model work: %w", err)
-	}
-	if errors.Is(err, pgx.ErrNoRows) || !slices.Equal(work.InputIds, input.OpeningInputIDs) {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-	if input.SourceModelCallContextID == uuid.Nil {
-		if ModelWorkKind(work.WorkKind) != ModelWorkStart {
-			return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-		}
-	} else if ModelWorkKind(work.WorkKind) != ModelWorkContinue ||
-		work.ModelCallContextID != input.SourceModelCallContextID ||
-		work.ModelOutputID != input.SourceModelOutputID {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-
-	if live, err := q.AgentHasLiveModelCallContextBeforeFrontier(
-		ctx,
-		dbsqlc.AgentHasLiveModelCallContextBeforeFrontierParams{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			InputEventSequence: input.InputEventSequence,
-		},
-	); err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("check older live model call contexts: %w", err)
-	} else if live {
-		return modelCallContextClaimTx{}, storeerr.ErrStateTransitionConflict
-	}
-	modelRevision, err := getModelCallRevisionForClaim(
-		ctx,
-		q,
-		input.ProjectID,
-		input.AgentConfigID,
-	)
-	if err != nil {
-		return modelCallContextClaimTx{}, err
-	}
-
-	id, err = q.InsertNormalModelCallContext(ctx, dbsqlc.InsertNormalModelCallContextParams{
-		InputEventSequence:        input.InputEventSequence,
-		ProjectID:                 input.ProjectID,
-		AgentID:                   input.AgentID,
-		RuntimeLockID:             input.RuntimeLockID,
-		ConfiguredModelRevisionID: modelRevision.ID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("create normal model call context: %w", err)
-	}
-	row, err := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, id)
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("load normal model call context: %w", err)
-	}
-	if row.AgentConfigID != input.AgentConfigID {
-		return modelCallContextClaimTx{}, fmt.Errorf(
-			"agent config changed before model call context creation: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
-	return modelCallContextClaimTx{
-		context:               row,
-		created:               true,
-		newManagedWorkAllowed: modelRevision.NewManagedWorkAllowed,
-	}, nil
-}
-
-type modelCallContextClaimTx struct {
-	context               ModelCallContextRecord
-	created               bool
-	newManagedWorkAllowed bool
-}
-
-func claimCompactionContextTx(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	input ClaimCompactionModelCallInput,
-) (modelCallContextClaimTx, error) {
-	parent, err := loadModelCallContextByID(
-		ctx,
-		q,
+	if err := applyAdmissionDestination(ctx,
+		unit,
 		input.ProjectID,
 		input.AgentID,
-		input.ParentContextID,
-	)
+		result.Admission); err != nil {
+		return ModelCallClaim{}, err
+	}
+	if result.Preempted {
+		return ModelCallClaim{}, storeerr.ErrAgentNotAdvanceable
+	}
+	claim, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, result.Model)
 	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("load parent model call context: %w", err)
+		return ModelCallClaim{}, err
 	}
-	if parent.OperationKind != ModelCallOperationNormal ||
-		parent.InputEventSequence != input.InputEventSequence ||
-		parent.State != ModelCallContextFailed ||
-		parent.RecoveryKind != ModelCallRecoveryCompact {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
+	if err = unit.Commit(ctx, "claim compaction"); err != nil {
+		return ModelCallClaim{}, err
 	}
-	summarizedThrough := int64(0)
-	checkpoint, checkpointErr := q.GetLatestApplicableContextCheckpoint(
-		ctx,
-		dbsqlc.GetLatestApplicableContextCheckpointParams{
-			ProjectID:        input.ProjectID,
-			AgentID:          input.AgentID,
-			MaxEventSequence: input.InputEventSequence,
-		},
-	)
-	if checkpointErr == nil {
-		summarizedThrough = checkpoint.SummarizedThroughEventSequence
-	} else if !errors.Is(checkpointErr, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("load prior compaction checkpoint: %w", checkpointErr)
-	}
-	if input.SourceEventSequenceEnd <= summarizedThrough {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-	sourceEnd := input.SourceEventSequenceEnd
-	identity := dbsqlc.GetCompactionModelCallContextByIdentityParams{
-		ProjectID:              input.ProjectID,
-		AgentID:                input.AgentID,
-		InputEventSequence:     input.InputEventSequence,
-		SourceEventSequenceEnd: &sourceEnd,
-	}
-	id, err := q.GetCompactionModelCallContextByIdentity(ctx, identity)
-	if err == nil {
-		row, loadErr := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, id)
-		if loadErr == nil && row.AgentConfigID != parent.AgentConfigID {
-			return modelCallContextClaimTx{}, fmt.Errorf(
-				"agent config changed after compaction context creation: %w",
-				storeerr.ErrStateTransitionConflict,
-			)
-		}
-		return modelCallContextClaimTx{context: row}, loadErr
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("load compaction model call context: %w", err)
-	}
-	modelRevision, err := getModelCallRevisionForClaim(
-		ctx,
-		q,
-		input.ProjectID,
-		parent.AgentConfigID,
-	)
-	if err != nil {
-		return modelCallContextClaimTx{}, err
-	}
-
-	id, err = q.InsertTriggeredCompactionModelCallContext(
-		ctx,
-		dbsqlc.InsertTriggeredCompactionModelCallContextParams{
-			SourceEventSequenceEnd:    &sourceEnd,
-			ProjectID:                 input.ProjectID,
-			AgentID:                   input.AgentID,
-			RuntimeLockID:             input.RuntimeLockID,
-			ParentModelCallContextID:  input.ParentContextID,
-			ConfiguredModelRevisionID: modelRevision.ID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("create compaction model call context: %w", err)
-	}
-	row, err := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, id)
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("load compaction model call context: %w", err)
-	}
-	if row.AgentConfigID != parent.AgentConfigID {
-		return modelCallContextClaimTx{}, fmt.Errorf(
-			"agent config changed before compaction context creation: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
-	return modelCallContextClaimTx{
-		context:               row,
-		created:               true,
-		newManagedWorkAllowed: modelRevision.NewManagedWorkAllowed,
-	}, nil
+	return claim, nil
 }
 
 func (s *Store) ClaimNextModelCallContext(
 	ctx context.Context,
 	input ClaimNextModelCallContextInput,
 ) (ModelCallClaim, error) {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil ||
-		input.PredecessorModelCallContextID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
-		return ModelCallClaim{}, errors.New("project, agent, predecessor context, and runtime are required")
-	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return ModelCallClaim{}, fmt.Errorf("begin claim next model call context: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := ensureRuntimeLockActiveTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	); err != nil {
-		return ModelCallClaim{}, err
-	}
-	predecessor, err := loadModelCallContextByID(
-		ctx,
-		q,
-		input.ProjectID,
-		input.AgentID,
-		input.PredecessorModelCallContextID,
-	)
-	if err != nil {
-		return ModelCallClaim{}, fmt.Errorf("load model call context for retry: %w", err)
-	}
-	claim, err := claimNextModelCallContextTx(
-		ctx,
-		q,
-		predecessor,
-		input.RuntimeLockID,
-	)
+	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
 	if err != nil {
 		return ModelCallClaim{}, err
 	}
-	result, err := applyModelCallAdmissionTx(
-		ctx,
-		txNotifications,
-		tx,
-		q,
-		claim,
-		input.RuntimeLockID,
-	)
+	defer func() { _ = unit.Rollback(ctx) }()
+	prepared, err := h.ResumeModel(ctx, input.RuntimeLockID, input.PredecessorModelCallContextID)
 	if err != nil {
 		return ModelCallClaim{}, err
 	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"claim next model call context",
-	); err != nil {
+	result, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, prepared)
+	if err != nil {
+		return ModelCallClaim{}, err
+	}
+	if err = unit.Commit(ctx, "claim retry"); err != nil {
 		return ModelCallClaim{}, err
 	}
 	return result, nil
-}
-
-func claimNextModelCallContextTx(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	predecessor ModelCallContextRecord,
-	runtimeLockID uuid.UUID,
-) (modelCallContextClaimTx, error) {
-	latest, err := loadLatestModelCallContextForOperation(ctx, q, predecessor)
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf(
-			"load latest model call context for operation: %w",
-			err,
-		)
-	}
-	if latest.ID != predecessor.ID {
-		return modelCallContextClaimTx{context: latest}, nil
-	}
-	if predecessor.State == ModelCallContextFailed &&
-		predecessor.RecoveryKind == ModelCallRecoveryRetry {
-		modelRevision, err := getModelCallRevisionForClaim(
-			ctx,
-			q,
-			predecessor.ProjectID,
-			predecessor.AgentConfigID,
-		)
-		if err != nil {
-			return modelCallContextClaimTx{}, err
-		}
-		id, err := q.InsertNextModelCallContext(ctx, dbsqlc.InsertNextModelCallContextParams{
-			ProjectID:                     predecessor.ProjectID,
-			AgentID:                       predecessor.AgentID,
-			PredecessorModelCallContextID: predecessor.ID,
-			MaxRetries:                    MaxModelCallRetriesPerOperation,
-			ConfiguredModelRevisionID:     modelRevision.ID,
-			RuntimeLockID:                 runtimeLockID,
-		})
-		if err == nil {
-			row, loadErr := loadModelCallContextByID(
-				ctx,
-				q,
-				predecessor.ProjectID,
-				predecessor.AgentID,
-				id,
-			)
-			return modelCallContextClaimTx{
-				context:               row,
-				created:               loadErr == nil,
-				newManagedWorkAllowed: modelRevision.NewManagedWorkAllowed,
-			}, loadErr
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return modelCallContextClaimTx{}, fmt.Errorf("claim next model call context: %w", err)
-		}
-		latest, err = loadLatestModelCallContextForOperation(ctx, q, predecessor)
-		if err != nil {
-			return modelCallContextClaimTx{}, fmt.Errorf(
-				"reload latest model call context for operation: %w",
-				err,
-			)
-		}
-	}
-	return modelCallContextClaimTx{context: latest}, nil
-}
-
-type modelCallRevisionForClaim struct {
-	ID                    uuid.UUID
-	NewManagedWorkAllowed bool
-}
-
-func getModelCallRevisionForClaim(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentConfigID uuid.UUID,
-) (modelCallRevisionForClaim, error) {
-	revision, err := q.GetModelCallRevisionForClaim(
-		ctx,
-		dbsqlc.GetModelCallRevisionForClaimParams{
-			ProjectID:     projectID,
-			AgentConfigID: agentConfigID,
-		},
-	)
-	if err != nil {
-		return modelCallRevisionForClaim{}, fmt.Errorf(
-			"resolve configured model revision for model call: %w",
-			err,
-		)
-	}
-	return modelCallRevisionForClaim{
-		ID:                    revision.CurrentRevisionID,
-		NewManagedWorkAllowed: revision.NewManagedWorkAllowed,
-	}, nil
-}
-
-func loadLatestModelCallContextForOperation(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	contextRow ModelCallContextRecord,
-) (ModelCallContextRecord, error) {
-	var id uuid.UUID
-	var err error
-	switch contextRow.OperationKind {
-	case ModelCallOperationNormal:
-		id, err = q.GetNormalModelCallContextByIdentity(
-			ctx,
-			dbsqlc.GetNormalModelCallContextByIdentityParams{
-				ProjectID:          contextRow.ProjectID,
-				AgentID:            contextRow.AgentID,
-				InputEventSequence: contextRow.InputEventSequence,
-			},
-		)
-	case ModelCallOperationCompaction:
-		id, err = q.GetCompactionModelCallContextByIdentity(
-			ctx,
-			dbsqlc.GetCompactionModelCallContextByIdentityParams{
-				ProjectID:              contextRow.ProjectID,
-				AgentID:                contextRow.AgentID,
-				InputEventSequence:     contextRow.InputEventSequence,
-				SourceEventSequenceEnd: contextRow.SourceEventSequenceEnd,
-			},
-		)
-	default:
-		return ModelCallContextRecord{}, fmt.Errorf(
-			"unsupported model call operation %q",
-			contextRow.OperationKind,
-		)
-	}
-	if err != nil {
-		return ModelCallContextRecord{}, err
-	}
-	return loadModelCallContextByID(ctx, q, contextRow.ProjectID, contextRow.AgentID, id)
 }
 
 func (s *Store) GetModelCallContext(
@@ -630,11 +110,17 @@ func (s *Store) GetNormalModelCallContextForFrontier(
 		return ModelCallContextRecord{}, false, nil
 	}
 	if err != nil {
-		return ModelCallContextRecord{}, false, fmt.Errorf("get normal model call context for frontier: %w", err)
+		return ModelCallContextRecord{}, false, fmt.Errorf(
+			"get normal model call context for frontier: %w",
+			err,
+		)
 	}
 	record, err := loadModelCallContextByID(ctx, s.q, projectID, agentID, id)
 	if err != nil {
-		return ModelCallContextRecord{}, false, fmt.Errorf("load normal model call context for frontier: %w", err)
+		return ModelCallContextRecord{}, false, fmt.Errorf(
+			"load normal model call context for frontier: %w",
+			err,
+		)
 	}
 	return record, true, nil
 }
@@ -657,7 +143,7 @@ func loadModelCallContextByID(
 
 func loadModelCallContextByIDTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID, id uuid.UUID,
 ) (ModelCallContextRecord, error) {
 	return loadModelCallContextByID(ctx, dbsqlc.New(tx), projectID, agentID, id)

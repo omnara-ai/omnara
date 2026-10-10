@@ -606,8 +606,8 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, leaf.Agent.ID, leafLock.ID); err != nil {
 		t.Fatalf("release leaf runtime lock: %v", err)
 	}
-	if err := store.Execution().MarkAgentWakeup(
-		ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`),
+	if err := store.Execution().RepairExecutionForTest(
+		ctx, testProjectID, leaf.Agent.ID,
 	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}

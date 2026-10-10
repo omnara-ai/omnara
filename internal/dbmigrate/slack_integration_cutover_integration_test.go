@@ -54,11 +54,43 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 
 func TestSlackIntegrationCutoverPreservesConversationsAndHistory(t *testing.T) {
 	for _, scenario := range []string{
-		"normal", "memory_store", "pre_internal_ids", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
+		"normal",
+		"memory_store",
+		"pre_internal_ids",
+		"injected_failure",
+		"rewrite_failure",
+		"continuable_retry",
+		"custom_collision",
 		"live_lease", "unsupported_setup",
-		"fixed_agent", "mislabeled_fixed_agent", "multiple_targets", "multiple_integrations", "enabled", "json", "yaml", "yaml_alias", "enabled_json", "enabled_yaml", "channel", "dm",
-		"wire_json", "wire_yaml", "enabled_wire_json", "enabled_wire_yaml", "enabled_null_json", "enabled_null_yaml",
-		"absent_send", "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota", "invalid_policy", "unmapped_policy", "invalid_address", "bad_hash", "bad_source_hash", "config_limit",
+		"fixed_agent",
+		"mislabeled_fixed_agent",
+		"multiple_targets",
+		"multiple_integrations",
+		"enabled",
+		"json",
+		"yaml",
+		"yaml_alias",
+		"enabled_json",
+		"enabled_yaml",
+		"channel",
+		"dm",
+		"wire_json",
+		"wire_yaml",
+		"enabled_wire_json",
+		"enabled_wire_yaml",
+		"enabled_null_json",
+		"enabled_null_yaml",
+		"absent_send",
+		"preflight_invalid_policy",
+		"preflight_unmapped_policy",
+		"preflight_address",
+		"preflight_quota",
+		"invalid_policy",
+		"unmapped_policy",
+		"invalid_address",
+		"bad_hash",
+		"bad_source_hash",
+		"config_limit",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -112,7 +144,10 @@ func TestSlackIntegrationCutoverPreservesConversationsAndHistory(t *testing.T) {
 			var compiledObject map[string]any
 			require.NoError(t, json.Unmarshal([]byte(compiled), &compiledObject))
 			legacyTools := testutil.RequireType[map[string]any](t, compiledObject["tools"])
-			legacySendPolicy := testutil.RequireType[map[string]any](t, legacyTools["send_integration_message"])
+			legacySendPolicy := testutil.RequireType[map[string]any](
+				t,
+				legacyTools["send_integration_message"],
+			)
 			sendingEnabled := strings.HasPrefix(scenario, "enabled") || scenario == "absent_send"
 			if sendingEnabled {
 				legacySendPolicy["enabled"] = true
@@ -138,8 +173,14 @@ func TestSlackIntegrationCutoverPreservesConversationsAndHistory(t *testing.T) {
 			}
 			memoryStoreID := uuid.New()
 			if scenario == "memory_store" {
-				exec(`INSERT INTO memory_stores(id,project_id,name) VALUES($1,$2,'review-notes')`, memoryStoreID, ids.ProjectID)
-				compiledObject["memory_stores"] = []map[string]any{{"id": memoryStoreID, "access": "read_write"}}
+				exec(
+					`INSERT INTO memory_stores(id,project_id,name) VALUES($1,$2,'review-notes')`,
+					memoryStoreID,
+					ids.ProjectID,
+				)
+				compiledObject["memory_stores"] = []map[string]any{
+					{"id": memoryStoreID, "access": "read_write"},
+				}
 			}
 			canonical, err := json.Marshal(compiledObject)
 			require.NoError(t, err)
@@ -185,7 +226,11 @@ tools:
 				}
 			}
 			if source != nil && sendingEnabled {
-				source = strings.ReplaceAll(testutil.RequireType[string](t, source), "enabled: false", "enabled: true")
+				source = strings.ReplaceAll(
+					testutil.RequireType[string](t, source),
+					"enabled: false",
+					"enabled: true",
+				)
 			}
 			if strings.Contains(scenario, "wire_") || strings.Contains(scenario, "null_") {
 				policy := `{"type":"built_in","enabled":false}`
@@ -204,8 +249,13 @@ tools:
 			}
 			if source != nil {
 				exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
-				exec(`UPDATE agent_configs SET source=$2,source_format=$3,source_hash=$4 WHERE id=$1`,
-					configID, source, sourceFormat, fmt.Sprintf("%x", sha256.Sum256([]byte(testutil.RequireType[string](t, source)))))
+				exec(
+					`UPDATE agent_configs SET source=$2,source_format=$3,source_hash=$4 WHERE id=$1`,
+					configID,
+					source,
+					sourceFormat,
+					fmt.Sprintf("%x", sha256.Sum256([]byte(testutil.RequireType[string](t, source)))),
+				)
 				exec(`ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
 			}
 
@@ -228,13 +278,20 @@ tools:
 				ids.ProviderAdminUserID,
 				credentialID,
 			)
-			exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
+			exec(
+				`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
              provider,integration_kind,
 			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,
              credential_secret_id,created_at,updated_at)
 			 VALUES($1,$2,$3,$4,$5,'slack','agent_profile','webhook','disabled','T456','A456',
 			 '{"bot_user_id":"U456"}',$6,'2026-01-01','2026-01-01')`,
-				secondIntegrationID, ids.OrgID, ids.ProjectID, profileID, ids.ProviderAdminUserID, credentialID)
+				secondIntegrationID,
+				ids.OrgID,
+				ids.ProjectID,
+				profileID,
+				ids.ProviderAdminUserID,
+				credentialID,
+			)
 			agents := []uuid.UUID{uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()}
 			const archivedIndex, subagentIndex, noTurnIndex = 2, 3, 4
 			for i, agentID := range agents {
@@ -295,14 +352,59 @@ tools:
 					)
 				}
 				if i == 0 || i == 1 {
+					openingInput, openingEvent := uuid.New(), uuid.New()
+					q(
+						`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,queued_at)
+ VALUES($1,$2,$3,'received','content','queued',now())`,
+						openingInput,
+						ids.ProjectID,
+						agentID,
+					)
+					q(
+						`INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,ordinal,block_kind,text_content,created_at)
+ VALUES($1,'agent_input',$2,0,'text','Review the conversation',now())`,
+						agentID,
+						openingInput,
+					)
+					q(
+						`INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,is_opening_event,created_at)
+ VALUES($1,$2,$3,2,'agent_input',$4,$5,true,now())`,
+						openingEvent,
+						agentID,
+						turnID,
+						"agent_input:"+openingInput.String(),
+						openingInput,
+					)
+					q(
+						`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now() WHERE id=$1`,
+						openingInput,
+						openingEvent,
+					)
+					q(
+						`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`,
+						turnID,
+						openingEvent,
+					)
+					q(`UPDATE agents SET next_event_sequence=3 WHERE id=$1`, agentID)
 					failed := uuid.New()
-					q(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
+					q(
+						`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
                       agent_config_id,configured_model_revision_id,input_event_sequence,
                       runtime_lock_id,state,created_at)
-                      VALUES($1,$2,$3,$4,'normal',1,$5,$6,1,$7,'started',now())`,
-						failed, ids.OrgID, ids.ProjectID, agentID, configID, revisionID, uuid.New())
-					q(`UPDATE model_call_contexts SET state='failed',recovery_kind='retry',error_kind='provider_error',
-                          retry_at=now(),completed_at=now() WHERE id=$1`, failed)
+                      VALUES($1,$2,$3,$4,'normal',1,$5,$6,2,$7,'started',now())`,
+						failed,
+						ids.OrgID,
+						ids.ProjectID,
+						agentID,
+						configID,
+						revisionID,
+						uuid.New(),
+					)
+					q(
+						`UPDATE model_call_contexts SET state='failed',recovery_kind='retry',error_kind='provider_error',
+                          retry_at=now(),completed_at=now() WHERE id=$1`,
+						failed,
+					)
 					if i == 0 && scenario != "continuable_retry" {
 						seedSlackCutoverSuccessfulRetry(t, q, ids, agentID, configID, revisionID, turnID)
 					}
@@ -317,7 +419,7 @@ tools:
 						)
 						q(
 							`INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,is_opening_event,created_at)
-                        VALUES($1,$2,$3,2,'agent_input',$4,$5,false,now())`,
+                        VALUES($1,$2,$3,3,'agent_input',$4,$5,false,now())`,
 							stopEvent,
 							agentID,
 							turnID,
@@ -329,7 +431,7 @@ tools:
 							stopInput,
 							stopEvent,
 						)
-						q(`UPDATE agents SET next_event_sequence=3 WHERE id=$1`, agentID)
+						q(`UPDATE agents SET next_event_sequence=4 WHERE id=$1`, agentID)
 						q(
 							`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`,
 							turnID,
@@ -371,13 +473,19 @@ tools:
 					if scenario == "multiple_targets" {
 						otherIntegration = integrationID
 					}
-					q(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
+					q(
+						`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
                      provider_ref,provider_ref_kind,created_at,updated_at)
 					 VALUES($1,$2,$3,$4,'other',$5,'dm',now(),now())`,
-						uuid.New(), ids.ProjectID, agentID, otherIntegration, fmt.Sprintf(
+						uuid.New(),
+						ids.ProjectID,
+						agentID,
+						otherIntegration,
+						fmt.Sprintf(
 							"D%d",
 							i+1,
-						))
+						),
+					)
 				}
 				require.NoError(t, tx.Commit())
 			}
@@ -392,7 +500,7 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object(
 				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
                  -'integration_target_id'-'interaction_target_id'-'interaction_auto_select'-'updated_at'
-                 -'interaction_handler_key' ORDER BY a.id) FROM agents a),
+                 -'interaction_handler_key'-'root_agent_id' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'integration_id'
                   -'launch_key'-'target_ref'-'provider_metadata'
                   -'provider_ref_kind'-'provider_ref'-'scope_kind'-'scope_ref')
@@ -401,9 +509,12 @@ tools:
                       'scope_kind',coalesce(to_jsonb(t)->'scope_kind',to_jsonb(t)->'provider_ref_kind'),
                       'scope_ref',coalesce(to_jsonb(t)->'scope_ref',to_jsonb(t)->'provider_ref'))
                   ORDER BY t.id) FROM integration_targets t),
-				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
+				 'inputs',(SELECT jsonb_agg(to_jsonb(i)-'opening_input_ids'-'opening_event_sequence' ORDER
+				 BY i.id) FROM agent_inputs i
                   WHERE i.input_idempotency_key IS DISTINCT FROM 'slack_integration_cutover'),
-				 'contexts',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM model_call_contexts c),
+				 'contexts',(SELECT
+				 jsonb_agg(to_jsonb(c)-'turn_id'-'opening_input_ids'-'opening_event_sequence' ORDER BY
+				 c.id) FROM model_call_contexts c),
 				 'outputs',(SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM model_outputs o),
 				 'blocks',(SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM content_blocks b),
 				 'secrets',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM secrets s),
@@ -414,18 +525,32 @@ tools:
 			case "bad_hash", "bad_source_hash":
 				exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
 				if scenario == "bad_hash" {
-					exec(`UPDATE agent_configs SET effective_definition_hash=repeat('0',64) WHERE id=$1`, configID)
+					exec(
+						`UPDATE agent_configs SET effective_definition_hash=repeat('0',64) WHERE id=$1`,
+						configID,
+					)
 				} else {
 					exec(`UPDATE agent_configs SET source_hash=repeat('0',64) WHERE id=$1`, configID)
 				}
 				exec(`ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
 			case "preflight_quota":
-				exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
+				exec(
+					`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`,
+					ids.OrgID,
+				)
 			case "live_lease":
-				exec(`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
-                    VALUES($1,$2,now(),now(),now()+interval '1 hour')`, agents[0], uuid.New())
+				exec(
+					`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+                    VALUES($1,$2,now(),now(),now()+interval '1 hour')`,
+					agents[0],
+					uuid.New(),
+				)
 			case "mislabeled_fixed_agent":
-				exec(`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2 WHERE id=$1`, integrationID, agents[0])
+				exec(
+					`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2 WHERE id=$1`,
+					integrationID,
+					agents[0],
+				)
 			case "fixed_agent":
 				exec(
 					`UPDATE integration_installs SET agent_profile_id=NULL,agent_id=$2,integration_kind='agent' WHERE id=$1`,
@@ -452,15 +577,23 @@ tools:
 				 VALUES($1,$2,$3,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
 			}
 			switch scenario {
-			case "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota",
-				"custom_collision", "live_lease",
-				"unsupported_setup", "fixed_agent", "mislabeled_fixed_agent", "multiple_targets":
+			case "preflight_invalid_policy",
+				"preflight_unmapped_policy",
+				"preflight_address",
+				"preflight_quota",
+				"custom_collision",
+				"live_lease",
+				"unsupported_setup",
+				"fixed_agent",
+				"mislabeled_fixed_agent",
+				"multiple_targets":
 				err := applyProductionPostgresMigrations(ctx, db)
 				want := "requires maintenance"
 				if scenario == "custom_collision" {
 					want = "conflicts with a new integration built-in"
 				}
-				if scenario == "unsupported_setup" || scenario == "fixed_agent" || scenario == "mislabeled_fixed_agent" {
+				if scenario == "unsupported_setup" || scenario == "fixed_agent" ||
+					scenario == "mislabeled_fixed_agent" {
 					want = "not a profile-bound Slack webhook setup"
 				}
 				if scenario == "multiple_targets" {
@@ -478,8 +611,11 @@ tools:
 				require.ErrorContains(t, err, want)
 				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				var oldConnections int
-				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT count(*) FROM integration_installs WHERE id=$1`, integrationID).Scan(&oldConnections))
+				require.NoError(t, db.QueryRowContext(
+					ctx,
+					`SELECT count(*) FROM integration_installs WHERE id=$1`,
+					integrationID,
+				).Scan(&oldConnections))
 				require.Equal(t, 1, oldConnections)
 				var newTableExists bool
 				require.NoError(t, db.QueryRowContext(ctx,
@@ -545,28 +681,42 @@ tools:
 			assertConversationRollback := func() {
 				t.Helper()
 				var conversations int
-				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT count(*) FROM integration_states WHERE kind='agent_conversation'`).Scan(&conversations))
+				require.NoError(t, db.QueryRowContext(
+					ctx,
+					`SELECT count(*) FROM integration_states WHERE kind='agent_conversation'`,
+				).Scan(&conversations))
 				require.Zero(t, conversations, "migration failure rolls back conversation assignments")
 				var subscriptions, owners int
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
+				require.NoError(
+					t,
+					db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).
+						Scan(&subscriptions),
+				)
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_targets WHERE launch_key IS NOT NULL`).Scan(&owners))
 				require.Zero(t, subscriptions)
 				require.Zero(t, owners)
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
-				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
+				scenario == "bad_hash" ||
+				scenario == "bad_source_hash" ||
+				scenario == "config_limit" {
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
 				if scenario == "config_limit" {
-					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
+					exec(
+						`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`,
+						ids.OrgID,
+					)
 				}
 				if scenario == "invalid_address" {
 					exec(`UPDATE integration_targets SET scope_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
 				}
 				expectedConfigs := 1
 				if scenario == "invalid_policy" {
-					legacySendPolicy["permission"] = map[string]any{"mode": "always_ask", "parameters": map[string]any{}}
+					legacySendPolicy["permission"] = map[string]any{
+						"mode":       "always_ask",
+						"parameters": map[string]any{},
+					}
 					invalid, err := json.Marshal(compiledObject)
 					require.NoError(t, err)
 					exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
@@ -659,7 +809,10 @@ tools:
 					),
 				)
 				require.Equal(t, len(agents), active)
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs))
+				require.NoError(
+					t,
+					db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs),
+				)
 				require.Equal(t, 1, configs)
 				var triggerEnabled string
 				require.NoError(
@@ -672,7 +825,9 @@ tools:
 					),
 				)
 				require.Equal(t, "O", triggerEnabled)
-				exec(`DROP TRIGGER reject_cutover_rewrite ON agent_configs; DROP FUNCTION reject_cutover_rewrite()`)
+				exec(
+					`DROP TRIGGER reject_cutover_rewrite ON agent_configs; DROP FUNCTION reject_cutover_rewrite()`,
+				)
 			}
 
 			if scenario == "injected_failure" {
@@ -694,12 +849,16 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
 				require.Equal(t, 1, count)
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_inputs`).Scan(&count))
-				require.Equal(t, len(agents)+1, count)
-				exec(`DROP TRIGGER reject_cutover ON agent_inputs; DROP FUNCTION reject_cutover_config_event()`)
+				require.Equal(t, len(agents)+3, count)
+				exec(
+					`DROP TRIGGER reject_cutover ON agent_inputs; DROP FUNCTION reject_cutover_config_event()`,
+				)
 			}
 			if scenario == "pre_internal_ids" {
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
-				exec(`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_cutover_webhook CHECK (false) NOT VALID`)
+				exec(
+					`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_cutover_webhook CHECK (false) NOT VALID`,
+				)
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "reject_cutover_webhook")
@@ -707,9 +866,16 @@ tools:
 				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var configs, deliveries int
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs))
+				require.NoError(
+					t,
+					db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs),
+				)
 				require.Equal(t, 1, configs)
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))
+				require.NoError(
+					t,
+					db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).
+						Scan(&deliveries),
+				)
 				require.Zero(t, deliveries)
 				exec(`ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_cutover_webhook`)
 			}
@@ -718,7 +884,11 @@ tools:
 			require.JSONEq(t, before, history())
 			if scenario != "pre_internal_ids" {
 				var deliveries int
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))
+				require.NoError(
+					t,
+					db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).
+						Scan(&deliveries),
+				)
 				require.Zero(t, deliveries, "cutover must not enqueue deliveries without an event webhook")
 			}
 			var retiredSlot sql.NullString
@@ -727,7 +897,10 @@ tools:
 				Scan(&retiredSlot))
 			require.False(t, retiredSlot.Valid)
 			execution := executionstore.New(pool, executionstore.Config{})
-			conversations := integrationstore.New(pool, executionstore.IntegrationAccess{})
+			conversations := integrationstore.New(
+				pool,
+				integrationstore.Config{Access: executionstore.IntegrationAccess{}},
+			)
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
@@ -742,6 +915,9 @@ tools:
 				if i == noTurnIndex {
 					expectedSequence = 1
 				}
+				if i == 0 || i == 1 {
+					expectedSequence++
+				}
 				require.Equal(t, expectedSequence, snapshot.InputEventSequence)
 				contract, err := agentconfig.RuntimeContractFromCompiled(
 					snapshot.AgentConfig.CompiledDefinition,
@@ -753,8 +929,11 @@ tools:
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
 				if scenario == "pre_internal_ids" {
 					var sequence int64
-					require.NoError(t, db.QueryRowContext(ctx,
-						`SELECT event_sequence FROM event_webhook_deliveries WHERE agent_id=$1`, agentID).Scan(&sequence))
+					require.NoError(t, db.QueryRowContext(
+						ctx,
+						`SELECT event_sequence FROM event_webhook_deliveries WHERE agent_id=$1`,
+						agentID,
+					).Scan(&sequence))
 					require.Equal(t, snapshot.InputEventSequence, sequence)
 					require.NotNil(t, raw.EventWebhook)
 					require.Equal(t, ids.ProviderSecretID, raw.EventWebhook.SigningSecretID)
@@ -778,26 +957,52 @@ tools:
 				)
 				require.NoError(t, err)
 				require.True(t, found)
-				wantConversation := integrationstore.ConversationAddress{Kind: "thread", Ref: fmt.Sprintf("C123:111.%d", i+1)}
+				wantConversation := integrationstore.ConversationAddress{
+					Kind: "thread",
+					Ref:  fmt.Sprintf("C123:111.%d", i+1),
+				}
 				if scenario == "channel" {
-					wantConversation = integrationstore.ConversationAddress{Kind: "channel", Ref: fmt.Sprintf("C%d", i+1)}
+					wantConversation = integrationstore.ConversationAddress{
+						Kind: "channel",
+						Ref:  fmt.Sprintf("C%d", i+1),
+					}
 				}
 				if scenario == "dm" {
-					wantConversation = integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
+					wantConversation = integrationstore.ConversationAddress{
+						Kind: "dm",
+						Ref:  fmt.Sprintf("D%d", i+1),
+					}
 				}
 				require.Equal(t, wantConversation, conversation)
-				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, integrationID, wantConversation)
+				assertSlackCutoverConversationState(
+					t,
+					db,
+					ids.ProjectID,
+					agentID,
+					integrationID,
+					wantConversation,
+				)
 				if scenario == "normal" || scenario == "dm" {
 					tx, err := pool.Begin(ctx)
 					require.NoError(t, err)
-					candidates, routeErr := conversations.IntegrationRoutingCandidatesTx(ctx, tx,
-						ids.ProjectID, integrationID, wantConversation, []integrationstore.ConversationAddress{wantConversation})
+					candidates, routeErr := conversations.IntegrationRoutingCandidatesTx(
+						ctx,
+						tx,
+						ids.ProjectID,
+						integrationID,
+						wantConversation,
+						[]integrationstore.ConversationAddress{wantConversation},
+					)
 					require.NoError(t, tx.Rollback(ctx))
 					require.NoError(t, routeErr)
 					require.NotNil(t, candidates.Launcher)
 					require.Len(t, candidates.LaunchOwners, 1)
 					require.Equal(t, agentID, candidates.LaunchOwners[0].AgentID)
-					require.Equal(t, integrationdefinition.ProfileLaunchKey, candidates.LaunchOwners[0].LaunchKey)
+					require.Equal(
+						t,
+						integrationdefinition.ProfileLaunchKey,
+						candidates.LaunchOwners[0].LaunchKey,
+					)
 					if i == archivedIndex {
 						require.Empty(t, candidates.Subscriptions)
 					} else {
@@ -807,17 +1012,28 @@ tools:
 					scope, err := integrationdefinition.ParseConversation(integrationdefinition.ProviderSlack,
 						wantConversation.Kind, wantConversation.Ref)
 					require.NoError(t, err)
-					event := integrationdefinition.Event{Scope: scope, Kind: integrationdefinition.EventMessage, Mentioned: true}
+					event := integrationdefinition.Event{
+						Scope:     scope,
+						Kind:      integrationdefinition.EventMessage,
+						Mentioned: true,
+					}
 					definition, ok := integrationdefinition.Lookup(candidates.Launcher.IntegrationKind)
 					require.True(t, ok)
 					require.True(t, definition.MatchesLaunch(candidates.Launcher.Settings, event))
 					launcher := integration.NewChatIntegrationLauncher(conversations, execution, nil)
 					launches, err := launcher.Decide(ctx, integration.IntegrationLaunchContext{
 						Integration: *candidates.Launcher, Address: wantConversation, Candidates: candidates,
-						Event: integration.IntegrationEvent{Event: event, SemanticKey: "post-migration-mention"},
+						Event: integration.IntegrationEvent{
+							Event:       event,
+							SemanticKey: "post-migration-mention",
+						},
 					})
 					require.NoError(t, err)
-					require.Empty(t, launches, "mentioning an existing conversation must not launch a replacement agent")
+					require.Empty(
+						t,
+						launches,
+						"mentioning an existing conversation must not launch a replacement agent",
+					)
 				}
 				wantIntegrations := 1
 				if scenario == "multiple_integrations" {
@@ -830,9 +1046,19 @@ tools:
 					)
 					require.NoError(t, err)
 					require.True(t, found)
-					wantSecond := integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
+					wantSecond := integrationstore.ConversationAddress{
+						Kind: "dm",
+						Ref:  fmt.Sprintf("D%d", i+1),
+					}
 					require.Equal(t, wantSecond, second)
-					assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, secondIntegrationID, wantSecond)
+					assertSlackCutoverConversationState(
+						t,
+						db,
+						ids.ProjectID,
+						agentID,
+						secondIntegrationID,
+						wantSecond,
+					)
 				}
 				require.Len(t, contract.IntegrationTools, wantIntegrations)
 				require.Contains(t, raw.Tools, "set_interaction_handler")
@@ -847,7 +1073,12 @@ tools:
                  WHERE event.agent_id=$1 AND event.sequence=1`, agentID).Scan(&oldID),
 					)
 					require.Equal(t, configID.String(), oldID)
-					historical, err := execution.CaptureAgentConfigForEventWatermark(ctx, ids.ProjectID, agentID, 1)
+					historical, err := execution.CaptureAgentConfigForEventWatermark(
+						ctx,
+						ids.ProjectID,
+						agentID,
+						1,
+					)
 					require.NoError(t, err)
 					require.Equal(t, configID, historical.AgentConfig.ID)
 				}
@@ -856,7 +1087,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT EXISTS(SELECT 1 FROM agent_next_model_work($1,$2))`,
+						`SELECT EXISTS(SELECT 1 FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.logical_ready_at IS NOT NULL)`,
 						ids.ProjectID,
 						agentID,
 					).
@@ -864,7 +1095,7 @@ tools:
 							&runnable,
 						),
 				)
-				require.False(t, runnable)
+				require.Equal(t, scenario == "continuable_retry" && i == 0, runnable)
 			}
 			rows, err := db.QueryContext(
 				ctx,
@@ -897,7 +1128,11 @@ tools:
 			}
 			require.Equal(t, wantOwners, selections, "existing threads and DMs keep their launch owner")
 			var subscriptions, pointers int
-			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
+			require.NoError(
+				t,
+				db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).
+					Scan(&subscriptions),
+			)
 			wantSubscriptions := len(agents) - 1
 			if scenario == "multiple_integrations" {
 				wantSubscriptions *= 2
@@ -905,7 +1140,12 @@ tools:
 			if scenario == "channel" {
 				wantSubscriptions = 0
 			}
-			require.Equal(t, wantSubscriptions, subscriptions, "active agents retain their thread and DM subscriptions")
+			require.Equal(
+				t,
+				wantSubscriptions,
+				subscriptions,
+				"active agents retain their thread and DM subscriptions",
+			)
 			require.NoError(
 				t,
 				db.QueryRowContext(
@@ -983,17 +1223,23 @@ tools:
 					require.False(t, tool.Enabled)
 				}
 			}
-			launched, err := agentconfig.DeriveWithIntegrationCapabilities(historical, agentconfig.IntegrationCapabilitiesSource{
-				Tools: map[string]agentconfig.AgentConfigToolSource{
-					"int__slack__post_message": {},
+			launched, err := agentconfig.DeriveWithIntegrationCapabilities(
+				historical,
+				agentconfig.IntegrationCapabilitiesSource{
+					Tools: map[string]agentconfig.AgentConfigToolSource{
+						"int__slack__post_message": {},
+					},
 				},
-			}, agentconfig.CompileOptions{ResolveIntegrationName: func(name string) (agentconfig.IntegrationResolution, error) {
-				require.Equal(t, "slack", name)
-				return agentconfig.IntegrationResolution{
-					IntegrationID:   integrationID,
-					IntegrationKind: integrationdefinition.SlackThread,
-				}, nil
-			}})
+				agentconfig.CompileOptions{
+					ResolveIntegrationName: func(name string) (agentconfig.IntegrationResolution, error) {
+						require.Equal(t, "slack", name)
+						return agentconfig.IntegrationResolution{
+							IntegrationID:   integrationID,
+							IntegrationKind: integrationdefinition.SlackThread,
+						}, nil
+					},
+				},
+			)
 			require.NoError(t, err)
 			if sendingEnabled {
 				require.True(t, launched.Tools["int__slack__post_message"].Enabled)
@@ -1005,7 +1251,11 @@ tools:
 			require.Equal(t, source != nil, migratedSource.Valid)
 			if source != nil {
 				require.Equal(t, sourceFormat, migratedFormat.String)
-				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(migratedSource.String))), migratedSourceHash.String)
+				require.Equal(
+					t,
+					fmt.Sprintf("%x", sha256.Sum256([]byte(migratedSource.String))),
+					migratedSourceHash.String,
+				)
 				var object map[string]any
 				if sourceFormat == "json" {
 					require.NoError(t, json.Unmarshal([]byte(migratedSource.String), &object))
@@ -1069,15 +1319,21 @@ tools:
 				require.NoError(t, err)
 				require.True(t, created)
 				if scenario == "pre_internal_ids" && i == 0 {
-					claim, found, err := execution.ClaimNextAgentWork(ctx, executionstore.ClaimNextAgentWorkInput{
-						WorkerProcessID: uuid.New(), LeaseDuration: time.Minute,
-					})
+					claim, found, err := execution.ClaimNextAgentWork(
+						ctx,
+						executionstore.ClaimNextAgentWorkInput{
+							WorkerProcessID: uuid.New(), LeaseDuration: time.Minute,
+						},
+					)
 					require.NoError(t, err)
 					require.True(t, found)
 					require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
 					var deliveries int
-					require.NoError(t, db.QueryRowContext(ctx,
-						`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, agentID).Scan(&deliveries))
+					require.NoError(t, db.QueryRowContext(
+						ctx,
+						`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`,
+						agentID,
+					).Scan(&deliveries))
 					require.Equal(t, 2, deliveries)
 				}
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
@@ -1085,7 +1341,14 @@ tools:
 				require.NotEqual(t, configID, snapshot.AgentConfig.ID)
 			}
 			if scenario == "normal" {
-				assertSlackCutoverInputGuards(t, db, ids.ProjectID, agents[noTurnIndex], agents[0], integrationID)
+				assertSlackCutoverInputGuards(
+					t,
+					db,
+					ids.ProjectID,
+					agents[noTurnIndex],
+					agents[0],
+					integrationID,
+				)
 			}
 		})
 	}
@@ -1099,41 +1362,63 @@ func assertSlackCutoverInputGuards(
 	t.Helper()
 	ctx := t.Context()
 	var targetID, inputID uuid.UUID
-	require.NoError(t, db.QueryRowContext(ctx,
+	require.NoError(t, db.QueryRowContext(
+		ctx,
 		`SELECT id FROM integration_targets WHERE project_id=$1 AND agent_id=$2 AND integration_id=$3 AND deleted_at IS NULL`,
-		projectID, agentID, integrationID).Scan(&targetID))
-	require.NoError(t, db.QueryRowContext(ctx,
+		projectID,
+		agentID,
+		integrationID,
+	).Scan(&targetID))
+	require.NoError(t, db.QueryRowContext(
+		ctx,
 		`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,integration_target_id,queued_at)
         VALUES($1,$2,'received','content','queued',$3,now()) RETURNING id`,
-		projectID, agentID, targetID).Scan(&inputID))
+		projectID,
+		agentID,
+		targetID,
+	).Scan(&inputID))
 	_, err := db.ExecContext(ctx, `UPDATE agent_inputs SET delivery_mode='steering' WHERE id=$1`, inputID)
 	require.NoError(t, err, "received content remains editable after cutover")
 	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET integration_target_id=NULL WHERE id=$1`, inputID)
 	require.ErrorContains(t, err, "agent_input intent and identity are immutable")
-	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET state='canceled',canceled_at=now() WHERE id=$1`, inputID)
+	_, err = db.ExecContext(
+		ctx,
+		`UPDATE agent_inputs SET state='canceled',canceled_at=now() WHERE id=$1`,
+		inputID,
+	)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET integration_target_id=NULL WHERE id=$1`, inputID)
 	require.ErrorContains(t, err, "terminal agent_inputs are immutable")
 	_, err = db.ExecContext(ctx, `DELETE FROM agent_inputs WHERE id=$1`, inputID)
 	require.ErrorContains(t, err, "agent_inputs are immutable")
-	_, err = db.ExecContext(ctx,
+	_, err = db.ExecContext(
+		ctx,
 		`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,integration_target_id,queued_at)
-        VALUES($1,$2,'received','content','queued',$3,now())`, projectID, otherAgentID, targetID)
+        VALUES($1,$2,'received','content','queued',$3,now())`,
+		projectID,
+		otherAgentID,
+		targetID,
+	)
 	require.ErrorContains(t, err, "agent_inputs_project_id_agent_id_integration_target_id_fkey")
 	_, err = db.ExecContext(ctx,
 		`UPDATE agents SET interaction_target_id=$2,interaction_handler_key='int__slack__default'
         WHERE id=$1`, otherAgentID, targetID)
 	require.ErrorContains(t, err, "agents_project_id_id_interaction_target_id_fkey")
-	_, err = db.ExecContext(ctx,
+	_, err = db.ExecContext(
+		ctx,
 		`INSERT INTO integration_targets(project_id,agent_id,integration_id,scope_kind,scope_ref,created_at,updated_at)
         SELECT project_id,agent_id,integration_id,scope_kind,scope_ref,now(),now()
         FROM integration_targets WHERE id=$1`,
-		targetID)
+		targetID,
+	)
 	require.ErrorContains(t, err, "integration_targets_active_agent_address_idx")
 }
 
 func assertSlackCutoverConversationState(
-	t *testing.T, db *sql.DB, projectID, agentID, integrationID uuid.UUID, want integrationstore.ConversationAddress,
+	t *testing.T,
+	db *sql.DB,
+	projectID, agentID, integrationID uuid.UUID,
+	want integrationstore.ConversationAddress,
 ) {
 	t.Helper()
 	var data []byte
@@ -1162,7 +1447,7 @@ func seedSlackCutoverSuccessfulRetry(
 	exec(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
     agent_config_id,configured_model_revision_id,input_event_sequence,
                       runtime_lock_id,state,created_at)
-    VALUES($1,$2,$3,$4,'normal',2,$5,$6,1,$7,'started',now())`,
+    VALUES($1,$2,$3,$4,'normal',2,$5,$6,2,$7,'started',now())`,
 		succeeded, ids.OrgID, ids.ProjectID, agentID, configID, revisionID, uuid.New())
 	exec(
 		`INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at) VALUES($1,$2,$3,'end_turn',now())`,
@@ -1170,21 +1455,25 @@ func seedSlackCutoverSuccessfulRetry(
 		agentID,
 		succeeded,
 	)
-	exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,created_at)
-	 VALUES($1,'model_output',$2,1,'text','Historical Slack reply',now())`, agentID, outputID)
+	exec(
+		`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,created_at)
+	 VALUES($1,'model_output',$2,1,'text','Historical Slack reply',now())`,
+		agentID,
+		outputID,
+	)
 	exec(
 		`UPDATE model_call_contexts SET state='succeeded',api_format='openai',api_variant='responses',completed_at=now() WHERE id=$1`,
 		succeeded,
 	)
 	exec(
 		`INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,idempotency_key,model_output_id,is_opening_event,created_at)
-   VALUES($1,$2,$3,2,'model_output',$4,$5,false,now())`,
+   VALUES($1,$2,$3,3,'model_output',$4,$5,false,now())`,
 		eventID,
 		agentID,
 		turnID,
 		"model_output:"+outputID.String(),
 		outputID,
 	)
-	exec(`UPDATE agents SET next_event_sequence=3 WHERE id=$1`, agentID)
+	exec(`UPDATE agents SET next_event_sequence=4 WHERE id=$1`, agentID)
 	exec(`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`, turnID, eventID)
 }

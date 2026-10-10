@@ -9,107 +9,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
-
-func TestBindToolCallsUsesProviderEnvelopeAsCanonicalSource(t *testing.T) {
-	id := uuid.New()
-	envelope := modelenvelope.ResponseEnvelope{
-		Normalized: modelenvelope.ResponseNormalized{
-			Content: []modelenvelope.ResponsePart{
-				{Type: modelenvelope.ResponsePartTypeText, Text: "before"},
-				{
-					Type:           modelenvelope.ResponsePartTypeToolCall,
-					ProviderCallID: "call_1",
-					ToolName:       "lookup_customer",
-					ToolInput:      json.RawMessage(`{"email":"ada@example.com"}`),
-				},
-			},
-		},
-	}
-	calls, err := bindToolCalls(envelope, []ToolCallBindingInput{{
-		ID:             id,
-		ProviderCallID: "call_1",
-		Type:           toolcatalog.ToolTypeCustom,
-	}})
-	if err != nil {
-		t.Fatalf("bind tool calls: %v", err)
-	}
-	if len(calls) != 1 ||
-		calls[0].ID != id ||
-		calls[0].ProviderCallID != "call_1" ||
-		calls[0].Name != "lookup_customer" ||
-		string(calls[0].Input) != `{"email":"ada@example.com"}` ||
-		calls[0].Type != toolcatalog.ToolTypeCustom {
-		t.Fatalf("bound tool call = %+v", calls)
-	}
-}
-
-func TestBindToolCallsRequiresExactProviderCallCoverage(t *testing.T) {
-	envelope := modelenvelope.ResponseEnvelope{
-		Normalized: modelenvelope.ResponseNormalized{
-			Content: []modelenvelope.ResponsePart{{
-				Type:           modelenvelope.ResponsePartTypeToolCall,
-				ProviderCallID: "call_1",
-				ToolName:       "run_command",
-				ToolInput:      json.RawMessage(`{"command":"true"}`),
-			}},
-		},
-	}
-	for _, bindings := range [][]ToolCallBindingInput{
-		{{
-			ProviderCallID: "call_other",
-			Type:           toolcatalog.ToolTypeBuiltIn,
-		}},
-		{
-			{
-				ProviderCallID: "call_1",
-				Type:           toolcatalog.ToolTypeBuiltIn,
-			},
-			{
-				ProviderCallID: "call_extra",
-				Type:           toolcatalog.ToolTypeBuiltIn,
-			},
-		},
-	} {
-		if _, err := bindToolCalls(envelope, bindings); err == nil {
-			t.Fatalf("bindings %+v did not fail", bindings)
-		}
-	}
-}
-
-func TestBindToolCallsRejectsInvalidToolInput(t *testing.T) {
-	for _, input := range []json.RawMessage{
-		json.RawMessage(`{"command":`),
-		json.RawMessage(`null`),
-		json.RawMessage(`[]`),
-		json.RawMessage(`"command"`),
-	} {
-		envelope := modelenvelope.ResponseEnvelope{
-			Normalized: modelenvelope.ResponseNormalized{
-				Content: []modelenvelope.ResponsePart{{
-					Type:           modelenvelope.ResponsePartTypeToolCall,
-					ProviderCallID: "call_1",
-					ToolName:       "run_command",
-					ToolInput:      input,
-				}},
-			},
-		}
-		_, err := bindToolCalls(envelope, []ToolCallBindingInput{{
-			ID:             uuid.New(),
-			ProviderCallID: "call_1",
-			Type:           toolcatalog.ToolTypeBuiltIn,
-		}})
-		if err == nil {
-			t.Fatalf("bindToolCalls accepted input %s", input)
-		}
-	}
-}
 
 func TestStructuredToolResultKeepsEmptyObject(t *testing.T) {
 	parts, err := ToolResultContentParts(json.RawMessage(`{}`))
@@ -169,8 +74,8 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		ID:            uuid.New(),
 		State:         ProcessStateRunning,
 	}
-	result, err := startedProcessToolResult(
-		process,
+	result, err := processresult.Started(
+		process.resultFacts(),
 		json.RawMessage(`{"state":"exited","command":"other","next_action":"stop","output":"ready"}`),
 	)
 	if err != nil {
@@ -214,7 +119,12 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 				{name: "wrong path", metadata: `{"path":"/memory/team/other.md","digest":"` + digest + `"}`},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					observed := map[string]any{"output": tc.output, "truncated": true, "state": "exited", "done": true}
+					observed := map[string]any{
+						"output":    tc.output,
+						"truncated": true,
+						"state":     "exited",
+						"done":      true,
+					}
 					if tc.metadata != "" {
 						observed["file_transfer"] = json.RawMessage(tc.metadata)
 					}
@@ -224,7 +134,9 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 					process := ProcessRecord{
 						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
 							Direction: direction,
-							Target:    processcmd.FileTarget{Memory: &processcmd.MemoryTarget{StoreID: uuid.New(), Path: "notes.md"}},
+							Target: processcmd.FileTarget{
+								Memory: &processcmd.MemoryTarget{StoreID: uuid.New(), Path: "notes.md"},
+							},
 						}),
 						State:    ProcessStateExited,
 						ExitCode: &exitCode,
@@ -270,7 +182,9 @@ func TestFileTransferFailureResult(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := ProcessRecord{
-				ExecutionSpec:   processcmd.ForFileTransfer(processcmd.FileTransfer{Direction: processcmd.FileTransferUpload}),
+				ExecutionSpec: processcmd.ForFileTransfer(
+					processcmd.FileTransfer{Direction: processcmd.FileTransferUpload},
+				),
 				State:           tc.state,
 				StateReasonCode: tc.reason,
 				ExitCode:        &tc.exitCode,

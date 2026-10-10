@@ -56,12 +56,13 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	}
 	input.Capacity = normalizedJSON(input.Capacity)
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("begin register daemon runtime: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	machine, err := qtx.LockMachineForRuntimeRegistration(
 		ctx,
@@ -196,7 +197,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("clear resolved machine failure report: %w", err)
 	}
-	reconciliation, err := reconcileRegisteredRuntimeTx(ctx, txNotifications, tx, qtx, input)
+	reconciliation, err := reconcileRegisteredRuntimeTx(ctx, unit, qtx, input)
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, err
 	}
@@ -226,7 +227,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("finalize daemon runtime registration lease: %w", err)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "register daemon runtime"); err != nil {
+	if err := unit.Commit(ctx, "register daemon runtime"); err != nil {
 		return DaemonRuntimeRegistrationRecord{}, err
 	}
 	return DaemonRuntimeRegistrationRecord{
@@ -272,12 +273,12 @@ func (s *Store) HeartbeatDaemonRuntime(
 		return DaemonRuntimeRecord{}, errors.New("daemon runtime lease timeout is too short")
 	}
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin heartbeat daemon runtime: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForRuntimeRegistration(
 		ctx,
@@ -317,7 +318,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 	); err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("update machine heartbeat observation: %w", err)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "heartbeat daemon runtime"); err != nil {
+	if err := unit.Commit(ctx, "heartbeat daemon runtime"); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
 	return daemonRuntimeFromHeartbeat(row), nil
@@ -330,12 +331,13 @@ func (s *Store) EndDaemonRuntime(
 	if err := validateDaemonRuntimeAuthority(authority); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin end daemon runtime: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForRuntimeRegistration(
 		ctx,
@@ -368,7 +370,7 @@ func (s *Store) EndDaemonRuntime(
 		authority.MachineID,
 		notifications.DaemonRuntimeEndReconnect,
 	)
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "end daemon runtime"); err != nil {
+	if err := unit.Commit(ctx, "end daemon runtime"); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
 	return daemonRuntimeFromEnd(row), nil
@@ -381,12 +383,13 @@ func (s *Store) SleepDaemonRuntime(
 	if err := validateDaemonRuntimeAuthority(authority); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin sleep daemon runtime: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForRuntimeRegistration(
 		ctx,
@@ -444,7 +447,7 @@ func (s *Store) SleepDaemonRuntime(
 		authority.MachineID,
 		notifications.DaemonRuntimeEndReconnect,
 	)
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "sleep daemon runtime"); err != nil {
+	if err := unit.Commit(ctx, "sleep daemon runtime"); err != nil {
 		return DaemonRuntimeRecord{}, err
 	}
 	return daemonRuntimeFromEnd(row), nil

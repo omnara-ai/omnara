@@ -46,24 +46,40 @@ func TestSlackIntegrationCutoverPendingInteractionsRecover(t *testing.T) {
 			f.migrate(t)
 			ctx := t.Context()
 			execution := f.store.Execution()
-			interaction, found, err := execution.GetAgentInteraction(ctx, f.ids.ProjectID, f.agentID, f.interactionID)
+			interaction, found, err := execution.GetAgentInteraction(
+				ctx,
+				f.ids.ProjectID,
+				f.agentID,
+				f.interactionID,
+			)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, interaction.State)
 			require.Equal(t, f.turnID, interaction.TurnID)
 			require.JSONEq(t, string(f.request), string(interaction.Request))
-			require.Empty(t, interaction.Destination, "old interactions keep their original dashboard resolution path")
+			require.Empty(
+				t,
+				interaction.Destination,
+				"old interactions keep their original dashboard resolution path",
+			)
 			_, found, err = execution.ClaimNextAgentWork(ctx, pendingWorkClaimInput())
 			require.ErrorIs(t, err, storeerr.ErrNoClaimableAgentWakeup)
 			require.False(t, found, "an unanswered interaction must stay parked after config cutover")
 
 			resolution := executionstore.ResolveAgentInteractionInput{
 				ProjectID: f.ids.ProjectID, AgentID: f.agentID, ID: f.interactionID, Actor: f.actor,
-				Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{0}}}},
+				Resolution: interactionform.Resolution{
+					Answers: []interactionform.Answer{{OptionIndices: []int{0}}},
+				},
 			}
 			if scenario.steer {
 				input := f.steer(t)
-				interaction, found, err = execution.GetAgentInteraction(ctx, f.ids.ProjectID, f.agentID, f.interactionID)
+				interaction, found, err = execution.GetAgentInteraction(
+					ctx,
+					f.ids.ProjectID,
+					f.agentID,
+					f.interactionID,
+				)
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, executionstore.AgentInteractionStateCanceled, interaction.State)
@@ -124,7 +140,12 @@ func TestSlackIntegrationCutoverExpiredRuntimeRecovers(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, executionstore.ModelCallContextStarted, model.State)
 	require.Equal(t, f.runtimeID, model.RuntimeLockID)
-	require.Equal(t, f.configID, model.AgentConfigID, "cutover must not rewrite an in-flight context's config identity")
+	require.Equal(
+		t,
+		f.configID,
+		model.AgentConfigID,
+		"cutover must not rewrite an in-flight context's config identity",
+	)
 	reaped, err := execution.ReapExpiredAgentRuntimeLocks(ctx, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, reaped)
@@ -175,12 +196,20 @@ func (f *slackPendingWorkFixture) migrate(t *testing.T) {
 	}
 	var turnID, configID uuid.UUID
 	var opening bool
-	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT event.turn_id,event.is_opening_event,input.agent_config_id
+	require.NoError(
+		t,
+		f.db.QueryRowContext(ctx, `SELECT event.turn_id,event.is_opening_event,input.agent_config_id
         FROM agent_inputs input
         JOIN agent_events event ON event.agent_id=input.agent_id AND event.id=input.admitted_event_id
         WHERE input.agent_id=$1 AND input.input_idempotency_key='slack_integration_cutover'`, f.agentID).
-		Scan(&turnID, &opening, &configID))
-	require.Equal(t, f.turnID, turnID, "successor config must be admitted into the pending work's original turn")
+			Scan(&turnID, &opening, &configID),
+	)
+	require.Equal(
+		t,
+		f.turnID,
+		turnID,
+		"successor config must be admitted into the pending work's original turn",
+	)
 	require.False(t, opening)
 	require.NotEqual(t, f.configID, configID)
 	var owner, pinnedTarget uuid.UUID
@@ -189,7 +218,11 @@ func (f *slackPendingWorkFixture) migrate(t *testing.T) {
         agent.interaction_handler_key
         FROM integration_targets target JOIN agents agent ON agent.id=target.agent_id
         WHERE target.id=$1 AND target.integration_id=$2 AND target.scope_kind=$3 AND target.scope_ref=$4
-          AND target.launch_key='default' AND target.deleted_at IS NULL`, f.targetID, f.integrationID, f.scope, f.ref).
+          AND target.launch_key='default' AND target.deleted_at IS NULL`,
+		f.targetID,
+		f.integrationID,
+		f.scope,
+		f.ref).
 		Scan(&owner, &pinnedTarget, &handler))
 	require.Equal(t, f.agentID, owner)
 	require.Equal(t, f.targetID, pinnedTarget)
@@ -213,12 +246,15 @@ func (f *slackPendingWorkFixture) migrate(t *testing.T) {
 		`SELECT count(*) FROM agent_turns WHERE agent_id=$1`, f.agentID).Scan(&turns))
 	require.Equal(t, 1, turns)
 	var wakeupCovered bool
-	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT
-        (agent_next_wakeup_ready_at(project_id,
-        id) IS NULL AND NOT EXISTS (SELECT 1 FROM agent_wakeups WHERE agent_id=agents.id))
-        OR EXISTS (SELECT 1 FROM agent_wakeups WHERE agent_id=agents.id
-        AND ready_at=agent_next_wakeup_ready_at(project_id,agents.id))
-        FROM agents WHERE id=$1`, f.agentID).Scan(&wakeupCovered))
+	require.NoError(
+		t,
+		f.db.QueryRowContext(ctx,
+			`SELECT CASE WHEN EXISTS(SELECT 1 FROM agent_runtime_locks WHERE agent_id=head.agent_id)
+ THEN wake.agent_id IS NULL WHEN head.logical_ready_at IS NULL THEN wake.agent_id IS NULL
+ ELSE wake.agent_id IS NOT NULL AND wake.ready_at <= head.logical_ready_at END
+ FROM agent_execution_state head LEFT JOIN agent_wakeups wake ON wake.agent_id=head.agent_id
+ WHERE head.agent_id=$1`, f.agentID).Scan(&wakeupCovered),
+	)
 	require.True(t, wakeupCovered, "cutover must reconcile the scheduler index with the actual pending work")
 }
 
@@ -230,10 +266,19 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 47))
 	f := slackPendingWorkFixture{
-		db:    db,
-		store: storage.NewStore(pool, storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 })),
-		ids: storagefixture.ProjectIDs{OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
-			ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New()},
+		db: db,
+		store: storage.NewStore(
+			pool,
+			storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }),
+		),
+		ids: storagefixture.ProjectIDs{
+			OrgID:                   uuid.New(),
+			ProjectID:               uuid.New(),
+			ProviderAdminUserID:     uuid.New(),
+			ProviderSecretID:        uuid.New(),
+			ProviderSecretVersionID: uuid.New(),
+			ProviderConfigID:        uuid.New(),
+		},
 		agentID: uuid.New(), turnID: uuid.New(), configID: uuid.New(), contextID: uuid.New(), runtimeID: uuid.New(),
 		integrationID: uuid.New(), targetID: uuid.New(), toolID: uuid.New(), interactionID: uuid.New(),
 		scope: scope, ref: "C123:111.222",
@@ -280,7 +325,8 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
 	compiled := fmt.Sprintf(`{"instruction":"Review","model":{"configured_model_id":%q},"tools":{
         "send_integration_message":{"enabled":true,"permission":{"mode":"always_allow","parameters":{}}},
         "ask_question":{"enabled":true,"permission":{"mode":"always_allow","parameters":{}}},
-        "read_process":{"enabled":true,"permission":{"mode":"always_ask","parameters":{}}}}}`, modelID.String())
+        "read_process":{"enabled":true,"permission":{"mode":"always_ask","parameters":{}}}}}`,
+		modelID.String())
 	var compiledObject map[string]any
 	require.NoError(t, json.Unmarshal([]byte(compiled), &compiledObject))
 	canonical, err := json.Marshal(compiledObject)
@@ -295,57 +341,105 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
         VALUES($1,$2,'reviewer',$3,now(),now()))
         INSERT INTO agent_profile_versions(id,project_id,profile_id,generation,agent_config_id,created_at)
         VALUES($3,$2,$1,1,$4,now())`, profileID, f.ids.ProjectID, versionID, f.configID)
-	exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,provider,
+	exec(
+		`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,provider,
         integration_kind,
         connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,credential_secret_id,
         created_at,updated_at)
         VALUES($1,$2,$3,$4,$5,'slack','agent_profile','webhook','active','T123','A123',
         '{"bot_user_id":"U123"}',$6,now(),now())`,
-		f.integrationID, f.ids.OrgID, f.ids.ProjectID, profileID, f.ids.ProviderAdminUserID, credentialID)
+		f.integrationID,
+		f.ids.OrgID,
+		f.ids.ProjectID,
+		profileID,
+		f.ids.ProviderAdminUserID,
+		credentialID,
+	)
 	exec(`INSERT INTO agents(id,org_id,project_id,state,name,agent_profile_id,current_config_id,
         next_event_sequence,created_at,updated_at)
         VALUES($1,$2,$3,'active','reviewer',$4,$5,3,now(),now())`,
 		f.agentID, f.ids.OrgID, f.ids.ProjectID, profileID, f.configID)
-	exec(`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,agent_config_id,queued_at)
+	exec(
+		`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,agent_config_id,queued_at)
         VALUES($1,$2,$3,'received','config_change','immediate',$4,now())`,
-		inputID, f.ids.ProjectID, f.agentID, f.configID)
+		inputID,
+		f.ids.ProjectID,
+		f.agentID,
+		f.configID,
+	)
 	exec(`INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,
         is_opening_event,created_at)
         VALUES($1,$2,$3,1,'agent_input',$4,$5,true,now())`,
 		eventID, f.agentID, f.turnID, "agent_input:"+inputID.String(), inputID)
 	exec(`INSERT INTO agent_turns(id,agent_id,turn_sequence,latest_event_id,latest_semantic_event_id)
         VALUES($1,$2,1,$3,$3)`, f.turnID, f.agentID, eventID)
-	exec(`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now() WHERE id=$1`,
-		inputID, eventID)
+	exec(
+		`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now() WHERE id=$1`,
+		inputID,
+		eventID,
+	)
 	contentID, contentEventID := uuid.New(), uuid.New()
 	exec(`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,queued_at)
         VALUES($1,$2,$3,'received','content','queued',now())`, contentID, f.ids.ProjectID, f.agentID)
-	exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,ordinal,block_kind,text_content,created_at)
-        VALUES($1,'agent_input',$2,0,'text','Review the change',now())`, f.agentID, contentID)
+	exec(
+		`INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,ordinal,block_kind,text_content,created_at)
+        VALUES($1,'agent_input',$2,0,'text','Review the change',now())`,
+		f.agentID,
+		contentID,
+	)
 	exec(`INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,idempotency_key,agent_input_id,
         is_opening_event,created_at)
         VALUES($1,$2,$3,2,'agent_input',$4,$5,true,now())`,
 		contentEventID, f.agentID, f.turnID, "agent_input:"+contentID.String(), contentID)
-	exec(`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now() WHERE id=$1`,
-		contentID, contentEventID)
-	exec(`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`, f.turnID, contentEventID)
+	exec(
+		`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now() WHERE id=$1`,
+		contentID,
+		contentEventID,
+	)
+	exec(
+		`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`,
+		f.turnID,
+		contentEventID,
+	)
 
 	if scope != "" {
-		exec(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,provider_ref,
+		exec(
+			`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,provider_ref,
         provider_ref_kind,created_at,updated_at)
             VALUES($1,$2,$3,$4,'slack',$5,$6,now(),now())`,
-			f.targetID, f.ids.ProjectID, f.agentID, f.integrationID, f.ref, scope)
+			f.targetID,
+			f.ids.ProjectID,
+			f.agentID,
+			f.integrationID,
+			f.ref,
+			scope,
+		)
 		exec(`UPDATE agents SET integration_target_id=$2 WHERE id=$1`, f.agentID, f.targetID)
-		exec(`INSERT INTO agent_wakeups(agent_id,ready_at,updated_at,metadata) VALUES($1,now(),now(),'{}')`, f.agentID)
+		exec(
+			`INSERT INTO agent_wakeups(agent_id,ready_at,updated_at,metadata) VALUES($1,now(),now(),'{}')`,
+			f.agentID,
+		)
 	}
-	exec(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
+	exec(
+		`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
         configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
         VALUES($1,$2,$3,$4,'normal',1,$5,$6,2,$7,'started',now())`,
-		f.contextID, f.ids.OrgID, f.ids.ProjectID, f.agentID, f.configID, revisionID, f.runtimeID)
+		f.contextID,
+		f.ids.OrgID,
+		f.ids.ProjectID,
+		f.agentID,
+		f.configID,
+		revisionID,
+		f.runtimeID,
+	)
 	if kind == "" {
-		exec(`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+		exec(
+			`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
             VALUES($1,$2,$3,now()-interval '2 minutes',now()-interval '2 minutes',now()-interval '1 minute')`,
-			f.runtimeID, f.agentID, uuid.New())
+			f.runtimeID,
+			f.agentID,
+			uuid.New(),
+		)
 	} else {
 		f.seedInteraction(t, exec, kind)
 	}
@@ -360,11 +454,22 @@ func (f *slackPendingWorkFixture) seedInteraction(t *testing.T, exec func(string
 	outputID, eventID := uuid.New(), uuid.New()
 	exec(`INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at)
         VALUES($1,$2,$3,'tool_use',now())`, outputID, f.agentID, f.contextID)
-	exec(`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+	exec(
+		`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
         VALUES($1,$2,$3,'pending-review',$4,$5,'built_in','awaiting_authorization',now())`,
-		f.toolID, f.agentID, outputID, toolName, toolInput)
-	exec(`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,tool_call_id,created_at)
-        VALUES($1,'model_output',$2,0,'tool_call',$3,now())`, f.agentID, outputID, f.toolID)
+		f.toolID,
+		f.agentID,
+		outputID,
+		toolName,
+		toolInput,
+	)
+	exec(
+		`INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,tool_call_id,created_at)
+        VALUES($1,'model_output',$2,0,'tool_call',$3,now())`,
+		f.agentID,
+		outputID,
+		f.toolID,
+	)
 	exec(`UPDATE model_call_contexts SET state='succeeded',api_format='openai',api_variant='responses',
         completed_at=now() WHERE id=$1`,
 		f.contextID)
@@ -373,7 +478,11 @@ func (f *slackPendingWorkFixture) seedInteraction(t *testing.T, exec func(string
         VALUES($1,$2,$3,3,'model_output',$4,$5,false,now())`,
 		eventID, f.agentID, f.turnID, "model_output:"+outputID.String(), outputID)
 	exec(`UPDATE agents SET next_event_sequence=4 WHERE id=$1`, f.agentID)
-	exec(`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`, f.turnID, eventID)
+	exec(
+		`UPDATE agent_turns SET latest_event_id=$2,latest_semantic_event_id=$2 WHERE id=$1`,
+		f.turnID,
+		eventID,
+	)
 	exec(`INSERT INTO agent_interactions(id,agent_id,tool_call_id,interaction_kind,state,request,created_at)
         VALUES($1,$2,$3,$4,'open',$5,now())`, f.interactionID, f.agentID, f.toolID, kind, f.request)
 	if kind == "permission" {
@@ -402,7 +511,10 @@ func pendingWorkRequest(t *testing.T, kind string) (json.RawMessage, string, jso
 		require.NoError(t, err)
 		form, err := toolpermission.NewAllowDenyForm("Allow reading the process?", nil)
 		require.NoError(t, err)
-		mode, found := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), toolpermission.ModeAlwaysAsk)
+		mode, found := toolpermission.FindMode(
+			toolpermission.CommonModeDescriptors(),
+			toolpermission.ModeAlwaysAsk,
+		)
 		require.True(t, found)
 		request, err := toolpermission.NewRequest(
 			mode, toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk), authorization, form,
@@ -433,18 +545,25 @@ func (f *slackPendingWorkFixture) steer(t *testing.T) executionstore.AgentInputR
 	})
 	require.NoError(t, err)
 	require.True(t, created)
-	receipt, found, err := integrations.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: f.ids.ProjectID, IntegrationID: f.integrationID, LeaseDuration: time.Minute,
-	})
+	receipt, found, err := integrations.ClaimIntegrationInbox(
+		ctx,
+		integrationstore.ClaimIntegrationInboxInput{
+			ProjectID: f.ids.ProjectID, IntegrationID: f.integrationID, LeaseDuration: time.Minute,
+		},
+	)
 	require.NoError(t, err)
 	require.True(t, found)
 	router := integration.NewIntegrationRouter(f.store.Execution(), integrations)
 	plan, created, err := router.Freeze(ctx, receipt.Lease(), &integration.IntegrationEvent{
 		Event: integrationdefinition.Event{
-			Kind: integrationdefinition.EventMessage, Mentioned: false, Scope: integrationdefinition.Scope{Slack: &scope},
+			Kind:      integrationdefinition.EventMessage,
+			Mentioned: false,
+			Scope:     integrationdefinition.Scope{Slack: &scope},
 		},
 		Actor: actor, SemanticKey: "cutover-steering", DeliveryMode: executionstore.DeliveryModeSteering,
-		ContentBlocks:          json.RawMessage(`[{"type":"text","text":"Use the new instructions instead"}]`),
+		ContentBlocks: json.RawMessage(
+			`[{"type":"text","text":"Use the new instructions instead"}]`,
+		),
 		CancelOpenInteractions: true,
 	}, nil)
 	require.NoError(t, err)
@@ -477,21 +596,22 @@ func (f *slackPendingWorkFixture) claimModel(
 	var sequence int64
 	require.NoError(t, f.db.QueryRowContext(ctx,
 		`SELECT max(sequence) FROM agent_events WHERE agent_id=$1`, f.agentID).Scan(&sequence))
-	snapshot, err := f.store.Execution().CaptureAgentConfigForModelContext(ctx, f.ids.ProjectID, f.agentID)
-	require.NoError(t, err)
-	claim, err := f.store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID: f.ids.ProjectID, AgentID: f.agentID, RuntimeLockID: work.RuntimeLock.ID,
-		AgentConfigID: snapshot.AgentConfig.ID, InputEventSequence: sequence,
-		OpeningInputIDs:          work.Model.InputIDs,
-		SourceModelCallContextID: work.Model.SourceModelCallContextID,
-		SourceModelOutputID:      work.Model.SourceModelOutputID,
-	})
+
+	prepared1, err := f.store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID: f.ids.ProjectID, AgentID: f.agentID, RuntimeLockID: work.RuntimeLock.ID,
+			OpeningInputIDs:          work.Model.InputIDs,
+			SourceModelCallContextID: work.Model.SourceModelCallContextID,
+			SourceModelOutputID:      work.Model.SourceModelOutputID,
+		})
+	claim := prepared1.Claim
+
 	require.NoError(t, err)
 	require.True(t, claim.Created)
 	require.True(t, claim.Claimed)
 	var turnID uuid.UUID
 	require.NoError(t, f.db.QueryRowContext(ctx,
-		`SELECT turn_id FROM model_call_context_turns WHERE model_call_context_id=$1`, claim.Context.ID).Scan(&turnID))
+		`SELECT turn_id FROM model_call_contexts WHERE id=$1`, claim.Context.ID).Scan(&turnID))
 	require.Equal(t, work.Model.TurnID, turnID)
 	return claim.Context
 }
@@ -535,7 +655,9 @@ func (f *slackPendingWorkFixture) captureNewPrompts(t *testing.T, work execution
 	question, err := f.store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
 		ProjectID: f.ids.ProjectID, AgentID: f.agentID, ToolCallID: calls[0].ID, RuntimeLockID: work.RuntimeLock.ID,
 	}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-		return executionstore.CreateQuestionForToolCall(executionstore.CreateQuestionInteractionInput{Form: form}), nil
+		return executionstore.CreateQuestionForToolCall(
+			executionstore.CreateQuestionInteractionInput{Form: form},
+		), nil
 	})
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallDispositionWaiting, question.Disposition)

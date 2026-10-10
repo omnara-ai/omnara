@@ -235,7 +235,9 @@ func reconcileQueryMetadata(body []byte, start int, metadata queryMetadata) (que
 	sqlcMetadata, err := parseSQLCQueryMetadata(body, start)
 	if err != nil {
 		metadata.diagnostic = sqlcMetadata.diagnostic
-		return metadata, &queryOwnershipError{message: fmt.Sprintf("sqlc rejects query ownership metadata: %v", err)}
+		return metadata, &queryOwnershipError{
+			message: fmt.Sprintf("sqlc rejects query ownership metadata: %v", err),
+		}
 	}
 	if metadata.name == sqlcMetadata.name && metadata.command == sqlcMetadata.command {
 		return metadata, nil
@@ -431,6 +433,7 @@ func (checker *queryChecker) checkMessage(
 			)
 		}
 	case *pg_query.InsertStmt:
+		checker.checkExecutionOwnership(node.GetRelation())
 		if len(node.GetCols()) == 0 && node.GetSelectStmt() != nil {
 			checker.report(
 				ruleExplicitInsertColumns,
@@ -444,6 +447,7 @@ func (checker *queryChecker) checkMessage(
 		}
 		checker.checkOutputTargets(node.GetReturningList(), mutationRelationNames(node.GetRelation(), nil))
 	case *pg_query.UpdateStmt:
+		checker.checkExecutionOwnership(node.GetRelation())
 		if node.GetWhereClause() == nil {
 			checker.report(
 				ruleMutationPredicate,
@@ -458,6 +462,7 @@ func (checker *queryChecker) checkMessage(
 			mutationRelationNames(node.GetRelation(), node.GetFromClause()),
 		)
 	case *pg_query.DeleteStmt:
+		checker.checkExecutionOwnership(node.GetRelation())
 		if node.GetWhereClause() == nil {
 			checker.report(
 				ruleMutationPredicate,
@@ -544,7 +549,10 @@ func (checker *queryChecker) checkInsertDatabaseOwnedTime(statement *pg_query.In
 	checker.checkInsertSelectionDatabaseOwnedTime(columns, selection)
 }
 
-func (checker *queryChecker) checkInsertSelectionDatabaseOwnedTime(columns []string, selection *pg_query.SelectStmt) {
+func (checker *queryChecker) checkInsertSelectionDatabaseOwnedTime(
+	columns []string,
+	selection *pg_query.SelectStmt,
+) {
 	if selection == nil {
 		return
 	}
@@ -781,22 +789,26 @@ func projectionContainsImplicitShape(expression *pg_query.Node, relationNames ma
 		return false
 	}
 	found := false
-	walkMessage(expression.ProtoReflect(), nil, func(candidate protoreflect.Message, ancestors []protoreflect.Message) {
-		if found || hasSelectAncestor(ancestors) {
-			return
-		}
-		switch node := candidate.Interface().(type) {
-		case *pg_query.A_Star:
-			found = true
-		case *pg_query.FuncCall:
-			found = isSQLCEmbedCall(node)
-		case *pg_query.ColumnRef:
-			path := nodePath(node.GetFields())
-			if len(path) == 1 {
-				_, found = relationNames[path[0]]
+	walkMessage(
+		expression.ProtoReflect(),
+		nil,
+		func(candidate protoreflect.Message, ancestors []protoreflect.Message) {
+			if found || hasSelectAncestor(ancestors) {
+				return
 			}
-		}
-	})
+			switch node := candidate.Interface().(type) {
+			case *pg_query.A_Star:
+				found = true
+			case *pg_query.FuncCall:
+				found = isSQLCEmbedCall(node)
+			case *pg_query.ColumnRef:
+				path := nodePath(node.GetFields())
+				if len(path) == 1 {
+					_, found = relationNames[path[0]]
+				}
+			}
+		},
+	)
 	return found
 }
 
@@ -961,11 +973,15 @@ func expressionContainsConstant(expression *pg_query.Node, constant *pg_query.A_
 		return false
 	}
 	found := false
-	walkMessage(expression.ProtoReflect(), nil, func(candidate protoreflect.Message, _ []protoreflect.Message) {
-		if node, ok := candidate.Interface().(*pg_query.A_Const); ok && node == constant {
-			found = true
-		}
-	})
+	walkMessage(
+		expression.ProtoReflect(),
+		nil,
+		func(candidate protoreflect.Message, _ []protoreflect.Message) {
+			if node, ok := candidate.Interface().(*pg_query.A_Const); ok && node == constant {
+				found = true
+			}
+		},
+	)
 	return found
 }
 
@@ -1090,19 +1106,23 @@ func expressionContainsApplicationTime(expression *pg_query.Node) bool {
 	}
 
 	found := false
-	walkMessage(expression.ProtoReflect(), nil, func(candidate protoreflect.Message, _ []protoreflect.Message) {
-		if found {
-			return
-		}
-		switch node := candidate.Interface().(type) {
-		case *pg_query.FuncCall:
-			found = isSQLCParameterCall(node)
-		case *pg_query.ParamRef:
-			found = true
-		case *pg_query.A_Expr:
-			found = isAtParameter(node)
-		}
-	})
+	walkMessage(
+		expression.ProtoReflect(),
+		nil,
+		func(candidate protoreflect.Message, _ []protoreflect.Message) {
+			if found {
+				return
+			}
+			switch node := candidate.Interface().(type) {
+			case *pg_query.FuncCall:
+				found = isSQLCParameterCall(node)
+			case *pg_query.ParamRef:
+				found = true
+			case *pg_query.A_Expr:
+				found = isAtParameter(node)
+			}
+		},
+	)
 	return found
 }
 
@@ -1125,7 +1145,8 @@ func isDurationArithmetic(expression *pg_query.A_Expr) bool {
 	if len(operator) != 1 || (operator[0] != "*" && operator[0] != "/") {
 		return false
 	}
-	return expressionContainsInterval(expression.GetLexpr()) || expressionContainsInterval(expression.GetRexpr())
+	return expressionContainsInterval(expression.GetLexpr()) ||
+		expressionContainsInterval(expression.GetRexpr())
 }
 
 func expressionContainsInterval(expression *pg_query.Node) bool {
@@ -1133,17 +1154,21 @@ func expressionContainsInterval(expression *pg_query.Node) bool {
 		return false
 	}
 	found := false
-	walkMessage(expression.ProtoReflect(), nil, func(candidate protoreflect.Message, _ []protoreflect.Message) {
-		if found {
-			return
-		}
-		switch node := candidate.Interface().(type) {
-		case *pg_query.TypeCast:
-			found = typeNameEndsWith(node.GetTypeName(), "interval")
-		case *pg_query.FuncCall:
-			found = isDurationConstructor(node)
-		}
-	})
+	walkMessage(
+		expression.ProtoReflect(),
+		nil,
+		func(candidate protoreflect.Message, _ []protoreflect.Message) {
+			if found {
+				return
+			}
+			switch node := candidate.Interface().(type) {
+			case *pg_query.TypeCast:
+				found = typeNameEndsWith(node.GetTypeName(), "interval")
+			case *pg_query.FuncCall:
+				found = isDurationConstructor(node)
+			}
+		},
+	)
 	return found
 }
 
@@ -1209,4 +1234,31 @@ func sourcePosition(source []byte, offset int) (int, int) {
 	line := bytes.Count(source[:offset], []byte{'\n'}) + 1
 	lineStart := bytes.LastIndexByte(source[:offset], '\n') + 1
 	return line, offset - lineStart + 1
+}
+
+func (checker *queryChecker) checkExecutionOwnership(relation *pg_query.RangeVar) {
+	if strings.Contains(filepath.ToSlash(checker.path), "internal/storage/internal/agentexecution/queries/") {
+		return
+	}
+	switch relation.GetRelname() {
+	case "agents",
+		"agent_inputs",
+		"agent_events",
+		"agent_turns",
+		"model_call_contexts",
+		"model_outputs",
+		"tool_calls",
+		"tool_call_results",
+		"context_checkpoints",
+		"content_blocks",
+		"agent_interactions",
+		"agent_execution_state",
+		"agent_wakeups",
+		"agent_runtime_locks":
+		checker.report(
+			"execution-dml-ownership",
+			"execution writes belong to agentexecution/queries",
+			relation.GetLocation(),
+		)
+	}
 }

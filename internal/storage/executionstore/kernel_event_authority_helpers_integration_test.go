@@ -17,9 +17,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func listTypedToolResultEventsForToolCall(
@@ -118,7 +119,7 @@ LIMIT 1
 `, testProjectID, fixture.AgentID, turnID).Scan(&openingInputID, &inputSequence); err != nil {
 		t.Fatalf("load opening event for model output: %v", err)
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	_, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("load agent for model output: %v", err)
 	}
@@ -163,16 +164,17 @@ LIMIT 1
 	if !found {
 		t.Fatal("select model work for bare model output: no work found")
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:                testProjectID,
-		AgentID:                  fixture.AgentID,
-		RuntimeLockID:            fixture.Lock.ID,
-		OpeningInputIDs:          []uuid.UUID{openingInputID},
-		AgentConfigID:            agent.CurrentConfigID,
-		InputEventSequence:       inputSequence,
-		SourceModelCallContextID: work.ModelCallContextID,
-		SourceModelOutputID:      work.SourceModelOutputID,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:                testProjectID,
+			AgentID:                  fixture.AgentID,
+			RuntimeLockID:            fixture.Lock.ID,
+			OpeningInputIDs:          []uuid.UUID{openingInputID},
+			SourceModelCallContextID: work.ModelCallContextID,
+			SourceModelOutputID:      work.SourceModelOutputID,
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim bare model output context: %v", err)
 	}
@@ -398,16 +400,17 @@ func claimNormalContextAtFrontierTest(
 	if !found {
 		t.Fatal("select model work for context claim: no work found")
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:                testProjectID,
-		AgentID:                  fixture.AgentID,
-		RuntimeLockID:            fixture.Lock.ID,
-		OpeningInputIDs:          openingInputIDs,
-		AgentConfigID:            agentConfigID,
-		InputEventSequence:       inputEventSequence,
-		SourceModelCallContextID: work.ModelCallContextID,
-		SourceModelOutputID:      work.SourceModelOutputID,
-	})
+	prepared2, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:                testProjectID,
+			AgentID:                  fixture.AgentID,
+			RuntimeLockID:            fixture.Lock.ID,
+			OpeningInputIDs:          openingInputIDs,
+			SourceModelCallContextID: work.ModelCallContextID,
+			SourceModelOutputID:      work.SourceModelOutputID,
+		})
+	claim := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context: %v", err)
 	}
@@ -481,6 +484,7 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit synthetic latest turn: %v", err)
 	}
+	require.NoError(t, fixture.Store.Execution().RepairExecutionForTest(ctx, testProjectID, fixture.AgentID))
 	return turnID
 }
 
@@ -513,14 +517,15 @@ func newStartedNormalModelCallTestFixture(
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[len(admitted.Events)-1].Sequence,
-	})
+	prepared3, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: openingInputIDs,
+		})
+	claim := prepared3.Claim
+
 	if err != nil {
 		t.Fatalf("claim started normal model call: %v", err)
 	}
@@ -681,51 +686,51 @@ func claimSentCompactionForRangeTest(
 	if err != nil {
 		t.Fatalf("create checkpoint overflow input: %v", err)
 	}
-	tx, err := fixture.Store.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin checkpoint overflow admission: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: testProjectID,
-		ID:        fixture.AgentID,
-	}); err != nil {
-		t.Fatalf("lock checkpoint overflow agent: %v", err)
-	}
-	admitted, err := executionstore.IntegrationAdmitLockedAgentInputsAndOpenTurnTx(
+	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
+	require.NoError(t, err)
+	defer func() { _ = unit.Rollback(ctx) }()
+	_, err = unit.LockAgent(
 		ctx,
-		notifications.NewTxNotifications(),
-		tx,
-		qtx,
-		executionstore.IntegrationAdmitAgentInputAndOpenTurnInput{
-			ProjectID: testProjectID,
-			AgentID:   fixture.AgentID,
-		},
-		[]executionstore.AgentInputRecord{overflowInput},
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.AgentID},
+		agentexecution.ExternalAuthority{},
 	)
-	if err != nil {
-		t.Fatalf("admit checkpoint overflow input: %v", err)
+	require.NoError(t, err)
+	admitted, err := executionstore.IntegrationAdmitInputs(ctx, unit, testProjectID, fixture.AgentID)
+	require.NoError(t, err)
+	if len(admitted.Events) == 0 {
+		require.NoError(t, unit.Rollback(ctx))
+		id := uuid.New()
+		_, err = fixture.Store.pool.Exec(
+			ctx,
+			`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,agent_config_id,configured_model_revision_id,input_event_sequence,source_event_sequence_end,runtime_lock_id,opening_input_ids,opening_event_sequence,state,created_at)
+SELECT $1,c.org_id,c.project_id,c.agent_id,c.turn_id,'compaction',1,c.agent_config_id,
+c.configured_model_revision_id,$3,$3,$4,c.opening_input_ids,c.opening_event_sequence,
+'started',statement_timestamp()
+FROM agent_execution_state s JOIN model_call_contexts c ON c.agent_id=s.agent_id AND
+c.id=s.normal_context_id WHERE s.agent_id=$2`,
+			id,
+			fixture.AgentID,
+			end,
+			fixture.Lock.ID,
+		)
+		require.NoError(t, err)
+		record, found, err := fixture.Store.Execution().
+			GetModelCallContext(ctx, testProjectID, fixture.AgentID, id)
+		require.NoError(t, err)
+		require.True(t, found)
+		return executionstore.ModelCallClaim{Context: record, Created: true, Claimed: true}
 	}
 	overflowFrontier := admitted.Events[len(admitted.Events)-1].Sequence
-	openingInputIDs, _, err := executionstore.IntegrationModelCallOpeningInputSet(
-		ctx,
-		qtx,
-		testProjectID,
-		fixture.AgentID,
-		admitted.Turn.ID,
-		overflowFrontier,
-	)
-	if err != nil {
-		t.Fatalf("load checkpoint overflow opening inputs: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit checkpoint overflow admission: %v", err)
-	}
+	h, err := unit.Handle(testProjectID, fixture.AgentID)
+	require.NoError(t, err)
+	loaded, err := h.LoadExecution(ctx)
+	require.NoError(t, err)
+	openingInputIDs := loaded.Selection.Model.Opening.InputIDs
+	require.NoError(t, unit.Commit(ctx, "fixture compaction admission"))
 	if len(admitted.Inputs) != 1 || admitted.Inputs[0].ID != overflowInput.ID {
 		t.Fatalf("admitted checkpoint overflow input = %+v", admitted)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
+	_, err = fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
 		ctx,
 		testProjectID,
 		fixture.AgentID,
@@ -734,14 +739,15 @@ func claimSentCompactionForRangeTest(
 	if err != nil {
 		t.Fatalf("capture checkpoint overflow config: %v", err)
 	}
-	parent, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: overflowFrontier,
-	})
+	prepared4, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: openingInputIDs,
+		})
+	parent := prepared4.Claim
+
 	if err != nil {
 		t.Fatalf("claim checkpoint overflow parent: %v", err)
 	}
@@ -776,14 +782,15 @@ func publishCheckpointForRangeTest(
 	summary string,
 	now time.Time,
 ) (executionstore.ContextCheckpointRecord, error) {
-	return fixture.Store.Execution().PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
-		Summary:            summary,
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         modelprotocol.APIVariantDefault,
-		ProviderResponseID: "resp_" + summary,
-	})
+	return fixture.Store.Execution().
+		PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID,
+			RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
+			Summary:            summary,
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			APIVariant:         modelprotocol.APIVariantDefault,
+			ProviderResponseID: "resp_" + summary,
+		})
 }
 
 func appendCancelStopEventForContinuationSeedTest(
@@ -800,20 +807,16 @@ func appendCancelStopEventForContinuationSeedTest(
 		t.Fatalf("begin cancel stop event fixture: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	controlType := "cancel_current"
-	controlInput, err := qtx.InsertControlAgentInput(ctx, dbsqlc.InsertControlAgentInputParams{
-		ProjectID:           testProjectID,
-		AgentID:             fixture.AgentID,
-		ActorID:             storeutil.IDFromNil(actorID),
-		ControlType:         &controlType,
-		IdempotencyScope:    storeutil.TextFromEmpty("agent_control"),
-		InputIdempotencyKey: storeutil.TextFromEmpty("test-cancel-stop:" + turnID.String()),
-		Metadata:            json.RawMessage(`{}`),
-	})
-	if err != nil {
-		t.Fatalf("insert cancel control input: %v", err)
-	}
+	controlInput := executionstore.AgentInputRecord{ID: uuid.New()}
+	_, err = tx.Exec(
+		ctx,
+		`INSERT INTO agent_inputs(id,project_id,agent_id,actor_id,input_kind,delivery_mode,control_type,state,queued_at,metadata) VALUES($1,$2,$3,$4,'control','immediate','cancel_current','received',statement_timestamp(),'{}')`,
+		controlInput.ID,
+		testProjectID,
+		fixture.AgentID,
+		actorID,
+	)
+	require.NoError(t, err)
 	eventRecord, err := executionstore.IntegrationAppendTypedAgentEventTx(
 		ctx,
 		notifications.NewTxNotifications(),
@@ -831,31 +834,29 @@ func appendCancelStopEventForContinuationSeedTest(
 		t.Fatalf("append cancel stop event: %v", err)
 	}
 	if err := executionstore.IntegrationUpdateAgentTurnLatestEventQuery(
-		ctx, qtx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, uuid.Nil,
+		ctx, tx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, uuid.Nil,
 	); err != nil {
 		t.Fatalf("update turn latest cancel event: %v", err)
 	}
-	if err := qtx.ResolveControlAgentInput(
+	_, err = tx.Exec(
 		ctx,
-		dbsqlc.ResolveControlAgentInputParams{
-			ProjectID:   testProjectID,
-			AgentID:     fixture.AgentID,
-			ID:          controlInput.ID,
-			ControlType: &controlType,
-			EventID:     &eventRecord.Event.ID,
-		},
-	); err != nil {
-		t.Fatalf("resolve cancel control input: %v", err)
-	}
+		`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=$3,resolved_at=$3 WHERE id=$1`,
+		controlInput.ID,
+		eventRecord.Event.ID,
+		eventRecord.Event.At,
+	)
+	require.NoError(t, err)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit cancel stop event fixture: %v", err)
 	}
+	require.NoError(t, fixture.Store.Execution().RepairExecutionForTest(ctx, testProjectID, fixture.AgentID))
 	return eventRecord.Event
 }
 
 func isPgConstraintViolation(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && (pgErr.Code == "23505" || pgErr.Code == "23514" || pgErr.Code == "23503")
+	return errors.As(err, &pgErr) &&
+		(pgErr.Code == "23502" || pgErr.Code == "23505" || pgErr.Code == "23514" || pgErr.Code == "23503")
 }
 
 func assertPgErrorMessage(t *testing.T, err error, code, message string) {

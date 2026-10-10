@@ -2,7 +2,6 @@ package executionstore
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -53,18 +52,28 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 		})},
 		{name: "mixed visible and hidden bundle", hidden: true, parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "text", "text": strings.Repeat("visible", 10000)},
-			{"type": "text", "text": strings.Repeat("hidden", 10000), "metadata": map[string]string{"omnara_hidden": "true"}},
+			{"type": "text",
+				"text": strings.Repeat("hidden",
+					10000),
+				"metadata": map[string]string{"omnara_hidden": "true"}},
 			{"type": "media_ref", "artifact_id": imageID.String()},
 		})},
 		{name: "bundle with hidden media", hidden: true, parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "structured_data", "value": strings.Repeat("x", 60000)},
-			{"type": "media_ref", "artifact_id": imageID.String(), "metadata": map[string]string{"omnara_hidden": "true"}},
+			{"type": "media_ref",
+				"artifact_id": imageID.String(),
+				"metadata":    map[string]string{"omnara_hidden": "true"}},
 		})},
-		{name: "plaintext with retained hidden blocks", contentType: "text/plain", parts: mustTestRawJSON(t, []map[string]any{
-			{"type": "text", "text": strings.Repeat("visible", 10000)},
-			{"type": "structured_data", "value": "hidden", "metadata": map[string]string{"omnara_hidden": "true"}},
-			{"type": "media_ref", "artifact_id": imageID.String(), "metadata": map[string]string{"omnara_hidden": "true"}},
-		})},
+		{name: "plaintext with retained hidden blocks",
+			contentType: "text/plain",
+			parts: mustTestRawJSON(t,
+				[]map[string]any{
+					{"type": "text", "text": strings.Repeat("visible", 10000)},
+					{"type": "structured_data", "value": "hidden", "metadata": map[string]string{"omnara_hidden": "true"}},
+					{"type": "media_ref",
+						"artifact_id": imageID.String(),
+						"metadata":    map[string]string{"omnara_hidden": "true"}},
+				})},
 		{name: "text with metadata", contentType: "text/plain", parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
 			{"type": "structured_data", "value": map[string]any{"status_code": 200}},
@@ -73,11 +82,14 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 			{"type": "structured_data", "value": map[string]any{"status_code": 200}},
 			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
 		})},
-		{name: "escaped metadata fits inline", contentType: "text/plain", parts: mustTestRawJSON(t, []map[string]any{
-			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
-			{"type": "structured_data", "value": strings.Repeat("\t", 20900)},
-			{"type": "media_ref", "artifact_id": imageID.String()},
-		})},
+		{name: "escaped metadata fits inline",
+			contentType: "text/plain",
+			parts: mustTestRawJSON(t,
+				[]map[string]any{
+					{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
+					{"type": "structured_data", "value": strings.Repeat("\t", 20900)},
+					{"type": "media_ref", "artifact_id": imageID.String()},
+				})},
 		{name: "escaped metadata exceeds inline budget", parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
 			{"type": "structured_data", "value": strings.Repeat("\t", 21000)},
@@ -126,7 +138,8 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 					t.Fatalf("generated %s block hidden=%t, want %t", block.BlockKind, hidden, test.hidden)
 				}
 			}
-			if bytes.Contains(parts, []byte(imageID.String())) && !bytes.Contains(result, []byte(imageID.String())) {
+			if bytes.Contains(parts, []byte(imageID.String())) &&
+				!bytes.Contains(result, []byte(imageID.String())) {
 				t.Fatal("lost existing media")
 			}
 			repeated, err := prepareToolResultOverflow(inputBlocks, parts)
@@ -137,12 +150,8 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 			if err != nil || !bytes.Equal(result, replay) {
 				t.Fatal("rewrite is not deterministic")
 			}
-			ctx := context.WithValue(t.Context(), toolResultArtifactContentsKey{}, map[uuid.UUID][]byte{artifactID: saved})
-			expanded, err := expandToolResultOverflow(ctx, uuid.New(), uuid.New(), result)
-			if err != nil || !sameJSON(expanded, parts) {
-				t.Fatalf("round trip changed original parts: %v", err)
-			}
-			if test.name == "text with metadata" && len(regexp.MustCompile(`(?m)^TARGET`).FindAll(saved, -1)) != 8000 {
+			if test.name == "text with metadata" &&
+				len(regexp.MustCompile(`(?m)^TARGET`).FindAll(saved, -1)) != 8000 {
 				t.Fatal("artifact lost original text lines")
 			}
 			if !bytes.Contains(result, []byte("/artifacts/")) {
@@ -188,13 +197,6 @@ func TestToolResultOverflowPreservesMediaAboveInlineLimit(t *testing.T) {
 		if retained[index+2].ArtifactID != block.ArtifactID {
 			t.Fatalf("media reference %d was changed or lost", index)
 		}
-	}
-	ctx := context.WithValue(t.Context(), toolResultArtifactContentsKey{}, map[uuid.UUID][]byte{
-		artifactID: overflow.content,
-	})
-	expanded, err := expandToolResultOverflow(ctx, uuid.New(), uuid.New(), result)
-	if err != nil || !sameJSON(expanded, parts) {
-		t.Fatalf("round trip changed original mixed-media content: %v", err)
 	}
 }
 

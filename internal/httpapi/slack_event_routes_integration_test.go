@@ -1093,7 +1093,11 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 	var stopEvents int
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT count(*)::int FROM agent_stop_events WHERE project_id = $1 AND agent_id = $2`,
+		`SELECT count(*)::int FROM agent_events event
+JOIN agent_inputs input ON input.agent_id = event.agent_id AND input.id = event.agent_input_id
+JOIN agents agent ON agent.id = event.agent_id
+WHERE agent.project_id = $1 AND event.agent_id = $2 AND input.input_kind = 'control' AND
+input.control_type = 'cancel_current'`,
 		fixture.Project.ProjectUUID,
 		integrationTarget.AgentID,
 	).Scan(&stopEvents); err != nil {

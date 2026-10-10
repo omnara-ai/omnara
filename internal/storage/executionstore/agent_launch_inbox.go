@@ -6,10 +6,10 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -84,12 +84,14 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 	); err != nil || outcome.Outcome != InboxRecipientPending {
 		return LaunchAgentResult{Agent: outcome.Agent}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.q.WithTx(tx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	q := dbsqlc.New(tx)
 	resources, err := launchIntegrationIDsTx(ctx, q, recipient.Launch.launchInput(lease.ProjectID, recipient.InitialInput))
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -97,7 +99,7 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		// Release the connection before diagnostic reads, which may need the pool's only session.
-		_ = tx.Rollback(ctx)
+		_ = unit.Rollback(ctx)
 		if outcome, readErr := resolveInboxLaunchOutcome(
 			ctx, s.q, snapshot.ProjectID, recipient,
 		); readErr == nil && outcome.Outcome != InboxRecipientPending {
@@ -148,8 +150,7 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 		LaunchKey:     claim.LaunchKey,
 		Artifacts:     artifacts,
 	}
-	txNotifications := s.newTxNotifications()
-	result, err := s.launchAgentTx(ctx, tx, q, txNotifications, launch)
+	result, err := s.launchAgentTx(ctx, unit, q, launch)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -159,7 +160,7 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 	if err := work.CheckLease(ctx); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "admit inbox launch recipient"); err != nil {
+	if err := unit.Commit(ctx, "admit inbox launch recipient"); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	return result, nil

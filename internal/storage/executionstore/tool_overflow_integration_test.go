@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -55,7 +54,10 @@ func (b *overflowBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstor
 	if !ok {
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
 	}
-	return content, blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
+	return content, blobstore.Metadata{
+		Digest:    blobstore.ContentDigest(content),
+		SizeBytes: int64(len(content)),
+	}, nil
 }
 
 func (b *overflowBlobs) DeleteBlob(_ context.Context, key string) error {
@@ -132,10 +134,11 @@ func TestToolOverflowConcurrentCompletions(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			_, err := store.Execution().CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
-				ProjectID: testProjectID, AgentID: fixture.AgentID, ID: id, RuntimeLockID: fixture.Lock.ID,
-				Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: parts,
-			})
+			_, err := store.Execution().
+				CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
+					ProjectID: testProjectID, AgentID: fixture.AgentID, ID: id, RuntimeLockID: fixture.Lock.ID,
+					Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: parts,
+				})
 			results <- err
 		}()
 	}
@@ -249,13 +252,18 @@ func TestToolOverflowCompletionAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Execution().CompleteToolCall(ctx, input); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := store.Execution().CompleteToolCall(ctx, input); !errors.Is(
+		err,
+		storeerr.ErrIdempotencyConflict,
+	) {
 		t.Fatalf("conflicting replay: %v", err)
 	}
 	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, callID, id); err == nil {
 		t.Fatal("cross-agent artifact access succeeded")
 	}
-	for _, kind := range []string{toolcatalog.ToolTypeMCP, toolcatalog.ToolTypeCustom, toolcatalog.ToolTypeBuiltIn} {
+	for _, kind := range []string{toolcatalog.ToolTypeMCP,
+		toolcatalog.ToolTypeCustom,
+		toolcatalog.ToolTypeBuiltIn} {
 		name := "read_process"
 		if kind == toolcatalog.ToolTypeMCP {
 			name = "mcp__docs__search"
@@ -314,14 +322,17 @@ func TestToolOverflowExcludesProcessReadReplay(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, store, executionstore.ExecuteToolCallInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
-		ProcessID: process.ID, ActionKind: executionstore.ProcessActionKindRead, Payload: json.RawMessage(`{"max_bytes":65536}`),
+		ProcessID:  process.ID,
+		ActionKind: executionstore.ProcessActionKindRead,
+		Payload:    json.RawMessage(`{"max_bytes":65536}`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, found, err := store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
-		Authority: fixture.authority(), ProcessID: process.ID, ID: action.ID,
-	})
+	_, found, err := store.Execution().
+		AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
+			Authority: fixture.authority(), ProcessID: process.ID, ID: action.ID,
+		})
 	if err != nil || !found {
 		t.Fatalf("accept read: found=%v err=%v", found, err)
 	}
@@ -385,7 +396,9 @@ func TestQuestionResponseSizeLimit(t *testing.T) {
 			ctx := context.Background()
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
-			blobs := &overflowBlobs{beforeIO: func() { t.Fatal("question completion must not use blob storage") }}
+			blobs := &overflowBlobs{
+				beforeIO: func() { t.Fatal("question completion must not use blob storage") },
+			}
 			store := newIntegrationStore(pool, storage.WithBlobStore(blobs))
 			user := mustCreateProjectOperatorUser(t, ctx, store, "bounded-question@example.com", "Question")
 			fixture := newProcessDaemonFixtureInStore(t, ctx, store, user.ID, "bounded_question", time.Now())
@@ -398,7 +411,9 @@ func TestQuestionResponseSizeLimit(t *testing.T) {
 			result, err := store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
 				ProjectID: testProjectID, AgentID: fixture.AgentID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
 			}, func(_ *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-				return executionstore.CreateQuestionForToolCall(executionstore.CreateQuestionInteractionInput{Form: form}), nil
+				return executionstore.CreateQuestionForToolCall(
+					executionstore.CreateQuestionInteractionInput{Form: form},
+				), nil
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -408,12 +423,15 @@ func TestQuestionResponseSizeLimit(t *testing.T) {
 				t.Fatalf("question command returned %T", result.CommandResult)
 			}
 			resultParts := func(answer string) json.RawMessage {
-				return mustTestRawJSON(t, []map[string]any{{"type": "structured_data", "value": map[string]any{
-					"answers": []map[string]any{{
-						"question_index": 0, "question": form.Questions[0].Prompt, "text": answer,
-						"selected_options": []map[string]any{{"option_index": 0, "label": "Yes"}},
-					}},
-				}}})
+				return mustTestRawJSON(
+					t,
+					[]map[string]any{{"type": "structured_data", "value": map[string]any{
+						"answers": []map[string]any{{
+							"question_index": 0, "question": form.Questions[0].Prompt, "text": answer,
+							"selected_options": []map[string]any{{"option_index": 0, "label": "Yes"}},
+						}},
+					}}},
+				)
 			}
 			answer := "answer"
 			if test.size != 0 {
@@ -430,23 +448,29 @@ func TestQuestionResponseSizeLimit(t *testing.T) {
 				Actor: mustOmnaraActorParams(t, fixture.UserID),
 			}
 			if test.legacy {
-				q := dbsqlc.New(pool)
 				actorID := fixture.omnaraActorID(t, ctx)
-				scope, key := "agent_interaction_response", interaction.ID.String()
-				response, err := q.InsertInteractionResponseAgentInput(ctx, dbsqlc.InsertInteractionResponseAgentInputParams{
-					ProjectID: testProjectID, AgentID: fixture.AgentID, TargetInteractionID: interaction.ID,
-					ActorID:          &actorID,
-					IdempotencyScope: &scope, InputIdempotencyKey: &key,
-					Metadata: json.RawMessage(`{}`),
-				})
-				if err != nil {
+				responseID := uuid.New()
+				if _,
+					err := pool.Exec(ctx,
+					`INSERT INTO agent_inputs(id,agent_id,input_kind,state,target_interaction_id,actor_id,project_id,idempotency_scope,input_idempotency_key,metadata,queued_at,delivery_mode)
+VALUES($1,$2,'interaction_response','received',$3,$4,$6,'agent_interaction_response',$5,
+'{}',statement_timestamp(),'immediate')`,
+					responseID,
+					fixture.AgentID,
+					interaction.ID,
+					actorID,
+					interaction.ID.String(),
+					testProjectID); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := q.ResolveAgentInteraction(ctx, dbsqlc.ResolveAgentInteractionParams{
-					ProjectID: testProjectID, AgentID: fixture.AgentID, ID: interaction.ID,
-					Resolution:        mustTestRawJSON(t, input.Resolution),
-					ResolvedByInputID: &response.ID,
-				}); err != nil {
+				if _,
+					err := pool.Exec(ctx,
+					`UPDATE agent_interactions SET state='resolved',resolution=$3,resolved_by_input_id=$4,resolved_at=statement_timestamp() WHERE agent_id=$1 AND id=$2`,
+					fixture.AgentID,
+					interaction.ID,
+					mustTestRawJSON(t,
+						input.Resolution),
+					responseID); err != nil {
 					t.Fatal(err)
 				}
 				var blocks []struct{ Value json.RawMessage }
@@ -465,15 +489,16 @@ func TestQuestionResponseSizeLimit(t *testing.T) {
 					t.Fatalf("question resolution: state=%s, error=%v", resolved.State, err)
 				}
 				assertJSONRawEqual(t, resolved.Resolution, string(mustTestRawJSON(t, input.Resolution)))
-				if got := countAgentWakeups(t, ctx, store, fixture.AgentID); got != 1 {
-					t.Fatalf("wakeups=%d, want 1", got)
+				if got := countAgentWakeups(t, ctx, store, fixture.AgentID); got != 0 {
+					t.Fatalf("wakeups=%d, want 0 while owned", got)
 				}
 				call, err := store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, callID)
 				if err != nil || call.State != executionstore.ToolCallStateCompleted {
 					t.Fatalf("question completion: state=%s, error=%v", call.State, err)
 				}
 				if test.wantFailed {
-					if call.Outcome != executionstore.ToolResultOutcomeFailed || len(call.ResultContentParts) > limit {
+					if call.Outcome != executionstore.ToolResultOutcomeFailed ||
+						len(call.ResultContentParts) > limit {
 						t.Fatalf("outcome=%s, bytes=%d", call.Outcome, len(call.ResultContentParts))
 					}
 					if !strings.Contains(string(call.ResultContentParts), "request a shorter answer") {
@@ -520,7 +545,9 @@ func TestToolOverflowRechecksArchiveDuringUpload(t *testing.T) {
 	}
 	_, err = store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, ID: callID,
-		RuntimeLockID: fixture.Lock.ID, Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: parts,
+		RuntimeLockID:      fixture.Lock.ID,
+		Outcome:            executionstore.ToolResultOutcomeSucceeded,
+		ResultContentParts: parts,
 	})
 	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("archived completion: %v", err)
@@ -556,7 +583,10 @@ func TestToolOverflowStructuredReplayPreservesJSONEquality(t *testing.T) {
 				"type": "structured_data", "value": map[string]any{"number": 1, "text": strings.Repeat("result", 10000)},
 			}}
 			if name == "multiple large blocks" {
-				original = append(original, map[string]any{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)})
+				original = append(
+					original,
+					map[string]any{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
+				)
 			}
 			if name == "text with metadata" || name == "hidden text block" {
 				original = []map[string]any{
@@ -590,12 +620,15 @@ func TestToolOverflowStructuredReplayPreservesJSONEquality(t *testing.T) {
 				Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: parts,
 			}
 			for _, number := range numbers {
-				input.ResultContentParts = json.RawMessage(strings.Replace(string(parts), `"number":1`, `"number":`+number, 1))
+				input.ResultContentParts = json.RawMessage(
+					strings.Replace(string(parts), `"number":1`, `"number":`+number, 1),
+				)
 				if runtime {
-					_, err = store.Execution().CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
-						ProjectID: input.ProjectID, AgentID: input.AgentID, ID: input.ID, RuntimeLockID: input.RuntimeLockID,
-						Outcome: input.Outcome, ResultContentParts: input.ResultContentParts,
-					})
+					_, err = store.Execution().
+						CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
+							ProjectID: input.ProjectID, AgentID: input.AgentID, ID: input.ID, RuntimeLockID: input.RuntimeLockID,
+							Outcome: input.Outcome, ResultContentParts: input.ResultContentParts,
+						})
 				} else {
 					_, err = store.Execution().CompleteToolCall(ctx, input)
 				}
@@ -641,7 +674,13 @@ func TestToolOverflowExcludesBoundedAndControlTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{
-		"read_file", "search_files", "run_command", "read_process", "list_processes", "write_process", "stop_process",
+		"read_file",
+		"search_files",
+		"run_command",
+		"read_process",
+		"list_processes",
+		"write_process",
+		"stop_process",
 		"upload_file", "download_file", "list_files", "write_file",
 		"create_machine", "delete_machine", "inspect_machine", "set_interaction_handler",
 	} {

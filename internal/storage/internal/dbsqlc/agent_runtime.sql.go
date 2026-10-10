@@ -32,33 +32,6 @@ func (q *Queries) AgentExistsInProject(ctx context.Context, arg AgentExistsInPro
 	return exists, err
 }
 
-const archiveAgent = `-- name: ArchiveAgent :execrows
-UPDATE agents
-SET state = 'archived',
-    archived_at = coalesce(archived_at, statement_timestamp()),
-    updated_at = CASE
-      WHEN state = 'archived' THEN updated_at
-      ELSE statement_timestamp()
-    END
-WHERE project_id = $1
-  AND id = $2
-`
-
-type ArchiveAgentParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-// Idempotent: archiving an already-archived agent matches the row and keeps
-// the original archived_at.
-func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, archiveAgent, arg.ProjectID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const getAgent = `-- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,
        agent_profile_id, current_config_id, interaction_target_id,
@@ -239,121 +212,6 @@ type GetAgentInProjectRow struct {
 func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectParams) (GetAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, getAgentInProject, arg.ProjectID, arg.ID)
 	var i GetAgentInProjectRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.State,
-		&i.Name,
-		&i.AgentProfileID,
-		&i.CurrentConfigID,
-		&i.InteractionTargetID,
-		&i.IdempotencyKey,
-		&i.NextEventSequence,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ArchivedAt,
-		&i.ParentAgentID,
-		&i.SubagentKey,
-		&i.ModelName,
-		&i.ModelProviderConfigName,
-	)
-	return i, err
-}
-
-const insertAgent = `-- name: InsertAgent :one
-WITH inserted AS (
-    INSERT INTO agents(
-        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
-        idempotency_key, parent_agent_id, subagent_key,
-        archive_after_idle_minutes, created_at, updated_at
-    )
-    SELECT
-        coalesce($1::uuid, uuidv7()), $2, $3, 'active', $4,
-        $5, $6, $7,
-        $8, $9,
-        $10,
-        transaction_timestamp(), transaction_timestamp()
-    FROM projects project
-    JOIN orgs org ON org.id = project.org_id
-    WHERE project.org_id = $2
-      AND project.id = $3
-      AND project.deleted_at IS NULL
-      AND org.deleted_at IS NULL
-    ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-    RETURNING id, org_id, project_id, state, name,
-              agent_profile_id, current_config_id, interaction_target_id,
-              idempotency_key, next_event_sequence, created_at, updated_at, archived_at,
-              parent_agent_id, subagent_key
-)
-SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
-       coalesce(agent.idempotency_key, '') AS idempotency_key,
-       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
-       agent.parent_agent_id, agent.subagent_key,
-       coalesce(configured_model.name, '') AS model_name,
-       coalesce(model_provider_config.name, '') AS model_provider_config_name
-FROM inserted agent
-LEFT JOIN agent_configs agent_config
-  ON agent_config.project_id = agent.project_id
- AND agent_config.id = agent.current_config_id
-LEFT JOIN configured_models configured_model
-  ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
-LEFT JOIN model_provider_configs model_provider_config
-  ON model_provider_config.org_id = configured_model.org_id
- AND model_provider_config.id = configured_model.model_provider_config_id
-`
-
-type InsertAgentParams struct {
-	ID                      *uuid.UUID
-	OrgID                   uuid.UUID
-	ProjectID               uuid.UUID
-	Name                    string
-	AgentProfileID          *uuid.UUID
-	CurrentConfigID         uuid.UUID
-	IdempotencyKey          *string
-	ParentAgentID           *uuid.UUID
-	SubagentKey             string
-	ArchiveAfterIdleMinutes *int32
-}
-
-type InsertAgentRow struct {
-	ID                      uuid.UUID
-	OrgID                   uuid.UUID
-	ProjectID               uuid.UUID
-	State                   string
-	Name                    string
-	AgentProfileID          *uuid.UUID
-	CurrentConfigID         uuid.UUID
-	InteractionTargetID     *uuid.UUID
-	IdempotencyKey          string
-	NextEventSequence       int64
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	ArchivedAt              *time.Time
-	ParentAgentID           *uuid.UUID
-	SubagentKey             string
-	ModelName               string
-	ModelProviderConfigName string
-}
-
-// @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
-// Display-only model names must still resolve after the model or provider config is soft deleted.
-func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
-	row := q.db.QueryRow(ctx, insertAgent,
-		arg.ID,
-		arg.OrgID,
-		arg.ProjectID,
-		arg.Name,
-		arg.AgentProfileID,
-		arg.CurrentConfigID,
-		arg.IdempotencyKey,
-		arg.ParentAgentID,
-		arg.SubagentKey,
-		arg.ArchiveAfterIdleMinutes,
-	)
-	var i InsertAgentRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -864,7 +722,7 @@ func (q *Queries) LockAgentLaunchIdempotencyKey(ctx context.Context, arg LockAge
 }
 
 const tryLockAgentInProject = `-- name: TryLockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE SKIP LOCKED
@@ -878,11 +736,12 @@ type TryLockAgentInProjectParams struct {
 type TryLockAgentInProjectRow struct {
 	ID    uuid.UUID
 	OrgID uuid.UUID
+	State string
 }
 
 func (q *Queries) TryLockAgentInProject(ctx context.Context, arg TryLockAgentInProjectParams) (TryLockAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, tryLockAgentInProject, arg.ProjectID, arg.ID)
 	var i TryLockAgentInProjectRow
-	err := row.Scan(&i.ID, &i.OrgID)
+	err := row.Scan(&i.ID, &i.OrgID, &i.State)
 	return i, err
 }

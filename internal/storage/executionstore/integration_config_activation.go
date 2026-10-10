@@ -64,7 +64,7 @@ func configChangeReplayExistsTx(ctx context.Context, q *dbsqlc.Queries, input Ch
 
 func lockConfigChangeIntegrationsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	q *dbsqlc.Queries,
 	input ChangeAgentConfigInput,
 ) error {

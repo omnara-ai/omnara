@@ -10,11 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -105,13 +105,14 @@ func (s *Store) launchAgentOnce(
 	ctx context.Context,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return LaunchAgentResult{}, fmt.Errorf("begin launch agent: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	result, err := s.launchAgentTx(ctx, tx, s.q.WithTx(tx), txNotifications, input)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	result, err := s.launchAgentTx(ctx, unit, dbsqlc.New(tx), input)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -119,7 +120,7 @@ func (s *Store) launchAgentOnce(
 	if !result.Created {
 		scope = "idempotent launch agent"
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, scope); err != nil {
+	if err := unit.Commit(ctx, scope); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	return result, nil
@@ -127,11 +128,11 @@ func (s *Store) launchAgentOnce(
 
 func (s *Store) launchAgentTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
-	txNotifications *notifications.TxNotifications,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
+	tx := unit.DB()
 	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -265,39 +266,33 @@ func (s *Store) launchAgentTx(
 	if input.admission != nil {
 		insertInput.ID = input.admission.AgentID
 	}
-	if input.Subagent != nil {
-		if err := admitSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, *input.Subagent); err != nil {
-			return LaunchAgentResult{}, err
-		}
-		insertInput.ParentAgentID = input.Subagent.ParentAgentID
-		insertInput.SubagentKey = input.Subagent.Key
-		machineSources = nil
-	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	if !inserted {
-		return LaunchAgentResult{Agent: agent}, nil
-	}
-	if err := s.resolveLaunchMachineSourcesTx(
-		ctx,
-		tx,
-		qtx,
-		project.OrgID,
-		input.ProjectID,
-		machineSources,
-	); err != nil {
+	if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
 	if input.Subagent != nil {
+		machineSources = nil
 		sharedBindings, err = lockParentMachineBindingsForSharingTx(
 			ctx, tx, qtx, project.OrgID, input.ProjectID, input.Subagent.ParentAgentID,
 		)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
+		if err := admitSubagentLaunchTx(ctx, unit, qtx, input.ProjectID, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+		insertInput.ParentAgentID = input.Subagent.ParentAgentID
+		insertInput.SubagentKey = input.Subagent.Key
+	}
+	if err := s.resolveLaunchMachineSourcesTx(ctx, tx, qtx, project.OrgID, input.ProjectID, machineSources); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	agent, inserted, err := insertAdmittedAgentTx(ctx, unit, qtx, insertInput)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if !inserted {
+		return LaunchAgentResult{Agent: agent}, nil
 	}
 	result := LaunchAgentResult{
 		Agent:       agent,
@@ -321,7 +316,7 @@ func (s *Store) launchAgentTx(
 			return LaunchAgentResult{}, err
 		}
 	}
-	configChange, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+	configChange, err := activateNewAgentConfigTx(ctx, unit, qtx, ActivateAgentConfigInput{
 		ProjectID:      input.ProjectID,
 		AgentID:        agent.ID,
 		AgentConfigID:  config.ID,
@@ -409,8 +404,7 @@ func (s *Store) launchAgentTx(
 	if initial != nil {
 		if err := s.insertLaunchInitialContentInputTx(
 			ctx,
-			tx,
-			txNotifications,
+			unit,
 			agent,
 			input,
 			*initial,

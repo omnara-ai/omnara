@@ -124,8 +124,10 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_after_progressive_compaction",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after progressive compaction"}},
+				ID: "resp_after_progressive_compaction",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "continued after progressive compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -256,7 +258,13 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 			test.frontier,
 		)
 		if err != nil || depth != test.wantDepth {
-			t.Fatalf("%s checkpoint lineage depth = %d, want %d (err=%v)", test.name, depth, test.wantDepth, err)
+			t.Fatalf(
+				"%s checkpoint lineage depth = %d, want %d (err=%v)",
+				test.name,
+				depth,
+				test.wantDepth,
+				err,
+			)
 		}
 	}
 	semanticFrontier, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
@@ -394,7 +402,11 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		t.Fatalf("load progressive exhaustion watermark: %v", err)
 	}
 	if watermark != turn.OpeningEventSequence || watermark != 10 {
-		t.Fatalf("progressive exhaustion watermark/opening = %d/%d, want 10", watermark, turn.OpeningEventSequence)
+		t.Fatalf(
+			"progressive exhaustion watermark/opening = %d/%d, want 10",
+			watermark,
+			turn.OpeningEventSequence,
+		)
 	}
 
 	compactionModel := &sequenceKernelModel{
@@ -422,7 +434,11 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		Store:    compaction.NewStore(fixture.Store.Execution()),
 		Resolver: resolver,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
+			Store: modelcontext.NewStore(
+				fixture.Store.Execution(),
+				fixture.Store.Artifacts(),
+				fixture.Store.Integrations(),
+			),
 		},
 		Now: func() time.Time { return runNow },
 	}
@@ -430,23 +446,16 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		frontier, sourceEventSequenceEnd int64,
 	) (executionstore.ModelCallClaim, executionstore.ModelCallClaim) {
 		t.Helper()
-		snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			frontier,
-		)
-		if err != nil {
-			t.Fatalf("capture progressive exhaustion parent snapshot: %v", err)
-		}
-		parent, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			RuntimeLockID:      turn.RuntimeLockID,
-			OpeningInputIDs:    turn.InputIDs,
-			AgentConfigID:      snapshot.AgentConfig.ID,
-			InputEventSequence: frontier,
-		})
+
+		prepared1, err := fixture.Store.Execution().
+			PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+				ProjectID:       kernelTestProjectID,
+				AgentID:         agentID,
+				RuntimeLockID:   turn.RuntimeLockID,
+				OpeningInputIDs: turn.InputIDs,
+			})
+		parent := prepared1.Claim
+
 		if err != nil {
 			t.Fatalf("claim progressive exhaustion parent: %v", err)
 		}

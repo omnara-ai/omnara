@@ -14,23 +14,22 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "normal_creator_authority")
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "normal_creator_authority")
 	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	claimInput := executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[len(admitted.Events)-1].Sequence,
+	claimInput := executionstore.PrepareNormalModelCallInput{
+		ProjectID:       testProjectID,
+		AgentID:         fixture.AgentID,
+		RuntimeLockID:   fixture.Lock.ID,
+		OpeningInputIDs: openingInputIDs,
 	}
 
 	type result struct {
@@ -45,7 +44,8 @@ func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			<-start
-			claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, claimInput)
+			prepared1, err := fixture.Store.Execution().PrepareNormalModelCall(ctx, claimInput)
+			claim := prepared1.Claim
 			results <- result{claim: claim, err: err}
 		}()
 	}
@@ -68,50 +68,18 @@ func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
 }
 
 func TestModelCallOpeningInputsRejectWrongProject(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, _ := newMultiInputContinuationSeedFixture(
-		t,
-		ctx,
-		"opening_inputs_wrong_project",
-	)
-	wrongProjectID := seedAdditionalProjectForTest(
-		t,
-		ctx,
-		fixture.Store.pool,
-		"opening_inputs_wrong_scope",
-	)
-	frontier := admitted.Events[len(admitted.Events)-1].Sequence
-
-	var correctProjectCount, wrongProjectCount int
-	if err := fixture.Store.pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agent_model_call_opening_content_inputs($1, $2, $3, $4)`,
-		testProjectID,
-		fixture.AgentID,
-		admitted.Turn.ID,
-		frontier,
-	).Scan(&correctProjectCount); err != nil {
-		t.Fatalf("load correct-project opening inputs: %v", err)
-	}
-	if err := fixture.Store.pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agent_model_call_opening_content_inputs($1, $2, $3, $4)`,
-		wrongProjectID,
-		fixture.AgentID,
-		admitted.Turn.ID,
-		frontier,
-	).Scan(&wrongProjectCount); err != nil {
-		t.Fatalf("load wrong-project opening inputs: %v", err)
-	}
-	if correctProjectCount != len(admitted.Inputs) || wrongProjectCount != 0 {
-		t.Fatalf(
-			"opening input counts correct=%d wrong=%d, want %d/0",
-			correctProjectCount,
-			wrongProjectCount,
-			len(admitted.Inputs),
-		)
-	}
+	ctx := t.Context()
+	f, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "opening-project-scope")
+	_, found, err := f.Store.Execution().GetModelCallContext(ctx, uuid.New(), f.AgentID, claim.Context.ID)
+	require.NoError(t, err)
+	require.False(t, found)
+	_, err = f.Store.Execution().
+		PrepareNormalModelCall(ctx,
+			executionstore.PrepareNormalModelCallInput{ProjectID: uuid.New(),
+				AgentID:         f.AgentID,
+				RuntimeLockID:   f.Lock.ID,
+				OpeningInputIDs: []uuid.UUID{uuid.New()}})
+	require.Error(t, err)
 }
 
 func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
@@ -123,8 +91,15 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 		query     string
 		secondArg bool
 	}{
-		{name: "attempt number", query: `UPDATE model_call_contexts SET attempt_number = attempt_number + 1 WHERE id = $1`},
-		{name: "runtime lock", query: `UPDATE model_call_contexts SET runtime_lock_id = $2 WHERE id = $1`, secondArg: true},
+		{
+			name:  "attempt number",
+			query: `UPDATE model_call_contexts SET attempt_number = attempt_number + 1 WHERE id = $1`,
+		},
+		{
+			name:      "runtime lock",
+			query:     `UPDATE model_call_contexts SET runtime_lock_id = $2 WHERE id = $1`,
+			secondArg: true,
+		},
 		{
 			name:  "event frontier",
 			query: `UPDATE model_call_contexts SET input_event_sequence = input_event_sequence + 1 WHERE id = $1`,
@@ -187,12 +162,13 @@ func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testin
 	normalFixture, _, normal := newStartedNormalModelCallTestFixture(t, ctx, "normal_identity_guard")
 	_, err := normalFixture.Store.pool.Exec(ctx, `
 INSERT INTO model_call_contexts(
-  org_id, project_id, agent_id, operation_kind,
+  turn_id, opening_input_ids, opening_event_sequence,
+org_id, project_id, agent_id, operation_kind,
   attempt_number,
   agent_config_id, configured_model_revision_id,
   input_event_sequence, runtime_lock_id, state, created_at
 )
-SELECT org_id, project_id, agent_id, operation_kind,
+SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, agent_id, operation_kind,
        attempt_number,
        agent_config_id, configured_model_revision_id,
        input_event_sequence, runtime_lock_id, 'started', created_at + interval '1 second'
@@ -200,7 +176,11 @@ FROM model_call_contexts
 WHERE id = $1`, normal.Context.ID)
 	assertPgConstraint(t, err, "23505", "model_call_contexts_normal_identity_idx")
 
-	compactionFixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "compaction_identity_guard")
+	compactionFixture, admitted, _ := newMultiInputContinuationSeedFixture(
+		t,
+		ctx,
+		"compaction_identity_guard",
+	)
 	frontier := admitted.Events[len(admitted.Events)-1].Sequence
 	compaction := claimSentCompactionForRangeTest(
 		t,
@@ -213,13 +193,14 @@ WHERE id = $1`, normal.Context.ID)
 	)
 	_, err = compactionFixture.Store.pool.Exec(ctx, `
 INSERT INTO model_call_contexts(
-  org_id, project_id, agent_id, operation_kind,
+  turn_id, opening_input_ids, opening_event_sequence,
+org_id, project_id, agent_id, operation_kind,
   attempt_number,
   agent_config_id, configured_model_revision_id,
   input_event_sequence, source_event_sequence_end,
   runtime_lock_id, state, created_at
 )
-SELECT org_id, project_id, agent_id, operation_kind,
+SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, agent_id, operation_kind,
        attempt_number,
        agent_config_id, configured_model_revision_id,
        input_event_sequence, source_event_sequence_end,
@@ -316,8 +297,8 @@ func TestModelCallOperationRejectsSecondSemanticOutcome(t *testing.T) {
 	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
-FROM model_call_context_turns
-WHERE project_id = $1 AND agent_id = $2 AND model_call_context_id = $3
+FROM model_call_contexts
+WHERE project_id = $1 AND agent_id = $2 AND id = $3
 `, testProjectID, fixture.AgentID, first.Context.ID).Scan(&turnID); err != nil {
 		t.Fatalf("load model call turn: %v", err)
 	}
@@ -336,12 +317,13 @@ WHERE project_id = $1 AND agent_id = $2 AND model_call_context_id = $3
 	var secondContextID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
-  org_id, project_id, agent_id, operation_kind,
+  turn_id, opening_input_ids, opening_event_sequence,
+org_id, project_id, agent_id, operation_kind,
   attempt_number, agent_config_id,
   configured_model_revision_id, input_event_sequence, runtime_lock_id,
   state, created_at
 )
-SELECT org_id, project_id, agent_id, operation_kind,
+SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, agent_id, operation_kind,
        attempt_number + 1, agent_config_id,
        configured_model_revision_id, input_event_sequence, runtime_lock_id,
        'started', statement_timestamp()

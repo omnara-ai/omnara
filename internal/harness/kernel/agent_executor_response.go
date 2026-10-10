@@ -22,6 +22,25 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	specs []modelcontext.ToolSpec,
 	streamedToolCallIDs map[string]uuid.UUID,
 ) (events.Event, error) {
+	bindings := toolCallBindings(envelope, specs, streamedToolCallIDs)
+	event, _, err := e.Store.Execution().RecordToolCallSourceAndCompleteContext(
+		ctx,
+		executionstore.RecordToolCallSourceAndCompleteContextInput{
+			ProjectID:          input.ProjectID,
+			AgentID:            input.AgentID,
+			RuntimeLockID:      input.RuntimeLockID,
+			ModelCallContextID: contextRow.ID,
+			ProviderRequestID:  providerRequestID,
+			ProviderResponse:   envelope,
+			ToolCallBindings:   bindings,
+		},
+	)
+	return event, err
+}
+
+func toolCallBindings(
+	envelope modelenvelope.ResponseEnvelope, specs []modelcontext.ToolSpec, streamedToolCallIDs map[string]uuid.UUID,
+) []executionstore.ToolCallBindingInput {
 	toolCalls := model.ToolCallsFromEnvelope(envelope)
 	bindings := make([]executionstore.ToolCallBindingInput, 0, len(toolCalls))
 	toolsByName := toolSpecSet(specs)
@@ -39,19 +58,7 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 			Type:           toolType,
 		})
 	}
-	event, _, err := e.Store.Execution().RecordToolCallSourceAndCompleteContext(
-		ctx,
-		executionstore.RecordToolCallSourceAndCompleteContextInput{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			RuntimeLockID:      input.RuntimeLockID,
-			ModelCallContextID: contextRow.ID,
-			ProviderRequestID:  providerRequestID,
-			ProviderResponse:   envelope,
-			ToolCallBindings:   bindings,
-		},
-	)
-	return event, err
+	return bindings
 }
 
 func invalidModelResponse(errorSource string, reason model.StopReason, calls []model.ToolCall) error {

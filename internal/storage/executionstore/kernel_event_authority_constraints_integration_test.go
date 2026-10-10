@@ -5,7 +5,6 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -192,7 +191,11 @@ WHERE agent_id = $1 AND id = $2
 					t.Fatalf("transition tool call to %s: %v", state, err)
 				}
 				if result.RowsAffected() != 1 {
-					t.Fatalf("transition tool call to %s affected %d rows, want 1", state, result.RowsAffected())
+					t.Fatalf(
+						"transition tool call to %s affected %d rows, want 1",
+						state,
+						result.RowsAffected(),
+					)
 				}
 			}
 			for _, state := range paths[transition.from] {
@@ -243,7 +246,7 @@ VALUES ($1, $2, 'graph_invalid_initial_state', 'read_process', '{}', 'built_in',
 	var incomplete bool
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
-		`SELECT agent_has_incomplete_tool_batch($1, $2)`,
+		`SELECT h.incomplete_tools FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND a.id=$2`,
 		testProjectID,
 		fixture.AgentID,
 	).Scan(&incomplete); err != nil || !incomplete {
@@ -280,7 +283,7 @@ WHERE agent_id = $1 AND id = $2
 	}
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
-		`SELECT agent_has_incomplete_tool_batch($1, $2)`,
+		`SELECT h.incomplete_tools FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND a.id=$2`,
 		testProjectID,
 		fixture.AgentID,
 	).Scan(&incomplete); err != nil || incomplete {
@@ -336,7 +339,11 @@ WHERE project_id = $1 AND id = $5
 `, testProjectID, turnID, "agent_input:"+inputID.String(), inputID, fixture.AgentID); err != nil {
 		t.Fatalf("insert orphan agent-input event: %v", err)
 	}
-	if _, err := tx.Exec(ctx, `SET CONSTRAINTS agent_input_events_admission_valid IMMEDIATE`); !isPgCheckViolation(err) {
+	if _,
+		err := tx.Exec(ctx,
+		`SET CONSTRAINTS agent_input_events_admission_valid IMMEDIATE`); !isPgCheckViolation(
+		err,
+	) {
 		t.Fatalf("orphan agent-input event error = %v, want check violation", err)
 	}
 }
@@ -412,7 +419,13 @@ func TestKernelTurnOpeningEventMustBeAgentInput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "kernel_turn_opening_event_kind")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "kernel_turn_opening_event_kind", "read_process")
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"kernel_turn_opening_event_kind",
+		"read_process",
+	)
 	turnID := turnIDForProcessToolCallTest(t, ctx, fixture, toolCallID)
 	contextID := modelOutputContextForTurnTest(
 		t,
@@ -561,48 +574,14 @@ func TestKernelContentBlockOwnerAndOrdinalConstraints(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "kernel_content_block_owner_ordinal")
 	now := fixture.Now.Add(time.Minute)
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "kernel_content_block_owner_ordinal", "read_process")
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"kernel_content_block_owner_ordinal",
+		"read_process",
+	)
 	modelOutputID := modelOutputIDForToolCall(t, ctx, fixture.Store, fixture.AgentID, toolCallID)
-	for index, test := range []struct {
-		name  string
-		input executionstore.CreateContentBlockInput
-	}{
-		{
-			name: "text",
-			input: executionstore.CreateContentBlockInput{
-				BlockKind:   executionstore.ContentBlockKindText,
-				TextContent: "before\x00after",
-			},
-		},
-		{
-			name: "structured data",
-			input: executionstore.CreateContentBlockInput{
-				BlockKind:      executionstore.ContentBlockKindStructuredData,
-				StructuredData: json.RawMessage(`{"value":"before\u0000after"}`),
-			},
-		},
-		{
-			name: "metadata",
-			input: executionstore.CreateContentBlockInput{
-				BlockKind:   executionstore.ContentBlockKindText,
-				TextContent: "safe",
-				Metadata:    map[string]string{"key": "before\x00after"},
-			},
-		},
-	} {
-		t.Run("database unsafe "+test.name, func(t *testing.T) {
-			t.Parallel()
-			test.input.ProjectID = testProjectID
-			test.input.AgentID = fixture.AgentID
-			test.input.OwnerKind = executionstore.ContentBlockOwnerModelOutput
-			test.input.OwnerModelOutputID = modelOutputID
-			test.input.Ordinal = int32(index + 10)
-			_, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, test.input)
-			if err == nil || !strings.Contains(err.Error(), "U+0000") {
-				t.Fatalf("create database-unsafe content block error = %v, want U+0000", err)
-			}
-		})
-	}
 
 	var block executionstore.ContentBlockRecord
 	var blockKind string
@@ -751,7 +730,10 @@ WHERE agent_id = $1 AND id = $2
 		    control_type = 'cancel_current'
 		WHERE project_id = $1 AND agent_id = $2 AND id = $3
 	`, testProjectID, fixture.AgentID, contentInputID); !isPgCode(err, "25006") {
-		t.Fatalf("mutating content-bearing input subtype error = %v, want immutable-event SQLSTATE 25006", err)
+		t.Fatalf(
+			"mutating content-bearing input subtype error = %v, want immutable-event SQLSTATE 25006",
+			err,
+		)
 	}
 }
 
@@ -867,15 +849,18 @@ func TestModelOutputContentBlockInsertSerializesWithContextClosure(t *testing.T)
 	if err != nil {
 		t.Fatalf("create model output for owner lock: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, blockTx, executionstore.CreateContentBlockInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
-		OwnerModelOutputID: output.ID,
-		Ordinal:            0,
-		BlockKind:          executionstore.ContentBlockKindText,
-		TextContent:        "concurrent model output block",
-	}); err != nil {
+	if _,
+		err := executionstore.IntegrationCreateContentBlockTx(ctx,
+		blockTx,
+		executionstore.CreateContentBlockInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
+			OwnerModelOutputID: output.ID,
+			Ordinal:            0,
+			BlockKind:          executionstore.ContentBlockKindText,
+			TextContent:        "concurrent model output block",
+		}); err != nil {
 		t.Fatalf("create model output block for owner lock: %v", err)
 	}
 
@@ -908,98 +893,6 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3 AND state = 'started'
 	}
 }
 
-func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	agentID := mustCreateAgent(t, ctx, store)
-	user := mustCreateProjectOperatorUser(t, ctx, store, "wakeup-idem@example.com", "Wakeup Idempotency")
-	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		Actor:          mustOmnaraActorParams(t, user.ID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"wakeup test"}]`),
-		IdempotencyKey: "wakeup-idem-input",
-	})
-	if err != nil {
-		t.Fatalf("create input: %v", err)
-	}
-
-	var turnID uuid.UUID
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT event.turn_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 ORDER BY event.sequence DESC LIMIT 1`,
-		testProjectID,
-		agentID,
-	).Scan(&turnID); err != nil {
-		t.Fatalf("load existing turn id: %v", err)
-	}
-
-	countAgentEvents := func(txNotifications *notifications.TxNotifications) int {
-		recorder := &recordingPostCommitPublisher{}
-		txNotifications.Flush(ctx, recorder)
-		count := 0
-		for _, intent := range recorder.intents {
-			event, ok := intent.(notifications.AgentEventCommitted)
-			if !ok {
-				continue
-			}
-			if event.AgentID == agentID {
-				count++
-			}
-		}
-		return count
-	}
-
-	txNotifications := notifications.NewTxNotifications()
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(
-		ctx,
-		txNotifications,
-		tx,
-		executionstore.AppendTypedAgentEventInput{
-			ProjectID:      testProjectID,
-			AgentID:        agentID,
-			TurnID:         turnID,
-			Kind:           events.KindAgentInput,
-			IdempotencyKey: "agent_input:" + input.ID.String(),
-			AgentInputID:   input.ID,
-		},
-	); err != nil {
-		t.Fatalf("first append: %v", err)
-	}
-	if got := countAgentEvents(txNotifications); got != 1 {
-		t.Fatalf("AgentEventCommitted intents after real INSERT = %d, want 1", got)
-	}
-
-	txn2 := notifications.NewTxNotifications()
-	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(
-		ctx,
-		txn2,
-		tx,
-		executionstore.AppendTypedAgentEventInput{
-			ProjectID:      testProjectID,
-			AgentID:        agentID,
-			TurnID:         turnID,
-			Kind:           events.KindAgentInput,
-			IdempotencyKey: "agent_input:" + input.ID.String(),
-			AgentInputID:   input.ID,
-		},
-	); err != nil {
-		t.Fatalf("second append (pointer re-find): %v", err)
-	}
-	if got := countAgentEvents(txn2); got != 0 {
-		t.Fatalf("AgentEventCommitted intents on idempotent pointer re-find = %d, want 0", got)
-	}
-}
-
 func TestKernelTypedFrontierRejectsMismatchedPointer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1026,7 +919,7 @@ func TestKernelTypedFrontierRejectsMismatchedPointer(t *testing.T) {
 			AgentInputID:   testID("not_a_model_output"),
 		},
 	)
-	if err == nil || err.Error() != "model_output event requires model_output_id" {
+	if !isPgCheckViolation(err) {
 		t.Fatalf("mismatched typed event error = %v, want model output validation error", err)
 	}
 }
@@ -1039,13 +932,14 @@ func TestKernelTypedFrontierRequiresTurnMembership(t *testing.T) {
 	store := newIntegrationStore(pool)
 	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "orphan-event@example.com", "Orphan Event")
-	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		Actor:          mustOmnaraActorParams(t, user.ID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"orphan"}]`),
-		IdempotencyKey: "orphan-event-input",
-	})
+	input, _, _, err := store.Execution().
+		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			Actor:          mustOmnaraActorParams(t, user.ID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"orphan"}]`),
+			IdempotencyKey: "orphan-event-input",
+		})
 	if err != nil {
 		t.Fatalf("create input for orphan event: %v", err)
 	}

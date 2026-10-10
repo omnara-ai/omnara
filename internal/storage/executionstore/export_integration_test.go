@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +14,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ModelWorkSeed struct {
@@ -27,132 +30,116 @@ type ModelWorkSeed struct {
 	OpeningEventSequence int64
 }
 
-func (s *Store) IntegrationCommitTxWithNotifications(
-	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
-	operation string,
-) error {
-	return s.commitTxWithNotifications(ctx, tx, txNotifications, operation)
+func (s *Store) IntegrationBeginUnit(ctx context.Context) (*agentexecution.Unit, error) {
+	return s.cell.Begin(ctx)
 }
 
 func (s *Store) AcquireAgentRuntimeLock(
 	ctx context.Context,
-	projectID, agentID, workerProcessID uuid.UUID,
-	leaseDuration time.Duration,
+	projectID, agentID, workerID uuid.UUID,
+	lease time.Duration,
 ) (AgentRuntimeLockRecord, error) {
-	if projectID == uuid.Nil || agentID == uuid.Nil || workerProcessID == uuid.Nil {
-		return AgentRuntimeLockRecord{}, errors.New("project, agent, and worker process ids are required")
-	}
-	if err := validateAgentRuntimeLockLeaseDuration(leaseDuration); err != nil {
+	if err := validateAgentRuntimeLockLeaseDuration(lease); err != nil {
 		return AgentRuntimeLockRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AgentRuntimeLockRecord{}, fmt.Errorf("begin acquire agent runtime lock: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	record, _, err := acquireAgentRuntimeLockTx(
-		ctx,
-		dbsqlc.New(tx),
-		projectID,
-		agentID,
-		workerProcessID,
-		leaseDuration,
-	)
+	unit, h, err := beginExecution(ctx, s, projectID, agentID)
 	if err != nil {
 		return AgentRuntimeLockRecord{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentRuntimeLockRecord{}, fmt.Errorf("commit acquire agent runtime lock: %w", err)
+	defer func() { _ = unit.Rollback(ctx) }()
+	snapshot, err := h.LoadExecution(ctx)
+	if err != nil {
+		return AgentRuntimeLockRecord{}, err
 	}
-	return record, nil
+	if snapshot.View.State != agentexecution.AgentActive {
+		return AgentRuntimeLockRecord{}, storeerr.ErrAgentNotAdvanceable
+	}
+	var record AgentRuntimeLockRecord
+	err = unit.DB().
+		QueryRow(ctx,
+			`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+ VALUES($1,$2,statement_timestamp(),statement_timestamp(),statement_timestamp()+$3::bigint*interval '1 microsecond')
+ RETURNING id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at,cancel_requested_at`,
+			agentID,
+			workerID,
+			lease.Microseconds()).
+		Scan(&record.ID,
+			&record.AgentID,
+			&record.WorkerProcessID,
+			&record.StartedAt,
+			&record.RenewedAt,
+			&record.LeaseExpiresAt,
+			&record.CancelRequestedAt)
+	if err != nil {
+		return AgentRuntimeLockRecord{}, err
+	}
+	if _, err = h.Repair(ctx); err != nil {
+		return AgentRuntimeLockRecord{}, err
+	}
+	return record, unit.Commit(ctx, "seed runtime")
 }
 
-func (s *Store) MarkAgentWakeup(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	metadata []byte,
-) error {
-	if projectID == uuid.Nil || agentID == uuid.Nil {
-		return errors.New("project id and agent id are required")
-	}
-	if metadata == nil {
-		metadata = []byte(`{}`)
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+func (s *Store) RepairExecutionForTest(ctx context.Context, projectID, agentID uuid.UUID) error {
+	unit, h, err := beginExecution(ctx, s, projectID, agentID)
 	if err != nil {
-		return fmt.Errorf("begin mark agent wakeup: %w", err)
+		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		return fmt.Errorf("lock agent for wakeup: %w", err)
+	defer func() { _ = unit.Rollback(ctx) }()
+	if _, err = h.Repair(ctx); err != nil {
+		return err
 	}
-	if err := qtx.MarkAgentWakeup(
-		ctx,
-		dbsqlc.MarkAgentWakeupParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			Metadata:  metadata,
-		},
-	); err != nil {
-		return fmt.Errorf("mark agent wakeup: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit mark agent wakeup: %w", err)
-	}
-	return nil
+	return unit.Commit(ctx, "repair execution")
 }
 
 func (s *Store) DeleteAgentWakeup(ctx context.Context, projectID, agentID uuid.UUID) error {
-	if projectID == uuid.Nil || agentID == uuid.Nil {
-		return errors.New("project id and agent id are required")
-	}
-	if _, err := s.q.DeleteAgentWakeup(
+	_, err := s.pool.Exec(
 		ctx,
-		dbsqlc.DeleteAgentWakeupParams{ProjectID: projectID, AgentID: agentID},
-	); err != nil {
-		return fmt.Errorf("delete agent wakeup: %w", err)
-	}
-	return nil
+		`DELETE FROM agent_wakeups w USING agents a WHERE a.id=w.agent_id AND a.project_id=$1 AND a.id=$2`,
+		projectID,
+		agentID,
+	)
+	return err
 }
 
 func (s *Store) NextAgentModelWork(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
 ) (ModelWorkSeed, bool, error) {
-	if projectID == uuid.Nil || agentID == uuid.Nil {
-		return ModelWorkSeed{}, false, errors.New("project id and agent id are required")
+	unit, h, err := beginExecution(ctx, s, projectID, agentID)
+	if err != nil {
+		return ModelWorkSeed{}, false, err
 	}
-	row, err := s.q.NextAgentModelWork(
-		ctx,
-		dbsqlc.NextAgentModelWorkParams{ProjectID: projectID, AgentID: agentID},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	defer func() { _ = unit.Rollback(ctx) }()
+	snapshot, err := h.LoadExecution(ctx)
+	if err != nil {
+		return ModelWorkSeed{}, false, err
+	}
+	work := snapshot.Selection.Model
+	if work == nil {
 		return ModelWorkSeed{}, false, nil
 	}
-	if err != nil {
-		return ModelWorkSeed{}, false, fmt.Errorf("next agent model work: %w", err)
-	}
 	return ModelWorkSeed{
-		Kind:                 ModelWorkKind(row.WorkKind),
-		ModelCallContextID:   row.ModelCallContextID,
-		SourceModelOutputID:  row.ModelOutputID,
-		TurnID:               row.TurnID,
-		InputIDs:             row.InputIds,
-		OpeningEventSequence: row.OpeningEventSequence,
+		Kind:                 ModelWorkKind(work.Kind),
+		ModelCallContextID:   work.SourceContextID,
+		SourceModelOutputID:  work.SourceOutputID,
+		TurnID:               work.TurnID,
+		InputIDs:             work.Opening.InputIDs,
+		OpeningEventSequence: work.Opening.EventSequence,
 	}, true, nil
 }
 
 func (s *Store) GetToolCallResultAuthorityByToolCall(
 	ctx context.Context,
-	projectID, agentID, toolCallID uuid.UUID,
+	projectID, agentID, toolID uuid.UUID,
 ) (ToolCallResultAuthorityRecord, bool, error) {
-	return getToolCallResultAuthorityByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
+	row, err := s.q.GetToolCallResultByToolCall(
+		ctx,
+		dbsqlc.GetToolCallResultByToolCallParams{ProjectID: projectID, AgentID: agentID, ToolCallID: toolID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallResultAuthorityRecord{}, false, nil
+	}
+	return toolCallResultAuthorityFromGetSQLC(row), err == nil, err
 }
 
 func (s *Store) RegisterDaemonRuntime(
@@ -236,53 +223,20 @@ type IntegrationPoolMachineBindingInput struct {
 
 func IntegrationEnsureRuntimeLockActiveTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	projectID, agentID, runtimeID uuid.UUID,
 ) error {
-	return ensureRuntimeLockActiveTx(ctx, tx, projectID, agentID, runtimeID)
-}
-
-func IntegrationSelectLockedSteeringAgentInputsForAdmissionTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
-) ([]AgentInputRecord, error) {
-	return selectLockedSteeringAgentInputsForAdmissionTx(ctx, qtx, projectID, agentID)
-}
-
-func IntegrationSelectLockedQueuedAgentInputForAdmissionTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
-) ([]AgentInputRecord, error) {
-	return selectLockedQueuedAgentInputForAdmissionTx(ctx, qtx, projectID, agentID)
-}
-
-func IntegrationAdmitLockedAgentInputsAndOpenTurnTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	input IntegrationAdmitAgentInputAndOpenTurnInput,
-	lockedInputs []AgentInputRecord,
-) (AdmittedAgentInputTurn, error) {
-	return admitLockedAgentInputsAndOpenTurnTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		admitAgentInputAndOpenTurnInput(input),
-		lockedInputs,
-	)
-}
-
-func IntegrationModelCallOpeningInputSet(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID uuid.UUID,
-	inputEventSequence int64,
-) ([]uuid.UUID, int64, error) {
-	return modelCallOpeningInputSet(ctx, qtx, projectID, agentID, turnID, inputEventSequence)
+	if err := unit.LockAgentRefs(ctx,
+		[]lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}},
+		agentexecution.RuntimeAuthority{AgentID: agentID, RuntimeLockID: runtimeID},
+	); err != nil {
+		return err
+	}
+	h, err := unit.Handle(projectID, agentID)
+	if err != nil {
+		return err
+	}
+	return h.FenceRuntime(ctx, runtimeID)
 }
 
 func IntegrationParseAgentInputContentBlocks(
@@ -293,13 +247,12 @@ func IntegrationParseAgentInputContentBlocks(
 
 func IntegrationCreateAgentContentInputTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (IntegrationCreateAgentContentInputTxResult, error) {
-	result, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, input, contentBlocks)
+	result, err := createAgentContentInputTx(ctx, unit, qtx, input, contentBlocks)
 	return IntegrationCreateAgentContentInputTxResult{
 		AgentInput:             result.agentInput,
 		ContentBlocks:          result.contentBlocks,
@@ -372,38 +325,54 @@ func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 
 func IntegrationValidateResponseEnvelopeForModelCallContext(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	db dbsqlc.DBTX,
 	envelope modelenvelope.ResponseEnvelope,
-	contextRow ModelCallContextRecord,
+	record ModelCallContextRecord,
 ) error {
-	return validateResponseEnvelopeForModelCallContext(ctx, qtx, envelope, contextRow)
+	var slug string
+	if err := db.QueryRow(ctx,
+		`SELECT provider_model_slug FROM configured_model_revisions WHERE id=$1`,
+		record.ConfiguredModelRevisionID).Scan(&slug); err != nil {
+		return err
+	}
+	if slug != envelope.RequestedProviderModelSlug {
+		return errors.New("requested model differs from captured revision")
+	}
+	return nil
 }
 
 func IntegrationRenewAgentRuntimeLockTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, runtimeLockID uuid.UUID,
-	leaseDuration time.Duration,
+	unit *agentexecution.Unit,
+	projectID, agentID, runtimeID uuid.UUID,
+	lease time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
-	return renewAgentRuntimeLockTx(ctx, qtx, projectID, agentID, runtimeLockID, leaseDuration)
+	renewal, err := unit.RenewRuntime(
+		ctx,
+		agentexecution.AgentRoute{CellID: unit.CellID(), ProjectID: projectID, AgentID: agentID},
+		runtimeID,
+		lease,
+	)
+	if err != nil {
+		return AgentRuntimeLockRenewal{}, err
+	}
+	row, err := dbsqlc.New(unit.DB()).
+		GetAgentRuntimeLockForRelease(ctx,
+			dbsqlc.GetAgentRuntimeLockForReleaseParams{ProjectID: projectID,
+				AgentID: agentID,
+				ID:      runtimeID})
+	return AgentRuntimeLockRenewal{
+		RuntimeLock:               agentRuntimeLockRecordFromSQLC(row),
+		LocalLeaseBudgetStartedAt: renewal.LocalStartedAt,
+	}, err
 }
 
 func IntegrationReapExpiredAgentRuntimeLockTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	projectID, agentID, runtimeLockID uuid.UUID,
-	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
-	return reapExpiredAgentRuntimeLockTx(
-		ctx,
-		txNotifications,
-		tx,
-		projectID,
-		agentID,
-		runtimeLockID,
-		retryBackoff,
-	)
+	return reapExpiredAgentRuntimeLockTx(ctx, unit, projectID, agentID, runtimeLockID)
 }
 
 func IntegrationUpsertActorIdentityTx(
@@ -416,10 +385,16 @@ func IntegrationUpsertActorIdentityTx(
 
 func IntegrationCompactionSourceStartTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	contextRow ModelCallContextRecord,
+	db dbsqlc.DBTX,
+	row ModelCallContextRecord,
 ) (int64, error) {
-	return compactionSourceStartTx(ctx, qtx, contextRow)
+	var n int64
+	err := db.QueryRow(ctx,
+		`SELECT coalesce(max(summarized_through_event_sequence),0)+1 FROM context_checkpoints WHERE agent_id=$1 AND summarized_through_event_sequence<$2`,
+		row.AgentID,
+		row.SourceEventSequenceEnd).
+		Scan(&n)
+	return n, err
 }
 
 func IntegrationCreateModelOutputAuthorityTx(
@@ -427,7 +402,28 @@ func IntegrationCreateModelOutputAuthorityTx(
 	db dbsqlc.DBTX,
 	input CreateModelOutputAuthorityInput,
 ) (ModelOutputAuthorityRecord, error) {
-	return createModelOutputAuthorityTx(ctx, db, input)
+	var id uuid.UUID
+	err := db.QueryRow(ctx,
+		`INSERT INTO model_outputs(agent_id,model_call_context_id,served_provider_model_slug,stop_reason,provider_replay,created_at)
+ SELECT c.agent_id,c.id,$4,$5,$6,statement_timestamp() FROM model_call_contexts c WHERE
+ c.project_id=$1 AND c.agent_id=$2 AND c.id=$3
+ RETURNING id`,
+		input.ProjectID,
+		input.AgentID,
+		input.ModelCallContextID,
+		input.ServedProviderModelSlug,
+		input.StopReason,
+		normalizedJSON(input.ProviderReplay)).
+		Scan(&id)
+	if err != nil {
+		return ModelOutputAuthorityRecord{}, err
+	}
+	row, err := dbsqlc.New(db).
+		GetModelOutputByModelContext(ctx,
+			dbsqlc.GetModelOutputByModelContextParams{ProjectID: input.ProjectID,
+				AgentID:            input.AgentID,
+				ModelCallContextID: input.ModelCallContextID})
+	return modelOutputAuthorityFromGetSQLC(row), err
 }
 
 func IntegrationCreateContentBlockTx(
@@ -435,38 +431,103 @@ func IntegrationCreateContentBlockTx(
 	db dbsqlc.DBTX,
 	input CreateContentBlockInput,
 ) (ContentBlockRecord, error) {
-	return createContentBlockTx(ctx, db, input)
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return ContentBlockRecord{}, err
+	}
+	var result ContentBlockRecord
+	err = db.QueryRow(ctx,
+		`INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,agent_payload_created_at($14,$1,$2,
+ coalesce($3::uuid,$4::uuid,$5::uuid),false)) RETURNING id,created_at`,
+		input.AgentID,
+		input.OwnerKind,
+		storeutil.IDFromNil(input.OwnerAgentInputID),
+		storeutil.IDFromNil(input.OwnerModelOutputID),
+		storeutil.IDFromNil(input.OwnerToolCallResultID),
+		input.Ordinal,
+		input.BlockKind,
+		storeutil.TextFromEmpty(input.TextContent),
+		sqlcRawMessageFromEmpty(input.StructuredData),
+		storeutil.IDFromNil(input.ArtifactID),
+		storeutil.IDFromNil(input.ToolCallID),
+		input.ExcludeFromModelContext,
+		metadata,
+		input.ProjectID).
+		Scan(&result.ID, &result.CreatedAt)
+	return result, err
 }
 
 func IntegrationAppendTypedAgentEventTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
+	_ *notifications.TxNotifications,
 	tx pgx.Tx,
 	input AppendTypedAgentEventInput,
 ) (TypedAgentEventRecord, error) {
-	return appendTypedAgentEventTx(ctx, txNotifications, tx, input)
+	id := input.ID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	result := TypedAgentEventRecord{
+		TurnID:              input.TurnID,
+		IsOpeningEvent:      input.IsOpeningEvent,
+		AgentInputID:        input.AgentInputID,
+		ModelOutputID:       input.ModelOutputID,
+		ToolCallResultID:    input.ToolCallResultID,
+		ContextCheckpointID: input.ContextCheckpointID,
+		Event: events.Event{
+			ID:             id,
+			AgentID:        input.AgentID,
+			Kind:           input.Kind,
+			IdempotencyKey: input.IdempotencyKey,
+		},
+	}
+	kind := string(input.Kind)
+	if input.ToolCallResultID != uuid.Nil {
+		kind = "tool_call_result"
+	}
+	err := tx.QueryRow(ctx,
+		`WITH allocated AS (UPDATE agents SET next_event_sequence=next_event_sequence+1 WHERE id=$1 AND project_id=$2 RETURNING next_event_sequence-1 AS sequence)
+ INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,agent_input_id,
+ model_output_id,context_checkpoint_id,tool_call_result_id,is_opening_event,idempotency_key,created_at)
+ SELECT $3,$1,$4,sequence,$5,$6,$7,$8,$9,$10,$11,agent_payload_created_at($2,$1,$12,
+ coalesce($6::uuid,$7::uuid,$8::uuid,$9::uuid),true) FROM allocated RETURNING sequence,created_at`,
+		input.AgentID,
+		input.ProjectID,
+		id,
+		input.TurnID,
+		input.Kind,
+		storeutil.IDFromNil(input.AgentInputID),
+		storeutil.IDFromNil(input.ModelOutputID),
+		storeutil.IDFromNil(input.ContextCheckpointID),
+		storeutil.IDFromNil(input.ToolCallResultID),
+		input.IsOpeningEvent,
+		storeutil.TextFromEmpty(input.IdempotencyKey),
+		kind).
+		Scan(&result.Event.Sequence, &result.Event.At)
+	return result, err
 }
 
 func IntegrationUpdateAgentTurnLatestEventQuery(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, turnID, latestEventID, latestSemanticEventID uuid.UUID,
+	db dbsqlc.DBTX,
+	projectID, agentID, turnID, latest, semantic uuid.UUID,
 ) error {
-	return updateAgentTurnLatestEventQuery(
+	_, err := db.Exec(
 		ctx,
-		qtx,
+		`UPDATE agent_turns t SET latest_event_id=$4,latest_semantic_event_id=coalesce($5,latest_semantic_event_id) FROM agents a WHERE a.id=t.agent_id AND a.project_id=$1 AND t.agent_id=$2 AND t.id=$3`,
 		projectID,
 		agentID,
 		turnID,
-		latestEventID,
-		latestSemanticEventID,
+		latest,
+		storeutil.IDFromNil(semantic),
 	)
+	return err
 }
 
 func IntegrationActivateAgentConfigTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
@@ -477,13 +538,13 @@ func IntegrationActivateAgentConfigTx(
 	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return AgentConfigChangeRecord{}, err
 	}
-	if err := lockAgentForConfigActivationTx(ctx, qtx, input); err != nil {
+	if err := lockAgentForConfigActivationTx(ctx, unit, input); err != nil {
 		return AgentConfigChangeRecord{}, err
 	}
 	if err := authorizeAgentConfigChangeTx(ctx, qtx, input); err != nil {
 		return AgentConfigChangeRecord{}, err
 	}
-	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
+	return activateLockedAuthorizedAgentConfigTx(ctx, unit, qtx, input)
 }
 
 func (s *Store) IntegrationCompleteDaemonProcessAction(
@@ -525,16 +586,6 @@ func IntegrationMachineStillUnreachableForToolExpiryTx(
 	return machineStillUnreachableForToolExpiryTx(ctx, qtx, orgID, machineID, fallbackAt, graceSeconds)
 }
 
-func IntegrationAgentRuntimeLockRecordFromCancelSQLC(
-	row dbsqlc.AgentRuntimeLock,
-) AgentRuntimeLockRecord {
-	return agentRuntimeLockRecordFromSQLC(row)
-}
-
-func IntegrationToolCallRecordFromInsertSQLC(row dbsqlc.InsertToolCallRow) ToolCallRecord {
-	return toolCallRecordFromInsertSQLC(row)
-}
-
 func IntegrationAgentMachineBindingRecordFromSQLC(
 	row dbsqlc.GetAgentMachineBindingByMachineRow,
 ) AgentMachineBindingRecord {
@@ -560,11 +611,59 @@ func IntegrationGetToolCallTx(
 
 func IntegrationAppendToolResultEventTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
+	notifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	record ToolCallRecord,
 ) (events.Event, error) {
-	return appendToolResultEventTx(ctx, txNotifications, tx, record, nil)
+	var resultID uuid.UUID
+	err := tx.QueryRow(ctx,
+		`INSERT INTO tool_call_results(agent_id,tool_call_id,outcome,completed_at) VALUES($1,$2,$3,statement_timestamp()) RETURNING id`,
+		record.AgentID,
+		record.ID,
+		record.Outcome).
+		Scan(&resultID)
+	if err != nil {
+		return events.Event{}, err
+	}
+	blocks, err := parseToolResultContentBlocks(record.ResultContentParts)
+	if err != nil {
+		return events.Event{}, err
+	}
+	for _, block := range blocks {
+		block.ProjectID = record.ProjectID
+		block.AgentID = record.AgentID
+		block.OwnerKind = ContentBlockOwnerToolCallResult
+		block.OwnerToolCallResultID = resultID
+		if _, err = IntegrationCreateContentBlockTx(ctx, tx, block); err != nil {
+			return events.Event{}, err
+		}
+	}
+	event, err := IntegrationAppendTypedAgentEventTx(
+		ctx,
+		notifications,
+		tx,
+		AppendTypedAgentEventInput{
+			ProjectID:        record.ProjectID,
+			AgentID:          record.AgentID,
+			TurnID:           record.TurnID,
+			Kind:             events.KindToolResult,
+			ToolCallResultID: resultID,
+			IdempotencyKey:   "tool_result:" + record.ID.String(),
+		},
+	)
+	if err != nil {
+		return events.Event{}, err
+	}
+	err = IntegrationUpdateAgentTurnLatestEventQuery(
+		ctx,
+		tx,
+		record.ProjectID,
+		record.AgentID,
+		record.TurnID,
+		event.Event.ID,
+		event.Event.ID,
+	)
+	return event.Event, err
 }
 
 func (s *Store) ArchiveIdleAgentsAsOf(
@@ -584,4 +683,85 @@ func (s *Store) ArchiveIdleAgentCandidateAsOf(
 		ctx, []idleArchiveCandidate{{ProjectID: projectID, ID: agentID}}, &asOf,
 	)
 	return archived, err
+}
+
+func IntegrationAdmitInputs(
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	projectID, agentID uuid.UUID,
+) (AdmittedAgentInputTurn, error) {
+	h, err := unit.Handle(projectID, agentID)
+	if err != nil {
+		return AdmittedAgentInputTurn{}, err
+	}
+	admitted, err := h.AdmitInputs(ctx)
+	if err != nil {
+		return AdmittedAgentInputTurn{}, err
+	}
+	if err := applyAdmissionDestination(ctx, unit, projectID, agentID, admitted); err != nil {
+		return AdmittedAgentInputTurn{}, err
+	}
+	return shapeAdmission(ctx, dbsqlc.New(unit.DB()), projectID, agentID, admitted)
+}
+
+type AppendTypedAgentEventInput struct {
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	IsOpeningEvent      bool
+	Kind                events.Kind
+	IdempotencyKey      string
+	AgentInputID        uuid.UUID
+	ModelOutputID       uuid.UUID
+	ToolCallResultID    uuid.UUID
+	ContextCheckpointID uuid.UUID
+}
+
+type ContentBlockRecord struct {
+	ID                    uuid.UUID
+	ProjectID             uuid.UUID
+	AgentID               uuid.UUID
+	OwnerKind             ContentBlockOwnerKind
+	OwnerAgentInputID     uuid.UUID
+	OwnerModelOutputID    uuid.UUID
+	OwnerToolCallResultID uuid.UUID
+	Ordinal               int32
+	BlockKind             ContentBlockKind
+	TextContent           string
+	StructuredData        json.RawMessage
+	ArtifactID            uuid.UUID
+	ToolCallID            uuid.UUID
+	CreatedAt             time.Time
+}
+
+func sqlcRawMessageFromEmpty(value json.RawMessage) *json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return &value
+}
+
+func toolCallResultAuthorityFromGetSQLC(
+	row dbsqlc.GetToolCallResultByToolCallRow,
+) ToolCallResultAuthorityRecord {
+	return ToolCallResultAuthorityRecord{
+		ID:          row.ID,
+		ProjectID:   row.ProjectID,
+		AgentID:     row.AgentID,
+		TurnID:      row.TurnID,
+		ToolCallID:  row.ToolCallID,
+		Outcome:     ToolResultOutcome(row.Outcome),
+		CompletedAt: row.CompletedAt,
+	}
+}
+
+type ToolCallResultAuthorityRecord struct {
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
+	TurnID      uuid.UUID
+	ToolCallID  uuid.UUID
+	Outcome     ToolResultOutcome
+	CompletedAt time.Time
 }

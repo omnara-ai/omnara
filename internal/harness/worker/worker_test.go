@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -536,7 +537,7 @@ func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 			loopDone := make(chan struct{})
 			go func() {
 				defer close(loopDone)
-				worker.runLoop(ctx)
+				runClaimLoop(ctx, worker)
 			}()
 
 			select {
@@ -585,7 +586,7 @@ func TestWorkerLoopRetainsMixedShutdownError(t *testing.T) {
 		Options{Log: logger, Capacity: 1},
 	)
 
-	worker.runLoop(ctx)
+	runClaimLoop(ctx, worker)
 
 	record := logs.String()
 	if !strings.Contains(record, `"level":"error"`) {
@@ -753,6 +754,7 @@ func TestRuntimeRenewalUsesLocalMonotonicBudgetAcrossClockSkew(t *testing.T) {
 				uuid.UUID{1},
 				uuid.UUID{2},
 				executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: test.leaseExpiresAt},
+				time.Time{},
 			)
 			if err != nil {
 				t.Fatalf("start runtime renewal: %v", err)
@@ -793,6 +795,7 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 		uuid.UUID{1},
 		uuid.UUID{2},
 		executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: leaseExpiresAt},
+		time.Time{},
 	)
 	if err != nil {
 		t.Fatalf("start runtime renewal after transient failure: %v", err)
@@ -801,4 +804,180 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 	if calls := store.calls.Load(); calls != 2 {
 		t.Fatalf("renewal calls = %d, want initial failure and successful retry", calls)
 	}
+}
+
+func runClaimLoop(ctx context.Context, worker *Worker) {
+	var executions sync.WaitGroup
+	worker.claimLoop(ctx, make(chan struct{}, worker.capacity), &executions)
+	executions.Wait()
+}
+
+type noopControlSubscriber struct{}
+
+func (noopControlSubscriber) SubscribeWorkerControl(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, notifications.WorkerControl),
+) (notifications.Subscription, error) {
+	return noopSubscription{}, nil
+}
+
+type noopSubscription struct{}
+
+func (noopSubscription) Unsubscribe() error { return nil }
+
+type dispatchStore struct {
+	claimDelay   time.Duration
+	activeClaims atomic.Int32
+	maxClaims    atomic.Int32
+	claims       atomic.Int32
+}
+
+func (s *dispatchStore) ClaimNextAgentWork(
+	ctx context.Context,
+	_ executionstore.ClaimNextAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	active := s.activeClaims.Add(1)
+	defer s.activeClaims.Add(-1)
+	raiseMax(&s.maxClaims, active)
+	select {
+	case <-time.After(s.claimDelay):
+	case <-ctx.Done():
+		return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+	}
+	s.claims.Add(1)
+	return executionstore.ClaimedAgentWork{
+		ProjectID:   uuid.New(),
+		AgentID:     uuid.New(),
+		Kind:        executionstore.AgentWorkModel,
+		RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+		Model: executionstore.ClaimedModelWork{
+			TurnID:               uuid.New(),
+			InputIDs:             []uuid.UUID{uuid.New()},
+			OpeningEventSequence: 1,
+		},
+	}, true, nil
+}
+
+func (*dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
+func (*dispatchStore) AdvanceOwnedAgentWork(
+	context.Context,
+	executionstore.AdvanceOwnedAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	return executionstore.ClaimedAgentWork{}, false, nil
+}
+
+func (*dispatchStore) RenewAgentRuntimeLock(
+	_ context.Context,
+	_, _, runtimeID uuid.UUID,
+	_ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	return executionstore.AgentRuntimeLockRenewal{
+		RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: runtimeID},
+		LocalLeaseBudgetStartedAt: time.Now(),
+	}, nil
+}
+
+type holdingModelExecutor struct {
+	modelWorkOnlyExecutor
+	active    atomic.Int32
+	maxActive atomic.Int32
+	release   chan struct{}
+	started   chan struct{}
+}
+
+func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
+	raiseMax(&e.maxActive, e.active.Add(1))
+	if e.started != nil {
+		e.started <- struct{}{}
+	}
+	defer e.active.Add(-1)
+	select {
+	case <-e.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func raiseMax(target *atomic.Int32, value int32) {
+	for {
+		current := target.Load()
+		if value <= current || target.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
+
+func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) {
+	const capacity, claimConcurrency = 6, 2
+	store := &dispatchStore{claimDelay: 20 * time.Millisecond}
+	executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, capacity+1)}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	worker := NewWorker(store, executor, Options{
+		Log:                      log,
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 capacity,
+		ClaimConcurrency:         claimConcurrency,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(ctx) }()
+
+	defer cancel()
+	for range capacity {
+		select {
+		case <-executor.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("dispatcher did not fill available slots")
+		}
+	}
+	select {
+	case <-executor.started:
+		t.Fatal("dispatcher started work without an available slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if got := store.claims.Load(); got != capacity {
+		t.Fatalf("claims with every slot busy = %d, want %d", got, capacity)
+	}
+	executor.release <- struct{}{}
+	select {
+	case <-executor.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatcher did not fill the released slot")
+	}
+	if got := store.claims.Load(); got != capacity+1 {
+		cancel()
+		t.Fatalf("claims after one slot freed = %d, want %d", got, capacity+1)
+	}
+	cancel()
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v, want context canceled", err)
+	}
+	if got := store.maxClaims.Load(); got > claimConcurrency {
+		t.Fatalf("max concurrent claims = %d, want at most %d", got, claimConcurrency)
+	}
+	if got := executor.maxActive.Load(); got > capacity {
+		t.Fatalf("max concurrent executions = %d, want at most %d", got, capacity)
+	}
+}
+
+func (s *retainedRuntimeStore) AdvanceOwnedAgentWork(
+	ctx context.Context,
+	input executionstore.AdvanceOwnedAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	err := s.ReleaseAgentRuntimeLock(ctx, input.ProjectID, input.AgentID, input.RuntimeLockID)
+	return executionstore.ClaimedAgentWork{}, false, err
+}
+
+func (s *renewalDeadlineStore) AdvanceOwnedAgentWork(
+	ctx context.Context,
+	input executionstore.AdvanceOwnedAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	err := s.ReleaseAgentRuntimeLock(ctx, input.ProjectID, input.AgentID, input.RuntimeLockID)
+	return executionstore.ClaimedAgentWork{}, false, err
 }

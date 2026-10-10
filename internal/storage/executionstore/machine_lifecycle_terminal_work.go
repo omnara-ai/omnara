@@ -2,13 +2,13 @@ package executionstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -16,8 +16,7 @@ import (
 
 func completeMachineLifecycleTerminalWorkTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, machineID uuid.UUID,
 	reason string,
@@ -38,13 +37,12 @@ func completeMachineLifecycleTerminalWorkTx(
 			AgentID:   agent.AgentID,
 		})
 	}
-	if err := lifecyclelock.Agents(ctx, tx, refs); err != nil {
+	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
 		return err
 	}
 	if err := completeMachineLifecycleTerminalProcessesTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		orgID,
 		machineID,
@@ -54,8 +52,7 @@ func completeMachineLifecycleTerminalWorkTx(
 	}
 	return completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		orgID,
 		machineID,
@@ -73,23 +70,28 @@ type executionRevokedProcessScope struct {
 func completeExecutionRevokedProcessesTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	scope executionRevokedProcessScope,
 	reason string,
 ) error {
-	lockParams := dbsqlc.LockAgentsForExecutionRevokedParams{
+	lockParams := dbsqlc.ListAgentsForExecutionRevokedParams{
 		ProjectID:                 scope.projectID,
 		AgentID:                   storeutil.IDFromNil(scope.agentID),
 		ProjectMachineGrantID:     storeutil.IDFromNil(scope.projectMachineGrantID),
 		ProjectMachinePoolGrantID: storeutil.IDFromNil(scope.projectMachinePoolGrantID),
 	}
-	if _, err := qtx.LockAgentsForExecutionRevoked(ctx, lockParams); err != nil {
-		return fmt.Errorf("lock agents for execution revoke: %w", err)
+	agents, err := qtx.ListAgentsForExecutionRevoked(ctx, lockParams)
+	if err != nil {
+		return fmt.Errorf("list agents for execution revoke: %w", err)
 	}
-	// Binding release terminalizes its process/action work first, and new work
-	// requires an attached binding. These agents therefore already cover every
-	// process below; no second pass through the agent lock class is needed.
+	refs := make([]lifecyclelock.AgentRef, 0, len(agents))
+	for _, agentID := range agents {
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: scope.projectID, AgentID: agentID})
+	}
+	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
+		return err
+	}
 	rows, err := qtx.ListProcessesForExecutionRevoked(
 		ctx,
 		dbsqlc.ListProcessesForExecutionRevokedParams{
@@ -124,23 +126,23 @@ func completeExecutionRevokedProcessesTx(
 				return fmt.Errorf("mark queued process failed for execution revoke: %w", err)
 			}
 			record := processRecordFromSQLC(failed)
-			if err := completeProcessToolCallFromRecordTx(
-				ctx,
-				txNotifications,
-				tx,
-				qtx,
-				record,
-				nil,
-				reason,
-			); err != nil {
+			h, err := unit.Handle(record.ProjectID, record.AgentID)
+			if err != nil {
 				return err
+			}
+			if record.ToolCallID != uuid.Nil {
+				if _,
+					err := h.CompleteProcess(ctx,
+					agentexecution.ProcessResult{ID: record.ID,
+						Observed: nil}); err != nil {
+					return err
+				}
 			}
 		case ProcessStateStarting, ProcessStateRunning:
 			txNotifications.AddDaemonProcessTermination(process.MachineID, process.ID)
 			if _, err := completeProcessUnknownByMachineTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				process.OrgID,
 				process.MachineID,
@@ -153,8 +155,7 @@ func completeExecutionRevokedProcessesTx(
 		case ProcessStateExited, ProcessStateFailed, ProcessStateKilled, ProcessStateUnknown:
 			if err := completeUnresolvedProcessActionsForClosedProcessTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				process.OrgID,
 				process.ID,
@@ -169,8 +170,7 @@ func completeExecutionRevokedProcessesTx(
 
 func completeMachineLifecycleTerminalProcessesTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, machineID uuid.UUID,
 	reason string,
@@ -190,8 +190,7 @@ func completeMachineLifecycleTerminalProcessesTx(
 		case ProcessStateStarting, ProcessStateRunning:
 			if _, err := completeProcessUnknownByMachineTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				orgID,
 				machineID,
@@ -205,8 +204,7 @@ func completeMachineLifecycleTerminalProcessesTx(
 			ProcessStateKilled, ProcessStateUnknown:
 			if err := completeUnresolvedProcessActionsForClosedProcessTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				record.OrgID,
 				record.ID,
@@ -222,8 +220,7 @@ func completeMachineLifecycleTerminalProcessesTx(
 
 func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, machineID uuid.UUID,
 	reason string,
@@ -245,14 +242,17 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 		}
 		for _, row := range rows {
 			process := processRecordFromSQLC(row)
-			failed, err := qtx.MarkQueuedProcessFailedByMachine(ctx, dbsqlc.MarkQueuedProcessFailedByMachineParams{
-				ProjectID:       process.ProjectID,
-				AgentID:         process.AgentID,
-				ID:              process.ID,
-				OrgID:           orgID,
-				MachineID:       machineID,
-				StateReasonCode: storeutil.TextFromEmpty(reason),
-			})
+			failed, err := qtx.MarkQueuedProcessFailedByMachine(
+				ctx,
+				dbsqlc.MarkQueuedProcessFailedByMachineParams{
+					ProjectID:       process.ProjectID,
+					AgentID:         process.AgentID,
+					ID:              process.ID,
+					OrgID:           orgID,
+					MachineID:       machineID,
+					StateReasonCode: storeutil.TextFromEmpty(reason),
+				},
+			)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
@@ -260,214 +260,30 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 				return fmt.Errorf("mark queued process failed for machine delete: %w", err)
 			}
 			record := processRecordFromSQLC(failed)
-			if err := completeProcessToolCallFromRecordTx(ctx, txNotifications, tx, qtx, record, nil, reason); err != nil {
+			h, err := unit.Handle(record.ProjectID, record.AgentID)
+			if err != nil {
 				return err
 			}
-		}
-	}
-}
-
-func completeTerminalProcessActionToolCallTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	record ProcessActionRecord,
-	state ProcessActionState,
-	reason string,
-) error {
-	applied := state == ProcessActionStateApplied
-	errText := reason
-	outcome := ToolResultOutcomeFailed
-	if applied {
-		errText = ""
-		outcome = ToolResultOutcomeSucceeded
-	}
-	var result json.RawMessage
-	if record.ActionKind == ProcessActionKindRead && !applied {
-		processRow, err := qtx.GetProcessForUpdate(
-			ctx,
-			dbsqlc.GetProcessForUpdateParams{
-				ProjectID: record.ProjectID,
-				AgentID:   record.AgentID,
-				ID:        record.ProcessID,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("load process for failed read result: %w", err)
-		}
-		result, err = canonicalProcessReadFailureResult(
-			processRecordFromSQLC(processRow),
-			record,
-			reason,
-			errText,
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		var err error
-		result, err = processActionToolResult(
-			record.ProcessID,
-			record.ID,
-			state,
-			reason,
-			errText,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	contentParts, err := ToolResultContentParts(result)
-	if err != nil {
-		return err
-	}
-	toolRow, err := qtx.CompleteToolCallFromProcessAction(
-		ctx,
-		dbsqlc.CompleteToolCallFromProcessActionParams{
-			ProjectID:       record.ProjectID,
-			AgentID:         record.AgentID,
-			ToolCallID:      record.ToolCallID,
-			ProcessID:       record.ProcessID,
-			ProcessActionID: record.ID,
-			Outcome:         string(outcome),
-		},
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			ok, checkErr := completedToolCallMissIsBenignTx(
-				ctx,
-				qtx,
-				record.ProjectID,
-				record.AgentID,
-				record.ToolCallID,
-				false,
-			)
-			if checkErr != nil {
-				return checkErr
-			}
-			if ok {
-				return nil
+			if record.ToolCallID != uuid.Nil {
+				if _,
+					err := h.CompleteProcess(ctx,
+					agentexecution.ProcessResult{ID: record.ID,
+						Observed: nil}); err != nil {
+					return err
+				}
 			}
 		}
-		return fmt.Errorf("complete unknown process action tool call: %w", err)
 	}
-	resultRecord := toolCallRecordFromProcessActionCompleteSQLC(toolRow)
-	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
-		return err
-	}
-	metadata, err := marshalJSON(
-		map[string]any{
-			"reason":            "process_action_" + string(state),
-			"process_id":        record.ProcessID,
-			"process_action_id": record.ID,
-			"tool_call_id":      record.ToolCallID,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("marshal process action wakeup metadata: %w", err)
-	}
-	if err := qtx.MarkAgentWakeup(
-		ctx,
-		dbsqlc.MarkAgentWakeupParams{
-			ProjectID: record.ProjectID,
-			AgentID:   record.AgentID,
-			Metadata:  metadata,
-		},
-	); err != nil {
-		return fmt.Errorf("mark process action %s wakeup: %w", state, err)
-	}
-	return nil
-}
-
-func completeProcessToolCallFromRecordTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	record ProcessRecord,
-	overrideResult json.RawMessage,
-	wakeReason string,
-) error {
-	if record.ToolCallID == uuid.Nil {
-		return nil
-	}
-	outcome, result, resultErr := processToolResult(record)
-	if resultErr != nil {
-		return resultErr
-	}
-	if len(overrideResult) > 0 && string(overrideResult) != "null" {
-		var err error
-		result, err = commandTerminalToolResult(record.ID, overrideResult)
-		if err != nil {
-			return err
-		}
-	}
-	contentParts, err := ToolResultContentParts(result)
-	if err != nil {
-		return err
-	}
-	toolRow, err := qtx.CompleteToolCallFromProcess(
-		ctx,
-		dbsqlc.CompleteToolCallFromProcessParams{
-			ProjectID: record.ProjectID,
-			AgentID:   record.AgentID,
-			ID:        record.ToolCallID,
-			ProcessID: record.ID,
-			Outcome:   string(outcome),
-		},
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			if ok, checkErr := completedToolCallMissIsBenignTx(
-				ctx,
-				qtx,
-				record.ProjectID,
-				record.AgentID,
-				record.ToolCallID,
-				true,
-			); checkErr != nil {
-				return checkErr
-			} else if ok {
-				return nil
-			}
-		}
-		return fmt.Errorf("complete process tool call: %w", err)
-	}
-	resultRecord := toolCallRecordFromProcessCompleteSQLC(toolRow)
-	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
-		return err
-	}
-	metadata, err := marshalJSON(
-		map[string]any{"reason": wakeReason, "process_id": record.ID, "tool_call_id": record.ToolCallID},
-	)
-	if err != nil {
-		return fmt.Errorf("marshal process tool call wakeup metadata: %w", err)
-	}
-	if err := qtx.MarkAgentWakeup(
-		ctx,
-		dbsqlc.MarkAgentWakeupParams{
-			ProjectID: record.ProjectID,
-			AgentID:   record.AgentID,
-			Metadata:  metadata,
-		},
-	); err != nil {
-		return fmt.Errorf("mark process tool call wakeup: %w", err)
-	}
-	return nil
 }
 
 func completeProcessUnknownByMachineTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, machineID, processID uuid.UUID,
 	reason, message string,
 ) (bool, error) {
-	if _, found, err := lockProcessAgentByMachineTx(ctx, qtx, orgID, machineID, processID); err != nil {
+	if _, found, err := lockProcessAgentByMachineTx(ctx, unit, orgID, machineID, processID); err != nil {
 		return false, err
 	} else if !found {
 		return false, nil
@@ -489,21 +305,21 @@ func completeProcessUnknownByMachineTx(
 		return false, nil
 	}
 	record := processRecordFromSQLC(row)
-	if err := completeProcessToolCallFromRecordTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		record,
-		nil,
-		"process_unknown",
-	); err != nil {
+	h, err := unit.Handle(record.ProjectID, record.AgentID)
+	if err != nil {
 		return false, err
+	}
+	if record.ToolCallID != uuid.Nil {
+		if _,
+			err := h.CompleteProcess(ctx,
+			agentexecution.ProcessResult{ID: record.ID,
+				Observed: nil}); err != nil {
+			return false, err
+		}
 	}
 	if err := completeUnresolvedProcessActionsForClosedProcessTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		orgID,
 		processID,
@@ -516,16 +332,14 @@ func completeProcessUnknownByMachineTx(
 
 func completeUnresolvedProcessActionsForClosedProcessTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, processID uuid.UUID,
 	reason string,
 ) error {
 	if err := completeQueuedProcessActionsFailedTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		orgID,
 		processID,
@@ -535,8 +349,7 @@ func completeUnresolvedProcessActionsForClosedProcessTx(
 	}
 	return completeAcceptedProcessActionsWithoutEvidenceTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		orgID,
 		processID,
@@ -546,8 +359,7 @@ func completeUnresolvedProcessActionsForClosedProcessTx(
 
 func completeQueuedProcessActionsFailedTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, processID uuid.UUID,
 	reason string,
@@ -566,16 +378,14 @@ func completeQueuedProcessActionsFailedTx(
 	}
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)
-		if err := completeTerminalProcessActionToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			record,
-			ProcessActionStateFailed,
-			reason,
-		); err != nil {
+		h, err := unit.Handle(record.ProjectID, record.AgentID)
+		if err != nil {
 			return err
+		}
+		if record.ToolCallID != uuid.Nil {
+			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -583,8 +393,7 @@ func completeQueuedProcessActionsFailedTx(
 
 func completeQueuedProcessActionsForTerminalProcessTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	process ProcessRecord,
 ) error {
@@ -600,16 +409,14 @@ func completeQueuedProcessActionsForTerminalProcessTx(
 	}
 	for _, row := range failedRows {
 		record := processActionRecordFromSQLC(row)
-		if err := completeTerminalProcessActionToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			record,
-			ProcessActionStateFailed,
-			"process_terminal",
-		); err != nil {
+		h, err := unit.Handle(record.ProjectID, record.AgentID)
+		if err != nil {
 			return err
+		}
+		if record.ToolCallID != uuid.Nil {
+			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
+				return err
+			}
 		}
 	}
 	resolvedRows, err := qtx.ResolveQueuedTerminateActionsForTerminalProcess(
@@ -625,16 +432,14 @@ func completeQueuedProcessActionsForTerminalProcessTx(
 	}
 	for _, row := range resolvedRows {
 		record := processActionRecordFromSQLC(row)
-		if err := completeTerminalProcessActionToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			record,
-			record.State,
-			record.StateReasonCode,
-		); err != nil {
+		h, err := unit.Handle(record.ProjectID, record.AgentID)
+		if err != nil {
 			return err
+		}
+		if record.ToolCallID != uuid.Nil {
+			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -642,8 +447,7 @@ func completeQueuedProcessActionsForTerminalProcessTx(
 
 func completeAcceptedProcessActionsWithoutEvidenceTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, processID uuid.UUID,
 	reason string,
@@ -671,16 +475,14 @@ func completeAcceptedProcessActionsWithoutEvidenceTx(
 	}
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)
-		if err := completeTerminalProcessActionToolCallTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			record,
-			record.State,
-			reason,
-		); err != nil {
+		h, err := unit.Handle(record.ProjectID, record.AgentID)
+		if err != nil {
 			return err
+		}
+		if record.ToolCallID != uuid.Nil {
+			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

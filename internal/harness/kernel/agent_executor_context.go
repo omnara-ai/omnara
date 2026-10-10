@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -34,6 +35,7 @@ const (
 )
 
 type modelStep struct {
+	Transition          *executionstore.OwnedAgentWorkTransition
 	State               modelStepState
 	Context             executionstore.ModelCallContextRecord
 	Bundle              modelcontext.Bundle
@@ -43,13 +45,12 @@ type modelStep struct {
 	StreamedToolCallIDs map[string]uuid.UUID
 }
 
-func (e AgentExecutor) executeModelStep(
-	ctx context.Context,
-	input ModelWorkExecution,
-	builder modelcontext.Builder,
-	resolver model.Resolver,
+func (e AgentExecutor) executeModelStepWithAdvance(
+	ctx context.Context, input ModelWorkExecution, builder modelcontext.Builder, resolver model.Resolver,
+	advance *ModelWorkAdvanceOptions,
 ) (modelStep, error) {
 	var snapshot executionstore.AgentConfigSnapshotRecord
+	var contextData *executionstore.ModelContextData
 	var claim executionstore.ModelCallClaim
 	var err error
 	if input.Kind == executionstore.ModelWorkResume {
@@ -80,22 +81,27 @@ func (e AgentExecutor) executeModelStep(
 			}
 		}
 	} else {
-		snapshot, err = e.Store.Execution().CaptureAgentConfigForModelContext(ctx, input.ProjectID, input.AgentID)
-		if err == nil {
-			claim, err = e.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
+		var prepared executionstore.PreparedNormalModelCall
+		if input.Prepared != nil {
+			prepared = *input.Prepared
+		} else {
+			prepared, err = e.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
 				ProjectID:                input.ProjectID,
 				AgentID:                  input.AgentID,
 				RuntimeLockID:            input.RuntimeLockID,
 				OpeningInputIDs:          input.InputIDs,
-				AgentConfigID:            snapshot.AgentConfig.ID,
-				InputEventSequence:       snapshot.InputEventSequence,
 				SourceModelCallContextID: input.SourceModelCallContextID,
 				SourceModelOutputID:      input.SourceModelOutputID,
 			})
 		}
+		claim, snapshot, contextData = prepared.Claim, prepared.Snapshot, prepared.ContextData
 	}
 	if err != nil {
 		return modelStep{}, err
+	}
+	if input.Prepared != nil && (claim.Context.ProjectID != input.ProjectID || claim.Context.AgentID != input.AgentID ||
+		claim.Context.RuntimeLockID != input.RuntimeLockID || claim.Context.AgentConfigID != snapshot.AgentConfig.ID) {
+		return modelStep{}, storeerr.ErrStateTransitionConflict
 	}
 	if !claim.Claimed {
 		if claim.Created &&
@@ -185,6 +191,7 @@ func (e AgentExecutor) executeModelStep(
 		OpeningInputIDs:     input.InputIDs,
 		Now:                 input.Now,
 		AgentConfigSnapshot: &snapshot,
+		ContextData:         contextData,
 		MediaProjector:      model.MediaProjectorForClient(client),
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
@@ -220,14 +227,21 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 
-	policy, err := modelretry.RequestPolicyForModelCall(
-		ctx,
-		e.Store.Execution(),
-		input.ProjectID,
-		input.AgentID,
-		claim.Context.ID,
-		model.RequestPolicyFromCapabilities(capabilities),
-	)
+	policy := model.RequestPolicyFromCapabilities(capabilities)
+	if contextData != nil {
+		policy.ProviderReplayCutoffEventSequence = max(policy.ProviderReplayCutoffEventSequence,
+			contextData.ProviderReplayCutoffEventSequence)
+	} else {
+		policy, err = modelretry.RequestPolicyForModelCall(
+			ctx,
+			e.Store.Execution(),
+			input.ProjectID,
+			input.AgentID,
+			claim.Context.ID,
+			model.RequestPolicyFromCapabilities(capabilities),
+		)
+	}
+
 	if err != nil {
 		return e.recordNormalPreSendFailure(
 			ctx, input, claim, resolved, err,
@@ -331,6 +345,26 @@ func (e AgentExecutor) executeModelStep(
 		Response:            response,
 		Resolved:            resolved,
 		StreamedToolCallIDs: streamSink.ToolCallIDs(),
+	}
+	if advance != nil && time.Now().Before(advance.Deadline) &&
+		invalidModelResponse(modelErrorSourceForClient(client), step.Envelope.Normalized.StopReason,
+			model.ToolCallsFromEnvelope(step.Envelope)) == nil {
+		transition, err := e.Store.Execution().AcceptModelOutputAndAdvance(
+			ctx, executionstore.AcceptModelOutputAndAdvanceInput{
+				Output: executionstore.RecordModelOutputAndCompleteContextInput{
+					ProjectID: input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+					ModelCallContextID: claim.Context.ID, ProviderRequestID: step.Response.ProviderRequestID,
+					ProviderResponse: step.Envelope,
+				},
+				ToolCallBindings: toolCallBindings(step.Envelope, step.Bundle.ToolSpecs, step.StreamedToolCallIDs),
+				AllowModelWork:   advance.AllowModelWork, PrepareModel: true,
+			},
+		)
+		if err != nil {
+			return modelStep{}, err
+		}
+		step.State, step.Transition = modelStepDone, &transition
+		return step, nil
 	}
 	return e.finishModelResponse(ctx, input, step)
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -17,8 +17,7 @@ import (
 
 func reconcileRegisteredRuntimeTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input RegisterDaemonRuntimeInput,
 ) (DaemonRuntimeReconciliation, error) {
@@ -28,7 +27,7 @@ func reconcileRegisteredRuntimeTx(
 	}
 	processes, err := lockAndLoadReconciliationProcesses(
 		ctx,
-		tx,
+		unit,
 		qtx,
 		input.OrgID,
 		input.MachineID,
@@ -60,8 +59,7 @@ func reconcileRegisteredRuntimeTx(
 			case ProcessStateStarting, ProcessStateRunning:
 				if _, err := completeProcessUnknownByMachineTx(
 					ctx,
-					txNotifications,
-					tx,
+					unit,
 					qtx,
 					input.OrgID,
 					input.MachineID,
@@ -75,8 +73,7 @@ func reconcileRegisteredRuntimeTx(
 				ProcessStateKilled, ProcessStateUnknown:
 				if err := completeQueuedProcessActionsForTerminalProcessTx(
 					ctx,
-					txNotifications,
-					tx,
+					unit,
 					qtx,
 					process,
 				); err != nil {
@@ -84,8 +81,7 @@ func reconcileRegisteredRuntimeTx(
 				}
 				if err := completeAcceptedProcessActionsWithoutEvidenceTx(
 					ctx,
-					txNotifications,
-					tx,
+					unit,
 					qtx,
 					process.OrgID,
 					process.ID,
@@ -100,8 +96,7 @@ func reconcileRegisteredRuntimeTx(
 
 		disposition, err := reconcileProcessTx(
 			ctx,
-			txNotifications,
-			tx,
+			unit,
 			qtx,
 			input,
 			process,
@@ -213,11 +208,12 @@ func validateProcessReconciliationClaims(
 
 func lockAndLoadReconciliationProcesses(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, machineID uuid.UUID,
 	claims map[uuid.UUID]ProcessReconciliationClaim,
 ) (map[uuid.UUID]ProcessRecord, error) {
+
 	rows, err := qtx.ListProcessesForMachineReconciliation(
 		ctx,
 		dbsqlc.ListProcessesForMachineReconciliationParams{
@@ -268,7 +264,7 @@ func lockAndLoadReconciliationProcesses(
 			AgentID:   record.AgentID,
 		})
 	}
-	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
 		return nil, err
 	}
 	return loadReconciliationProcesses(
@@ -332,8 +328,7 @@ func loadReconciliationProcesses(
 
 func reconcileProcessTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input RegisterDaemonRuntimeInput,
 	process ProcessRecord,
@@ -372,8 +367,7 @@ func reconcileProcessTx(
 		case claim.ExecutionCommitted:
 			if _, err := completeProcessUnknownByMachineTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				input.OrgID,
 				input.MachineID,
@@ -389,8 +383,7 @@ func reconcileProcessTx(
 		default:
 			if err := completeProcessFailedWithoutExecutionTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				process,
 			); err != nil {
@@ -411,8 +404,7 @@ func reconcileProcessTx(
 			claim.ExecutionCommitted:
 			if _, err := completeProcessUnknownByMachineTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				input.OrgID,
 				input.MachineID,
@@ -441,8 +433,7 @@ func reconcileProcessTx(
 				claim.Phase == daemonprotocol.ProcessPhasePrepared) {
 			if err := completeQueuedProcessActionsForTerminalProcessTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				process,
 			); err != nil {
@@ -450,8 +441,7 @@ func reconcileProcessTx(
 			}
 			if err := completeAcceptedProcessActionsWithoutEvidenceTx(
 				ctx,
-				txNotifications,
-				tx,
+				unit,
 				qtx,
 				process.OrgID,
 				process.ID,
@@ -465,8 +455,7 @@ func reconcileProcessTx(
 		}
 		if err := completeQueuedProcessActionsForTerminalProcessTx(
 			ctx,
-			txNotifications,
-			tx,
+			unit,
 			qtx,
 			process,
 		); err != nil {
@@ -484,8 +473,7 @@ func reconcileProcessTx(
 
 	actions, err := reconcileProcessActionsTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		input,
 		process,
@@ -501,8 +489,7 @@ func reconcileProcessTx(
 
 func completeProcessFailedWithoutExecutionTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	process ProcessRecord,
 ) error {
@@ -526,21 +513,21 @@ func completeProcessFailedWithoutExecutionTx(
 		return fmt.Errorf("resolve process that never executed: %w", err)
 	}
 	failed := processRecordFromCompleteSQLC(row)
-	if err := completeProcessToolCallFromRecordTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		failed,
-		nil,
-		processExecutionNotStartedReason,
-	); err != nil {
+	h, err := unit.Handle(failed.ProjectID, failed.AgentID)
+	if err != nil {
 		return err
+	}
+	if failed.ToolCallID != uuid.Nil {
+		if _,
+			err := h.CompleteProcess(ctx,
+			agentexecution.ProcessResult{ID: failed.ID,
+				Observed: nil}); err != nil {
+			return err
+		}
 	}
 	if err := completeQueuedProcessActionsFailedTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		process.OrgID,
 		process.ID,
@@ -550,8 +537,7 @@ func completeProcessFailedWithoutExecutionTx(
 	}
 	return completeAcceptedProcessActionsWithoutEvidenceTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		process.OrgID,
 		process.ID,
@@ -561,8 +547,7 @@ func completeProcessFailedWithoutExecutionTx(
 
 func reconcileProcessActionsTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input RegisterDaemonRuntimeInput,
 	process ProcessRecord,
@@ -662,8 +647,7 @@ func reconcileProcessActionsTx(
 			case locallyPresent:
 				if err := resolveAcceptedProcessActionForReconciliationTx(
 					ctx,
-					txNotifications,
-					tx,
+					unit,
 					qtx,
 					action,
 					ProcessActionStateUnknown,
@@ -682,8 +666,7 @@ func reconcileProcessActionsTx(
 			default:
 				if err := resolveAcceptedProcessActionForReconciliationTx(
 					ctx,
-					txNotifications,
-					tx,
+					unit,
 					qtx,
 					action,
 					ProcessActionStateFailed,
@@ -753,8 +736,7 @@ func reconcileProcessActionsTx(
 
 func resolveAcceptedProcessActionForReconciliationTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	action ProcessActionRecord,
 	state ProcessActionState,
@@ -762,8 +744,7 @@ func resolveAcceptedProcessActionForReconciliationTx(
 ) error {
 	_, err := completeDaemonProcessActionTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		processActionCompletionInput{
 			ProjectID:       action.ProjectID,
@@ -786,9 +767,10 @@ func resolveAcceptedProcessActionForReconciliationTx(
 
 func lockProcessAgentByMachineTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	unit *agentexecution.Unit,
 	orgID, machineID, processID uuid.UUID,
 ) (ProcessRecord, bool, error) {
+	qtx := dbsqlc.New(unit.DB())
 	row, err := qtx.GetProcessByMachine(
 		ctx,
 		dbsqlc.GetProcessByMachineParams{OrgID: orgID, MachineID: machineID, ID: processID},
@@ -800,23 +782,23 @@ func lockProcessAgentByMachineTx(
 		return ProcessRecord{}, false, fmt.Errorf("load process before agent lock: %w", err)
 	}
 	record := processRecordFromSQLC(row)
-	if err := lockAgentForProcessRecordTx(ctx, qtx, record); err != nil {
+	if err := lockAgentForProcessRecordTx(ctx, unit, record); err != nil {
 		return ProcessRecord{}, false, err
 	}
 	return record, true, nil
 }
 
-func lockAgentForProcessRecordTx(ctx context.Context, qtx *dbsqlc.Queries, record ProcessRecord) error {
+func lockAgentForProcessRecordTx(ctx context.Context, unit *agentexecution.Unit, record ProcessRecord) error {
 	if record.ProjectID == uuid.Nil || record.AgentID == uuid.Nil {
 		return nil
 	}
-	if _, err := qtx.LockAgentInProject(
+	if _, err := unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{
 			ProjectID: record.ProjectID,
 			ID:        record.AgentID,
 		},
-	); err != nil {
+		agentexecution.ExternalAuthority{}); err != nil {
 		return fmt.Errorf("lock agent for process authority mutation: %w", err)
 	}
 	return nil

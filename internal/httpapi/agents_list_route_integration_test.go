@@ -503,15 +503,20 @@ func seedListAgentAt(
 	createdAt time.Time,
 ) executionstore.AgentRecord {
 	t.Helper()
-	var id uuid.UUID
+	id := uuid.New()
 	if err := pool.QueryRow(ctx, `
-INSERT INTO agents (
-    org_id, project_id, state, name, current_config_id,
-    idempotency_key, created_at, updated_at
+WITH inserted AS (
+    INSERT INTO agents (
+        id, root_agent_id, org_id, project_id, state, name, current_config_id,
+        idempotency_key, created_at, updated_at
+    )
+    VALUES ($7, $7, $1, $2, 'active', $3, $4, $5, $6, $6)
+    RETURNING id
 )
-VALUES ($1, $2, 'active', $3, $4, $5, $6, $6)
-RETURNING id
-`, project.OrgUUID, project.ProjectUUID, name, configID, idempotencyKey, createdAt).Scan(&id); err != nil {
+INSERT INTO agent_execution_state (agent_id, turn_continuable, incomplete_tools)
+SELECT id, false, false FROM inserted
+RETURNING agent_id
+`, project.OrgUUID, project.ProjectUUID, name, configID, idempotencyKey, createdAt, id).Scan(&id); err != nil {
 		t.Fatalf("seed agent at creation time: %v", err)
 	}
 	record, err := store.Execution().GetAgentInProject(ctx, project.ProjectUUID, id)

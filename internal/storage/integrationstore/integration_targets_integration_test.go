@@ -32,7 +32,7 @@ func TestIntegrationConversationLaunchOwnershipRemainsIndependentOfSubscriptions
 		},
 	)
 	require.NoError(t, err)
-	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	store := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
 	createIntegration := func(name string) uuid.UUID {
 		t.Helper()
 		return f.addIntegration(t, name, integrationstore.IntegrationSettings(`{}`)).ID

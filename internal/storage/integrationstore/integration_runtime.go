@@ -162,7 +162,7 @@ func (s *Store) ClaimIntegrationRuntime(
 	return claim, true, nil
 }
 
-func (s *Store) lockRuntimeAuthority(ctx context.Context, tx pgx.Tx, revision IntegrationRuntimeRevision) error {
+func (s *Store) lockRuntimeAuthority(ctx context.Context, tx dbsqlc.DBTX, revision IntegrationRuntimeRevision) error {
 	if err := s.enterInboxIntegration(ctx, tx, revision.ProjectID, revision.IntegrationID); err != nil {
 		return err
 	}

@@ -189,6 +189,69 @@ func (q *Queries) DeleteSecretVersions(ctx context.Context, arg DeleteSecretVers
 	return err
 }
 
+const getCurrentSecretPayload = `-- name: GetCurrentSecretPayload :one
+SELECT v.id, v.org_id, v.secret_id, v.version_number, v.payload_keys, v.encryption_scheme,
+       v.key_id, v.dek_wrapped_by, v.encrypted_dek, v.encrypted_dek_nonce, v.nonce, v.ciphertext, v.created_at,
+       (v.oauth_access_token_expires_at IS NOT NULL)::boolean AS oauth_access_token_expires,
+       coalesce(greatest(extract(epoch FROM v.oauth_access_token_expires_at - statement_timestamp()), 0), 0)::double precision AS oauth_access_token_remaining_seconds,
+       s.owner_kind, s.management_kind, s.kind
+FROM secrets s
+JOIN secret_versions v ON v.org_id = s.org_id AND v.secret_id = s.id AND v.id = s.current_version_id
+WHERE s.org_id = $1 AND s.id = $2 AND s.deleted_at IS NULL
+`
+
+type GetCurrentSecretPayloadParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+type GetCurrentSecretPayloadRow struct {
+	ID                               uuid.UUID
+	OrgID                            uuid.UUID
+	SecretID                         uuid.UUID
+	VersionNumber                    int32
+	PayloadKeys                      []string
+	EncryptionScheme                 string
+	KeyID                            string
+	DekWrappedBy                     string
+	EncryptedDek                     []byte
+	EncryptedDekNonce                []byte
+	Nonce                            []byte
+	Ciphertext                       []byte
+	CreatedAt                        time.Time
+	OauthAccessTokenExpires          bool
+	OauthAccessTokenRemainingSeconds float64
+	OwnerKind                        string
+	ManagementKind                   string
+	Kind                             string
+}
+
+func (q *Queries) GetCurrentSecretPayload(ctx context.Context, arg GetCurrentSecretPayloadParams) (GetCurrentSecretPayloadRow, error) {
+	row := q.db.QueryRow(ctx, getCurrentSecretPayload, arg.OrgID, arg.ID)
+	var i GetCurrentSecretPayloadRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.SecretID,
+		&i.VersionNumber,
+		&i.PayloadKeys,
+		&i.EncryptionScheme,
+		&i.KeyID,
+		&i.DekWrappedBy,
+		&i.EncryptedDek,
+		&i.EncryptedDekNonce,
+		&i.Nonce,
+		&i.Ciphertext,
+		&i.CreatedAt,
+		&i.OauthAccessTokenExpires,
+		&i.OauthAccessTokenRemainingSeconds,
+		&i.OwnerKind,
+		&i.ManagementKind,
+		&i.Kind,
+	)
+	return i, err
+}
+
 const getProjectAvailableSecret = `-- name: GetProjectAvailableSecret :one
 WITH available AS (
   SELECT s.id, s.org_id, s.management_kind, s.owner_kind, s.owner_project_id, s.owner_user_id, s.name, s.kind, s.metadata, s.current_version_id, v.version_number AS current_version_number, v.payload_keys, NULL::uuid AS grant_id, s.created_at, s.updated_at

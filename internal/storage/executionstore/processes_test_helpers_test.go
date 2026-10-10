@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func createQuestionInteractionForTest(
@@ -137,17 +138,24 @@ func insertToolCallForTest(
 		return executionstore.ToolCallRecord{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := store.q.WithTx(tx).InsertToolCall(ctx, dbsqlc.InsertToolCallParams{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		SourceEventID:      input.SourceEventID,
-		ModelCallContextID: input.ModelCallContextID,
-		RuntimeLockID:      input.RuntimeLockID,
-		ProviderCallID:     input.ProviderCallID,
-		Name:               input.Name,
-		Input:              input.Input,
-		Type:               input.Type,
-	})
+	var callID uuid.UUID
+	err = tx.QueryRow(ctx, `
+INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT event.agent_id,output.id,$6,$7,$8,$9,'awaiting_authorization',output.created_at
+FROM agent_events event
+JOIN agents agent ON agent.id=event.agent_id
+JOIN model_outputs output ON output.agent_id=event.agent_id AND output.id=event.model_output_id
+JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id
+JOIN agent_runtime_locks runtime ON runtime.agent_id=context.agent_id AND runtime.id=context.runtime_lock_id
+WHERE agent.project_id=$1 AND event.agent_id=$2 AND event.id=$3 AND context.id=$4
+  AND runtime.id=$5 AND runtime.cancel_requested_at IS NULL AND runtime.lease_expires_at>statement_timestamp()
+RETURNING id`,
+		input.ProjectID,
+		input.AgentID,
+		input.SourceEventID,
+		input.ModelCallContextID,
+		input.RuntimeLockID,
+		input.ProviderCallID, input.Name, input.Input, input.Type).Scan(&callID)
 	if storeutil.IsUniqueViolation(err) {
 		return executionstore.ToolCallRecord{}, storeerr.ErrIdempotencyConflict
 	}
@@ -179,7 +187,7 @@ WHERE agent.project_id = $1
   AND call.agent_id = $2
   AND call.id = $3
 GROUP BY call.model_output_id
-`, input.ProjectID, input.AgentID, row.ID).Scan(&modelOutputID, &ordinal); err != nil {
+`, input.ProjectID, input.AgentID, callID).Scan(&modelOutputID, &ordinal); err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
 	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, tx, executionstore.CreateContentBlockInput{
@@ -189,14 +197,17 @@ GROUP BY call.model_output_id
 		OwnerModelOutputID: modelOutputID,
 		Ordinal:            ordinal,
 		BlockKind:          executionstore.ContentBlockKindToolCall,
-		ToolCallID:         row.ID,
+		ToolCallID:         callID,
 	}); err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
-	return executionstore.IntegrationToolCallRecordFromInsertSQLC(row), nil
+	if err := store.Execution().RepairExecutionForTest(ctx, input.ProjectID, input.AgentID); err != nil {
+		return executionstore.ToolCallRecord{}, err
+	}
+	return store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, callID)
 }
 
 type recordingPostCommitPublisher struct {
@@ -231,7 +242,10 @@ func createProcessActionForTest(
 	)
 }
 
-func (p *recordingPostCommitPublisher) PublishPostCommit(_ context.Context, intent notifications.PostCommitIntent) {
+func (p *recordingPostCommitPublisher) PublishPostCommit(
+	_ context.Context,
+	intent notifications.PostCommitIntent,
+) {
 	p.intents = append(p.intents, intent)
 }
 
@@ -383,7 +397,9 @@ func (fixture processDaemonFixture) authority() executionstore.DaemonRuntimeAuth
 	}
 }
 
-func (fixture processDaemonFixture) authorityForRuntime(runtimeID uuid.UUID) executionstore.DaemonRuntimeAuthority {
+func (fixture processDaemonFixture) authorityForRuntime(
+	runtimeID uuid.UUID,
+) executionstore.DaemonRuntimeAuthority {
 	authority := fixture.authority()
 	authority.DaemonRuntimeID = runtimeID
 	return authority
@@ -393,7 +409,10 @@ func newProcessDaemonFixture(t *testing.T, ctx context.Context, testName string)
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }))
+	store := newIntegrationStore(
+		pool,
+		storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }),
+	)
 	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "process-"+testName+"@example.com", "Process Tester")
 	return newProcessDaemonFixtureInStore(t, ctx, store, user.ID, testName, now)
@@ -793,6 +812,48 @@ func createToolCallBatchForProcessTest(
 	if len(items) == 0 {
 		t.Fatal("process tool-call batch must contain at least one proposal")
 	}
+	var sourceID, contextID uuid.UUID
+	err := fixture.Store.pool.QueryRow(ctx,
+		`SELECT event.id,output.model_call_context_id FROM agent_execution_state head JOIN model_outputs output ON output.agent_id=head.agent_id AND output.id=head.pending_tool_output_id JOIN agent_events event ON event.agent_id=output.agent_id AND event.model_output_id=output.id WHERE head.agent_id=$1 AND head.incomplete_tools`,
+		fixture.AgentID).
+		Scan(&sourceID, &contextID)
+	if err == nil {
+		ids := make([]uuid.UUID, 0, len(items))
+		for _, item := range items {
+			raw := item.Input
+			if len(raw) == 0 {
+				raw = json.RawMessage(`{}`)
+			}
+			call, err := insertToolCallForTest(
+				ctx,
+				fixture.Store,
+				toolCallFixtureInput{
+					ProjectID:          testProjectID,
+					AgentID:            fixture.AgentID,
+					SourceEventID:      sourceID,
+					ModelCallContextID: contextID,
+					RuntimeLockID:      fixture.Lock.ID,
+					ProviderCallID:     "call_" + item.TestName,
+					Name:               item.ToolName,
+					Input:              raw,
+					Type:               item.ToolType,
+				},
+			)
+			require.NoError(t, err)
+			if item.Allowed {
+				_, err = fixture.Store.Execution().
+					MarkToolCallReady(ctx,
+						executionstore.MarkToolCallReadyInput{ProjectID: testProjectID,
+							AgentID:       fixture.AgentID,
+							ID:            call.ID,
+							RuntimeLockID: fixture.Lock.ID})
+				require.NoError(t, err)
+			}
+			ids = append(ids, call.ID)
+		}
+		return ids
+	}
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
@@ -801,6 +862,7 @@ func createToolCallBatchForProcessTest(
 			Actor:          mustOmnaraActorParams(t, fixture.UserID),
 			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"seed tool call"}]`),
 			IdempotencyKey: "process-tool-input-" + batchName,
+			DeliveryMode:   executionstore.DeliveryModeSteering,
 		},
 	)
 	if err != nil {
@@ -817,18 +879,19 @@ func createToolCallBatchForProcessTest(
 	if !found || len(admitted.Events) != 1 {
 		t.Fatalf("admit source agent input: found=%v admitted=%+v", found, admitted)
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("load agent for model context fixture: %v", err)
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{input.ID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model call context: %v", err)
 	}
@@ -1344,25 +1407,13 @@ WHERE agent.project_id = $1
 	); err != nil {
 		t.Fatalf("append forced tool result event: %v", err)
 	}
-	metadata, err := marshalJSON(
-		map[string]any{
-			"reason":                "tool_result",
-			"tool_call_id":          record.ID,
-			"model_call_context_id": record.ModelCallContextID,
-			"outcome":               outcome,
-		},
-	)
-	if err != nil {
-		t.Fatalf("marshal forced tool result wakeup metadata: %v", err)
-	}
-	if err := dbsqlc.New(tx).MarkAgentWakeup(
-		ctx, dbsqlc.MarkAgentWakeupParams{ProjectID: projectID, AgentID: agentID, Metadata: metadata},
-	); err != nil {
-		t.Fatalf("mark forced tool result wakeup: %v", err)
-	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit forced tool completion: %v", err)
 	}
+	if err := store.Execution().RepairExecutionForTest(ctx, projectID, agentID); err != nil {
+		t.Fatal(err)
+	}
+
 }
 
 func cancelToolCallForTest(
@@ -1441,7 +1492,11 @@ func assertCompletedToolCallWithResult(
 		t.Fatalf("completed tool call has no result authority: %+v", toolCall)
 	}
 	if result.Outcome != toolCall.Outcome {
-		t.Fatalf("tool result outcome %q does not match execution outcome %q", result.Outcome, toolCall.Outcome)
+		t.Fatalf(
+			"tool result outcome %q does not match execution outcome %q",
+			result.Outcome,
+			toolCall.Outcome,
+		)
 	}
 	if reason != "" {
 		completed := completedToolCallForTest(t, store, agentID, toolCall.TurnID, toolCall.ID)

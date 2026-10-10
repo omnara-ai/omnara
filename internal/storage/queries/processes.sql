@@ -76,19 +76,6 @@ JOIN reachable_machine ON true
 ON CONFLICT (agent_id, tool_call_id) DO NOTHING
 RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
 
--- name: MachineReachableForProjectMachine :one
-SELECT machine.id
-FROM machines machine
-JOIN project_machine_grants pmgrant ON pmgrant.org_id = machine.org_id
-  AND pmgrant.machine_id = machine.id
-  AND pmgrant.project_id = sqlc.arg(project_id)
-JOIN machine_connection_states connection ON connection.org_id = machine.org_id
-  AND connection.machine_id = machine.id
-WHERE machine.id = sqlc.arg(machine_id)
-  AND machine.deleted_at IS NULL
-  AND connection.connection_state IN ('online', 'asleep')
-LIMIT 1;
-
 -- name: CountNonTerminalProcessesForAgent :one
 SELECT count(*)::bigint
 FROM processes
@@ -459,7 +446,7 @@ WHERE org_id = sqlc.arg(org_id)
   AND state IN ('starting', 'running')
 RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
 
--- name: LockAgentsForExecutionRevoked :many
+-- name: ListAgentsForExecutionRevoked :many
 SELECT agent.id
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -490,8 +477,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
       )
     )
   )
-ORDER BY agent.id
-FOR UPDATE;
+ORDER BY agent.id;
 
 -- name: ListProcessesForExecutionRevoked :many
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
@@ -598,3 +584,16 @@ WHERE project_id = sqlc.arg(project_id)
   AND state IN ('starting', 'running')
 ORDER BY updated_at DESC, id
 LIMIT 20;
+
+-- name: MachineReachableForProjectMachine :one
+SELECT machine.id
+FROM machines machine
+JOIN project_machine_grants pmgrant ON pmgrant.org_id = machine.org_id
+  AND pmgrant.machine_id = machine.id
+  AND pmgrant.project_id = sqlc.arg(project_id)
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
+WHERE machine.id = sqlc.arg(machine_id)
+  AND machine.deleted_at IS NULL
+  AND connection.connection_state IN ('online', 'asleep')
+LIMIT 1;
