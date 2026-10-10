@@ -89,16 +89,16 @@ func testPolicy(
 }
 
 func fakeSandboxID(seed string) string {
-	id := make([]byte, 0, 22)
+	id := make([]byte, 0, 26)
 	for _, ch := range []byte(seed) {
 		if ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' {
 			id = append(id, ch)
 		}
 	}
-	for len(id) < 22 {
+	for len(id) < 26 {
 		id = append(id, 'x')
 	}
-	return "sb-" + string(id[:22])
+	return "sb-" + string(id[:26])
 }
 
 func testSandboxName(t *testing.T, machineID uuid.UUID) string {
@@ -121,8 +121,7 @@ type fakeControlPlane struct {
 	sandboxes     map[string]*fakeSandbox
 	app           *pb.AppGetOrCreateRequest
 	image         *pb.ImageGetOrCreateRequest
-	secret        *pb.SecretGetOrCreateRequest
-	create        *pb.SandboxCreateRequest
+	create        *pb.SandboxCreateV2Request
 	lookup        *pb.SandboxGetFromNameRequest
 	createCalls   int
 	createErr     error
@@ -187,18 +186,10 @@ func (m *fakeControlPlane) ImageGetOrCreate(
 	}.Build(), nil
 }
 
-func (m *fakeControlPlane) SecretGetOrCreate(
+func (m *fakeControlPlane) SandboxCreateV2(
 	_ context.Context,
-	req *pb.SecretGetOrCreateRequest,
-) (*pb.SecretGetOrCreateResponse, error) {
-	m.secret = req
-	return pb.SecretGetOrCreateResponse_builder{SecretId: "st-test"}.Build(), nil
-}
-
-func (m *fakeControlPlane) SandboxCreate(
-	_ context.Context,
-	req *pb.SandboxCreateRequest,
-) (*pb.SandboxCreateResponse, error) {
+	req *pb.SandboxCreateV2Request,
+) (*pb.SandboxCreateV2Response, error) {
 	m.createCalls++
 	m.create = req
 	name := req.GetDefinition().GetName()
@@ -212,10 +203,18 @@ func (m *fakeControlPlane) SandboxCreate(
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
-	return pb.SandboxCreateResponse_builder{SandboxId: fakeSandboxID(name)}.Build(), nil
+	return pb.SandboxCreateV2Response_builder{SandboxId: fakeSandboxID(name)}.Build(), nil
 }
 
-func (m *fakeControlPlane) SandboxGetFromName(
+func (*fakeControlPlane) SandboxGetFromName(
+	_ context.Context,
+	req *pb.SandboxGetFromNameRequest,
+) (*pb.SandboxGetFromNameResponse, error) {
+	// The SDK checks V1 after a V2 name miss; this fixture has only V2 sandboxes.
+	return nil, status.Error(codes.NotFound, "sandbox "+req.GetSandboxName()+" not found")
+}
+
+func (m *fakeControlPlane) SandboxGetFromNameV2(
 	_ context.Context,
 	req *pb.SandboxGetFromNameRequest,
 ) (*pb.SandboxGetFromNameResponse, error) {
@@ -231,7 +230,7 @@ func (m *fakeControlPlane) SandboxGetFromName(
 	return nil, status.Error(codes.NotFound, "sandbox "+req.GetSandboxName()+" not found")
 }
 
-func (m *fakeControlPlane) SandboxTagsGet(
+func (m *fakeControlPlane) SandboxTagsGetV2(
 	ctx context.Context,
 	req *pb.SandboxTagsGetRequest,
 ) (*pb.SandboxTagsGetResponse, error) {
@@ -254,7 +253,7 @@ func (m *fakeControlPlane) SandboxTagsGet(
 	return pb.SandboxTagsGetResponse_builder{Tags: tags}.Build(), nil
 }
 
-func (m *fakeControlPlane) SandboxWait(
+func (m *fakeControlPlane) SandboxWaitV2(
 	_ context.Context,
 	req *pb.SandboxWaitRequest,
 ) (*pb.SandboxWaitResponse, error) {
@@ -272,7 +271,7 @@ func (m *fakeControlPlane) SandboxWait(
 	return response.Build(), nil
 }
 
-func (m *fakeControlPlane) SandboxTerminate(
+func (m *fakeControlPlane) SandboxTerminateV2(
 	_ context.Context,
 	req *pb.SandboxTerminateRequest,
 ) (*pb.SandboxTerminateResponse, error) {
