@@ -387,14 +387,14 @@ func (f executionFixture) handle(
 ) (*agentexecution.Unit, *agentexecution.Handle) {
 	t.Helper()
 	ctx := t.Context()
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
-	u, err := cell.Begin(ctx)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	u, err := agentexecution.BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = u.Rollback(context.Background()) })
 	plan, err := u.PlanAgents(
 		ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: agent}},
-		agentexecution.RepairAuthority{},
+		nil,
 	)
 	require.NoError(t, err)
 	require.NoError(t, u.LockAgents(ctx, plan))
@@ -404,7 +404,7 @@ func (f executionFixture) handle(
 		u.DB().QueryRow(ctx, `SELECT root_agent_id FROM agents WHERE id=$1`, agent).Scan(&root),
 	)
 	h, err := u.Agent(
-		agentexecution.AgentRoute{CellID: cell.ID(), ProjectID: f.project, AgentID: agent, RootAgentID: root},
+		agentexecution.AgentRoute{ProjectID: f.project, AgentID: agent, RootAgentID: root},
 	)
 	require.NoError(t, err)
 	return u, h

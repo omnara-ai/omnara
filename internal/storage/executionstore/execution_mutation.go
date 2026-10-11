@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 func beginExecution(
@@ -16,7 +17,7 @@ func beginExecution(
 	if err != nil {
 		return nil, nil, err
 	}
-	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, agentexecution.LifecycleAuthority{})
+	plan, err := unit.PlanAgents(ctx, []lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}}, nil)
 	if err == nil {
 		err = unit.LockAgents(ctx, plan)
 	}

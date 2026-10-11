@@ -98,7 +98,7 @@ func (s *Store) admitOriginContentTx(
 	if err := unit.LockAgentRefs(
 		ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
-		agentexecution.IngressAuthority{},
+		nil,
 	); err != nil {
 		return InboxInputResult{}, err
 	}

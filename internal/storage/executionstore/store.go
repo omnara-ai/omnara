@@ -39,7 +39,6 @@ func New(pool *pgxpool.Pool, config Config) *Store {
 	db := storeutil.WrapPool(pool)
 	return &Store{
 		cell: agentexecution.NewCell(
-			"primary",
 			pool,
 			config.PostCommitPublisher,
 			config.ModelCallRetryBackoff,

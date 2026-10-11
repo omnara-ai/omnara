@@ -146,7 +146,7 @@ func (s *Store) CompleteToolCall(
 		return ToolCallRecord{}, err
 	}
 	input.ResultContentParts = parts
-	record, err := s.completeToolCallOnce(ctx, input)
+	record, err := s.completePreparedToolCall(ctx, input)
 	if err == nil {
 		return record, nil
 	}
@@ -155,64 +155,77 @@ func (s *Store) CompleteToolCall(
 		return ToolCallRecord{}, err
 	}
 	input.ResultContentParts = parts
-	return s.completeToolCallOnce(ctx, input)
+	return s.completePreparedToolCall(ctx, input)
 }
 
-func (s *Store) completeToolCallOnce(
+func (s *Store) completePreparedToolCall(
 	ctx context.Context,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return ToolCallRecord{}, fmt.Errorf("begin complete tool call: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
+	return agentexecution.Retry(ctx,
+		"completePreparedToolCall",
+		func(ctx context.Context) (ToolCallRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return ToolCallRecord{}, fmt.Errorf("begin complete tool call: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
 
-	record, err := completeExecutionTool(ctx, unit, input)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	if err := unit.Commit(ctx, "complete tool call"); err != nil {
-		return ToolCallRecord{}, err
-	}
-	return record, nil
+			record, err := completeExecutionTool(ctx, unit, input)
+			if err != nil {
+				return ToolCallRecord{}, err
+			}
+			if err := unit.Commit(ctx, "complete tool call"); err != nil {
+				return ToolCallRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) MarkToolCallReady(ctx context.Context, input MarkToolCallReadyInput) (ToolCallRecord, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	if _,
-		err = h.AuthorizeTool(ctx,
-		agentexecution.ToolRef{ID: input.ID,
-			RuntimeLockID: input.RuntimeLockID}); err != nil {
-		return ToolCallRecord{}, err
-	}
-	record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	if err = unit.Commit(ctx, "authorize tool"); err != nil {
-		return ToolCallRecord{}, err
-	}
-	return record, nil
+	return agentexecution.Retry(ctx,
+		"MarkToolCallReady",
+		func(ctx context.Context) (ToolCallRecord, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return ToolCallRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			if _,
+				err = h.AuthorizeTool(ctx,
+				agentexecution.ToolRef{ID: input.ID,
+					RuntimeLockID: input.RuntimeLockID}); err != nil {
+				return ToolCallRecord{}, err
+			}
+			record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+			if err != nil {
+				return ToolCallRecord{}, err
+			}
+			if err = unit.Commit(ctx, "authorize tool"); err != nil {
+				return ToolCallRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) RequeueRuntimeToolCall(ctx context.Context, input RequeueRuntimeToolCallInput) error {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	if _,
-		err = h.RequeueTool(ctx,
-		agentexecution.ToolRef{ID: input.ToolCallID,
-			RuntimeLockID: input.RuntimeLockID}); err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "requeue tool")
+	_, err := agentexecution.Retry(ctx,
+		"RequeueRuntimeToolCall",
+		func(ctx context.Context) (struct{}, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			if _,
+				err = h.RequeueTool(ctx,
+				agentexecution.ToolRef{ID: input.ToolCallID,
+					RuntimeLockID: input.RuntimeLockID}); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "requeue tool")
+		})
+	return err
 }
 
 func completeExecutionTool(
@@ -223,7 +236,7 @@ func completeExecutionTool(
 
 	err := unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
-		agentexecution.IngressAuthority{},
+		nil,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return ToolCallRecord{}, storeerr.ErrRuntimeLockInactive
@@ -261,7 +274,7 @@ func (s *Store) CompleteRuntimeToolCall(
 		return ToolCallRecord{}, err
 	}
 	input.ResultContentParts = parts
-	record, err := s.completeRuntimeToolCallOnce(ctx, input)
+	record, err := s.completePreparedRuntimeToolCall(ctx, input)
 	if err == nil {
 		return record, nil
 	}
@@ -270,37 +283,41 @@ func (s *Store) CompleteRuntimeToolCall(
 		return ToolCallRecord{}, err
 	}
 	input.ResultContentParts = parts
-	return s.completeRuntimeToolCallOnce(ctx, input)
+	return s.completePreparedRuntimeToolCall(ctx, input)
 }
 
-func (s *Store) completeRuntimeToolCallOnce(
+func (s *Store) completePreparedRuntimeToolCall(
 	ctx context.Context,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
 	if !input.Outcome.IsTerminal() || input.Outcome == ToolResultOutcomeDenied {
 		return ToolCallRecord{}, errors.New("invalid runtime tool outcome")
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	record, err := completeExecutionTool(
-		ctx,
-		unit,
-		CompleteToolCallInput{ProjectID: input.ProjectID, AgentID: input.AgentID,
-			ID:                 input.ID,
-			RuntimeLockID:      input.RuntimeLockID,
-			Outcome:            input.Outcome,
-			ResultContentParts: input.ResultContentParts},
-	)
-	if err != nil {
-		return ToolCallRecord{}, err
-	}
-	if err = unit.Commit(ctx, "complete runtime tool"); err != nil {
-		return ToolCallRecord{}, err
-	}
-	return record, nil
+	return agentexecution.Retry(ctx,
+		"completePreparedRuntimeToolCall",
+		func(ctx context.Context) (ToolCallRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return ToolCallRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			record, err := completeExecutionTool(
+				ctx,
+				unit,
+				CompleteToolCallInput{ProjectID: input.ProjectID, AgentID: input.AgentID,
+					ID:                 input.ID,
+					RuntimeLockID:      input.RuntimeLockID,
+					Outcome:            input.Outcome,
+					ResultContentParts: input.ResultContentParts},
+			)
+			if err != nil {
+				return ToolCallRecord{}, err
+			}
+			if err = unit.Commit(ctx, "complete runtime tool"); err != nil {
+				return ToolCallRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) CompleteCustomToolCall(
@@ -312,20 +329,24 @@ func (s *Store) CompleteCustomToolCall(
 		return CompleteCustomToolCallResult{}, err
 	}
 	input.ContentBlocks = parts
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return CompleteCustomToolCallResult{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
+	return agentexecution.Retry(ctx,
+		"CompleteCustomToolCall",
+		func(ctx context.Context) (CompleteCustomToolCallResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return CompleteCustomToolCallResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
 
-	result, err := completeCustomToolCallTx(ctx, unit, input)
-	if err != nil {
-		return CompleteCustomToolCallResult{}, err
-	}
-	if err := unit.Commit(ctx, "complete custom tool call"); err != nil {
-		return CompleteCustomToolCallResult{}, err
-	}
-	return result, nil
+			result, err := completeCustomToolCallTx(ctx, unit, input)
+			if err != nil {
+				return CompleteCustomToolCallResult{}, err
+			}
+			if err := unit.Commit(ctx, "complete custom tool call"); err != nil {
+				return CompleteCustomToolCallResult{}, err
+			}
+			return result, nil
+		})
 }
 
 func completeCustomToolCallTx(
@@ -336,7 +357,7 @@ func completeCustomToolCallTx(
 	if err := unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID,
 			AgentID: input.AgentID}},
-		agentexecution.ExternalAuthority{}); err != nil {
+		nil); err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
 	blocks, err := parseToolResultContentBlocks(input.ContentBlocks)

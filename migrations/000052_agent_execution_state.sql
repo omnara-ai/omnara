@@ -19,7 +19,6 @@ CREATE TABLE agent_execution_state (
     agent_id uuid PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
     current_turn_id uuid,
     stop_sequence bigint NOT NULL DEFAULT 0 CHECK (stop_sequence >= 0),
-    answered_through_sequence bigint NOT NULL DEFAULT 0 CHECK (answered_through_sequence >= stop_sequence),
     max_normal_input_sequence bigint NOT NULL DEFAULT 0 CHECK (max_normal_input_sequence >= 0),
     max_context_input_sequence bigint NOT NULL DEFAULT 0 CHECK (max_context_input_sequence >= max_normal_input_sequence),
     normal_context_id uuid,
@@ -174,10 +173,39 @@ CREATE TRIGGER model_call_contexts_lineage_immutable
     BEFORE UPDATE OF turn_id,opening_input_ids,opening_event_sequence ON model_call_contexts
     FOR EACH ROW EXECUTE FUNCTION enforce_execution_lineage_identity();
 
+-- +goose StatementBegin
+CREATE FUNCTION enforce_execution_opening_members() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM (
+            SELECT member.ordinality,i.id,e.sequence,
+                   lag(e.sequence) OVER (ORDER BY member.ordinality) AS previous_sequence
+            FROM unnest(NEW.opening_input_ids) WITH ORDINALITY member(id,ordinality)
+            LEFT JOIN agent_inputs i ON i.agent_id=NEW.agent_id AND i.id=member.id
+                AND i.input_kind='content' AND i.state='resolved'
+            LEFT JOIN agent_events e ON e.agent_id=i.agent_id AND e.id=i.admitted_event_id AND e.is_opening_event
+        ) ordered
+        WHERE id IS NULL OR sequence IS NULL OR sequence<=previous_sequence
+           OR (ordinality=1 AND sequence<>NEW.opening_event_sequence)
+    ) THEN
+        RAISE EXCEPTION 'opening inputs must belong to the agent in event sequence order' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+CREATE TRIGGER model_call_contexts_opening_members BEFORE INSERT ON model_call_contexts
+    FOR EACH ROW EXECUTE FUNCTION enforce_execution_opening_members();
+CREATE TRIGGER context_checkpoints_opening_members BEFORE INSERT ON context_checkpoints
+    FOR EACH ROW EXECUTE FUNCTION enforce_execution_opening_members();
+CREATE TRIGGER agent_inputs_opening_members BEFORE INSERT OR UPDATE OF state,opening_input_ids,opening_event_sequence ON agent_inputs
+    FOR EACH ROW WHEN (NEW.input_kind='config_change' AND NEW.state='resolved')
+    EXECUTE FUNCTION enforce_execution_opening_members();
+
 INSERT INTO agent_execution_state (
-    agent_id,current_turn_id,stop_sequence,answered_through_sequence,max_normal_input_sequence,max_context_input_sequence,
+    agent_id,current_turn_id,stop_sequence,max_normal_input_sequence,max_context_input_sequence,
     normal_context_id,compaction_context_id,turn_continuable,incomplete_tools,logical_ready_at)
-SELECT a.id, t.id, coalesce(s.sequence,0), greatest(coalesce(s.sequence,0),coalesce(answer.sequence,0)),
+SELECT a.id, t.id, coalesce(s.sequence,0),
        coalesce(w.normal_sequence,0), coalesce(w.context_sequence,0), n.id,c.id,
        a.state='active' AND (agent_has_incomplete_tool_batch(a.project_id,a.id)
           OR EXISTS(SELECT 1 FROM agent_next_model_work(a.project_id,a.id))
@@ -187,7 +215,6 @@ SELECT a.id, t.id, coalesce(s.sequence,0), greatest(coalesce(s.sequence,0),coale
 FROM agents a
 LEFT JOIN LATERAL (SELECT id FROM agent_turns WHERE agent_id=a.id ORDER BY turn_sequence DESC LIMIT 1) t ON true
 LEFT JOIN LATERAL (SELECT max(sequence) AS sequence FROM agent_stop_events WHERE agent_id=a.id AND project_id=a.project_id) s ON true
-LEFT JOIN LATERAL (SELECT sequence FROM agent_events WHERE agent_id=a.id AND event_kind='model_output' ORDER BY sequence DESC LIMIT 1) answer ON true
 LEFT JOIN LATERAL (SELECT max(input_event_sequence) FILTER (WHERE operation_kind='normal') AS normal_sequence,
     max(input_event_sequence) AS context_sequence FROM model_call_contexts WHERE agent_id=a.id) w ON true
 LEFT JOIN LATERAL (SELECT id,input_event_sequence FROM model_call_contexts WHERE agent_id=a.id AND turn_id=t.id

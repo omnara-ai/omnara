@@ -6,6 +6,8 @@ icon: "webhook"
 
 Configure an [event webhook](/agents/configuration#event-webhook) to receive JSON POST requests with `event` and `data`. The event name determines the data schema. These are the same data objects used by the [event stream](/events/streaming).
 
+Webhook deliveries are suppressed for deleted projects and organizations, including events produced by their deletion.
+
 Every request includes `Webhook-Id` (stable across retries) and `Webhook-Timestamp` (Unix seconds for that attempt). Signed requests also include `Webhook-Signature`. Verify the signature against the raw request body before parsing it, using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
 
 ## Receive and verify

@@ -162,3 +162,23 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 	}
 	return items, nil
 }
+
+const lockClaimableAgentWakeup = `-- name: LockClaimableAgentWakeup :one
+SELECT wake.agent_id
+FROM agent_wakeups wake JOIN agents agent ON agent.id=wake.agent_id
+WHERE wake.agent_id=$1 AND agent.state<>'archived'
+  AND wake.ready_at<=statement_timestamp()
+  AND NOT EXISTS(SELECT 1 FROM agent_runtime_locks runtime WHERE runtime.agent_id=wake.agent_id)
+FOR UPDATE OF wake
+`
+
+type LockClaimableAgentWakeupParams struct {
+	AgentID uuid.UUID
+}
+
+func (q *Queries) LockClaimableAgentWakeup(ctx context.Context, arg LockClaimableAgentWakeupParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockClaimableAgentWakeup, arg.AgentID)
+	var agent_id uuid.UUID
+	err := row.Scan(&agent_id)
+	return agent_id, err
+}

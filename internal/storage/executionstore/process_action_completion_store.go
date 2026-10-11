@@ -229,34 +229,38 @@ func (s *Store) completeDaemonProcessAction(
 			"project, agent, process, and action are required",
 		)
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return DaemonProcessActionReportApplication{}, fmt.Errorf("begin complete process action: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
+	return agentexecution.Retry(ctx,
+		"completeDaemonProcessAction",
+		func(ctx context.Context) (DaemonProcessActionReportApplication, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return DaemonProcessActionReportApplication{}, fmt.Errorf("begin complete process action: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
 
-	qtx := dbsqlc.New(tx)
-	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
-		return DaemonProcessActionReportApplication{}, err
-	}
-	completion := processActionCompletionInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
-		ProcessID:          input.ProcessID,
-		ID:                 input.ID,
-		StateReasonCode:    input.StateReasonCode,
-		StateReasonMessage: input.StateReasonMessage,
-		Result:             input.Result,
-	}
-	application, err := completeDaemonProcessActionTx(ctx, unit, qtx, completion, state)
-	if err != nil {
-		return DaemonProcessActionReportApplication{}, err
-	}
-	if err := unit.Commit(ctx, "complete process action"); err != nil {
-		return DaemonProcessActionReportApplication{}, err
-	}
-	return application, nil
+			qtx := dbsqlc.New(tx)
+			if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
+				return DaemonProcessActionReportApplication{}, err
+			}
+			completion := processActionCompletionInput{
+				ProjectID:          input.ProjectID,
+				AgentID:            input.AgentID,
+				ProcessID:          input.ProcessID,
+				ID:                 input.ID,
+				StateReasonCode:    input.StateReasonCode,
+				StateReasonMessage: input.StateReasonMessage,
+				Result:             input.Result,
+			}
+			application, err := completeDaemonProcessActionTx(ctx, unit, qtx, completion, state)
+			if err != nil {
+				return DaemonProcessActionReportApplication{}, err
+			}
+			if err := unit.Commit(ctx, "complete process action"); err != nil {
+				return DaemonProcessActionReportApplication{}, err
+			}
+			return application, nil
+		})
 }
 
 func completeDaemonProcessActionTx(
@@ -269,7 +273,7 @@ func completeDaemonProcessActionTx(
 	_, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: input.ProjectID,
 		ID:        input.AgentID,
-	}, agentexecution.ExternalAuthority{})
+	}, nil)
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, fmt.Errorf(
 			"lock agent for process action completion: %w",

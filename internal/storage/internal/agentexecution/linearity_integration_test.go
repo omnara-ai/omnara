@@ -21,8 +21,8 @@ func TestExecutionBulkAndLoopLinearity(t *testing.T) {
 			var baseline time.Duration
 			for _, n := range []int{1000, 10000} {
 				t.Run(fmt.Sprint(n), func(t *testing.T) {
-					cell := agentexecution.NewCell("test", f.pool, nil, nil)
-					u, err := cell.Begin(ctx)
+					cell := agentexecution.NewCell(f.pool, nil, nil)
+					u, err := agentexecution.BeginTestUnit(ctx, cell)
 					require.NoError(t, err)
 					defer func() { _ = u.Rollback(ctx) }()
 					started := time.Now()
@@ -100,19 +100,18 @@ func TestExecutionReconstructionTenThousandAgents(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	rows.Close()
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
-	u, err := cell.Begin(ctx)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	u, err := agentexecution.BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(ctx) }()
 	started = time.Now()
-	plan, err := u.PlanAgents(ctx, refs, agentexecution.RepairAuthority{})
+	plan, err := u.PlanAgents(ctx, refs, nil)
 	require.NoError(t, err)
 	require.NoError(t, u.LockAgents(ctx, plan))
 	var firstThousand time.Duration
 	for i, ref := range refs {
 		h, handleErr := u.Agent(
 			agentexecution.AgentRoute{
-				CellID:      cell.ID(),
 				ProjectID:   f.project,
 				AgentID:     ref.AgentID,
 				RootAgentID: ref.AgentID,

@@ -99,45 +99,54 @@ func (s *Store) ClaimNextAgentWork(
 	ctx context.Context,
 	input ClaimNextAgentWorkInput,
 ) (ClaimedAgentWork, bool, error) {
-	if input.WorkerProcessID == uuid.Nil {
-		return ClaimedAgentWork{}, false, errors.New("worker process id is required")
+	type executionResult struct {
+		work  ClaimedAgentWork
+		found bool
 	}
-	if err := validateAgentRuntimeLockLeaseDuration(input.LeaseDuration); err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	route, err := unit.ClaimAgent(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ClaimedAgentWork{}, false, storeerr.ErrNoClaimableAgentWakeup
-	}
-	if err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	h, err := unit.Agent(route)
-	if err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	started := time.Now() //nolint:omnaralint // Monotonic lease budget.
-	work, err := h.Claim(ctx, input.WorkerProcessID, input.LeaseDuration)
-	if err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	if err := applyAdmissionDestination(ctx, unit, route.ProjectID, route.AgentID, work.Admission); err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	claim, err := shapeOwnedWork(ctx, unit, route.ProjectID, route.AgentID, work)
-	if err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	claim.LocalLeaseBudgetStartedAt = started
-	if err = unit.Commit(ctx, "claim agent work"); err != nil {
-		return ClaimedAgentWork{}, false, err
-	}
-	return claim, true, nil
+	result, err := agentexecution.Retry(ctx,
+		"ClaimNextAgentWork",
+		func(ctx context.Context) (executionResult, error) {
+			if input.WorkerProcessID == uuid.Nil {
+				return executionResult{ClaimedAgentWork{}, false}, errors.New("worker process id is required")
+			}
+			if err := validateAgentRuntimeLockLeaseDuration(input.LeaseDuration); err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			route, err := unit.ClaimAgent(ctx)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return executionResult{ClaimedAgentWork{}, false}, storeerr.ErrNoClaimableAgentWakeup
+			}
+			if err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			h, err := unit.Agent(route)
+			if err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			started := time.Now() //nolint:omnaralint // Monotonic lease budget.
+			work, err := h.Claim(ctx, input.WorkerProcessID, input.LeaseDuration)
+			if err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			if err := applyAdmissionDestination(ctx, unit, route.ProjectID, route.AgentID, work.Admission); err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			claim, err := shapeOwnedWork(ctx, unit, route.ProjectID, route.AgentID, work)
+			if err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			claim.LocalLeaseBudgetStartedAt = started
+			if err = unit.Commit(ctx, "claim agent work"); err != nil {
+				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			return executionResult{claim, true}, nil
+		})
+	return result.work, result.found, err
 }
 
 func (s *Store) ListQueuedBacklogInputs(

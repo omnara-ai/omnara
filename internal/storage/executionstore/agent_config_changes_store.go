@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -55,9 +54,11 @@ func (s *Store) ChangeAgentConfig(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
-	return storeutil.RetryTransaction(ctx, "change_agent_config", func() (ChangeAgentConfigResult, error) {
-		return s.changeAgentConfigOnce(ctx, input)
-	})
+	return agentexecution.Retry(ctx,
+		"change_agent_config",
+		func(ctx context.Context) (ChangeAgentConfigResult, error) {
+			return s.changeAgentConfigOnce(ctx, input)
+		})
 }
 
 func (s *Store) changeAgentConfigOnce(
@@ -317,7 +318,7 @@ func lockAgentForConfigActivationTx(
 	if _, err := unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-		agentexecution.IngressAuthority{}); err != nil {
+		nil); err != nil {
 		return fmt.Errorf("lock agent for config change: %w", err)
 	}
 	return nil

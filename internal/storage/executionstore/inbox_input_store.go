@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -48,9 +47,11 @@ func (s *Store) AdmitInboxInputRecipient(
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || recipientKey == "" {
 		return InboxInputResult{}, storeerr.InvalidRequest(errors.New("inbox lease and recipient are required"))
 	}
-	return storeutil.RetryTransaction(ctx, "admit_inbox_input_recipient", func() (InboxInputResult, error) {
-		return s.admitInboxInputRecipientOnce(ctx, lease, recipientKey, artifacts)
-	})
+	return agentexecution.Retry(ctx,
+		"admit_inbox_input_recipient",
+		func(ctx context.Context) (InboxInputResult, error) {
+			return s.admitInboxInputRecipientOnce(ctx, lease, recipientKey, artifacts)
+		})
 }
 
 func (s *Store) admitInboxInputRecipientOnce(
@@ -111,7 +112,7 @@ func (s *Store) admitInboxInputRecipientOnce(
 	}
 	if err := unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{
 		ProjectID: lease.ProjectID, AgentID: recipient.AgentID,
-	}}, agentexecution.IngressAuthority{}); err != nil {
+	}}, nil); err != nil {
 		return InboxInputResult{}, err
 	}
 	outcome, err := resolveInboxInputOutcome(ctx, q, recipient)

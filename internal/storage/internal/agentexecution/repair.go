@@ -32,10 +32,9 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 		return ExecutionSnapshot{}, err
 	}
 	head := ExecutionHead{
-		AgentID:                 l.route.AgentID,
-		CurrentTurnID:           boundaries.TurnID,
-		StopSequence:            boundaries.StopSequence,
-		AnsweredThroughSequence: max(boundaries.StopSequence, boundaries.OutputSequence),
+		AgentID:       l.route.AgentID,
+		CurrentTurnID: boundaries.TurnID,
+		StopSequence:  boundaries.StopSequence,
 	}
 	contexts, err := l.q.ReconstructExecutionContexts(
 		ctx,

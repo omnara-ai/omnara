@@ -14,32 +14,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type MutationAuthority interface{ mutationAuthority() }
-
 type RuntimeAuthority struct {
 	AgentID       uuid.UUID
 	RuntimeLockID uuid.UUID
 }
 
-type IngressAuthority struct{}
-type LifecycleAuthority struct{}
-type RepairAuthority struct{}
-type ExternalAuthority struct{}
-
-func (RuntimeAuthority) mutationAuthority()   {}
-func (IngressAuthority) mutationAuthority()   {}
-func (LifecycleAuthority) mutationAuthority() {}
-func (RepairAuthority) mutationAuthority()    {}
-func (ExternalAuthority) mutationAuthority()  {}
-
 type MutationPlan struct {
 	agents    []AgentRoute
-	authority MutationAuthority
+	authority *RuntimeAuthority
 	unit      *Unit
 }
 
 func (u *Unit) PlanAgents(
-	ctx context.Context, refs []lifecyclelock.AgentRef, authority MutationAuthority,
+	ctx context.Context, refs []lifecyclelock.AgentRef, authority *RuntimeAuthority,
 ) (MutationPlan, error) {
 	if err := u.active(); err != nil {
 		return MutationPlan{}, err
@@ -61,7 +48,7 @@ func (u *Unit) PlanAgents(
 			return MutationPlan{}, err
 		}
 		plan.agents = append(plan.agents, AgentRoute{
-			CellID: u.cell.id, ProjectID: ref.ProjectID, AgentID: ref.AgentID, RootAgentID: root,
+			ProjectID: ref.ProjectID, AgentID: ref.AgentID, RootAgentID: root,
 		})
 	}
 	return plan, nil
@@ -80,19 +67,27 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 	if err := u.active(); err != nil {
 		return false, err
 	}
-	switch plan.authority.(type) {
-	case RuntimeAuthority, IngressAuthority, LifecycleAuthority, RepairAuthority, ExternalAuthority:
-	default:
-		return false, errors.New("agent mutation authority is required")
-	}
 	if plan.unit != u {
 		return false, fmt.Errorf("%w: plan belongs to a different unit", ErrLockPlan)
+	}
+	if len(u.handles) == 0 && len(u.expanded.agents) > 0 {
+		expanded, err := u.PlanAgents(ctx, u.expanded.agents, nil)
+		if err != nil {
+			return false, err
+		}
+		plan.agents = append(plan.agents, expanded.agents...)
 	}
 	routes := slices.Clone(plan.agents)
 	slices.SortFunc(routes, compareRoutes)
 	routes = slices.Compact(routes)
+	var missing []lifecyclelock.AgentRef
 	for _, route := range routes {
-		if route.CellID != u.cell.id || route.ProjectID == uuid.Nil ||
+		if u.handles[route.AgentID] == nil {
+			missing = append(missing, lifecyclelock.AgentRef{ProjectID: route.ProjectID, AgentID: route.AgentID})
+		}
+	}
+	for _, route := range routes {
+		if route.ProjectID == uuid.Nil ||
 			route.AgentID == uuid.Nil || route.RootAgentID == uuid.Nil {
 			return false, fmt.Errorf("%w: invalid agent route", ErrLockPlan)
 		}
@@ -103,7 +98,7 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 			continue
 		}
 		if u.runtimeLocked {
-			return false, fmt.Errorf("%w: agent acquired after runtime", ErrLockPlan)
+			return false, u.expandPlan(missing...)
 		}
 		for _, held := range u.handles {
 			_, excluded := u.exclusiveProjects[route.ProjectID]
@@ -111,7 +106,7 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 				continue
 			}
 			if compareRoutes(route, held.route) < 0 {
-				return false, fmt.Errorf("%w: agent order", ErrLockPlan)
+				return false, u.expandPlan(missing...)
 			}
 		}
 	}
@@ -144,7 +139,7 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 		}
 		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true, identity: &identity}
 	}
-	if owned, ok := plan.authority.(RuntimeAuthority); ok {
+	if owned := plan.authority; owned != nil {
 		h := u.handles[owned.AgentID]
 		if h == nil || owned.RuntimeLockID == uuid.Nil {
 			return false, storeerr.ErrRuntimeLockInactive
@@ -165,7 +160,7 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 	return true, nil
 }
 
-func (u *Unit) LockAgentRefs(ctx context.Context, refs []lifecyclelock.AgentRef, authority MutationAuthority) error {
+func (u *Unit) LockAgentRefs(ctx context.Context, refs []lifecyclelock.AgentRef, authority *RuntimeAuthority) error {
 	plan, err := u.PlanAgents(ctx, refs, authority)
 	if err != nil {
 		return err
@@ -209,13 +204,27 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 	if len(u.handles) != 0 {
 		return AgentRoute{}, ErrLockPlan
 	}
+	if u.expanded.claimed != uuid.Nil {
+		if err := u.LockAgentRefs(ctx, u.expanded.agents, nil); err != nil {
+			return AgentRoute{}, err
+		}
+		if _, err := dbsqlc.New(u.DB()).LockClaimableAgentWakeup(ctx,
+			dbsqlc.LockClaimableAgentWakeupParams{AgentID: u.expanded.claimed}); err != nil {
+			return AgentRoute{}, err
+		}
+		u.claimedAgent = u.expanded.claimed
+		return u.handles[u.claimedAgent].route, nil
+	}
 	wakeup, err := dbsqlc.New(u.DB()).ClaimNextAgentWakeup(ctx)
 	if err != nil {
 		return AgentRoute{}, err
 	}
-	route := AgentRoute{CellID: u.cell.id, ProjectID: wakeup.ProjectID,
+	route := AgentRoute{ProjectID: wakeup.ProjectID,
 		AgentID: wakeup.AgentID, RootAgentID: wakeup.RootAgentID}
-	u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true}
+	if u.handles[route.AgentID] == nil {
+		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true}
+	}
+	u.claimedAgent = route.AgentID
 	return route, nil
 }
 
@@ -234,13 +243,13 @@ func (u *Unit) CreatedAgent(projectID, agentID, parentID uuid.UUID) error {
 		}
 		rootID = parent.route.RootAgentID
 	}
-	route := AgentRoute{CellID: u.cell.id, ProjectID: projectID, AgentID: agentID, RootAgentID: rootID}
+	route := AgentRoute{ProjectID: projectID, AgentID: agentID, RootAgentID: rootID}
 	u.handles[agentID] = &Handle{unit: u, route: route, valid: true, created: true}
 	return nil
 }
 
 func (u *Unit) LockAgent(
-	ctx context.Context, arg dbsqlc.LockAgentInProjectParams, authority MutationAuthority,
+	ctx context.Context, arg dbsqlc.LockAgentInProjectParams, authority *RuntimeAuthority,
 ) (dbsqlc.LockAgentInProjectRow, error) {
 	if err := u.LockAgentRefs(
 		ctx,
@@ -264,7 +273,7 @@ func (u *Unit) LockAgent(
 }
 
 func (u *Unit) PlanAgentFamily(
-	ctx context.Context, projectID, agentID uuid.UUID, authority MutationAuthority,
+	ctx context.Context, projectID, agentID uuid.UUID, authority *RuntimeAuthority,
 ) (MutationPlan, error) {
 	if err := u.active(); err != nil {
 		return MutationPlan{}, err
@@ -278,9 +287,9 @@ func (u *Unit) PlanAgentFamily(
 	if err != nil {
 		return MutationPlan{}, err
 	}
-	routes := []AgentRoute{{CellID: u.cell.id, ProjectID: projectID, AgentID: agentID, RootAgentID: row.RootAgentID}}
+	routes := []AgentRoute{{ProjectID: projectID, AgentID: agentID, RootAgentID: row.RootAgentID}}
 	if row.ParentAgentID != nil {
-		routes = append(routes, AgentRoute{CellID: u.cell.id, ProjectID: projectID,
+		routes = append(routes, AgentRoute{ProjectID: projectID,
 			AgentID: *row.ParentAgentID, RootAgentID: row.RootAgentID})
 	}
 	return MutationPlan{unit: u, agents: routes, authority: authority}, nil

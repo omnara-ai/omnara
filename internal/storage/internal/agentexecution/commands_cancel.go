@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/notifications"
 
@@ -44,14 +43,6 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 		)
 		if err != nil {
 			return CanceledExecution{}, err
-		}
-		if snapshot.View.State == AgentArchived && input.ForceRuntime {
-			view := snapshot.View
-			view.State = AgentActive
-			snapshot.Selection, err = SelectNext(view, time.Time{})
-			if err != nil {
-				return CanceledExecution{}, err
-			}
 		}
 		updates := make(map[uuid.UUID]*notifications.AgentInteractionUpdate)
 		turn := uuid.Nil
@@ -226,7 +217,6 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 			}
 		}
 		m.head.StopSequence = result.Event.Sequence
-		m.head.AnsweredThroughSequence = max(m.head.AnsweredThroughSequence, result.Event.Sequence)
 		m.head.PendingToolOutputID = uuid.Nil
 		m.head.PendingOutputLimitID = uuid.Nil
 		m.head.PendingConfigInputID = uuid.Nil

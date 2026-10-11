@@ -446,39 +446,6 @@ WHERE org_id = sqlc.arg(org_id)
   AND state IN ('starting', 'running')
 RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
 
--- name: ListAgentsForExecutionRevoked :many
-SELECT agent.id
-FROM agents agent
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND (
-    (sqlc.narg(agent_id)::uuid IS NOT NULL AND agent.id = sqlc.narg(agent_id)::uuid)
-    OR (
-      sqlc.narg(agent_id)::uuid IS NULL
-      AND (sqlc.narg(project_machine_grant_id)::uuid IS NOT NULL OR sqlc.narg(project_machine_pool_grant_id)::uuid IS NOT NULL)
-      AND EXISTS (
-        SELECT 1
-        FROM agent_machine_bindings binding
-        JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-          AND pmgrant.machine_id = binding.machine_id
-        WHERE binding.project_id = agent.project_id
-          AND binding.agent_id = agent.id
-          AND binding.state = 'attached'
-          AND (
-            sqlc.narg(project_machine_grant_id)::uuid IS NULL
-            OR pmgrant.id = sqlc.narg(project_machine_grant_id)::uuid
-          )
-          AND (
-            sqlc.narg(project_machine_pool_grant_id)::uuid IS NULL
-            OR (
-              pmgrant.source_kind = 'pool'
-              AND pmgrant.project_machine_pool_grant_id = sqlc.narg(project_machine_pool_grant_id)::uuid
-            )
-          )
-      )
-    )
-  )
-ORDER BY agent.id;
-
 -- name: ListProcessesForExecutionRevoked :many
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 FROM processes process

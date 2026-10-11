@@ -120,14 +120,16 @@ func TestExecutionClaimRenewAcceptAdvance(t *testing.T) {
 		ContextID:     prepared.Context.ID,
 		Response:      commandResponse(modelenvelope.StopReasonMaxTokens),
 	}
-	accepted, work, err := h.AcceptAndAdvance(t.Context(), input, true, true)
+	accepted, err := h.AcceptOutput(t.Context(), input)
+	require.NoError(t, err)
+	work, err := h.Advance(t.Context(), input.RuntimeLockID, true, true)
 	require.NoError(t, err)
 	require.True(t, accepted.Created)
 	require.NotEqual(t, prepared.Context.ID, work.Model.Context.ID)
-	replay, work, err := h.AcceptAndAdvance(t.Context(), input, true, true)
+	replay, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, replay.Created)
-	require.Equal(t, uuid.Nil, work.Model.Context.ID)
+	require.NoError(t, h.Release(t.Context(), input.RuntimeLockID))
 	assertCommandState(t, u, h)
 	require.NoError(t, u.Commit(t.Context(), "claim renew advance"))
 }
@@ -192,10 +194,10 @@ func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
 	defer func() { _ = blocker.Rollback(context.Background()) }()
 	_, err = blocker.Exec(t.Context(), `SELECT id FROM agent_runtime_locks WHERE id=$1 FOR UPDATE`, lease)
 	require.NoError(t, err)
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
 	result := make(chan error, 1)
 	go func() {
-		u, err := cell.Begin(t.Context())
+		u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 		if err != nil {
 			result <- err
 			return
@@ -203,8 +205,7 @@ func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
 		defer func() { _ = u.Rollback(context.Background()) }()
 		_,
 			err = u.RenewRuntime(t.Context(),
-			agentexecution.AgentRoute{CellID: "test",
-				ProjectID:   f.project,
+			agentexecution.AgentRoute{ProjectID: f.project,
 				AgentID:     a,
 				RootAgentID: a},
 			lease,

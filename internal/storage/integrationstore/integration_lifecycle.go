@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -67,7 +66,7 @@ func (s *Store) DeleteIntegration(ctx context.Context, orgID, projectID, id uuid
 	if orgID == uuid.Nil || projectID == uuid.Nil || id == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("organization, project and integration are required"))
 	}
-	_, err := storeutil.RetryTransaction(ctx, "delete_integration", func() (struct{}, error) {
+	_, err := agentexecution.Retry(ctx, "delete_integration", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, s.deleteIntegrationOnce(ctx, orgID, projectID, id)
 	})
 	return err
@@ -104,7 +103,7 @@ func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id 
 	for _, agentID := range ids {
 		refs = append(refs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
 	}
-	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, refs, nil); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationSubscriptions(ctx, dbsqlc.DeleteIntegrationSubscriptionsParams{

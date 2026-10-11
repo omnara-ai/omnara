@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -360,6 +361,15 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 				AllowModelWork:   advance.AllowModelWork, PrepareModel: true,
 			},
 		)
+		if transition.Fallback != nil {
+			log := e.StreamLog
+			if log == nil {
+				log = slog.Default()
+			}
+			log.WarnContext(ctx, "model output advancement fell back",
+				"agent_id", input.AgentID, "model_call_context_id", claim.Context.ID,
+				"runtime_lock_id", input.RuntimeLockID, "error", transition.Fallback)
+		}
 		if err != nil {
 			return modelStep{}, err
 		}

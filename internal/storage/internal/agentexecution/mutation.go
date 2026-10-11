@@ -60,7 +60,6 @@ func (m *executionMutation) publicationParams(route AgentRoute) executiondb.Publ
 		InsertHead:              m.insertHead,
 		CurrentTurnID:           nullableID(h.CurrentTurnID),
 		StopSequence:            h.StopSequence,
-		AnsweredThroughSequence: h.AnsweredThroughSequence,
 		MaxNormalInputSequence:  h.MaxNormalInputSequence,
 		MaxContextInputSequence: h.MaxContextInputSequence,
 		NormalContextID:         nullableID(h.NormalContextID),
@@ -77,7 +76,8 @@ func (m *executionMutation) publicationParams(route AgentRoute) executiondb.Publ
 
 func (u *Unit) publishExecution(ctx context.Context) error {
 	var handles []*Handle
-	var loads []executiondb.LoadExecutionFactsParams
+	loads := factsBatch{DBTX: u.DB()}
+	var facts []*executionFacts
 	var reloaded []*Handle
 	for _, h := range u.orderedHandles() {
 		if h.mutation == nil || !h.mutation.dirty {
@@ -86,7 +86,7 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 		handles = append(handles, h)
 		if h.mutation.loaded == nil && h.mutation.selectionChanged {
 			reloaded = append(reloaded, h)
-			loads = append(loads, executionFactsParams(h.route, h.mutation.head))
+			facts = append(facts, loads.queue(ctx, h.route, h.mutation.head))
 		}
 	}
 	if len(handles) == 0 {
@@ -94,33 +94,19 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 	}
 	var failure error
 	q := executiondb.New()
-	if len(loads) > 0 {
-		batch := q.LoadExecutionFacts(ctx, u.DB(), loads)
-		batch.Query(func(i int, rows []executiondb.LoadExecutionFactsRow, err error) {
-			if failure != nil {
-				return
-			}
-			if err != nil {
-				failure = err
-				return
-			}
-			h := reloaded[i]
-			snapshot, err := executionSnapshot(h.route, h.mutation.head, rows)
-			if err != nil {
-				failure = err
-				return
-			}
-			h.mutation.head = snapshot.Head
-		})
-		if err := errors.Join(failure, batch.Close()); err != nil {
+	if err := loads.read(ctx); err != nil {
+		return err
+	}
+	for i, h := range reloaded {
+		snapshot, err := executionSnapshot(h.route, h.mutation.head, *facts[i])
+		if err != nil {
 			return err
 		}
+		h.mutation.head = snapshot.Head
 	}
 	writes := make([]executiondb.PublishExecutionParams, len(handles))
 	for i, h := range handles {
 		writes[i] = h.mutation.publicationParams(h.route)
-		_, captured := u.webhooks[h.route.AgentID]
-		writes[i].CaptureWebhook = !captured
 	}
 	published := q.PublishExecution(ctx, u.DB(), writes)
 	published.QueryRow(func(i int, row executiondb.PublishExecutionRow, err error) {
@@ -135,14 +121,12 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 			failure = fmt.Errorf("%w: missing execution head", ErrInvalidState)
 			return
 		}
-		if writes[i].CaptureWebhook {
-			target := webhookTarget{orgID: row.WebhookOrgID}
-			if err := json.Unmarshal(row.WebhookEvents, &target.events); err != nil {
-				failure = err
-				return
-			}
-			u.webhooks[row.AgentID] = target
+		target := webhookTarget{orgID: row.WebhookOrgID}
+		if err := json.Unmarshal(row.WebhookEvents, &target.events); err != nil {
+			failure = err
+			return
 		}
+		u.webhooks[row.AgentID] = target
 	})
 	return errors.Join(failure, published.Close())
 }

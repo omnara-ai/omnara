@@ -264,7 +264,7 @@ func lockAndLoadReconciliationProcesses(
 			AgentID:   record.AgentID,
 		})
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return nil, err
 	}
 	return loadReconciliationProcesses(
@@ -798,7 +798,7 @@ func lockAgentForProcessRecordTx(ctx context.Context, unit *agentexecution.Unit,
 			ProjectID: record.ProjectID,
 			ID:        record.AgentID,
 		},
-		agentexecution.ExternalAuthority{}); err != nil {
+		nil); err != nil {
 		return fmt.Errorf("lock agent for process authority mutation: %w", err)
 	}
 	return nil

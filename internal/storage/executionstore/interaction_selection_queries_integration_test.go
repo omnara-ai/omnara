@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +29,7 @@ func TestInteractionSelectionOriginPrecedesBackgroundActor(t *testing.T) {
 	_, err = unit.LockAgent(
 		f.ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID},
-		agentexecution.ExternalAuthority{},
+		nil,
 	)
 	require.NoError(t, err)
 	q := dbsqlc.New(unit.DB())

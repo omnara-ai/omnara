@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -51,26 +52,30 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 		return err
 	}
 
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin cron trigger input delivery: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
+	_, retryErr := agentexecution.Retry(ctx,
+		"CreateCronTriggerAgentInput",
+		func(ctx context.Context) (struct{}, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return struct{}{}, fmt.Errorf("begin cron trigger input delivery: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
 
-	qtx := dbsqlc.New(tx)
-	// Input creation locks the agent before completion locks the trigger, matching
-	// the lock order used when archiving an agent and deleting its cron triggers.
-	if _, err := createAgentContentInputTx(ctx, unit, qtx, contentInput, contentBlocks); err != nil {
-		return err
-	}
-	if err := completeCronTriggerFiringTx(ctx, qtx, CompleteCronTriggerFiringInput{
-		ProjectID:  trigger.ProjectID,
-		TriggerID:  trigger.TriggerID,
-		ClaimToken: trigger.ClaimToken,
-		Fired:      true,
-	}); err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "deliver cron trigger input")
+			qtx := dbsqlc.New(tx)
+			if _, err := createAgentContentInputTx(ctx, unit, qtx, contentInput, contentBlocks); err != nil {
+				return struct{}{}, err
+			}
+			if err := completeCronTriggerFiringTx(ctx, qtx, CompleteCronTriggerFiringInput{
+				ProjectID:  trigger.ProjectID,
+				TriggerID:  trigger.TriggerID,
+				ClaimToken: trigger.ClaimToken,
+				Fired:      true,
+			}); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "deliver cron trigger input")
+		})
+	return retryErr
+
 }

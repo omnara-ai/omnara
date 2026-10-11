@@ -9,8 +9,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -55,9 +55,11 @@ func (s *Store) AdmitInboxLaunchRecipient(
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || recipientKey == "" {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(errors.New("inbox lease and recipient are required"))
 	}
-	return storeutil.RetryTransaction(ctx, "admit_inbox_launch_recipient", func() (LaunchAgentResult, error) {
-		return s.admitInboxLaunchRecipientOnce(ctx, lease, recipientKey, artifacts)
-	})
+	return agentexecution.Retry(ctx,
+		"admit_inbox_launch_recipient",
+		func(ctx context.Context) (LaunchAgentResult, error) {
+			return s.admitInboxLaunchRecipientOnce(ctx, lease, recipientKey, artifacts)
+		})
 }
 
 func (s *Store) admitInboxLaunchRecipientOnce(

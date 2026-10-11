@@ -17,11 +17,8 @@ type webhookTarget struct {
 	events []string
 }
 
-func (u *Unit) CaptureWebhookEligibility(ctx context.Context, agents ...uuid.UUID) error {
+func (u *Unit) captureWebhookEligibility(ctx context.Context) error {
 	ids := make(map[uuid.UUID]struct{})
-	for _, id := range agents {
-		ids[id] = struct{}{}
-	}
 	for id := range u.notifications.AgentEvents() {
 		ids[id] = struct{}{}
 	}
@@ -66,7 +63,7 @@ func (u *Unit) enqueueWebhooks(ctx context.Context) error {
 	if pending == nil || (len(pending.AgentEvents()) == 0 && len(pending.ToolCallUpdates()) == 0) {
 		return nil
 	}
-	if err := u.CaptureWebhookEligibility(ctx); err != nil {
+	if err := u.captureWebhookEligibility(ctx); err != nil {
 		return err
 	}
 	q := dbsqlc.New(u.DB())

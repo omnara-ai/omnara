@@ -318,7 +318,7 @@ const (
 func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting bool) (ToolDispatch, error) {
 	if err := h.unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: h.route.ProjectID, AgentID: h.route.AgentID}},
-		RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: ref.RuntimeLockID},
+		&RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: ref.RuntimeLockID},
 	); err != nil {
 		return 0, err
 	}

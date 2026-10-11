@@ -49,7 +49,11 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			if step == "model" {
 				expected = 1
 			}
-			require.Equal(t, expected, statements)
+			expectedStatements := expected
+			if step == "tool" {
+				expectedStatements = 3
+			}
+			require.Equal(t, expectedStatements, statements)
 			require.Equal(t, expected, roundTrips)
 		})
 	}
@@ -63,19 +67,18 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 				f.create(t, id, root)
 				ids = append(ids, id)
 			}
-			cell := agentexecution.NewCell("test", f.pool, nil, nil)
-			u, err := cell.Begin(t.Context())
+			cell := agentexecution.NewCell(f.pool, nil, nil)
+			u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = u.Rollback(t.Context()) })
 			refs := make([]lifecyclelock.AgentRef, len(ids))
 			for i, id := range ids {
 				refs[i] = lifecyclelock.AgentRef{ProjectID: f.project, AgentID: id}
 			}
-			require.NoError(t, u.LockAgentRefs(t.Context(), refs, agentexecution.LifecycleAuthority{}))
+			require.NoError(t, u.LockAgentRefs(t.Context(), refs, nil))
 			for _, id := range ids {
 				h, err := u.Agent(
 					agentexecution.AgentRoute{
-						CellID:      "test",
 						ProjectID:   f.project,
 						AgentID:     id,
 						RootAgentID: root,
@@ -100,14 +103,13 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			require.Equal(t, size, heads)
 			require.Equal(t, size, wakeups)
 
-			u, err = cell.Begin(t.Context())
+			u, err = agentexecution.BeginTestUnit(t.Context(), cell)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = u.Rollback(t.Context()) })
-			require.NoError(t, u.LockAgentRefs(t.Context(), refs, agentexecution.LifecycleAuthority{}))
+			require.NoError(t, u.LockAgentRefs(t.Context(), refs, nil))
 			routes := make([]agentexecution.AgentRoute, len(ids))
 			for i, id := range ids {
 				routes[i] = agentexecution.AgentRoute{
-					CellID:      "test",
 					ProjectID:   f.project,
 					AgentID:     id,
 					RootAgentID: root,

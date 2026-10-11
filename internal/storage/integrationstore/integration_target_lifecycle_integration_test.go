@@ -52,7 +52,7 @@ FROM identities identity CROSS JOIN agents agent WHERE agent.id=$1 RETURNING id)
 INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) SELECT id,false,false FROM inserted`,
 		current.ID,
 	)
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
 	require.NoError(t, cell.Transact(f.ctx, func(u *agentexecution.Unit) error {
 		return u.ClearIntegrationTargets(f.ctx, uuid.New(), f.integrationID)
 	}))

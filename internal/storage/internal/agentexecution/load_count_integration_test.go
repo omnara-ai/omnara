@@ -15,7 +15,7 @@ type countingLoadTx struct {
 	statements int
 	batches    int
 	queries    int
-	facts      *pgx.QueuedQuery
+	facts      []*pgx.QueuedQuery
 	factLoads  int
 }
 
@@ -45,19 +45,21 @@ func (tx *countingLoadTx) QueryRow(ctx context.Context, sql string, args ...any)
 	return tx.Tx.QueryRow(ctx, sql, args...)
 }
 
-func CountOrdinaryLoad(ctx context.Context, h *Handle) (ExecutionSnapshot, int, error) {
+func CountOrdinaryLoad(ctx context.Context, h *Handle) (ExecutionSnapshot, int, int, error) {
 	tx := &countingLoadTx{Tx: h.unit.tx}
 	h.unit.tx = tx
 	defer func() { h.unit.tx = tx.Tx }()
 	snapshot, err := h.LoadExecution(ctx)
-	return snapshot, tx.statements, err
+	return snapshot, tx.statements, tx.batches + tx.queries, err
 }
 
 func (tx *countingLoadTx) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
 	tx.statements += batch.Len()
 	for _, query := range batch.QueuedQueries {
+		if strings.HasPrefix(query.SQL, "-- name: LoadExecution") {
+			tx.facts = append(tx.facts, query)
+		}
 		if strings.HasPrefix(query.SQL, "-- name: LoadExecutionFacts ") {
-			tx.facts = query
 			tx.factLoads++
 		}
 	}
@@ -97,9 +99,8 @@ func ExplainOrdinaryLoad(ctx context.Context, h *Handle) (string, error) {
 		return "", err
 	}
 	var plan strings.Builder
-	for range 10 {
-		plan.Reset()
-		rows, err := tx.Tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) "+tx.facts.SQL, tx.facts.Arguments...)
+	for _, query := range tx.facts {
+		rows, err := tx.Tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) "+query.SQL, query.Arguments...)
 		if err != nil {
 			return "", err
 		}

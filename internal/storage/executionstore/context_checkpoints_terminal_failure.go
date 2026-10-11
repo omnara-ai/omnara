@@ -33,25 +33,30 @@ func (s *Store) RecordTerminalCompactionFailure(
 	ctx context.Context,
 	input RecordTerminalCompactionFailureInput,
 ) error {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	_, err = h.FailModel(
-		ctx,
-		agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
-			ErrorKind:    input.ErrorKind,
-			ErrorCode:    input.ErrorCode,
-			ErrorMessage: input.ErrorMessage,
-			ErrorDetails: input.ErrorDetails,
-			ServedModel:  input.ServedProviderModelSlug,
-			Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
-				APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
-				Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
-	)
-	if err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "record terminal compaction failure")
+	_, err := agentexecution.Retry(ctx,
+		"RecordTerminalCompactionFailure",
+		func(ctx context.Context) (struct{}, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			_, err = h.FailModel(
+				ctx,
+				agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
+					ErrorKind:    input.ErrorKind,
+					ErrorCode:    input.ErrorCode,
+					ErrorMessage: input.ErrorMessage,
+					ErrorDetails: input.ErrorDetails,
+					ServedModel:  input.ServedProviderModelSlug,
+					Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
+						APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
+						Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
+			)
+			if err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "record terminal compaction failure")
+		})
+	return err
 }

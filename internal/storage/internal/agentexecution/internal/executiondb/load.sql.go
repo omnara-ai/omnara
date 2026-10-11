@@ -26,7 +26,6 @@ func (q *Queries) ExecutionDatabaseTime(ctx context.Context, db DBTX) (time.Time
 const loadExecutionBase = `-- name: LoadExecutionBase :one
 SELECT coalesce(h.agent_id,a.id)::uuid AS agent_id,h.current_turn_id,
        coalesce(h.stop_sequence,0)::bigint AS stop_sequence,
-       coalesce(h.answered_through_sequence,0)::bigint AS answered_through_sequence,
        coalesce(h.max_normal_input_sequence,0)::bigint AS max_normal_input_sequence,
        coalesce(h.max_context_input_sequence,0)::bigint AS max_context_input_sequence,
        h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,
@@ -46,7 +45,6 @@ type LoadExecutionBaseRow struct {
 	AgentID                 uuid.UUID
 	CurrentTurnID           *uuid.UUID
 	StopSequence            int64
-	AnsweredThroughSequence int64
 	MaxNormalInputSequence  int64
 	MaxContextInputSequence int64
 	NormalContextID         *uuid.UUID
@@ -71,7 +69,6 @@ func (q *Queries) LoadExecutionBase(ctx context.Context, db DBTX, arg LoadExecut
 		&i.AgentID,
 		&i.CurrentTurnID,
 		&i.StopSequence,
-		&i.AnsweredThroughSequence,
 		&i.MaxNormalInputSequence,
 		&i.MaxContextInputSequence,
 		&i.NormalContextID,

@@ -37,7 +37,7 @@ func completeMachineLifecycleTerminalWorkTx(
 			AgentID:   agent.AgentID,
 		})
 	}
-	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, refs, nil); err != nil {
 		return err
 	}
 	if err := completeMachineLifecycleTerminalProcessesTx(
@@ -75,23 +75,6 @@ func completeExecutionRevokedProcessesTx(
 	scope executionRevokedProcessScope,
 	reason string,
 ) error {
-	lockParams := dbsqlc.ListAgentsForExecutionRevokedParams{
-		ProjectID:                 scope.projectID,
-		AgentID:                   storeutil.IDFromNil(scope.agentID),
-		ProjectMachineGrantID:     storeutil.IDFromNil(scope.projectMachineGrantID),
-		ProjectMachinePoolGrantID: storeutil.IDFromNil(scope.projectMachinePoolGrantID),
-	}
-	agents, err := qtx.ListAgentsForExecutionRevoked(ctx, lockParams)
-	if err != nil {
-		return fmt.Errorf("list agents for execution revoke: %w", err)
-	}
-	refs := make([]lifecyclelock.AgentRef, 0, len(agents))
-	for _, agentID := range agents {
-		refs = append(refs, lifecyclelock.AgentRef{ProjectID: scope.projectID, AgentID: agentID})
-	}
-	if err := unit.LockAgentRefs(ctx, refs, agentexecution.LifecycleAuthority{}); err != nil {
-		return err
-	}
 	rows, err := qtx.ListProcessesForExecutionRevoked(
 		ctx,
 		dbsqlc.ListProcessesForExecutionRevokedParams{
@@ -103,6 +86,13 @@ func completeExecutionRevokedProcessesTx(
 	)
 	if err != nil {
 		return fmt.Errorf("list processes for execution revoke: %w", err)
+	}
+	refs := make([]lifecyclelock.AgentRef, 0, len(rows))
+	for _, row := range rows {
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+	}
+	if err := unit.LockAgentRefs(ctx, refs, nil); err != nil {
+		return err
 	}
 	for _, row := range rows {
 		process := processRecordFromSQLC(row)

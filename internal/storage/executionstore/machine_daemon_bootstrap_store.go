@@ -333,20 +333,24 @@ func (s *Store) RevokeBYOMachineDaemonToken(
 	orgID, machineID, tokenID uuid.UUID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("begin revoke machine daemon token: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
+	return agentexecution.Retry(ctx,
+		"RevokeBYOMachineDaemonToken",
+		func(ctx context.Context) (MachineDaemonTokenRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return MachineDaemonTokenRecord{}, fmt.Errorf("begin revoke machine daemon token: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
 
-	record, err := s.RevokeBYOMachineDaemonTokenInUnit(ctx, unit, orgID, machineID, tokenID, reason)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	if err := unit.Commit(ctx, "revoke machine daemon token"); err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	return record, nil
+			record, err := s.RevokeBYOMachineDaemonTokenInUnit(ctx, unit, orgID, machineID, tokenID, reason)
+			if err != nil {
+				return MachineDaemonTokenRecord{}, err
+			}
+			if err := unit.Commit(ctx, "revoke machine daemon token"); err != nil {
+				return MachineDaemonTokenRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) RevokeBYOMachineDaemonTokenInUnit(
@@ -544,43 +548,49 @@ func (s *Store) RecordMachineFailureReport(
 		MachineID:       input.MachineID,
 		DaemonTokenID:   input.DaemonTokenID,
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin machine failure report: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
-
-	qtx := dbsqlc.New(tx)
-	if input.Stage == MachineFailureStageDaemonUninstalled {
-		if _, err := qtx.LockMachineForLifecycle(
-			ctx,
-			dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
-		); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return storeerr.ErrUnauthorized
+	_, retryErr := agentexecution.Retry(ctx,
+		"RecordMachineFailureReport",
+		func(ctx context.Context) (struct{}, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return struct{}{}, fmt.Errorf("begin machine failure report: %w", err)
 			}
-			return fmt.Errorf("lock machine for daemon uninstall report: %w", err)
-		}
-	}
-	_, err = qtx.RecordMachineFailureReport(ctx, params)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrUnauthorized
-	}
-	if err != nil {
-		return fmt.Errorf("record machine failure report: %w", err)
-	}
-	if input.Stage == MachineFailureStageDaemonUninstalled {
-		if err := completeMachineLifecycleTerminalWorkTx(
-			ctx,
-			unit,
-			qtx,
-			input.OrgID,
-			input.MachineID,
-			MachineFailureStageDaemonUninstalled,
-		); err != nil {
-			return err
-		}
-	}
-	return unit.Commit(ctx, "record machine failure report")
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+
+			qtx := dbsqlc.New(tx)
+			if input.Stage == MachineFailureStageDaemonUninstalled {
+				if _, err := qtx.LockMachineForLifecycle(
+					ctx,
+					dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
+				); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return struct{}{}, storeerr.ErrUnauthorized
+					}
+					return struct{}{}, fmt.Errorf("lock machine for daemon uninstall report: %w", err)
+				}
+			}
+			_, err = qtx.RecordMachineFailureReport(ctx, params)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return struct{}{}, storeerr.ErrUnauthorized
+			}
+			if err != nil {
+				return struct{}{}, fmt.Errorf("record machine failure report: %w", err)
+			}
+			if input.Stage == MachineFailureStageDaemonUninstalled {
+				if err := completeMachineLifecycleTerminalWorkTx(
+					ctx,
+					unit,
+					qtx,
+					input.OrgID,
+					input.MachineID,
+					MachineFailureStageDaemonUninstalled,
+				); err != nil {
+					return struct{}{}, err
+				}
+			}
+			return struct{}{}, unit.Commit(ctx, "record machine failure report")
+		})
+	return retryErr
+
 }

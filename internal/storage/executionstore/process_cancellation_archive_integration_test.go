@@ -492,9 +492,9 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 					contextRecord,
 				)
 			}
-			if !test.recordRetry && contextRecord.CompletedAt.Before(*archived.ArchivedAt) {
+			if !test.recordRetry && contextRecord.CompletedAt.After(*archived.ArchivedAt) {
 				t.Fatalf(
-					"archive-triggered model cancellation predates the agent archive: agent=%+v context=%+v",
+					"archive-triggered model cancellation follows the agent archive: agent=%+v context=%+v",
 					archived,
 					contextRecord,
 				)

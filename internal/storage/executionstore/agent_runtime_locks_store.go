@@ -48,21 +48,26 @@ func validateAgentRuntimeLockLeaseDuration(leaseDuration time.Duration) error {
 func (s *Store) EnsureRuntimeLockActive(
 	ctx context.Context, projectID, agentID, runtimeID uuid.UUID,
 ) error {
-	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
-		return errors.New("project, agent, and runtime lock ids are required")
-	}
-	unit, h, err := beginExecution(ctx, s, projectID, agentID)
-	if errors.Is(err, storeerr.ErrNotFound) {
-		return storeerr.ErrRuntimeLockInactive
-	}
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	if err := h.FenceRuntime(ctx, runtimeID); err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "runtime lock check")
+	_, err := agentexecution.Retry(ctx,
+		"EnsureRuntimeLockActive",
+		func(ctx context.Context) (struct{}, error) {
+			if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
+				return struct{}{}, errors.New("project, agent, and runtime lock ids are required")
+			}
+			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			if errors.Is(err, storeerr.ErrNotFound) {
+				return struct{}{}, storeerr.ErrRuntimeLockInactive
+			}
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			if err := h.FenceRuntime(ctx, runtimeID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "runtime lock check")
+		})
+	return err
 }
 
 const RuntimeToolInterruptedMessage = "Tool call was interrupted; its external outcome is unknown."
@@ -72,51 +77,60 @@ func (s *Store) RenewAgentRuntimeLock(
 	projectID, agentID, runtimeLockID uuid.UUID,
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return AgentRuntimeLockRenewal{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	renewal, err := unit.RenewRuntime(
-		ctx,
-		agentexecution.AgentRoute{CellID: unit.CellID(), ProjectID: projectID, AgentID: agentID},
-		runtimeLockID,
-		leaseDuration,
-	)
-	if err != nil {
-		return AgentRuntimeLockRenewal{}, err
-	}
-	row, err := dbsqlc.New(unit.DB()).
-		GetAgentRuntimeLockForRelease(ctx,
-			dbsqlc.GetAgentRuntimeLockForReleaseParams{ProjectID: projectID,
-				AgentID: agentID,
-				ID:      runtimeLockID})
-	if err != nil {
-		return AgentRuntimeLockRenewal{}, err
-	}
-	if err = unit.Commit(ctx, "renew runtime"); err != nil {
-		return AgentRuntimeLockRenewal{}, err
-	}
-	return AgentRuntimeLockRenewal{
-		RuntimeLock:               agentRuntimeLockRecordFromSQLC(row),
-		LocalLeaseBudgetStartedAt: renewal.LocalStartedAt,
-	}, nil
+	return agentexecution.Retry(ctx,
+		"RenewAgentRuntimeLock",
+		func(ctx context.Context) (AgentRuntimeLockRenewal, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentRuntimeLockRenewal{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			renewal, err := unit.RenewRuntime(
+				ctx,
+				agentexecution.AgentRoute{ProjectID: projectID, AgentID: agentID},
+				runtimeLockID,
+				leaseDuration,
+			)
+			if err != nil {
+				return AgentRuntimeLockRenewal{}, err
+			}
+			row, err := dbsqlc.New(unit.DB()).
+				GetAgentRuntimeLockForRelease(ctx,
+					dbsqlc.GetAgentRuntimeLockForReleaseParams{ProjectID: projectID,
+						AgentID: agentID,
+						ID:      runtimeLockID})
+			if err != nil {
+				return AgentRuntimeLockRenewal{}, err
+			}
+			if err = unit.Commit(ctx, "renew runtime"); err != nil {
+				return AgentRuntimeLockRenewal{}, err
+			}
+			return AgentRuntimeLockRenewal{
+				RuntimeLock:               agentRuntimeLockRecordFromSQLC(row),
+				LocalLeaseBudgetStartedAt: renewal.LocalStartedAt,
+			}, nil
+		})
 }
 
 func (s *Store) ReleaseAgentRuntimeLock(
 	ctx context.Context,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) error {
-	unit, h, err := beginExecution(ctx, s, projectID, agentID)
-	if errors.Is(err, storeerr.ErrNotFound) {
-		return storeerr.ErrRuntimeLockInactive
-	}
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	if err = h.Release(ctx, runtimeLockID); err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "release runtime")
+	_, err := agentexecution.Retry(ctx,
+		"ReleaseAgentRuntimeLock",
+		func(ctx context.Context) (struct{}, error) {
+			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			if errors.Is(err, storeerr.ErrNotFound) {
+				return struct{}{}, storeerr.ErrRuntimeLockInactive
+			}
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			if err = h.Release(ctx, runtimeLockID); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "release runtime")
+		})
+	return err
 }

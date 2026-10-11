@@ -16,8 +16,6 @@ SELECT coalesce((SELECT max(e.sequence) FROM agent_events e
                  JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
                  WHERE i.project_id=$1 AND i.agent_id=$2 AND i.input_kind='control'
                    AND i.state='resolved' AND i.control_type='cancel_current'),0)::bigint AS stop_sequence,
-       coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$2 AND e.event_kind='model_output'
-                 ORDER BY e.sequence DESC LIMIT 1),0)::bigint AS output_sequence,
        coalesce((SELECT t.id FROM agent_turns t WHERE t.agent_id=$2 ORDER BY t.turn_sequence DESC LIMIT 1),
                  '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS turn_id
 `
@@ -28,15 +26,14 @@ type LoadExecutionBoundariesParams struct {
 }
 
 type LoadExecutionBoundariesRow struct {
-	StopSequence   int64
-	OutputSequence int64
-	TurnID         uuid.UUID
+	StopSequence int64
+	TurnID       uuid.UUID
 }
 
 func (q *Queries) LoadExecutionBoundaries(ctx context.Context, db DBTX, arg LoadExecutionBoundariesParams) (LoadExecutionBoundariesRow, error) {
 	row := db.QueryRow(ctx, loadExecutionBoundaries, arg.ProjectID, arg.AgentID)
 	var i LoadExecutionBoundariesRow
-	err := row.Scan(&i.StopSequence, &i.OutputSequence, &i.TurnID)
+	err := row.Scan(&i.StopSequence, &i.TurnID)
 	return i, err
 }
 

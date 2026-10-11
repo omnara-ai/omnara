@@ -77,39 +77,44 @@ func (s *Store) CreatePermissionInteraction(
 	ctx context.Context,
 	input CreatePermissionInteractionInput,
 ) (AgentInteractionRecord, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	destination, err := captureInteractionDestinationTx(ctx, unit.DB(), input.ProjectID, input.AgentID)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	result, err := h.OpenInteraction(ctx, agentexecution.OpenInteractionInput{ToolRef: agentexecution.ToolRef{
-		ID:            input.ToolCallID,
-		RuntimeLockID: input.RuntimeLockID},
-		Permission:  &input.Request,
-		Destination: destination})
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	row, err := dbsqlc.New(unit.DB()).GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID, ID: result.ID})
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if err = unit.Commit(ctx, "open permission"); err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	return agentInteractionRecordFromSQLC(row), nil
+	return agentexecution.Retry(ctx,
+		"CreatePermissionInteraction",
+		func(ctx context.Context) (AgentInteractionRecord,
+			error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			destination, err := captureInteractionDestinationTx(ctx, unit.DB(), input.ProjectID, input.AgentID)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			result, err := h.OpenInteraction(ctx, agentexecution.OpenInteractionInput{ToolRef: agentexecution.ToolRef{
+				ID:            input.ToolCallID,
+				RuntimeLockID: input.RuntimeLockID},
+				Permission:  &input.Request,
+				Destination: destination})
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			row, err := dbsqlc.New(unit.DB()).GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ID: result.ID})
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if err = unit.Commit(ctx, "open permission"); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			return agentInteractionRecordFromSQLC(row), nil
+		})
 }
 
 func (t *toolCallTransaction) createQuestionInteraction(
 	ctx context.Context,
 	input CreateQuestionInteractionInput,
 ) (AgentInteractionRecord, error) {
-	plan, err := t.unit.PlanAgentFamily(ctx, t.input.ProjectID, t.input.AgentID, agentexecution.LifecycleAuthority{})
+	plan, err := t.unit.PlanAgentFamily(ctx, t.input.ProjectID, t.input.AgentID, nil)
 	if err == nil {
 		err = t.unit.LockAgents(ctx, plan)
 	}
@@ -159,19 +164,23 @@ func (s *Store) ResolveAgentInteraction(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return AgentInteractionRecord{}, fmt.Errorf("begin resolve agent interaction: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	record, err := resolveExecutionInteraction(ctx, unit, input)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if err := unit.Commit(ctx, "resolve agent interaction"); err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	return record, nil
+	return agentexecution.Retry(ctx,
+		"ResolveAgentInteraction",
+		func(ctx context.Context) (AgentInteractionRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentInteractionRecord{}, fmt.Errorf("begin resolve agent interaction: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			record, err := resolveExecutionInteraction(ctx, unit, input)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if err := unit.Commit(ctx, "resolve agent interaction"); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func resolveExecutionInteraction(
@@ -182,7 +191,7 @@ func resolveExecutionInteraction(
 	if err := unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID,
 			AgentID: input.AgentID}},
-		agentexecution.ExternalAuthority{}); err != nil {
+		nil); err != nil {
 		return AgentInteractionRecord{}, err
 	}
 	q := dbsqlc.New(unit.DB())

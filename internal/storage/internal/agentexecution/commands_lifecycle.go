@@ -206,7 +206,12 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 		if identity.State == "archived" {
 			return false, nil
 		}
-		if err = h.unit.CaptureWebhookEligibility(ctx, h.route.AgentID); err != nil {
+		if _,
+			err = h.Cancel(ctx,
+			CancelInput{ActorID: actorID,
+				Reason:       "agent_archived",
+				Message:      "The model call was stopped because the agent was archived.",
+				ForceRuntime: true}); err != nil {
 			return false, err
 		}
 		n, err := executiondb.New().
@@ -243,14 +248,6 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 			if _, err = h.InterruptProcess(ctx, row.ID, "agent_archived"); err != nil {
 				return false, err
 			}
-		}
-		if _,
-			err = h.Cancel(ctx,
-			CancelInput{ActorID: actorID,
-				Reason:       "agent_archived",
-				Message:      "The model call was stopped because the agent was archived.",
-				ForceRuntime: true}); err != nil {
-			return false, err
 		}
 		if _,
 			err = executiondb.New().CancelExecutionInputs(ctx,

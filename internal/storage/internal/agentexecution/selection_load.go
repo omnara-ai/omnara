@@ -13,7 +13,6 @@ type ExecutionHead struct {
 	AgentID                 uuid.UUID
 	CurrentTurnID           uuid.UUID
 	StopSequence            int64
-	AnsweredThroughSequence int64
 	MaxNormalInputSequence  int64
 	MaxContextInputSequence int64
 	NormalContextID         uuid.UUID
@@ -98,8 +97,10 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 
 func executionHead(row executiondb.LoadExecutionBaseRow) ExecutionHead {
 	return ExecutionHead{
-		AgentID: row.AgentID, CurrentTurnID: valueOrZero(row.CurrentTurnID), StopSequence: row.StopSequence,
-		AnsweredThroughSequence: row.AnsweredThroughSequence, MaxNormalInputSequence: row.MaxNormalInputSequence,
+		AgentID:                 row.AgentID,
+		CurrentTurnID:           valueOrZero(row.CurrentTurnID),
+		StopSequence:            row.StopSequence,
+		MaxNormalInputSequence:  row.MaxNormalInputSequence,
 		MaxContextInputSequence: row.MaxContextInputSequence, NormalContextID: valueOrZero(row.NormalContextID),
 		CompactionContextID: valueOrZero(
 			row.CompactionContextID,

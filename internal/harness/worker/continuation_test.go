@@ -218,7 +218,7 @@ func TestWorkerOwnedContinuationKeepsRenewalRunning(t *testing.T) {
 	}
 }
 
-func TestWorkerOwnedContinuationCountsTimeSpentAdvancing(t *testing.T) {
+func TestWorkerOwnedContinuationExecutesWorkAfterSoftDeadline(t *testing.T) {
 	store := newContinuationStore(executionstore.AgentWorkModel)
 	store.advanceDelay = 110 * time.Millisecond
 	executor := &continuationExecutor{}
@@ -229,7 +229,7 @@ func TestWorkerOwnedContinuationCountsTimeSpentAdvancing(t *testing.T) {
 	if err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
 	}
-	if len(executor.kinds) != 1 || len(store.advances) != 1 || len(store.released) != 1 {
+	if len(executor.kinds) != 2 || len(store.advances) != 1 || len(store.released) != 1 {
 		t.Fatalf("steps=%v advances=%d releases=%d", executor.kinds, len(store.advances), len(store.released))
 	}
 }

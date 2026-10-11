@@ -31,7 +31,7 @@ type ModelWorkSeed struct {
 }
 
 func (s *Store) IntegrationBeginUnit(ctx context.Context) (*agentexecution.Unit, error) {
-	return s.cell.Begin(ctx)
+	return agentexecution.BeginTestUnit(ctx, s.cell)
 }
 
 func (s *Store) AcquireAgentRuntimeLock(
@@ -42,53 +42,63 @@ func (s *Store) AcquireAgentRuntimeLock(
 	if err := validateAgentRuntimeLockLeaseDuration(lease); err != nil {
 		return AgentRuntimeLockRecord{}, err
 	}
-	unit, h, err := beginExecution(ctx, s, projectID, agentID)
-	if err != nil {
-		return AgentRuntimeLockRecord{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	snapshot, err := h.LoadExecution(ctx)
-	if err != nil {
-		return AgentRuntimeLockRecord{}, err
-	}
-	if snapshot.View.State != agentexecution.AgentActive {
-		return AgentRuntimeLockRecord{}, storeerr.ErrAgentNotAdvanceable
-	}
-	var record AgentRuntimeLockRecord
-	err = unit.DB().
-		QueryRow(ctx,
-			`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+	return agentexecution.Retry(ctx,
+		"AcquireAgentRuntimeLock",
+		func(ctx context.Context) (AgentRuntimeLockRecord, error) {
+			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			if err != nil {
+				return AgentRuntimeLockRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			snapshot, err := h.LoadExecution(ctx)
+			if err != nil {
+				return AgentRuntimeLockRecord{}, err
+			}
+			if snapshot.View.State != agentexecution.AgentActive {
+				return AgentRuntimeLockRecord{}, storeerr.ErrAgentNotAdvanceable
+			}
+			var record AgentRuntimeLockRecord
+			err = unit.DB().
+				QueryRow(ctx,
+					`INSERT INTO agent_runtime_locks(agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
  VALUES($1,$2,statement_timestamp(),statement_timestamp(),statement_timestamp()+$3::bigint*interval '1 microsecond')
  RETURNING id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at,cancel_requested_at`,
-			agentID,
-			workerID,
-			lease.Microseconds()).
-		Scan(&record.ID,
-			&record.AgentID,
-			&record.WorkerProcessID,
-			&record.StartedAt,
-			&record.RenewedAt,
-			&record.LeaseExpiresAt,
-			&record.CancelRequestedAt)
-	if err != nil {
-		return AgentRuntimeLockRecord{}, err
-	}
-	if _, err = h.Repair(ctx); err != nil {
-		return AgentRuntimeLockRecord{}, err
-	}
-	return record, unit.Commit(ctx, "seed runtime")
+					agentID,
+					workerID,
+					lease.Microseconds()).
+				Scan(&record.ID,
+					&record.AgentID,
+					&record.WorkerProcessID,
+					&record.StartedAt,
+					&record.RenewedAt,
+					&record.LeaseExpiresAt,
+					&record.CancelRequestedAt)
+			if err != nil {
+				return AgentRuntimeLockRecord{}, err
+			}
+			if _, err = h.Repair(ctx); err != nil {
+				return AgentRuntimeLockRecord{}, err
+			}
+			return record, unit.Commit(ctx, "seed runtime")
+		})
 }
 
 func (s *Store) RepairExecutionForTest(ctx context.Context, projectID, agentID uuid.UUID) error {
-	unit, h, err := beginExecution(ctx, s, projectID, agentID)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	if _, err = h.Repair(ctx); err != nil {
-		return err
-	}
-	return unit.Commit(ctx, "repair execution")
+	_, retryErr := agentexecution.Retry(ctx,
+		"RepairExecutionForTest",
+		func(ctx context.Context) (struct{}, error) {
+			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			if _, err = h.Repair(ctx); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, unit.Commit(ctx, "repair execution")
+		})
+	return retryErr
+
 }
 
 func (s *Store) DeleteAgentWakeup(ctx context.Context, projectID, agentID uuid.UUID) error {
@@ -105,27 +115,36 @@ func (s *Store) NextAgentModelWork(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
 ) (ModelWorkSeed, bool, error) {
-	unit, h, err := beginExecution(ctx, s, projectID, agentID)
-	if err != nil {
-		return ModelWorkSeed{}, false, err
+	type transactionResult struct {
+		work  ModelWorkSeed
+		found bool
 	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	snapshot, err := h.LoadExecution(ctx)
-	if err != nil {
-		return ModelWorkSeed{}, false, err
-	}
-	work := snapshot.Selection.Model
-	if work == nil {
-		return ModelWorkSeed{}, false, nil
-	}
-	return ModelWorkSeed{
-		Kind:                 ModelWorkKind(work.Kind),
-		ModelCallContextID:   work.SourceContextID,
-		SourceModelOutputID:  work.SourceOutputID,
-		TurnID:               work.TurnID,
-		InputIDs:             work.Opening.InputIDs,
-		OpeningEventSequence: work.Opening.EventSequence,
-	}, true, nil
+	retried, retryErr := agentexecution.Retry(ctx,
+		"NextAgentModelWork",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			snapshot, err := h.LoadExecution(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			work := snapshot.Selection.Model
+			if work == nil {
+				return transactionResult{}, nil
+			}
+			return transactionResult{ModelWorkSeed{
+				Kind:                 ModelWorkKind(work.Kind),
+				ModelCallContextID:   work.SourceContextID,
+				SourceModelOutputID:  work.SourceOutputID,
+				TurnID:               work.TurnID,
+				InputIDs:             work.Opening.InputIDs,
+				OpeningEventSequence: work.Opening.EventSequence,
+			}, true}, nil
+		})
+	return retried.work, retried.found, retryErr
 }
 
 func (s *Store) GetToolCallResultAuthorityByToolCall(
@@ -228,7 +247,7 @@ func IntegrationEnsureRuntimeLockActiveTx(
 ) error {
 	if err := unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}},
-		agentexecution.RuntimeAuthority{AgentID: agentID, RuntimeLockID: runtimeID},
+		&agentexecution.RuntimeAuthority{AgentID: agentID, RuntimeLockID: runtimeID},
 	); err != nil {
 		return err
 	}
@@ -349,7 +368,7 @@ func IntegrationRenewAgentRuntimeLockTx(
 ) (AgentRuntimeLockRenewal, error) {
 	renewal, err := unit.RenewRuntime(
 		ctx,
-		agentexecution.AgentRoute{CellID: unit.CellID(), ProjectID: projectID, AgentID: agentID},
+		agentexecution.AgentRoute{ProjectID: projectID, AgentID: agentID},
 		runtimeID,
 		lease,
 	)

@@ -19,338 +19,76 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
-const loadExecutionFacts = `-- name: LoadExecutionFacts :batchmany
-WITH scope AS MATERIALIZED (
- SELECT a.id,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now,t.id AS turn_id,
- coalesce(e.sequence,0)::bigint AS semantic_sequence,coalesce(e.created_at,'epoch'::timestamptz)::timestamptz AS semantic_time,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
- AND i.delivery_mode='steering' AND i.state='received') AS steering,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
- AND i.delivery_mode='queued' AND i.state='received') AS queued,
- coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
- coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
- coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
- FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$1
- LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
- LEFT JOIN LATERAL (
-  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
-   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
-  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
-  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ) o ON true
- WHERE a.id=$2 AND a.project_id=$3
-), outputs AS MATERIALIZED (
-    SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
-    FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
-    WHERE o.agent_id=$2 AND o.id IN ($4::uuid,$5::uuid)
-), batch AS MATERIALIZED (
-    SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
-                     AND c.model_output_id=$4) AS has_tools,
-           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
-                     AND c.model_output_id=$4 AND c.state<>'completed') AS incomplete,
-           EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$2
-                     AND c.model_output_id=$4 AND
-                     (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable
-    WHERE $4::uuid IS NOT NULL
-), boundary AS MATERIALIZED (
-    SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$2
-                    AND e.event_kind='model_output' AND e.sequence<=(SELECT last_opening_sequence FROM scope)
-                    ORDER BY e.sequence DESC LIMIT 1),0),$6::bigint)::bigint AS sequence
-    FROM scope WHERE scope.state='active' AND $7::bigint<scope.first_opening_sequence
- AND $6::bigint<=scope.first_opening_sequence
-), unanswered AS MATERIALIZED (
-    SELECT i.id,e.sequence,e.created_at FROM boundary b
-    JOIN agent_events e ON e.agent_id=$2 AND e.is_opening_event
-        AND e.sequence>b.sequence AND e.sequence<=(SELECT last_opening_sequence FROM scope)
-    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
-        AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
-), opening AS (
-    SELECT id,sequence,created_at FROM unanswered
-    UNION ALL
-    SELECT i.id,e.sequence,e.created_at FROM boundary b
-    JOIN agent_events e ON e.agent_id=$2 AND e.turn_id=$1 AND e.is_opening_event
-        AND e.sequence<=(SELECT last_opening_sequence FROM scope)
-    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
-        AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
-    WHERE NOT EXISTS(SELECT 1 FROM unanswered)
-), facts AS (
-SELECT 'context'::text AS kind,
-       c.id AS id,
-       c.turn_id AS turn_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS context_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS event_id,
-       0::bigint AS sequence,
-       'epoch'::timestamptz AS event_time,
-       c.operation_kind AS operation,
-       c.attempt_number AS attempt,
-       c.input_event_sequence AS watermark,
-       coalesce(c.source_event_sequence_end,0)::bigint AS source_end,
-       c.state AS state,
-       coalesce(c.recovery_kind,'')::text AS recovery,
-       c.retry_at AS retry_at,
-       c.opening_input_ids AS opening_ids,
-       c.opening_event_sequence AS opening_sequence,
-       false AS has_tools,
-       false AS incomplete,
-       false AS runnable,
-       0::bigint AS calls,
-       0::bigint AS results,
-       0::bigint AS events,
-       ''::text AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM model_call_contexts c WHERE c.agent_id=$2 AND c.id=ANY(
-    ARRAY[$8::uuid,$9::uuid]
-    || ARRAY(SELECT model_call_context_id FROM outputs))
-UNION ALL
-SELECT 'output'::text AS kind,
-       o.id AS id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS turn_id,
-       o.model_call_context_id AS context_id,
-       o.event_id AS event_id,
-       o.sequence AS sequence,
-       o.created_at AS event_time,
-       ''::text AS operation,
-       0::integer AS attempt,
-       0::bigint AS watermark,
-       0::bigint AS source_end,
-       ''::text AS state,
-       ''::text AS recovery,
-       NULL::timestamptz AS retry_at,
-       '{}'::uuid[] AS opening_ids,
-       0::bigint AS opening_sequence,
-       false AS has_tools,
-       false AS incomplete,
-       false AS runnable,
-       0::bigint AS calls,
-       0::bigint AS results,
-       0::bigint AS events,
-       o.stop_reason AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM outputs o
-UNION ALL
-SELECT 'batch'::text AS kind,
-       '00000000-0000-0000-0000-000000000000'::uuid AS id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS turn_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS context_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS event_id,
-       coalesce(r.last_sequence,0)::bigint AS sequence,
-       coalesce(r.ready_at,'epoch'::timestamptz)::timestamptz AS event_time,
-       ''::text AS operation,
-       0::integer AS attempt,
-       0::bigint AS watermark,
-       0::bigint AS source_end,
-       ''::text AS state,
-       ''::text AS recovery,
-       NULL::timestamptz AS retry_at,
-       '{}'::uuid[] AS opening_ids,
-       0::bigint AS opening_sequence,
-       b.has_tools AS has_tools,
-       b.incomplete AS incomplete,
-       b.runnable AS runnable,
-       coalesce(r.calls,0)::bigint AS calls,
-       coalesce(r.results,0)::bigint AS results,
-       coalesce(r.events,0)::bigint AS events,
-       ''::text AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM batch b LEFT JOIN LATERAL (
-    SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
-           max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
-    FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-    LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-    WHERE c.agent_id=$2 AND c.model_output_id=$4 AND NOT b.incomplete
-) r ON NOT b.incomplete
-UNION ALL
-SELECT 'config'::text AS kind,
-       i.id AS id,
-       e.turn_id AS turn_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS context_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS event_id,
-       e.sequence AS sequence,
-       e.created_at AS event_time,
-       ''::text AS operation,
-       0::integer AS attempt,
-       0::bigint AS watermark,
-       0::bigint AS source_end,
-       ''::text AS state,
-       ''::text AS recovery,
-       NULL::timestamptz AS retry_at,
-       i.opening_input_ids AS opening_ids,
-       coalesce(i.opening_event_sequence,0)::bigint AS opening_sequence,
-       false AS has_tools,
-       false AS incomplete,
-       false AS runnable,
-       0::bigint AS calls,
-       0::bigint AS results,
-       0::bigint AS events,
-       ''::text AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM agent_inputs i JOIN agent_events e ON e.agent_id=i.agent_id AND e.id=i.admitted_event_id
-WHERE i.agent_id=$2 AND i.id=$10 AND i.input_kind='config_change' AND i.state='resolved'
-UNION ALL
-SELECT 'checkpoint'::text AS kind,
-       c.id AS id,
-       e.turn_id AS turn_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS context_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS event_id,
-       e.sequence AS sequence,
-       c.created_at AS event_time,
-       ''::text AS operation,
-       0::integer AS attempt,
-       0::bigint AS watermark,
-       0::bigint AS source_end,
-       ''::text AS state,
-       ''::text AS recovery,
-       NULL::timestamptz AS retry_at,
-       c.opening_input_ids AS opening_ids,
-       coalesce(c.opening_event_sequence,0)::bigint AS opening_sequence,
-       false AS has_tools,
-       false AS incomplete,
-       false AS runnable,
-       0::bigint AS calls,
-       0::bigint AS results,
-       0::bigint AS events,
-       ''::text AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM context_checkpoints c JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id
-WHERE c.agent_id=$2 AND c.id=$11
-UNION ALL
-SELECT 'opening'::text AS kind,
-       o.id AS id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS turn_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS context_id,
-       '00000000-0000-0000-0000-000000000000'::uuid AS event_id,
-       o.sequence AS sequence,
-       o.created_at AS event_time,
-       ''::text AS operation,
-       0::integer AS attempt,
-       0::bigint AS watermark,
-       0::bigint AS source_end,
-       ''::text AS state,
-       ''::text AS recovery,
-       NULL::timestamptz AS retry_at,
-       '{}'::uuid[] AS opening_ids,
-       0::bigint AS opening_sequence,
-       false AS has_tools,
-       false AS incomplete,
-       false AS runnable,
-       0::bigint AS calls,
-       0::bigint AS results,
-       0::bigint AS events,
-       ''::text AS stop_reason,
-       '00000000-0000-0000-0000-000000000000'::uuid AS root_agent_id,
-       'epoch'::timestamptz AS database_now,
-       false AS steering,false AS queued,
-       0::bigint AS first_opening_sequence,0::bigint AS last_opening_sequence,0::bigint AS first_content_sequence
-FROM opening o
-UNION ALL
-SELECT 'scope'::text AS kind,s.id,coalesce(s.turn_id,'00000000-0000-0000-0000-000000000000'::uuid),
- '00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,
- s.semantic_sequence,s.semantic_time,''::text,0::integer,0::bigint,0::bigint,s.state,''::text,NULL::timestamptz,
- '{}'::uuid[],0::bigint,false,false,false,0::bigint,0::bigint,0::bigint,''::text,
- s.root_agent_id,s.database_now,s.steering,s.queued,s.first_opening_sequence,s.last_opening_sequence,s.first_content_sequence
-FROM scope s
- )
-SELECT f.kind,f.id,f.turn_id,f.context_id,f.event_id,f.sequence,f.event_time,f.operation,f.attempt,
- f.watermark,f.source_end,f.state,f.recovery,f.retry_at,f.opening_ids,f.opening_sequence,
- f.has_tools,f.incomplete,f.runnable,f.calls,f.results,f.events,f.stop_reason,f.root_agent_id,
- f.database_now,f.steering,f.queued,f.first_opening_sequence,f.last_opening_sequence,f.first_content_sequence
-FROM facts f ORDER BY f.kind,f.sequence
+const loadExecutionContexts = `-- name: LoadExecutionContexts :batchmany
+WITH outputs AS (
+SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
+FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
+WHERE o.agent_id=$1 AND o.id IN($4::uuid,$5::uuid)
+)
+SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
+c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,
+o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
+o.sequence AS output_sequence,o.created_at AS output_created_at
+FROM model_call_contexts c LEFT JOIN outputs o ON o.model_call_context_id=c.id
+WHERE c.agent_id=$1 AND c.id=ANY(
+ARRAY[$2::uuid,$3::uuid]
+|| ARRAY(SELECT model_call_context_id FROM outputs))
 `
 
-type LoadExecutionFactsBatchResults struct {
+type LoadExecutionContextsBatchResults struct {
 	br     pgx.BatchResults
 	tot    int
 	closed bool
 }
 
-type LoadExecutionFactsParams struct {
-	TurnID                  *uuid.UUID
-	AgentID                 uuid.UUID
-	ProjectID               uuid.UUID
-	ToolOutputID            *uuid.UUID
-	LimitOutputID           *uuid.UUID
-	StopSequence            int64
-	MaxContextInputSequence int64
-	NormalContextID         *uuid.UUID
-	CompactionContextID     *uuid.UUID
-	ConfigID                *uuid.UUID
-	CheckpointID            *uuid.UUID
+type LoadExecutionContextsParams struct {
+	AgentID             uuid.UUID
+	NormalContextID     *uuid.UUID
+	CompactionContextID *uuid.UUID
+	ToolOutputID        *uuid.UUID
+	LimitOutputID       *uuid.UUID
 }
 
-type LoadExecutionFactsRow struct {
-	Kind                 string
-	ID                   uuid.UUID
-	TurnID               uuid.UUID
-	ContextID            uuid.UUID
-	EventID              uuid.UUID
-	Sequence             int64
-	EventTime            time.Time
-	Operation            string
-	Attempt              int32
-	Watermark            int64
-	SourceEnd            int64
-	State                string
-	Recovery             string
-	RetryAt              *time.Time
-	OpeningIds           []uuid.UUID
-	OpeningSequence      int64
-	HasTools             bool
-	Incomplete           bool
-	Runnable             bool
-	Calls                int64
-	Results              int64
-	Events               int64
-	StopReason           string
-	RootAgentID          uuid.UUID
-	DatabaseNow          time.Time
-	Steering             bool
-	Queued               bool
-	FirstOpeningSequence int64
-	LastOpeningSequence  int64
-	FirstContentSequence int64
+type LoadExecutionContextsRow struct {
+	ID                     uuid.UUID
+	AgentID                uuid.UUID
+	TurnID                 uuid.UUID
+	OperationKind          string
+	AttemptNumber          int32
+	InputEventSequence     int64
+	SourceEventSequenceEnd *int64
+	State                  string
+	RecoveryKind           *string
+	RetryAt                *time.Time
+	OpeningInputIds        []uuid.UUID
+	OpeningEventSequence   int64
+	OutputID               *uuid.UUID
+	OutputStopReason       *string
+	OutputEventID          *uuid.UUID
+	OutputSequence         *int64
+	OutputCreatedAt        *time.Time
 }
 
-func (q *Queries) LoadExecutionFacts(ctx context.Context, db DBTX, arg []LoadExecutionFactsParams) *LoadExecutionFactsBatchResults {
+func (q *Queries) LoadExecutionContexts(ctx context.Context, db DBTX, arg []LoadExecutionContextsParams) *LoadExecutionContextsBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
-			a.TurnID,
 			a.AgentID,
-			a.ProjectID,
-			a.ToolOutputID,
-			a.LimitOutputID,
-			a.StopSequence,
-			a.MaxContextInputSequence,
 			a.NormalContextID,
 			a.CompactionContextID,
-			a.ConfigID,
-			a.CheckpointID,
+			a.ToolOutputID,
+			a.LimitOutputID,
 		}
-		batch.Queue(loadExecutionFacts, vals...)
+		batch.Queue(loadExecutionContexts, vals...)
 	}
 	br := db.SendBatch(ctx, batch)
-	return &LoadExecutionFactsBatchResults{br, len(arg), false}
+	return &LoadExecutionContextsBatchResults{br, len(arg), false}
 }
 
-func (b *LoadExecutionFactsBatchResults) Query(f func(int, []LoadExecutionFactsRow, error)) {
+func (b *LoadExecutionContextsBatchResults) Query(f func(int, []LoadExecutionContextsRow, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
-		items := []LoadExecutionFactsRow{}
+		items := []LoadExecutionContextsRow{}
 		if b.closed {
 			if f != nil {
 				f(t, items, ErrBatchAlreadyClosed)
@@ -364,38 +102,25 @@ func (b *LoadExecutionFactsBatchResults) Query(f func(int, []LoadExecutionFactsR
 			}
 			defer rows.Close()
 			for rows.Next() {
-				var i LoadExecutionFactsRow
+				var i LoadExecutionContextsRow
 				if err := rows.Scan(
-					&i.Kind,
 					&i.ID,
+					&i.AgentID,
 					&i.TurnID,
-					&i.ContextID,
-					&i.EventID,
-					&i.Sequence,
-					&i.EventTime,
-					&i.Operation,
-					&i.Attempt,
-					&i.Watermark,
-					&i.SourceEnd,
+					&i.OperationKind,
+					&i.AttemptNumber,
+					&i.InputEventSequence,
+					&i.SourceEventSequenceEnd,
 					&i.State,
-					&i.Recovery,
+					&i.RecoveryKind,
 					&i.RetryAt,
-					&i.OpeningIds,
-					&i.OpeningSequence,
-					&i.HasTools,
-					&i.Incomplete,
-					&i.Runnable,
-					&i.Calls,
-					&i.Results,
-					&i.Events,
-					&i.StopReason,
-					&i.RootAgentID,
-					&i.DatabaseNow,
-					&i.Steering,
-					&i.Queued,
-					&i.FirstOpeningSequence,
-					&i.LastOpeningSequence,
-					&i.FirstContentSequence,
+					&i.OpeningInputIds,
+					&i.OpeningEventSequence,
+					&i.OutputID,
+					&i.OutputStopReason,
+					&i.OutputEventID,
+					&i.OutputSequence,
+					&i.OutputCreatedAt,
 				); err != nil {
 					return err
 				}
@@ -409,23 +134,362 @@ func (b *LoadExecutionFactsBatchResults) Query(f func(int, []LoadExecutionFactsR
 	}
 }
 
+func (b *LoadExecutionContextsBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const loadExecutionFacts = `-- name: LoadExecutionFacts :batchone
+WITH batch AS (
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS has_tools,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND c.state<>'completed') AS incomplete,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2
+AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE $2::uuid IS NOT NULL) present
+), tool_batch AS (
+SELECT b.has_tools,b.incomplete,b.runnable,coalesce(r.calls,0)::bigint AS calls,coalesce(r.results,0)::bigint AS results,
+coalesce(r.events,0)::bigint AS events,coalesce(r.last_sequence,0)::bigint AS last_sequence,
+coalesce(r.ready_at,'epoch'::timestamptz)::timestamptz AS ready_at
+FROM batch b LEFT JOIN LATERAL (
+SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
+max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
+FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
+WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
+) r ON NOT b.incomplete
+), scope AS MATERIALIZED (
+ SELECT a.id,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now,t.id AS turn_id,
+ coalesce(e.sequence,0)::bigint AS semantic_sequence,coalesce(e.created_at,'epoch'::timestamptz)::timestamptz AS semantic_time,
+ EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
+ AND i.delivery_mode='steering' AND i.state='received') AS steering,
+ EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
+ AND i.delivery_mode='queued' AND i.state='received') AS queued,
+ coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
+ coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
+ coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
+ FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$3
+ LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
+ LEFT JOIN LATERAL (
+  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
+  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
+  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
+ ) o ON true
+ WHERE a.id=$1 AND a.project_id=$4
+) , boundary AS MATERIALIZED (
+    SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$1
+                    AND e.event_kind='model_output' AND e.sequence<=(SELECT last_opening_sequence FROM scope)
+                    ORDER BY e.sequence DESC LIMIT 1),0),$5::bigint)::bigint AS sequence
+    FROM scope WHERE $6::bigint<scope.first_opening_sequence
+ AND $5::bigint<=scope.first_opening_sequence
+), unanswered AS MATERIALIZED (
+    SELECT i.id,e.sequence,e.created_at FROM boundary b
+    JOIN agent_events e ON e.agent_id=$1 AND e.is_opening_event
+        AND e.sequence>b.sequence AND e.sequence<=(SELECT last_opening_sequence FROM scope)
+    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+        AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
+), opening AS (
+    SELECT id,sequence,created_at FROM unanswered
+    UNION ALL
+    SELECT i.id,e.sequence,e.created_at FROM boundary b
+    JOIN agent_events e ON e.agent_id=$1 AND e.turn_id=$3 AND e.is_opening_event
+        AND e.sequence<=(SELECT last_opening_sequence FROM scope)
+    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+        AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
+    WHERE NOT EXISTS(SELECT 1 FROM unanswered)
+)
+SELECT s.id AS agent_id,s.root_agent_id,s.state,s.database_now,s.turn_id,
+s.semantic_sequence,s.semantic_time,s.steering,s.queued,s.first_opening_sequence,s.last_opening_sequence,s.first_content_sequence,
+coalesce(o.ids,'{}'::uuid[])::uuid[] AS opening_ids,coalesce(o.first_sequence,0)::bigint AS opening_sequence,
+coalesce(o.ready_at,'epoch'::timestamptz)::timestamptz AS opening_ready_at,
+coalesce(b.has_tools,false)::boolean AS batch_has_tools, coalesce(b.incomplete,false)::boolean AS batch_incomplete,
+coalesce(b.runnable,false)::boolean AS batch_runnable,coalesce(b.calls,0)::bigint AS batch_calls,
+coalesce(b.results,0)::bigint AS batch_results,coalesce(b.events,0)::bigint AS batch_events,
+coalesce(b.last_sequence,0)::bigint AS batch_last_sequence,coalesce(b.ready_at,'epoch'::timestamptz)::timestamptz AS batch_ready_at
+FROM scope s LEFT JOIN LATERAL (
+SELECT array_agg(id ORDER BY sequence) AS ids,min(sequence) AS first_sequence,min(created_at) AS ready_at FROM opening
+) o ON true LEFT JOIN tool_batch b ON true
+`
+
+type LoadExecutionFactsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type LoadExecutionFactsParams struct {
+	AgentID                 uuid.UUID
+	ToolOutputID            *uuid.UUID
+	TurnID                  *uuid.UUID
+	ProjectID               uuid.UUID
+	StopSequence            int64
+	MaxContextInputSequence int64
+}
+
+type LoadExecutionFactsRow struct {
+	AgentID              uuid.UUID
+	RootAgentID          uuid.UUID
+	State                string
+	DatabaseNow          time.Time
+	TurnID               *uuid.UUID
+	SemanticSequence     int64
+	SemanticTime         time.Time
+	Steering             bool
+	Queued               bool
+	FirstOpeningSequence int64
+	LastOpeningSequence  int64
+	FirstContentSequence int64
+	OpeningIds           []uuid.UUID
+	OpeningSequence      int64
+	OpeningReadyAt       time.Time
+	BatchHasTools        bool
+	BatchIncomplete      bool
+	BatchRunnable        bool
+	BatchCalls           int64
+	BatchResults         int64
+	BatchEvents          int64
+	BatchLastSequence    int64
+	BatchReadyAt         time.Time
+}
+
+func (q *Queries) LoadExecutionFacts(ctx context.Context, db DBTX, arg []LoadExecutionFactsParams) *LoadExecutionFactsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ToolOutputID,
+			a.TurnID,
+			a.ProjectID,
+			a.StopSequence,
+			a.MaxContextInputSequence,
+		}
+		batch.Queue(loadExecutionFacts, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &LoadExecutionFactsBatchResults{br, len(arg), false}
+}
+
+func (b *LoadExecutionFactsBatchResults) QueryRow(f func(int, LoadExecutionFactsRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i LoadExecutionFactsRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(
+			&i.AgentID,
+			&i.RootAgentID,
+			&i.State,
+			&i.DatabaseNow,
+			&i.TurnID,
+			&i.SemanticSequence,
+			&i.SemanticTime,
+			&i.Steering,
+			&i.Queued,
+			&i.FirstOpeningSequence,
+			&i.LastOpeningSequence,
+			&i.FirstContentSequence,
+			&i.OpeningIds,
+			&i.OpeningSequence,
+			&i.OpeningReadyAt,
+			&i.BatchHasTools,
+			&i.BatchIncomplete,
+			&i.BatchRunnable,
+			&i.BatchCalls,
+			&i.BatchResults,
+			&i.BatchEvents,
+			&i.BatchLastSequence,
+			&i.BatchReadyAt,
+		)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
 func (b *LoadExecutionFactsBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const loadExecutionPendingCheckpoint = `-- name: LoadExecutionPendingCheckpoint :batchmany
+SELECT c.id,e.turn_id,e.sequence,c.created_at,c.opening_input_ids,coalesce(c.opening_event_sequence,0)::bigint AS opening_event_sequence
+FROM context_checkpoints c JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id
+WHERE c.agent_id=$1 AND c.id=$2
+`
+
+type LoadExecutionPendingCheckpointBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type LoadExecutionPendingCheckpointParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+type LoadExecutionPendingCheckpointRow struct {
+	ID                   uuid.UUID
+	TurnID               uuid.UUID
+	Sequence             int64
+	CreatedAt            time.Time
+	OpeningInputIds      []uuid.UUID
+	OpeningEventSequence int64
+}
+
+func (q *Queries) LoadExecutionPendingCheckpoint(ctx context.Context, db DBTX, arg []LoadExecutionPendingCheckpointParams) *LoadExecutionPendingCheckpointBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ID,
+		}
+		batch.Queue(loadExecutionPendingCheckpoint, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &LoadExecutionPendingCheckpointBatchResults{br, len(arg), false}
+}
+
+func (b *LoadExecutionPendingCheckpointBatchResults) Query(f func(int, []LoadExecutionPendingCheckpointRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []LoadExecutionPendingCheckpointRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i LoadExecutionPendingCheckpointRow
+				if err := rows.Scan(
+					&i.ID,
+					&i.TurnID,
+					&i.Sequence,
+					&i.CreatedAt,
+					&i.OpeningInputIds,
+					&i.OpeningEventSequence,
+				); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *LoadExecutionPendingCheckpointBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const loadExecutionPendingConfig = `-- name: LoadExecutionPendingConfig :batchmany
+SELECT i.id,e.turn_id,e.sequence,e.created_at,i.opening_input_ids,coalesce(i.opening_event_sequence,0)::bigint AS opening_event_sequence
+FROM agent_inputs i JOIN agent_events e ON e.agent_id=i.agent_id AND e.id=i.admitted_event_id
+WHERE i.agent_id=$1 AND i.id=$2 AND i.input_kind='config_change' AND i.state='resolved'
+`
+
+type LoadExecutionPendingConfigBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type LoadExecutionPendingConfigParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+type LoadExecutionPendingConfigRow struct {
+	ID                   uuid.UUID
+	TurnID               uuid.UUID
+	Sequence             int64
+	CreatedAt            time.Time
+	OpeningInputIds      []uuid.UUID
+	OpeningEventSequence int64
+}
+
+func (q *Queries) LoadExecutionPendingConfig(ctx context.Context, db DBTX, arg []LoadExecutionPendingConfigParams) *LoadExecutionPendingConfigBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ID,
+		}
+		batch.Queue(loadExecutionPendingConfig, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &LoadExecutionPendingConfigBatchResults{br, len(arg), false}
+}
+
+func (b *LoadExecutionPendingConfigBatchResults) Query(f func(int, []LoadExecutionPendingConfigRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []LoadExecutionPendingConfigRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i LoadExecutionPendingConfigRow
+				if err := rows.Scan(
+					&i.ID,
+					&i.TurnID,
+					&i.Sequence,
+					&i.CreatedAt,
+					&i.OpeningInputIds,
+					&i.OpeningEventSequence,
+				); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *LoadExecutionPendingConfigBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }
 
 const publishExecution = `-- name: PublishExecution :batchone
 WITH scope AS MATERIALIZED (
- SELECT a.id AS agent_id,$2::timestamptz AS logical_ready_at
- FROM agents a WHERE a.id=$3 AND ($4::boolean OR
+ SELECT a.id AS agent_id,$1::timestamptz AS logical_ready_at
+ FROM agents a WHERE a.id=$2 AND ($3::boolean OR
  EXISTS(SELECT 1 FROM agent_execution_state h WHERE h.agent_id=a.id))
 ), updated AS (
-INSERT INTO agent_execution_state AS h(agent_id,current_turn_id,stop_sequence,answered_through_sequence,max_normal_input_sequence,max_context_input_sequence,normal_context_id,compaction_context_id,pending_tool_output_id,pending_output_limit_id,pending_config_input_id,pending_checkpoint_id,turn_continuable,incomplete_tools,logical_ready_at)
-SELECT scope.agent_id,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,scope.logical_ready_at FROM scope
+INSERT INTO agent_execution_state AS h(agent_id,current_turn_id,stop_sequence,max_normal_input_sequence,max_context_input_sequence,normal_context_id,compaction_context_id,pending_tool_output_id,pending_output_limit_id,pending_config_input_id,pending_checkpoint_id,turn_continuable,incomplete_tools,logical_ready_at)
+SELECT scope.agent_id,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,scope.logical_ready_at FROM scope
 ON CONFLICT(agent_id) DO UPDATE SET
 current_turn_id=excluded.current_turn_id,
 stop_sequence=excluded.stop_sequence,
-answered_through_sequence=excluded.answered_through_sequence,
 max_normal_input_sequence=excluded.max_normal_input_sequence,
 max_context_input_sequence=excluded.max_context_input_sequence,
 normal_context_id=excluded.normal_context_id,
@@ -437,14 +501,14 @@ pending_checkpoint_id=excluded.pending_checkpoint_id,
 turn_continuable=excluded.turn_continuable,
 incomplete_tools=excluded.incomplete_tools,
 logical_ready_at=excluded.logical_ready_at
-WHERE (h.current_turn_id,h.stop_sequence,h.answered_through_sequence,h.max_normal_input_sequence,h.max_context_input_sequence,h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,h.pending_config_input_id,h.pending_checkpoint_id,h.turn_continuable,h.incomplete_tools,h.logical_ready_at) IS DISTINCT FROM
-(excluded.current_turn_id,excluded.stop_sequence,excluded.answered_through_sequence,excluded.max_normal_input_sequence,excluded.max_context_input_sequence,excluded.normal_context_id,excluded.compaction_context_id,excluded.pending_tool_output_id,excluded.pending_output_limit_id,excluded.pending_config_input_id,excluded.pending_checkpoint_id,excluded.turn_continuable,excluded.incomplete_tools,excluded.logical_ready_at)
+WHERE (h.current_turn_id,h.stop_sequence,h.max_normal_input_sequence,h.max_context_input_sequence,h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,h.pending_config_input_id,h.pending_checkpoint_id,h.turn_continuable,h.incomplete_tools,h.logical_ready_at) IS DISTINCT FROM
+(excluded.current_turn_id,excluded.stop_sequence,excluded.max_normal_input_sequence,excluded.max_context_input_sequence,excluded.normal_context_id,excluded.compaction_context_id,excluded.pending_tool_output_id,excluded.pending_output_limit_id,excluded.pending_config_input_id,excluded.pending_checkpoint_id,excluded.turn_continuable,excluded.incomplete_tools,excluded.logical_ready_at)
 RETURNING h.agent_id), desired AS MATERIALIZED (
  SELECT a.id,h.logical_ready_at AS ready_at FROM scope h JOIN agents a ON a.id=h.agent_id
- WHERE a.id=$3 AND a.state='active' AND h.logical_ready_at IS NOT NULL
+ WHERE a.id=$2 AND a.state='active' AND h.logical_ready_at IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id)
 ), removed AS (
- DELETE FROM agent_wakeups WHERE agent_id=$3 AND NOT EXISTS(SELECT 1 FROM desired)
+ DELETE FROM agent_wakeups WHERE agent_id=$2 AND NOT EXISTS(SELECT 1 FROM desired)
 ), published AS (
 INSERT INTO agent_wakeups(agent_id,ready_at,updated_at)
 SELECT id,ready_at,statement_timestamp() FROM desired
@@ -465,7 +529,6 @@ FROM scope LEFT JOIN LATERAL (
  JOIN projects p ON p.id=a.project_id JOIN orgs o ON o.id=p.org_id
  WHERE a.id=scope.agent_id AND p.deleted_at IS NULL AND o.deleted_at IS NULL
  AND coalesce(c.compiled_definition->'event_webhook'->>'url','')<>''
- AND $1::boolean
 ) w ON true
 `
 
@@ -476,13 +539,11 @@ type PublishExecutionBatchResults struct {
 }
 
 type PublishExecutionParams struct {
-	CaptureWebhook          bool
 	LogicalReadyAt          *time.Time
 	AgentID                 uuid.UUID
 	InsertHead              bool
 	CurrentTurnID           *uuid.UUID
 	StopSequence            int64
-	AnsweredThroughSequence int64
 	MaxNormalInputSequence  int64
 	MaxContextInputSequence int64
 	NormalContextID         *uuid.UUID
@@ -505,13 +566,11 @@ func (q *Queries) PublishExecution(ctx context.Context, db DBTX, arg []PublishEx
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
-			a.CaptureWebhook,
 			a.LogicalReadyAt,
 			a.AgentID,
 			a.InsertHead,
 			a.CurrentTurnID,
 			a.StopSequence,
-			a.AnsweredThroughSequence,
 			a.MaxNormalInputSequence,
 			a.MaxContextInputSequence,
 			a.NormalContextID,

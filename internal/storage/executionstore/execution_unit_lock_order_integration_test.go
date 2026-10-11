@@ -78,31 +78,19 @@ func assertExecutionAgentOrder(
 	)
 }
 
-func TestModelMutationPlansParentBeforeRuntime(t *testing.T) {
+func TestModelMutationsFenceWithoutParentLock(t *testing.T) {
 	for _, parentFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("parent_first_%t", parentFirst), func(t *testing.T) {
 			f, parent, child := executionLockOrderAgents(t, parentFirst)
-			first, second := parent, child
-			if !parentFirst {
-				first, second = child, parent
-			}
 			runtime, source := uuid.New(), uuid.New()
 			for _, operation := range []string{
-				"claim normal", "claim compaction", "retry", "prepare",
+				"claim compaction", "retry", "prepare",
 				"begin compaction", "replace compaction", "terminal compaction",
 			} {
 				t.Run(operation, func(t *testing.T) {
-					assertExecutionAgentOrder(t, f, first, second, func(ctx context.Context) error {
+					assertExecutionAgentOrder(t, f, child, parent, func(ctx context.Context) error {
 						s := f.Store.Execution()
 						switch operation {
-						case "claim normal":
-							_, err := s.PrepareNormalModelCall(
-								ctx,
-								executionstore.PrepareNormalModelCallInput{
-									ProjectID: testProjectID, AgentID: child, RuntimeLockID: runtime,
-									OpeningInputIDs: []uuid.UUID{source}},
-							)
-							return err
 						case "claim compaction":
 							_, err := s.ClaimCompactionModelCall(
 								ctx,
@@ -256,16 +244,16 @@ func TestSubagentLaunchTakesQuotaBeforeParentAndMachines(t *testing.T) {
 	require.NoError(t, integrationdb.Await(t, done, "subagent launch after quota").Err)
 }
 
-func TestPreparationFencesLeaseAfterParentWait(t *testing.T) {
+func TestPreparationFencesLeaseAfterAgentWait(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f, parent, child := executionLockOrderAgents(t, true)
+	f, _, child := executionLockOrderAgents(t, true)
 	runtime, err := f.Store.Execution().AcquireAgentRuntimeLock(
 		ctx, testProjectID, child, testWorkerProcessID, time.Minute,
 	)
 	require.NoError(t, err)
 	blocker := integrationdb.BeginTx(t, ctx, f.Store.pool)
-	_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, parent)
+	_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, child)
 	require.NoError(t, err)
 	done := integrationdb.RunAsyncError(func() error {
 		_, err := f.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{

@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -24,7 +23,7 @@ func TestPrepareNormalModelCallUsesSnapshotAfterLockWait(t *testing.T) {
 	_, err = blocker.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.AgentID},
-		agentexecution.ExternalAuthority{},
+		nil,
 	)
 	require.NoError(t, err)
 	var pid int32

@@ -17,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -692,7 +691,7 @@ func claimSentCompactionForRangeTest(
 	_, err = unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.AgentID},
-		agentexecution.ExternalAuthority{},
+		nil,
 	)
 	require.NoError(t, err)
 	admitted, err := executionstore.IntegrationAdmitInputs(ctx, unit, testProjectID, fixture.AgentID)

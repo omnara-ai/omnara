@@ -32,7 +32,7 @@ type Store struct {
 func New(pool *pgxpool.Pool, config Config) *Store {
 	db := storeutil.WrapPool(pool)
 	return &Store{
-		cell:   agentexecution.NewCell("primary", pool, config.PostCommitPublisher, nil),
+		cell:   agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
 		pool:   db,
 		q:      dbsqlc.New(db),
 		access: config.Access,

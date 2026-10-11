@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -276,7 +275,7 @@ func prelockProjectMachineLifecycleTx(
 	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
 		return nil, err
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return nil, err
 	}
 	return agentIDs, nil
@@ -374,7 +373,31 @@ func prelockOrganizationMachineLifecycleTx(
 	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	for _, poolID := range poolIDs {
+		rows,
+			err := q.ListMachinePoolAgentRefsForLifecycle(ctx,
+			dbsqlc.ListMachinePoolAgentRefsForLifecycleParams{OrgID: orgID,
+				MachinePoolID: poolID})
+		if err != nil {
+			return organizationMachineLifecyclePlan{}, err
+		}
+		for _, row := range rows {
+			agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		}
+	}
+	for _, machineID := range machineIDs {
+		rows,
+			err := q.ListMachineLifecycleTerminalAgentRefs(ctx,
+			dbsqlc.ListMachineLifecycleTerminalAgentRefsParams{OrgID: orgID,
+				MachineID: machineID})
+		if err != nil {
+			return organizationMachineLifecyclePlan{}, err
+		}
+		for _, row := range rows {
+			agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		}
+	}
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
 	byoMachineIDs, err := q.ListActiveBYOMachineIDsForOrganizationDeletion(
@@ -421,7 +444,7 @@ func (s *Service) DeleteProject(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, "delete_project", func() ([]executionstore.MachineRecord, error) {
+	return agentexecution.Retry(ctx, "delete_project", func(ctx context.Context) ([]executionstore.MachineRecord, error) {
 		return s.deleteProjectOnce(ctx, orgID, projectID, actor)
 	})
 }
@@ -474,9 +497,6 @@ func (s *Service) deleteProjectOnce(
 	if err != nil {
 		return nil, err
 	}
-	if err := unit.CaptureWebhookEligibility(ctx); err != nil {
-		return nil, err
-	}
 	rows, err := q.DeleteProject(ctx, dbsqlc.DeleteProjectParams{OrgID: orgID, ID: projectID})
 	if err != nil {
 		return nil, fmt.Errorf("delete project: %w", err)
@@ -506,9 +526,12 @@ func (s *Service) DeleteOrganization(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, "delete_organization", func() ([]executionstore.MachineRecord, error) {
-		return s.deleteOrganizationOnce(ctx, orgID, actor)
-	})
+	return agentexecution.Retry(ctx,
+		"delete_organization",
+		func(ctx context.Context) ([]executionstore.MachineRecord,
+			error) {
+			return s.deleteOrganizationOnce(ctx, orgID, actor)
+		})
 }
 
 //nolint:lll // Keeping generated query parameters inline makes the transaction's cascade order auditable.
@@ -544,13 +567,6 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	plan, err := prelockOrganizationMachineLifecycleTx(ctx, unit, q, orgID)
 	if err != nil {
-		return nil, err
-	}
-	var webhookAgents []uuid.UUID
-	for _, ids := range plan.agentIDsByProject {
-		webhookAgents = append(webhookAgents, ids...)
-	}
-	if err := unit.CaptureWebhookEligibility(ctx, webhookAgents...); err != nil {
 		return nil, err
 	}
 	rows, err := q.DeleteOrganization(ctx, dbsqlc.DeleteOrganizationParams{ID: orgID})

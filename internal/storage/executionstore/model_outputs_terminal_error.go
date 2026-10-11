@@ -35,46 +35,51 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	ctx context.Context,
 	input RecordModelCallErrorAndCompleteContextInput,
 ) (events.Event, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return events.Event{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	_, err = h.FailModel(
-		ctx,
-		agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
-			ErrorKind:    input.ErrorKind,
-			ErrorCode:    input.ErrorCode,
-			ErrorMessage: input.ErrorMessage,
-			ErrorDetails: input.ErrorDetails,
-			ServedModel:  input.ServedProviderModelSlug,
-			Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
-				APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
-				Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
-	)
-	if err != nil {
-		return events.Event{}, err
-	}
-	q := dbsqlc.New(unit.DB())
-	output, err := q.GetModelOutputByModelContext(
-		ctx,
-		dbsqlc.GetModelOutputByModelContextParams{ProjectID: input.ProjectID,
-			AgentID: input.AgentID, ModelCallContextID: input.ModelCallContextID},
-	)
-	if err != nil {
-		return events.Event{}, err
-	}
-	row, err := q.GetTypedAgentEventByModelOutput(ctx, dbsqlc.GetTypedAgentEventByModelOutputParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID, ModelOutputID: &output.ID})
-	if err != nil {
-		return events.Event{}, err
-	}
-	event, err := typedAgentEventFromModelOutputSQLC(row)
-	if err != nil {
-		return events.Event{}, err
-	}
-	if err = unit.Commit(ctx, "record terminal model failure"); err != nil {
-		return events.Event{}, err
-	}
-	return event.Event, nil
+	return agentexecution.Retry(ctx,
+		"RecordModelCallErrorAndCompleteContext",
+		func(ctx context.Context) (events.Event,
+			error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return events.Event{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			_, err = h.FailModel(
+				ctx,
+				agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
+					ErrorKind:    input.ErrorKind,
+					ErrorCode:    input.ErrorCode,
+					ErrorMessage: input.ErrorMessage,
+					ErrorDetails: input.ErrorDetails,
+					ServedModel:  input.ServedProviderModelSlug,
+					Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
+						APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
+						Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
+			)
+			if err != nil {
+				return events.Event{}, err
+			}
+			q := dbsqlc.New(unit.DB())
+			output, err := q.GetModelOutputByModelContext(
+				ctx,
+				dbsqlc.GetModelOutputByModelContextParams{ProjectID: input.ProjectID,
+					AgentID: input.AgentID, ModelCallContextID: input.ModelCallContextID},
+			)
+			if err != nil {
+				return events.Event{}, err
+			}
+			row, err := q.GetTypedAgentEventByModelOutput(ctx, dbsqlc.GetTypedAgentEventByModelOutputParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ModelOutputID: &output.ID})
+			if err != nil {
+				return events.Event{}, err
+			}
+			event, err := typedAgentEventFromModelOutputSQLC(row)
+			if err != nil {
+				return events.Event{}, err
+			}
+			if err = unit.Commit(ctx, "record terminal model failure"); err != nil {
+				return events.Event{}, err
+			}
+			return event.Event, nil
+		})
 }

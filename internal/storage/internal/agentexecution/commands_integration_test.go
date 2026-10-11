@@ -224,7 +224,7 @@ func TestExecutionCommandSavepointAndReplay(t *testing.T) {
 		assertCommandState(t, u, h)
 		return sentinel
 	}), sentinel)
-	_, count, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+	_, count, _, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
 	require.NoError(t, err)
 	require.Zero(t, count)
 	got := assertCommandState(t, u, h)
@@ -777,14 +777,14 @@ func prepareBlockedCandidate(ctx context.Context,
 	a,
 	lease uuid.UUID,
 	decision agentexecution.ModelDecision) error {
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
-	unit, err := cell.Begin(ctx)
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	unit, err := agentexecution.BeginTestUnit(ctx, cell)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = unit.Rollback(context.WithoutCancel(ctx)) }()
 	plan, err := unit.PlanAgents(ctx, []lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: a}},
-		agentexecution.IngressAuthority{})
+		nil)
 	if err != nil {
 		return err
 	}
@@ -792,8 +792,7 @@ func prepareBlockedCandidate(ctx context.Context,
 		return err
 	}
 	handle,
-		err := unit.Agent(agentexecution.AgentRoute{CellID: cell.ID(),
-		ProjectID:   f.project,
+		err := unit.Agent(agentexecution.AgentRoute{ProjectID: f.project,
 		AgentID:     a,
 		RootAgentID: a})
 	if err != nil {
@@ -978,10 +977,41 @@ func TestExecutionPreparationOwnsCachedLineage(t *testing.T) {
 	require.NoError(t, err)
 	selected.Selection.Model.Opening.InputIDs[0] = uuid.New()
 	prepared.Context.Opening.InputIDs[0] = uuid.New()
-	snapshot, count, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+	snapshot, count, _, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
 	require.NoError(t, err)
 	require.Zero(t, count)
 	require.Equal(t, []uuid.UUID{input.ID}, snapshot.View.NormalContext.Opening.InputIDs)
 	snapshot.View.NormalContext.Opening.InputIDs[0] = uuid.New()
 	assertCommandState(t, u, h)
+}
+
+func TestExecutionArchiveHistoryDoesNotDependOnReads(t *testing.T) {
+	f, a, _ := commandFixture(t)
+	u, h := f.handle(t, a)
+	receiveCommand(t, h, "queued", "initial")
+	_, err := h.AdmitInputs(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "admit"))
+	u, h = f.handle(t, a)
+	rollback := errors.New("rollback archive")
+	var histories []string
+	for _, loaded := range []bool{false, true} {
+		require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
+			if loaded {
+				_, err = h.LoadExecution(t.Context())
+				require.NoError(t, err)
+			}
+			_, err = h.Archive(t.Context(), uuid.Nil)
+			require.NoError(t, err)
+			var history string
+			require.NoError(t,
+				u.DB().QueryRow(t.Context(),
+					`SELECT coalesce(jsonb_agg(jsonb_build_object('event',to_jsonb(e)-ARRAY['id','agent_input_id','idempotency_key','created_at'],'input',to_jsonb(i)-ARRAY['id','queued_at','admitted_at','resolved_at','canceled_at','admitted_event_id']) ORDER BY e.sequence),'[]')::text FROM agent_events e LEFT JOIN agent_inputs i ON i.id=e.agent_input_id WHERE e.agent_id=$1`,
+					a).Scan(&history))
+			histories = append(histories, history)
+			return rollback
+		}), rollback)
+	}
+	require.Equal(t, histories[0], histories[1])
+	require.Contains(t, histories[0], `"input_kind": "control"`)
 }

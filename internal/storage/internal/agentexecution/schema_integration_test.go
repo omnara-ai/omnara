@@ -327,3 +327,73 @@ func TestExecutionRootBackfillRejectsCycle(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorContains(t, applyExecutionCutover(t.Context(), f.pool), "invalid agent ancestry")
 }
+
+func TestExecutionOpeningMembersAreAgentScopedAndOrdered(t *testing.T) {
+	f := releasedExecutionFixture(t)
+	a, b := f.agent(t), f.agent(t)
+	_, first := f.opening(t, a, 1, uuid.Nil, "content")
+	turn, second := f.opening(t, a, 2, uuid.Nil, "content")
+	_, foreign := f.opening(t, b, 1, uuid.Nil, "content")
+	normal := f.modelContext(t, a, 2, "normal", nil, 1)
+	f.fail(t, normal, "compact")
+	compact := f.modelContext(t, a, 2, "compaction", new(int64(2)), 1)
+	f.checkpoint(t, a, turn, compact, 3, 2)
+	require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
+	for _, table := range []string{"model_call_contexts", "context_checkpoints", "agent_inputs"} {
+		for _, tc := range []struct {
+			name  string
+			ids   []uuid.UUID
+			valid bool
+		}{
+			{"foreign", []uuid.UUID{foreign}, false},
+			{"missing", []uuid.UUID{uuid.New()}, false},
+			{"reversed", []uuid.UUID{second, first}, false},
+			{"mixed", []uuid.UUID{first, foreign}, false},
+			{"valid", []uuid.UUID{first, second}, true},
+		} {
+			t.Run(table+"/"+tc.name, func(t *testing.T) {
+				tx, err := f.pool.Begin(t.Context())
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback(t.Context()) }()
+				switch table {
+				case "agent_inputs":
+					id, event := uuid.New(), uuid.New()
+					_, err = tx.Exec(t.Context(), `INSERT INTO agent_inputs(
+ id,project_id,agent_id,state,input_kind,delivery_mode,agent_config_id,queued_at)
+ VALUES($1,$2,$3,'received','config_change','immediate',$4,now())`, id, f.project, a, f.config)
+					require.NoError(t, err)
+					_, err = tx.Exec(t.Context(), `INSERT INTO agent_events(
+ id,agent_id,turn_id,sequence,event_kind,agent_input_id,is_opening_event,idempotency_key,created_at)
+ VALUES($1,$2,$3,4,'agent_input',$4,true,'agent_input:'||($4::uuid)::text,now())`, event, a, turn, id)
+					require.NoError(t, err)
+					_, err = tx.Exec(t.Context(), `UPDATE agent_inputs
+ SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now(),
+ opening_input_ids=$3,opening_event_sequence=1 WHERE id=$1`, id, event, tc.ids)
+				default:
+					source, id, ids := normal, uuid.New(), tc.ids
+					if table == "context_checkpoints" {
+						source, ids = compact, []uuid.UUID{first, second}
+					}
+					_, err = tx.Exec(t.Context(), `INSERT INTO model_call_contexts(
+ id,org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,configured_model_revision_id,
+ input_event_sequence,source_event_sequence_end,runtime_lock_id,created_at,turn_id,
+ opening_input_ids,opening_event_sequence)
+ SELECT $1,org_id,project_id,agent_id,operation_kind,2,agent_config_id,configured_model_revision_id,
+ input_event_sequence,source_event_sequence_end,runtime_lock_id,now(),turn_id,$3,1
+ FROM model_call_contexts WHERE id=$2`, id, source, ids)
+					if table == "context_checkpoints" {
+						require.NoError(t, err)
+						_, err = tx.Exec(t.Context(), `INSERT INTO context_checkpoints(
+ agent_id,summarized_through_event_sequence,producer_model_call_context_id,summary,created_at,
+ opening_input_ids,opening_event_sequence) VALUES($1,1,$2,'summary',now(),$3,1)`, a, id, tc.ids)
+					}
+				}
+				if tc.valid {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, "opening inputs must belong to the agent in event sequence order")
+				}
+			})
+		}
+	}
+}

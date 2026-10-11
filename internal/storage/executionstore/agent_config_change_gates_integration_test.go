@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -49,7 +48,7 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(
 	require.NoError(t, integrationstore.LockIntegrationsTx(f.ctx, tx, testProjectID, nil, f.integration.ID))
 	_, err = txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: launch.Agent.ID,
-	}, agentexecution.ExternalAuthority{})
+	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.store.Integrations().AssignAgentIntegrationConversationTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,

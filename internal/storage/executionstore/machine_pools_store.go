@@ -987,9 +987,11 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id uuid.UUID) ([]M
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
-	return storeutil.RetryTransaction(ctx, "delete_machine_pool", func() ([]MachineRecord, error) {
-		return s.deleteMachinePoolOnce(ctx, orgID, id)
-	})
+	return agentexecution.Retry(ctx,
+		"delete_machine_pool",
+		func(ctx context.Context) ([]MachineRecord, error) {
+			return s.deleteMachinePoolOnce(ctx, orgID, id)
+		})
 }
 
 func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id uuid.UUID) ([]MachineRecord, error) {
@@ -1075,7 +1077,19 @@ func (s *Store) DeleteMachinePoolInUnit(
 			AgentID:   agentRow.AgentID,
 		})
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	for _, machineID := range machineIDs {
+		rows,
+			err := qtx.ListMachineLifecycleTerminalAgentRefs(ctx,
+			dbsqlc.ListMachineLifecycleTerminalAgentRefsParams{OrgID: orgID,
+				MachineID: machineID})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		}
+	}
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return nil, err
 	}
 	if _, err := qtx.DeleteMachinePool(

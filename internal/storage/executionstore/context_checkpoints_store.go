@@ -30,37 +30,42 @@ func (s *Store) PublishContextCheckpoint(
 	ctx context.Context,
 	input PublishContextCheckpointInput,
 ) (ContextCheckpointRecord, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return ContextCheckpointRecord{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	result, err := h.PublishCheckpoint(
-		ctx,
-		agentexecution.PublishCheckpointInput{RuntimeLockID: input.RuntimeLockID,
-			ContextID: input.ModelCallContextID, Summary: input.Summary, Evidence: agentexecution.ModelEvidence{
-				APIFormat: input.APIFormat, APIVariant: input.APIVariant, RequestID: input.ProviderRequestID,
-				ResponseID: input.ProviderResponseID,
-				Usage:      input.Usage,
-				Cost:       input.ProviderReportedCostUSD,
-				Metadata:   input.ProviderMetadata}},
-	)
-	if err != nil {
-		return ContextCheckpointRecord{}, err
-	}
-	if !result.Created {
-		return ContextCheckpointRecord{}, storeerr.ErrStateTransitionConflict
-	}
-	row, err := dbsqlc.New(unit.DB()).
-		GetContextCheckpoint(ctx,
-			dbsqlc.GetContextCheckpointParams{ProjectID: input.ProjectID,
-				AgentID: input.AgentID,
-				ID:      result.ID})
-	if err != nil {
-		return ContextCheckpointRecord{}, err
-	}
-	if err = unit.Commit(ctx, "publish context checkpoint"); err != nil {
-		return ContextCheckpointRecord{}, err
-	}
-	return contextCheckpointRecordFromGetSQLC(row), nil
+	return agentexecution.Retry(ctx,
+		"PublishContextCheckpoint",
+		func(ctx context.Context) (ContextCheckpointRecord,
+			error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return ContextCheckpointRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			result, err := h.PublishCheckpoint(
+				ctx,
+				agentexecution.PublishCheckpointInput{RuntimeLockID: input.RuntimeLockID,
+					ContextID: input.ModelCallContextID, Summary: input.Summary, Evidence: agentexecution.ModelEvidence{
+						APIFormat: input.APIFormat, APIVariant: input.APIVariant, RequestID: input.ProviderRequestID,
+						ResponseID: input.ProviderResponseID,
+						Usage:      input.Usage,
+						Cost:       input.ProviderReportedCostUSD,
+						Metadata:   input.ProviderMetadata}},
+			)
+			if err != nil {
+				return ContextCheckpointRecord{}, err
+			}
+			if !result.Created {
+				return ContextCheckpointRecord{}, storeerr.ErrStateTransitionConflict
+			}
+			row, err := dbsqlc.New(unit.DB()).
+				GetContextCheckpoint(ctx,
+					dbsqlc.GetContextCheckpointParams{ProjectID: input.ProjectID,
+						AgentID: input.AgentID,
+						ID:      result.ID})
+			if err != nil {
+				return ContextCheckpointRecord{}, err
+			}
+			if err = unit.Commit(ctx, "publish context checkpoint"); err != nil {
+				return ContextCheckpointRecord{}, err
+			}
+			return contextCheckpointRecordFromGetSQLC(row), nil
+		})
 }

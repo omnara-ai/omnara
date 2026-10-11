@@ -18,6 +18,8 @@ var ErrLockPlan = errors.New("agent execution lock plan must be restarted")
 
 type Unit struct {
 	cell              *AgentCell
+	expanded          retryPlan
+	claimedAgent      uuid.UUID
 	tx                pgx.Tx
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle
@@ -41,8 +43,6 @@ func newUnit(cell *AgentCell, tx pgx.Tx) *Unit {
 func (u *Unit) DB() unitDB { return unitDB{unit: u} }
 
 func (u *Unit) Notifications() *notifications.TxNotifications { return u.notifications }
-
-func (u *Unit) CellID() CellID { return u.cell.id }
 
 func (u *Unit) active() error {
 	if u.closed {
@@ -142,18 +142,18 @@ func (u *Unit) Savepoint(ctx context.Context, run func(*Unit) error) (err error)
 }
 
 type unitSnapshot struct {
+	claimedAgent      uuid.UUID
 	handles           map[uuid.UUID]*Handle
 	states            map[uuid.UUID]Handle
 	notifications     *notifications.TxNotifications
-	webhooks          map[uuid.UUID]webhookTarget
 	exclusiveProjects map[uuid.UUID]struct{}
 	runtimeLocked     bool
 }
 
 func (u *Unit) snapshot() unitSnapshot {
 	s := unitSnapshot{
-		handles: maps.Clone(u.handles), states: make(map[uuid.UUID]Handle),
-		notifications: u.notifications.Clone(), webhooks: maps.Clone(u.webhooks),
+		claimedAgent: u.claimedAgent, handles: maps.Clone(u.handles), states: make(map[uuid.UUID]Handle),
+		notifications:     u.notifications.Clone(),
 		exclusiveProjects: maps.Clone(u.exclusiveProjects),
 		runtimeLocked:     u.runtimeLocked,
 	}
@@ -163,10 +163,6 @@ func (u *Unit) snapshot() unitSnapshot {
 			state.mutation = h.mutation.clone()
 		}
 		s.states[id] = state
-	}
-	for id, target := range s.webhooks {
-		target.events = slices.Clone(target.events)
-		s.webhooks[id] = target
 	}
 	return s
 }
@@ -182,8 +178,8 @@ func (u *Unit) restore(snapshot unitSnapshot) {
 		*h = snapshot.states[id]
 	}
 	u.notifications.Restore(snapshot.notifications)
-	u.webhooks = snapshot.webhooks
 	u.exclusiveProjects = snapshot.exclusiveProjects
 	u.runtimeLocked = snapshot.runtimeLocked
+	u.claimedAgent = snapshot.claimedAgent
 	u.aborted = false
 }

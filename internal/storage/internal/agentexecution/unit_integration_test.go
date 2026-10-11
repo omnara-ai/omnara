@@ -33,13 +33,13 @@ CREATE TABLE agents(id uuid PRIMARY KEY, project_id uuid NOT NULL, org_id uuid N
 CREATE TABLE unit_probe(id bigint GENERATED ALWAYS AS IDENTITY, agent_id uuid, phase text, labels text[]);
 CREATE TABLE deferred_probe(id integer UNIQUE DEFERRABLE INITIALLY DEFERRED);`)
 	require.NoError(t, err)
-	return NewCell("test", pool, publisher, nil), pool
+	return NewCell(pool, publisher, nil), pool
 }
 
 func unitTestAgent(t *testing.T, u *Unit, project, agent uuid.UUID) *Handle {
 	t.Helper()
 	require.NoError(t, u.CreatedAgent(project, agent, uuid.Nil))
-	h, err := u.Agent(AgentRoute{CellID: u.CellID(), ProjectID: project, AgentID: agent, RootAgentID: agent})
+	h, err := u.Agent(AgentRoute{ProjectID: project, AgentID: agent, RootAgentID: agent})
 	require.NoError(t, err)
 	return h
 }
@@ -62,7 +62,7 @@ func TestUnitCommitLifecycle(t *testing.T) {
 			published = append(published, intent)
 		}},
 	)
-	u, err := cell.Begin(ctx)
+	u, err := BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(ctx) }()
 	_, raw := any(u.DB()).(pgx.Tx)
@@ -104,7 +104,7 @@ func TestUnitSavepointSnapshots(t *testing.T) {
 			published = append(published, intent)
 		}},
 	)
-	u, err := cell.Begin(ctx)
+	u, err := BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(ctx) }()
 	project, agent, machine := uuid.New(), uuid.New(), uuid.New()
@@ -115,15 +115,12 @@ func TestUnitSavepointSnapshots(t *testing.T) {
 	pending.AddDaemonWork(machine)
 	process := uuid.New()
 	pending.AddDaemonProcessTermination(machine, process)
-	u.webhooks[agent] = webhookTarget{orgID: uuid.New(), events: []string{"model_output"}}
-	originalTarget := u.webhooks[agent]
 	rejected := errors.New("reject inner")
 	var escaped *Handle
 	require.ErrorIs(t, u.Savepoint(ctx, func(u *Unit) error {
 		mutation.head.StopSequence = 2
 		pending.AddDaemonWork(uuid.New())
 		pending.AddDaemonProcessTermination(machine, uuid.New())
-		u.webhooks[agent] = webhookTarget{orgID: uuid.New()}
 		delete(u.handles, agent)
 		escaped = unitTestAgent(t, u, project, uuid.New())
 		escaped.mutation = &executionMutation{head: ExecutionHead{StopSequence: 3}}
@@ -142,7 +139,6 @@ func TestUnitSavepointSnapshots(t *testing.T) {
 	require.Same(t, h, u.handles[agent])
 	restored := h.mutation
 	require.EqualValues(t, 1, restored.head.StopSequence)
-	require.Equal(t, originalTarget, u.webhooks[agent])
 	_, err = escaped.Route()
 	require.ErrorIs(t, err, ErrUnitClosed)
 	var unlocked bool
@@ -179,7 +175,7 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 					t.Error("notification from failed transaction")
 				}},
 			)
-			u, err := cell.Begin(ctx)
+			u, err := BeginTestUnit(ctx, cell)
 			require.NoError(t, err)
 			defer func() { _ = u.Rollback(ctx) }()
 			unitTestAgent(t, u, uuid.New(), uuid.New())
@@ -240,20 +236,22 @@ func TestUnitLockPlansAndSavepointLocks(t *testing.T) {
 		org,
 	)
 	require.NoError(t, err)
-	u, err := cell.Begin(ctx)
+	u, err := BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(ctx) }()
 	refs := []lifecyclelock.AgentRef{{ProjectID: project, AgentID: higher}}
-	require.NoError(t, u.LockAgentRefs(ctx, refs, LifecycleAuthority{}))
+	require.NoError(t, u.LockAgentRefs(ctx, refs, nil))
 	require.Equal(t, lower, u.handles[higher].route.RootAgentID)
-	require.ErrorIs(t, u.LockAgentRefs(
-		ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: project, AgentID: lower}}, IngressAuthority{}),
-		ErrLockPlan,
-	)
-	plan, err := u.PlanAgents(ctx, refs, LifecycleAuthority{})
+	plan, err := u.PlanAgents(ctx, refs, nil)
 	require.NoError(t, err)
-	other, err := NewCell("other", pool, nil, nil).Begin(ctx)
+	require.ErrorIs(t,
+		u.LockAgentRefs(ctx,
+			[]lifecyclelock.AgentRef{{ProjectID: project,
+				AgentID: lower}},
+			nil),
+		ErrLockPlan)
+	require.ErrorIs(t, u.active(), ErrUnitAborted)
+	other, err := BeginTestUnit(ctx, NewCell(pool, nil, nil))
 	require.NoError(t, err)
 	defer func() { _ = other.Rollback(ctx) }()
 	require.ErrorIs(t, other.LockAgents(ctx, plan), ErrLockPlan)
@@ -261,7 +259,7 @@ func TestUnitLockPlansAndSavepointLocks(t *testing.T) {
 	require.ErrorIs(t, other.Savepoint(ctx, func(u *Unit) error {
 		return errors.Join(u.LockAgentRefs(
 			ctx,
-			[]lifecyclelock.AgentRef{{ProjectID: project, AgentID: lower}}, RepairAuthority{}),
+			[]lifecyclelock.AgentRef{{ProjectID: project, AgentID: lower}}, nil),
 			rollback,
 		)
 	}), rollback)
@@ -269,4 +267,196 @@ func TestUnitLockPlansAndSavepointLocks(t *testing.T) {
 	check := integrationdb.BeginTx(t, ctx, pool)
 	_, err = check.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE NOWAIT`, lower)
 	require.NoError(t, err)
+}
+
+func TestUnitExpandsLockPlanAndRollsBackAttempt(t *testing.T) {
+	ctx := t.Context()
+	cell, pool := unitTestCell(t, nil)
+	project, org := uuid.New(), uuid.New()
+	low,
+		high := uuid.MustParse("00000000-0000-4000-8000-000000000001"),
+		uuid.MustParse("ffffffff-ffff-4fff-8fff-ffffffffffff")
+	_,
+		err := pool.Exec(ctx,
+		`INSERT INTO agents(id,project_id,org_id,root_agent_id) VALUES($1,$3,$4,$1),($2,$3,$4,$2)`,
+		low,
+		high,
+		project,
+		org)
+	require.NoError(t, err)
+	for _, first := range []uuid.UUID{low, high} {
+		t.Run(first.String(), func(t *testing.T) {
+			second := low
+			if first == low {
+				second = high
+			}
+			attempts := 0
+			_, err := Retry(ctx, "expand", func(ctx context.Context) (struct{}, error) {
+				attempts++
+				u, err := BeginTestUnit(ctx, cell)
+				if err != nil {
+					return struct{}{}, err
+				}
+				defer func() { _ = u.Rollback(ctx) }()
+				if err = u.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{ProjectID: project, AgentID: first}}, nil); err != nil {
+					return struct{}{}, err
+				}
+				if _, err = u.DB().Exec(ctx, `INSERT INTO unit_probe(agent_id,phase) VALUES($1,'attempt')`, first); err != nil {
+					return struct{}{}, err
+				}
+				if _, err = u.Handle(project, second); err != nil {
+					return struct{}{}, err
+				}
+				return struct{}{}, u.Commit(ctx, "expanded")
+			})
+			require.NoError(t, err)
+			require.Equal(t, 2, attempts)
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM unit_probe WHERE agent_id=$1`, first).Scan(&count))
+			require.Equal(t, 1, count)
+		})
+	}
+}
+
+func TestUnitLockPlanExpansionIsBounded(t *testing.T) {
+	attempts := 0
+	_, err := Retry(t.Context(), "bounded", func(context.Context) (struct{}, error) {
+		attempts++
+		return struct{}{}, &LockPlanError{Agents: []lifecyclelock.AgentRef{{ProjectID: uuid.New(), AgentID: uuid.New()}}}
+	})
+	require.ErrorIs(t, err, ErrLockPlan)
+	require.Equal(t, 8, attempts)
+	attempts = 0
+	ref := lifecyclelock.AgentRef{ProjectID: uuid.New(), AgentID: uuid.New()}
+	_, err = Retry(t.Context(), "no progress", func(context.Context) (struct{}, error) {
+		attempts++
+		return struct{}{}, &LockPlanError{Agents: []lifecyclelock.AgentRef{ref}}
+	})
+	require.ErrorIs(t, err, ErrLockPlan)
+	require.Equal(t, 2, attempts)
+}
+
+func TestUnitExpandedClaimKeepsOriginalAgent(t *testing.T) {
+	ctx := t.Context()
+	cell, pool := unitTestCell(t, nil)
+	project, org, first, other, parent := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	_, err := pool.Exec(ctx, `
+CREATE TABLE agent_wakeups(agent_id uuid PRIMARY KEY, ready_at timestamptz NOT NULL);
+CREATE TABLE agent_runtime_locks(agent_id uuid PRIMARY KEY);`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
+SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first, other, parent})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO agent_wakeups VALUES($1,now()-interval '1 day'),($2,now())`, first, other)
+	require.NoError(t, err)
+	attempts := 0
+	route, err := Retry(ctx, "expand claim", func(ctx context.Context) (AgentRoute, error) {
+		attempts++
+		u, err := BeginTestUnit(ctx, cell)
+		if err != nil {
+			return AgentRoute{}, err
+		}
+		defer func() { _ = u.Rollback(ctx) }()
+		route, err := u.ClaimAgent(ctx)
+		if err != nil {
+			return route, err
+		}
+		if _, missing := u.Handle(project, parent); missing != nil {
+			require.NoError(t, u.Rollback(ctx))
+			_, err = pool.Exec(ctx, `UPDATE agent_wakeups SET ready_at='epoch' WHERE agent_id=$1`, other)
+			require.NoError(t, err)
+			return AgentRoute{}, missing
+		}
+		return route, u.Commit(ctx, "expanded claim")
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, attempts)
+	require.Equal(t, first, route.AgentID)
+}
+
+func TestUnitExpandsCompleteRequestedPlan(t *testing.T) {
+	ctx := t.Context()
+	cell, pool := unitTestCell(t, nil)
+	project, org := uuid.New(), uuid.New()
+	first := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+	ids := []uuid.UUID{first}
+	var refs []lifecyclelock.AgentRef
+	for i := byte(1); i <= 12; i++ {
+		id := uuid.UUID{15: i}
+		ids = append(ids, id)
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: project, AgentID: id})
+	}
+	_, err := pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
+SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, ids)
+	require.NoError(t, err)
+	attempts := 0
+	_, err = Retry(ctx, "complete expansion", func(ctx context.Context) (struct{}, error) {
+		attempts++
+		u, err := BeginTestUnit(ctx, cell)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer func() { _ = u.Rollback(ctx) }()
+		if err = u.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{ProjectID: project, AgentID: first}}, nil); err != nil {
+			return struct{}{}, err
+		}
+		if err = u.LockAgentRefs(ctx, refs, nil); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, u.Commit(ctx, "complete expansion")
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, attempts)
+}
+
+func TestCellBeginRequiresRetryBoundary(t *testing.T) {
+	cell, _ := unitTestCell(t, nil)
+	unit, err := cell.Begin(t.Context())
+	if unit != nil {
+		_ = unit.Rollback(t.Context())
+	}
+	require.ErrorContains(t, err, "retry boundary")
+}
+
+func TestUnitSavepointPropagatesLockPlan(t *testing.T) {
+	ctx := t.Context()
+	cell, pool := unitTestCell(t, nil)
+	project, org, first, second := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
+SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first, second})
+	require.NoError(t, err)
+	attempts := 0
+	_, err = Retry(ctx, "savepoint expansion", func(ctx context.Context) (struct{}, error) {
+		attempts++
+		unit, err := BeginTestUnit(ctx, cell)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer func() { _ = unit.Rollback(ctx) }()
+		if err = unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{ProjectID: project, AgentID: first}}, nil); err != nil {
+			return struct{}{}, err
+		}
+		err = unit.Savepoint(ctx, func(u *Unit) error {
+			_, err := u.DB().Exec(ctx, `INSERT INTO unit_probe(agent_id,phase) VALUES($1,'advance')`, first)
+			if err != nil {
+				return err
+			}
+			_, err = u.Handle(project, second)
+			return err
+		})
+		if attempts == 1 {
+			var missing *LockPlanError
+			require.ErrorAs(t, err, &missing)
+			require.Contains(t, missing.Agents, lifecyclelock.AgentRef{ProjectID: project, AgentID: second})
+		}
+		if err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, unit.Commit(ctx, "expanded continuation")
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, attempts)
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM unit_probe WHERE agent_id=$1`, first).Scan(&count))
+	require.Equal(t, 1, count)
 }

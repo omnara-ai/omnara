@@ -57,31 +57,41 @@ func (s *Store) CreateAgentContentInput(
 	if err != nil {
 		return AgentInputRecord{}, nil, false, err
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return AgentInputRecord{}, nil, false, fmt.Errorf(
-			"begin create agent content input: %w",
-			err,
-		)
+	type transactionResult struct {
+		input         AgentInputRecord
+		contentBlocks json.RawMessage
+		created       bool
 	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
+	retried, retryErr := agentexecution.Retry(ctx,
+		"CreateAgentContentInput",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, fmt.Errorf(
+					"begin create agent content input: %w",
+					err,
+				)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
 
-	qtx := dbsqlc.New(tx)
-	result, err := createAgentContentInputTx(
-		ctx,
-		unit,
-		qtx,
-		input,
-		contentBlocks,
-	)
-	if err != nil {
-		return AgentInputRecord{}, nil, false, err
-	}
-	if err := unit.Commit(ctx, "create agent content input"); err != nil {
-		return AgentInputRecord{}, nil, false, err
-	}
-	return result.agentInput, result.contentBlocks, result.created, nil
+			qtx := dbsqlc.New(tx)
+			result, err := createAgentContentInputTx(
+				ctx,
+				unit,
+				qtx,
+				input,
+				contentBlocks,
+			)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if err := unit.Commit(ctx, "create agent content input"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{result.agentInput, result.contentBlocks, result.created}, nil
+		})
+	return retried.input, retried.contentBlocks, retried.created, retryErr
 }
 
 func prepareCreateAgentContentInput(
@@ -129,7 +139,7 @@ func createAgentContentInputTx(
 	agent, err := unit.LockAgent(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-		agentexecution.IngressAuthority{},
+		nil,
 	)
 	if err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)

@@ -37,16 +37,19 @@ func TestOrdinaryExecutionLoadStatementBound(t *testing.T) {
 	for name, id := range ids {
 		t.Run(name, func(t *testing.T) {
 			_, h := f.handle(t, id)
-			snapshot, count, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+			snapshot, count, roundTrips, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
 			require.NoError(t, err)
-			require.Equal(t, 2, count)
-			_, count, err = agentexecution.CountOrdinaryLoad(t.Context(), h)
+			expectedStatements := map[string]int{"idle": 2, "initial": 2, "incomplete": 3, "complete": 3, "retry": 3}
+			require.Equal(t, expectedStatements[name], count)
+			require.Equal(t, 2, roundTrips)
+			_, count, roundTrips, err = agentexecution.CountOrdinaryLoad(t.Context(), h)
 			require.NoError(t, err)
 			expected := 0
 			if snapshot.Selection.Wait == agentexecution.WaitModelDeadline {
 				expected = 1
 			}
 			require.Equal(t, expected, count)
+			require.Equal(t, expected, roundTrips)
 			plan, err := agentexecution.ExplainOrdinaryLoad(t.Context(), h)
 			require.NoError(t, err)
 			t.Log(plan)

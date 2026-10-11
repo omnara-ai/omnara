@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -235,7 +234,7 @@ func (f integrationInteractionFixture) selectOrigin(
 	defer func() { _ = txUnit.Rollback(f.ctx) }()
 	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, agentexecution.ExternalAuthority{})
+	}, nil)
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, txUnit, testProjectID, f.process.AgentID, targetID,
@@ -536,7 +535,7 @@ func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 	defer func() { _ = txUnit.Rollback(f.ctx) }()
 	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, agentexecution.ExternalAuthority{})
+	}, nil)
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, txUnit, testProjectID, f.process.AgentID, foreign.ID,
@@ -612,7 +611,7 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 	defer func() { _ = selectionTxUnit.Rollback(f.ctx) }()
 	_, err = selectionTxUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, agentexecution.ExternalAuthority{})
+	}, nil)
 	require.NoError(t, err)
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().

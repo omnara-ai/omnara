@@ -1,10 +1,9 @@
 package agentexecution
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 type Handle struct {
@@ -23,7 +22,7 @@ func (u *Unit) Agent(route AgentRoute) (*Handle, error) {
 	}
 	h, found := u.handles[route.AgentID]
 	if !found || h.route != route {
-		return nil, fmt.Errorf("%w: agent is not locked in this unit", ErrLockPlan)
+		return nil, u.expandPlan(lifecyclelock.AgentRef{ProjectID: route.ProjectID, AgentID: route.AgentID})
 	}
 	return h, nil
 }
@@ -44,7 +43,7 @@ func (u *Unit) Handle(projectID, agentID uuid.UUID) (*Handle, error) {
 	}
 	h := u.handles[agentID]
 	if h == nil || h.route.ProjectID != projectID {
-		return nil, fmt.Errorf("%w: agent is not locked in this unit", ErrLockPlan)
+		return nil, u.expandPlan(lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
 	}
 	return h, nil
 }

@@ -122,7 +122,8 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	}
 	parent := h.unit.handles[valueOrZero(child.ParentAgentID)]
 	if parent == nil {
-		return ErrLockPlan
+		return h.unit.expandPlan(lifecyclelock.AgentRef{ProjectID: h.route.ProjectID,
+			AgentID: valueOrZero(child.ParentAgentID)})
 	}
 	snapshot, err := parent.LoadExecution(ctx)
 	if err != nil {
@@ -239,7 +240,7 @@ func (u *Unit) ClearIntegrationTargets(ctx context.Context, projectID, integrati
 	for i, id := range ids {
 		refs[i] = lifecyclelock.AgentRef{ProjectID: projectID, AgentID: id}
 	}
-	if err = u.LockAgentRefs(ctx, refs, LifecycleAuthority{}); err != nil {
+	if err = u.LockAgentRefs(ctx, refs, nil); err != nil {
 		return err
 	}
 	return q.ClearExecutionIntegrationTargets(

@@ -64,15 +64,15 @@ func seedExecutionFixture(t *testing.T, pool *pgxpool.Pool) executionFixture {
 
 func (f executionFixture) create(t *testing.T, id, parent uuid.UUID) uuid.UUID {
 	t.Helper()
-	cell := agentexecution.NewCell("test", f.pool, nil, nil)
-	u, err := cell.Begin(t.Context())
+	cell := agentexecution.NewCell(f.pool, nil, nil)
+	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(t.Context()) }()
 	key := ""
 	if parent != uuid.Nil {
 		key = id.String()
 		require.NoError(t, u.LockAgentRefs(t.Context(),
-			[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: parent}}, agentexecution.LifecycleAuthority{}))
+			[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: parent}}, nil))
 	}
 	_, err = u.CreateAgent(t.Context(), agentexecution.CreateAgentInput{ID: id, ProjectID: f.project,
 		ConfigID: f.config, ParentID: parent, SubagentKey: key, Name: "Agent"})

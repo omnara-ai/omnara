@@ -76,20 +76,24 @@ func (s *Store) reapExpiredAgentRuntimeLock(
 	ctx context.Context,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return false, fmt.Errorf("begin reap expired agent runtime lock: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
+	return agentexecution.Retry(ctx,
+		"reapExpiredAgentRuntimeLock",
+		func(ctx context.Context) (bool, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return false, fmt.Errorf("begin reap expired agent runtime lock: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
 
-	reaped, err := reapExpiredAgentRuntimeLockTx(ctx, unit, projectID, agentID, runtimeLockID)
-	if err != nil || !reaped {
-		return false, err
-	}
-	if err := unit.Commit(ctx, "reap expired agent runtime lock"); err != nil {
-		return false, err
-	}
-	return true, nil
+			reaped, err := reapExpiredAgentRuntimeLockTx(ctx, unit, projectID, agentID, runtimeLockID)
+			if err != nil || !reaped {
+				return false, err
+			}
+			if err := unit.Commit(ctx, "reap expired agent runtime lock"); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
 }
 
 func reapExpiredAgentRuntimeLockTx(
@@ -97,7 +101,7 @@ func reapExpiredAgentRuntimeLockTx(
 	unit *agentexecution.Unit,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
-	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, agentexecution.LifecycleAuthority{})
+	plan, err := unit.PlanAgentFamily(ctx, projectID, agentID, nil)
 	var locked bool
 	if err == nil {
 		locked, err = unit.TryLockAgents(ctx, plan)

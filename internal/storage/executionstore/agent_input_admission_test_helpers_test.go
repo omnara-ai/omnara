@@ -55,7 +55,7 @@ func admitNextAgentInputAndOpenTurnForTestErr(
 		err := unit.LockAgent(ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: projectID,
 			ID: agentID},
-		agentexecution.RuntimeAuthority{AgentID: agentID,
+		&agentexecution.RuntimeAuthority{AgentID: agentID,
 			RuntimeLockID: runtimeLockID}); err != nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, err
 	}

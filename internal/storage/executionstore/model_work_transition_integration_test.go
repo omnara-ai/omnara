@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -145,31 +147,10 @@ func TestAcceptModelOutputAndAdvanceFencing(t *testing.T) {
 	}
 }
 
-func TestAcceptModelOutputAndAdvanceRollbackAndCrashRecovery(t *testing.T) {
+func TestAcceptModelOutputAndAdvanceCrashRecovery(t *testing.T) {
 	ctx := t.Context()
 	f, input := fusedModelFixture(t, ctx)
 	input.Output.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
-	_, err := f.Store.pool.Exec(ctx, `CREATE FUNCTION reject_fused_preparation() RETURNS trigger LANGUAGE plpgsql AS $$
- BEGIN RAISE EXCEPTION 'reject fused preparation'; END $$;
- CREATE CONSTRAINT TRIGGER reject_fused_preparation AFTER INSERT ON model_call_contexts
- DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_fused_preparation();`)
-	require.NoError(t, err)
-	_, err = f.Store.Execution().AcceptModelOutputAndAdvance(ctx, input)
-	require.ErrorContains(t, err, "commit accept model output and advance")
-	_, found, err := f.Store.Execution().GetModelOutputForContext(
-		ctx, testProjectID, f.AgentID, input.Output.ModelCallContextID,
-	)
-	require.NoError(t, err)
-	require.False(t, found)
-	original, found, err := f.Store.Execution().GetModelCallContext(
-		ctx, testProjectID, f.AgentID, input.Output.ModelCallContextID,
-	)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, executionstore.ModelCallContextStarted, original.State)
-	requireOwnedLease(t, ctx, f, true)
-	_, err = f.Store.pool.Exec(ctx, `DROP TRIGGER reject_fused_preparation ON model_call_contexts`)
-	require.NoError(t, err)
 	transition, err := f.Store.Execution().AcceptModelOutputAndAdvance(ctx, input)
 	require.NoError(t, err)
 	require.True(t, transition.Continued)
@@ -211,4 +192,72 @@ func TestAcceptModelOutputAndAdvanceReplayRecoversPreparedWorkWithoutDuplicating
 		`SELECT count(*) FROM model_outputs WHERE agent_id=$1`, f.AgentID,
 	).Scan(&outputs))
 	require.Equal(t, 1, outputs)
+}
+
+func TestAcceptModelOutputFallbackRechecksFence(t *testing.T) {
+	for _, mode := range []string{"cancel", "expired"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			f, input := fusedModelFixture(t, ctx)
+			input.Output.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
+			gate, err := f.Store.pool.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = gate.Rollback(ctx) }()
+			var gatePID int32
+			require.NoError(t, gate.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&gatePID))
+			_, err = gate.Exec(ctx, `SELECT pg_advisory_xact_lock(63109)`)
+			require.NoError(t, err)
+			_, err = f.Store.pool.Exec(ctx, `
+CREATE FUNCTION reject_successor() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF EXISTS(SELECT 1 FROM model_outputs WHERE agent_id=NEW.agent_id) THEN
+  PERFORM pg_advisory_xact_lock(63109);
+  RAISE EXCEPTION 'reject successor';
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE CONSTRAINT TRIGGER reject_successor AFTER INSERT ON model_call_contexts
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_successor()`)
+			require.NoError(t, err)
+			type acceptance struct {
+				transition executionstore.OwnedAgentWorkTransition
+				err        error
+			}
+			accepted := make(chan acceptance, 1)
+			go func() {
+				transition, err := f.Store.Execution().AcceptModelOutputAndAdvance(ctx, input)
+				accepted <- acceptance{transition, err}
+			}()
+			integrationdb.WaitForLockWaitBlockedBy(t, ctx, f.Store.pool, "commit", gatePID)
+			var acceptPID int32
+			require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT pid FROM pg_stat_activity
+WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))`, gatePID).Scan(&acceptPID))
+			fenced := make(chan error, 1)
+			actor := mustOmnaraActorParams(t, f.UserID)
+			go func() {
+				if mode == "cancel" {
+					_, err := f.Store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, Actor: actor,
+					})
+					fenced <- err
+				} else {
+					_, err := f.Store.pool.Exec(ctx, `UPDATE agent_runtime_locks
+SET renewed_at=started_at,lease_expires_at=statement_timestamp()-interval '1 microsecond' WHERE id=$1`, f.Lock.ID)
+					fenced <- err
+				}
+			}()
+			integrationdb.WaitForLockWaitBlockedBy(t, ctx, f.Store.pool, "", acceptPID)
+			require.NoError(t, gate.Rollback(ctx))
+			require.NoError(t, <-fenced)
+			result := <-accepted
+			require.ErrorIs(t, result.err, storeerr.ErrRuntimeLockInactive)
+			var cause *pgconn.PgError
+			require.ErrorAs(t, result.transition.Fallback, &cause)
+			require.Equal(t, "reject successor", cause.Message)
+			var outputs int
+			require.NoError(t, f.Store.pool.QueryRow(ctx,
+				`SELECT count(*) FROM model_outputs WHERE agent_id=$1`, f.AgentID).Scan(&outputs))
+			require.Zero(t, outputs)
+		})
+	}
 }

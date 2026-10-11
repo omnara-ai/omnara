@@ -1011,7 +1011,7 @@ INSERT INTO machines(
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
-		deleteTx, deleteErr := agentexecution.NewCell("primary", pool, nil, nil).Begin(ctx)
+		deleteTx, deleteErr := agentexecution.BeginTestUnit(ctx, agentexecution.NewCell(pool, nil, nil))
 		if deleteErr != nil {
 			return deleteErr
 		}

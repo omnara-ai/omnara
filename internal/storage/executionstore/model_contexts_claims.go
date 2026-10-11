@@ -16,59 +16,67 @@ func (s *Store) ClaimCompactionModelCall(
 	ctx context.Context,
 	input ClaimCompactionModelCallInput,
 ) (ModelCallClaim, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	result, err := h.ResumeCompaction(ctx, agentexecution.ResumeCompactionInput{
-		RuntimeLockID: input.RuntimeLockID, ParentID: input.ParentContextID,
-		Watermark: input.InputEventSequence, SourceEnd: input.SourceEventSequenceEnd,
-	})
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	if err := applyAdmissionDestination(ctx,
-		unit,
-		input.ProjectID,
-		input.AgentID,
-		result.Admission); err != nil {
-		return ModelCallClaim{}, err
-	}
-	if result.Preempted {
-		return ModelCallClaim{}, storeerr.ErrAgentNotAdvanceable
-	}
-	claim, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, result.Model)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	if err = unit.Commit(ctx, "claim compaction"); err != nil {
-		return ModelCallClaim{}, err
-	}
-	return claim, nil
+	return agentexecution.Retry(ctx,
+		"ClaimCompactionModelCall",
+		func(ctx context.Context) (ModelCallClaim, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			result, err := h.ResumeCompaction(ctx, agentexecution.ResumeCompactionInput{
+				RuntimeLockID: input.RuntimeLockID, ParentID: input.ParentContextID,
+				Watermark: input.InputEventSequence, SourceEnd: input.SourceEventSequenceEnd,
+			})
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			if err := applyAdmissionDestination(ctx,
+				unit,
+				input.ProjectID,
+				input.AgentID,
+				result.Admission); err != nil {
+				return ModelCallClaim{}, err
+			}
+			if result.Preempted {
+				return ModelCallClaim{}, storeerr.ErrAgentNotAdvanceable
+			}
+			claim, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, result.Model)
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			if err = unit.Commit(ctx, "claim compaction"); err != nil {
+				return ModelCallClaim{}, err
+			}
+			return claim, nil
+		})
 }
 
 func (s *Store) ClaimNextModelCallContext(
 	ctx context.Context,
 	input ClaimNextModelCallContextInput,
 ) (ModelCallClaim, error) {
-	unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	prepared, err := h.ResumeModel(ctx, input.RuntimeLockID, input.PredecessorModelCallContextID)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	result, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, prepared)
-	if err != nil {
-		return ModelCallClaim{}, err
-	}
-	if err = unit.Commit(ctx, "claim retry"); err != nil {
-		return ModelCallClaim{}, err
-	}
-	return result, nil
+	return agentexecution.Retry(ctx,
+		"ClaimNextModelCallContext",
+		func(ctx context.Context) (ModelCallClaim, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			prepared, err := h.ResumeModel(ctx, input.RuntimeLockID, input.PredecessorModelCallContextID)
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			result, err := executionClaim(ctx, unit, input.ProjectID, input.AgentID, prepared)
+			if err != nil {
+				return ModelCallClaim{}, err
+			}
+			if err = unit.Commit(ctx, "claim retry"); err != nil {
+				return ModelCallClaim{}, err
+			}
+			return result, nil
+		})
 }
 
 func (s *Store) GetModelCallContext(

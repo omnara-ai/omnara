@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -77,9 +76,11 @@ func (s *Store) ExecuteToolCall(
 	if plan == nil {
 		return ExecuteToolCallResult{}, errors.New("tool call plan is required")
 	}
-	return storeutil.RetryTransaction(ctx, "execute_tool_call", func() (ExecuteToolCallResult, error) {
-		return s.executeToolCallOnce(ctx, input, plan)
-	})
+	return agentexecution.Retry(ctx,
+		"execute_tool_call",
+		func(ctx context.Context) (ExecuteToolCallResult, error) {
+			return s.executeToolCallOnce(ctx, input, plan)
+		})
 }
 
 func (s *Store) executeToolCallOnce(
@@ -162,7 +163,7 @@ func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting b
 	}
 	err := t.unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID}},
-		agentexecution.IngressAuthority{},
+		nil,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return storeerr.ErrRuntimeLockInactive

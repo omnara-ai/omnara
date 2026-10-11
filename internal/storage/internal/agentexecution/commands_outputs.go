@@ -334,7 +334,6 @@ func applyAcceptedOutput(
 	event ExecutionEvent,
 	tools, limit bool,
 ) error {
-	m.head.AnsweredThroughSequence = max(m.head.AnsweredThroughSequence, event.Sequence)
 	if snapshot.View.NormalContext != nil && snapshot.View.NormalContext.ID == source.ID {
 		snapshot.View.NormalContext = &source
 	}

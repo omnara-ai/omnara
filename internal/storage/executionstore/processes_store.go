@@ -329,50 +329,54 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 		return ProcessRecord{}, errors.New("source ended at is required")
 	}
 	input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
+	return agentexecution.Retry(ctx,
+		"CompleteProcess",
+		func(ctx context.Context) (ProcessRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
 
-	qtx := dbsqlc.New(tx)
-	if _, err := unit.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-		agentexecution.ExternalAuthority{},
-	); err != nil {
-		return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
-	}
-	row, err := qtx.CompleteProcess(
-		ctx,
-		dbsqlc.CompleteProcessParams{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			ID:                 input.ID,
-			RuntimeLockID:      input.RuntimeLockID,
-			State:              string(input.State),
-			SourceEndedAt:      input.SourceEndedAt,
-			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
-			ExitSignal:         input.ExitSignal,
-			StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
-			StateReasonMessage: input.StateReasonMessage,
-		},
-	)
-	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("complete process: %w", err)
-	}
-	process := processRecordFromCompleteSQLC(row)
-	if err := completeQueuedProcessActionsForTerminalProcessTx(
-		ctx,
-		unit,
-		qtx,
-		process,
-	); err != nil {
-		return ProcessRecord{}, err
-	}
-	if err := unit.Commit(ctx, "complete process"); err != nil {
-		return ProcessRecord{}, err
-	}
-	return process, nil
+			qtx := dbsqlc.New(tx)
+			if _, err := unit.LockAgent(
+				ctx,
+				dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
+				nil,
+			); err != nil {
+				return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
+			}
+			row, err := qtx.CompleteProcess(
+				ctx,
+				dbsqlc.CompleteProcessParams{
+					ProjectID:          input.ProjectID,
+					AgentID:            input.AgentID,
+					ID:                 input.ID,
+					RuntimeLockID:      input.RuntimeLockID,
+					State:              string(input.State),
+					SourceEndedAt:      input.SourceEndedAt,
+					ExitCode:           storeutil.Int32Ptr(input.ExitCode),
+					ExitSignal:         input.ExitSignal,
+					StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
+					StateReasonMessage: input.StateReasonMessage,
+				},
+			)
+			if err != nil {
+				return ProcessRecord{}, fmt.Errorf("complete process: %w", err)
+			}
+			process := processRecordFromCompleteSQLC(row)
+			if err := completeQueuedProcessActionsForTerminalProcessTx(
+				ctx,
+				unit,
+				qtx,
+				process,
+			); err != nil {
+				return ProcessRecord{}, err
+			}
+			if err := unit.Commit(ctx, "complete process"); err != nil {
+				return ProcessRecord{}, err
+			}
+			return process, nil
+		})
 }

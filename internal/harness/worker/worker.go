@@ -377,7 +377,7 @@ func (w *Worker) executeClaimedWork(
 			}
 		}
 		err = turnCtx.Err()
-		if err != nil || !w.continuation.canAdvance(time.Since(startedAt)) {
+		if err != nil {
 			break
 		}
 		if claim.Kind == executionstore.AgentWorkModel {

@@ -33,88 +33,92 @@ func (s *Store) MarkProcessStarted(
 		)
 	}
 	input.SourceStartedAt = canonicalSourceTime(input.SourceStartedAt)
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("begin mark process started: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
-	qtx := dbsqlc.New(tx)
-	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
-		return DaemonProcessReportApplication{}, err
-	}
-	_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: input.ProjectID,
-		ID:        input.AgentID,
-	}, agentexecution.ExternalAuthority{})
-	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf(
-			"lock agent for process start observation: %w",
-			err,
-		)
-	}
-	row, err := qtx.MarkProcessStarted(
-		ctx,
-		dbsqlc.MarkProcessStartedParams{
-			ProjectID:       input.ProjectID,
-			AgentID:         input.AgentID,
-			ID:              input.ID,
-			MachineID:       input.Authority.MachineID,
-			SourceStartedAt: input.SourceStartedAt,
-		},
-	)
-	var record ProcessRecord
-	if errors.Is(err, pgx.ErrNoRows) {
-		record, err = daemonProcessForReportTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			input.Authority,
-			input.ID,
-			false,
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		if !isProcessTerminal(record.State) {
-			return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
-		}
-	} else if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("mark process started: %w", err)
-	} else {
-		record = processRecordFromStartedSQLC(row)
-	}
-	resultCommitted := false
-	if record.ToolCallID != uuid.Nil && record.ExecutionSpec.FileTransfer == nil {
-		h, err := unit.Handle(input.ProjectID, input.AgentID)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		completed, err := h.CompleteProcess(
-			ctx,
-			agentexecution.ProcessResult{ID: record.ID, Started: true, Observed: input.Result},
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		resultCommitted = completed.Matches
-		row, err := qtx.GetProcess(
-			ctx,
-			dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		record = processRecordFromSQLC(row)
-	}
-	if err := unit.Commit(ctx, "mark process started"); err != nil {
-		return DaemonProcessReportApplication{}, err
-	}
-	return DaemonProcessReportApplication{
-		Process:             record,
-		ToolResultCommitted: resultCommitted,
-	}, nil
+	return agentexecution.Retry(ctx,
+		"MarkProcessStarted",
+		func(ctx context.Context) (DaemonProcessReportApplication, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf("begin mark process started: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			qtx := dbsqlc.New(tx)
+			if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+			_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+				ProjectID: input.ProjectID,
+				ID:        input.AgentID,
+			}, nil)
+			if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf(
+					"lock agent for process start observation: %w",
+					err,
+				)
+			}
+			row, err := qtx.MarkProcessStarted(
+				ctx,
+				dbsqlc.MarkProcessStartedParams{
+					ProjectID:       input.ProjectID,
+					AgentID:         input.AgentID,
+					ID:              input.ID,
+					MachineID:       input.Authority.MachineID,
+					SourceStartedAt: input.SourceStartedAt,
+				},
+			)
+			var record ProcessRecord
+			if errors.Is(err, pgx.ErrNoRows) {
+				record, err = daemonProcessForReportTx(
+					ctx,
+					qtx,
+					input.ProjectID,
+					input.AgentID,
+					input.Authority,
+					input.ID,
+					false,
+				)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				if !isProcessTerminal(record.State) {
+					return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
+				}
+			} else if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf("mark process started: %w", err)
+			} else {
+				record = processRecordFromStartedSQLC(row)
+			}
+			resultCommitted := false
+			if record.ToolCallID != uuid.Nil && record.ExecutionSpec.FileTransfer == nil {
+				h, err := unit.Handle(input.ProjectID, input.AgentID)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				completed, err := h.CompleteProcess(
+					ctx,
+					agentexecution.ProcessResult{ID: record.ID, Started: true, Observed: input.Result},
+				)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				resultCommitted = completed.Matches
+				row, err := qtx.GetProcess(
+					ctx,
+					dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
+				)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				record = processRecordFromSQLC(row)
+			}
+			if err := unit.Commit(ctx, "mark process started"); err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+			return DaemonProcessReportApplication{
+				Process:             record,
+				ToolResultCommitted: resultCommitted,
+			}, nil
+		})
 }
 
 func (s *Store) CompleteDaemonProcess(
@@ -147,167 +151,171 @@ func (s *Store) CompleteDaemonProcess(
 	if !input.SourceEndedAt.IsZero() {
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	}
-	unit, err := s.cell.Begin(ctx)
-	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("begin complete daemon process: %w", err)
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	tx := unit.DB()
-
-	qtx := dbsqlc.New(tx)
-	if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
-		return DaemonProcessReportApplication{}, err
-	}
-	_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: input.ProjectID,
-		ID:        input.AgentID,
-	}, agentexecution.ExternalAuthority{})
-	if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf(
-			"lock agent for daemon process completion: %w",
-			err,
-		)
-	}
-	var startedAt *time.Time
-	if !input.SourceStartedAt.IsZero() {
-		startedAt = &input.SourceStartedAt
-	}
-	var endedAt *time.Time
-	if !input.SourceEndedAt.IsZero() {
-		endedAt = &input.SourceEndedAt
-	}
-	row, err := qtx.CompleteDaemonObservedProcess(
-		ctx,
-		dbsqlc.CompleteDaemonObservedProcessParams{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			ID:                 input.ID,
-			MachineID:          input.Authority.MachineID,
-			State:              string(input.State),
-			SourceStartedAt:    startedAt,
-			SourceEndedAt:      endedAt,
-			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
-			ExitSignal:         input.ExitSignal,
-			StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
-			StateReasonMessage: input.StateReasonMessage,
-			StorageExhausted:   input.StorageExhausted,
-		},
-	)
-	processUpdated := err == nil
-	var record ProcessRecord
-	if errors.Is(err, pgx.ErrNoRows) {
-		record, err = daemonProcessForReportTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			input.Authority,
-			input.ID,
-			input.StorageExhausted,
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		if !isProcessTerminal(record.State) {
-			return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
-		}
-	} else if err != nil {
-		return DaemonProcessReportApplication{}, fmt.Errorf("complete daemon process: %w", err)
-	} else {
-		record = processRecordFromCompleteSQLC(row)
-	}
-	reportMatchesProcess := processUpdated || daemonTerminalReportMatchesRecord(record, input)
-	resultCommitted := false
-	if reportMatchesProcess && record.ToolCallID != uuid.Nil {
-		request := agentexecution.ProcessResult{ID: record.ID, Observed: input.Result}
-		if record.ExecutionSpec.FileTransfer != nil {
-			_, result, err := processresult.Terminal(record.resultFacts())
+	return agentexecution.Retry(ctx,
+		"CompleteDaemonProcess",
+		func(ctx context.Context) (DaemonProcessReportApplication, error) {
+			unit, err := s.cell.Begin(ctx)
 			if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf("begin complete daemon process: %w", err)
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+
+			qtx := dbsqlc.New(tx)
+			if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-			if len(input.Result) > 0 && string(input.Result) != "null" {
-				result, err = commandTerminalToolResult(record.ID, input.Result)
+			_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
+				ProjectID: input.ProjectID,
+				ID:        input.AgentID,
+			}, nil)
+			if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf(
+					"lock agent for daemon process completion: %w",
+					err,
+				)
+			}
+			var startedAt *time.Time
+			if !input.SourceStartedAt.IsZero() {
+				startedAt = &input.SourceStartedAt
+			}
+			var endedAt *time.Time
+			if !input.SourceEndedAt.IsZero() {
+				endedAt = &input.SourceEndedAt
+			}
+			row, err := qtx.CompleteDaemonObservedProcess(
+				ctx,
+				dbsqlc.CompleteDaemonObservedProcessParams{
+					ProjectID:          input.ProjectID,
+					AgentID:            input.AgentID,
+					ID:                 input.ID,
+					MachineID:          input.Authority.MachineID,
+					State:              string(input.State),
+					SourceStartedAt:    startedAt,
+					SourceEndedAt:      endedAt,
+					ExitCode:           storeutil.Int32Ptr(input.ExitCode),
+					ExitSignal:         input.ExitSignal,
+					StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
+					StateReasonMessage: input.StateReasonMessage,
+					StorageExhausted:   input.StorageExhausted,
+				},
+			)
+			processUpdated := err == nil
+			var record ProcessRecord
+			if errors.Is(err, pgx.ErrNoRows) {
+				record, err = daemonProcessForReportTx(
+					ctx,
+					qtx,
+					input.ProjectID,
+					input.AgentID,
+					input.Authority,
+					input.ID,
+					input.StorageExhausted,
+				)
 				if err != nil {
 					return DaemonProcessReportApplication{}, err
 				}
+				if !isProcessTerminal(record.State) {
+					return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
+				}
+			} else if err != nil {
+				return DaemonProcessReportApplication{}, fmt.Errorf("complete daemon process: %w", err)
+			} else {
+				record = processRecordFromCompleteSQLC(row)
 			}
-			outcome, raw, err := fileTransferToolResultContentParts(ctx, qtx, record, result)
-			if err != nil {
+			reportMatchesProcess := processUpdated || daemonTerminalReportMatchesRecord(record, input)
+			resultCommitted := false
+			if reportMatchesProcess && record.ToolCallID != uuid.Nil {
+				request := agentexecution.ProcessResult{ID: record.ID, Observed: input.Result}
+				if record.ExecutionSpec.FileTransfer != nil {
+					_, result, err := processresult.Terminal(record.resultFacts())
+					if err != nil {
+						return DaemonProcessReportApplication{}, err
+					}
+					if len(input.Result) > 0 && string(input.Result) != "null" {
+						result, err = commandTerminalToolResult(record.ID, input.Result)
+						if err != nil {
+							return DaemonProcessReportApplication{}, err
+						}
+					}
+					outcome, raw, err := fileTransferToolResultContentParts(ctx, qtx, record, result)
+					if err != nil {
+						return DaemonProcessReportApplication{}, err
+					}
+					parts, err := parseToolResultContentBlocks(raw)
+					if err != nil {
+						return DaemonProcessReportApplication{}, err
+					}
+					request.Content, err = executionContent(parts)
+					if err != nil {
+						return DaemonProcessReportApplication{}, err
+					}
+					request.Outcome = string(outcome)
+				}
+				h, err := unit.Handle(input.ProjectID, input.AgentID)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				completed, err := h.CompleteProcess(ctx, request)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				resultCommitted = completed.Matches
+				row, err := qtx.GetProcess(
+					ctx,
+					dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
+				)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+				record = processRecordFromSQLC(row)
+			} else if record.ToolCallID != uuid.Nil {
+				published, checkErr := publishedToolCallResultExistsTx(
+					ctx,
+					qtx,
+					input.ProjectID,
+					input.AgentID,
+					record.ToolCallID,
+				)
+				if checkErr != nil {
+					return DaemonProcessReportApplication{}, checkErr
+				}
+				if !published {
+					return DaemonProcessReportApplication{}, fmt.Errorf(
+						"terminal process %s has no durable tool result",
+						record.ID,
+					)
+				}
+			}
+			if input.StorageExhausted {
+				if err := completeUnresolvedProcessActionsForClosedProcessTx(
+					ctx,
+					unit,
+					qtx,
+					record.OrgID,
+					record.ID,
+					daemonprotocol.ProcessReasonMachineStorageExhausted,
+				); err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			} else if processUpdated {
+				if err := completeQueuedProcessActionsForTerminalProcessTx(
+					ctx,
+					unit,
+					qtx,
+					record,
+				); err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			}
+			if err := unit.Commit(ctx, "complete daemon process"); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-			parts, err := parseToolResultContentBlocks(raw)
-			if err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
-			request.Content, err = executionContent(parts)
-			if err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
-			request.Outcome = string(outcome)
-		}
-		h, err := unit.Handle(input.ProjectID, input.AgentID)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		completed, err := h.CompleteProcess(ctx, request)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		resultCommitted = completed.Matches
-		row, err := qtx.GetProcess(
-			ctx,
-			dbsqlc.GetProcessParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: record.ID},
-		)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-		record = processRecordFromSQLC(row)
-	} else if record.ToolCallID != uuid.Nil {
-		published, checkErr := publishedToolCallResultExistsTx(
-			ctx,
-			qtx,
-			input.ProjectID,
-			input.AgentID,
-			record.ToolCallID,
-		)
-		if checkErr != nil {
-			return DaemonProcessReportApplication{}, checkErr
-		}
-		if !published {
-			return DaemonProcessReportApplication{}, fmt.Errorf(
-				"terminal process %s has no durable tool result",
-				record.ID,
-			)
-		}
-	}
-	if input.StorageExhausted {
-		if err := completeUnresolvedProcessActionsForClosedProcessTx(
-			ctx,
-			unit,
-			qtx,
-			record.OrgID,
-			record.ID,
-			daemonprotocol.ProcessReasonMachineStorageExhausted,
-		); err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-	} else if processUpdated {
-		if err := completeQueuedProcessActionsForTerminalProcessTx(
-			ctx,
-			unit,
-			qtx,
-			record,
-		); err != nil {
-			return DaemonProcessReportApplication{}, err
-		}
-	}
-	if err := unit.Commit(ctx, "complete daemon process"); err != nil {
-		return DaemonProcessReportApplication{}, err
-	}
-	return DaemonProcessReportApplication{
-		Process:             record,
-		ToolResultCommitted: resultCommitted,
-	}, nil
+			return DaemonProcessReportApplication{
+				Process:             record,
+				ToolResultCommitted: resultCommitted,
+			}, nil
+		})
 }
 
 func daemonProcessForReportTx(

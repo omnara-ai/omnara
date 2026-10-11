@@ -409,10 +409,12 @@ func (s *Store) ArchiveAgent(
 		agent    AgentRecord
 		machines []MachineRecord
 	}
-	result, err := storeutil.RetryTransaction(ctx, "archive_agent", func() (archiveAgentResult, error) {
-		agent, machines, archiveErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
-		return archiveAgentResult{agent: agent, machines: machines}, archiveErr
-	})
+	result, err := agentexecution.Retry(ctx,
+		"archive_agent",
+		func(ctx context.Context) (archiveAgentResult, error) {
+			agent, machines, archiveErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
+			return archiveAgentResult{agent: agent, machines: machines}, archiveErr
+		})
 	return result.agent, result.machines, err
 }
 
@@ -569,7 +571,7 @@ func lockAgentTreeForArchiveTx(
 			lifecyclelock.AgentRef{ProjectID: root.ProjectID, AgentID: root.ParentAgentID},
 		)
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return err
 	}
 	lockedTree, err := listActiveAgentTreeTx(ctx, qtx, root.ProjectID, root.ID)

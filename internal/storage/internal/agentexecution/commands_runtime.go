@@ -161,22 +161,6 @@ func (h *Handle) Advance(
 	})
 }
 
-func (h *Handle) AcceptAndAdvance(
-	ctx context.Context,
-	input AcceptOutputInput,
-	allowModelWork, prepareModel bool,
-) (AcceptedOutput, OwnedWork, error) {
-	output, err := h.AcceptOutput(ctx, input)
-	if err != nil {
-		return AcceptedOutput{}, OwnedWork{}, err
-	}
-	if !output.Created {
-		return output, OwnedWork{Released: true}, h.Release(ctx, input.RuntimeLockID)
-	}
-	work, err := h.Advance(ctx, input.RuntimeLockID, allowModelWork, prepareModel)
-	return output, work, err
-}
-
 func (h *Handle) lockRuntime(
 	ctx context.Context,
 	id uuid.UUID,
@@ -252,7 +236,7 @@ type RuntimeRenewal struct {
 func (u *Unit) RenewRuntime(
 	ctx context.Context, route AgentRoute, id uuid.UUID, leaseDuration time.Duration,
 ) (RuntimeRenewal, error) {
-	if route.CellID != u.cell.id || route.ProjectID == uuid.Nil || route.AgentID == uuid.Nil ||
+	if route.ProjectID == uuid.Nil || route.AgentID == uuid.Nil ||
 		id == uuid.Nil {
 		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
 	}

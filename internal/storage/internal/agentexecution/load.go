@@ -2,9 +2,7 @@ package agentexecution
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,132 +38,98 @@ func loadExecution(
 	return loadExecutionFacts(ctx, db, route, executionHead(base))
 }
 
-func executionFactsParams(route AgentRoute, head ExecutionHead) executiondb.LoadExecutionFactsParams {
-	return executiondb.LoadExecutionFactsParams{AgentID: route.AgentID, ProjectID: route.ProjectID,
-		TurnID: nullableID(
-			head.CurrentTurnID,
-		), StopSequence: head.StopSequence, MaxContextInputSequence: head.MaxContextInputSequence,
-		NormalContextID: nullableID(
-			head.NormalContextID,
-		), CompactionContextID: nullableID(head.CompactionContextID),
-		ToolOutputID: nullableID(
-			head.PendingToolOutputID,
-		), LimitOutputID: nullableID(head.PendingOutputLimitID),
-		ConfigID: nullableID(head.PendingConfigInputID), CheckpointID: nullableID(head.PendingCheckpointID)}
-}
-
-func loadExecutionFacts(
-	ctx context.Context,
+func loadExecutionFacts(ctx context.Context,
 	db executiondb.DBTX,
 	route AgentRoute,
-	head ExecutionHead,
-) (ExecutionSnapshot, error) {
-	batch := executiondb.New().
-		LoadExecutionFacts(ctx, db, []executiondb.LoadExecutionFactsParams{executionFactsParams(route, head)})
-	var snapshot ExecutionSnapshot
-	var err error
-	batch.Query(func(_ int, rows []executiondb.LoadExecutionFactsRow, queryErr error) {
-		if queryErr != nil {
-			err = queryErr
-			return
-		}
-		snapshot, err = executionSnapshot(route, head, rows)
-	})
-	return snapshot, errors.Join(err, batch.Close())
+	head ExecutionHead) (ExecutionSnapshot,
+	error) {
+	batch := factsBatch{DBTX: db}
+	facts := batch.queue(ctx, route, head)
+	if err := batch.read(ctx); err != nil {
+		return ExecutionSnapshot{}, err
+	}
+	return executionSnapshot(route, head, *facts)
 }
 
-func executionSnapshot(
-	route AgentRoute,
-	head ExecutionHead,
-	rows []executiondb.LoadExecutionFactsRow,
-) (ExecutionSnapshot, error) {
-	view := ExecutionView{AgentID: route.AgentID, StopSequence: head.StopSequence,
-		MaxNormalInputSequence: head.MaxNormalInputSequence, MaxContextInputSequence: head.MaxContextInputSequence}
-	var now time.Time
-	for _, row := range rows {
-		if row.Kind != "scope" {
-			continue
-		}
-		if row.ID != route.AgentID || row.RootAgentID != route.RootAgentID ||
-			row.TurnID != head.CurrentTurnID {
-			return ExecutionSnapshot{}, fmt.Errorf("%w: execution scope", ErrInvalidState)
-		}
-		view.State = AgentState(row.State)
-		now = row.DatabaseNow
-		view.Inputs = InputAvailability{Steering: row.Steering, Queued: row.Queued}
-		if row.TurnID != uuid.Nil {
-			view.Turn = &Turn{ID: row.TurnID, FirstOpeningSequence: row.FirstOpeningSequence,
-				LastOpeningSequence: row.LastOpeningSequence, FirstContentSequence: row.FirstContentSequence,
-				LatestSemantic: EventBoundary{Sequence: row.Sequence, Time: row.EventTime}}
-		}
+func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFacts) (ExecutionSnapshot, error) {
+	scope := facts.scope
+	if scope.AgentID != route.AgentID ||
+		scope.RootAgentID != route.RootAgentID ||
+		valueOrZero(scope.TurnID) != head.CurrentTurnID {
+		return ExecutionSnapshot{}, fmt.Errorf("%w: execution scope", ErrInvalidState)
 	}
-	if now.IsZero() {
-		return ExecutionSnapshot{}, fmt.Errorf("%w: missing agent", ErrInvalidState)
+	now := scope.DatabaseNow
+	view := ExecutionView{AgentID: route.AgentID, State: AgentState(scope.State), StopSequence: head.StopSequence,
+		MaxNormalInputSequence: head.MaxNormalInputSequence, MaxContextInputSequence: head.MaxContextInputSequence,
+		Inputs: InputAvailability{Steering: scope.Steering, Queued: scope.Queued}}
+	if scope.TurnID != nil {
+		view.Turn = &Turn{ID: *scope.TurnID,
+			FirstOpeningSequence: scope.FirstOpeningSequence,
+			LastOpeningSequence:  scope.LastOpeningSequence,
+			FirstContentSequence: scope.FirstContentSequence,
+			LatestSemantic: EventBoundary{Sequence: scope.SemanticSequence,
+				Time: scope.SemanticTime}}
+		if len(scope.OpeningIds) > 0 {
+			view.Turn.InitialOpening = Opening{InputIDs: scope.OpeningIds, EventSequence: scope.OpeningSequence}
+			view.Turn.InitialReadyAt = scope.OpeningReadyAt
+		}
 	}
 	contexts := make(map[uuid.UUID]*ModelContext)
-	var batch *ToolBatch
-	for _, row := range rows {
-		switch row.Kind {
-		case "context":
-			contexts[row.ID] = &ModelContext{ID: row.ID, AgentID: route.AgentID, TurnID: row.TurnID,
-				Operation: Operation(row.Operation), Attempt: row.Attempt, InputEventSequence: row.Watermark,
-				SourceEventSequenceEnd: row.SourceEnd, State: ContextState(row.State), Recovery: RecoveryKind(row.Recovery),
-				RetryAt: row.RetryAt, Opening: Opening{InputIDs: row.OpeningIds, EventSequence: row.OpeningSequence}}
-		case "batch":
-			if !row.HasTools {
-				return ExecutionSnapshot{}, fmt.Errorf("%w: pending output has no tools", ErrInvalidState)
-			}
-			batch = &ToolBatch{HasIncomplete: row.Incomplete, HasRunnable: row.Runnable}
-			if !row.Incomplete {
-				if row.Calls == 0 || row.Calls != row.Results || row.Calls != row.Events {
-					return ExecutionSnapshot{}, fmt.Errorf("%w: incomplete result authority", ErrInvalidState)
-				}
-				batch.Completion = &BatchCompletion{LastResultSequence: row.Sequence, ReadyAt: row.EventTime}
-			}
-		case "config", "checkpoint":
-			work := &BoundaryWork{ID: row.ID, AgentID: route.AgentID, TurnID: row.TurnID,
-				Event:   EventBoundary{Sequence: row.Sequence, Time: row.EventTime},
-				Opening: Opening{InputIDs: row.OpeningIds, EventSequence: row.OpeningSequence}}
-			if row.Kind == "config" {
-				view.Config = work
-			} else {
-				view.Checkpoint = work
-			}
-		case "opening":
-			if view.Turn == nil || head.MaxContextInputSequence >= view.Turn.FirstOpeningSequence ||
-				head.StopSequence > view.Turn.FirstOpeningSequence {
-				return ExecutionSnapshot{}, ErrInvalidState
-			}
-			if len(view.Turn.InitialOpening.InputIDs) == 0 {
-				view.Turn.InitialOpening.EventSequence = row.Sequence
-				view.Turn.InitialReadyAt = row.EventTime
-			}
-			view.Turn.InitialOpening.InputIDs = append(view.Turn.InitialOpening.InputIDs, row.ID)
-			if row.EventTime.Before(view.Turn.InitialReadyAt) {
-				view.Turn.InitialReadyAt = row.EventTime
-			}
-		}
+	for _, row := range facts.contexts {
+		contexts[row.ID] = &ModelContext{ID: row.ID,
+			AgentID:                row.AgentID,
+			TurnID:                 row.TurnID,
+			Operation:              Operation(row.OperationKind),
+			Attempt:                row.AttemptNumber,
+			InputEventSequence:     row.InputEventSequence,
+			SourceEventSequenceEnd: valueOrZero(row.SourceEventSequenceEnd),
+			State:                  ContextState(row.State),
+			Recovery:               RecoveryKind(valueOrZero(row.RecoveryKind)),
+			RetryAt:                row.RetryAt,
+			Opening:                Opening{InputIDs: row.OpeningInputIds, EventSequence: row.OpeningEventSequence}}
 	}
 	view.NormalContext = contexts[head.NormalContextID]
 	view.CompactionContext = contexts[head.CompactionContextID]
-	for _, row := range rows {
-		if row.Kind != "output" {
+	for _, row := range facts.configs {
+		view.Config = &BoundaryWork{ID: row.ID, AgentID: route.AgentID, TurnID: row.TurnID,
+			Event: EventBoundary{Sequence: row.Sequence,
+				Time: row.CreatedAt},
+			Opening: Opening{InputIDs: row.OpeningInputIds,
+				EventSequence: row.OpeningEventSequence}}
+	}
+	for _, row := range facts.checkpoints {
+		view.Checkpoint = &BoundaryWork{ID: row.ID, AgentID: route.AgentID, TurnID: row.TurnID,
+			Event: EventBoundary{Sequence: row.Sequence,
+				Time: row.CreatedAt},
+			Opening: Opening{InputIDs: row.OpeningInputIds,
+				EventSequence: row.OpeningEventSequence}}
+	}
+	for _, row := range facts.contexts {
+		if row.OutputID == nil {
 			continue
 		}
-		source := contexts[row.ContextID]
+		source := contexts[row.ID]
 		if source == nil {
 			return ExecutionSnapshot{}, fmt.Errorf("%w: missing output context", ErrInvalidState)
 		}
-		output := ModelOutput{
-			ID:      row.ID,
-			EventID: row.EventID,
-			Event:   EventBoundary{Sequence: row.Sequence, Time: row.EventTime},
+		output := ModelOutput{ID: *row.OutputID,
+			EventID: valueOrZero(row.OutputEventID),
 			Context: *source,
-		}
-		if row.ID == head.PendingToolOutputID && batch != nil {
-			batch.Output = output
-			view.ToolBatch = batch
-		} else if row.ID == head.PendingOutputLimitID && row.StopReason == "max_tokens" {
+			Event: EventBoundary{Sequence: valueOrZero(row.OutputSequence),
+				Time: valueOrZero(row.OutputCreatedAt)}}
+		if *row.OutputID == head.PendingToolOutputID {
+			b := facts.scope
+			if !b.BatchHasTools {
+				return ExecutionSnapshot{}, fmt.Errorf("%w: pending output has no tools", ErrInvalidState)
+			}
+			view.ToolBatch = &ToolBatch{Output: output, HasIncomplete: b.BatchIncomplete, HasRunnable: b.BatchRunnable}
+			if !b.BatchIncomplete {
+				if b.BatchCalls == 0 || b.BatchCalls != b.BatchResults || b.BatchCalls != b.BatchEvents {
+					return ExecutionSnapshot{}, fmt.Errorf("%w: incomplete result authority", ErrInvalidState)
+				}
+				view.ToolBatch.Completion = &BatchCompletion{LastResultSequence: b.BatchLastSequence, ReadyAt: b.BatchReadyAt}
+			}
+		} else if *row.OutputID == head.PendingOutputLimitID && valueOrZero(row.OutputStopReason) == "max_tokens" {
 			view.OutputLimit = &output
 		} else {
 			return ExecutionSnapshot{}, fmt.Errorf("%w: pending output", ErrInvalidState)

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 )
 
 type PrepareNormalModelCallInput struct {
@@ -26,20 +27,24 @@ func (s *Store) PrepareNormalModelCall(
 	ctx context.Context,
 	input PrepareNormalModelCallInput,
 ) (PreparedNormalModelCall, error) {
-	if input.RuntimeLockID == uuid.Nil || len(input.OpeningInputIDs) == 0 {
-		return PreparedNormalModelCall{}, errors.New("runtime and opening inputs are required")
-	}
-	unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
-	if err != nil {
-		return PreparedNormalModelCall{}, err
-	}
-	defer func() { _ = unit.Rollback(ctx) }()
-	result, err := prepareExecutionModel(ctx, unit, input)
-	if err != nil {
-		return PreparedNormalModelCall{}, err
-	}
-	if err = unit.Commit(ctx, "prepare model call"); err != nil {
-		return PreparedNormalModelCall{}, err
-	}
-	return result, nil
+	return agentexecution.Retry(ctx,
+		"PrepareNormalModelCall",
+		func(ctx context.Context) (PreparedNormalModelCall, error) {
+			if input.RuntimeLockID == uuid.Nil || len(input.OpeningInputIDs) == 0 {
+				return PreparedNormalModelCall{}, errors.New("runtime and opening inputs are required")
+			}
+			unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			if err != nil {
+				return PreparedNormalModelCall{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			result, err := prepareExecutionModel(ctx, unit, input)
+			if err != nil {
+				return PreparedNormalModelCall{}, err
+			}
+			if err = unit.Commit(ctx, "prepare model call"); err != nil {
+				return PreparedNormalModelCall{}, err
+			}
+			return result, nil
+		})
 }

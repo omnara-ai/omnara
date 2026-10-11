@@ -34,7 +34,7 @@ func (h *Handle) FenceRuntime(ctx context.Context, id uuid.UUID) error {
 	if err := h.unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: h.route.ProjectID,
 			AgentID: h.route.AgentID}},
-		RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: id}); err != nil {
+		&RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: id}); err != nil {
 		return err
 	}
 	_, err := executiondb.New().FenceExecutionRuntime(ctx, h.unit.DB(), executiondb.FenceExecutionRuntimeParams{

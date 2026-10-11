@@ -17,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -65,9 +64,11 @@ func (s *Store) LaunchAgent(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	return storeutil.RetryTransaction(ctx, "launch_agent", func() (LaunchAgentResult, error) {
-		return s.launchAgentOnce(ctx, input)
-	})
+	return agentexecution.Retry(ctx,
+		"launch_agent",
+		func(ctx context.Context) (LaunchAgentResult, error) {
+			return s.launchAgentOnce(ctx, input)
+		})
 }
 
 func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) {

@@ -160,7 +160,7 @@ func admitSubagentLaunchTx(
 	if err := unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{
 		ProjectID: projectID,
 		AgentID:   launch.ParentAgentID,
-	}}, agentexecution.LifecycleAuthority{}); err != nil {
+	}}, nil); err != nil {
 		if errors.Is(err, storeerr.ErrNotFound) {
 			return fmt.Errorf("parent agent: %w", storeerr.ErrNotFound)
 		}
@@ -441,7 +441,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
 		{ProjectID: t.input.ProjectID, AgentID: input.TargetAgentID},
 	},
-		agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
+		&agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
 			RuntimeLockID: t.input.RuntimeLockID}); err != nil {
 		return err
 	}
@@ -581,7 +581,7 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 		{ProjectID: child.ProjectID, AgentID: child.ID},
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
 	},
-		agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
+		&agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
 			RuntimeLockID: t.input.RuntimeLockID}); err != nil {
 		return err
 	}
@@ -646,10 +646,10 @@ func (s *Store) archiveIdleCandidates(
 	var machines []MachineRecord
 	archived := 0
 	for _, candidate := range candidates {
-		released, err := storeutil.RetryTransaction(
+		released, err := agentexecution.Retry(
 			ctx,
 			"archive_idle_agent",
-			func() ([]MachineRecord, error) {
+			func(ctx context.Context) ([]MachineRecord, error) {
 				return s.archiveIdleCandidateOnce(ctx, candidate, asOf)
 			},
 		)

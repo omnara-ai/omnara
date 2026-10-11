@@ -762,8 +762,8 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 	if orgID == uuid.Nil || projectID == uuid.Nil || id == uuid.Nil {
 		return DeleteProjectMachinePoolGrantResult{}, errors.New("pool grant org, project, and id are required")
 	}
-	return storeutil.RetryTransaction(ctx, "delete_project_machine_pool_grant",
-		func() (DeleteProjectMachinePoolGrantResult, error) {
+	return agentexecution.Retry(ctx, "delete_project_machine_pool_grant",
+		func(ctx context.Context) (DeleteProjectMachinePoolGrantResult, error) {
 			return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, id)
 		})
 }
@@ -857,7 +857,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 			AgentID:   agentRow.AgentID,
 		})
 	}
-	if err := unit.LockAgentRefs(ctx, agentRefs, agentexecution.LifecycleAuthority{}); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, err
 	}
 	machineRows, err := qtx.MarkPoolGrantMachinesDeleting(

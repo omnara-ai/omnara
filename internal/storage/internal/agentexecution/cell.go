@@ -14,14 +14,12 @@ import (
 )
 
 type AgentCell struct {
-	id           CellID
 	pool         *storeutil.Pool
 	publisher    notifications.PostCommitPublisher
 	retryBackoff func(int, string) time.Duration
 }
 
 func NewCell(
-	id CellID,
 	pool *pgxpool.Pool,
 	publisher notifications.PostCommitPublisher,
 	retryBackoff func(int, string) time.Duration,
@@ -30,34 +28,37 @@ func NewCell(
 		retryBackoff = modelprotocol.RetryBackoff
 	}
 	return &AgentCell{
-		id:           id,
 		pool:         storeutil.WrapPool(pool),
 		publisher:    publisher,
 		retryBackoff: retryBackoff,
 	}
 }
 
-func (c *AgentCell) ID() CellID { return c.id }
-
 func (c *AgentCell) Begin(ctx context.Context) (*Unit, error) {
-	if c.id == "" {
-		return nil, errors.New("agent cell identity is required")
+	plan, ok := ctx.Value(lockPlanKey{}).(retryPlan)
+	if !ok {
+		return nil, errors.New("agent execution unit requires a retry boundary")
 	}
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
-	return newUnit(c, tx), nil
+	u := newUnit(c, tx)
+	u.expanded = plan
+	return u, nil
 }
 
 func (c *AgentCell) Transact(ctx context.Context, run func(*Unit) error) error {
-	u, err := c.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = u.Rollback(context.WithoutCancel(ctx)) }()
-	if err := run(u); err != nil {
-		return err
-	}
-	return u.Commit(ctx, "agent execution")
+	_, err := Retry(ctx, "agent execution", func(ctx context.Context) (struct{}, error) {
+		u, err := c.Begin(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer func() { _ = u.Rollback(context.WithoutCancel(ctx)) }()
+		if err = run(u); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, u.Commit(ctx, "agent execution")
+	})
+	return err
 }
