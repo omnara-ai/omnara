@@ -198,7 +198,7 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	body := agentmessage.Render(name, child.SubagentKey, principal, kind, text)
 	_, err = parent.ReceiveContent(
 		ctx,
-		ReceiveContentInput{
+		ReceiveContentInput{allowBacklogOverflow: true,
 			ActorID:          actorID,
 			DeliveryMode:     "steering",
 			IdempotencyScope: "subagent_message",

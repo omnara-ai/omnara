@@ -80,6 +80,7 @@ export const zErrorCode = z.enum([
     'internal_error',
     'service_unavailable',
     'idempotency_key_conflict',
+    'agent_backlog_full',
     'state_transition_conflict',
     'managed_work_admission_denied',
     'pending_work',

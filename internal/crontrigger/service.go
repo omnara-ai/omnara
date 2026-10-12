@@ -88,7 +88,7 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 				ProjectID:  trigger.ProjectID,
 				TriggerID:  trigger.TriggerID,
 				ClaimToken: trigger.ClaimToken,
-				Message:    err.Error(),
+				Message:    cronFailureMessage(err),
 				WillRetry:  retry,
 			}); recordErr != nil {
 				s.logger.Error(
@@ -219,7 +219,8 @@ func (s *Service) sendAgentInput(
 }
 
 func permanentFireError(err error) bool {
-	return errors.Is(err, storeerr.ErrNotFound) ||
+	return errors.Is(err, storeerr.ErrAgentBacklogFull) ||
+		errors.Is(err, storeerr.ErrNotFound) ||
 		errors.Is(err, storeerr.ErrInvalidRequest) ||
 		errors.Is(err, storeerr.ErrIdempotencyConflict)
 }
@@ -227,4 +228,11 @@ func permanentFireError(err error) bool {
 func fireIdempotencyKey(trigger executionstore.ClaimedCronTrigger) string {
 	return "cron_trigger:" + trigger.TriggerID.String() + ":" +
 		trigger.DueAt.UTC().Format(fireIdempotencyTimestampSpec)
+}
+
+func cronFailureMessage(err error) string {
+	if errors.Is(err, storeerr.ErrAgentBacklogFull) {
+		return storeerr.AgentBacklogFullCode + ": " + storeerr.AgentBacklogFullMessage
+	}
+	return err.Error()
 }

@@ -64,6 +64,25 @@ func (q *Queries) ChangeExecutionInput(ctx context.Context, db DBTX, arg ChangeE
 	return result.RowsAffected(), nil
 }
 
+const countPendingExecutionContent = `-- name: CountPendingExecutionContent :one
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=$1 AND state='received' AND input_kind='content'
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT 50
+) pending
+`
+
+type CountPendingExecutionContentParams struct {
+	AgentID uuid.UUID
+}
+
+func (q *Queries) CountPendingExecutionContent(ctx context.Context, db DBTX, arg CountPendingExecutionContentParams) (int64, error) {
+	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const findExecutionInput = `-- name: FindExecutionInput :one
 SELECT id,state,input_kind,delivery_mode,actor_id,integration_target_id,agent_config_id,
  metadata,queued_at,admitted_event_id,input_rank

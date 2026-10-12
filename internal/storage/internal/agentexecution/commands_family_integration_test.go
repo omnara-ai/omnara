@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,7 +102,10 @@ func TestExecutionParentEffects(t *testing.T) {
 			t.Run(
 				map[bool]string{false: "parent_first", true: "child_first"}[order]+"/"+kind,
 				func(t *testing.T) {
-					_, u, p, c, lease := familyFixture(t, order)
+					f, u, p, c, lease := familyFixture(t, order)
+					for range 50 {
+						receiveCommand(t, p, "queued", "pending")
+					}
 					if kind == "question" {
 						ref := toolCommand(t, c, lease, "built_in")
 						_, err := c.AuthorizeTool(t.Context(), ref)
@@ -153,11 +157,15 @@ func TestExecutionParentEffects(t *testing.T) {
 							QueryRow(t.Context(), `SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, pr.AgentID).
 							Scan(&inputs),
 					)
-					require.Equal(t, 1, inputs)
+					require.Equal(t, 51, inputs)
 					statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 					require.NoError(t, err)
 					require.Equal(t, 2, statements)
 					require.Equal(t, 1, roundTrips)
+					_, parent := f.handle(t, pr.AgentID)
+					_, err = parent.ReceiveContent(t.Context(),
+						agentexecution.ReceiveContentInput{DeliveryMode: "queued"})
+					require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 				},
 			)
 		}
@@ -329,4 +337,45 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 	for range inputs {
 		require.NoError(t, <-done)
 	}
+}
+
+func TestExecutionFullChildPreservesInteraction(t *testing.T) {
+	f, u, p, c, lease := familyFixture(t, true)
+	parentLease := familyParentRuntime(t, u, p)
+	ref := toolCommand(t, p, parentLease, "built_in")
+	_, err := p.AuthorizeTool(t.Context(), ref)
+	require.NoError(t, err)
+	childRef := toolCommand(t, c, lease, "built_in")
+	_, err = c.AuthorizeTool(t.Context(), childRef)
+	require.NoError(t, err)
+	for range 50 {
+		receiveCommand(t, c, "queued", "pending")
+	}
+	form := interactionform.Form{Title: "Question", Questions: []interactionform.Question{{Prompt: "Choose",
+		Options: []interactionform.Option{{Label: "yes"}}}}}
+	opened, err := c.OpenInteraction(t.Context(), agentexecution.OpenInteractionInput{ToolRef: childRef,
+		Question: &form})
+	require.NoError(t, err)
+	cr, err := c.Route()
+	require.NoError(t, err)
+	pr, err := p.Route()
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "full child"))
+	u, err = agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
+	require.NoError(t, err)
+	defer func() { _ = u.Rollback(t.Context()) }()
+	require.NoError(t, u.LockAgentRefs(t.Context(), []lifecyclelock.AgentRef{{ProjectID: f.project,
+		AgentID: pr.AgentID}, {ProjectID: f.project, AgentID: cr.AgentID}}, nil))
+	p, err = u.Agent(pr)
+	require.NoError(t, err)
+	_, err = p.SendToChild(t.Context(), cr, uuid.Nil, "rejected",
+		agentexecution.ToolCompletion{ToolRef: ref, Outcome: "succeeded",
+			Content: []agentexecution.Content{{Kind: "text", Text: "sent"}}})
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	require.NoError(t, u.Rollback(t.Context()))
+	var state string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT state FROM agent_interactions WHERE id=$1`,
+		opened.ID).Scan(&state))
+	require.Equal(t, "open", state)
+	require.Equal(t, 50, pendingExecutionCount(t, f, cr.AgentID))
 }

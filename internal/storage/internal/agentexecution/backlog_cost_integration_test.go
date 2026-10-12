@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,7 +68,7 @@ SELECT (array_agg(id ORDER BY input_rank))[1],(array_agg(id ORDER BY input_rank)
 				}
 			})
 		}
-		for _, command := range []string{"move", "enqueue", "admit", "renumber"} {
+		for _, command := range []string{"move", "reject_full", "admit", "renumber"} {
 			t.Run(command+"/"+strconv.Itoa(size), func(t *testing.T) {
 				if command == "renumber" {
 					_, err = f.pool.Exec(t.Context(), `UPDATE agent_inputs SET input_rank=1 WHERE agent_id=$1 AND id=$2`, agent, first)
@@ -86,11 +87,12 @@ WHERE agent_id=$1 AND id IN ($2,$3)`, agent, first, second)
 				started := time.Now()
 				trace, err := agentexecution.TraceExecutionCommand(u, func() error {
 					switch command {
-					case "enqueue":
+					case "reject_full":
 						_, err := h.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
 							DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "new"}},
 						})
-						return err
+						require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+						return nil
 					case "admit":
 						admitted, err := h.AdmitInputs(t.Context())
 						if err == nil {
@@ -156,17 +158,35 @@ WHERE xmin=pg_current_xact_id()::text::xid GROUP BY agent_id,delivery_mode`)
 					name, _, _ := strings.Cut(statement.Query.SQL, "\n")
 					t.Logf("%s %s", name, raw)
 					if strings.Contains(name, "BacklogRank") || strings.Contains(name, "SelectExecutionAdmission") ||
-						strings.Contains(name, "ReceiveExecutionInput") {
+						strings.Contains(name, "CountPendingExecutionContent") {
 						plans, err := tx.Conn().PgConn().Exec(t.Context(),
 							"EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+statement.Query.SQL).ReadAll()
 						require.NoError(t, err)
 						require.Len(t, plans, 1)
 						generic := string(plans[0].Rows[0][0])
 						require.Contains(t, generic, "agent_inputs_received_content_idx")
-						if !strings.Contains(name, "ReceiveExecutionInput") {
-							require.NotContains(t, generic, `"Node Type": "Seq Scan"`)
-						}
+						require.NotContains(t, generic, `"Node Type": "Seq Scan"`)
 						t.Logf("generic %s %s", name, generic)
+						if strings.Contains(name, "CountPendingExecutionContent") {
+							require.NotContains(t, string(raw), `"Node Type": "Seq Scan"`)
+							if size == 10000 {
+								require.Contains(t, string(raw), `"Node Type": "Index Only Scan"`)
+								require.NotContains(t, string(raw), `"Node Type": "Sort"`)
+							}
+							var plan []struct {
+								Plan struct {
+									Plans []struct {
+										Rows  float64 `json:"Actual Rows"`
+										Plans []struct {
+											Rows float64 `json:"Actual Rows"`
+										} `json:"Plans"`
+									} `json:"Plans"`
+								}
+							}
+							require.NoError(t, json.Unmarshal(raw, &plan))
+							require.EqualValues(t, 50, plan[0].Plan.Plans[0].Rows)
+							require.EqualValues(t, 50, plan[0].Plan.Plans[0].Plans[0].Rows)
+						}
 					}
 					total += planBuffers(t, raw)
 					if command != "renumber" {

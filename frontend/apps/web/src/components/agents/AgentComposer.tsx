@@ -155,7 +155,7 @@ export function AgentComposer({
 
   async function send() {
     if (!canSend || busyRef.current) return
-    const content = text.trim()
+    const draft = text
     const selected = attachments
     busyRef.current = true
     setSubmitting(true)
@@ -165,7 +165,7 @@ export function AgentComposer({
     try {
       scrollToEnd()
       await chat.sendMessage({
-        text: content,
+        text: draft.trim(),
         attachments: selected.map((attachment) => ({
           data: attachment.data,
           mediaType: attachment.mediaType,
@@ -174,11 +174,12 @@ export function AgentComposer({
         })),
       })
     } catch {
-      setText(content)
-      setAttachments(selected)
+      setText((current) => (current === '' ? draft : `${draft}\n${current}`))
+      setAttachments((current) => [...selected, ...current])
+    } finally {
+      busyRef.current = false
+      setSubmitting(false)
     }
-    busyRef.current = false
-    setSubmitting(false)
   }
 
   async function addFiles(files: FileList | readonly File[] | null) {
@@ -238,7 +239,7 @@ export function AgentComposer({
         </div>
       )}
       <AttachmentStrip attachments={attachments} disabled={busy} onRemove={removeAttachment} />
-      <ComposerNotice message={chat.error?.message} />
+      <ComposerNotice message={chat.error?.message} role="alert" />
       <ComposerNotice message={cancelError?.message} />
       <ComposerNotice message={attachmentError} role="alert" />
       <input

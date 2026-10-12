@@ -12,14 +12,15 @@ import (
 )
 
 type ReceiveContentInput struct {
-	ID                  uuid.UUID
-	ActorID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	DeliveryMode        string
-	IdempotencyScope    string
-	IdempotencyKey      string
-	Metadata            json.RawMessage
-	Content             []Content
+	ID                   uuid.UUID
+	ActorID              uuid.UUID
+	IntegrationTargetID  uuid.UUID
+	DeliveryMode         string
+	IdempotencyScope     string
+	IdempotencyKey       string
+	Metadata             json.RawMessage
+	Content              []Content
+	allowBacklogOverflow bool
 }
 
 type ReceivedContent struct {
@@ -81,6 +82,16 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return ReceivedContent{}, err
+		}
+		if !input.allowBacklogOverflow {
+			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(),
+				executiondb.CountPendingExecutionContentParams{AgentID: h.route.AgentID})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if pending == 50 {
+				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
+			}
 		}
 		if input.ID == uuid.Nil {
 			input.ID = uuid.New()

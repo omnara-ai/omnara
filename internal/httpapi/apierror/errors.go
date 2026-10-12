@@ -17,6 +17,7 @@ type definition struct {
 }
 
 var definitions = map[openapi.ErrorCode]definition{
+	openapi.ErrorCodeAgentBacklogFull:        {http.StatusConflict, storeerr.AgentBacklogFullMessage},
 	openapi.ErrorCodeInvalidRequest:          {http.StatusBadRequest, "invalid request"},
 	openapi.ErrorCodeUnauthorized:            {http.StatusUnauthorized, "unauthorized"},
 	openapi.ErrorCodeForbidden:               {http.StatusForbidden, "forbidden"},
@@ -59,6 +60,7 @@ type sentinelMapping struct {
 // authorization failures; the authentication middleware maps the same sentinel
 // to 401/unauthorized before requests reach handlers.
 var sentinelCodes = []sentinelMapping{
+	{storeerr.ErrAgentBacklogFull, openapi.ErrorCodeAgentBacklogFull, true},
 	{storeerr.ErrNotFound, openapi.ErrorCodeNotFound, false},
 	{storeerr.ErrInvalidRequest, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrNoClaimableAgentWakeup, openapi.ErrorCodeInvalidRequest, false},

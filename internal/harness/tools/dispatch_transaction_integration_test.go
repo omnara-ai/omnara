@@ -1564,3 +1564,49 @@ func TestRemovedArtifactToolsFailDispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "full-child", toolFixtureOptions{withSubagents: true})
+	child, err := f.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: toolsTestProjectID, AgentConfigID: f.AgentConfig.ID, LaunchedBy: toolsTestUserPrincipal(f.User.ID),
+		Subagent: &executionstore.SubagentLaunch{ParentAgentID: f.Agent.ID, Key: "fork", MaxDepth: 4},
+	})
+	require.NoError(t, err)
+	for range 50 {
+		_, _, _, err = f.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: toolsTestProjectID, AgentID: child.Agent.ID,
+			ContentBlocks: []byte(`[{"type":"text","text":"pending"}]`),
+		})
+		require.NoError(t, err)
+	}
+	childID, err := publicid.Encode(publicid.KindAgent, child.Agent.ID)
+	require.NoError(t, err)
+	call := f.recordToolCall(t, ctx, "send_full", "send_agent_message",
+		`{"agent_id":"`+childID+`","message":"new"}`, f.Now.Add(20*time.Second))
+	turn := f.turn()
+	turn.Tools["send_agent_message"] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, call)
+	require.NoError(t, err)
+	require.Equal(t, DispatchCompleted, result.Disposition)
+	require.Contains(t, string(result.ContentParts), storeerr.AgentBacklogFullCode)
+	require.Contains(t, string(result.ContentParts), storeerr.AgentBacklogFullMessage)
+	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	next, found, err := f.Store.Execution().AdvanceOwnedAgentWork(ctx, executionstore.AdvanceOwnedAgentWorkInput{
+		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, RuntimeLockID: f.Lock.ID, AllowModelWork: true,
+		PrepareModel: true,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotNil(t, next.Model)
+	var pending int
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,
+		child.Agent.ID).Scan(&pending))
+	require.Equal(t, 50, pending)
+}

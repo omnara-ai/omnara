@@ -18,7 +18,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 		statements, facts, err := agentexecution.CountExecutionTransition(t.Context(), u, func() { run(h) })
 		require.NoError(t, err)
 		t.Logf("%s statements=%d facts=%d", name, statements, facts)
-		limits := map[string]int{"receive": 7, "prepare_initial": 14, "accept_tools": 13,
+		limits := map[string]int{"receive": 8, "prepare_initial": 14, "accept_tools": 13,
 			"authorize": 6, "run_tool": 8, "complete_prepare": 17, "accept_end": 12}
 		require.LessOrEqual(t, statements, limits[name], name)
 		maximumFacts := 1

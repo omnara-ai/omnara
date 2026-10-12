@@ -44,6 +44,24 @@ function acceptedInput(id: string, text: string): CreateAgentInputResult {
 describe('AgentChatSession input lifecycle', () => {
   beforeEach(resetChatTestHarness)
 
+  it('surfaces backlog rejection without a phantom message or automatic retry', async () => {
+    const message =
+      'This agent already has 50 pending messages. Wait for messages to be processed or cancel a pending message, then try again.'
+    transport.createAgentInput.mockRejectedValueOnce(
+      new ApiError(409, message, 'agent_backlog_full'),
+    )
+    const session = startSession([])
+    await connection(0)
+    try {
+      await expect(session.sendMessage({ text: 'Hello' })).rejects.toThrow(message)
+      expect(read(session).error?.message).toBe(message)
+      expect(read(session).messages).toEqual([])
+      expect(transport.createAgentInput).toHaveBeenCalledTimes(1)
+    } finally {
+      session.disconnect()
+    }
+  })
+
   it('waits for the history cursor before opening the event stream', async () => {
     const session = createChatTestSession()
     session.subscribe(() => undefined)

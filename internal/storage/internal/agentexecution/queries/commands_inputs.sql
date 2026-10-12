@@ -92,3 +92,10 @@ FROM agent_events e WHERE i.agent_id=sqlc.arg(agent_id) AND i.id=sqlc.arg(id) AN
 UPDATE agents a SET current_config_id=c.id,updated_at=statement_timestamp()
 FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id)
  AND c.project_id=a.project_id AND c.id=sqlc.arg(config_id);
+
+-- name: CountPendingExecutionContent :one
+SELECT count(*) FROM (
+    SELECT 1 FROM agent_inputs
+    WHERE agent_id=$1 AND state='received' AND input_kind='content'
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT 50
+) pending;

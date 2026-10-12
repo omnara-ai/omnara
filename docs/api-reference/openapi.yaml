@@ -8477,6 +8477,7 @@ components:
             - internal_error
             - service_unavailable
             - idempotency_key_conflict
+            - agent_backlog_full
             - state_transition_conflict
             - managed_work_admission_denied
             - pending_work
@@ -8507,6 +8508,7 @@ components:
         - internal_error
         - service_unavailable
         - idempotency_key_conflict
+        - agent_backlog_full
         - state_transition_conflict
         - managed_work_admission_denied
         - pending_work
@@ -8531,6 +8533,7 @@ components:
         - expected_digest_required
         - not_a_file
         - idempotency_key_conflict
+        - agent_backlog_full
         - state_transition_conflict
         - pending_work
         - not_wake_capable

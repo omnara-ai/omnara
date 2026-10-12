@@ -499,3 +499,71 @@ func TestIntegrationInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T
 		})
 	}
 }
+
+func TestIntegrationInboxRetriesFullBacklog(t *testing.T) {
+	pool, store, ids, integrationID := integrationWorkerFixture(t)
+	ctx := t.Context()
+	inbox := store.Integrations()
+	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	source, err := inbox.GetIntegration(ctx, ids.ProjectID, integrationID)
+	require.NoError(t, err)
+	launch, err := store.Execution().LaunchAgent(ctx,
+		executionstore.LaunchAgentInput{ProjectID: ids.ProjectID, AgentConfigID: base.ID,
+			LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID)})
+	require.NoError(t, err)
+	createTestIntegrationSubscription(t, store, source, launch.Agent.ID, `{"channel_id":"C123"}`)
+	var first uuid.UUID
+	for range 50 {
+		input, _, _, err := store.Execution().CreateAgentContentInput(ctx,
+			executionstore.CreateAgentContentInputInput{ProjectID: ids.ProjectID, AgentID: launch.Agent.ID,
+				ContentBlocks: []byte(`[{"type":"text","text":"pending"}]`)})
+		require.NoError(t, err)
+		first = input.ID
+	}
+	router := NewIntegrationRouter(store.Execution(), inbox)
+	event := IntegrationEvent{Event: integrationdefinition.Event{Kind: integrationdefinition.EventMessage,
+		Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123",
+			ThreadTS: "1.2"}}}, ContentBlocks: json.RawMessage(`[{"type":"text","text":"inbox"}]`),
+		Actor: integrationTestActor(t, source, "U123")}
+	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx,
+		integrationstore.VerifiedIntegrationReceipt{ProjectID: ids.ProjectID, IntegrationID: integrationID,
+			ReceiptKey: "full", Payload: []byte(`{}`)})
+	require.NoError(t, err)
+	consumer := integrationWorkerConsumerFunc(func(ctx context.Context,
+		lease integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
+		event.SemanticKey = lease.ReceiptID.String()
+		_, err := freezeTestIntegrationEvent(ctx, router, lease, &event)
+		if err != nil {
+			return nil, err
+		}
+		return router.Admit(ctx, lease, nil)
+	})
+	worker := NewIntegrationInboxWorker(inbox, consumer, IntegrationInboxWorkerOptions{})
+	worked, err := worker.RunOnce(ctx)
+	require.True(t, worked)
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	pending, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, pending.State)
+	require.Contains(t, pending.LastError, storeerr.AgentBacklogFullCode)
+	require.True(t, pending.NextAttemptAt.After(time.Now()))
+	outcomes, err := store.Execution().GetIntegrationInboxOutcomes(ctx, pending)
+	require.NoError(t, err)
+	require.Len(t, outcomes, 1)
+	for _, outcome := range outcomes {
+		require.Equal(t, executionstore.InboxRecipientPending, outcome)
+	}
+	err = store.Execution().CancelQueuedBacklogInput(ctx,
+		executionstore.CancelQueuedBacklogInputInput{ProjectID: ids.ProjectID, AgentID: launch.Agent.ID,
+			InputID: first})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, receipt.ID)
+	require.NoError(t, err)
+	worked, err = worker.RunOnce(ctx)
+	require.True(t, worked)
+	require.NoError(t, err)
+	completed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
+}
