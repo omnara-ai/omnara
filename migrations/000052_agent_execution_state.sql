@@ -449,3 +449,69 @@ DROP FUNCTION agent_turn_opening_content_inputs(uuid,uuid,bigint);
 DROP FUNCTION agent_turn_id_at_event_sequence(uuid,bigint);
 
 ALTER TABLE agent_wakeups DROP COLUMN metadata;
+
+CREATE INDEX tool_calls_runtime_reference_idx
+    ON tool_calls(runtime_lock_id) WHERE runtime_lock_id IS NOT NULL;
+
+DROP INDEX tool_calls_runtime_lock_idx;
+
+CREATE INDEX agent_inputs_received_content_idx
+    ON agent_inputs(agent_id, input_rank, queued_at, id)
+    WHERE state = 'received' AND input_kind = 'content';
+
+CREATE UNIQUE INDEX agents_org_project_id_key
+    ON agents(org_id, project_id, id);
+
+ALTER TABLE model_call_contexts ADD CONSTRAINT model_call_contexts_agent_scope_fkey
+    FOREIGN KEY (org_id, project_id, agent_id) REFERENCES agents(org_id, project_id, id);
+
+ALTER TABLE processes ADD CONSTRAINT processes_agent_scope_fkey
+    FOREIGN KEY (org_id, project_id, agent_id) REFERENCES agents(org_id, project_id, id);
+
+ALTER TABLE process_actions ADD CONSTRAINT process_actions_agent_scope_fkey
+    FOREIGN KEY (org_id, project_id, agent_id) REFERENCES agents(org_id, project_id, id);
+
+ALTER TABLE model_call_contexts
+    DROP CONSTRAINT model_call_contexts_org_id_fkey,
+    DROP CONSTRAINT model_call_contexts_org_id_project_id_fkey,
+    DROP CONSTRAINT model_call_contexts_project_id_agent_id_fkey;
+
+ALTER TABLE agent_inputs DROP CONSTRAINT agent_inputs_project_id_fkey;
+
+ALTER TABLE processes
+    DROP CONSTRAINT processes_org_id_fkey,
+    DROP CONSTRAINT processes_org_id_project_id_fkey,
+    DROP CONSTRAINT processes_project_id_agent_id_fkey;
+
+ALTER TABLE process_actions
+    DROP CONSTRAINT process_actions_org_id_fkey,
+    DROP CONSTRAINT process_actions_org_id_project_id_fkey;
+
+-- +goose StatementBegin
+CREATE FUNCTION agent_payload_created_at(
+    p_project_id uuid, p_agent_id uuid, p_kind text, p_id uuid, p_admission boolean
+)
+RETURNS timestamptz
+LANGUAGE plpgsql STABLE
+AS $$
+DECLARE result timestamptz;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM agents WHERE project_id = p_project_id AND id = p_agent_id) THEN
+        RETURN NULL;
+    END IF;
+    CASE p_kind
+        WHEN 'agent_input' THEN
+            SELECT CASE WHEN p_admission THEN statement_timestamp() ELSE queued_at END INTO result
+            FROM agent_inputs WHERE agent_id = p_agent_id AND id = p_id;
+        WHEN 'model_output' THEN
+            SELECT created_at INTO result FROM model_outputs WHERE agent_id = p_agent_id AND id = p_id;
+        WHEN 'tool_call_result' THEN
+            SELECT completed_at INTO result FROM tool_call_results WHERE agent_id = p_agent_id AND id = p_id;
+        WHEN 'context_checkpoint' THEN
+            SELECT created_at INTO result FROM context_checkpoints WHERE agent_id = p_agent_id AND id = p_id;
+        ELSE RETURN NULL;
+    END CASE;
+    RETURN result;
+END;
+$$;
+-- +goose StatementEnd
