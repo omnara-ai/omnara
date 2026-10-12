@@ -14,9 +14,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
 
 concurrency:
   group: react-doctor-${{ github.event.pull_request.number || github.ref }}
@@ -27,15 +24,43 @@ jobs:
     name: React Doctor
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: frontend
+    env:
+      NO_COLOR: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: millionco/react-doctor@013f7373f91a3b9e68bd1dc7d4d354f4b041b117 # v2.2.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          directory: frontend
-          project: '*'
-          blocking: warning
-          node-version: '24'
+          node-version-file: .node-version
+
+      - run: corepack enable
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check pull request
+        if: github.event_name == 'pull_request'
+        env:
+          REACT_DOCTOR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: pnpm run doctor --base "$REACT_DOCTOR_BASE" --verbose 2>&1 | tee "$RUNNER_TEMP/react-doctor.txt"
+
+      - name: Check full workspace
+        if: github.event_name != 'pull_request'
+        run: pnpm run doctor --scope full --blocking none --verbose 2>&1 | tee "$RUNNER_TEMP/react-doctor.txt"
+
+      - name: Publish report
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/react-doctor.txt" ]]; then
+            {
+              printf '## React Doctor\n\n```text\n'
+              cat "$RUNNER_TEMP/react-doctor.txt"
+              printf '\n```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

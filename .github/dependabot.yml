@@ -4,8 +4,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     cooldown:
       default-days: 7
+
   - package-ecosystem: gomod
     directories:
       - /
@@ -15,5 +27,65 @@ updates:
       - /tools/omnaralint
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    groups:
+      aws-sdk-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - github.com/aws/aws-sdk-go-v2*
+        update-types:
+          - minor
+          - patch
+      golang-x-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - golang.org/x/*
+        update-types:
+          - minor
+          - patch
+      shared-go-dependencies:
+        group-by: dependency-name
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    groups:
+      # Dependency-type filters can drop transitive fixes: dependabot/dependabot-core#16250.
+      npm-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      production-minor-and-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-minor-and-patch:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Dependabot leaves pnpm overrides unchanged: dependabot/dependabot-core#16529.
+      - dependency-name: react
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: react-dom
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     cooldown:
       default-days: 7
