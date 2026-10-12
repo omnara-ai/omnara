@@ -155,7 +155,6 @@ model_call_contexts; ANALYZE model_outputs
 		name, path string
 		args       []any
 	}{
-		{"ListExecutionBacklog", "internal/executiondb/commands_inputs.sql.go", []any{agent}},
 		{"ListContextEvents", "../dbsqlc/agent_turns.sql.go", []any{f.project, agent, int64(0), int64(100), int32(100)}},
 		{"CreateExecutionAttempt", "internal/executiondb/commands_models.sql.go", []any{uuid.New(),
 			snapshot.Head.CurrentTurnID, "normal", int32(1), f.config, f.revision, int64(100), nil, lease,
@@ -183,14 +182,7 @@ model_call_contexts; ANALYZE model_outputs
 				t.Logf("%s iteration=%d plan=%s", tc.name, iteration, raw)
 				require.NoError(t, nested.Rollback(t.Context()))
 			}
-			if tc.name == "ListExecutionBacklog" {
-				results, err := tx.Conn().PgConn().Exec(t.Context(), "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+query).ReadAll()
-				require.NoError(t, err)
-				require.Len(t, results, 1)
-				require.Contains(t, string(results[0].Rows[0][0]), "agent_inputs_received_content_idx")
-				require.LessOrEqual(t, planBuffers(t, raw), 10)
-				require.Contains(t, string(raw), "agent_inputs_received_content_idx")
-			}
+
 		})
 	}
 }

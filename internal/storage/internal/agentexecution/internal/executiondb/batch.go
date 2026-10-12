@@ -159,10 +159,12 @@ WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
 ), scope AS MATERIALIZED (
  SELECT a.id,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now,t.id AS turn_id,
  coalesce(e.sequence,0)::bigint AS semantic_sequence,coalesce(e.created_at,'epoch'::timestamptz)::timestamptz AS semantic_time,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
- AND i.delivery_mode='steering' AND i.state='received') AS steering,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
- AND i.delivery_mode='queued' AND i.state='received') AS queued,
+ ((SELECT i.id FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
+ AND i.delivery_mode='steering' AND i.state='received'
+ ORDER BY i.input_rank,i.queued_at,i.id LIMIT 1) IS NOT NULL)::boolean AS steering,
+ ((SELECT i.id FROM agent_inputs i WHERE i.agent_id=a.id AND i.input_kind='content'
+ AND i.delivery_mode='queued' AND i.state='received'
+ ORDER BY i.input_rank,i.queued_at,i.id LIMIT 1) IS NOT NULL)::boolean AS queued,
  coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
  coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
  coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence

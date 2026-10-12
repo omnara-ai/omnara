@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -135,20 +133,20 @@ func (h *Handle) admitInputs(
 	kind AdmissionKind,
 ) (InputAdmission, error) {
 	q := executiondb.New()
-	rows, err := q.ListExecutionBacklog(
-		ctx,
-		h.unit.DB(),
-		executiondb.ListExecutionBacklogParams{AgentID: h.route.AgentID},
-	)
+	mode := "steering"
+	var limit *int64
+	if kind == AdmitOneQueued {
+		mode = "queued"
+		limit = new(int64(1))
+	}
+	rows, err := q.SelectExecutionAdmission(ctx, h.unit.DB(), executiondb.SelectExecutionAdmissionParams{
+		AgentID: h.route.AgentID, Mode: mode, RowLimit: limit,
+	})
 	if err != nil {
 		return InputAdmission{}, err
 	}
 	result := InputAdmission{TurnID: uuid.New()}
 	for _, row := range rows {
-		if kind == AdmitAllSteering && row.DeliveryMode != "steering" ||
-			kind == AdmitOneQueued && row.DeliveryMode != "queued" {
-			continue
-		}
 		event, err := h.appendEvent(ctx, result.TurnID, "agent_input", row.ID, uuid.Nil, uuid.Nil, true)
 		if err != nil {
 			return InputAdmission{}, err
@@ -170,9 +168,6 @@ func (h *Handle) admitInputs(
 				Event:               event,
 			},
 		)
-		if kind == AdmitOneQueued {
-			break
-		}
 	}
 	if len(result.Inputs) == 0 {
 		return InputAdmission{}, nil
@@ -205,173 +200,12 @@ func (h *Handle) admitInputs(
 		turn.InitialOpening.InputIDs = append(turn.InitialOpening.InputIDs, row.ID)
 	}
 	loaded.View = ExecutionView{AgentID: h.route.AgentID, State: loaded.View.State, Turn: turn}
-	admitted := make(map[uuid.UUID]bool, len(result.Inputs))
-	for _, input := range result.Inputs {
-		admitted[input.ID] = true
-	}
-	for _, row := range rows {
-		if admitted[row.ID] {
-			continue
-		}
-		if row.DeliveryMode == "steering" {
-			loaded.View.Inputs.Steering = true
-		} else {
-			loaded.View.Inputs.Queued = true
-		}
+	loaded.View.Inputs = InputAvailability{
+		Steering: valueOrZero(rows[0].RemainingSteering), Queued: rows[0].RemainingQueued,
 	}
 	loaded.databaseNow = last.Time
 	if err := m.updated(*loaded); err != nil {
 		return InputAdmission{}, err
 	}
 	return result, nil
-}
-
-type BacklogChange struct {
-	ID           uuid.UUID
-	DeliveryMode string
-	Cancel       bool
-	BeforeID     uuid.UUID
-	Position     string
-}
-
-func (h *Handle) ChangeBacklog(ctx context.Context, change BacklogChange) (bool, error) {
-	return executeCommand(ctx, h, func(m *executionMutation) (bool, error) {
-		if change.ID == uuid.Nil || change.DeliveryMode != "queued" && change.DeliveryMode != "steering" {
-			return false, errors.New("invalid backlog change")
-		}
-		switch change.Position {
-		case "", "front", "back":
-			if change.BeforeID != uuid.Nil {
-				return false, errors.New("backlog change does not accept an anchor")
-			}
-		case "before", "after":
-			if change.BeforeID == uuid.Nil || change.BeforeID == change.ID {
-				return false, storeerr.ErrStateTransitionConflict
-			}
-		default:
-			return false, errors.New("invalid backlog position")
-		}
-		if change.Cancel && change.Position != "" ||
-			(change.Cancel || change.Position != "") && change.DeliveryMode != "queued" {
-			return false, errors.New("only queued backlog supports cancellation and movement")
-		}
-		q := executiondb.New()
-		rows, err := q.ListExecutionBacklog(ctx, h.unit.DB(),
-			executiondb.ListExecutionBacklogParams{AgentID: h.route.AgentID})
-		if err != nil {
-			return false, err
-		}
-		index := slices.IndexFunc(
-			rows,
-			func(row executiondb.ListExecutionBacklogRow) bool { return row.ID == change.ID },
-		)
-		if index < 0 {
-			if change.DeliveryMode == "steering" {
-				row, err := q.FindExecutionInput(ctx, h.unit.DB(),
-					executiondb.FindExecutionInputParams{AgentID: h.route.AgentID, ID: change.ID})
-				if err == nil && row.InputKind == "content" && row.State == "resolved" &&
-					row.AdmittedEventID != nil {
-					return false, nil
-				}
-				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-					return false, err
-				}
-			}
-			return false, storeerr.ErrStateTransitionConflict
-		}
-		selected := rows[index]
-		if change.Cancel {
-			if selected.DeliveryMode != "queued" {
-				return false, storeerr.ErrStateTransitionConflict
-			}
-			return h.changeBacklogRow(ctx, m, selected, true)
-		}
-		if change.Position != "" && selected.DeliveryMode != "queued" {
-			return false, storeerr.ErrStateTransitionConflict
-		}
-		if change.Position == "" && change.DeliveryMode == selected.DeliveryMode {
-			if change.DeliveryMode == "steering" {
-				return false, nil
-			}
-			return false, storeerr.ErrStateTransitionConflict
-		}
-		rows = slices.DeleteFunc(rows, func(row executiondb.ListExecutionBacklogRow) bool {
-			return row.DeliveryMode != change.DeliveryMode
-		})
-		rank, available, err := backlogRank(rows, change)
-		if err != nil {
-			return false, err
-		}
-		var changed bool
-		if !available {
-			for i := range rows {
-				rows[i].InputRank = int64(i+1) * 1024
-				updated, err := h.changeBacklogRow(ctx, m, rows[i], false)
-				if err != nil {
-					return false, err
-				}
-				changed = changed || updated
-			}
-			rank, available, err = backlogRank(rows, change)
-			if err != nil {
-				return false, err
-			}
-			if !available {
-				return false, storeerr.ErrStateTransitionConflict
-			}
-		}
-		selected.DeliveryMode = change.DeliveryMode
-		selected.InputRank = rank
-		updated, err := h.changeBacklogRow(ctx, m, selected, false)
-		return changed || updated, err
-	})
-}
-
-func (h *Handle) changeBacklogRow(ctx context.Context, m *executionMutation,
-	row executiondb.ListExecutionBacklogRow, cancel bool) (bool, error) {
-	n, err := executiondb.New().ChangeExecutionInput(ctx, h.unit.DB(), executiondb.ChangeExecutionInputParams{
-		AgentID: h.route.AgentID, ID: row.ID, Mode: row.DeliveryMode, Rank: row.InputRank, Cancel: cancel})
-	if n > 0 {
-		m.changed()
-	}
-	return n > 0, err
-}
-
-func backlogRank(rows []executiondb.ListExecutionBacklogRow, change BacklogChange) (int64, bool, error) {
-	neighbors := make([]int64, 0, len(rows))
-	anchor := -1
-	for _, row := range rows {
-		if row.ID == change.ID {
-			continue
-		}
-		if row.ID == change.BeforeID {
-			anchor = len(neighbors)
-		}
-		neighbors = append(neighbors, row.InputRank)
-	}
-	destination := len(neighbors)
-	switch change.Position {
-	case "front":
-		destination = 0
-	case "before", "after":
-		if anchor < 0 {
-			return 0, false, storeerr.ErrStateTransitionConflict
-		}
-		destination = anchor
-		if change.Position == "after" {
-			destination++
-		}
-	}
-	var lower int64
-	if destination > 0 {
-		lower = neighbors[destination-1]
-	}
-	if destination < len(neighbors) {
-		upper := neighbors[destination]
-		return lower + (upper-lower)/2, upper-lower > 1, nil
-	}
-	if lower > math.MaxInt64-1024 {
-		return 0, false, errors.New("backlog rank overflow")
-	}
-	return lower + 1024, true, nil
 }

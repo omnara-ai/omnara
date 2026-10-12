@@ -131,7 +131,7 @@ SELECT count(*) FROM pg_constraint WHERE conname=ANY($1::text[])
 		unique           bool
 	}{
 		{"tool_calls_runtime_reference_idx", "USING btree (runtime_lock_id) WHERE (runtime_lock_id IS NOT NULL)", false},
-		{"agent_inputs_received_content_idx", "USING btree (agent_id, input_rank, queued_at, id)", false},
+		{"agent_inputs_received_content_idx", "USING btree (agent_id, delivery_mode, input_rank, queued_at, id)", false},
 		{"agents_org_project_id_key", "USING btree (org_id, project_id, id)", true},
 	} {
 		var definition string
@@ -151,7 +151,9 @@ SELECT pg_get_indexdef(indexrelid),indisready,indisvalid,indisunique FROM pg_ind
 	var payloadInstalled, oldIndexAbsent bool
 	require.NoError(t, pool.QueryRow(ctx, `
 SELECT to_regprocedure('agent_payload_created_at(uuid,uuid,text,uuid,boolean)') IS NOT NULL,
- to_regclass('tool_calls_runtime_lock_idx') IS NULL
+ to_regclass('tool_calls_runtime_lock_idx') IS NULL AND
+ to_regclass('agent_inputs_content_queued_idx') IS NULL AND
+ to_regclass('agent_inputs_content_steering_idx') IS NULL
 `).Scan(&payloadInstalled, &oldIndexAbsent))
 	require.True(t, payloadInstalled)
 	require.True(t, oldIndexAbsent)

@@ -17,17 +17,23 @@ type countingLoadTx struct {
 	queries    int
 	facts      []*pgx.QueuedQuery
 	factLoads  int
+	trace      []ExecutionStatement
 }
 
 func (tx *countingLoadTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	tx.statements++
 	tx.queries++
-	return tx.Tx.Exec(ctx, sql, args...)
+	tag, err := tx.Tx.Exec(ctx, sql, args...)
+	tx.trace = append(tx.trace, ExecutionStatement{
+		Query: pgx.QueuedQuery{SQL: sql, Arguments: args}, Affected: tag.RowsAffected(),
+	})
+	return tag, err
 }
 
 func (tx *countingLoadTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	tx.statements++
 	tx.queries++
+	tx.trace = append(tx.trace, ExecutionStatement{Query: pgx.QueuedQuery{SQL: sql, Arguments: args}})
 	rows, err := tx.Tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -42,6 +48,7 @@ func (tx *countingLoadTx) Query(ctx context.Context, sql string, args ...any) (p
 func (tx *countingLoadTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	tx.statements++
 	tx.queries++
+	tx.trace = append(tx.trace, ExecutionStatement{Query: pgx.QueuedQuery{SQL: sql, Arguments: args}})
 	return tx.Tx.QueryRow(ctx, sql, args...)
 }
 
@@ -56,6 +63,7 @@ func CountOrdinaryLoad(ctx context.Context, h *Handle) (ExecutionSnapshot, int, 
 func (tx *countingLoadTx) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
 	tx.statements += batch.Len()
 	for _, query := range batch.QueuedQueries {
+		tx.trace = append(tx.trace, ExecutionStatement{Query: *query})
 		if strings.HasPrefix(query.SQL, "-- name: LoadExecution") {
 			tx.facts = append(tx.facts, query)
 		}
@@ -129,4 +137,17 @@ func CountExecutionTransition(ctx context.Context, u *Unit, run func()) (int, in
 	run()
 	err := u.Commit(ctx, "count transition")
 	return tx.statements, tx.factLoads, err
+}
+
+type ExecutionStatement struct {
+	Query    pgx.QueuedQuery
+	Affected int64
+}
+
+func TraceExecutionCommand(u *Unit, run func() error) ([]ExecutionStatement, error) {
+	tx := &countingLoadTx{Tx: u.tx}
+	u.tx = tx
+	defer func() { u.tx = tx.Tx }()
+	err := run()
+	return tx.trace, err
 }

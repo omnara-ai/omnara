@@ -116,41 +116,63 @@ func (q *Queries) FindExecutionInput(ctx context.Context, db DBTX, arg FindExecu
 	return i, err
 }
 
-const listExecutionBacklog = `-- name: ListExecutionBacklog :many
-SELECT id,delivery_mode,input_rank,queued_at,integration_target_id,actor_id FROM agent_inputs
+const firstExecutionBacklogRank = `-- name: FirstExecutionBacklogRank :one
+SELECT input_rank FROM agent_inputs
 WHERE agent_id=$1 AND input_kind='content' AND state='received'
-ORDER BY input_rank,queued_at,id
+ AND delivery_mode=$2 AND id<>$3
+ORDER BY input_rank,queued_at,id LIMIT 1
 `
 
-type ListExecutionBacklogParams struct {
+type FirstExecutionBacklogRankParams struct {
 	AgentID uuid.UUID
+	Mode    string
+	SkipID  uuid.UUID
 }
 
-type ListExecutionBacklogRow struct {
-	ID                  uuid.UUID
-	DeliveryMode        string
-	InputRank           int64
-	QueuedAt            time.Time
-	IntegrationTargetID *uuid.UUID
-	ActorID             *uuid.UUID
+func (q *Queries) FirstExecutionBacklogRank(ctx context.Context, db DBTX, arg FirstExecutionBacklogRankParams) (int64, error) {
+	row := db.QueryRow(ctx, firstExecutionBacklogRank, arg.AgentID, arg.Mode, arg.SkipID)
+	var input_rank int64
+	err := row.Scan(&input_rank)
+	return input_rank, err
 }
 
-func (q *Queries) ListExecutionBacklog(ctx context.Context, db DBTX, arg ListExecutionBacklogParams) ([]ListExecutionBacklogRow, error) {
-	rows, err := db.Query(ctx, listExecutionBacklog, arg.AgentID)
+const getExecutionBacklogInputs = `-- name: GetExecutionBacklogInputs :many
+SELECT id,state,input_kind,delivery_mode,input_rank,queued_at,admitted_event_id FROM agent_inputs
+WHERE agent_id=$1 AND id=ANY($2::uuid[])
+`
+
+type GetExecutionBacklogInputsParams struct {
+	AgentID uuid.UUID
+	Ids     []uuid.UUID
+}
+
+type GetExecutionBacklogInputsRow struct {
+	ID              uuid.UUID
+	State           string
+	InputKind       string
+	DeliveryMode    string
+	InputRank       int64
+	QueuedAt        time.Time
+	AdmittedEventID *uuid.UUID
+}
+
+func (q *Queries) GetExecutionBacklogInputs(ctx context.Context, db DBTX, arg GetExecutionBacklogInputsParams) ([]GetExecutionBacklogInputsRow, error) {
+	rows, err := db.Query(ctx, getExecutionBacklogInputs, arg.AgentID, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListExecutionBacklogRow{}
+	items := []GetExecutionBacklogInputsRow{}
 	for rows.Next() {
-		var i ListExecutionBacklogRow
+		var i GetExecutionBacklogInputsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.State,
+			&i.InputKind,
 			&i.DeliveryMode,
 			&i.InputRank,
 			&i.QueuedAt,
-			&i.IntegrationTargetID,
-			&i.ActorID,
+			&i.AdmittedEventID,
 		); err != nil {
 			return nil, err
 		}
@@ -162,12 +184,120 @@ func (q *Queries) ListExecutionBacklog(ctx context.Context, db DBTX, arg ListExe
 	return items, nil
 }
 
+const lastExecutionBacklogRank = `-- name: LastExecutionBacklogRank :one
+SELECT input_rank FROM agent_inputs
+WHERE agent_id=$1 AND input_kind='content' AND state='received'
+ AND delivery_mode=$2 AND id<>$3
+ORDER BY input_rank DESC,queued_at DESC,id DESC LIMIT 1
+`
+
+type LastExecutionBacklogRankParams struct {
+	AgentID uuid.UUID
+	Mode    string
+	SkipID  uuid.UUID
+}
+
+func (q *Queries) LastExecutionBacklogRank(ctx context.Context, db DBTX, arg LastExecutionBacklogRankParams) (int64, error) {
+	row := db.QueryRow(ctx, lastExecutionBacklogRank, arg.AgentID, arg.Mode, arg.SkipID)
+	var input_rank int64
+	err := row.Scan(&input_rank)
+	return input_rank, err
+}
+
+const nextExecutionBacklogRank = `-- name: NextExecutionBacklogRank :one
+SELECT input_rank FROM agent_inputs
+WHERE agent_id=$1 AND input_kind='content' AND state='received'
+ AND delivery_mode=$2 AND id<>$3
+ AND (input_rank,queued_at,id)>($4::bigint,$5::timestamptz,$6::uuid)
+ORDER BY input_rank,queued_at,id LIMIT 1
+`
+
+type NextExecutionBacklogRankParams struct {
+	AgentID  uuid.UUID
+	Mode     string
+	SkipID   uuid.UUID
+	Rank     int64
+	QueuedAt time.Time
+	AnchorID uuid.UUID
+}
+
+func (q *Queries) NextExecutionBacklogRank(ctx context.Context, db DBTX, arg NextExecutionBacklogRankParams) (int64, error) {
+	row := db.QueryRow(ctx, nextExecutionBacklogRank,
+		arg.AgentID,
+		arg.Mode,
+		arg.SkipID,
+		arg.Rank,
+		arg.QueuedAt,
+		arg.AnchorID,
+	)
+	var input_rank int64
+	err := row.Scan(&input_rank)
+	return input_rank, err
+}
+
+const previousExecutionBacklogRank = `-- name: PreviousExecutionBacklogRank :one
+SELECT input_rank FROM agent_inputs
+WHERE agent_id=$1 AND input_kind='content' AND state='received'
+ AND delivery_mode=$2 AND id<>$3
+ AND (input_rank,queued_at,id)<($4::bigint,$5::timestamptz,$6::uuid)
+ORDER BY input_rank DESC,queued_at DESC,id DESC LIMIT 1
+`
+
+type PreviousExecutionBacklogRankParams struct {
+	AgentID  uuid.UUID
+	Mode     string
+	SkipID   uuid.UUID
+	Rank     int64
+	QueuedAt time.Time
+	AnchorID uuid.UUID
+}
+
+func (q *Queries) PreviousExecutionBacklogRank(ctx context.Context, db DBTX, arg PreviousExecutionBacklogRankParams) (int64, error) {
+	row := db.QueryRow(ctx, previousExecutionBacklogRank,
+		arg.AgentID,
+		arg.Mode,
+		arg.SkipID,
+		arg.Rank,
+		arg.QueuedAt,
+		arg.AnchorID,
+	)
+	var input_rank int64
+	err := row.Scan(&input_rank)
+	return input_rank, err
+}
+
+const rebalanceExecutionBacklog = `-- name: RebalanceExecutionBacklog :execrows
+WITH ranked AS (
+ SELECT pending.id,row_number() OVER (ORDER BY pending.input_rank,pending.queued_at,pending.id)*1024 AS rank
+ FROM agent_inputs pending WHERE pending.agent_id=$1
+ AND pending.input_kind='content' AND pending.state='received' AND pending.delivery_mode=$2
+)
+UPDATE agent_inputs i SET input_rank=r.rank FROM ranked r
+WHERE i.agent_id=$1 AND i.id=r.id
+ AND i.input_kind='content' AND i.state='received' AND i.delivery_mode=$2
+`
+
+type RebalanceExecutionBacklogParams struct {
+	AgentID uuid.UUID
+	Mode    string
+}
+
+func (q *Queries) RebalanceExecutionBacklog(ctx context.Context, db DBTX, arg RebalanceExecutionBacklogParams) (int64, error) {
+	result, err := db.Exec(ctx, rebalanceExecutionBacklog, arg.AgentID, arg.Mode)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const receiveExecutionInput = `-- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
  integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
-SELECT $1,a.project_id,a.id,'received',coalesce((SELECT max(i.input_rank)+1024
- FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received' AND i.delivery_mode=$2),1024),
- $3,$4,$2,$5,$6,
+SELECT $1,a.project_id,a.id,'received',CASE WHEN $2::text='content' THEN coalesce((
+ SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
+ AND i.input_kind='content' AND i.delivery_mode=$3
+ ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
+ $4,$2,$3,$5,$6,
  $7,$8,statement_timestamp(),$9::jsonb
 FROM agents a WHERE a.id=$10 AND a.project_id=$11 AND a.state='active'
 RETURNING id,queued_at
@@ -175,9 +305,9 @@ RETURNING id,queued_at
 
 type ReceiveExecutionInputParams struct {
 	ID        uuid.UUID
+	Kind      string
 	Mode      string
 	ActorID   *uuid.UUID
-	Kind      string
 	TargetID  *uuid.UUID
 	ConfigID  *uuid.UUID
 	Scope     *string
@@ -195,9 +325,9 @@ type ReceiveExecutionInputRow struct {
 func (q *Queries) ReceiveExecutionInput(ctx context.Context, db DBTX, arg ReceiveExecutionInputParams) (ReceiveExecutionInputRow, error) {
 	row := db.QueryRow(ctx, receiveExecutionInput,
 		arg.ID,
+		arg.Kind,
 		arg.Mode,
 		arg.ActorID,
-		arg.Kind,
 		arg.TargetID,
 		arg.ConfigID,
 		arg.Scope,
@@ -239,4 +369,62 @@ func (q *Queries) ResolveExecutionInput(ctx context.Context, db DBTX, arg Resolv
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const selectExecutionAdmission = `-- name: SelectExecutionAdmission :many
+WITH selected AS MATERIALIZED (
+ SELECT id,actor_id,integration_target_id,input_rank,queued_at FROM agent_inputs
+ WHERE agent_id=$2 AND input_kind='content' AND state='received'
+ AND delivery_mode=$1
+ ORDER BY input_rank,queued_at,id LIMIT $3::bigint
+)
+SELECT s.id,s.actor_id,s.integration_target_id,
+ $1::text='queued' AND (SELECT i.id FROM agent_inputs i
+ WHERE i.agent_id=$2 AND i.input_kind='content' AND i.state='received'
+ AND i.delivery_mode='steering' ORDER BY i.input_rank,i.queued_at,i.id LIMIT 1) IS NOT NULL AS remaining_steering,
+ EXISTS(SELECT 1 FROM (SELECT i.id FROM agent_inputs i WHERE i.agent_id=$2
+ AND i.input_kind='content' AND i.state='received' AND i.delivery_mode='queued'
+ ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1) pending
+ WHERE pending.id IS DISTINCT FROM (SELECT id FROM selected WHERE $1::text='queued' LIMIT 1)) AS remaining_queued
+FROM selected s ORDER BY s.input_rank,s.queued_at,s.id
+`
+
+type SelectExecutionAdmissionParams struct {
+	Mode     string
+	AgentID  uuid.UUID
+	RowLimit *int64
+}
+
+type SelectExecutionAdmissionRow struct {
+	ID                  uuid.UUID
+	ActorID             *uuid.UUID
+	IntegrationTargetID *uuid.UUID
+	RemainingSteering   *bool
+	RemainingQueued     bool
+}
+
+func (q *Queries) SelectExecutionAdmission(ctx context.Context, db DBTX, arg SelectExecutionAdmissionParams) ([]SelectExecutionAdmissionRow, error) {
+	rows, err := db.Query(ctx, selectExecutionAdmission, arg.Mode, arg.AgentID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SelectExecutionAdmissionRow{}
+	for rows.Next() {
+		var i SelectExecutionAdmissionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.IntegrationTargetID,
+			&i.RemainingSteering,
+			&i.RemainingQueued,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -456,8 +456,11 @@ CREATE INDEX tool_calls_runtime_reference_idx
 DROP INDEX tool_calls_runtime_lock_idx;
 
 CREATE INDEX agent_inputs_received_content_idx
-    ON agent_inputs(agent_id, input_rank, queued_at, id)
+    ON agent_inputs(agent_id, delivery_mode, input_rank, queued_at, id)
     WHERE state = 'received' AND input_kind = 'content';
+
+DROP INDEX agent_inputs_content_queued_idx;
+DROP INDEX agent_inputs_content_steering_idx;
 
 CREATE UNIQUE INDEX agents_org_project_id_key
     ON agents(org_id, project_id, id);
