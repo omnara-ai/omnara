@@ -39,6 +39,11 @@ type executionFixture struct {
 
 func releasedExecutionFixture(t *testing.T) executionFixture {
 	t.Helper()
+	return executionFixtureThrough(t, 51)
+}
+
+func executionFixtureThrough(t *testing.T, lastVersion int) executionFixture {
+	t.Helper()
 	ctx := t.Context()
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	files := fstest.MapFS{}
@@ -50,7 +55,7 @@ func releasedExecutionFixture(t *testing.T) executionFixture {
 		}
 		version, parseErr := strconv.Atoi(strings.Split(entry.Name(), "_")[0])
 		require.NoError(t, parseErr)
-		if version > 51 {
+		if version > lastVersion {
 			continue
 		}
 		body, readErr := os.ReadFile(filepath.Join("../../../../migrations", entry.Name()))
