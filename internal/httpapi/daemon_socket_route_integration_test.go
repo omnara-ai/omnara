@@ -399,6 +399,7 @@ func TestDaemonSocketRouteOfferAcceptReportJourney(t *testing.T) {
 		t,
 		store,
 		WithDaemonNotifications(testBus, presence, daemonSocketRouteReplicaID),
+		WithHTTPRecorder(metrics.NewHTTPRecorder(metrics.New(), metrics.SubsystemAPI)),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	httpServer := httptest.NewServer(handler)
@@ -767,6 +768,52 @@ func TestDaemonSocketRouteReplacesStaleDifferentRuntimePresence(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestDaemonSocketRouteShutdownSendsNormalClose(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(integrationKeyWrapper()))
+	presence := newDaemonSocketRouteTestPresence()
+	server := mustNewServer(t, store,
+		WithDaemonNotifications(newDaemonSocketRouteTestBus(), presence, daemonSocketRouteReplicaID))
+	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	project := bootstrapPublicHTTPProject(t, handler, "daemon-socket-shutdown")
+	process := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(),
+		"daemon-socket-shutdown", "run_command")
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	socketURL := httpServer.URL + "/api/v1/daemon/runtimes/" + process.RuntimeID + "/socket"
+	conn, response, err := websocket.Dial(ctx, socketURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + process.Token}},
+	})
+	if response != nil && response.Body != nil {
+		t.Cleanup(func() { _ = response.Body.Close() })
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	require.Equal(t, daemonprotocol.MessageProcessOffer, readSocketMessage(t, ctx, conn).Type)
+
+	closed := make(chan struct{})
+	go func() {
+		server.Close()
+		close(closed)
+	}()
+	_, _, err = conn.Read(ctx)
+	var closeErr websocket.CloseError
+	require.ErrorAs(t, err, &closeErr)
+	require.Equal(t, websocket.StatusNormalClosure, closeErr.Code)
+	require.Equal(t, "api shutting down", closeErr.Reason)
+	waitDaemonSocketLifecycle(t, ctx, closed)
+	_, machinePresent, err := presence.Get(ctx, process.MachineUUID)
+	require.NoError(t, err)
+	require.False(t, machinePresent, "shutdown left machine presence")
+	_, runtimePresent, err := presence.GetRuntime(ctx, process.RuntimeUUID)
+	require.NoError(t, err)
+	require.False(t, runtimePresent, "shutdown left runtime presence")
 }
 
 func TestDaemonSocketRouteHeartbeatRenewsPostgresLeaseCoarsely(t *testing.T) {
@@ -1728,7 +1775,10 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		queuedMessage bool
 		keepOpen      bool
 		keepSending   bool
+		shutdown      bool
 	}{
+		{name: "api shutdown", shutdown: true, source: "socket_closed"},
+		{name: "api shutdown during message", shutdown: true, queuedMessage: true, source: "socket_closed"},
 		{name: "transport failure", source: "socket_failure"},
 		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
 		{name: "local policy failure during message", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
@@ -1786,6 +1836,12 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			ready := make(chan *daemonSocket, 1)
 			finished := make(chan struct{})
 			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				socketCtx, finish, ok := hub.beginHandler(r.Context())
+				if !ok {
+					t.Error("socket handler rejected")
+					return
+				}
+				defer finish()
 				conn, err := websocket.Accept(w, r, nil)
 				if err != nil {
 					t.Error(err)
@@ -1794,11 +1850,12 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				defer func() { _ = conn.CloseNow() }()
 				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
 					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
+				defer backend.cleanupDaemonRuntimePresence(r.Context(), socket.machineID, socket.runtimeID, socket.connectionID)
 				if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
 					socket.send = make(chan daemonSocketOutbound)
 				}
 				ready <- socket
-				socket.run(r.Context())
+				socket.run(socketCtx)
 			}))
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(finished)
@@ -1869,7 +1926,11 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			if writeErrors != nil {
 				writeErrors.armed.Store(true)
 			}
-			if tt.localClose != 0 {
+			shutdownDone := make(chan struct{})
+			if tt.shutdown {
+				go func() { _, _, _ = conn.Read(ctx) }()
+				go func() { backend.Close(); close(shutdownDone) }()
+			} else if tt.localClose != 0 {
 				go func() { _, _, _ = conn.Read(ctx) }()
 				go socket.close(tt.localClose, "test close")
 			} else if tt.peerClose != 0 {
@@ -1930,6 +1991,13 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				require.EqualError(t, context.Cause(messageCtx), tt.source)
 			}
 			wait(tracer.canceled)
+			if tt.shutdown {
+				select {
+				case <-shutdownDone:
+					t.Fatal("shutdown returned before drain query completion")
+				default:
+				}
+			}
 			select {
 			case <-finished:
 				t.Fatal("request finished before drain query completion")
@@ -1937,6 +2005,9 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			}
 			release()
 			wait(finished)
+			if tt.shutdown {
+				wait(shutdownDone)
+			}
 			wait(trafficDone)
 			require.Empty(t, publisher.started, "message handler started after writer stopped")
 			event := decodeRequestEvent(t, buf)
