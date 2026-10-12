@@ -20,11 +20,6 @@ WITH locked_agent AS MATERIALIZED (
   JOIN agents agent ON agent.id = wake.agent_id
   WHERE agent.state <> 'archived'
     AND wake.ready_at <= statement_timestamp()
-    AND NOT EXISTS (
-      SELECT 1
-      FROM agent_runtime_locks runtime_lock
-      WHERE runtime_lock.agent_id = wake.agent_id
-    )
   ORDER BY wake.ready_at ASC, wake.agent_id ASC
   FOR UPDATE OF agent SKIP LOCKED
   LIMIT 1
@@ -50,10 +45,6 @@ type ClaimNextAgentWakeupRow struct {
 	RootAgentID uuid.UUID
 }
 
-// The query walks wakeups in global ready order, but locks agents before wake
-// rows to match all other agent mutation paths. If the selected wake is no
-// longer claimable after the runtime-lock recheck, this returns no rows and the
-// worker retries on its next poll; no work is lost.
 func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeupRow, error) {
 	row := q.db.QueryRow(ctx, claimNextAgentWakeup)
 	var i ClaimNextAgentWakeupRow

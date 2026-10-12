@@ -65,14 +65,16 @@ func TestExecutionPermissionAndPresentation(t *testing.T) {
 			changed, err = h.RecordPresentation(t.Context(), opened.ID, dest, receipt)
 			require.NoError(t, err)
 			require.False(t, changed)
-			require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-				_, err := h.RecordPresentation(t.Context(), opened.ID, json.RawMessage(`{}`), receipt)
-				return err
-			}), storeerr.ErrUnauthorized)
-			require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-				_, err := h.RecordPresentation(t.Context(), opened.ID, dest, json.RawMessage(`{}`))
-				return err
-			}), storeerr.ErrIdempotencyConflict)
+			require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+			u, h = f.handle(t, a)
+			_, err = h.RecordPresentation(t.Context(), opened.ID, json.RawMessage(`{}`), receipt)
+			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+			require.NoError(t, u.Rollback(t.Context()))
+			u, h = f.handle(t, a)
+			_, err = h.RecordPresentation(t.Context(), opened.ID, dest, json.RawMessage(`{}`))
+			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+			require.NoError(t, u.Rollback(t.Context()))
+			u, h = f.handle(t, a)
 			snapshot := assertCommandState(t, u, h)
 			if mode == "allow" {
 				require.Equal(t, agentexecution.WorkTool, snapshot.Selection.Work)

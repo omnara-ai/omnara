@@ -4,7 +4,6 @@ package agentexecution_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExecutionCreatedAgentPublicationAndSavepoint(t *testing.T) {
+func TestExecutionCreatedAgentPublication(t *testing.T) {
 	f := migratedExecutionFixture(t)
 	cell := agentexecution.NewCell(f.pool, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
@@ -29,8 +28,6 @@ func TestExecutionCreatedAgentPublicationAndSavepoint(t *testing.T) {
 		agentexecution.CreateAgentInput{ID: uuid.New(), ProjectID: f.project, ConfigID: f.config},
 	)
 	require.NoError(t, err)
-	route, err := h.Route()
-	require.NoError(t, err)
 	receiveCommand(t, h, "queued", "created")
 	assertCommandState(t, u, h)
 	var heads int
@@ -39,25 +36,6 @@ func TestExecutionCreatedAgentPublicationAndSavepoint(t *testing.T) {
 		u.DB().QueryRow(t.Context(), `SELECT count(*) FROM agent_execution_state`).Scan(&heads),
 	)
 	require.Zero(t, heads)
-	sentinel := errors.New("rollback child")
-	var escaped *agentexecution.Handle
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(u *agentexecution.Unit) error {
-		escaped, err = u.CreateAgent(
-			t.Context(),
-			agentexecution.CreateAgentInput{
-				ID:          uuid.New(),
-				ProjectID:   f.project,
-				ParentID:    route.AgentID,
-				ConfigID:    f.config,
-				SubagentKey: "child",
-			},
-		)
-		require.NoError(t, err)
-		receiveCommand(t, escaped, "queued", "discarded")
-		return sentinel
-	}), sentinel)
-	_, err = escaped.Route()
-	require.ErrorIs(t, err, agentexecution.ErrUnitClosed)
 	statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 	require.NoError(t, err)
 	require.Equal(t, 1, statements)

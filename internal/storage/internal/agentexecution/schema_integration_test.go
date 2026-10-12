@@ -3,7 +3,6 @@
 package agentexecution_test
 
 import (
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -178,18 +177,18 @@ SELECT normal_context_id IS NULL FROM agent_execution_state WHERE agent_id=$1
 			Scan(&unchanged),
 	)
 	require.True(t, unchanged)
-	rejected := errors.New("rollback input")
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(u *agentexecution.Unit) error {
-		_, insertErr := u.DB().
-			Exec(t.Context(), `INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,queued_at)
-  VALUES($1,$2,'received','content','steering',$3)`, f.project, agent, f.now)
-		require.NoError(t, insertErr)
-		rebuilt, rebuildErr := h.ReconstructExecution(t.Context())
-		require.NoError(t, rebuildErr)
-		require.Equal(t, agentexecution.AdmitAllSteering, rebuilt.Selection.Admission)
-		return rejected
-	}), rejected)
+	require.NoError(t, u.Commit(t.Context(), "corrupt head"))
+	u, h = f.handle(t, agent)
+	_, err = u.DB().Exec(t.Context(), `
+INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,queued_at)
+ VALUES($1,$2,'received','content','steering',$3)`, f.project, agent, f.now)
+	require.NoError(t, err)
 	rebuilt, err := h.ReconstructExecution(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, agentexecution.AdmitAllSteering, rebuilt.Selection.Admission)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, agent)
+	rebuilt, err = h.ReconstructExecution(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, agentexecution.WorkModel, rebuilt.Selection.Work)
 	_, err = u.DB().Exec(t.Context(), `DELETE FROM agent_execution_state WHERE agent_id=$1`, agent)

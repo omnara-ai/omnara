@@ -4,7 +4,6 @@ package agentexecution
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -95,76 +94,6 @@ func TestUnitCommitLifecycle(t *testing.T) {
 	require.ErrorIs(t, u.Commit(ctx, "again"), ErrUnitClosed)
 }
 
-func TestUnitSavepointSnapshots(t *testing.T) {
-	ctx := t.Context()
-	var published []notifications.PostCommitIntent
-	cell, pool := unitTestCell(
-		t,
-		unitPublisher{publish: func(_ context.Context, intent notifications.PostCommitIntent) {
-			published = append(published, intent)
-		}},
-	)
-	u, err := BeginTestUnit(ctx, cell)
-	require.NoError(t, err)
-	defer func() { _ = u.Rollback(ctx) }()
-	project, agent, machine := uuid.New(), uuid.New(), uuid.New()
-	h := unitTestAgent(t, u, project, agent)
-	mutation := &executionMutation{head: ExecutionHead{StopSequence: 1}}
-	h.mutation = mutation
-	pending := u.Notifications()
-	pending.AddDaemonWork(machine)
-	process := uuid.New()
-	pending.AddDaemonProcessTermination(machine, process)
-	rejected := errors.New("reject inner")
-	var escaped *Handle
-	require.ErrorIs(t, u.Savepoint(ctx, func(u *Unit) error {
-		mutation.head.StopSequence = 2
-		pending.AddDaemonWork(uuid.New())
-		pending.AddDaemonProcessTermination(machine, uuid.New())
-		delete(u.handles, agent)
-		escaped = unitTestAgent(t, u, project, uuid.New())
-		escaped.mutation = &executionMutation{head: ExecutionHead{StopSequence: 3}}
-		delete(u.handles, escaped.route.AgentID)
-		_, err := u.DB().
-			Exec(ctx, `INSERT INTO unit_probe(phase) VALUES ('rollback'); SELECT pg_advisory_xact_lock(8173)`)
-		require.NoError(t, err)
-		require.NoError(t, u.Savepoint(ctx, func(u *Unit) error {
-			_, err := u.DB().Exec(ctx, `INSERT INTO unit_probe(phase) VALUES ('nested release')`)
-			return err
-		}))
-		require.Empty(t, published)
-		return rejected
-	}), rejected)
-	require.Same(t, pending, u.Notifications())
-	require.Same(t, h, u.handles[agent])
-	restored := h.mutation
-	require.EqualValues(t, 1, restored.head.StopSequence)
-	_, err = escaped.Route()
-	require.ErrorIs(t, err, ErrUnitClosed)
-	var unlocked bool
-	require.NoError(t, pool.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(8173)`).Scan(&unlocked))
-	require.True(t, unlocked)
-	require.NoError(t, u.Savepoint(ctx, func(u *Unit) error {
-		require.Error(t, u.Commit(ctx, "nested"))
-		require.Error(t, u.Rollback(ctx))
-		restored.head.StopSequence = 4
-		return nil
-	}))
-	require.NoError(t, u.Commit(ctx, "snapshot"))
-	require.Len(t, published, 2)
-	for _, intent := range published {
-		if terminate, ok := intent.(notifications.DaemonProcessTerminationCommitted); ok {
-			require.Equal(t, []uuid.UUID{process}, terminate.ProcessIDs)
-		}
-	}
-	var phases []string
-	require.NoError(
-		t,
-		pool.QueryRow(ctx, `SELECT array_agg(phase ORDER BY id) FROM unit_probe`).Scan(&phases),
-	)
-	require.Empty(t, phases)
-}
-
 func TestUnitFailuresSuppressPublication(t *testing.T) {
 	for _, scenario := range []string{"rollback", "deferred commit", "aborted SQL", "cancel"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -205,23 +134,7 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 	}
 }
 
-func TestUnitSavepointRecoversDatabaseErrors(t *testing.T) {
-	ctx := t.Context()
-	cell, _ := unitTestCell(t, nil)
-	require.NoError(t, cell.Transact(ctx, func(u *Unit) error {
-		err := u.Savepoint(ctx, func(u *Unit) error {
-			_, err := u.DB().Exec(ctx, `SELECT 1 / 0`)
-			require.Error(t, err)
-			return nil
-		})
-		require.ErrorIs(t, err, ErrUnitAborted)
-		_, err = u.DB().Exec(ctx, `INSERT INTO deferred_probe VALUES (1)`)
-		require.NoError(t, err)
-		return err
-	}))
-}
-
-func TestUnitLockPlansAndSavepointLocks(t *testing.T) {
+func TestUnitLockPlans(t *testing.T) {
 	ctx := t.Context()
 	cell, pool := unitTestCell(t, nil)
 	project, org := uuid.New(), uuid.New()
@@ -255,18 +168,7 @@ func TestUnitLockPlansAndSavepointLocks(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = other.Rollback(ctx) }()
 	require.ErrorIs(t, other.LockAgents(ctx, plan), ErrLockPlan)
-	rollback := errors.New("rollback locks")
-	require.ErrorIs(t, other.Savepoint(ctx, func(u *Unit) error {
-		return errors.Join(u.LockAgentRefs(
-			ctx,
-			[]lifecyclelock.AgentRef{{ProjectID: project, AgentID: lower}}, nil),
-			rollback,
-		)
-	}), rollback)
-	require.Empty(t, other.handles)
-	check := integrationdb.BeginTx(t, ctx, pool)
-	_, err = check.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE NOWAIT`, lower)
-	require.NoError(t, err)
+
 }
 
 func TestUnitExpandsLockPlanAndRollsBackAttempt(t *testing.T) {
@@ -416,47 +318,4 @@ func TestCellBeginRequiresRetryBoundary(t *testing.T) {
 		_ = unit.Rollback(t.Context())
 	}
 	require.ErrorContains(t, err, "retry boundary")
-}
-
-func TestUnitSavepointPropagatesLockPlan(t *testing.T) {
-	ctx := t.Context()
-	cell, pool := unitTestCell(t, nil)
-	project, org, first, second := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	_, err := pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
-SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first, second})
-	require.NoError(t, err)
-	attempts := 0
-	_, err = Retry(ctx, "savepoint expansion", func(ctx context.Context) (struct{}, error) {
-		attempts++
-		unit, err := BeginTestUnit(ctx, cell)
-		if err != nil {
-			return struct{}{}, err
-		}
-		defer func() { _ = unit.Rollback(ctx) }()
-		if err = unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{ProjectID: project, AgentID: first}}, nil); err != nil {
-			return struct{}{}, err
-		}
-		err = unit.Savepoint(ctx, func(u *Unit) error {
-			_, err := u.DB().Exec(ctx, `INSERT INTO unit_probe(agent_id,phase) VALUES($1,'advance')`, first)
-			if err != nil {
-				return err
-			}
-			_, err = u.Handle(project, second)
-			return err
-		})
-		if attempts == 1 {
-			var missing *LockPlanError
-			require.ErrorAs(t, err, &missing)
-			require.Contains(t, missing.Agents, lifecyclelock.AgentRef{ProjectID: project, AgentID: second})
-		}
-		if err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, unit.Commit(ctx, "expanded continuation")
-	})
-	require.NoError(t, err)
-	require.Equal(t, 2, attempts)
-	var count int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM unit_probe WHERE agent_id=$1`, first).Scan(&count))
-	require.Equal(t, 1, count)
 }

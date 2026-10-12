@@ -5,7 +5,7 @@ package agentexecution_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -178,18 +178,18 @@ func TestExecutionSemanticCommands(t *testing.T) {
 		RuntimeLockID: lease,
 		Response:      commandResponse(modelenvelope.StopReasonMaxTokens),
 	}
-	beforeOutput := u.Notifications().Clone()
+	beforeOutput := slices.Clone(u.Notifications().AgentEvents()[a])
 	accepted, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, accepted.Created)
 	assertCommandState(t, u, h)
-	afterOutput := u.Notifications().Clone()
+	afterOutput := slices.Clone(u.Notifications().AgentEvents()[a])
 	require.NotEqual(t, beforeOutput, afterOutput)
 	replayed, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, accepted.ID, replayed.ID)
-	require.Equal(t, afterOutput, u.Notifications().Clone())
+	require.Equal(t, afterOutput, slices.Clone(u.Notifications().AgentEvents()[a]))
 	continuation := prepareCommand(t, h, lease)
 	assertCommandState(t, u, h)
 	_, err = h.AcceptOutput(
@@ -203,7 +203,7 @@ func TestExecutionSemanticCommands(t *testing.T) {
 	require.NoError(t, u.Commit(t.Context(), "semantic completion"))
 }
 
-func TestExecutionCommandSavepointAndReplay(t *testing.T) {
+func TestExecutionCommandRollbackAndReplay(t *testing.T) {
 	f, a, _ := commandFixture(t)
 	u, h := f.handle(t, a)
 	input := agentexecution.ReceiveContentInput{
@@ -216,17 +216,14 @@ func TestExecutionCommandSavepointAndReplay(t *testing.T) {
 	first, err := h.ReceiveContent(t.Context(), input)
 	require.NoError(t, err)
 	expected := assertCommandState(t, u, h)
-	sentinel := errors.New("rollback")
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(u *agentexecution.Unit) error {
-		receiveCommand(t, h, "steering", "later")
-		_, err := h.AdmitInputs(t.Context())
-		require.NoError(t, err)
-		assertCommandState(t, u, h)
-		return sentinel
-	}), sentinel)
-	_, count, _, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
+	require.NoError(t, u.Commit(t.Context(), "input"))
+	u, h = f.handle(t, a)
+	receiveCommand(t, h, "steering", "later")
+	_, err = h.AdmitInputs(t.Context())
 	require.NoError(t, err)
-	require.Zero(t, count)
+	assertCommandState(t, u, h)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	got := assertCommandState(t, u, h)
 	require.Equal(t, expected.Head.CurrentTurnID, got.Head.CurrentTurnID)
 	require.Equal(t, agentexecution.AdmitOneQueued, got.Selection.Admission)
@@ -234,12 +231,12 @@ func TestExecutionCommandSavepointAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, replay.Created)
 	require.Equal(t, first.ID, replay.ID)
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		input.Content[0].Text = "different"
-		_, err := h.ReceiveContent(t.Context(), input)
-		return err
-	}), storeerr.ErrIdempotencyConflict)
-	require.NoError(t, u.Commit(t.Context(), "savepoint replay"))
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	input.Content[0].Text = "different"
+	_, err = h.ReceiveContent(t.Context(), input)
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	require.NoError(t, u.Rollback(t.Context()))
 	u, h = f.handle(t, a)
 	input.Content[0].Text = "one"
 	replay, err = h.ReceiveContent(t.Context(), input)
@@ -477,16 +474,18 @@ func TestExecutionConfigAndCheckpointBoundaries(t *testing.T) {
 				replay, err := h.ActivateConfig(t.Context(), cfg)
 				require.NoError(t, err)
 				require.False(t, replay.Created)
-				require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-					_, err := h.PrepareModel(
-						t.Context(),
-						agentexecution.PrepareModelInput{
-							RuntimeLockID: lease,
-							Selected:      *selected.Selection.Model,
-						},
-					)
-					return err
-				}), storeerr.ErrAgentNotAdvanceable)
+				require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+				u, h = f.handle(t, a)
+				_, err = h.PrepareModel(
+					t.Context(),
+					agentexecution.PrepareModelInput{
+						RuntimeLockID: lease,
+						Selected:      *selected.Selection.Model,
+					},
+				)
+				require.ErrorIs(t, err, storeerr.ErrAgentNotAdvanceable)
+				require.NoError(t, u.Rollback(t.Context()))
+				u, h = f.handle(t, a)
 			}
 			normal := prepareCommand(t, h, lease)
 			if boundary == "steering" {
@@ -633,17 +632,18 @@ func TestExecutionCheckpointRejectsCutBatch(t *testing.T) {
 			ContextID: next.Context.ID, RuntimeLockID: lease, ErrorKind: "context_length", ErrorMessage: "compact"}},
 	)
 	require.NoError(t, err)
-	err = u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		_, err := h.PublishCheckpoint(
-			t.Context(),
-			agentexecution.PublishCheckpointInput{ContextID: compact.Model.Context.ID,
-				RuntimeLockID: lease,
-				Summary:       "unsafe",
-				Evidence: agentexecution.ModelEvidence{APIFormat: "openai-responses",
-					APIVariant: "default"}},
-		)
-		return err
-	})
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.PublishCheckpoint(
+		t.Context(),
+		agentexecution.PublishCheckpointInput{ContextID: compact.Model.Context.ID,
+			RuntimeLockID: lease,
+			Summary:       "unsafe",
+			Evidence: agentexecution.ModelEvidence{APIFormat: "openai-responses",
+				APIVariant: "default"}},
+	)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	require.ErrorContains(t, err, "boundary is unsafe")
 	assertCommandState(t, u, h)
 	var count int
@@ -862,26 +862,27 @@ func TestExecutionOutputReplayRejectsConflictingEvidence(t *testing.T) {
 	accepted, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.True(t, accepted.Created)
+	require.NoError(t, u.Commit(t.Context(), "accepted output"))
 	for _, variant := range []string{"usage", "metadata", "content"} {
 		t.Run(variant, func(t *testing.T) {
-			err := u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-				conflict := input
-				switch variant {
-				case "usage":
-					conflict.Response.Normalized.Usage.OutputTokens++
-				case "metadata":
-					conflict.Response.ProviderMetadata.OpenRouter.Provider = "different"
-				case "content":
-					conflict.Response.Normalized.Content = []modelenvelope.ResponsePart{
-						{Type: "text", Text: "different"},
-					}
+			u, h := f.handle(t, a)
+			conflict := input
+			switch variant {
+			case "usage":
+				conflict.Response.Normalized.Usage.OutputTokens++
+			case "metadata":
+				conflict.Response.ProviderMetadata.OpenRouter.Provider = "different"
+			case "content":
+				conflict.Response.Normalized.Content = []modelenvelope.ResponsePart{
+					{Type: "text", Text: "different"},
 				}
-				_, err := h.AcceptOutput(t.Context(), conflict)
-				return err
-			})
+			}
+			_, err := h.AcceptOutput(t.Context(), conflict)
+			require.NoError(t, u.Rollback(t.Context()))
 			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 		})
 	}
+	u, h = f.handle(t, a)
 	replay, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, replay.Created)
@@ -992,25 +993,22 @@ func TestExecutionArchiveHistoryDoesNotDependOnReads(t *testing.T) {
 	_, err := h.AdmitInputs(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, u.Commit(t.Context(), "admit"))
-	u, h = f.handle(t, a)
-	rollback := errors.New("rollback archive")
 	var histories []string
 	for _, loaded := range []bool{false, true} {
-		require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-			if loaded {
-				_, err = h.LoadExecution(t.Context())
-				require.NoError(t, err)
-			}
-			_, err = h.Archive(t.Context(), uuid.Nil)
+		u, h = f.handle(t, a)
+		if loaded {
+			_, err = h.LoadExecution(t.Context())
 			require.NoError(t, err)
-			var history string
-			require.NoError(t,
-				u.DB().QueryRow(t.Context(),
-					`SELECT coalesce(jsonb_agg(jsonb_build_object('event',to_jsonb(e)-ARRAY['id','agent_input_id','idempotency_key','created_at'],'input',to_jsonb(i)-ARRAY['id','queued_at','admitted_at','resolved_at','canceled_at','admitted_event_id']) ORDER BY e.sequence),'[]')::text FROM agent_events e LEFT JOIN agent_inputs i ON i.id=e.agent_input_id WHERE e.agent_id=$1`,
-					a).Scan(&history))
-			histories = append(histories, history)
-			return rollback
-		}), rollback)
+		}
+		_, err = h.Archive(t.Context(), uuid.Nil)
+		require.NoError(t, err)
+		var history string
+		require.NoError(t,
+			u.DB().QueryRow(t.Context(),
+				`SELECT coalesce(jsonb_agg(jsonb_build_object('event',to_jsonb(e)-ARRAY['id','agent_input_id','idempotency_key','created_at'],'input',to_jsonb(i)-ARRAY['id','queued_at','admitted_at','resolved_at','canceled_at','admitted_event_id']) ORDER BY e.sequence),'[]')::text FROM agent_events e LEFT JOIN agent_inputs i ON i.id=e.agent_input_id WHERE e.agent_id=$1`,
+				a).Scan(&history))
+		histories = append(histories, history)
+		require.NoError(t, u.Rollback(t.Context()))
 	}
 	require.Equal(t, histories[0], histories[1])
 	require.Contains(t, histories[0], `"input_kind": "control"`)

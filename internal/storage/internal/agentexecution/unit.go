@@ -29,7 +29,6 @@ type Unit struct {
 	closed            bool
 	aborted           bool
 	finalizing        bool
-	savepoints        int
 }
 
 func newUnit(cell *AgentCell, tx pgx.Tx) *Unit {
@@ -58,8 +57,8 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	if err := u.active(); err != nil {
 		return err
 	}
-	if u.savepoints != 0 || u.finalizing {
-		return errors.New("cannot commit inside unit savepoint or finalization")
+	if u.finalizing {
+		return errors.New("cannot commit during unit finalization")
 	}
 	u.finalizing = true
 	defer func() {
@@ -87,9 +86,6 @@ func (u *Unit) Rollback(ctx context.Context) error {
 	if u.closed {
 		return pgx.ErrTxClosed
 	}
-	if u.savepoints != 0 {
-		return errors.New("use savepoint rollback inside a unit savepoint")
-	}
 	u.closed = true
 	return u.tx.Rollback(ctx)
 }
@@ -98,88 +94,4 @@ func (u *Unit) orderedHandles() []*Handle {
 	handles := slices.Collect(maps.Values(u.handles))
 	slices.SortFunc(handles, func(a, b *Handle) int { return compareRoutes(a.route, b.route) })
 	return handles
-}
-
-func (u *Unit) Savepoint(ctx context.Context, run func(*Unit) error) (err error) {
-	if err := u.active(); err != nil {
-		return err
-	}
-	if u.finalizing {
-		return errors.New("cannot create savepoint during finalization")
-	}
-	parent := u.tx
-	nested, err := parent.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	snapshot := u.snapshot()
-	u.tx = nested
-	u.savepoints++
-	released := false
-	defer func() {
-		u.savepoints--
-		u.tx = parent
-		if !released {
-			rollbackErr := nested.Rollback(context.WithoutCancel(ctx))
-			u.restore(snapshot)
-			if rollbackErr != nil {
-				u.aborted = true
-				err = errors.Join(err, fmt.Errorf("rollback agent execution savepoint: %w", rollbackErr))
-			}
-		}
-	}()
-	if err := run(u); err != nil {
-		return err
-	}
-	if err := u.active(); err != nil {
-		return err
-	}
-	if err := nested.Commit(ctx); err != nil {
-		return err
-	}
-	released = true
-	return nil
-}
-
-type unitSnapshot struct {
-	claimedAgent      uuid.UUID
-	handles           map[uuid.UUID]*Handle
-	states            map[uuid.UUID]Handle
-	notifications     *notifications.TxNotifications
-	exclusiveProjects map[uuid.UUID]struct{}
-	runtimeLocked     bool
-}
-
-func (u *Unit) snapshot() unitSnapshot {
-	s := unitSnapshot{
-		claimedAgent: u.claimedAgent, handles: maps.Clone(u.handles), states: make(map[uuid.UUID]Handle),
-		notifications:     u.notifications.Clone(),
-		exclusiveProjects: maps.Clone(u.exclusiveProjects),
-		runtimeLocked:     u.runtimeLocked,
-	}
-	for id, h := range u.handles {
-		state := *h
-		if h.mutation != nil {
-			state.mutation = h.mutation.clone()
-		}
-		s.states[id] = state
-	}
-	return s
-}
-
-func (u *Unit) restore(snapshot unitSnapshot) {
-	for id, h := range u.handles {
-		if snapshot.handles[id] != h {
-			h.valid = false
-		}
-	}
-	u.handles = snapshot.handles
-	for id, h := range u.handles {
-		*h = snapshot.states[id]
-	}
-	u.notifications.Restore(snapshot.notifications)
-	u.exclusiveProjects = snapshot.exclusiveProjects
-	u.runtimeLocked = snapshot.runtimeLocked
-	u.claimedAgent = snapshot.claimedAgent
-	u.aborted = false
 }

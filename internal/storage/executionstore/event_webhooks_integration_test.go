@@ -336,7 +336,7 @@ func TestEventWebhookFiltersBeforeEnqueue(t *testing.T) {
 			unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 			require.NoError(t, err)
 			defer func() { _ = unit.Rollback(ctx) }()
-			unit.Notifications().Restore(pending)
+			*unit.Notifications() = *pending
 			require.NoError(t, unit.Commit(ctx, "filter test"))
 			var sequences []int64
 			var toolUpdates int
@@ -375,7 +375,7 @@ func TestEventWebhookClaimsRecoverAndExpire(t *testing.T) {
 	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
 	defer func() { _ = unit.Rollback(ctx) }()
-	unit.Notifications().Restore(pending)
+	*unit.Notifications() = *pending
 	require.NoError(t, unit.Commit(ctx, "webhook test"))
 	var attempts int
 	var claimed bool
@@ -537,7 +537,7 @@ event_webhook:
 	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
 	defer func() { _ = unit.Rollback(ctx) }()
-	unit.Notifications().Restore(pending)
+	*unit.Notifications() = *pending
 	require.NoError(t, unit.Commit(ctx, "org limits test"))
 
 	workers := []*executionstore.Store{fixture.Store.Execution(), newIntegrationStore(pool).Execution()}
@@ -621,7 +621,7 @@ func TestEventWebhookCleanupIsBoundedAndPreservesUnexpiredDeliveries(t *testing.
 	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
 	defer func() { _ = unit.Rollback(ctx) }()
-	unit.Notifications().Restore(pending)
+	*unit.Notifications() = *pending
 	require.NoError(t, unit.Commit(ctx, "cleanup test"))
 	for i, toolID := range toolIDs {
 		_, err := fixture.Store.pool.Exec(ctx, `
@@ -665,7 +665,7 @@ func TestEventWebhookDeletedOwnersHaveNoDeliveryTarget(t *testing.T) {
 			unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 			require.NoError(t, err)
 			defer func() { _ = unit.Rollback(ctx) }()
-			unit.Notifications().Restore(pending)
+			*unit.Notifications() = *pending
 			require.NoError(t, unit.Commit(ctx, "deleted owner"))
 			_, err = fixture.Store.pool.Exec(ctx, owner.query, owner.id)
 			require.NoError(t, err)

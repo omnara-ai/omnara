@@ -55,15 +55,11 @@ func TestExecutionAdvanceBudgetsAndRecovery(t *testing.T) {
 				}
 				_, err = u.DB().Exec(t.Context(), query, lease)
 				require.NoError(t, err)
-				require.ErrorIs(
-					t,
-					u.Savepoint(
-						t.Context(),
-						func(_ *agentexecution.Unit) error { _, err := h.Advance(t.Context(), lease, true, true); return err },
-					),
-					storeerr.ErrRuntimeLockInactive,
-				)
-				require.NoError(t, u.Commit(t.Context(), "fenced advance"))
+				require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+				u, h = f.handle(t, a)
+				_, err = h.Advance(t.Context(), lease, true, true)
+				require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+				require.NoError(t, u.Rollback(t.Context()))
 				return
 			}
 			work, err := h.Advance(t.Context(), lease, mode == "model", true)
@@ -99,17 +95,12 @@ func TestExecutionClaimRenewAcceptAdvance(t *testing.T) {
 	claimed, err := h.Claim(t.Context(), uuid.New(), 90*time.Second)
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, claimed.RuntimeID)
-	require.ErrorIs(
-		t,
-		u.Savepoint(
-			t.Context(),
-			func(_ *agentexecution.Unit) error {
-				_, err := h.Claim(t.Context(), uuid.New(), 90*time.Second)
-				return err
-			},
-		),
-		storeerr.ErrAgentNotAdvanceable,
-	)
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.Claim(t.Context(), uuid.New(), 90*time.Second)
+	require.ErrorIs(t, err, storeerr.ErrAgentNotAdvanceable)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	route, err := h.Route()
 	require.NoError(t, err)
 	_, err = u.RenewRuntime(t.Context(), route, claimed.RuntimeID, 90*time.Second)

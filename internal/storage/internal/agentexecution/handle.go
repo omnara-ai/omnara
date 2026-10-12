@@ -9,7 +9,6 @@ import (
 type Handle struct {
 	unit            *Unit
 	route           AgentRoute
-	valid           bool
 	created         bool
 	mutation        *executionMutation
 	identity        *dbsqlc.LockAgentInProjectRow
@@ -28,7 +27,7 @@ func (u *Unit) Agent(route AgentRoute) (*Handle, error) {
 }
 
 func (h *Handle) Route() (AgentRoute, error) {
-	if !h.valid || h.unit.handles[h.route.AgentID] != h {
+	if h.unit == nil || h.unit.handles[h.route.AgentID] != h {
 		return AgentRoute{}, ErrUnitClosed
 	}
 	if err := h.unit.active(); err != nil {

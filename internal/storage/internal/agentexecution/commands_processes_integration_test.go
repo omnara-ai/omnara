@@ -159,10 +159,12 @@ func TestExecutionRejectsMissingDurableOwner(t *testing.T) {
 	ref := toolCommand(t, h, lease, "built_in")
 	_, err := h.AuthorizeTool(t.Context(), ref)
 	require.NoError(t, err)
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		_, err := h.WaitForTool(t.Context(), ref, agentexecution.ToolOwner{ProcessID: uuid.New()})
-		return err
-	}), storeerr.ErrInvalidToolCallDisposition)
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.WaitForTool(t.Context(), ref, agentexecution.ToolOwner{ProcessID: uuid.New()})
+	require.ErrorIs(t, err, storeerr.ErrInvalidToolCallDisposition)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	snapshot := assertCommandState(t, u, h)
 	require.Equal(t, agentexecution.WorkTool, snapshot.Selection.Work)
 	require.NoError(t, u.Commit(t.Context(), "missing owner rollback"))
@@ -229,13 +231,15 @@ func TestExecutionActionReports(t *testing.T) {
 	observed := json.RawMessage(
 		`{"process_id":"` + pid + `","output":"ab","cursor":0,"next_cursor":2,"truncated":false}`,
 	)
-	require.ErrorIs(t, u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		_, err := h.CompleteProcessAction(
-			t.Context(),
-			agentexecution.ActionResult{ID: actions[1], Observed: observed},
-		)
-		return err
-	}), storeerr.ErrProcessActionReportBlocked)
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.CompleteProcessAction(
+		t.Context(),
+		agentexecution.ActionResult{ID: actions[1], Observed: observed},
+	)
+	require.ErrorIs(t, err, storeerr.ErrProcessActionReportBlocked)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	_, err = u.DB().Exec(t.Context(), `UPDATE process_actions SET state='applied' WHERE id=$1`, actions[0])
 	require.NoError(t, err)
 	first, err := h.CompleteProcessAction(

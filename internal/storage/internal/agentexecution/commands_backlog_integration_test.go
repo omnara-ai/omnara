@@ -3,7 +3,6 @@
 package agentexecution_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -33,8 +32,6 @@ func readCommandBacklog(t *testing.T, u *agentexecution.Unit, a uuid.UUID) []bac
 
 func TestExecutionBacklogOrderingAndReplay(t *testing.T) {
 	f, a, _ := commandFixture(t)
-	u, h := f.handle(t, a)
-	rollback := errors.New("restore backlog")
 	for _, dense := range []bool{false, true} {
 		for _, position := range []string{"front", "back", "before", "after"} {
 			name := position
@@ -42,47 +39,45 @@ func TestExecutionBacklogOrderingAndReplay(t *testing.T) {
 				name += "/rebalance"
 			}
 			t.Run(name, func(t *testing.T) {
-				err := u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-					ids := make([]uuid.UUID, 3)
-					for i := range ids {
-						ids[i] = receiveCommand(t, h, "queued", "input").ID
-						if dense {
-							_, err := u.DB().Exec(t.Context(),
-								"UPDATE agent_inputs SET input_rank=$2 WHERE agent_id=$1 AND id=$3", a, i+1, ids[i])
-							require.NoError(t, err)
-						}
+				u, h := f.handle(t, a)
+				ids := make([]uuid.UUID, 3)
+				for i := range ids {
+					ids[i] = receiveCommand(t, h, "queued", "input").ID
+					if dense {
+						_, err := u.DB().Exec(t.Context(),
+							"UPDATE agent_inputs SET input_rank=$2 WHERE agent_id=$1 AND id=$3", a, i+1, ids[i])
+						require.NoError(t, err)
 					}
-					change := agentexecution.BacklogChange{
-						ID:           ids[2],
-						DeliveryMode: "queued",
-						Position:     position,
-					}
-					if position == "before" || position == "after" {
-						change.BeforeID = ids[0]
-					}
-					_, err := h.ChangeBacklog(t.Context(), change)
-					require.NoError(t, err)
-					expected := readCommandBacklog(t, u, a)
-					got := make([]uuid.UUID, len(expected))
-					for i, row := range expected {
-						got[i] = row.ID
-					}
-					order := []uuid.UUID{ids[0], ids[1], ids[2]}
-					if position == "front" || position == "before" {
-						order = []uuid.UUID{ids[2], ids[0], ids[1]}
-					}
-					if position == "after" {
-						order = []uuid.UUID{ids[0], ids[2], ids[1]}
-					}
-					require.Equal(t, order, got)
-					assertCommandState(t, u, h)
-					changed, err := h.ChangeBacklog(t.Context(), change)
-					require.NoError(t, err)
-					require.False(t, changed)
-					require.Equal(t, expected, readCommandBacklog(t, u, a))
-					return rollback
-				})
-				require.ErrorIs(t, err, rollback)
+				}
+				change := agentexecution.BacklogChange{
+					ID:           ids[2],
+					DeliveryMode: "queued",
+					Position:     position,
+				}
+				if position == "before" || position == "after" {
+					change.BeforeID = ids[0]
+				}
+				_, err := h.ChangeBacklog(t.Context(), change)
+				require.NoError(t, err)
+				expected := readCommandBacklog(t, u, a)
+				got := make([]uuid.UUID, len(expected))
+				for i, row := range expected {
+					got[i] = row.ID
+				}
+				order := []uuid.UUID{ids[0], ids[1], ids[2]}
+				if position == "front" || position == "before" {
+					order = []uuid.UUID{ids[2], ids[0], ids[1]}
+				}
+				if position == "after" {
+					order = []uuid.UUID{ids[0], ids[2], ids[1]}
+				}
+				require.Equal(t, order, got)
+				assertCommandState(t, u, h)
+				changed, err := h.ChangeBacklog(t.Context(), change)
+				require.NoError(t, err)
+				require.False(t, changed)
+				require.Equal(t, expected, readCommandBacklog(t, u, a))
+				require.NoError(t, u.Rollback(t.Context()))
 			})
 		}
 	}
@@ -118,13 +113,15 @@ func TestExecutionBacklogDeliveryReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed)
 	assertCommandState(t, u, h)
-	err = u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		_, err := h.ChangeBacklog(
-			t.Context(),
-			agentexecution.BacklogChange{ID: third.ID, DeliveryMode: "queued"},
-		)
-		return err
-	})
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.ChangeBacklog(
+		t.Context(),
+		agentexecution.BacklogChange{ID: third.ID, DeliveryMode: "queued"},
+	)
+
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	_, err = h.AdmitInputs(t.Context())
 	require.NoError(t, err)
@@ -136,10 +133,12 @@ func TestExecutionBacklogDeliveryReplay(t *testing.T) {
 	changed, err = h.ChangeBacklog(t.Context(), cancel)
 	require.NoError(t, err)
 	require.True(t, changed)
-	err = u.Savepoint(t.Context(), func(_ *agentexecution.Unit) error {
-		_, err := h.ChangeBacklog(t.Context(), cancel)
-		return err
-	})
+	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	u, h = f.handle(t, a)
+	_, err = h.ChangeBacklog(t.Context(), cancel)
+
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	assertCommandState(t, u, h)
 }

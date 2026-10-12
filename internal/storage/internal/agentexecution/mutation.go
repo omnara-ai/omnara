@@ -19,19 +19,6 @@ type executionMutation struct {
 	loaded           *ExecutionSnapshot
 }
 
-func (m *executionMutation) clone() *executionMutation {
-	cloned := *m
-	if m.loaded != nil {
-		snapshot := cloneExecutionSnapshot(*m.loaded)
-		cloned.loaded = &snapshot
-	}
-	if m.head.LogicalReadyAt != nil {
-		ready := *m.head.LogicalReadyAt
-		cloned.head.LogicalReadyAt = &ready
-	}
-	return &cloned
-}
-
 func (h *Handle) executionMutation(ctx context.Context) (*executionMutation, error) {
 	if _, err := h.Route(); err != nil {
 		return nil, err

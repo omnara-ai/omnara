@@ -47,39 +47,26 @@ func (s *Store) acceptModelOutput(ctx context.Context,
 	}
 	result := OwnedAgentWorkTransition{}
 	if advance && accepted.Created {
-		err = unit.Savepoint(ctx, func(_ *agentexecution.Unit) error {
-			work, err := h.Advance(ctx, output.RuntimeLockID, input.AllowModelWork, input.PrepareModel)
-			if err != nil {
-				return err
-			}
-			if err = applyAdmissionDestination(ctx, unit, output.ProjectID, output.AgentID, work.Admission); err != nil {
-				return err
-			}
-			shaped, err := shapeOwnedWork(ctx, unit, output.ProjectID, output.AgentID, work)
-			if err != nil {
-				return err
-			}
-			result = OwnedAgentWorkTransition{Work: shaped, Continued: !work.Released}
-			return nil
-		})
-	}
-	if errors.Is(err, agentexecution.ErrLockPlan) {
-		return OwnedAgentWorkTransition{}, err
-	}
-	if !advance || !accepted.Created || err != nil {
-		result = OwnedAgentWorkTransition{Fallback: err}
-		if err = h.Release(ctx, output.RuntimeLockID); err != nil {
-			return result, err
+		var work agentexecution.OwnedWork
+		work, err = h.Advance(ctx, output.RuntimeLockID, input.AllowModelWork, input.PrepareModel)
+		if err == nil {
+			err = applyAdmissionDestination(ctx, unit, output.ProjectID, output.AgentID, work.Admission)
 		}
-	}
-	if err = unit.Commit(ctx, "accept model output and advance"); err != nil {
-		if !advance || errors.Is(err, agentexecution.ErrLockPlan) {
-			return result, err
+		if err == nil {
+			result.Work, err = shapeOwnedWork(ctx, unit, output.ProjectID, output.AgentID, work)
+			result.Continued = !work.Released
 		}
-		_ = unit.Rollback(ctx)
-		fallback, acceptErr := s.acceptModelOutput(ctx, input, false)
-		fallback.Fallback = errors.Join(result.Fallback, err, fallback.Fallback)
-		return fallback, acceptErr
+	} else {
+		err = h.Release(ctx, output.RuntimeLockID)
 	}
-	return result, nil
+	if err == nil {
+		err = unit.Commit(ctx, "accept model output and advance")
+	}
+	if err == nil || !advance || errors.Is(err, agentexecution.ErrLockPlan) {
+		return result, err
+	}
+	_ = unit.Rollback(ctx)
+	fallback, acceptErr := s.acceptModelOutput(ctx, input, false)
+	fallback.Fallback = errors.Join(err, fallback.Fallback)
+	return fallback, acceptErr
 }

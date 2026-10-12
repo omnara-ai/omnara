@@ -61,14 +61,12 @@ func TestExecutionToolCustody(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, changed)
 				assertCommandState(t, u, h)
-				require.ErrorIs(
-					t,
-					u.Savepoint(
-						t.Context(),
-						func(_ *agentexecution.Unit) error { _, err := h.RunTool(t.Context(), ref); return err },
-					),
-					storeerr.ErrToolCallInProgress,
-				)
+				require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+				u, h = f.handle(t, a)
+				_, err = h.RunTool(t.Context(), ref)
+				require.ErrorIs(t, err, storeerr.ErrToolCallInProgress)
+				require.NoError(t, u.Rollback(t.Context()))
+				u, h = f.handle(t, a)
 				changed, err = h.RequeueTool(t.Context(), ref)
 				require.NoError(t, err)
 				require.True(t, changed)
@@ -98,15 +96,12 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, replay.Changed)
 			require.Equal(t, result.ResultID, replay.ResultID)
-			require.ErrorIs(
-				t,
-				u.Savepoint(
-					t.Context(),
-					func(_ *agentexecution.Unit) error { content[0].Text = "other"; _, err := complete(); return err },
-				),
-				storeerr.ErrIdempotencyConflict,
-			)
-			require.NoError(t, u.Commit(t.Context(), "tool custody"))
+			require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+			u, h = f.handle(t, a)
+			content[0].Text = "other"
+			_, err = complete()
+			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+			require.NoError(t, u.Rollback(t.Context()))
 		})
 	}
 }

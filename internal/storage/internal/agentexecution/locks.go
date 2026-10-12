@@ -137,7 +137,7 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 		if err != nil {
 			return false, err
 		}
-		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true, identity: &identity}
+		u.handles[route.AgentID] = &Handle{unit: u, route: route, identity: &identity}
 	}
 	if owned := plan.authority; owned != nil {
 		h := u.handles[owned.AgentID]
@@ -222,7 +222,7 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 	route := AgentRoute{ProjectID: wakeup.ProjectID,
 		AgentID: wakeup.AgentID, RootAgentID: wakeup.RootAgentID}
 	if u.handles[route.AgentID] == nil {
-		u.handles[route.AgentID] = &Handle{unit: u, route: route, valid: true}
+		u.handles[route.AgentID] = &Handle{unit: u, route: route}
 	}
 	u.claimedAgent = route.AgentID
 	return route, nil
@@ -244,7 +244,7 @@ func (u *Unit) CreatedAgent(projectID, agentID, parentID uuid.UUID) error {
 		rootID = parent.route.RootAgentID
 	}
 	route := AgentRoute{ProjectID: projectID, AgentID: agentID, RootAgentID: rootID}
-	u.handles[agentID] = &Handle{unit: u, route: route, valid: true, created: true}
+	u.handles[agentID] = &Handle{unit: u, route: route, created: true}
 	return nil
 }
 
