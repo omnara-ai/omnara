@@ -15,7 +15,10 @@ export function OrganizationMachinesPage() {
           orgId={activeOrg.id}
           filters={{}}
           description="Machines in this organization you can see. Organization admins manage pools."
-          emptyMessage="No machines yet. Connect a machine you operate to run agents on it."
+          emptyMessage={{
+            canConnect: 'No machines yet. Connect a machine you operate to run agents on it.',
+            cannotConnect: 'No machines you can see yet. Organization admins connect machines.',
+          }}
         />
       )}
     </div>

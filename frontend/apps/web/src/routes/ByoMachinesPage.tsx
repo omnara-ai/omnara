@@ -29,7 +29,11 @@ export function ByoMachinesPage() {
         orgId={activeOrg.id}
         filters={{ source_kind: 'byo' }}
         description="Machines that aren't part of any pool"
-        emptyMessage="No machines connected yet. Connect a machine you operate to run agents on it."
+        emptyMessage={{
+          canConnect:
+            'No machines connected yet. Connect a machine you operate to run agents on it.',
+          cannotConnect: 'No machines you can see yet. Organization admins connect machines.',
+        }}
       />
     </div>
   )

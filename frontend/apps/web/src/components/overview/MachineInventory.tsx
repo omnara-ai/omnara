@@ -7,10 +7,12 @@ import { MachinesTable } from '@/components/overview/MachinesTable'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
 import { Button } from '@/components/ui/button'
 import { guides } from '@/lib/docs'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 
 /**
- * The org's machines as a table, with Connect machine and share/delete on BYO rows the viewer
- * manages. `filters` narrows it, e.g. to BYO machines.
+ * The org's machines as a table, with Connect machine for org admins and share/delete on BYO rows
+ * the viewer manages. `filters` narrows it, e.g. to BYO machines.
  */
 export function MachineInventory({
   orgId,
@@ -21,14 +23,18 @@ export function MachineInventory({
   orgId: string
   filters: { source_kind?: MachineSourceKind }
   description: string
-  emptyMessage: string
+  /** Shown when there are no machines, with a Connect machine action for admins. */
+  emptyMessage: { canConnect: string; cannotConnect: string }
 }) {
+  const { activeOrg } = useActiveOrg()
+  // Connecting a machine requires org.manage.
+  const canConnect = canManageOrg(activeOrg.role)
   const deleteMachine = useDeleteMachine(orgId)
   const grantMachine = useGrantMachineToProject(orgId)
   const [connectOpen, setConnectOpen] = useState(false)
   const [grantTarget, setGrantTarget] = useState<VisibleMachine | null>(null)
 
-  const connectButton = (
+  const connectButton = canConnect && (
     <Button
       size="sm"
       onClick={() => {
@@ -58,10 +64,12 @@ export function MachineInventory({
             })
           },
         }}
-        emptyMessage={emptyMessage}
+        emptyMessage={canConnect ? emptyMessage.canConnect : emptyMessage.cannotConnect}
         emptyAction={connectButton}
       />
-      <ConnectMachineDialog open={connectOpen} onOpenChange={setConnectOpen} orgId={orgId} />
+      {canConnect && (
+        <ConnectMachineDialog open={connectOpen} onOpenChange={setConnectOpen} orgId={orgId} />
+      )}
       {grantTarget && (
         <GrantToProjectDialog
           open
