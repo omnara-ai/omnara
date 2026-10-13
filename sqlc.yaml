@@ -96,6 +96,10 @@ sql:
             go_type:
               import: "github.com/omnara-ai/omnara/internal/processcmd"
               type: "ExecutionSpec"
+          - column: "machine_operations.execution_spec"
+            go_type:
+              import: "github.com/omnara-ai/omnara/internal/processcmd"
+              type: "ExecutionSpec"
           - db_type: "pg_catalog.uuid"
             go_type:
               import: "github.com/google/uuid"

@@ -848,6 +848,38 @@ export const zMemoryFileList = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zExecMachineCommandRequest = z.object({
+    command: z.string().min(1).max(65536),
+    shell: z.enum([
+        'default',
+        'sh',
+        'bash',
+        'zsh',
+        'powershell',
+        'pwsh',
+        'cmd'
+    ]).optional(),
+    cwd: z.string().max(4096).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    timeout_seconds: z.int().gte(1).lte(3600).optional().default(300)
+});
+
+export const zExecMachineCommandResponse = z.object({
+    exit_code: z.int().nullable(),
+    exit_signal: z.string().optional(),
+    output: z.string(),
+    output_truncated: z.boolean(),
+    timed_out: z.boolean(),
+    duration_ms: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    error: z.string().optional()
+});
+
+export const zUploadMachineFileResponse = z.object({
+    path: z.string(),
+    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+
 /**
  * Returns the uploaded file's path and digest.
  */
@@ -5665,6 +5697,48 @@ export const zUpdateProjectMachinePoolGrantPath = z.object({
  * Project machine pool grant updated.
  */
 export const zUpdateProjectMachinePoolGrantResponse = zProjectMachinePoolGrant;
+
+export const zExecMachineCommandBody = zExecMachineCommandRequest;
+
+export const zExecMachineCommandPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    machineID: z.string().regex(/^mch_[a-z2-7]{26}$/)
+});
+
+/**
+ * The command finished, failed to start, or timed out.
+ */
+export const zExecMachineCommandResponse2 = zExecMachineCommandResponse;
+
+export const zDownloadMachineFilePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    machineID: z.string().regex(/^mch_[a-z2-7]{26}$/)
+});
+
+export const zDownloadMachineFileQuery = z.object({
+    path: z.string().min(1).max(4096)
+});
+
+/**
+ * File bytes.
+ */
+export const zDownloadMachineFileResponse = z.instanceof(Blob);
+
+export const zUploadMachineFileBody = z.instanceof(Blob);
+
+export const zUploadMachineFilePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    machineID: z.string().regex(/^mch_[a-z2-7]{26}$/)
+});
+
+export const zUploadMachineFileQuery = z.object({
+    path: z.string().min(1).max(4096)
+});
+
+/**
+ * File written.
+ */
+export const zUploadMachineFileResponse2 = zUploadMachineFileResponse;
 
 export const zListByoMachineDaemonTokensPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

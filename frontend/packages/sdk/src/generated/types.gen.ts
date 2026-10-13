@@ -1129,6 +1129,62 @@ export type MemoryFileList = {
     next_cursor: string | null;
 };
 
+export type ExecMachineCommandRequest = {
+    /**
+     * Shell command to run.
+     */
+    command: string;
+    /**
+     * Shell that runs the command. `default` is `/bin/sh` on Unix and `cmd.exe` on Windows.
+     */
+    shell?: 'default' | 'sh' | 'bash' | 'zsh' | 'powershell' | 'pwsh' | 'cmd';
+    /**
+     * Working directory. Relative paths resolve against the machine's configured cwd; `~/` resolves against the daemon user's home directory. Defaults to the machine's configured cwd, or the daemon user's home directory when none is set.
+     */
+    cwd?: string;
+    /**
+     * Environment variables added on top of the machine's configured plain environment variables. Names starting with OMNARA_ are ignored.
+     */
+    env?: {
+        [key: string]: string;
+    };
+    /**
+     * Seconds before the command's process tree is killed.
+     */
+    timeout_seconds?: number;
+};
+
+export type ExecMachineCommandResponse = {
+    /**
+     * Exit status, or null when the command was killed by a signal, timed out, or never started.
+     */
+    exit_code: number | null;
+    /**
+     * Signal that ended the command, when one did.
+     */
+    exit_signal?: string;
+    /**
+     * Combined standard output and standard error, decoded as UTF-8 with invalid bytes replaced.
+     */
+    output: string;
+    /**
+     * True when the command produced more output than was returned.
+     */
+    output_truncated: boolean;
+    timed_out: boolean;
+    duration_ms: number;
+    /**
+     * Why the command did not run to completion, when it could not start or was stopped.
+     */
+    error?: string;
+};
+
+export type UploadMachineFileResponse = {
+    path: string;
+    size_bytes: number;
+    digest: string;
+};
+
 /**
  * Returns the uploaded file's path and digest.
  */
@@ -15559,6 +15615,228 @@ export type UpdateProjectMachinePoolGrantResponses = {
 };
 
 export type UpdateProjectMachinePoolGrantResponse = UpdateProjectMachinePoolGrantResponses[keyof UpdateProjectMachinePoolGrantResponses];
+
+export type ExecMachineCommandData = {
+    body: ExecMachineCommandRequest;
+    path: {
+        orgID: string;
+        machineID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/machines/{machineID}/exec';
+};
+
+export type ExecMachineCommandErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ExecMachineCommandError = ExecMachineCommandErrors[keyof ExecMachineCommandErrors];
+
+export type ExecMachineCommandResponses = {
+    /**
+     * The command finished, failed to start, or timed out.
+     */
+    200: ExecMachineCommandResponse;
+};
+
+export type ExecMachineCommandResponse2 = ExecMachineCommandResponses[keyof ExecMachineCommandResponses];
+
+export type DownloadMachineFileData = {
+    body?: never;
+    path: {
+        orgID: string;
+        machineID: string;
+    };
+    query: {
+        /**
+         * Absolute path on the machine, or a path starting with `~/` for the daemon user's home directory.
+         */
+        path: string;
+    };
+    url: '/orgs/{orgID}/machines/{machineID}/files';
+};
+
+export type DownloadMachineFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * File exceeds the 10 MiB limit.
+     */
+    413: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadMachineFileError = DownloadMachineFileErrors[keyof DownloadMachineFileErrors];
+
+export type DownloadMachineFileResponses = {
+    /**
+     * File bytes.
+     */
+    200: Blob | File;
+};
+
+export type DownloadMachineFileResponse = DownloadMachineFileResponses[keyof DownloadMachineFileResponses];
+
+export type UploadMachineFileData = {
+    body?: Blob | File;
+    path: {
+        orgID: string;
+        machineID: string;
+    };
+    query: {
+        /**
+         * Absolute path on the machine, or a path starting with `~/` for the daemon user's home directory.
+         */
+        path: string;
+    };
+    url: '/orgs/{orgID}/machines/{machineID}/files';
+};
+
+export type UploadMachineFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * File exceeds the 10 MiB limit.
+     */
+    413: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UploadMachineFileError = UploadMachineFileErrors[keyof UploadMachineFileErrors];
+
+export type UploadMachineFileResponses = {
+    /**
+     * File written.
+     */
+    200: UploadMachineFileResponse;
+};
+
+export type UploadMachineFileResponse2 = UploadMachineFileResponses[keyof UploadMachineFileResponses];
 
 export type ListByoMachineDaemonTokensData = {
     body?: never;

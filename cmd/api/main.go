@@ -406,6 +406,7 @@ func apiOptions(
 		httpapi.WithDaemonRecorder(daemonRecorder),
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),
 		httpapi.WithDaemonReplyPublisher(redisBus),
+		httpapi.WithMachineOperations(notifications.NewDaemonInbox(redisBus, presence)),
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
 		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),

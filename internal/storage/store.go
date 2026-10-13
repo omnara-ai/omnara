@@ -129,6 +129,11 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	return store
 }
 
+// Blobs returns the configured object store, or nil when none is configured.
+func (s *Store) Blobs() blobstore.Store {
+	return s.blobs
+}
+
 func (s *Store) Models() *modelstore.Store {
 	return s.models
 }

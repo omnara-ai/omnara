@@ -7135,6 +7135,205 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/machines/{machineID}/exec:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: machineID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^mch_[a-z2-7]{26}$'
+    post:
+      operationId: execMachineCommand
+      tags: [Machines]
+      summary: Run a command on a machine
+      description: >-
+        Runs one shell command on a connected machine and waits for it to finish, without involving
+        an agent. The command runs as the daemon's user with the machine's configured working
+        directory and plain environment variables (secret environment references are not
+        resolved), plus any `cwd` and `env` in the request. Standard input is empty. Standard output
+        and standard error are captured together and the first 64 KiB is returned; `output_truncated`
+        reports whether more was produced, so redirect large output to a file and download it. When
+        `timeout_seconds` elapses the command's process tree is killed and the response has
+        `timed_out: true`. Returns 409 when the machine is offline and cannot be woken. Requires
+        machine manage access.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecMachineCommandRequest'
+      responses:
+        '200':
+          description: The command finished, failed to start, or timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecMachineCommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/machines/{machineID}/files:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: machineID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^mch_[a-z2-7]{26}$'
+    get:
+      operationId: downloadMachineFile
+      tags: [Machines]
+      summary: Download a file from a machine
+      description: >-
+        Reads one regular file from a connected machine, up to 10 MiB. Returns 404 when the path
+        does not exist and 409 when the machine is offline and cannot be woken. Requires machine
+        manage access.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - name: path
+          in: query
+          description: Absolute path on the machine, or a path starting with `~/` for the daemon user's home directory.
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        '200':
+          description: File bytes.
+          headers:
+            ETag:
+              schema:
+                type: string
+            X-Omnara-File-Digest:
+              schema:
+                type: string
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: File exceeds the 10 MiB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: uploadMachineFile
+      tags: [Machines]
+      summary: Upload a file to a machine
+      description: >-
+        Writes the request body to one file on a connected machine, up to 10 MiB. Missing parent
+        directories are created on Unix machines. An existing file is replaced atomically and keeps
+        its permissions. Returns 409 when the machine is offline and cannot be
+        woken. Requires machine manage access.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - name: path
+          in: query
+          description: Absolute path on the machine, or a path starting with `~/` for the daemon user's home directory.
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadMachineFileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: File exceeds the 10 MiB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/machines/{machineID}/daemon-tokens:
     parameters:
       - name: orgID
@@ -10339,6 +10538,79 @@ components:
             $ref: '#/components/schemas/MemoryFile'
         next_cursor:
           type: [string, "null"]
+    ExecMachineCommandRequest:
+      type: object
+      additionalProperties: false
+      required: [command]
+      properties:
+        command:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          description: Shell command to run.
+        shell:
+          type: string
+          enum: [default, sh, bash, zsh, powershell, pwsh, cmd]
+          description: Shell that runs the command. `default` is `/bin/sh` on Unix and `cmd.exe` on Windows.
+        cwd:
+          type: string
+          maxLength: 4096
+          description: >-
+            Working directory. Relative paths resolve against the machine's configured cwd; `~/`
+            resolves against the daemon user's home directory. Defaults to the machine's configured
+            cwd, or the daemon user's home directory when none is set.
+        env:
+          type: object
+          description: Environment variables added on top of the machine's configured plain environment variables. Names starting with OMNARA_ are ignored.
+          maxProperties: 256
+          additionalProperties:
+            type: string
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+          description: Seconds before the command's process tree is killed.
+    ExecMachineCommandResponse:
+      type: object
+      additionalProperties: false
+      required: [exit_code, output, output_truncated, timed_out, duration_ms]
+      properties:
+        exit_code:
+          description: Exit status, or null when the command was killed by a signal, timed out, or never started.
+          anyOf:
+            - type: integer
+            - type: 'null'
+        exit_signal:
+          type: string
+          description: Signal that ended the command, when one did.
+        output:
+          type: string
+          description: Combined standard output and standard error, decoded as UTF-8 with invalid bytes replaced.
+        output_truncated:
+          type: boolean
+          description: True when the command produced more output than was returned.
+        timed_out:
+          type: boolean
+        duration_ms:
+          type: integer
+          format: int64
+        error:
+          type: string
+          description: Why the command did not run to completion, when it could not start or was stopped.
+    UploadMachineFileResponse:
+      type: object
+      additionalProperties: false
+      required: [path, size_bytes, digest]
+      properties:
+        path:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
     UploadFileResponse:
       type: object
       additionalProperties: false

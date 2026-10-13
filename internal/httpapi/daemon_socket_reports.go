@@ -18,6 +18,9 @@ func (s *daemonSocket) handleProcessAccept(ctx context.Context, msg daemonprotoc
 	if err != nil {
 		return err
 	}
+	if handled, err := s.acceptMachineOperation(ctx, processID, msg.ProcessID); handled || err != nil {
+		return err
+	}
 	offer, found, err := s.server.store.Execution().AcceptDaemonProcess(
 		ctx,
 		executionstore.AcceptDaemonProcessInput{
@@ -105,6 +108,19 @@ func (s *daemonSocket) handleReport(ctx context.Context, msg daemonprotocol.Mess
 	body := *msg.Event
 	if err := validateDaemonReportedEvent(body); err != nil {
 		return err
+	}
+	if handled, ackStatus, err := s.applyMachineOperationReport(ctx, body); handled || err != nil {
+		if err != nil {
+			s.recordSocketEvent("report", "error", daemonErrorCode(err))
+			return err
+		}
+		s.enqueueOrClose(daemonprotocol.Message{
+			Type:      daemonprotocol.MessageReportAck,
+			ReportID:  msg.ReportID,
+			AckStatus: ackStatus,
+		})
+		s.recordSocketEvent("report", string(ackStatus), "machine_operation")
+		return nil
 	}
 	missingErr := errors.New(
 		"daemon process does not belong to this machine",

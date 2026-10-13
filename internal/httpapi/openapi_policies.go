@@ -175,6 +175,9 @@ const (
 	operationWriteMemoryFile               operationID = "WriteMemoryFile"
 	operationDeleteMemoryFile              operationID = "DeleteMemoryFile"
 	operationUploadDaemonFile              operationID = "UploadDaemonFile"
+	operationExecMachineCommand            operationID = "ExecMachineCommand"
+	operationUploadMachineFile             operationID = "UploadMachineFile"
+	operationDownloadMachineFile           operationID = "DownloadMachineFile"
 	operationDownloadDaemonFile            operationID = "DownloadDaemonFile"
 	operationListActors                    operationID = "ListActors"
 	operationGetActor                      operationID = "GetActor"
@@ -455,6 +458,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListBYOMachineDaemonTokens:    accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationCreateBYOMachineDaemonToken:   accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationRevokeMachineDaemonToken:      accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationExecMachineCommand:            accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationUploadMachineFile:             accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationDownloadMachineFile:           accountPolicy(machineScope(executionstore.MachineActionManage)),
 	operationCreateProjectMachineGrant:     accountPolicy(customScope("project access-manage + BYO machine manage")),
 	operationDeleteProjectMachineGrant: accountPolicy(
 		customScope("project access-manage + machine manage on the grant's machine"),

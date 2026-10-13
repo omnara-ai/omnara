@@ -55,6 +55,9 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	ctx context.Context,
 	req openapi.UploadDaemonFileRequestObject,
 ) (openapi.UploadDaemonFileResponseObject, error) {
+	if response, handled, err := s.uploadMachineOperationFile(ctx, req); handled || err != nil {
+		return response, err
+	}
 	process, err := s.daemonTransferScope(ctx, req.ProcessID,
 		processcmd.FileTransferUpload)
 	if err != nil {
@@ -96,6 +99,9 @@ func (s strictOpenAPIServer) DownloadDaemonFile(
 	ctx context.Context,
 	req openapi.DownloadDaemonFileRequestObject,
 ) (openapi.DownloadDaemonFileResponseObject, error) {
+	if response, handled, err := s.downloadMachineOperationFile(ctx, req); handled || err != nil {
+		return response, err
+	}
 	process, err := s.daemonTransferScope(ctx, req.ProcessID,
 		processcmd.FileTransferDownload)
 	if err != nil {

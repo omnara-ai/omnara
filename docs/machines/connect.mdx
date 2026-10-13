@@ -99,6 +99,22 @@ Machine tokens can be created, listed, and revoked through the API.
 
 Deleting a BYO machine disconnects its daemon, revokes its tokens, removes its grants, and releases its agent bindings. In the dashboard, open the machine's row menu and click **Delete**; in the CLI, run `omnara machines delete {machine-id}`.
 
+## Run commands and move files without an agent
+
+Org admins can run a command on a connected machine, or copy a file to or from it, directly through the API or CLI — no agent, project, or binding involved. This is useful for setting a machine up before an agent uses it, or for checking its work afterwards. Each call runs as the daemon's user and waits for the result; a sleeping pooled machine is woken first, and an offline machine returns `409`.
+
+```bash
+npx omnara machines exec "$MACHINE" --command 'pytest -q > /tmp/test.log 2>&1' --cwd /srv/repo --timeout-seconds 900
+npx omnara machines upload "$MACHINE" ./fixtures.tar.gz /srv/repo/fixtures.tar.gz
+npx omnara machines download "$MACHINE" /tmp/test.log ./test.log   # or - for stdout
+```
+
+- **Exec** (`POST /orgs/{orgID}/machines/{machineID}/exec`) takes `command` plus optional `cwd`, `env`, `shell`, and `timeout_seconds` (default 300, at most 3600), and returns `exit_code`, `output`, `output_truncated`, `timed_out`, and `duration_ms`. The command starts in the machine's configured `cwd` (or the daemon user's home directory) with the machine's plain `env`; `secret_env` references are not resolved. Standard input is empty. Standard output and standard error are combined and only the first 64 KiB is returned, so redirect long output to a file and download it. When the timeout elapses the command's process tree is killed and `exit_code` is `null`. The CLI prints the output and exits with the remote exit code, or `124` on timeout.
+- **Upload** (`PUT /orgs/{orgID}/machines/{machineID}/files?path=...`) writes the raw request body, up to 10 MiB, to an absolute or `~/` path, replacing any existing file atomically. Missing parent directories are created on Unix machines.
+- **Download** (`GET /orgs/{orgID}/machines/{machineID}/files?path=...`) returns the file's bytes, up to 10 MiB, or `404` when it does not exist.
+
+These calls run as ordinary daemon processes, so they work with any connected `omnarad` and need no extra setup on the machine.
+
 <Info>
-Full schema and playground: [Connect a BYO machine](/api-reference/endpoints/machines/connect-a-byo-machine) · [Create machine](/api-reference/endpoints/machines/create-machine) · [List visible machines](/api-reference/endpoints/machines/list-visible-machines) · [Daemon tokens](/api-reference/endpoints/machines/list-byo-machine-daemon-tokens) · [Machine grants](/api-reference/endpoints/machines/create-project-machine-grant).
+Full schema and playground: [Connect a BYO machine](/api-reference/endpoints/machines/connect-a-byo-machine) · [Create machine](/api-reference/endpoints/machines/create-machine) · [List visible machines](/api-reference/endpoints/machines/list-visible-machines) · [Daemon tokens](/api-reference/endpoints/machines/list-byo-machine-daemon-tokens) · [Machine grants](/api-reference/endpoints/machines/create-project-machine-grant) · [Run a command](/api-reference/endpoints/machines/run-a-command-on-a-machine) · [Upload a file](/api-reference/endpoints/machines/upload-a-file-to-a-machine) · [Download a file](/api-reference/endpoints/machines/download-a-file-from-a-machine).
 </Info>

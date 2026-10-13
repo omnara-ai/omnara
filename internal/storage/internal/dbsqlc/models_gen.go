@@ -311,6 +311,23 @@ type MachineDaemonToken struct {
 	RevokeReason string
 }
 
+type MachineOperation struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	MachineID          uuid.UUID
+	ExecutionSpec      processcmd.ExecutionSpec
+	TimeoutSeconds     int32
+	State              string
+	DaemonRuntimeID    *uuid.UUID
+	ExitCode           *int32
+	ExitSignal         string
+	StateReasonCode    string
+	StateReasonMessage string
+	Result             *json.RawMessage
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 type MachinePool struct {
 	ID                            uuid.UUID
 	OrgID                         uuid.UUID

@@ -91,6 +91,7 @@ type Server struct {
 	daemonSocketFallbackDrainJitter     time.Duration
 	agentEventReconciliationInterval    time.Duration
 	skillDownloadSigningKey             []byte
+	machineOperations                   *machineOperationConfig
 	timer                               clock.Clock
 }
 

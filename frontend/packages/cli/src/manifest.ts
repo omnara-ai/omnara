@@ -15,6 +15,7 @@ import {
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
 import { integrationCommandGroups } from './integration-setup.ts'
+import { machineDownloadOp, machineExecOp, machineUploadOp } from './machine-operations.ts'
 import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
@@ -452,6 +453,9 @@ export const commandGroups: CommandGroup[] = [
         format: formatVoid('deleted'),
         path: schemas.zDeleteMachinePath,
       }),
+      machineExecOp,
+      machineUploadOp,
+      machineDownloadOp,
     ],
   },
   {

@@ -26,6 +26,10 @@ func reconcileRegisteredRuntimeTx(
 	if err != nil {
 		return DaemonRuntimeReconciliation{}, err
 	}
+	operationDirectives, err := reconcileMachineOperationClaimsTx(ctx, qtx, input, claims)
+	if err != nil {
+		return DaemonRuntimeReconciliation{}, err
+	}
 	processes, err := lockAndLoadReconciliationProcesses(
 		ctx,
 		tx,
@@ -51,8 +55,9 @@ func reconcileRegisteredRuntimeTx(
 	}
 
 	reconciliation := DaemonRuntimeReconciliation{
-		Processes: make([]ProcessReconciliationDirective, 0, len(claims)),
+		Processes: make([]ProcessReconciliationDirective, 0, len(claims)+len(operationDirectives)),
 	}
+	reconciliation.Processes = append(reconciliation.Processes, operationDirectives...)
 	for processID, process := range processes {
 		claim, claimed := claims[processID]
 		if !claimed {

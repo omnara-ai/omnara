@@ -1,0 +1,5 @@
+type = "sandbox"
+name = "tb-base"
+
+[build]
+slim = false

@@ -40,6 +40,10 @@ func requestBodyLimit(r *http.Request) int64 {
 		strings.HasSuffix(r.URL.Path, "/file") {
 		return daemonprotocol.MaxFileTransferBytes
 	}
+	if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/machines/") &&
+		strings.HasSuffix(r.URL.Path, "/files") {
+		return daemonprotocol.MaxFileTransferBytes
+	}
 	if r.Method != http.MethodPost {
 		return maxRequestBodyBytes
 	}
