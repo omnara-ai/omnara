@@ -143,9 +143,12 @@ if you don't have the repo). For this agent:
 
 - Name the integration `pr-review-agent-github`, and use the trigger from
   step 2 in its launcher, for example
-  `{"launcher":{"trigger":"both","profile":"<agent-profile-id>"}}`. If the
-  user chose to reuse another `github_pr` integration, update that one's
-  launcher instead of creating a new one.
+  `{"launcher":{"trigger":"both","profile":"<agent-profile-id>"}}`. If a
+  `github_pr` integration's `settings.launcher.profile` is already this
+  profile, it was set up earlier under another name: reuse it, and update
+  its launcher only if the trigger changed. If the user chose to reuse
+  another agent's `github_pr` integration, update that one's launcher
+  instead of creating a new one.
 - Suggest an App name with the team's name, such as "Acme Reviewer"; its slug
   (`acme-reviewer`) is how the team mentions it. Grant the repositories from
   step 2.
