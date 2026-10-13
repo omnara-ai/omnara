@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -177,12 +178,16 @@ func createAgentContentInputTx(
 				return createAgentContentInputTxResult{}, err
 			}
 			existingContentBlocks := existingContentBlocksByInput[existingInput.ID]
+			replayContent, err := matchPreparedInputContent(ctx, qtx, input, contentBlocks, existingContentBlocks)
+			if err != nil {
+				return createAgentContentInputTxResult{}, err
+			}
 			if !actorFound ||
 				existingInput.DeliveryMode != input.DeliveryMode ||
 				existingInput.ActorID != existingActorID ||
 				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
 				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
-				!sameJSON(existingContentBlocks, input.ContentBlocks) {
+				!sameJSON(existingContentBlocks, replayContent) {
 				return createAgentContentInputTxResult{}, storeerr.ErrIdempotencyConflict
 			}
 			return createAgentContentInputTxResult{
@@ -226,6 +231,7 @@ func createAgentContentInputTx(
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
 		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
+		PreparedArtifacts: input.PreparedArtifacts,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -292,15 +298,16 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID              uuid.UUID              `json:"project_id,omitempty"`
-	AgentID                uuid.UUID              `json:"agent_id,omitempty"`
-	Actor                  *ActorParams           `json:"actor,omitempty"`
-	IntegrationTargetID    uuid.UUID              `json:"integration_target_id,omitempty"`
-	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
-	ContentBlocks          json.RawMessage        `json:"content_blocks"`
-	Metadata               json.RawMessage        `json:"metadata,omitempty"`
-	DeliveryMode           AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
-	IdempotencyScope       string                 `json:"idempotency_scope,omitempty"`
-	IdempotencyKey         string                 `json:"idempotency_key,omitempty"`
-	CancelOpenInteractions bool                   `json:"cancel_open_interactions,omitempty"`
+	PreparedArtifacts      []artifactstore.PreparedArtifact `json:"-"`
+	ProjectID              uuid.UUID                        `json:"project_id,omitempty"`
+	AgentID                uuid.UUID                        `json:"agent_id,omitempty"`
+	Actor                  *ActorParams                     `json:"actor,omitempty"`
+	IntegrationTargetID    uuid.UUID                        `json:"integration_target_id,omitempty"`
+	Origin                 *AgentInputOrigin                `json:"origin,omitempty"`
+	ContentBlocks          json.RawMessage                  `json:"content_blocks"`
+	Metadata               json.RawMessage                  `json:"metadata,omitempty"`
+	DeliveryMode           AgentInputDeliveryMode           `json:"delivery_mode,omitempty"`
+	IdempotencyScope       string                           `json:"idempotency_scope,omitempty"`
+	IdempotencyKey         string                           `json:"idempotency_key,omitempty"`
+	CancelOpenInteractions bool                             `json:"cancel_open_interactions,omitempty"`
 }

@@ -4,10 +4,15 @@ package agentexecution
 
 import (
 	"context"
+	"errors"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"io"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -318,4 +323,66 @@ func TestCellBeginRequiresRetryBoundary(t *testing.T) {
 		_ = unit.Rollback(t.Context())
 	}
 	require.ErrorContains(t, err, "retry boundary")
+}
+
+type uncertainCommitTx struct {
+	pgx.Tx
+	commit bool
+	cause  error
+}
+
+func (tx uncertainCommitTx) Commit(ctx context.Context) error {
+	if tx.commit {
+		if err := tx.Tx.Commit(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.Tx.Rollback(ctx); err != nil {
+			return err
+		}
+	}
+	return tx.cause
+}
+
+func TestUnitUnknownCommitOutcome(t *testing.T) {
+	for _, committed := range []bool{false, true} {
+		t.Run(strconv.FormatBool(committed), func(t *testing.T) {
+			cell, pool := unitTestCell(t, nil)
+			u, err := BeginTestUnit(t.Context(), cell)
+			require.NoError(t, err)
+			_, err = u.DB().Exec(t.Context(), `INSERT INTO unit_probe(phase) VALUES('unknown')`)
+			require.NoError(t, err)
+			u.tx = uncertainCommitTx{Tx: u.tx, commit: committed, cause: io.ErrUnexpectedEOF}
+			err = u.Commit(t.Context(), "uncertain")
+			require.ErrorIs(t, err, storeerr.ErrCommitOutcomeUnknown)
+			require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			var exists bool
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM unit_probe)`).Scan(&exists))
+			require.Equal(t, committed, exists)
+		})
+	}
+}
+
+func TestUnitCommitErrorClassification(t *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		cause   error
+		unknown bool
+	}{
+		{"deferred constraint", &pgconn.PgError{Severity: "ERROR", Code: "23514"}, false},
+		{"rollback", pgx.ErrTxCommitRollback, false},
+		{"unknown completion", &pgconn.PgError{Severity: "ERROR", Code: "40003"}, true},
+		{"connection failure", &pgconn.PgError{Severity: "ERROR", Code: "08006"}, true},
+		{"shutdown", &pgconn.PgError{Severity: "FATAL", Code: "57P01"}, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			cell, _ := unitTestCell(t, nil)
+			u, err := BeginTestUnit(t.Context(), cell)
+			require.NoError(t, err)
+			u.tx = uncertainCommitTx{Tx: u.tx, cause: scenario.cause}
+			err = u.Commit(t.Context(), "classify")
+			require.ErrorIs(t, err, scenario.cause)
+			require.Equal(t, scenario.unknown, errors.Is(err, storeerr.ErrCommitOutcomeUnknown))
+		})
+	}
 }

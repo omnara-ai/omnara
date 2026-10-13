@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 var ErrUnitClosed = errors.New("agent execution unit is closed")
@@ -75,6 +78,13 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	}
 	if err := u.tx.Commit(ctx); err != nil {
 		u.closed = true
+		var postgres *pgconn.PgError
+		knownAbort := errors.As(err, &postgres) &&
+			(postgres.SeverityUnlocalized == "ERROR" || postgres.Severity == "ERROR") &&
+			postgres.Code != "40003" && !strings.HasPrefix(postgres.Code, "08")
+		if !knownAbort && !errors.Is(err, pgx.ErrTxCommitRollback) && !pgconn.SafeToRetry(err) {
+			return errors.Join(storeerr.ErrCommitOutcomeUnknown, err)
+		}
 		return err
 	}
 	u.closed = true

@@ -7,11 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ReceiveContentInput struct {
+	PreparedArtifacts    []artifactstore.PreparedArtifact
 	ID                   uuid.UUID
 	ActorID              uuid.UUID
 	IntegrationTargetID  uuid.UUID
@@ -92,6 +94,10 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			if pending == 50 {
 				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
 			}
+		}
+		if _, err := artifactstore.InsertPreparedArtifactsTx(ctx, h.unit.DB(), h.route.ProjectID, h.route.AgentID,
+			input.PreparedArtifacts); err != nil {
+			return ReceivedContent{}, err
 		}
 		if input.ID == uuid.Nil {
 			input.ID = uuid.New()

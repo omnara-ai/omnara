@@ -55,6 +55,9 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(
 	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
 		message = launchUnavailableMessage
 	}
+	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
+		message = storeerr.AgentBacklogFullMessage
+	}
 	if unfinished {
 		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		integration, err := c.inbox.GetIntegrationByID(noticeCtx, receipt.IntegrationID)

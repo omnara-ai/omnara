@@ -53,8 +53,8 @@ func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrati
 }
 
 func (p *choiceTestProvider) NotifyInboxFailure(_ context.Context, _ integrationstore.IntegrationRecord,
-	_ integrationstore.IntegrationInboxRecord, _ string) error {
-	p.notices = append(p.notices, "Request failed")
+	_ integrationstore.IntegrationInboxRecord, text string) error {
+	p.notices = append(p.notices, text)
 	return nil
 }
 

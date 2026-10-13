@@ -15,6 +15,7 @@ const (
 )
 
 var (
+	ErrCommitOutcomeUnknown          = errors.New("transaction commit outcome is unknown")
 	ErrAgentBacklogFull              = errors.New(AgentBacklogFullCode)
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")

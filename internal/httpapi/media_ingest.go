@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -51,9 +55,52 @@ type inboundBlock struct {
 }
 
 func (s *Server) extractInlineMedia(
-	ctx context.Context,
-	ingest mediaIngestContext,
-	contentBlocks json.RawMessage,
+	ctx context.Context, ingest mediaIngestContext, contentBlocks json.RawMessage,
+) (json.RawMessage, error) {
+	return ingestInlineMedia(contentBlocks, func(attachment pendingAttachment) (uuid.UUID, error) {
+		key := ""
+		if ingest.IdempotencyKey != "" {
+			key = fmt.Sprintf("upload:%s:%d", ingest.IdempotencyKey, attachment.ordinal)
+		}
+		artifact, err := s.store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+			ProjectID: ingest.ProjectID, AgentID: ingest.AgentID, ContentType: attachment.mediaType,
+			Filename: attachment.filename, Content: attachment.content, MaxBytes: maxAttachmentBytes, IdempotencyKey: key,
+		})
+		return artifact.ID, err
+	})
+}
+
+func (s *Server) prepareInputMedia(
+	ctx context.Context, agentID uuid.UUID, contentBlocks json.RawMessage,
+) (json.RawMessage, []artifactstore.PreparedArtifact, error) {
+	var artifacts []artifactstore.PreparedArtifact
+	blocks, err := ingestInlineMedia(contentBlocks, func(attachment pendingAttachment) (uuid.UUID, error) {
+		artifact := artifactstore.PreparedArtifact{ID: uuid.New(), ContentType: attachment.mediaType,
+			Filename: attachment.filename, Digest: blobstore.ContentDigest(attachment.content),
+			SizeBytes: int64(len(attachment.content))}
+		artifacts = append(artifacts, artifact)
+		return artifact.ID, s.store.Artifacts().UploadPreparedArtifact(ctx, agentID, artifact, attachment.content)
+	})
+	return blocks, artifacts, err
+}
+
+func (s *Server) cleanupInputMedia(
+	ctx context.Context, projectID, agentID uuid.UUID, artifacts []artifactstore.PreparedArtifact, cause error,
+) {
+	if len(artifacts) == 0 || errors.Is(cause, storeerr.ErrCommitOutcomeUnknown) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	for _, artifact := range artifacts {
+		if err := s.store.Artifacts().DeleteUnreferencedPreparedArtifact(ctx, projectID, agentID, artifact.ID); err != nil {
+			s.log.WarnContext(ctx, "cleanup input attachment", "agent_id", agentID, "artifact_id", artifact.ID, "error", err)
+		}
+	}
+}
+
+func ingestInlineMedia(
+	contentBlocks json.RawMessage, store func(pendingAttachment) (uuid.UUID, error),
 ) (json.RawMessage, error) {
 	if len(contentBlocks) == 0 {
 		return contentBlocks, nil
@@ -198,25 +245,13 @@ func (s *Server) extractInlineMedia(
 			out = append(out, raw)
 			continue
 		}
-		artifactIdempotencyKey := ""
-		if ingest.IdempotencyKey != "" {
-			artifactIdempotencyKey = fmt.Sprintf("upload:%s:%d", ingest.IdempotencyKey, ordinal)
-		}
-		artifact, err := s.store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
-			ProjectID:      ingest.ProjectID,
-			AgentID:        ingest.AgentID,
-			ContentType:    attachment.mediaType,
-			Filename:       attachment.filename,
-			Content:        attachment.content,
-			MaxBytes:       maxAttachmentBytes,
-			IdempotencyKey: artifactIdempotencyKey,
-		})
+		artifactID, err := store(attachment)
 		if err != nil {
 			return nil, fmt.Errorf("store attachment %d: %w", ordinal, err)
 		}
 		rewrittenBlock := map[string]any{
 			"type":        "media_ref",
-			"artifact_id": artifact.ID.String(),
+			"artifact_id": artifactID.String(),
 		}
 		if len(attachment.metadata) > 0 {
 			rewrittenBlock["metadata"] = attachment.metadata
