@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type ActorParams struct {
@@ -163,31 +161,4 @@ func resolveActorTx(
 		return uuid.Nil, err
 	}
 	return actor.ID, nil
-}
-
-func lookupActorIDTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID uuid.UUID,
-	params *ActorParams,
-) (uuid.UUID, bool, error) {
-	if params == nil {
-		return uuid.Nil, true, nil
-	}
-	if err := validateActorText(params.ProviderTenantID, params.ProviderUserID, ""); err != nil {
-		return uuid.Nil, false, err
-	}
-	row, err := qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
-		ProjectID:        projectID,
-		Provider:         strings.TrimSpace(string(params.Provider)),
-		ProviderTenantID: storeutil.TextFromEmpty(strings.TrimSpace(params.ProviderTenantID)),
-		ProviderUserID:   strings.TrimSpace(params.ProviderUserID),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, false, nil
-	}
-	if err != nil {
-		return uuid.Nil, false, fmt.Errorf("look up input actor: %w", err)
-	}
-	return row.ID, true, nil
 }

@@ -101,11 +101,14 @@ func (s *Store) changeAgentConfigOnce(
 			errors.New("subagent configurations are read-only"),
 		)
 	}
-	idempotentReplay, err := configChangeReplayExistsTx(ctx, qtx, input)
+	replay, err := configChangeReplayExistsTx(ctx, qtx, input)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
+	if replay {
+		return replayAgentConfigChangeTx(ctx, unit, qtx, input)
+	}
+	if AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
 	}
 	configInput := input.CreateAgentConfigInput
@@ -125,7 +128,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if !idempotentReplay && input.ExpectedCurrentConfigID != uuid.Nil &&
+	if input.ExpectedCurrentConfigID != uuid.Nil &&
 		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
 		agent.CurrentConfigID != config.ID {
 		return ChangeAgentConfigResult{}, fmt.Errorf(
@@ -143,7 +146,7 @@ func (s *Store) changeAgentConfigOnce(
 		IdempotencyKey: input.IdempotencyKey,
 	}
 	var nextSources []launchMachineSource
-	if !idempotentReplay && !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
+	if !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
 		nextSources, err = decodeLaunchMachineSources(nextContract)
 		if err != nil {
 			return ChangeAgentConfigResult{}, err
@@ -207,7 +210,7 @@ func (s *Store) changeAgentConfigOnce(
 		return ChangeAgentConfigResult{}, err
 	}
 	var deleteMachines []MachineRecord
-	if !idempotentReplay && agent.CurrentConfigID != config.ID {
+	if agent.CurrentConfigID != config.ID {
 		currentAgent, err := qtx.GetAgentInProject(
 			ctx,
 			dbsqlc.GetAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -235,25 +238,65 @@ func (s *Store) changeAgentConfigOnce(
 			}
 		}
 	}
-	if idempotentReplay {
-		poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
-		if err != nil {
-			return ChangeAgentConfigResult{}, err
-		}
-		for _, poolMachine := range poolMachines {
-			machine := poolMachine.Machine
-			if machine.LifecycleState == MachineLifecycleStateDeleting &&
-				machine.LifecycleReasonCode == "agent_config_machine_source_removed" {
-				deleteMachines = append(deleteMachines, machine)
-			}
-		}
-	}
 	if err := unit.Commit(ctx, "change agent config"); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	return ChangeAgentConfigResult{
 		AgentConfig:    config,
 		ConfigChange:   configChange,
+		DeleteMachines: deleteMachines,
+	}, nil
+}
+
+func replayAgentConfigChangeTx(
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	qtx *dbsqlc.Queries,
+	input ChangeAgentConfigInput,
+) (ChangeAgentConfigResult, error) {
+	row, err := qtx.GetAgentInputByIdempotency(ctx, dbsqlc.GetAgentInputByIdempotencyParams{
+		ProjectID: input.ProjectID, AgentID: input.AgentID,
+		IdempotencyScope: "agent_config_change", InputIdempotencyKey: input.IdempotencyKey,
+	})
+	if err != nil {
+		return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", err)
+	}
+	stored := agentInputRecordFromIdempotencySQLC(row)
+	if stored.State != "resolved" {
+		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
+	}
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, stored.AgentConfigID)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	eventRow, err := qtx.GetEventByProjectAgentIdempotencyKey(ctx, dbsqlc.GetEventByProjectAgentIdempotencyKeyParams{
+		ProjectID: input.ProjectID, AgentID: input.AgentID, IdempotencyKey: "agent_input:" + stored.ID.String(),
+	})
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	event, err := eventFromProjectIdempotencySQLC(eventRow)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	var deleteMachines []MachineRecord
+	for _, poolMachine := range poolMachines {
+		machine := poolMachine.Machine
+		if machine.LifecycleState == MachineLifecycleStateDeleting &&
+			machine.LifecycleReasonCode == "agent_config_machine_source_removed" {
+			deleteMachines = append(deleteMachines, machine)
+		}
+	}
+	if err := unit.Commit(ctx, "replay agent config change"); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	return ChangeAgentConfigResult{
+		AgentConfig:    config,
+		ConfigChange:   AgentConfigChangeRecord{AgentInput: stored, Event: event},
 		DeleteMachines: deleteMachines,
 	}, nil
 }

@@ -172,16 +172,21 @@ func TestCustomIntegrationPublicInputAuthorizationAndReplay(t *testing.T) {
 	require.Equal(t, created["agent_input"], repeated["agent_input"])
 	changed := customIntegrationHTTPInput()
 	changed["content_blocks"] = []any{map[string]any{"type": "text", "text": "Different content"}}
-	requestJSONWithHeaders(
+	retried := requestJSONWithHeaders(
 		t,
 		f.handler,
 		http.MethodPost,
 		f.path+"/inputs",
 		integrationHTTPJSON(t, changed),
 		"event",
-		http.StatusConflict,
+		http.StatusOK,
 		authHeaders(token),
 	)
+	require.Equal(t, created["agent_input"], retried["agent_input"])
+	var count int
+	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, f.agent.ID).Scan(&count))
+	require.Equal(t, 1, count)
 }
 
 func TestCustomIntegrationPublicInputRejectsOrigin(t *testing.T) {

@@ -251,10 +251,12 @@ func TestIntegrationSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) 
 	require.False(t, replayed.Created)
 	require.Equal(t, removed.AgentConfig.ID, replayed.Agent.CurrentConfigID)
 	require.Empty(t, f.subscriptions(t, launch.Agent.ID), "old replays cannot restore subscriptions")
-	conflict := update
-	conflict.Reason = "different intent"
-	_, err = f.store.Execution().ChangeAgentConfig(f.ctx, conflict)
-	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	retry := update
+	retry.Reason = "different intent"
+	retried, err := f.store.Execution().ChangeAgentConfig(f.ctx, retry)
+	require.NoError(t, err)
+	require.Equal(t, old, retried)
+	require.Empty(t, f.subscriptions(t, launch.Agent.ID))
 }
 
 func TestIntegrationSubscriptionsRejectCrossIntegrations(t *testing.T) {

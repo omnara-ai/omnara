@@ -67,20 +67,7 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 				ID: input.ID, Scope: optionalText(input.IdempotencyScope), Key: optionalText(input.IdempotencyKey)},
 		)
 		if err == nil {
-			if existing.InputKind != "content" || existing.DeliveryMode != input.DeliveryMode ||
-				valueOrZero(existing.ActorID) != input.ActorID ||
-				valueOrZero(existing.IntegrationTargetID) != input.IntegrationTargetID ||
-				!equalJSON(existing.Metadata, metadata) {
-				return ReceivedContent{}, storeerr.ErrIdempotencyConflict
-			}
-			return ReceivedContent{
-				ID: existing.ID,
-			}, h.contentMatches(
-				ctx,
-				existing.ID,
-				uuid.Nil,
-				input.Content,
-			)
+			return ReceivedContent{ID: existing.ID}, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return ReceivedContent{}, err

@@ -58,10 +58,6 @@ func (h *Handle) ActivateConfig(ctx context.Context, input ActivateConfigInput) 
 				ID: input.ID, Scope: optionalText("agent_config_change"), Key: optionalText(input.IdempotencyKey)},
 		)
 		if err == nil {
-			if existing.InputKind != "config_change" || valueOrZero(existing.AgentConfigID) != input.ConfigID ||
-				valueOrZero(existing.ActorID) != input.ActorID || !equalJSON(existing.Metadata, metadata) {
-				return ActivatedConfig{}, storeerr.ErrIdempotencyConflict
-			}
 			if existing.State != "resolved" {
 				return ActivatedConfig{}, storeerr.ErrStateTransitionConflict
 			}

@@ -158,15 +158,6 @@ func createAgentContentInputTx(
 			return createAgentContentInputTxResult{}, err
 		}
 		if found {
-			existingActorID, actorFound, err := lookupActorIDTx(
-				ctx,
-				qtx,
-				input.ProjectID,
-				input.Actor,
-			)
-			if err != nil {
-				return createAgentContentInputTxResult{}, err
-			}
 			existingContentBlocksByInput, err := agentInputContentBlocks(
 				ctx,
 				qtx,
@@ -177,22 +168,9 @@ func createAgentContentInputTx(
 			if err != nil {
 				return createAgentContentInputTxResult{}, err
 			}
-			existingContentBlocks := existingContentBlocksByInput[existingInput.ID]
-			replayContent, err := matchPreparedInputContent(ctx, qtx, input, contentBlocks, existingContentBlocks)
-			if err != nil {
-				return createAgentContentInputTxResult{}, err
-			}
-			if !actorFound ||
-				existingInput.DeliveryMode != input.DeliveryMode ||
-				existingInput.ActorID != existingActorID ||
-				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
-				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
-				!sameJSON(existingContentBlocks, replayContent) {
-				return createAgentContentInputTxResult{}, storeerr.ErrIdempotencyConflict
-			}
 			return createAgentContentInputTxResult{
 				agentInput:    existingInput,
-				contentBlocks: existingContentBlocks,
+				contentBlocks: existingContentBlocksByInput[existingInput.ID],
 			}, nil
 		}
 	}

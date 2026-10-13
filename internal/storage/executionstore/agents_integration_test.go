@@ -1008,16 +1008,16 @@ model:
 		replayed.ConfigChange.Event.ID != change.ConfigChange.Event.ID {
 		t.Fatalf("unexpected replayed change: original=%+v replay=%+v", change, replayed)
 	}
-	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+	retried, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(change.AgentConfig),
 		AgentID:                launch.Agent.ID,
 		ActorType:              identitystore.PrincipalTypeUser,
 		ActorID:                otherUser.ID,
 		Reason:                 "user_update",
 		IdempotencyKey:         "idem-config-change",
-	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("config change replay by a different actor should conflict, got %v", err)
-	}
+	})
+	require.NoError(t, err)
+	require.Equal(t, replayed, retried)
 	secondYAML := `
 instruction: Second updated instruction.
 model:
@@ -1072,23 +1072,21 @@ model:
 			secondChange,
 		)
 	}
-	conflictInput := changeInputFromRecord(secondChange.AgentConfig)
-	if _, err := store.Execution().ChangeAgentConfig(
-		ctx,
-		executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: conflictInput,
-			AgentID:                launch.Agent.ID,
-			ActorType:              identitystore.PrincipalTypeUser,
-			ActorID:                user.ID,
-			Reason:                 "user_update",
-			IdempotencyKey:         "idem-config-change",
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("expected config change idempotency conflict, got %v", err)
-	}
+	retried, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(secondChange.AgentConfig),
+		AgentID:                launch.Agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                user.ID,
+		Reason:                 "user_update",
+		IdempotencyKey:         "idem-config-change",
+	})
+	require.NoError(t, err)
+	require.Equal(t, replayedOld, retried)
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='config_change'`,
+		launch.Agent.ID).Scan(&count))
+	require.Equal(t, 3, count)
 }
 
 func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {

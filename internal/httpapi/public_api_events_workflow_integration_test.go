@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -937,16 +938,19 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	if testutil.RequireType[map[string]any](t, replayed["agent_input"])["id"] != firstInputID {
 		t.Fatalf("expected idempotent replay, got %+v", replayed)
 	}
-	requestJSONWithHeaders(
+	retried := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/inputs",
 		`{"content_blocks":[{"type":"text","text":"first"}]}`,
 		"idem-input-first",
-		http.StatusConflict,
+		http.StatusOK,
 		authHeaders(otherPAT.Token),
 	)
+	if !reflect.DeepEqual(replayed["agent_input"], retried["agent_input"]) {
+		t.Fatalf("different actor replay changed input: first=%+v replay=%+v", replayed, retried)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

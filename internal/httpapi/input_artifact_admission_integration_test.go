@@ -154,8 +154,8 @@ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_input_commit(
 				require.Equal(t, original, replay)
 				changed := strings.ReplaceAll(body, base64.StdEncoding.EncodeToString(testPNGBytes),
 					base64.StdEncoding.EncodeToString([]byte("other")))
-				conflict := send(changed, "replay", http.StatusConflict)
-				require.Equal(t, "idempotency_key_conflict", conflict["code"])
+				retried := send(changed, "replay", http.StatusOK)
+				require.Equal(t, original, retried)
 				check(2)
 				return
 			}

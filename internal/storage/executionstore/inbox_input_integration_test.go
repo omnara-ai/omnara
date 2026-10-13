@@ -644,8 +644,11 @@ func TestOrdinaryContentInputExternalActorClearsSelectionOnAdmissionAndRejectsOr
 	require.NoError(t, err)
 	require.Equal(t, "other", selection.HandlerKey)
 	input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"Changed retry"}]`)
-	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, input)
-	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	retried, content, created, err := f.store.Execution().CreateAgentContentInput(f.ctx, input)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, replayed, retried)
+	require.JSONEq(t, `[{"type":"text","text":"External application input"}]`, string(content))
 	input.Origin = &executionstore.AgentInputOrigin{
 		IntegrationID: f.integration.ID,
 		Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ScopeRef},

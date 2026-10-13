@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
@@ -235,9 +234,10 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			require.Equal(t, accepted.AgentConfig.ID, replayed.AgentConfig.ID)
 			require.Equal(t, accepted.ConfigChange.AgentInput.ID, replayed.ConfigChange.AgentInput.ID)
 			require.Equal(t, accepted.ConfigChange.Event.ID, replayed.ConfigChange.Event.ID)
-			input.Reason = "conflicting replay"
-			_, err = f.store.Execution().IntegrationChangeAgentConfigOnce(ctx, input)
-			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+			input.Reason = "changed replay"
+			retried, err := f.store.Execution().IntegrationChangeAgentConfigOnce(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, replayed, retried)
 			current, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, launch.Agent.ID)
 			require.NoError(t, err)
 			require.Equal(

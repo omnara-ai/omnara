@@ -231,12 +231,24 @@ func TestExecutionCommandRollbackAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, replay.Created)
 	require.Equal(t, first.ID, replay.ID)
-	require.NoError(t, u.Commit(t.Context(), "before rejected command"))
+	require.NoError(t, u.Commit(t.Context(), "before changed replay"))
 	u, h = f.handle(t, a)
+	input.ID = uuid.New()
 	input.Content[0].Text = "different"
-	_, err = h.ReceiveContent(t.Context(), input)
-	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
-	require.NoError(t, u.Rollback(t.Context()))
+	input.DeliveryMode = "steering"
+	replay, err = h.ReceiveContent(t.Context(), input)
+	require.NoError(t, err)
+	require.False(t, replay.Created)
+	require.Equal(t, first.ID, replay.ID)
+	require.NoError(t, u.Commit(t.Context(), "changed replay"))
+	var count int
+	var text string
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, a).Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT text_content FROM content_blocks WHERE owner_agent_input_id=$1`, first.ID).Scan(&text))
+	require.Equal(t, "one", text)
 	u, h = f.handle(t, a)
 	input.Content[0].Text = "one"
 	replay, err = h.ReceiveContent(t.Context(), input)
