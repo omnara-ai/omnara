@@ -14,16 +14,17 @@ import (
 )
 
 const (
-	Arker     = "arker"
-	Blaxel    = "blaxel"
-	Boxd      = "boxd"
-	CreateOS  = "createos"
-	Daytona   = "daytona"
-	E2B       = "e2b"
-	Freestyle = "freestyle"
-	Modal     = "modal"
-	Tenki     = "tenki"
-	Unikraft  = "unikraft"
+	Arker      = "arker"
+	Blaxel     = "blaxel"
+	Boxd       = "boxd"
+	CreateOS   = "createos"
+	Daytona    = "daytona"
+	E2B        = "e2b"
+	Freestyle  = "freestyle"
+	Modal      = "modal"
+	Superserve = "superserve"
+	Tenki      = "tenki"
+	Unikraft   = "unikraft"
 )
 
 type RuntimeConfig struct {

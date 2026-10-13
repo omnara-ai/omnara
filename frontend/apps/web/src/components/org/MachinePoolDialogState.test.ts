@@ -261,6 +261,68 @@ describe('E2B machine pools', () => {
   })
 })
 
+describe('Superserve machine pools', () => {
+  it('creates a pool on the omnara template with limits derived from its size', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'superserve'),
+      name: 'superserve-pool',
+      maxMachines: '4',
+      secretId: 'sec_superserve',
+    }
+    expect(values).toMatchObject({ image: '', cpu: '2', memoryGb: '4' })
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'superserve',
+      default_machine_provider_options: {},
+      max_total_cpu: 8,
+      max_total_memory_mb: 16384,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request).not.toHaveProperty('default_machine_memory_mb')
+  })
+
+  it('sends a custom template and edits it while preserving API-only options', () => {
+    const created = machinePoolCreateRequest({
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'superserve'),
+      name: 'superserve-pool',
+      image: ' acme/agent-box ',
+      cpu: '2',
+      memoryGb: '2',
+      maxMachines: '2',
+      secretId: 'sec_superserve',
+    })
+    expect(created.default_machine_provider_options).toEqual({ template: 'acme/agent-box' })
+    expect(created).toMatchObject({ max_machine_cpu: 2, max_machine_memory_mb: 2048 })
+
+    const pool = machinePool({
+      provider: 'superserve',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        template: 'acme/agent-box',
+        startup_script: 'echo ready',
+      },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 2048,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Superserve pool form')
+    expect(values).toMatchObject({ image: 'acme/agent-box', cpu: '2', memoryGb: '2' })
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      cpu: '1',
+      memoryGb: '1',
+    })
+    expect(request.default_machine_provider_options).toEqual({ startup_script: 'echo ready' })
+    expect(request).toMatchObject({ max_machine_cpu: 1, max_machine_memory_mb: 1024 })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',
@@ -758,6 +820,7 @@ it('lists providers alphabetically', () => {
     'E2B',
     'Freestyle',
     'Modal',
+    'Superserve',
     'Tenki',
     'Unikraft',
   ])
