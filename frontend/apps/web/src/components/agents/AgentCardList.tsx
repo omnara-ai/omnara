@@ -17,6 +17,10 @@ import type { AgentIconSpec } from '@/lib/agent-icon'
 import { formatDateTime, formatTimeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+/** "View all" link at the foot of a card's preview list. */
+export const agentCardMoreLinkClass =
+  'text-muted-foreground hover:text-foreground relative inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:underline'
+
 export const agentCardLinkClass =
   'truncate font-medium outline-none underline-offset-2 after:absolute after:inset-0 after:rounded-xl hover:underline'
 

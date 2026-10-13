@@ -41,6 +41,7 @@ WITH listed AS (
  JOIN machine_pools pool ON pool.org_id = g.org_id AND pool.id = g.machine_pool_id AND pool.deleted_at IS NULL
  WHERE g.org_id = sqlc.arg(org_id) AND g.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(name_pattern)::text = '' OR pool.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
+  AND (sqlc.narg(machine_pool_id)::uuid IS NULL OR g.machine_pool_id = sqlc.narg(machine_pool_id)::uuid)
 )
 SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu,
  default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay,

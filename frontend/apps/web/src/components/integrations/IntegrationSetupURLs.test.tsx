@@ -92,9 +92,6 @@ it('shows all four events and the public URL in advanced GitHub setup with a sep
     api_url: 'https://public-api.example/api/v1',
     public_url: 'https://public-dashboard.example',
   })
-  act(() => {
-    button('Advanced').click()
-  })
   await waitForUI(() => {
     expect(container.textContent).toContain(
       'https://public-dashboard.example/api/integrations/github/events',
@@ -122,9 +119,6 @@ it.each([
         public_url: 'https://public-dashboard.example',
       },
     )
-    act(() => {
-      button('Advanced').click()
-    })
     await waitForUI(() => {
       expect(container.textContent).toContain(
         `https://public-dashboard.example/api/integrations/discord/${expectedId}/interactions`,

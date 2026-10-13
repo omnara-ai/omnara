@@ -194,6 +194,15 @@ DELETE FROM skill_grants
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
 RETURNING id, org_id, skill_id, target_project_id, created_at;
 
+-- name: ListSkillGrantTargetProjectIDs :many
+SELECT sg.target_project_id
+FROM skill_grants sg
+JOIN projects project ON project.org_id = sg.org_id
+  AND project.id = sg.target_project_id
+  AND project.deleted_at IS NULL
+WHERE sg.org_id = sqlc.arg(org_id) AND sg.skill_id = sqlc.arg(skill_id)
+ORDER BY sg.target_project_id;
+
 -- name: SkillAvailableToProject :one
 SELECT EXISTS (
   SELECT 1

@@ -525,6 +525,73 @@ func (q *Queries) ListIntegrationsByProviderIdentity(ctx context.Context, arg Li
 	return items, nil
 }
 
+const listIntegrationsForProjects = `-- name: ListIntegrationsForProjects :many
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_kind, settings, setup_revision
+FROM integrations
+WHERE project_id = ANY($1::uuid[]) AND deleted_at IS NULL
+  AND ($2::text = '' OR name ILIKE $2::text ESCAPE '\')
+  AND (NOT $3::boolean OR (created_at, id) < ($4::timestamptz, $5::uuid))
+ORDER BY created_at DESC, id DESC
+LIMIT $6
+`
+
+type ListIntegrationsForProjectsParams struct {
+	ProjectIds      []uuid.UUID
+	NamePattern     string
+	CursorSet       bool
+	CursorCreatedAt time.Time
+	CursorID        uuid.UUID
+	RowLimit        int32
+}
+
+func (q *Queries) ListIntegrationsForProjects(ctx context.Context, arg ListIntegrationsForProjectsParams) ([]Integration, error) {
+	rows, err := q.db.Query(ctx, listIntegrationsForProjects,
+		arg.ProjectIds,
+		arg.NamePattern,
+		arg.CursorSet,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Integration{}
+	for rows.Next() {
+		var i Integration
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.InstalledByUserID,
+			&i.State,
+			&i.ProviderTenantID,
+			&i.ProviderAccountRef,
+			&i.ProviderAgentDisplayName,
+			&i.CredentialSecretID,
+			&i.ProviderConfig,
+			&i.ProviderIdentity,
+			&i.ProviderMetadata,
+			&i.LastOauthFlowID,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Name,
+			&i.IntegrationKind,
+			&i.Settings,
+			&i.SetupRevision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockIntegration = `-- name: LockIntegration :one
 SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_kind, settings, setup_revision
 FROM integrations

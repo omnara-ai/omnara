@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 
 import { NavExternalLink, type NavItem, NavSection } from '@/components/app-shell/NavSection'
 import {
+  BoltIcon,
   Bot,
   Box,
   Brain,
@@ -15,11 +16,14 @@ import {
   Sparkles,
   Users,
 } from '@/components/icons'
+import { canManageOrg } from '@/lib/permissions'
+import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
 export function OrganizationNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { data: webConfig } = useWebConfig()
+  const { activeOrg } = useActiveOrg()
 
   function item(
     to: LinkProps['to'] & string,
@@ -27,7 +31,14 @@ export function OrganizationNav() {
     icon: ComponentType<{ className?: string }>,
     emphasized = false,
   ): NavItem {
-    return { id: to, to, label, icon, emphasized, isActive: pathname === to }
+    return {
+      id: to,
+      to,
+      label,
+      icon,
+      emphasized,
+      isActive: pathname === to || (to !== '/' && pathname.startsWith(`${to}/`)),
+    }
   }
 
   return (
@@ -37,6 +48,7 @@ export function OrganizationNav() {
         items={[
           item('/', 'Overview', House, true),
           item('/agents', 'Agents', Bot, true),
+          item('/integrations', 'Integrations', BoltIcon, true),
           item('/usage', 'Usage', ChartBar, true),
         ]}
       >
@@ -58,7 +70,7 @@ export function OrganizationNav() {
         label="Access"
         items={[
           item('/members', 'Members', Users),
-          item('/user/api-tokens', 'API Tokens', Fingerprint),
+          ...(canManageOrg(activeOrg.role) ? [item('/api-tokens', 'API Tokens', Fingerprint)] : []),
         ]}
       />
     </>

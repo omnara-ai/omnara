@@ -28,7 +28,7 @@ export function PersonalAccessTokensSection({ actions }: { actions?: ReactNode }
 
   return (
     <div className="flex flex-col gap-3">
-      <SearchHeader title="Personal access tokens" guide={guides.apiTokens}>
+      <SearchHeader title="Personal tokens" guide={guides.apiTokens}>
         {actions}
         {createButton}
       </SearchHeader>

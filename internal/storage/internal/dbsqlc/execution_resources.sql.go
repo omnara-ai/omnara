@@ -1222,6 +1222,35 @@ func (q *Queries) GetMachinePoolForLifecycle(ctx context.Context, arg GetMachine
 	return i, err
 }
 
+const getMachinePoolUsage = `-- name: GetMachinePoolUsage :one
+SELECT count(*)::integer AS active_machines,
+       coalesce(sum(cpu), 0)::bigint AS active_cpu,
+       coalesce(sum(memory_mb), 0)::bigint AS active_memory_mb
+FROM machines
+WHERE org_id = $1
+  AND machine_pool_id = $2::uuid
+  AND source_kind = 'pool'
+  AND deleted_at IS NULL
+`
+
+type GetMachinePoolUsageParams struct {
+	OrgID         uuid.UUID
+	MachinePoolID uuid.UUID
+}
+
+type GetMachinePoolUsageRow struct {
+	ActiveMachines int32
+	ActiveCpu      int64
+	ActiveMemoryMb int64
+}
+
+func (q *Queries) GetMachinePoolUsage(ctx context.Context, arg GetMachinePoolUsageParams) (GetMachinePoolUsageRow, error) {
+	row := q.db.QueryRow(ctx, getMachinePoolUsage, arg.OrgID, arg.MachinePoolID)
+	var i GetMachinePoolUsageRow
+	err := row.Scan(&i.ActiveMachines, &i.ActiveCpu, &i.ActiveMemoryMb)
+	return i, err
+}
+
 const getPoolGrantConfigValidationContext = `-- name: GetPoolGrantConfigValidationContext :one
 SELECT pool.provider,
        pool.management_kind AS pool_management_kind,

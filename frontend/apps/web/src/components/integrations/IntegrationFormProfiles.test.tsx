@@ -1,14 +1,7 @@
 /** @vitest-environment happy-dom */
 
-import { OmnaraClientProvider } from '@omnara/react'
-import {
-  type AgentProfileSummary,
-  createOmnaraClient,
-  type CronTrigger,
-  type Integration,
-  schemas,
-} from '@omnara/sdk'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { type AgentProfileSummary, type CronTrigger, type Integration, schemas } from '@omnara/sdk'
+import { QueryClient } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -85,18 +78,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 function render(api: FakeApi, node: ReactNode) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-  const rerender = (next: ReactNode) => {
-    act(() => {
-      root.render(
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>{next}</QueryClientProvider>
-        </OmnaraClientProvider>,
-      )
-    })
-  }
-  rerender(node)
-  return { rerender }
+  const rendered = renderIntegration(root, api, node)
+  cache = rendered.cache
+  return rendered
 }
 function profilePicker(scope: ParentNode | null = container) {
   const label = [...(scope?.querySelectorAll('label') ?? [])].find(

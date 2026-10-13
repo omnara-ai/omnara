@@ -1,6 +1,6 @@
 import { useCreateSecret } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
-import { type KeyboardEvent, useState } from 'react'
+import { type KeyboardEvent, useId, useState } from 'react'
 
 import { AWSCredentialsSecretFields } from '@/components/org/AWSCredentialsSecretFields'
 import {
@@ -95,6 +95,7 @@ function InlineNewSecretFields({
   onCancel: () => void
   onCreated: (secret: Secret) => void
 }) {
+  const headingId = useId()
   const createSecret = useCreateSecret(orgId)
   const [name, setName] = useState(defaultName)
   const [secretValue, setSecretValue] = useState('')
@@ -132,9 +133,12 @@ function InlineNewSecretFields({
 
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <div className="grid gap-3 rounded-md border p-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+      {/* A heading, not a <label>: it names the group of inputs below rather than one control. */}
+      <span id={headingId} className="type-label">
+        {label}
+      </span>
+      <div role="group" aria-labelledby={headingId} className="grid gap-3 rounded-md border p-3">
+        <div className="grid gap-3">
           <Field>
             <FieldLabel htmlFor="credential-secret-name">Secret name</FieldLabel>
             <Input

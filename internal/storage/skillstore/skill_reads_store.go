@@ -53,7 +53,11 @@ func (s *Store) GetVisibleSkill(
 	if err != nil {
 		return SkillRecord{}, err
 	}
-	if err := s.authorizeSkillRead(ctx, record, actor); err != nil {
+	err = s.authorizeSkillRead(ctx, record, actor)
+	if errors.Is(err, storeerr.ErrUnauthorized) {
+		err = s.authorizeSharedSkillRead(ctx, record, actor)
+	}
+	if err != nil {
 		if errors.Is(err, storeerr.ErrUnauthorized) {
 			return SkillRecord{}, storeerr.ErrNotFound
 		}

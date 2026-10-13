@@ -91,6 +91,7 @@ export function IntegrationCreateSetup({
       to: '/projects/$projectId/integrations/$integrationId',
       replace: true,
       params: { projectId, integrationId: integration.id },
+      ignoreBlocker: true,
     })
   const selected = integrationCatalog.find(
     (integration) => integration.integrationKind === integrationKind,

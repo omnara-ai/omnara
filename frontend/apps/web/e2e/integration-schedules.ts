@@ -1,7 +1,7 @@
 import { type Integration, schemas } from '@omnara/sdk'
 import { expect, type Page } from '@playwright/test'
 
-import { readIntegration } from './fixtures'
+import { openIntegrationTab, readIntegration } from './fixtures'
 
 export async function exerciseDiscordIntegrationSchedule(
   page: Page,
@@ -17,6 +17,7 @@ export async function exerciseDiscordIntegrationSchedule(
   ).toBeVisible()
   await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
   const name = `${integration.name} schedule`
+  await openIntegrationTab(page, 'Schedules')
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })
   await schedules.getByRole('button', { name: 'Add schedule', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: 'Add cron schedule', exact: true })
@@ -117,6 +118,7 @@ export async function exerciseDiscordIntegrationSchedule(
   expect(
     (await readIntegration(page, apiProjectPath, integration.id)).settings.launcher,
   ).toBeUndefined()
+  await openIntegrationTab(page, 'Mentions')
   await expect(
     mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
   ).toBeVisible()

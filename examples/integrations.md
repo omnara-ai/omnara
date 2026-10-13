@@ -43,9 +43,10 @@ internal tool, or a small UI built for it. Launch agents from the profile and
 stream their replies with the TypeScript SDK (`@omnara/sdk`) or the
 [REST API](https://docs.omnara.com/api-reference/openapi.yaml). Anything else
 that can call the API, such as a webhook, a CI job, or a script, can start the
-agent the same way. The app needs an org API key: the user creates one on the
-dashboard's **API Tokens** page (**Organization** tab → **New token**), then
-grants it a role on this project from the key's detail panel.
+agent the same way. The app needs an org API key: an org admin creates one in
+the dashboard (with **All projects** selected in the project switcher, **API
+Tokens** under **Access** → **New token**), then grants it a role on this
+project from the key's detail panel.
 
 ## Slack
 
