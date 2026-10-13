@@ -706,14 +706,12 @@ func protectedResourceMetadataURLs(metadataURL, resourceURL string) []protectedR
 	rootMetadataURL.Path = "/.well-known/oauth-protected-resource"
 	rootMetadataURL.RawQuery = ""
 	rootMetadataURL.Fragment = ""
-	candidates = append(
+	rootResource := canonicalResourceURI(rootResourceURL.String())
+	return append(
 		candidates,
-		protectedResourceMetadataURL{
-			URL:      rootMetadataURL.String(),
-			Resource: canonicalResourceURI(rootResourceURL.String()),
-		},
+		protectedResourceMetadataURL{URL: rootMetadataURL.String(), Resource: rootResource},
+		protectedResourceMetadataURL{URL: rootMetadataURL.String(), Resource: rootResource + "/"},
 	)
-	return candidates
 }
 
 func resourceMetadataURLFromChallenges(challenges []oauthex.Challenge) string {

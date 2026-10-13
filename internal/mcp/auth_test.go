@@ -509,6 +509,22 @@ func TestDetectAuthFallsBackToRootProtectedResourceMetadata(t *testing.T) {
 	}
 }
 
+func TestDetectAuthAcceptsRootProtectedResourceWithTrailingSlash(t *testing.T) {
+	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{
+		PKCE:                  true,
+		ServeRootMetadataOnly: true,
+		ResourceTrailingSlash: true,
+	})
+
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if err != nil {
+		t.Fatalf("DetectAuth: %v", err)
+	}
+	if want := ts.URL + "/"; req.Resource != want {
+		t.Fatalf("Resource = %q, want %q", req.Resource, want)
+	}
+}
+
 func TestDetectAuthFallsBackToNextAuthorizationServer(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{PKCE: true, BrokenFirstIssuer: true})
 
@@ -795,6 +811,7 @@ type oauthMCPTestConfig struct {
 	BasicAuthRejectionStatus      int
 	FailGrantsWith                string
 	ServeRootMetadataOnly         bool
+	ResourceTrailingSlash         bool
 	BrokenFirstIssuer             bool
 	MetadataIssuer                string
 	MultiTenantIssuerAlias        bool
@@ -842,6 +859,9 @@ func newOAuthMCPTestServer(t *testing.T, cfg oauthMCPTestConfig) *oauthMCPTestSe
 	resource := server.URL + "/mcp"
 	if cfg.ServeRootMetadataOnly {
 		resource = server.URL
+	}
+	if cfg.ResourceTrailingSlash {
+		resource += "/"
 	}
 	issuerPath := "issuer"
 	if cfg.MultiTenantIssuerAlias {
