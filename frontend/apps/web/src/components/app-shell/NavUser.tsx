@@ -125,7 +125,7 @@ export function NavUser() {
             >
               <Link to="/user/api-tokens">
                 <Fingerprint />
-                <span className="translate-y-px">Personal access tokens</span>
+                <span className="translate-y-px">Personal tokens</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem

@@ -40,7 +40,7 @@ A missing or invalid token returns `401` with code `unauthorized`. A valid token
 
 Tokens are minted where a human can approve them — creating one is deliberately *not* possible with another API key:
 
-- **Dashboard** — open your account menu at the bottom of the sidebar, choose **Personal access tokens**, and click **New token**. The full token is shown once.
+- **Dashboard** — open your account menu at the bottom of the sidebar, choose **Personal tokens**, and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
 Only a hash is stored server-side, so save the token when it is shown.
@@ -148,4 +148,4 @@ Clients without OAuth support can pass a personal access token or org API key in
 
 ## Managing tokens
 
-The **Personal access tokens** page in your account menu — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
+The **Personal tokens** page in your account menu — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
