@@ -1,6 +1,5 @@
 import { useCheckMachinePoolConnection } from '@omnara/react'
 import type { MachinePool } from '@omnara/sdk'
-import type { ReactNode } from 'react'
 
 import { CircleCheck } from '@/components/icons'
 import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
@@ -262,33 +261,6 @@ function MachinePoolCredentialField({
   const request = machinePoolConnectionCheckRequest(values, savedProviderConfig)
   const current = JSON.stringify(connectionCheck.variables) === JSON.stringify(request)
   const missingScope = scope?.required === true && values.providerScope.trim() === ''
-  let status: ReactNode
-  if (current && connectionCheck.data?.status === 'ok') {
-    status = (
-      <FieldDescription className="text-success flex items-center gap-1.5">
-        <CircleCheck className="size-4" />
-        Connected
-      </FieldDescription>
-    )
-  } else if (current && connectionCheck.data?.status === 'failed') {
-    status = (
-      <>
-        <FieldError>{connectionCheck.data.error}</FieldError>
-        {connectionCheck.data.details && (
-          <details className="text-muted-foreground text-sm">
-            <summary>Details</summary>
-            <p className="break-words font-mono text-xs">{connectionCheck.data.details}</p>
-          </details>
-        )}
-      </>
-    )
-  } else if (current && connectionCheck.isError) {
-    status = (
-      <FieldError>
-        {errorMessage(connectionCheck.error, 'Could not test the connection')}
-      </FieldError>
-    )
-  }
   return (
     <CredentialSecretField
       key={values.provider}
@@ -320,9 +292,45 @@ function MachinePoolCredentialField({
           Test
         </Button>
       }
-      status={status}
+      status={current && <MachinePoolConnectionStatus connectionCheck={connectionCheck} />}
     />
   )
+}
+
+function MachinePoolConnectionStatus({
+  connectionCheck,
+}: {
+  connectionCheck: ReturnType<typeof useCheckMachinePoolConnection>
+}) {
+  if (connectionCheck.data?.status === 'ok') {
+    return (
+      <FieldDescription className="text-success flex items-center gap-1.5">
+        <CircleCheck className="size-4" />
+        Connected
+      </FieldDescription>
+    )
+  }
+  if (connectionCheck.data?.status === 'failed') {
+    return (
+      <>
+        <FieldError>{connectionCheck.data.error}</FieldError>
+        {connectionCheck.data.details && (
+          <details className="text-muted-foreground text-sm">
+            <summary>Details</summary>
+            <p className="break-words font-mono text-xs">{connectionCheck.data.details}</p>
+          </details>
+        )}
+      </>
+    )
+  }
+  if (connectionCheck.isError) {
+    return (
+      <FieldError>
+        {errorMessage(connectionCheck.error, 'Could not test the connection')}
+      </FieldError>
+    )
+  }
+  return null
 }
 
 /** What every machine starts with: working directory and environment variables. */
