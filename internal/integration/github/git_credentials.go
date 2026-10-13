@@ -22,7 +22,7 @@ type InstallationCredentials struct {
 
 // InstallationGitCredentials requires caller-owned live authorization checks
 // before and after every call, including cache hits.
-func (c *Client) InstallationGitCredentials(ctx context.Context) (InstallationCredentials, error) {
+func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (InstallationCredentials, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	select {
@@ -34,8 +34,12 @@ func (c *Client) InstallationGitCredentials(ctx context.Context) (InstallationCr
 	if err := ctx.Err(); err != nil {
 		return InstallationCredentials{}, err
 	}
-	if c.gitCredentials.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
-		return c.gitCredentials, nil
+	index := 0
+	if write {
+		index = 1
+	}
+	if c.gitCredentials[index].ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
+		return c.gitCredentials[index], nil
 	}
 	jwt, err := c.appJWT()
 	if err != nil {
@@ -45,8 +49,12 @@ func (c *Client) InstallationGitCredentials(ctx context.Context) (InstallationCr
 		InstallationCredentials
 		Permissions map[string]string `json:"permissions"`
 	}
+	var input any
+	if !write {
+		input = map[string]map[string]string{"permissions": {"contents": "read", "metadata": "read"}}
+	}
 	path := "/app/installations/" + strconv.FormatInt(c.installationID, 10) + "/access_tokens"
-	if _, err := c.doJSON(ctx, http.MethodPost, path, jwt, nil, &result, false); err != nil {
+	if _, err := c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false); err != nil {
 		return InstallationCredentials{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -64,6 +72,6 @@ func (c *Client) InstallationGitCredentials(ctx context.Context) (InstallationCr
 		_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", result.Token, jsonMediaType, nil, true)
 		return InstallationCredentials{}, ErrContentsPermissionRequired
 	}
-	c.gitCredentials = result.InstallationCredentials
-	return c.gitCredentials, nil
+	c.gitCredentials[index] = result.InstallationCredentials
+	return c.gitCredentials[index], nil
 }

@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +39,7 @@ type daemonGitCredentialsFixture struct {
 	disabled, process  daemonProcessFixture
 	base, enabled      executionstore.AgentConfigRecord
 	minted             atomic.Int32
+	mintBody           atomic.Value
 	duringIssuance     func()
 	contentsPermission string
 	providerStatus     int
@@ -54,7 +56,16 @@ func newDaemonGitCredentialsFixture(t *testing.T) *daemonGitCredentialsFixture {
 			return &http.Response{StatusCode: http.StatusNoContent, Header: http.Header{},
 				Body: http.NoBody, Request: r}, nil
 		}
-		if strings.HasSuffix(r.URL.Path, "/access_tokens") && r.ContentLength == 0 {
+		var body []byte
+		if r.Body != nil {
+			var err error
+			if body, err = io.ReadAll(r.Body); err != nil {
+				return nil, err
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		if strings.HasSuffix(r.URL.Path, "/access_tokens") && (len(body) == 0 || bytes.Contains(body, []byte(`"contents"`))) {
+			f.mintBody.Store(string(body))
 			count := f.minted.Add(1)
 			if f.providerStatus != 0 {
 				return &http.Response{
@@ -377,6 +388,25 @@ func TestDaemonGitCredentialsRotationCannotFallBackToCachedTokenWithoutContentsP
 	require.Contains(t, recovered.Body.String(), "git-installation-token-3")
 	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	require.EqualValues(t, 3, f.minted.Load(), "permission failures are not cached; restored access is cached")
+}
+
+func TestDaemonGitCredentialsReadOnlyUnlessIntegrationAllowsCodeWrite(t *testing.T) {
+	t.Parallel()
+	f := newDaemonGitCredentialsFixture(t)
+	f.accept(t, f.process)
+	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
+	requested, _ := f.mintBody.Load().(string)
+	require.JSONEq(t, `{"permissions":{"contents":"read","metadata":"read"}}`, requested)
+	_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
+		integrationstore.SaveIntegrationInput{
+			OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,
+			IntegrationKind: f.integration.IntegrationKind, Settings: json.RawMessage(`{"code_write":true}`),
+		})
+	require.NoError(t, err)
+	f.contentsPermission = "write"
+	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
+	require.Empty(t, f.mintBody.Load(), "code_write requests the installation's full permissions")
+	require.EqualValues(t, 2, f.minted.Load(), "read-only and write credentials are cached separately")
 }
 
 func TestDaemonGitCredentialsProviderFailureStatusAndRedaction(t *testing.T) {

@@ -57,7 +57,7 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 					"scoped-"+input.Permissions["pull_requests"], expires.Format(time.RFC3339))
 			})
 			client.now = func() time.Time { return time.Unix(clock.Load(), 0) }
-			first, err := client.InstallationGitCredentials(t.Context())
+			first, err := client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || first.Token != "full-1" || !first.ExpiresAt.Equal(now.Add(time.Hour)) {
 				t.Fatalf("initial credential issuance failed: %v", err)
 			}
@@ -67,12 +67,12 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 				}
 			}
 			clock.Store(now.Add(44*time.Minute + 59*time.Second).Unix())
-			cached, err := client.InstallationGitCredentials(t.Context())
+			cached, err := client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || cached != first || full.Load() != 1 {
 				t.Fatalf("credential cache miss before refresh margin: %v", err)
 			}
 			clock.Store(now.Add(45 * time.Minute).Unix())
-			refreshed, err := client.InstallationGitCredentials(t.Context())
+			refreshed, err := client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || refreshed.Token != "full-2" || full.Load() != 2 {
 				t.Fatalf("credential was not refreshed at the 15-minute margin: %v", err)
 			}
@@ -87,6 +87,40 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
+	var full, readOnly atomic.Int32
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body) == 0 {
+			gitCredentialResponse(w, fmt.Sprintf("full-%d", full.Add(1)), "write", time.Now().Add(time.Hour))
+			return
+		}
+		var input map[string]map[string]string
+		if json.Unmarshal(body, &input) != nil || len(input) != 1 || len(input["permissions"]) != 2 ||
+			input["permissions"]["contents"] != "read" || input["permissions"]["metadata"] != "read" {
+			t.Errorf("read-only Git credentials requested %s", body)
+		}
+		gitCredentialResponse(w, fmt.Sprintf("read-%d", readOnly.Add(1)), "read", time.Now().Add(time.Hour))
+	})
+	for range 2 {
+		read, err := client.InstallationGitCredentials(t.Context(), false)
+		if err != nil || read.Token != "read-1" {
+			t.Fatalf("read-only credentials were not issued: %v", err)
+		}
+		write, err := client.InstallationGitCredentials(t.Context(), true)
+		if err != nil || write.Token != "full-1" {
+			t.Fatalf("write credentials were not issued: %v", err)
+		}
+	}
+	if full.Load() != 1 || readOnly.Load() != 1 {
+		t.Fatal("read-only and write credentials must be cached separately")
 	}
 }
 
@@ -132,7 +166,7 @@ func TestInstallationGitCredentialsInvalidResponsesAndRecovery(t *testing.T) {
 				fmt.Fprintf(w, `{"token":%q,"expires_at":%q,"permissions":%s}`, tc.token, tc.expiry, permissions)
 			})
 			client.now = func() time.Time { return now }
-			result, err := client.InstallationGitCredentials(t.Context())
+			result, err := client.InstallationGitCredentials(t.Context(), true)
 			if err == nil || result != (InstallationCredentials{}) || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("invalid credential response was accepted or exposed: %v", err)
 			}
@@ -146,7 +180,7 @@ func TestInstallationGitCredentialsInvalidResponsesAndRecovery(t *testing.T) {
 					t.Fatal("malformed token response must not be used for revocation")
 				}
 			}
-			result, err = client.InstallationGitCredentials(t.Context())
+			result, err = client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || result.Token != "recovered" || calls.Load() != 2 {
 				t.Fatalf("invalid response was cached or prevented recovery: %v", err)
 			}
@@ -178,16 +212,16 @@ func TestInstallationGitCredentialsRevokesMissingContents(t *testing.T) {
 					w.WriteHeader(http.StatusNotFound)
 				}
 			})
-			result, err := client.InstallationGitCredentials(t.Context())
+			result, err := client.InstallationGitCredentials(t.Context(), true)
 			if !errors.Is(err, ErrContentsPermissionRequired) || result != (InstallationCredentials{}) ||
-				client.gitCredentials != (InstallationCredentials{}) {
+				client.gitCredentials != [2]InstallationCredentials{} {
 				t.Fatalf("cleanup changed the permission error or retained the rejected token: %v", err)
 			}
 			if minted.Load() != 1 || revoked.Load() != 1 {
 				t.Fatal("rejected token must receive exactly one best-effort revocation attempt")
 			}
 			for range 2 {
-				result, err = client.InstallationGitCredentials(t.Context())
+				result, err = client.InstallationGitCredentials(t.Context(), true)
 				if err != nil || result.Token != "usable-installation-token" {
 					t.Fatalf("credential issuance did not recover after permission approval: %v", err)
 				}
@@ -209,7 +243,7 @@ func TestInstallationGitCredentialsProviderErrorsDoNotLeak(t *testing.T) {
 				fmt.Fprintf(w, `{"message":%q,"token":"secret-provider-token"}`, r.Header.Get("Authorization"))
 			})
 			for range 2 {
-				result, err := client.InstallationGitCredentials(t.Context())
+				result, err := client.InstallationGitCredentials(t.Context(), true)
 				if err == nil || result != (InstallationCredentials{}) ||
 					strings.Contains(err.Error(), "secret-provider-token") || strings.Contains(err.Error(), "eyJ") {
 					t.Fatalf("provider error was accepted or exposed sensitive values: %v", err)
@@ -231,7 +265,7 @@ func TestInstallationGitCredentialsConcurrentRefresh(t *testing.T) {
 	var group sync.WaitGroup
 	for range 24 {
 		group.Go(func() {
-			result, err := client.InstallationGitCredentials(t.Context())
+			result, err := client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || result.Token != "shared-token" {
 				t.Errorf("concurrent credential issuance failed: %v", err)
 			}
@@ -243,7 +277,7 @@ func TestInstallationGitCredentialsConcurrentRefresh(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	result, err := client.InstallationGitCredentials(ctx)
+	result, err := client.InstallationGitCredentials(ctx, true)
 	if !errors.Is(err, context.Canceled) || result != (InstallationCredentials{}) {
 		t.Fatalf("canceled caller received cached credentials: %v", err)
 	}
@@ -271,7 +305,7 @@ func TestInstallationGitCredentialsRefreshCancellation(t *testing.T) {
 			defer cancel()
 			refreshed := make(chan error, 1)
 			go func() {
-				_, err := client.InstallationGitCredentials(refreshCtx)
+				_, err := client.InstallationGitCredentials(refreshCtx, true)
 				refreshed <- err
 			}()
 			select {
@@ -287,7 +321,7 @@ func TestInstallationGitCredentialsRefreshCancellation(t *testing.T) {
 			} else {
 				waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Millisecond)
 				defer cancelWait()
-				result, err := client.InstallationGitCredentials(waitCtx)
+				result, err := client.InstallationGitCredentials(waitCtx, true)
 				if !errors.Is(err, context.DeadlineExceeded) || result != (InstallationCredentials{}) {
 					t.Fatalf("waiting caller was not canceled: %v", err)
 				}
@@ -296,7 +330,7 @@ func TestInstallationGitCredentialsRefreshCancellation(t *testing.T) {
 					t.Fatalf("waiter cancellation interrupted refresh: %v", err)
 				}
 			}
-			result, err := client.InstallationGitCredentials(ctx)
+			result, err := client.InstallationGitCredentials(ctx, true)
 			wantCalls := int32(1)
 			if cancelRefresh {
 				wantCalls = 2

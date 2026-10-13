@@ -243,7 +243,7 @@ it.each([false, true])(
     const manifest = {
       name: 'reviewer',
       public: false,
-      default_permissions: { pull_requests: 'write', issues: 'read', contents: 'read' },
+      default_permissions: { pull_requests: 'write', issues: 'read', contents: 'write' },
       default_events: [
         'pull_request',
         'issue_comment',

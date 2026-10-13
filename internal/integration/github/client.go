@@ -43,7 +43,7 @@ type Client struct {
 	sharedTokens   *installationTokenCache
 	tokenIdentity  installationTokenIdentity
 	gitTokenGate   chan struct{}
-	gitCredentials InstallationCredentials
+	gitCredentials [2]InstallationCredentials
 }
 
 type appClient struct {

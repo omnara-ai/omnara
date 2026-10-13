@@ -15,6 +15,7 @@ export interface IntegrationFormValues {
   profileIds: string[]
   repositoryId: string
   trigger: GitHubIntegrationLauncher['trigger']
+  codeWrite: boolean
 }
 
 export function integrationFormValues(
@@ -29,6 +30,7 @@ export function integrationFormValues(
     profileIds: profileIntegrationProfiles(integration),
     repositoryId: github?.launcher?.repository_id ?? '',
     trigger: github?.launcher?.trigger ?? (integrationKind === 'github_pr' ? 'both' : 'mention'),
+    codeWrite: integration.settings.code_write === true,
   }
 }
 
@@ -40,6 +42,8 @@ export function integrationFormRequest(
   const enabled = integrationKind === 'github_pr' ? values.launcher : values.profileIds.length > 0
   const settings = { ...integration.settings }
   delete settings.launcher
+  delete settings.code_write
+  if (values.codeWrite) settings.code_write = true
   const configured = profileIntegrationSetup({
     integrationKind,
     name: integration.name,
