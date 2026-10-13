@@ -158,6 +158,36 @@ func (s *Store) authorizeSkillRead(
 	}
 }
 
+// authorizeSharedSkillRead lets a skill be read by anyone who can read a project it's shared
+// with, since that project's agents can already use it.
+func (s *Store) authorizeSharedSkillRead(
+	ctx context.Context,
+	skill SkillRecord,
+	actor identitystore.PrincipalRecord,
+) error {
+	projectIDs, err := s.q.ListSkillGrantTargetProjectIDs(ctx, dbsqlc.ListSkillGrantTargetProjectIDsParams{
+		OrgID: skill.OrgID, SkillID: skill.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("list skill grant projects: %w", err)
+	}
+	for _, projectID := range projectIDs {
+		allowed, err := s.access.AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
+			Principal: actor,
+			OrgID:     skill.OrgID,
+			ProjectID: projectID,
+			Action:    identitystore.ProjectActionRead,
+		})
+		if err != nil {
+			return err
+		}
+		if allowed {
+			return nil
+		}
+	}
+	return storeerr.ErrUnauthorized
+}
+
 func (s *Store) authorizeOrgSkillManage(
 	ctx context.Context,
 	orgID uuid.UUID,

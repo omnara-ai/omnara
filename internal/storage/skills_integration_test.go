@@ -91,11 +91,18 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	admin := createSecretTestUser(t, ctx, store, "Skills Admin", "admin")
 	developer := createSecretTestUser(t, ctx, store, "Skills Developer", "member")
 	other := createSecretTestUser(t, ctx, store, "Skills Other", "member")
+	viewer := createSecretTestUser(t, ctx, store, "Skills Viewer", "member")
 	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 		OrgID: testOrgID, ProjectID: testProjectID, UserID: developer.ID,
 		Role: "admin",
 	}); err != nil {
 		t.Fatalf("add developer project membership: %v", err)
+	}
+	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+		OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID,
+		Role: "viewer",
+	}); err != nil {
+		t.Fatalf("add viewer project membership: %v", err)
 	}
 
 	orgSkill := createIntegrationSkill(t, ctx, store, skillstore.CreateSkillInput{
@@ -286,10 +293,32 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("create project skill as non-member error = %v, want unauthorized", err)
 	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(viewer.ID),
+	); err != nil {
+		t.Fatalf("get shared user skill as target project viewer: %v", err)
+	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(other.ID),
+	); !storeerr.IsNotFound(err) {
+		t.Fatalf("get shared user skill as non-member error = %v, want not found", err)
+	}
+	if _, err := store.Skills().CreateSkillRevisionForSkill(ctx, skillstore.CreateSkillRevisionForSkillInput{
+		OrgID: testOrgID, SkillID: userSkill.ID, BaseRevisionID: userSkill.RevisionID,
+		Name: userSkill.Name, Description: "viewer edit", SkillMd: "# viewer edit",
+		ArchiveBytes: []byte("viewer edit"), Actor: userPrincipal(viewer.ID),
+	}); !storeerr.IsNotFound(err) {
+		t.Fatalf("revise shared user skill as viewer error = %v, want not found", err)
+	}
 	if _, err := store.Skills().DeleteSkillGrant(ctx, skillstore.DeleteSkillGrantInput{
 		OrgID: testOrgID, SkillID: userSkill.ID, GrantID: grant.ID, Actor: userPrincipal(developer.ID),
 	}); err != nil {
 		t.Fatalf("revoke user skill grant: %v", err)
+	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(viewer.ID),
+	); !storeerr.IsNotFound(err) {
+		t.Fatalf("get revoked user skill as viewer error = %v, want not found", err)
 	}
 	resolved, missing, err = store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
 		OrgID: testOrgID, ProjectID: testProjectID, IDs: []string{userSkillPublicID},
