@@ -40,7 +40,7 @@ export function SkillPage() {
           </Button>
         }
         onRemoved={() => {
-          void navigate({ to: '/skills', search: listSearch })
+          void navigate({ to: '/skills', search: listSearch, ignoreBlocker: true })
         }}
       />
     </div>

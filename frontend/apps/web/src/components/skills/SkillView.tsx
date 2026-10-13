@@ -10,6 +10,7 @@ import { UploadSkillVersionDialog } from '@/components/skills/UploadSkillVersion
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
 import { checkSkillMd } from '@/lib/skill-bundles'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -82,6 +83,7 @@ function useSkillMdDraft(orgId: string, skill: Skill) {
   const value = draftMd ?? currentMd
   const check = checkSkillMd(value, skill.name)
   const dirty = draftMd !== undefined && draftMd !== currentMd
+  useUnsavedChangesWarning(dirty, ({ current, next }) => current.pathname === next.pathname)
   return {
     value,
     check,

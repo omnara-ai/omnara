@@ -2,6 +2,7 @@ import { useUpdateIntegration } from '@omnara/react'
 import type { Integration, IntegrationKind } from '@omnara/sdk'
 import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
 import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
 import {
@@ -91,6 +92,7 @@ export function useIntegrationFormDraft({
   const { base, values, stale } = editor
   const dirty =
     JSON.stringify(values) !== JSON.stringify(integrationFormValues(integrationKind, base))
+  useUnsavedChangesWarning(dirty, ({ current, next }) => current.pathname === next.pathname)
   const busy = update.isPending
   if (integration !== editor.source) {
     setEditor(observeIntegration(editor, integration, integrationKind, busy, dirty))

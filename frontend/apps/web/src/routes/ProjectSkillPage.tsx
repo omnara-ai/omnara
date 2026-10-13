@@ -57,6 +57,7 @@ export function ProjectSkillPage() {
                 to: '/projects/$projectId/skills',
                 params: { projectId },
                 search: listSearch,
+                ignoreBlocker: true,
               })
             }}
           />
