@@ -233,6 +233,10 @@ func (p *provider) InspectMachine(
 	return current.ID, true, nil
 }
 
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	return p.api.CheckConnection(ctx)
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID, machineID uuid.UUID,

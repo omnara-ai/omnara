@@ -1,6 +1,6 @@
 import { useCreateSecret } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
-import { type KeyboardEvent, useId, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useId, useState } from 'react'
 
 import { AWSCredentialsSecretFields } from '@/components/org/AWSCredentialsSecretFields'
 import {
@@ -26,6 +26,8 @@ export function CredentialSecretField({
   defaultSecretName = '',
   secretValuePlaceholder = 'sk-…',
   kind = 'generic',
+  action,
+  status,
 }: {
   orgId: string
   enabled: boolean
@@ -37,6 +39,8 @@ export function CredentialSecretField({
   defaultSecretName?: string
   secretValuePlaceholder?: string
   kind?: 'generic' | 'aws_credentials'
+  action?: ReactNode
+  status?: ReactNode
 }) {
   const [creating, setCreating] = useState(false)
   const [createdSecret, setCreatedSecret] = useState<Secret>()
@@ -56,6 +60,8 @@ export function CredentialSecretField({
         onCreateSecret={() => {
           setCreating(true)
         }}
+        action={action}
+        status={status}
       />
     )
   }

@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   derivedMemoryTotalCapPlaceholder,
+  machinePoolConnectionCheckRequest,
   machinePoolCreateRequest,
   machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
+  machinePoolProviders,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
 import { machinePoolFormValid } from './machinePoolValidation'
@@ -673,3 +675,37 @@ function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     ...overrides,
   }
 }
+
+describe('machine pool connection checks', () => {
+  it('checks the saved provider config with the form fields on top', () => {
+    const modal = machinePoolFormAfterProviderChange(
+      { ...machinePoolFormDefaults, secretId: 'secret_1' },
+      'modal',
+    )
+    expect(
+      machinePoolConnectionCheckRequest(
+        { ...modal, providerScope: 'agents' },
+        { app: 'omnara', environment: 'staging' },
+      ).provider_config,
+    ).toEqual({ app: 'agents', environment: 'staging' })
+    const arker = machinePoolFormAfterProviderChange(modal, 'arker')
+    expect(
+      machinePoolConnectionCheckRequest(arker, { api_base_url: 'https://arker.example/api' })
+        .provider_config,
+    ).toEqual({ api_base_url: 'https://arker.example/api' })
+  })
+})
+
+it('lists providers alphabetically', () => {
+  expect(machinePoolProviders.map((provider) => provider.label)).toEqual([
+    'Arker',
+    'Blaxel',
+    'boxd',
+    'CreateOS',
+    'Daytona',
+    'Freestyle',
+    'Modal',
+    'Tenki',
+    'Unikraft',
+  ])
+})

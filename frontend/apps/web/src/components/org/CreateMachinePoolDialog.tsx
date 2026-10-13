@@ -263,6 +263,8 @@ function stepSummaries(
   values: MachinePoolFormValues,
   secretName: string | undefined,
 ): Record<MachinePoolCreateStepId, ReactNode> {
+  const scope = values.providerScope.trim() && ` · ${values.providerScope.trim()}`
+  const scopeRequired = machinePoolProviderDefinitions[values.provider].scope?.required
   return {
     provider: (
       <>
@@ -273,6 +275,7 @@ function stepSummaries(
             <span className="font-mono">{secretName}</span>
           </>
         )}
+        {scopeRequired && scope}
       </>
     ),
     image: (
@@ -282,7 +285,7 @@ function stepSummaries(
         ) : (
           `Default ${machinePoolProviderDefinitions[values.provider].resource.label.toLowerCase()}`
         )}
-        {values.providerScope.trim() && ` · ${values.providerScope.trim()}`}
+        {!scopeRequired && scope}
       </>
     ),
     capacity: (

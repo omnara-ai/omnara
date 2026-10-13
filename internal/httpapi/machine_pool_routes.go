@@ -3,10 +3,15 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -147,6 +152,69 @@ func (s strictOpenAPIServer) CreateMachinePool(
 		return nil, err
 	}
 	return s.createMachinePool(ctx, request, org)
+}
+
+const machinePoolConnectionChecksPerMinute = 10
+
+func (s strictOpenAPIServer) CheckMachinePoolConnection(
+	ctx context.Context,
+	request openapi.CheckMachinePoolConnectionRequestObject,
+) (openapi.CheckMachinePoolConnectionResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if s.server.machinePoolManager == nil || s.server.authLimiter == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "machine pool connection checks unavailable")
+	}
+	providerAuthSecretID, ok := parseOpenAPIPublicID(publicid.KindSecret, request.Body.ProviderAuthSecretId)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid provider_auth_secret_id")
+	}
+	providerConfig, err := rawJSONFromPointer(request.Body.ProviderConfig)
+	if err != nil {
+		return nil, err
+	}
+	defaultMachineProviderOptions, err := rawJSONFromPointer(request.Body.DefaultMachineProviderOptions)
+	if err != nil {
+		return nil, err
+	}
+	principal, _ := principalFromContext(ctx)
+	if err := s.server.authLimiter.Allow(
+		ctx,
+		"machine_pool_connection_check:"+principal.ID.String(),
+		machinePoolConnectionChecksPerMinute,
+		time.Minute,
+	); errors.Is(err, httpauth.ErrRateLimited) {
+		return nil, apierror.FromCode(openapi.ErrorCodeRateLimited, "too many connection tests; try again in a minute")
+	} else if err != nil {
+		return nil, err
+	}
+	response := openapi.CheckMachinePoolConnection200JSONResponse{
+		Status: openapi.MachinePoolConnectionCheckStatusOk,
+	}
+	if err := s.server.machinePoolManager.CheckPoolConnection(ctx, machinepool.PoolConnectionCheck{
+		OrgID:                         org.ID,
+		Provider:                      request.Body.Provider,
+		ProviderConfig:                providerConfig,
+		ProviderAuthSecretID:          providerAuthSecretID,
+		DefaultMachineProviderOptions: defaultMachineProviderOptions,
+	}); err != nil {
+		message := err.Error()
+		response.Status = openapi.MachinePoolConnectionCheckStatusFailed
+		response.Error = &message
+		logged := message
+		var checkErr machinepool.ConnectionCheckError
+		if errors.As(err, &checkErr) {
+			response.Details = &checkErr.Details
+			logged = checkErr.Details
+		}
+		logent.MachinePoolConnectionCheckFailed(ctx, request.Body.Provider, logged)
+	}
+	return response, nil
 }
 
 func (s strictOpenAPIServer) createMachinePool(

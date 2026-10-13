@@ -5,7 +5,7 @@ import {
   useSecrets,
 } from '@omnara/react'
 import type { Secret, SecretKind } from '@omnara/sdk'
-import { useId } from 'react'
+import { type ReactNode, useId } from 'react'
 
 import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -158,6 +158,8 @@ export function SecretTypeaheadField({
   onCreateSecret,
   knownSecret,
   kind = 'generic',
+  action,
+  status,
 }: {
   orgId: string
   enabled: boolean
@@ -169,23 +171,36 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
   kind?: SecretKind
+  action?: ReactNode
+  status?: ReactNode
 }) {
   const inputId = useId()
+  const select = (
+    <SecretSelect
+      inputId={inputId}
+      orgId={orgId}
+      enabled={enabled}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      onCreateSecret={onCreateSecret}
+      knownSecret={knownSecret}
+      emptyDescription={emptyDescription}
+      kind={kind}
+    />
+  )
   return (
     <Field>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <SecretSelect
-        inputId={inputId}
-        orgId={orgId}
-        enabled={enabled}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        onCreateSecret={onCreateSecret}
-        knownSecret={knownSecret}
-        emptyDescription={emptyDescription}
-        kind={kind}
-      />
+      {action === undefined ? (
+        select
+      ) : (
+        <div className="flex items-start gap-2">
+          <div className="grid min-w-0 flex-1 gap-2">{select}</div>
+          {action}
+        </div>
+      )}
+      {status}
     </Field>
   )
 }

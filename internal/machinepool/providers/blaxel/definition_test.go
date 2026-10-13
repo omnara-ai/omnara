@@ -74,7 +74,7 @@ func TestBlaxelDefinitionValidation(t *testing.T) {
 			name:              "invalid workspace",
 			machine:           valid,
 			providerConfig:    `{"workspace":"Not Valid"}`,
-			wantErrorContains: "valid DNS label",
+			wantErrorContains: "lowercase letters, numbers, or hyphens",
 		},
 		{
 			name:              "unknown config field",

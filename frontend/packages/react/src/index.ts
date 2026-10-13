@@ -114,6 +114,7 @@ export {
   type MachinePoolListFilters,
   type MachinePoolListOptions,
   type MachinePoolListSort,
+  useCheckMachinePoolConnection,
   useCreateMachinePool,
   useDeleteMachinePool,
   useMachinePool,

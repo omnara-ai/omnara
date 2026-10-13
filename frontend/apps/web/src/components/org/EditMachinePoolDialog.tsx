@@ -85,6 +85,7 @@ export function EditMachinePoolDialog({
                 mode={mode}
                 values={values}
                 setValue={setValue}
+                savedProviderConfig={pool.provider_config}
               />
               {error && <p className="text-destructive text-sm">{error}</p>}
               <DialogFooter>

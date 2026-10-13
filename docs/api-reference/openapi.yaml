@@ -6799,6 +6799,50 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/machine-pools/check-connection:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+    post:
+      operationId: checkMachinePoolConnection
+      tags: [Machine Pools]
+      summary: Check machine pool connection
+      description: Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider. Nothing is stored. When the check fails, the response has status `failed`, the reason in `error`, and the provider's original error in `details` when there is one.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckMachinePoolConnectionRequest'
+      responses:
+        '200':
+          description: Connection check result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachinePoolConnectionCheck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
@@ -13599,7 +13643,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [unikraft, modal, freestyle, tenki, arker]
+                  enum: [arker, freestyle, modal, tenki, unikraft]
                 default_machine_cpu:
                   type: integer
                   format: int32
@@ -13623,7 +13667,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona, boxd, createos]
+                  enum: [boxd, createos, daytona]
                 max_total_cpu:
                   type: integer
                   format: int32
@@ -13657,6 +13701,36 @@ components:
                   - required: [max_total_cpu]
                   - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
+    CheckMachinePoolConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, provider_auth_secret_id]
+      properties:
+        provider:
+          type: string
+          minLength: 1
+        provider_auth_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          type: object
+          additionalProperties: true
+        default_machine_provider_options:
+          type: object
+          additionalProperties: true
+    MachinePoolConnectionCheck:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, failed]
+        error:
+          type: string
+          description: Why the check failed, in plain language. Present when status is failed.
+        details:
+          type: string
+          description: The provider's original error, for troubleshooting. Present when the provider call failed.
     CreateMachinePoolRequestBase:
       type: object
       additionalProperties: false

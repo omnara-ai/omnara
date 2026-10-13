@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,7 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestManagerValidatesDefaultMachinePool(t *testing.T) {
@@ -397,6 +402,10 @@ func (provisionRetryProvider) InspectMachine(
 	return "", false, errors.New("not implemented")
 }
 
+func (provisionRetryProvider) CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error {
+	return nil
+}
+
 func (provisionRetryProvider) DeleteMachine(
 	context.Context,
 	uuid.UUID,
@@ -511,9 +520,12 @@ func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testi
 }
 
 func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
-	providerErr := providers.WithRetryAfter(
+	providerErr := providers.WithResponse(
 		errors.New("rate limited"),
-		http.Header{"Retry-After": []string{"12"}},
+		providers.HTTPResponse{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": []string{"12"}},
+		},
 	)
 	if delay := providerProvisionRetryDelay(0, providerErr); delay != 12*time.Second {
 		t.Fatalf("retry delay = %s, want 12s", delay)
@@ -592,5 +604,67 @@ func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	}
 	if result.ProviderResourceID != "resource-1" {
 		t.Fatalf("provision result = %+v, want first observed resource", result)
+	}
+}
+
+func TestConnectionCheckMessage(t *testing.T) {
+	const (
+		rejected    = "The provider rejected this API key."
+		forbidden   = "This API key doesn't have access to the configured workspace or resources."
+		notFound    = "The provider couldn't find the configured workspace, environment, or API."
+		rateLimited = "The provider is rate limiting requests. Try again in a minute."
+		unreachable = "Couldn't reach the provider. Try again in a moment."
+	)
+	httpStatus := func(code int) error {
+		return fmt.Errorf("check: %w", providers.WithResponse(
+			fmt.Errorf("provider API returned HTTP %d", code),
+			providers.HTTPResponse{StatusCode: code},
+		))
+	}
+	request := func(err error) error {
+		return fmt.Errorf(
+			"provider request failed: %w",
+			&url.Error{Op: "Get", URL: "https://api.example", Err: err},
+		)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"http 401", httpStatus(401), rejected},
+		{"http 403", httpStatus(403), forbidden},
+		{"http 404", httpStatus(404), notFound},
+		{"http 429", httpStatus(429), rateLimited},
+		{"http 502", httpStatus(502), unreachable},
+		{"http 418", httpStatus(418), "The provider returned an unexpected error (HTTP 418)."},
+		{
+			"grpc unauthenticated",
+			fmt.Errorf("failed to get auth token: %w", status.Error(codes.Unauthenticated, "Token not found")),
+			rejected,
+		},
+		{"grpc permission denied", status.Error(codes.PermissionDenied, "denied"), forbidden},
+		{"grpc not found", status.Error(codes.NotFound, "No such environment 'staging'"), notFound},
+		{"grpc resource exhausted", status.Error(codes.ResourceExhausted, "slow down"), rateLimited},
+		{"grpc unavailable", status.Error(codes.Unavailable, "down"), unreachable},
+		{"blocked address", request(fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress)), "This API address isn't allowed."},
+		{
+			"unknown host",
+			request(&net.DNSError{Err: "no such host", Name: "api.example", IsNotFound: true}),
+			"Couldn't find the provider's API. Check the region or API URL.",
+		},
+		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable},
+		{"connection refused", request(errors.New("connection refused")), unreachable},
+		{
+			"unknown",
+			errors.New("decode provider response: unexpected end of JSON input"),
+			"The provider returned an unexpected error.",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := connectionCheckMessage(test.err); got != test.want {
+				t.Fatalf("message = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

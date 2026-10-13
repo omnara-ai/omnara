@@ -117,9 +117,12 @@ func TestCreateOSWakeMachineRidesOutARateLimitedLookup(t *testing.T) {
 
 func TestCreateOSWakeMachineWaitsOutRetryAfter(t *testing.T) {
 	api := newFakeAPI()
-	api.getErrs = []error{providers.WithRetryAfter(
+	api.getErrs = []error{providers.WithResponse(
 		apiError{StatusCode: http.StatusTooManyRequests},
-		http.Header{"Retry-After": {"60"}},
+		providers.HTTPResponse{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": {"60"}},
+		},
 	)}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

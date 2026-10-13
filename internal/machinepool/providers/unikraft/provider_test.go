@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -236,7 +238,7 @@ func TestUnikraftProviderRejectsInvalidMetroSlug(t *testing.T) {
 		nil,
 		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "valid DNS label") {
+	if err == nil || !strings.Contains(err.Error(), "lowercase letters, numbers, or hyphens") {
 		t.Fatalf("expected invalid metro slug error, got %v", err)
 	}
 }
@@ -673,4 +675,32 @@ func (f *fakeAPI) GetInstanceByName(_ context.Context, name string) (instance, b
 func (f *fakeAPI) DeleteInstanceByUUID(_ context.Context, uuid string) error {
 	f.deletedUUIDs = append(f.deletedUUIDs, uuid)
 	return nil
+}
+
+func (*fakeAPI) CheckConnection(context.Context) error {
+	return nil
+}
+
+func TestProviderCheckConnectionReadsQuotas(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/users/quotas" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	client, err := newTestRESTClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = (&provider{api: client}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{
+			ProviderOptions: map[string]json.RawMessage{"metro": json.RawMessage(`"fra"`)},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
 }

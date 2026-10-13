@@ -245,6 +245,17 @@ func (p *provider) inspectVM(
 	return target, true, nil
 }
 
+func (p *provider) CheckConnection(
+	ctx context.Context,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) error {
+	region, err := existingMachineRegion(machineProvisioning)
+	if err != nil {
+		return err
+	}
+	return p.apiFor(p.regionBaseURL(region)).CheckConnection(ctx)
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID uuid.UUID,

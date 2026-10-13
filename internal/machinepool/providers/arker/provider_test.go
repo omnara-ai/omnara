@@ -350,3 +350,18 @@ func TestArkerProviderTargetsTheRegionEndpoint(t *testing.T) {
 		t.Fatalf("overridden base url = %q", got)
 	}
 }
+
+func TestArkerProviderCheckConnectionListsOneVM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/vms" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := newTestProvider(server.URL).CheckConnection(context.Background(), testProvisioning(testOptions()))
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
+}

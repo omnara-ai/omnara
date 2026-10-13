@@ -256,6 +256,17 @@ func (p *provider) InspectMachine(
 	return result.UUID, true, nil
 }
 
+func (p *provider) CheckConnection(
+	ctx context.Context,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) error {
+	metro, ok := existingMachineMetro(machineProvisioning)
+	if !ok {
+		return errors.New("unikraft machine config requires a valid metro")
+	}
+	return p.apiForMetro(metro).CheckConnection(ctx)
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID uuid.UUID,

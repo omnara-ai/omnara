@@ -106,6 +106,10 @@ func (c *restClient) ListRuns(ctx context.Context, vmID string) ([]run, error) {
 	return response.Runs, err
 }
 
+func (c *restClient) CheckConnection(ctx context.Context) error {
+	return c.doRequest(ctx, http.MethodGet, "/v1/vms?limit=1", nil, nil, nil)
+}
+
 func vmPath(idOrName string) string {
 	return "/v1/vms/" + url.PathEscape(idOrName)
 }
@@ -131,7 +135,7 @@ func (c *restClient) doRequest(
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return providers.WithRetryAfter(apiError{StatusCode: response.StatusCode}, response.Header)
+		return providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
 	}
 	if out == nil || len(response.Body) == 0 {
 		return nil

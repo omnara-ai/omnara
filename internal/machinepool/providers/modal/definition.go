@@ -137,13 +137,13 @@ func parseProviderCredential(raw string) (providerCredential, error) {
 		return providerCredential{}, errors.New("modal provider credentials are required")
 	}
 	var credential providerCredential
-	if err := providers.DecodeStrictJSON(json.RawMessage(raw), &credential); err != nil {
-		return providerCredential{}, fmt.Errorf("decode modal provider credentials: %w", err)
-	}
+	err := providers.DecodeStrictJSON(json.RawMessage(raw), &credential)
 	credential.TokenID = strings.TrimSpace(credential.TokenID)
 	credential.TokenSecret = strings.TrimSpace(credential.TokenSecret)
-	if credential.TokenID == "" || credential.TokenSecret == "" {
-		return providerCredential{}, errors.New("modal provider credentials require token_id and token_secret")
+	if err != nil || credential.TokenID == "" || credential.TokenSecret == "" {
+		return providerCredential{}, errors.New(
+			`modal credentials must be JSON like {"token_id":"ak-...","token_secret":"as-..."}`,
+		)
 	}
 	return credential, nil
 }

@@ -59,6 +59,10 @@ export function useCreateMachinePool(orgID: string) {
   )
 }
 
+export function useCheckMachinePoolConnection(orgID: string) {
+  return useScopedMutation(sdk.checkMachinePoolConnection, { orgID })
+}
+
 export function useUpdateMachinePool(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()

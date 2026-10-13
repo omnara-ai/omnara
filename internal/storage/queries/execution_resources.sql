@@ -691,8 +691,8 @@ SET lifecycle_state = 'deleted',
     lifecycle_changed_at = statement_timestamp(),
     lifecycle_version = lifecycle_version + 1,
     deleted_at = statement_timestamp(),
-    lifecycle_reason_code = 'provider_deleted',
-    lifecycle_reason_message = '',
+    lifecycle_reason_code = sqlc.arg(lifecycle_reason_code),
+    lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
@@ -733,7 +733,20 @@ WITH candidate AS MATERIALIZED (
              AND candidate_machine.provider_provision_attempted_at <= statement_timestamp() - sqlc.arg(missing_resource_finality_age_seconds)::bigint * interval '1 second'
              THEN true
            ELSE false
-         END AS can_finalize_missing_provider_resource
+         END AS can_finalize_missing_provider_resource,
+         CASE
+           WHEN candidate_machine.lifecycle_state = 'delete_failed'
+             AND candidate_machine.delete_attempts >= 6
+             AND EXISTS (
+               SELECT 1
+               FROM machine_pools pool
+               WHERE pool.org_id = candidate_machine.org_id
+                 AND pool.id = candidate_machine.machine_pool_id
+                 AND pool.management_kind = 'tenant'
+             )
+             THEN true
+           ELSE false
+         END AS can_abandon_provider_resource
   FROM machines candidate_machine
   WHERE candidate_machine.org_id = sqlc.arg(org_id)
     AND candidate_machine.id = sqlc.arg(id)
@@ -776,7 +789,7 @@ SET lifecycle_state = 'deleting',
 FROM candidate
 WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.id = candidate.id
-RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, candidate.can_finalize_missing_provider_resource;
+RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, candidate.can_finalize_missing_provider_resource, candidate.can_abandon_provider_resource;
 
 -- name: ClaimExpiredIdlePoolMachineDeletion :one
 WITH candidate AS MATERIALIZED (

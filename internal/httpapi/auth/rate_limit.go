@@ -15,7 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-var errRateLimited = errors.New("auth rate limited")
+var ErrRateLimited = errors.New("auth rate limited")
 
 type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) error
@@ -65,7 +65,7 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 		return fmt.Errorf("auth rate limit: %w", err)
 	}
 	if allowed == 0 {
-		return errRateLimited
+		return ErrRateLimited
 	}
 	return nil
 }
@@ -146,7 +146,7 @@ func (h *Handler) checkAuthLimitBuckets(
 }
 
 func (h *Handler) writeAuthRateLimitError(w http.ResponseWriter, err error) {
-	if errors.Is(err, errRateLimited) {
+	if errors.Is(err, ErrRateLimited) {
 		apierror.Write(w, openapi.ErrorCodeRateLimited)
 		return
 	}

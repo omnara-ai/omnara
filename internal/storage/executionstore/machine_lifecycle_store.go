@@ -99,6 +99,7 @@ type ExpiredIdlePoolMachine struct {
 type PoolMachineDeletionClaim struct {
 	Machine                            MachineRecord
 	CanFinalizeMissingProviderResource bool
+	CanAbandonProviderResource         bool
 }
 
 type PoolMachineProvisioningClaim struct {
@@ -927,6 +928,31 @@ func (s *Store) CompletePoolMachineDeletion(
 	orgID, machineID uuid.UUID,
 	deleteAttempt int32,
 ) error {
+	return s.completePoolMachineDeletion(ctx, orgID, machineID, deleteAttempt, "provider_deleted", "")
+}
+
+func (s *Store) AbandonPoolMachineDeletion(
+	ctx context.Context,
+	orgID, machineID uuid.UUID,
+	deleteAttempt int32,
+	reasonMessage string,
+) error {
+	return s.completePoolMachineDeletion(
+		ctx,
+		orgID,
+		machineID,
+		deleteAttempt,
+		"provider_resource_abandoned",
+		reasonMessage,
+	)
+}
+
+func (s *Store) completePoolMachineDeletion(
+	ctx context.Context,
+	orgID, machineID uuid.UUID,
+	deleteAttempt int32,
+	reasonCode, reasonMessage string,
+) error {
 	if orgID == uuid.Nil || machineID == uuid.Nil {
 		return errors.New("org and machine are required")
 	}
@@ -1035,9 +1061,11 @@ func (s *Store) CompletePoolMachineDeletion(
 		return fmt.Errorf("delete pool project machine grants for deletion completion: %w", err)
 	}
 	if _, err := qtx.DeletePoolMachine(ctx, dbsqlc.DeletePoolMachineParams{
-		OrgID:         orgID,
-		ID:            machineID,
-		DeleteAttempt: deleteAttempt,
+		LifecycleReasonCode:    storeutil.TextFromEmpty(reasonCode),
+		LifecycleReasonMessage: reasonMessage,
+		OrgID:                  orgID,
+		ID:                     machineID,
+		DeleteAttempt:          deleteAttempt,
 	}); err != nil {
 		return fmt.Errorf("delete machine for deletion completion: %w", err)
 	}

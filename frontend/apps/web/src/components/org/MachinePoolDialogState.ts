@@ -1,4 +1,9 @@
-import type { CreateMachinePoolRequest, MachinePool, UpdateMachinePoolRequest } from '@omnara/sdk'
+import type {
+  CheckMachinePoolConnectionRequest,
+  CreateMachinePoolRequest,
+  MachinePool,
+  UpdateMachinePoolRequest,
+} from '@omnara/sdk'
 
 import {
   recordFromSecretRows,
@@ -35,9 +40,9 @@ import {
   positiveInt32,
 } from './machinePoolValidation'
 
-export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions).map(
-  ([value, definition]) => ({ value, label: definition.label }),
-)
+export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions)
+  .map(([value, definition]) => ({ value, label: definition.label }))
+  .sort((a, b) => a.label.localeCompare(b.label))
 
 export function machinePoolProviderLabel(provider: string) {
   return machinePoolProviders.find((option) => option.value === provider)?.label ?? provider
@@ -171,11 +176,11 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
-    case 'arker':
+    case 'unikraft':
       return {
         ...common,
         provider: values.provider,
@@ -208,9 +213,9 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
-    case 'daytona':
     case 'boxd':
     case 'createos':
+    case 'daytona':
       return {
         ...common,
         provider: values.provider,
@@ -225,6 +230,19 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+  }
+}
+
+export function machinePoolConnectionCheckRequest(
+  values: MachinePoolFormValues,
+  savedProviderConfig?: MachinePool['provider_config'],
+): CheckMachinePoolConnectionRequest {
+  const request = machinePoolCreateRequest(values)
+  return {
+    provider: request.provider,
+    provider_auth_secret_id: request.provider_auth_secret_id,
+    provider_config: { ...savedProviderConfig, ...request.provider_config },
+    default_machine_provider_options: request.default_machine_provider_options,
   }
 }
 
@@ -318,11 +336,11 @@ export function machinePoolUpdateRequest(
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
-    case 'arker':
+    case 'unikraft':
       return {
         ...common,
         provider_config:
@@ -365,9 +383,9 @@ export function machinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
-    case 'daytona':
     case 'boxd':
     case 'createos':
+    case 'daytona':
       return {
         ...common,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -410,11 +428,11 @@ function clusterMachinePoolUpdateRequest(
     ),
   }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
-    case 'arker':
+    case 'unikraft':
       return {
         ...common,
         default_machine_cpu: cpu,
@@ -437,9 +455,9 @@ function clusterMachinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
-    case 'daytona':
     case 'boxd':
     case 'createos':
+    case 'daytona':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),

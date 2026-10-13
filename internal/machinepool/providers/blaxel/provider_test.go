@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -872,4 +873,22 @@ func (f *fakeAPI) GetSandboxProcess(
 func (f *fakeAPI) WakeSandbox(_ context.Context, target sandbox) error {
 	f.wakeTarget = target
 	return f.wakeErr
+}
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandboxes" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := (&provider{api: newTestRESTClient(server.URL)}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if !isStatus(err, http.StatusUnauthorized) {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
 }

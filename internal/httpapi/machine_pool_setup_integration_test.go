@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/google/uuid"
+	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -1395,6 +1397,84 @@ func TestPublicDaytonaMachinePoolAcceptsOptionalDefaultsWithoutProviderResolutio
 		testutil.RequireType[map[string]any](t, updated["default_machine_provider_options"])["snapshot"] != "team-large" {
 		t.Fatalf("updated daytona resources = %+v", updated)
 	}
+}
+
+func TestPublicMachinePoolConnectionCheckReportsFailures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	keyWrapper := integrationKeyWrapper()
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(keyWrapper),
+		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
+	)
+	manager := &machinepool.Manager{
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      machinepool.DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
+	}
+	handler := newIntegrationHTTPHandler(withDefaultRequestOrigin(
+		mustNewServer(
+			t,
+			store,
+			WithSecretKeyWrapper(keyWrapper),
+			WithPublicURL("https://app.omnara.test"),
+			WithMachinePoolManager(manager),
+			WithAuthRateLimiter(&singleConnectionCheckLimiter{}),
+		).Handler(),
+		"https://app.omnara.test",
+	), pool, store)
+	project := bootstrapPublicHTTPProject(t, handler, "pool-connection-test")
+	missingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/check-connection",
+		`{"provider":"blaxel","provider_auth_secret_id":"`+missingSecretID+`","provider_config":{"workspace":"omnara"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if result["status"] != "failed" || result["error"] != "could not read the credential secret" ||
+		result["details"] != nil {
+		t.Fatalf("connection test = %+v, want a failed secret read without provider details", result)
+	}
+	limited := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/check-connection",
+		`{"provider":"blaxel","provider_auth_secret_id":"`+missingSecretID+`","provider_config":{"workspace":"omnara"}}`,
+		"",
+		http.StatusTooManyRequests,
+		authHeaders(project.AdminToken),
+	)
+	if limited["code"] != "rate_limited" {
+		t.Fatalf("second connection test = %+v, want rate_limited", limited)
+	}
+}
+
+type singleConnectionCheckLimiter struct {
+	used bool
+}
+
+func (l *singleConnectionCheckLimiter) Allow(_ context.Context, key string, _ int, _ time.Duration) error {
+	if !strings.HasPrefix(key, "machine_pool_connection_check:") {
+		return nil
+	}
+	if l.used {
+		return httpauth.ErrRateLimited
+	}
+	l.used = true
+	return nil
 }
 
 func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth(t *testing.T) {

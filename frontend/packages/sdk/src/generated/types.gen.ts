@@ -3064,7 +3064,7 @@ export type Artifact = {
 };
 
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'unikraft' | 'modal' | 'freestyle' | 'tenki' | 'arker';
+    provider: 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
@@ -3072,7 +3072,7 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_machine_cpu: number;
     max_machine_memory_mb: number;
 } | {
-    provider: 'daytona' | 'boxd' | 'createos';
+    provider: 'boxd' | 'createos' | 'daytona';
     max_total_cpu: number;
     max_total_memory_mb: number;
     max_machine_cpu: number;
@@ -3083,6 +3083,29 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_total_memory_mb: number;
     max_machine_memory_mb: number;
 });
+
+export type CheckMachinePoolConnectionRequest = {
+    provider: string;
+    provider_auth_secret_id: SecretId;
+    provider_config?: {
+        [key: string]: unknown;
+    };
+    default_machine_provider_options?: {
+        [key: string]: unknown;
+    };
+};
+
+export type MachinePoolConnectionCheck = {
+    status: 'ok' | 'failed';
+    /**
+     * Why the check failed, in plain language. Present when status is failed.
+     */
+    error?: string;
+    /**
+     * The provider's original error, for troubleshooting. Present when the provider call failed.
+     */
+    details?: string;
+};
 
 export type CreateMachinePoolRequestBase = {
     name: ResourceName;
@@ -14768,6 +14791,69 @@ export type CreateMachinePoolResponses = {
 };
 
 export type CreateMachinePoolResponse = CreateMachinePoolResponses[keyof CreateMachinePoolResponses];
+
+export type CheckMachinePoolConnectionData = {
+    body: CheckMachinePoolConnectionRequest;
+    path: {
+        orgID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/machine-pools/check-connection';
+};
+
+export type CheckMachinePoolConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CheckMachinePoolConnectionError = CheckMachinePoolConnectionErrors[keyof CheckMachinePoolConnectionErrors];
+
+export type CheckMachinePoolConnectionResponses = {
+    /**
+     * Connection check result.
+     */
+    200: MachinePoolConnectionCheck;
+};
+
+export type CheckMachinePoolConnectionResponse = CheckMachinePoolConnectionResponses[keyof CheckMachinePoolConnectionResponses];
 
 export type DeleteMachinePoolData = {
     body?: never;

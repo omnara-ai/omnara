@@ -281,6 +281,11 @@ func (p *provider) InspectMachine(
 	return target.ID, true, nil
 }
 
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	_, err := p.api.ListVMs(ctx, installationMarkerKey, 1, 0)
+	return err
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID uuid.UUID,

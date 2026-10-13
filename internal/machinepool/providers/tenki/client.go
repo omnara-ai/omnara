@@ -40,6 +40,7 @@ type apiClient interface {
 	List(context.Context) ([]session, error)
 	Get(context.Context, string) (session, bool, error)
 	Delete(context.Context, string) error
+	CheckConnection(context.Context) error
 }
 
 type createRequest struct {
@@ -134,6 +135,10 @@ func (c *restClient) List(ctx context.Context) ([]session, error) {
 	}
 }
 
+func (c *restClient) CheckConnection(ctx context.Context) error {
+	return c.call(ctx, "ListWorkspaceSandboxes", listRequest{PageSize: 1, Tags: []string{managedTag}}, nil)
+}
+
 func (c *restClient) Delete(ctx context.Context, id string) error {
 	err := c.call(ctx, "TerminateSession", sessionIDRequest{SessionID: id}, nil)
 	if isNotFound(err) {
@@ -173,9 +178,9 @@ func (c *restClient) call(ctx context.Context, method string, body, out any) err
 			Code string `json:"code"`
 		}
 		_ = json.Unmarshal(response.Body, &connectError)
-		return providers.WithRetryAfter(
+		return providers.WithResponse(
 			apiError{StatusCode: response.StatusCode, Code: connectError.Code},
-			response.Header,
+			response,
 		)
 	}
 	if out == nil {

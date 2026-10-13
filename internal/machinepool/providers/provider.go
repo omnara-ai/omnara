@@ -102,6 +102,7 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
+	CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error
 }
 
 type Definition interface {

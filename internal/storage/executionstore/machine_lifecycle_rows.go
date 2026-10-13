@@ -98,6 +98,7 @@ func poolMachineDeletionClaimFromSQLC(row dbsqlc.ClaimPoolMachineDeletionRow) Po
 			row.LifecycleVersion,
 		),
 		CanFinalizeMissingProviderResource: row.CanFinalizeMissingProviderResource,
+		CanAbandonProviderResource:         row.CanAbandonProviderResource,
 	}
 }
 

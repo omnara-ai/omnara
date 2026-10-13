@@ -2160,6 +2160,19 @@ export const zArtifact = z.object({
     created_at: zTimestamp
 });
 
+export const zCheckMachinePoolConnectionRequest = z.object({
+    provider: z.string().min(1),
+    provider_auth_secret_id: zSecretId,
+    provider_config: z.record(z.string(), z.unknown()).optional(),
+    default_machine_provider_options: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zMachinePoolConnectionCheck = z.object({
+    status: z.enum(['ok', 'failed']),
+    error: z.string().optional(),
+    details: z.string().optional()
+});
+
 export const zCreateMachinePoolRequestBase = z.object({
     name: zResourceName,
     description: z.string().optional(),
@@ -2187,11 +2200,11 @@ export const zCreateMachinePoolRequestBase = z.object({
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
-            'unikraft',
-            'modal',
+            'arker',
             'freestyle',
+            'modal',
             'tenki',
-            'arker'
+            'unikraft'
         ]),
         default_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         default_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2202,9 +2215,9 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
     }),
     z.object({
         provider: z.enum([
-            'daytona',
             'boxd',
-            'createos'
+            'createos',
+            'daytona'
         ]),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -5353,6 +5366,17 @@ export const zCreateMachinePoolPath = z.object({
  * Existing machine pool returned.
  */
 export const zCreateMachinePoolResponse = zMachinePool;
+
+export const zCheckMachinePoolConnectionBody = zCheckMachinePoolConnectionRequest;
+
+export const zCheckMachinePoolConnectionPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+/**
+ * Connection check result.
+ */
+export const zCheckMachinePoolConnectionResponse = zMachinePoolConnectionCheck;
 
 export const zDeleteMachinePoolPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
