@@ -33,7 +33,7 @@ func (s *Store) AdvanceOwnedAgentWork(
 			if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
 				return executionResult{ClaimedAgentWork{}, false}, errors.New("project, agent, and runtime lock ids are required")
 			}
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if errors.Is(err, storeerr.ErrNotFound) {
 				return executionResult{ClaimedAgentWork{}, false}, storeerr.ErrRuntimeLockInactive
 			}

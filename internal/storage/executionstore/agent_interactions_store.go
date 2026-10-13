@@ -81,7 +81,7 @@ func (s *Store) CreatePermissionInteraction(
 		"CreatePermissionInteraction",
 		func(ctx context.Context) (AgentInteractionRecord,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return AgentInteractionRecord{}, err
 			}

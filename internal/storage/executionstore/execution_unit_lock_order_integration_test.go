@@ -78,7 +78,7 @@ func assertExecutionAgentOrder(
 	)
 }
 
-func TestModelMutationsFenceWithoutParentLock(t *testing.T) {
+func TestModelMutationsPlanLocksBeforeFencing(t *testing.T) {
 	for _, parentFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("parent_first_%t", parentFirst), func(t *testing.T) {
 			f, parent, child := executionLockOrderAgents(t, parentFirst)
@@ -88,7 +88,11 @@ func TestModelMutationsFenceWithoutParentLock(t *testing.T) {
 				"begin compaction", "replace compaction", "terminal compaction",
 			} {
 				t.Run(operation, func(t *testing.T) {
-					assertExecutionAgentOrder(t, f, child, parent, func(ctx context.Context) error {
+					first, second := child, parent
+					if operation == "terminal compaction" && parentFirst {
+						first, second = parent, child
+					}
+					assertExecutionAgentOrder(t, f, first, second, func(ctx context.Context) error {
 						s := f.Store.Execution()
 						switch operation {
 						case "claim compaction":

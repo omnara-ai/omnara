@@ -209,18 +209,13 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				break
 			}
 		}
-		if !input.Response.HasToolCalls() {
-			kind := map[modelenvelope.StopReason]string{modelenvelope.StopReasonEndTurn: "result",
-				modelenvelope.StopReasonRefusal:       "refused",
-				modelenvelope.StopReasonContentFilter: "content_filtered"}[input.Response.Normalized.StopReason]
-			if kind != "" {
-				if err = h.parentEffect(ctx,
-					kind,
-					strings.TrimSpace(input.Response.Text()),
-					"model_output:"+output.ID.String(),
-					uuid.Nil); err != nil {
-					return AcceptedOutput{}, err
-				}
+		if kind := ParentEffectKind(input.Response); kind != "" {
+			if err = h.parentEffect(ctx,
+				kind,
+				strings.TrimSpace(input.Response.Text()),
+				"model_output:"+output.ID.String(),
+				uuid.Nil); err != nil {
+				return AcceptedOutput{}, err
 			}
 		}
 		return result, nil
@@ -393,4 +388,13 @@ func (h *Handle) rejectProposal(ctx context.Context, m *executionMutation, call 
 		nil,
 	)
 	return err
+}
+
+func ParentEffectKind(response modelenvelope.ResponseEnvelope) string {
+	if response.HasToolCalls() {
+		return ""
+	}
+	return map[modelenvelope.StopReason]string{modelenvelope.StopReasonEndTurn: "result",
+		modelenvelope.StopReasonRefusal:       "refused",
+		modelenvelope.StopReasonContentFilter: "content_filtered"}[response.Normalized.StopReason]
 }

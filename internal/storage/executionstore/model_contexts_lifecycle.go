@@ -22,7 +22,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 			if input.RecoveryKind != ModelCallRecoveryRetry {
 				return ModelCallContextRecord{}, errors.New("retry recovery is required")
 			}
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ModelCallContextRecord{}, err
 			}

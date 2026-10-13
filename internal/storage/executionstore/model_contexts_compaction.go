@@ -20,7 +20,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			if input.ParentContextID != f.ModelCallContextID || f.RecoveryKind != ModelCallRecoveryCompact {
 				return TriggeredCompactionHandoff{}, storeerr.ErrStateTransitionConflict
 			}
-			unit, h, err := beginExecution(ctx, s, f.ProjectID, f.AgentID)
+			unit, h, err := beginExecution(ctx, s, f.ProjectID, f.AgentID, false)
 			if err != nil {
 				return TriggeredCompactionHandoff{}, err
 			}
@@ -75,7 +75,7 @@ func (s *Store) ReplaceCompactionSource(
 		"ReplaceCompactionSource",
 		func(ctx context.Context) (ReplaceCompactionSourceResult,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ReplaceCompactionSourceResult{}, err
 			}

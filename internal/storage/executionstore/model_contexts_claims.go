@@ -19,7 +19,7 @@ func (s *Store) ClaimCompactionModelCall(
 	return agentexecution.Retry(ctx,
 		"ClaimCompactionModelCall",
 		func(ctx context.Context) (ModelCallClaim, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ModelCallClaim{}, err
 			}
@@ -59,7 +59,7 @@ func (s *Store) ClaimNextModelCallContext(
 	return agentexecution.Retry(ctx,
 		"ClaimNextModelCallContext",
 		func(ctx context.Context) (ModelCallClaim, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ModelCallClaim{}, err
 			}

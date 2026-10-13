@@ -39,7 +39,7 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 		"RecordModelCallErrorAndCompleteContext",
 		func(ctx context.Context) (events.Event,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true)
 			if err != nil {
 				return events.Event{}, err
 			}

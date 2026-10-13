@@ -36,7 +36,7 @@ func (s *Store) RecordTerminalCompactionFailure(
 	_, err := agentexecution.Retry(ctx,
 		"RecordTerminalCompactionFailure",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true)
 			if err != nil {
 				return struct{}{}, err
 			}

@@ -36,7 +36,8 @@ func (s *Store) acceptModelOutput(ctx context.Context,
 	advance bool) (OwnedAgentWorkTransition,
 	error) {
 	output := input.Output
-	unit, h, err := beginExecution(ctx, s, output.ProjectID, output.AgentID)
+	unit, h, err := beginExecution(ctx, s, output.ProjectID, output.AgentID,
+		agentexecution.ParentEffectKind(output.ProviderResponse) != "")
 	if err != nil {
 		return OwnedAgentWorkTransition{}, err
 	}

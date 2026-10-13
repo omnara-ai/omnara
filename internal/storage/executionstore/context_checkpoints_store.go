@@ -34,7 +34,7 @@ func (s *Store) PublishContextCheckpoint(
 		"PublishContextCheckpoint",
 		func(ctx context.Context) (ContextCheckpointRecord,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ContextCheckpointRecord{}, err
 			}

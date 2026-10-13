@@ -45,7 +45,7 @@ func (s *Store) AcquireAgentRuntimeLock(
 	return agentexecution.Retry(ctx,
 		"AcquireAgentRuntimeLock",
 		func(ctx context.Context) (AgentRuntimeLockRecord, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
 			if err != nil {
 				return AgentRuntimeLockRecord{}, err
 			}
@@ -87,7 +87,7 @@ func (s *Store) RepairExecutionForTest(ctx context.Context, projectID, agentID u
 	_, retryErr := agentexecution.Retry(ctx,
 		"RepairExecutionForTest",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
 			if err != nil {
 				return struct{}{}, err
 			}
@@ -122,7 +122,7 @@ func (s *Store) NextAgentModelWork(
 	retried, retryErr := agentexecution.Retry(ctx,
 		"NextAgentModelWork",
 		func(ctx context.Context) (transactionResult, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
 			if err != nil {
 				return transactionResult{}, err
 			}

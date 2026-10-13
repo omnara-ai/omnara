@@ -186,7 +186,7 @@ func (s *Store) MarkToolCallReady(ctx context.Context, input MarkToolCallReadyIn
 	return agentexecution.Retry(ctx,
 		"MarkToolCallReady",
 		func(ctx context.Context) (ToolCallRecord, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return ToolCallRecord{}, err
 			}
@@ -212,7 +212,7 @@ func (s *Store) RequeueRuntimeToolCall(ctx context.Context, input RequeueRuntime
 	_, err := agentexecution.Retry(ctx,
 		"RequeueRuntimeToolCall",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return struct{}{}, err
 			}

@@ -33,7 +33,7 @@ func (s *Store) PrepareNormalModelCall(
 			if input.RuntimeLockID == uuid.Nil || len(input.OpeningInputIDs) == 0 {
 				return PreparedNormalModelCall{}, errors.New("runtime and opening inputs are required")
 			}
-			unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
 			if err != nil {
 				return PreparedNormalModelCall{}, err
 			}

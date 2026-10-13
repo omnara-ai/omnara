@@ -4,6 +4,7 @@ package agentexecution_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -331,8 +332,37 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := make(chan error, len(inputs))
-	for _, input := range inputs {
-		go func() { _, err := store.Execution().PrepareNormalModelCall(ctx, input); done <- err }()
+	for i, input := range inputs {
+		go func() {
+			prepared, err := store.Execution().PrepareNormalModelCall(ctx, input)
+			if err != nil {
+				done <- err
+				return
+			}
+			reason := modelenvelope.StopReasonToolUse
+			if i%2 == 0 {
+				reason = modelenvelope.StopReasonEndTurn
+			}
+			response := commandResponse(reason)
+			response.Normalized.Content = []modelenvelope.ResponsePart{{Type: "tool_call", ProviderCallID: "call",
+				ToolName: "tool", ToolInput: json.RawMessage(`{}`)}}
+			bindings := []executionstore.ToolCallBindingInput{{ProviderCallID: "call", Type: "built_in"}}
+			if i%4 < 2 {
+				_, err = store.Execution().AcceptModelOutputAndAdvance(ctx, executionstore.AcceptModelOutputAndAdvanceInput{
+					Output: executionstore.RecordModelOutputAndCompleteContextInput{
+						ProjectID: f.project, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+						ModelCallContextID: prepared.Claim.Context.ID, ProviderResponse: response,
+					}, ToolCallBindings: bindings,
+				})
+			} else {
+				_, _, err = store.Execution().RecordToolCallSourceAndCompleteContext(ctx,
+					executionstore.RecordToolCallSourceAndCompleteContextInput{
+						ProjectID: f.project, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+						ModelCallContextID: prepared.Claim.Context.ID, ProviderResponse: response, ToolCallBindings: bindings,
+					})
+			}
+			done <- err
+		}()
 	}
 	for range inputs {
 		require.NoError(t, <-done)

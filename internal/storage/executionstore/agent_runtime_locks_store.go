@@ -54,7 +54,7 @@ func (s *Store) EnsureRuntimeLockActive(
 			if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
 				return struct{}{}, errors.New("project, agent, and runtime lock ids are required")
 			}
-			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
 			if errors.Is(err, storeerr.ErrNotFound) {
 				return struct{}{}, storeerr.ErrRuntimeLockInactive
 			}
@@ -119,7 +119,7 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	_, err := agentexecution.Retry(ctx,
 		"ReleaseAgentRuntimeLock",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
 			if errors.Is(err, storeerr.ErrNotFound) {
 				return struct{}{}, storeerr.ErrRuntimeLockInactive
 			}

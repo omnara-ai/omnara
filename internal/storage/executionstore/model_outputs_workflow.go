@@ -63,7 +63,8 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		"RecordModelOutputAndCompleteContext",
 		func(ctx context.Context) (events.Event,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID,
+				agentexecution.ParentEffectKind(input.ProviderResponse) != "")
 			if err != nil {
 				return events.Event{}, err
 			}
@@ -92,7 +93,8 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		"RecordToolCallSourceAndCompleteContext",
 		func(ctx context.Context) (executionResult,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID,
+				agentexecution.ParentEffectKind(input.ProviderResponse) != "")
 			if err != nil {
 				return executionResult{events.Event{}, nil}, err
 			}
