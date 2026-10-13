@@ -722,7 +722,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   Providers = testProviders([previewToolsRoute(() => preview)])
   await renderAndFlush(
     <BasicFormHarness
-      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\n`}
+      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\nmax_depth: 2\n`}
     />,
   )
   await vi.waitFor(() => {
@@ -753,6 +753,7 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('max_depth', 2)
   await vi.waitFor(() => {
     expect(container.querySelector('[aria-label="spawn_agent permission"]')).toBeNull()
     expect(container.querySelector('[aria-label="list_agents permission"]')).toBeNull()

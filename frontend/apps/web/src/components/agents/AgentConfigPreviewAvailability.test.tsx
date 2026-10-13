@@ -200,7 +200,17 @@ function SubagentPreviewHarness({ source }: { source: string }) {
       >
         Edit subagent details
       </button>
-      <output data-pending={form.toolsPending}>{form.yaml}</output>
+      <button
+        type="button"
+        onClick={() => {
+          form.setSubagents([])
+        }}
+      >
+        Remove subagents
+      </button>
+      <output data-pending={form.toolsPending} data-blocked={form.blocked}>
+        {form.yaml}
+      </output>
     </>
   )
 }
@@ -237,6 +247,28 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     'subagents.worker.instruction.append',
     ' More detail. More detail.',
   )
+})
+
+it.each([
+  ['2', true],
+  ['9', false],
+])('keeps max_depth %s only if valid when the last subagent is removed', async (maxDepth, kept) => {
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: () => jsonResponse({ tools: [] }),
+    },
+  ])
+  await renderAndFlush(
+    <SubagentPreviewHarness
+      source={`${includedSource}subagents: {worker: {type: self}}\nmax_depth: ${maxDepth}\n`}
+    />,
+  )
+  clickLabel('Remove subagents')
+  const yaml = container.querySelector('output')?.textContent ?? ''
+  expect(yaml.includes(`max_depth: ${maxDepth}`)).toBe(kept)
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
 })
 
 function ToolPreviewHarness({ source }: { source: string }) {

@@ -26,39 +26,76 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubagentConfigChangesAreRejected(t *testing.T) {
+func TestSubagentMachineSourceEdits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "readonly-child@example.com", "Read-only child")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "readonly-child", "Read-only child", subagentParentYAML,
-	)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-machine-edits@example.com", "Machine edits")
+	names := map[uuid.UUID]string{}
+	for _, name := range []string{"edit-shared", "edit-own"} {
+		machine, err := store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{
+			OrgID: testOrgID, DisplayName: name, IdempotencyKey: "idem-" + name,
+		})
+		require.NoError(t, err)
+		_, _, err = store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachineID: machine.ID, IdempotencyKey: "idem-grant-" + name,
+		})
+		require.NoError(t, err)
+		names[machine.ID] = name
+	}
+	withMachines := func(sources string) string {
+		return "instruction: Edit machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n" +
+			"machine_sources:\n" + sources
+	}
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "machine-edits", "Machine edits",
+		withMachines("  - {machine_name: edit-shared, cwd: /parent}\n"))
 	parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
-		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "readonly-parent",
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "machine-edits-parent",
 	})
 	require.NoError(t, err)
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, subagentParentYAML)
-	for _, source := range []string{subagentParentYAML, ""} {
-		config := executionstore.CreateAgentConfigInput{
-			ProjectID: testProjectID, Source: source,
-			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-			CompiledDefinition:      compiled.CanonicalJSON,
-			EffectiveDefinitionHash: compiled.Hash,
-		}
-		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
-			"readonly-child", "readonly-child-"+fmt.Sprint(len(source)), nil,
-			func(input *executionstore.LaunchAgentInput) { input.DerivedConfig = &config })
+	childConfig := mustCreateAgentConfigFromYAML(t, ctx, store,
+		withMachines("  - {machine_name: edit-own, cwd: /profile}\n"))
+	child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, childConfig.ID, "helper", "machine-edits-child", nil)
+	require.NoError(t, err)
+	cwds := func(agentID uuid.UUID) map[string]string {
+		bindings, err := store.Execution().ListAgentMachineBindings(ctx, testProjectID, agentID)
 		require.NoError(t, err)
-		_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: config, AgentID: child.Agent.ID,
-			ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID,
+		out := map[string]string{}
+		for _, binding := range bindings {
+			if binding.State == executionstore.AgentMachineBindingStateAttached {
+				out[names[binding.MachineID]] = binding.Cwd
+			}
+		}
+		return out
+	}
+	for _, step := range []struct {
+		sources string
+		want    map[string]string
+	}{
+		{
+			"  - {machine_name: edit-own, cwd: /changed}\n",
+			map[string]string{"edit-shared": "/parent", "edit-own": "/changed"},
+		},
+		{
+			"  - {machine_name: edit-own, cwd: /changed}\n  - {machine_name: edit-shared, cwd: /child}\n",
+			map[string]string{"edit-shared": "/child", "edit-own": "/changed"},
+		},
+		{"  - {machine_name: edit-own, cwd: /changed}\n", map[string]string{"edit-own": "/changed"}},
+	} {
+		compiled := mustCompileAgentYAMLResolved(t, ctx, store, withMachines(step.sources))
+		_, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+				CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: compiled.Hash,
+			},
+			AgentID: child.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID,
 		})
-		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-		require.ErrorContains(t, err, "subagent configurations are read-only")
+		require.NoError(t, err)
+		require.Equal(t, step.want, cwds(child.Agent.ID))
+		require.Equal(t, map[string]string{"edit-shared": "/parent"}, cwds(parent.Agent.ID))
 	}
 }
 

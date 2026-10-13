@@ -86,22 +86,59 @@ func (s strictOpenAPIServer) getAgentConfig(
 	request openapi.GetAgentConfigRequestObject,
 	project identitystore.ProjectRecord,
 ) (openapi.GetAgentConfigResponseObject, error) {
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.AgentConfigID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	config, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, configID)
+	config, err := s.agentConfigInProject(ctx, project, request.AgentConfigID)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if !found {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return nil, err
 	}
 	response, err := s.server.agentConfigResponseFromRecord(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 	return openapi.GetAgentConfig200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) GetAgentConfigGeneratedSource(
+	ctx context.Context,
+	request openapi.GetAgentConfigGeneratedSourceRequestObject,
+) (openapi.GetAgentConfigGeneratedSourceResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	config, err := s.agentConfigInProject(ctx, scope.project, request.AgentConfigID)
+	if err != nil {
+		return nil, err
+	}
+	format := agentconfig.SourceFormatYAML
+	if request.Params.SourceFormat != nil {
+		format = agentconfig.SourceFormat(*request.Params.SourceFormat)
+	}
+	source, err := agentconfigcompile.GenerateSource(
+		ctx, s.server.store, scope.project.OrgID, scope.project.ID, config, format,
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	return openapi.GetAgentConfigGeneratedSource200JSONResponse{Source: source}, nil
+}
+
+func (s strictOpenAPIServer) agentConfigInProject(
+	ctx context.Context,
+	project identitystore.ProjectRecord,
+	publicConfigID string,
+) (executionstore.AgentConfigRecord, error) {
+	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, publicConfigID)
+	if !ok {
+		return executionstore.AgentConfigRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	config, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, configID)
+	if err != nil {
+		return executionstore.AgentConfigRecord{}, apierror.ProjectScoped(err)
+	}
+	if !found {
+		return executionstore.AgentConfigRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	return config, nil
 }
 
 func (s strictOpenAPIServer) CreateAgentProfile(
