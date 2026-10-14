@@ -285,7 +285,6 @@ func (e AgentExecutor) executeModelStep(
 	if shouldAttemptOptionalCompaction(prepared, workingInputTarget, recovery) {
 		trigger, triggerErr := localInputBudgetTrigger(
 			prepared.InputBudget,
-			workingInputTarget,
 			modelErrorSourceForClient(client),
 		)
 		if triggerErr != nil {

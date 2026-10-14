@@ -133,13 +133,6 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 		input.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
 	}
-	if (input.RecoveryKind == ModelCallRecoveryCompactOptional) != (input.OptionalInputTargetTokens != nil) {
-		return errors.New("optional compaction requires an input target, and other recovery kinds cannot set it")
-	}
-	if input.OptionalInputTargetTokens != nil &&
-		(*input.OptionalInputTargetTokens <= 0 || int64(*input.OptionalInputTargetTokens) > 2147483647) {
-		return errors.New("optional compaction input target must be a positive integer")
-	}
 	if input.RecoveryCheckpointRetainedBytes != nil {
 		if *input.RecoveryCheckpointRetainedBytes < 0 || int64(*input.RecoveryCheckpointRetainedBytes) > 2147483647 {
 			return errors.New("recovery checkpoint retained bytes must be a nonnegative integer")
@@ -178,7 +171,6 @@ func validateModelCallFailureEvidence(
 type finishModelCallContextInput struct {
 	RecoveryCheckpointRetainedBytes *int
 	RequestInputIdentity            *modelenvelope.RequestInputIdentity
-	OptionalInputTargetTokens       *int
 	OptionalCompactionOutcome       OptionalCompactionOutcome
 	ProjectID                       uuid.UUID
 	AgentID                         uuid.UUID
@@ -254,7 +246,6 @@ func finishModelCallContextWithAuthorityTx(
 	}
 	params := dbsqlc.FinishModelCallContextParams{
 		RecoveryCheckpointRetainedBytes:     int32FromIntPtr(input.RecoveryCheckpointRetainedBytes),
-		OptionalInputTargetTokens:           int32FromIntPtr(input.OptionalInputTargetTokens),
 		OptionalCompactionOutcome:           storeutil.TextFromEmpty(string(input.OptionalCompactionOutcome)),
 		ToState:                             string(input.ToState),
 		RecoveryKind:                        storeutil.TextFromEmpty(string(input.RecoveryKind)),

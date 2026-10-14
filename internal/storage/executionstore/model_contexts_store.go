@@ -51,7 +51,6 @@ type ModelCallContextRecord struct {
 
 	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
 
-	OptionalInputTargetTokens *int                                `json:"optional_input_target_tokens,omitempty"`
 	OptionalCompactionOutcome OptionalCompactionOutcome           `json:"optional_compaction_outcome,omitempty"`
 	RequestInputIdentity      *modelenvelope.RequestInputIdentity `json:"request_input_identity,omitempty"`
 
@@ -163,7 +162,6 @@ type ReplaceCompactionSourceInput struct {
 
 type RecordRecoverableModelCallFailureInput struct {
 	RecoveryCheckpointRetainedBytes *int
-	OptionalInputTargetTokens       *int
 	ProjectID                       uuid.UUID
 	AgentID                         uuid.UUID
 	ModelCallContextID              uuid.UUID

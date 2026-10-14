@@ -132,10 +132,8 @@ func admissionHandoff(
 ) executionstore.TriggeredCompactionHandoff {
 	t.Helper()
 	kind := executionstore.ModelCallRecoveryCompact
-	var target *int
 	if optional {
 		kind = executionstore.ModelCallRecoveryCompactOptional
-		target = new(32000)
 	}
 	handoff, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
@@ -144,16 +142,14 @@ func admissionHandoff(
 			Failure: executionstore.RecordRecoverableModelCallFailureInput{
 				ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 				ModelCallContextID: parent.Context.ID, RecoveryKind: kind,
-				OptionalInputTargetTokens: target,
-				ErrorKind:                 modelprotocol.ErrorKindContextWindow,
-				ErrorCode:                 "test_overflow", ErrorMessage: "test overflow",
+				ErrorKind: modelprotocol.ErrorKindContextWindow,
+				ErrorCode: "test_overflow", ErrorMessage: "test overflow",
 			},
 		},
 	)
 	require.NoError(t, err)
 	require.True(t, handoff.CompactionCall.Claimed)
 	require.Equal(t, parent.Context.ID, handoff.CompactionCall.Context.ParentNormalModelCallContextID)
-	require.Equal(t, target, handoff.ParentContext.OptionalInputTargetTokens)
 	return handoff
 }
 
@@ -223,7 +219,7 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	)
 	require.NoError(t, err)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
-	require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
+	require.True(t, state.HasPriorOptionalCompaction)
 	require.True(t, state.LastOptionalCompactionNeedsHeadroom)
 	retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, next.Context.ID)
 	require.NoError(t, err)
@@ -458,14 +454,14 @@ func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing
 	require.Equal(t, 100, state.MinimumObservedNormalInputTokens)
 	require.Equal(t, 100, state.LatestObservedNormalInputTokens)
 	_, err = fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind='compact_optional',optional_input_target_tokens=16000,
+SET state='failed',recovery_kind='compact_optional',
 error_kind='context_window',error_message='later optional',completed_at=statement_timestamp() WHERE id=$1`, later.ID)
 	require.NoError(t, err)
 	afterOptional := insertProjectionNormalContext(t, fixture, later.ID, uuid.Nil, uuid.Nil)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, afterOptional.ID)
 	require.NoError(t, err)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
-	require.Equal(t, 16000, state.LastOptionalInputTargetTokens)
+	require.True(t, state.HasPriorOptionalCompaction)
 	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
@@ -487,7 +483,7 @@ error_kind='context_window',error_message='later optional',completed_at=statemen
 	changed := insertProjectionNormalContext(t, fixture, afterOptional.ID, updated.CurrentRevisionID, uuid.Nil)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, changed.ID)
 	require.NoError(t, err)
-	require.Zero(t, state.LastOptionalInputTargetTokens)
+	require.False(t, state.HasPriorOptionalCompaction)
 	require.Zero(t, state.LatestObservedNormalInputTokens)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
@@ -507,41 +503,6 @@ error_kind='runtime',error_message='test',request_input_fingerprint=repeat('a',6
 			`UPDATE model_call_contexts SET completed_at=statement_timestamp(),`+fields+` WHERE id=$1`, claim.Context.ID)
 		assertPgConstraint(t, err, "23514", "model_call_contexts_request_input_identity")
 	}
-}
-
-func TestOptionalCompactionInputTargetGuards(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "optional_target_guards")
-	for _, tc := range []struct {
-		kind   executionstore.ModelCallRecoveryKind
-		target *int
-	}{
-		{executionstore.ModelCallRecoveryCompactOptional, nil},
-		{executionstore.ModelCallRecoveryCompactOptional, new(0)},
-		{executionstore.ModelCallRecoveryCompactOptional, new(-1)},
-		{executionstore.ModelCallRecoveryCompact, new(32000)},
-	} {
-		_, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
-			ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
-				ParentContextID: claim.Context.ID, SourceEventSequenceEnd: claim.Context.InputEventSequence,
-				Failure: executionstore.RecordRecoverableModelCallFailureInput{
-					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-					ModelCallContextID: claim.Context.ID, RecoveryKind: tc.kind,
-					OptionalInputTargetTokens: tc.target,
-					ErrorKind:                 modelprotocol.ErrorKindContextWindow, ErrorMessage: "invalid optional target",
-				},
-			},
-		)
-		require.Error(t, err)
-		_, err = fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind=$2,optional_input_target_tokens=$3,error_kind='context_window',
-error_message='invalid optional target',completed_at=statement_timestamp() WHERE id=$1`,
-			claim.Context.ID, string(tc.kind), tc.target,
-		)
-		assertPgConstraint(t, err, "23514", "model_call_contexts_optional_input_target")
-	}
-	admissionHandoff(t, ctx, fixture, claim, true, claim.Context.InputEventSequence)
 }
 
 func TestOptionalCompactionOutcomeGuards(t *testing.T) {
@@ -626,7 +587,7 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 		if inputTokens == 2000 {
 			pinnedContextID = current.ID
 		}
-		require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
+		require.True(t, state.HasPriorOptionalCompaction)
 		claim.Context = current
 	}
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(

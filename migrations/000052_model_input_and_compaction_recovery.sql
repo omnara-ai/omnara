@@ -4,7 +4,6 @@ ALTER TABLE model_call_contexts
     ADD COLUMN parent_normal_model_call_context_id uuid,
     ADD COLUMN source_excerpt_bytes integer,
     ADD COLUMN recovery_checkpoint_retained_bytes integer,
-    ADD COLUMN optional_input_target_tokens integer,
     ADD COLUMN optional_compaction_outcome text,
     ADD COLUMN request_input_fingerprint text,
     ADD COLUMN request_input_item_count integer;
@@ -70,10 +69,6 @@ ALTER TABLE model_call_contexts
             operation_kind = 'normal' AND state = 'failed' AND recovery_kind IS NOT DISTINCT FROM 'retry'
             AND error_kind IN ('context_window', 'payload_too_large')
             AND api_format <> '' AND api_variant <> '' AND recovery_checkpoint_retained_bytes >= 0)
-    ),
-    ADD CONSTRAINT model_call_contexts_optional_input_target CHECK (
-        (recovery_kind IS NOT DISTINCT FROM 'compact_optional') = (optional_input_target_tokens IS NOT NULL)
-        AND (optional_input_target_tokens IS NULL OR optional_input_target_tokens > 0)
     ),
     ADD CONSTRAINT model_call_contexts_optional_outcome CHECK (
         optional_compaction_outcome IS NULL OR (recovery_kind IS NOT DISTINCT FROM 'resume_normal'

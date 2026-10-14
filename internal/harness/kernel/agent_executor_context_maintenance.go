@@ -23,14 +23,13 @@ const (
 )
 
 type contextMaintenanceTrigger struct {
-	Optional                  bool
-	OptionalInputTargetTokens int
-	Kind                      model.ErrorKind
-	Code                      string
-	Message                   string
-	Details                   json.RawMessage
-	RequestID                 string
-	Cause                     error
+	Optional  bool
+	Kind      model.ErrorKind
+	Code      string
+	Message   string
+	Details   json.RawMessage
+	RequestID string
+	Cause     error
 }
 
 type normalCallFailureEvidence struct {
@@ -70,7 +69,6 @@ func collectNormalCallFailureEvidence(
 
 func localInputBudgetTrigger(
 	assessment model.InputBudgetAssessment,
-	workingInputTarget int,
 	source string,
 ) (contextMaintenanceTrigger, error) {
 	details, err := marshalJSON(map[string]any{
@@ -86,12 +84,11 @@ func localInputBudgetTrigger(
 		assessment.UsableInputTokens,
 	)
 	return contextMaintenanceTrigger{
-		OptionalInputTargetTokens: workingInputTarget,
-		Kind:                      model.ErrorKindContextWindow,
-		Code:                      contextMaintenanceErrorCodeInputBudgetExceeded,
-		Message:                   message,
-		Details:                   details,
-		Cause:                     errors.New(message),
+		Kind:    model.ErrorKindContextWindow,
+		Code:    contextMaintenanceErrorCodeInputBudgetExceeded,
+		Message: message,
+		Details: details,
+		Cause:   errors.New(message),
 	}, nil
 }
 
@@ -256,7 +253,6 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 	}
 	if trigger.Optional {
 		failure.RecoveryKind = executionstore.ModelCallRecoveryCompactOptional
-		failure.OptionalInputTargetTokens = new(trigger.OptionalInputTargetTokens)
 	}
 	handoff, err := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
@@ -293,7 +289,7 @@ func shouldAttemptOptionalCompaction(
 		recovery.CheckpointNeedsNormalAttempt || recovery.HasPriorNormalAttempt {
 		return false
 	}
-	if recovery.LastOptionalInputTargetTokens != workingInputTarget {
+	if !recovery.HasPriorOptionalCompaction {
 		return true
 	}
 	hasMeasuredPressure := prepared.HasMeasuredInputPrefix && prepared.RequestInputIdentity != nil

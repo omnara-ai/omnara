@@ -97,19 +97,15 @@ func observedOptionalRearmResponse(text string, inputTokens int) model.Response 
 	return response
 }
 
-func TestAgentExecutorRearmsOptionalCompactionAfterLiveTargetChange(t *testing.T) {
+func TestAgentExecutorContinuesAfterLiveTargetChangeWithoutResettingCompaction(t *testing.T) {
 	ctx := context.Background()
 	fixture, agentID, userID := seedSoftContextHistory(t, ctx)
 	config := fixture.currentAgentConfig(t, ctx, agentID)
-	configuredModel := currentConfiguredModelForKernelConfig(t, ctx, fixture.Store, config)
 	grantID := currentProjectModelGrantIDForKernelConfig(t, ctx, fixture.Store, config)
 	client := uncertainSoftContextClient(
 		observedOptionalRearmResponse("Preserve the original objective.", 500),
-		observedOptionalRearmResponse("There is headroom under the original target.", 5_000),
-		observedOptionalRearmResponse("The existing target remains comfortable.", 5_000),
-		observedOptionalRearmResponse("Preserve the original objective and subsequent progress.", 500),
-		observedOptionalRearmResponse("There is now headroom under the lower target.", 2_000),
-		observedOptionalRearmResponse("The new target does not cause repeated maintenance.", 2_000),
+		observedOptionalRearmResponse("Normal work continued.", 5_000),
+		observedOptionalRearmResponse("Handled the new input with the lower configured target.", 5_000),
 	)
 	resolver := &productionPolicyTestResolver{
 		Resolver: modelprovider.Resolver{Models: fixture.Store.Models(), Secrets: fixture.Store.Secrets()},
@@ -119,42 +115,25 @@ func TestAgentExecutorRearmsOptionalCompactionAfterLiveTargetChange(t *testing.T
 	work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
 		strings.Repeat("Current task details. ", 200), fixture.Now.Add(time.Second))
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	require.True(t, isCompactionRequestBundle(client.responded[0].Bundle))
 	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
 	fixture.releaseModelRuntimeLock(t, ctx, work)
-	work = fixture.admitContentInputTurn(t, ctx, agentID, userID,
-		strings.Repeat("More current task details. ", 200), fixture.Now.Add(3*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Len(t, client.responded, 3)
-	require.False(t, isCompactionRequestBundle(client.responded[2].Bundle))
 	_, err := fixture.Store.Models().UpdateProjectModelGrant(ctx, modelstore.UpdateProjectModelGrantInput{
 		OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID, ID: grantID,
 		ContextWindowTokens: patch.NullableInt{Set: true, Value: new(6_000)},
 	})
 	require.NoError(t, err)
-	require.Equal(t, configuredModel.CurrentRevisionID,
-		currentRevisionIDForKernelConfiguredModelID(t, ctx, fixture.Store, configuredModel.ID))
-	fixture.releaseModelRuntimeLock(t, ctx, work)
 	work = fixture.admitContentInputTurn(t, ctx, agentID, userID, "Use the lower working target.",
-		fixture.Now.Add(4*time.Second))
+		fixture.Now.Add(3*time.Second))
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Len(t, client.responded, 4)
-	require.True(t, isCompactionRequestBundle(client.responded[3].Bundle))
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(5*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	fixture.releaseModelRuntimeLock(t, ctx, work)
-	work = fixture.admitContentInputTurn(t, ctx, agentID, userID, "Continue with the same target.",
-		fixture.Now.Add(6*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Len(t, client.responded, 6)
-	require.False(t, isCompactionRequestBundle(client.responded[5].Bundle))
-	var oldTarget, newTarget int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT max(optional_input_target_tokens),
-		min(optional_input_target_tokens) FROM model_call_contexts
-		WHERE agent_id=$1 AND recovery_kind='compact_optional'`, agentID).Scan(&oldTarget, &newTarget))
-	require.Greater(t, oldTarget, newTarget)
-	require.Greater(t, 5_000, newTarget*optionalCompactionRearmHeadroomPercent/100,
-		"old observed usage must not satisfy the new target's headroom gate")
+	require.Equal(t, 6_000, resolver.resolutions[len(resolver.resolutions)-1].ContextWindowTokens)
+	require.Len(t, client.responded, 3)
+	require.False(t, isCompactionRequestBundle(client.responded[2].Bundle))
+	var optionalAttempts int
+	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
+		WHERE agent_id=$1 AND recovery_kind='compact_optional'`, agentID).Scan(&optionalAttempts))
+	require.Equal(t, 1, optionalAttempts)
 	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 }
 

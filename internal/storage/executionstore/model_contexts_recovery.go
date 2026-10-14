@@ -14,7 +14,7 @@ type ModelCallRecoveryState struct {
 	RecoveryCheckpointID                  uuid.UUID
 	RecoveryCheckpointRetainedBytes       *int
 	CheckpointRecompressionAttempted      bool
-	LastOptionalInputTargetTokens         int
+	HasPriorOptionalCompaction            bool
 	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int
@@ -40,7 +40,7 @@ func (s *Store) GetModelCallRecoveryState(
 		RecoveryCheckpointID:                  storeutil.IDFromPtr(row.RecoveryCheckpointID),
 		RecoveryCheckpointRetainedBytes:       intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
 		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
-		LastOptionalInputTargetTokens:         int(row.LastOptionalInputTargetTokens),
+		HasPriorOptionalCompaction:            row.HasPriorOptionalCompaction,
 		LastOptionalCompactionNeedsHeadroom:   row.LastOptionalCompactionNeedsHeadroom,
 		OptionalCompactionAttemptedAtFrontier: row.OptionalCompactionAttemptedAtFrontier,
 		LatestObservedNormalInputTokens:       int(row.LatestObservedNormalInputTokens),

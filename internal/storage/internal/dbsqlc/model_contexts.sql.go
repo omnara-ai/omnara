@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $26
-    AND agent.id = $27
+  WHERE agent.project_id = $25
+    AND agent.id = $26
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $28
+  WHERE runtime_lock.id = $27
     AND (
-      $29::boolean
+      $28::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -144,15 +144,14 @@ SET state = $1,
     provider_reported_cost_usd = $18::text::numeric,
     provider_metadata = $19,
     recovery_checkpoint_retained_bytes = $20::integer,
-    optional_input_target_tokens = $21::integer,
-    optional_compaction_outcome = $22::text,
-    request_input_fingerprint = $23::text,
-    request_input_item_count = $24::integer,
+    optional_compaction_outcome = $21::text,
+    request_input_fingerprint = $22::text,
+    request_input_item_count = $23::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $25
+  AND context.id = $24
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -179,7 +178,6 @@ type FinishModelCallContextParams struct {
 	ProviderReportedCostUsd             *string
 	ProviderMetadata                    json.RawMessage
 	RecoveryCheckpointRetainedBytes     *int32
-	OptionalInputTargetTokens           *int32
 	OptionalCompactionOutcome           *string
 	RequestInputFingerprint             *string
 	RequestInputItemCount               *int32
@@ -212,7 +210,6 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.ProviderReportedCostUsd,
 		arg.ProviderMetadata,
 		arg.RecoveryCheckpointRetainedBytes,
-		arg.OptionalInputTargetTokens,
 		arg.OptionalCompactionOutcome,
 		arg.RequestInputFingerprint,
 		arg.RequestInputItemCount,
@@ -280,7 +277,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.source_event_sequence_end, context.parent_normal_model_call_context_id,
   context.source_excerpt_bytes, prior_checkpoint.id AS replaces_checkpoint_id,
   context.recovery_checkpoint_retained_bytes,
-  context.optional_input_target_tokens,
   context.optional_compaction_outcome,
   context.request_input_fingerprint,
   context.request_input_item_count,
@@ -330,7 +326,6 @@ type GetModelCallContextRow struct {
 	SourceExcerptBytes              *int32
 	ReplacesCheckpointID            *uuid.UUID
 	RecoveryCheckpointRetainedBytes *int32
-	OptionalInputTargetTokens       *int32
 	OptionalCompactionOutcome       *string
 	RequestInputFingerprint         *string
 	RequestInputItemCount           *int32
@@ -376,7 +371,6 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.SourceExcerptBytes,
 		&i.ReplacesCheckpointID,
 		&i.RecoveryCheckpointRetainedBytes,
-		&i.OptionalInputTargetTokens,
 		&i.OptionalCompactionOutcome,
 		&i.RequestInputFingerprint,
 		&i.RequestInputItemCount,
@@ -460,7 +454,7 @@ WITH current AS MATERIALIZED (
     AND context.id = $3
 ), latest_optional AS MATERIALIZED (
   SELECT prior.id, prior.project_id, prior.agent_id, prior.input_event_sequence,
-         prior.optional_input_target_tokens, prior.completed_at
+         prior.completed_at
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
   WHERE prior.project_id = current.project_id
     AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'compact_optional'
@@ -522,7 +516,7 @@ SELECT checkpoint_projection.recovery_checkpoint_id,
            AND prior.configured_model_revision_id = current.configured_model_revision_id
            AND prior.created_at < current.created_at
        )::boolean AS checkpoint_recompression_attempted,
-       coalesce(latest_optional.optional_input_target_tokens, 0)::integer AS last_optional_input_target_tokens,
+       (latest_optional.id IS NOT NULL)::boolean AS has_prior_optional_compaction,
        coalesce(latest_optional_child.state = 'succeeded'
          OR latest_optional_child.optional_compaction_outcome = 'ineffective',
          false)::boolean AS last_optional_compaction_needs_headroom,
@@ -559,7 +553,7 @@ type GetModelCallRecoveryStateRow struct {
 	RecoveryCheckpointID                  *uuid.UUID
 	RecoveryCheckpointRetainedBytes       *int32
 	CheckpointRecompressionAttempted      bool
-	LastOptionalInputTargetTokens         int32
+	HasPriorOptionalCompaction            bool
 	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int32
@@ -575,7 +569,7 @@ func (q *Queries) GetModelCallRecoveryState(ctx context.Context, arg GetModelCal
 		&i.RecoveryCheckpointID,
 		&i.RecoveryCheckpointRetainedBytes,
 		&i.CheckpointRecompressionAttempted,
-		&i.LastOptionalInputTargetTokens,
+		&i.HasPriorOptionalCompaction,
 		&i.LastOptionalCompactionNeedsHeadroom,
 		&i.OptionalCompactionAttemptedAtFrontier,
 		&i.LatestObservedNormalInputTokens,

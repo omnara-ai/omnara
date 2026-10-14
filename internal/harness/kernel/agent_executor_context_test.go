@@ -15,7 +15,7 @@ func TestOptionalCompactionRearmRequiresObservedHeadroomAtOrBelowThreeQuarters(t
 		want    bool
 	}{{0, false}, {749, true}, {750, true}, {751, false}} {
 		recovery := executionstore.ModelCallRecoveryState{
-			LastOptionalInputTargetTokens:       1000,
+			HasPriorOptionalCompaction:          true,
 			LastOptionalCompactionNeedsHeadroom: true, LatestObservedNormalInputTokens: 1000,
 			MinimumObservedNormalInputTokens: test.minimum,
 		}

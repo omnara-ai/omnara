@@ -197,7 +197,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.source_event_sequence_end, context.parent_normal_model_call_context_id,
   context.source_excerpt_bytes, prior_checkpoint.id AS replaces_checkpoint_id,
   context.recovery_checkpoint_retained_bytes,
-  context.optional_input_target_tokens,
   context.optional_compaction_outcome,
   context.request_input_fingerprint,
   context.request_input_item_count,
@@ -420,7 +419,6 @@ SET state = sqlc.arg(to_state),
     provider_reported_cost_usd = sqlc.narg(provider_reported_cost_usd)::text::numeric,
     provider_metadata = sqlc.arg(provider_metadata),
     recovery_checkpoint_retained_bytes = sqlc.narg(recovery_checkpoint_retained_bytes)::integer,
-    optional_input_target_tokens = sqlc.narg(optional_input_target_tokens)::integer,
     optional_compaction_outcome = sqlc.narg(optional_compaction_outcome)::text,
     request_input_fingerprint = sqlc.narg(request_input_fingerprint)::text,
     request_input_item_count = sqlc.narg(request_input_item_count)::integer,
@@ -553,7 +551,7 @@ WITH current AS MATERIALIZED (
     AND context.id = sqlc.arg(model_call_context_id)
 ), latest_optional AS MATERIALIZED (
   SELECT prior.id, prior.project_id, prior.agent_id, prior.input_event_sequence,
-         prior.optional_input_target_tokens, prior.completed_at
+         prior.completed_at
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
   WHERE prior.project_id = current.project_id
     AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'compact_optional'
@@ -615,7 +613,7 @@ SELECT checkpoint_projection.recovery_checkpoint_id,
            AND prior.configured_model_revision_id = current.configured_model_revision_id
            AND prior.created_at < current.created_at
        )::boolean AS checkpoint_recompression_attempted,
-       coalesce(latest_optional.optional_input_target_tokens, 0)::integer AS last_optional_input_target_tokens,
+       (latest_optional.id IS NOT NULL)::boolean AS has_prior_optional_compaction,
        coalesce(latest_optional_child.state = 'succeeded'
          OR latest_optional_child.optional_compaction_outcome = 'ineffective',
          false)::boolean AS last_optional_compaction_needs_headroom,
