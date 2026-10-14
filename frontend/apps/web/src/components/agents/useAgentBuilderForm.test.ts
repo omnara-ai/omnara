@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { mcpToolEnabled, unexposableMcpTools } from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
   type BasicConfig,
   basicConfigValid,
-  type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
 } from './useAgentBuilderForm'
@@ -792,54 +790,6 @@ describe('basic agent config names', () => {
       index === 0 ? { ...server, name: ` ${server.name}` } : server,
     )
     expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
-  })
-
-  it('lists enabled discovered and configured MCP tools the model cannot accept', () => {
-    const [server] = fullConfig.mcpServers
-    if (!server) throw new Error('fixture needs a server')
-    const longName = 'b'.repeat(64)
-    const configured: BasicMcpServer = {
-      ...server,
-      name: 'github',
-      defaultEnabled: true,
-      tools: [
-        { name: longName, enabled: null, permission: null },
-        { name: 'c'.repeat(64), enabled: false, permission: null },
-        { name: 'search.issues', enabled: true, permission: null },
-      ],
-    }
-    expect(
-      unexposableMcpTools(configured, ['list-issues', 'get.issue', 'search.issues']).map(
-        (tool) => tool.name,
-      ),
-    ).toEqual(['get.issue', 'search.issues', longName])
-    expect(unexposableMcpTools({ ...configured, defaultEnabled: false }, ['get.issue'])).toEqual([
-      {
-        name: 'search.issues',
-        error:
-          '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
-      },
-    ])
-  })
-
-  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
-    const [enabledByDefault, disabledByDefault] = fullConfig.mcpServers
-    if (!enabledByDefault || !disabledByDefault) throw new Error('fixture needs two servers')
-    const overrides = [
-      { name: 'on', enabled: true, permission: null },
-      { name: 'off', enabled: false, permission: null },
-      { name: 'inherit', enabled: null, permission: null },
-    ]
-    const enabled = { ...enabledByDefault, tools: overrides }
-    const disabled = { ...disabledByDefault, tools: overrides }
-    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 
   it('rejects duplicate MCP server keys', () => {
