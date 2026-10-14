@@ -116,17 +116,8 @@ func completeExecutionRevokedProcessesTx(
 				return fmt.Errorf("mark queued process failed for execution revoke: %w", err)
 			}
 			record := processRecordFromSQLC(failed)
-			h, err := unit.Handle(record.ProjectID, record.AgentID)
-			if err != nil {
+			if err := settleTerminalProcess(ctx, unit, record); err != nil {
 				return err
-			}
-			if record.ToolCallID != uuid.Nil {
-				if _,
-					err := h.CompleteProcess(ctx,
-					agentexecution.ProcessResult{ID: record.ID,
-						Observed: nil}); err != nil {
-					return err
-				}
 			}
 		case ProcessStateStarting, ProcessStateRunning:
 			txNotifications.AddDaemonProcessTermination(process.MachineID, process.ID)
@@ -250,17 +241,8 @@ func completeMachineLifecycleTerminalQueuedProcessToolCallsTx(
 				return fmt.Errorf("mark queued process failed for machine delete: %w", err)
 			}
 			record := processRecordFromSQLC(failed)
-			h, err := unit.Handle(record.ProjectID, record.AgentID)
-			if err != nil {
+			if err := settleTerminalProcess(ctx, unit, record); err != nil {
 				return err
-			}
-			if record.ToolCallID != uuid.Nil {
-				if _,
-					err := h.CompleteProcess(ctx,
-					agentexecution.ProcessResult{ID: record.ID,
-						Observed: nil}); err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -295,17 +277,8 @@ func completeProcessUnknownByMachineTx(
 		return false, nil
 	}
 	record := processRecordFromSQLC(row)
-	h, err := unit.Handle(record.ProjectID, record.AgentID)
-	if err != nil {
+	if err := settleTerminalProcess(ctx, unit, record); err != nil {
 		return false, err
-	}
-	if record.ToolCallID != uuid.Nil {
-		if _,
-			err := h.CompleteProcess(ctx,
-			agentexecution.ProcessResult{ID: record.ID,
-				Observed: nil}); err != nil {
-			return false, err
-		}
 	}
 	if err := completeUnresolvedProcessActionsForClosedProcessTx(
 		ctx,
@@ -366,17 +339,8 @@ func completeQueuedProcessActionsFailedTx(
 	if err != nil {
 		return fmt.Errorf("mark queued process actions failed: %w", err)
 	}
-	for _, row := range rows {
-		record := processActionRecordFromSQLC(row)
-		h, err := unit.Handle(record.ProjectID, record.AgentID)
-		if err != nil {
-			return err
-		}
-		if record.ToolCallID != uuid.Nil {
-			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
-				return err
-			}
-		}
+	if err := settleInterruptedActions(ctx, unit, rows); err != nil {
+		return err
 	}
 	return nil
 }
@@ -397,17 +361,8 @@ func completeQueuedProcessActionsForTerminalProcessTx(
 	if err != nil {
 		return fmt.Errorf("fail queued actions for terminal process: %w", err)
 	}
-	for _, row := range failedRows {
-		record := processActionRecordFromSQLC(row)
-		h, err := unit.Handle(record.ProjectID, record.AgentID)
-		if err != nil {
-			return err
-		}
-		if record.ToolCallID != uuid.Nil {
-			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
-				return err
-			}
-		}
+	if err := settleInterruptedActions(ctx, unit, failedRows); err != nil {
+		return err
 	}
 	resolvedRows, err := qtx.ResolveQueuedTerminateActionsForTerminalProcess(
 		ctx,
@@ -420,17 +375,8 @@ func completeQueuedProcessActionsForTerminalProcessTx(
 	if err != nil {
 		return fmt.Errorf("resolve queued stops for terminal process: %w", err)
 	}
-	for _, row := range resolvedRows {
-		record := processActionRecordFromSQLC(row)
-		h, err := unit.Handle(record.ProjectID, record.AgentID)
-		if err != nil {
-			return err
-		}
-		if record.ToolCallID != uuid.Nil {
-			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
-				return err
-			}
-		}
+	if err := settleInterruptedActions(ctx, unit, resolvedRows); err != nil {
+		return err
 	}
 	return nil
 }
@@ -463,16 +409,35 @@ func completeAcceptedProcessActionsWithoutEvidenceTx(
 			return fmt.Errorf("touch process activity: %w", err)
 		}
 	}
+	if err := settleInterruptedActions(ctx, unit, rows); err != nil {
+		return err
+	}
+	return nil
+}
+
+func settleTerminalProcess(ctx context.Context, unit *agentexecution.Unit, record ProcessRecord) error {
+	if record.ToolCallID == uuid.Nil {
+		return nil
+	}
+	h, err := unit.Handle(record.ProjectID, record.AgentID)
+	if err != nil {
+		return err
+	}
+	_, err = h.CompleteProcess(ctx, agentexecution.ProcessResult{ID: record.ID})
+	return err
+}
+func settleInterruptedActions(ctx context.Context, unit *agentexecution.Unit, rows []dbsqlc.ProcessAction) error {
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)
+		if record.ToolCallID == uuid.Nil {
+			continue
+		}
 		h, err := unit.Handle(record.ProjectID, record.AgentID)
 		if err != nil {
 			return err
 		}
-		if record.ToolCallID != uuid.Nil {
-			if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
-				return err
-			}
+		if _, err = h.SettleInterruptedAction(ctx, record.ID); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -456,7 +456,7 @@ func (s *Service) deleteProjectOnce(
 ) ([]executionstore.MachineRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin delete project: %w", err)
+		return nil, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()
@@ -542,7 +542,7 @@ func (s *Service) deleteOrganizationOnce(
 ) ([]executionstore.MachineRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin delete organization: %w", err)
+		return nil, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

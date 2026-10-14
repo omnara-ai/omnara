@@ -774,7 +774,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 ) (DeleteProjectMachinePoolGrantResult, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf("begin revoke project machine pool grant: %w", err)
+		return DeleteProjectMachinePoolGrantResult{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

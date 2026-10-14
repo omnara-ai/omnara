@@ -36,25 +36,17 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	input RecordModelCallErrorAndCompleteContextInput,
 ) (events.Event, error) {
 	return agentexecution.Retry(ctx,
-		"RecordModelCallErrorAndCompleteContext",
+		"record_model_call_error_and_complete_context",
 		func(ctx context.Context) (events.Event,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true, input.RuntimeLockID)
 			if err != nil {
 				return events.Event{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			_, err = h.FailModel(
 				ctx,
-				agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
-					ErrorKind:    input.ErrorKind,
-					ErrorCode:    input.ErrorCode,
-					ErrorMessage: input.ErrorMessage,
-					ErrorDetails: input.ErrorDetails,
-					ServedModel:  input.ServedProviderModelSlug,
-					Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
-						APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
-						Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
+				executionTerminalFailure(input),
 			)
 			if err != nil {
 				return events.Event{}, err

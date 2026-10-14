@@ -150,15 +150,13 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_terminal_turn_live_runtime")
-
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"finish"}]`),
-			IdempotencyKey: "cancel-terminal-turn-live-runtime",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"finish"}]`),
+		IdempotencyKey: "cancel-terminal-turn-live-runtime",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -254,15 +252,13 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_active_model_call")
-
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"cancel active model call"}]`),
-			IdempotencyKey: "cancel-active-model-call",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"cancel active model call"}]`),
+		IdempotencyKey: "cancel-active-model-call",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -527,7 +523,6 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_active_cancels_steering")
-
 	toolCallID := createToolCallForProcessTest(
 		t,
 		ctx,
@@ -614,7 +609,6 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_unstarted_turn_without_runtime")
-
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,
 		testProjectID,
@@ -623,14 +617,13 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"cancel me"}]`),
-			IdempotencyKey: "cancel-unstarted-turn",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"cancel me"}]`),
+		IdempotencyKey: "cancel-unstarted-turn",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -638,8 +631,7 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -698,11 +690,7 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
 		t.Fatalf("wakeups after canceling unstarted turn = %d, want 0", wakeups)
 	}
-	if seed,
-		found,
-		err := fixture.Store.Execution().NextAgentModelWork(ctx,
-		testProjectID,
-		fixture.AgentID); err != nil {
+	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("load continuation seed after cancel: %v", err)
 	} else if found {
 		t.Fatalf("continuation seed after cancel = %+v, want none", seed)
@@ -713,7 +701,6 @@ func TestCancelAgentReportsAlreadyPendingRuntimeCancel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_already_canceled_runtime")
-
 	if _, err := requestAgentRuntimeCancelForTest(
 		ctx,
 		fixture.Store,
@@ -761,7 +748,6 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_later_frontier_after_prior_cancel")
-
 	firstToolCallID := createToolCallForProcessTest(
 		t,
 		ctx,
@@ -804,8 +790,7 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first cancel: %v", err)
 	}
-	firstToolCall, err := fixture.Store.Execution().
-		GetToolCall(ctx, testProjectID, fixture.AgentID, firstToolCallID)
+	firstToolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, firstToolCallID)
 	if err != nil {
 		t.Fatalf("load first tool call: %v", err)
 	}
@@ -880,8 +865,7 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 			firstCancelResult.Event,
 		)
 	}
-	secondToolCall, err := fixture.Store.Execution().
-		GetToolCall(ctx, testProjectID, fixture.AgentID, secondToolCallID)
+	secondToolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, secondToolCallID)
 	if err != nil {
 		t.Fatalf("load second tool call: %v", err)
 	}

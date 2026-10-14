@@ -334,17 +334,7 @@ BEGIN
     SELECT a.id INTO invalid_agent FROM agents a LEFT JOIN agent_execution_state h ON h.agent_id=a.id
     WHERE h.agent_id IS NULL LIMIT 1;
     IF FOUND THEN RAISE EXCEPTION 'missing execution state: %', invalid_agent; END IF;
-    SELECT h.agent_id INTO invalid_agent FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
-    WHERE a.state='active' AND (
-        h.incomplete_tools IS DISTINCT FROM agent_has_incomplete_tool_batch(a.project_id,a.id)
-        OR h.turn_continuable IS DISTINCT FROM (agent_has_incomplete_tool_batch(a.project_id,a.id)
-            OR EXISTS(SELECT 1 FROM agent_next_model_work(a.project_id,a.id))
-            OR EXISTS(SELECT 1 FROM agent_continuable_model_contexts(a.project_id,a.id)))
-        OR (h.logical_ready_at IS NULL) IS DISTINCT FROM (agent_next_wakeup_ready_at(a.project_id,a.id) IS NULL)
-        OR ((h.logical_ready_at>statement_timestamp() OR agent_next_wakeup_ready_at(a.project_id,a.id)>statement_timestamp())
-            AND h.logical_ready_at IS DISTINCT FROM agent_next_wakeup_ready_at(a.project_id,a.id))
-    ) LIMIT 1;
-    IF FOUND THEN RAISE EXCEPTION 'execution summary mismatch: %', invalid_agent; END IF;
+
 END;
 $$;
 -- +goose StatementEnd

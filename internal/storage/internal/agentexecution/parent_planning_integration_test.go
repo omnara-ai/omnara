@@ -3,16 +3,15 @@
 package agentexecution_test
 
 import (
-	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +48,7 @@ func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 					}
 				}
 				require.NoError(t, u.Commit(t.Context(), "prepare parent effect"))
-				counter := &parentEffectAttempts{}
+				counter := &integrationdb.QueryTrace{}
 				config := f.pool.Config()
 				config.ConnConfig.Tracer = counter
 				pool, err := pgxpool.NewWithConfig(t.Context(), config)
@@ -86,10 +85,11 @@ func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 							ModelCallContextID: prepared.Context.ID, ErrorKind: "runtime", ErrorMessage: "failed",
 						})
 				case "compaction_failure":
-					err = store.RecordTerminalCompactionFailure(t.Context(), executionstore.RecordTerminalCompactionFailureInput{
-						ProjectID: f.project, AgentID: cr.AgentID, RuntimeLockID: lease,
-						ModelCallContextID: prepared.Context.ID, ErrorKind: "runtime", ErrorMessage: "failed",
-					})
+					err = store.RecordTerminalCompactionFailure(t.Context(),
+						executionstore.RecordTerminalCompactionFailureInput{
+							ProjectID: f.project, AgentID: cr.AgentID, RuntimeLockID: lease,
+							ModelCallContextID: prepared.Context.ID, ErrorKind: "runtime", ErrorMessage: "failed",
+						})
 				case "question":
 					_, err = store.ExecuteToolCall(t.Context(), executionstore.ExecuteToolCallInput{
 						ProjectID: f.project, AgentID: cr.AgentID, RuntimeLockID: lease, ToolCallID: tool.ID,
@@ -106,22 +106,9 @@ func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 				require.NoError(t, f.pool.QueryRow(t.Context(),
 					`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, pr.AgentID).Scan(&effects))
 				require.Equal(t, 1, effects)
-				t.Logf("transaction attempts=%d", counter.begins)
-				require.Equal(t, 1, counter.begins)
+				t.Logf("transaction attempts=%d", counter.Begins.Load())
+				require.EqualValues(t, 1, counter.Begins.Load())
 			})
 		}
 	}
 }
-
-type parentEffectAttempts struct{ begins int }
-
-func (c *parentEffectAttempts) TraceQueryStart(
-	ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData,
-) context.Context {
-	if data.SQL == "begin" {
-		c.begins++
-	}
-	return ctx
-}
-
-func (*parentEffectAttempts) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}

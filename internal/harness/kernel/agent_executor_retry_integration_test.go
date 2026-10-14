@@ -150,12 +150,7 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 			t.Fatalf("retry request %d changed bytes:\nfirst=%s\nretry=%s", index+1, firstRequest, got)
 		}
 	}
-	var failedContexts,
-		contextsWithProviderMetadata,
-		succeededContexts,
-		contextsWithCost,
-		contexts,
-		operationFrontiers int
+	var failedContexts, contextsWithProviderMetadata, succeededContexts, contextsWithCost, contexts, operationFrontiers int
 	if err := fixture.Pool.QueryRow(ctx, `
 			SELECT count(*) FILTER (
 			         WHERE context.state = 'failed'
@@ -652,10 +647,7 @@ func TestAgentExecutorBoundsProviderEvidenceAttachedToError(t *testing.T) {
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "error-evidence-model",
 		errs: []error{model.ProviderError{
-			Kind:    model.ErrorKindTransient,
-			Source:  "test-provider",
-			Code:    "provider_unavailable",
-			Message: "try later",
+			Kind: model.ErrorKindTransient, Source: "test-provider", Code: "provider_unavailable", Message: "try later",
 		}},
 		errorResponses: []model.Response{{
 			ID:                      strings.Repeat("r", model.MaxProviderIdentityBytes+1),
@@ -696,8 +688,7 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("load bounded provider error evidence: %v", err)
 	}
-	if state != executionstore.ModelCallContextFailed ||
-		recoveryKind != executionstore.ModelCallRecoveryRetry ||
+	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryRetry ||
 		responseID != "" {
 		t.Fatalf(
 			"provider error evidence = %q/%q response=%q",
@@ -765,8 +756,7 @@ func TestAgentExecutorPreservesRetryAfterEvidenceWhenAttemptsAreExhausted(t *tes
 		if err != nil {
 			t.Fatalf("claim work for attempt %d: %v", attemptNumber, err)
 		}
-		if !found || claim.Kind != executionstore.AgentWorkModel ||
-			claim.Model.ModelCallContextID == uuid.Nil {
+		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
 			t.Fatalf("attempt %d claim = %+v found=%v, want retry continuation", attemptNumber, claim, found)
 		}
 		turn = modelWorkExecutionFromClaimForKernelTest(claim, currentNow)
@@ -940,8 +930,7 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 `, kernelTestProjectID, agentID, oldContextID).Scan(&oldState, &oldRecoveryKind); err != nil {
 		t.Fatalf("load original retrying context: %v", err)
 	}
-	if oldState != executionstore.ModelCallContextFailed ||
-		oldRecoveryKind != executionstore.ModelCallRecoveryRetry {
+	if oldState != executionstore.ModelCallContextFailed || oldRecoveryKind != executionstore.ModelCallRecoveryRetry {
 		t.Fatalf(
 			"original retrying context = %q/%q, want immutable failed/retry history",
 			oldState,
@@ -1053,8 +1042,7 @@ WHERE context.project_id = $1
 	}
 
 	var configChangeStartedAt time.Time
-	if err := fixture.Pool.QueryRow(ctx,
-		`SELECT statement_timestamp()`).Scan(&configChangeStartedAt); err != nil {
+	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&configChangeStartedAt); err != nil {
 		t.Fatalf("read database time before config change: %v", err)
 	}
 	nextConfig := fixture.kernelAgentConfigInput(
@@ -1074,8 +1062,7 @@ WHERE context.project_id = $1
 		t.Fatalf("change config during retry backoff: %v", err)
 	}
 	var configChangeCompletedAt time.Time
-	if err := fixture.Pool.QueryRow(ctx,
-		`SELECT statement_timestamp()`).Scan(&configChangeCompletedAt); err != nil {
+	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&configChangeCompletedAt); err != nil {
 		t.Fatalf("read database time after config change: %v", err)
 	}
 	var readyAt time.Time
@@ -1087,8 +1074,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 `, kernelTestProjectID, agentID).Scan(&readyAt); err != nil {
 		t.Fatalf("load wakeup after config change: %v", err)
 	}
-	if readyAt.Before(configChangeStartedAt) || readyAt.After(configChangeCompletedAt) ||
-		!readyAt.Before(oldRetryAt) {
+	if readyAt.Before(configChangeStartedAt) || readyAt.After(configChangeCompletedAt) || !readyAt.Before(oldRetryAt) {
 		t.Fatalf(
 			"config-change wakeup ready_at = %s, want within [%s, %s] before old retry %s",
 			readyAt,
@@ -1106,11 +1092,8 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if err != nil {
 		t.Fatalf("claim config-change continuation: %v", err)
 	}
-	if !found ||
-		freshWork.Kind != executionstore.AgentWorkModel ||
-		freshWork.Model.ModelCallContextID != uuid.Nil ||
-		freshWork.Model.TurnID != turn.TurnID ||
-		len(freshWork.Model.InputIDs) != 1 ||
+	if !found || freshWork.Kind != executionstore.AgentWorkModel || freshWork.Model.ModelCallContextID != uuid.Nil ||
+		freshWork.Model.TurnID != turn.TurnID || len(freshWork.Model.InputIDs) != 1 ||
 		freshWork.Model.InputIDs[0] != turn.InputIDs[0] {
 		t.Fatalf(
 			"config-change work = %+v found=%v, want a fresh context for the active turn",
@@ -1365,8 +1348,7 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 	if err != nil {
 		t.Fatalf("claim retry at deadline: %v", err)
 	}
-	if !found || retryWork.Kind != executionstore.AgentWorkModel ||
-		retryWork.Model.ModelCallContextID != oldContextID ||
+	if !found || retryWork.Kind != executionstore.AgentWorkModel || retryWork.Model.ModelCallContextID != oldContextID ||
 		retryWork.Model.TurnID != turn.TurnID {
 		t.Fatalf("retry work = %+v found=%v, want original turn/context", retryWork, found)
 	}
@@ -1459,12 +1441,9 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("load queued turn model context: %v", err)
 	}
-	if oldState != executionstore.ModelCallContextFailed ||
-		oldContextCount != 2 ||
-		succeededRetryContexts != 1 ||
+	if oldState != executionstore.ModelCallContextFailed || oldContextCount != 2 || succeededRetryContexts != 1 ||
 		newContextID == oldContextID ||
-		queuedContextState != executionstore.ModelCallContextSucceeded ||
-		newAttemptNumber != 1 {
+		queuedContextState != executionstore.ModelCallContextSucceeded || newAttemptNumber != 1 {
 		t.Fatalf(
 			"contexts old=%s/%s lineage_rows=%d succeeded_retries=%d queued=%s/%s attempt=%d, want immutable failed predecessor plus succeeded retry, then a fresh succeeded context",
 			oldContextID,

@@ -196,13 +196,11 @@ func (f *slackPendingWorkFixture) migrate(t *testing.T) {
 	}
 	var turnID, configID uuid.UUID
 	var opening bool
-	require.NoError(
-		t,
-		f.db.QueryRowContext(ctx, `SELECT event.turn_id,event.is_opening_event,input.agent_config_id
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT event.turn_id,event.is_opening_event,input.agent_config_id
         FROM agent_inputs input
         JOIN agent_events event ON event.agent_id=input.agent_id AND event.id=input.admitted_event_id
         WHERE input.agent_id=$1 AND input.input_idempotency_key='slack_integration_cutover'`, f.agentID).
-			Scan(&turnID, &opening, &configID),
+		Scan(&turnID, &opening, &configID),
 	)
 	require.Equal(
 		t,
@@ -341,8 +339,7 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
         VALUES($1,$2,'reviewer',$3,now(),now()))
         INSERT INTO agent_profile_versions(id,project_id,profile_id,generation,agent_config_id,created_at)
         VALUES($3,$2,$1,1,$4,now())`, profileID, f.ids.ProjectID, versionID, f.configID)
-	exec(
-		`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,provider,
+	exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,provider,
         integration_kind,
         connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,credential_secret_id,
         created_at,updated_at)
@@ -359,8 +356,7 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
         next_event_sequence,created_at,updated_at)
         VALUES($1,$2,$3,'active','reviewer',$4,$5,3,now(),now())`,
 		f.agentID, f.ids.OrgID, f.ids.ProjectID, profileID, f.configID)
-	exec(
-		`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,agent_config_id,queued_at)
+	exec(`INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,agent_config_id,queued_at)
         VALUES($1,$2,$3,'received','config_change','immediate',$4,now())`,
 		inputID,
 		f.ids.ProjectID,
@@ -403,8 +399,7 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
 	)
 
 	if scope != "" {
-		exec(
-			`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,provider_ref,
+		exec(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,provider_ref,
         provider_ref_kind,created_at,updated_at)
             VALUES($1,$2,$3,$4,'slack',$5,$6,now(),now())`,
 			f.targetID,
@@ -420,8 +415,7 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
 			f.agentID,
 		)
 	}
-	exec(
-		`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
+	exec(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
         configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
         VALUES($1,$2,$3,$4,'normal',1,$5,$6,2,$7,'started',now())`,
 		f.contextID,
@@ -433,8 +427,7 @@ func newSlackPendingWorkFixture(t *testing.T, kind, scope string) slackPendingWo
 		f.runtimeID,
 	)
 	if kind == "" {
-		exec(
-			`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+		exec(`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
             VALUES($1,$2,$3,now()-interval '2 minutes',now()-interval '2 minutes',now()-interval '1 minute')`,
 			f.runtimeID,
 			f.agentID,
@@ -454,8 +447,7 @@ func (f *slackPendingWorkFixture) seedInteraction(t *testing.T, exec func(string
 	outputID, eventID := uuid.New(), uuid.New()
 	exec(`INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at)
         VALUES($1,$2,$3,'tool_use',now())`, outputID, f.agentID, f.contextID)
-	exec(
-		`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+	exec(`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
         VALUES($1,$2,$3,'pending-review',$4,$5,'built_in','awaiting_authorization',now())`,
 		f.toolID,
 		f.agentID,
@@ -556,9 +548,7 @@ func (f *slackPendingWorkFixture) steer(t *testing.T) executionstore.AgentInputR
 	router := integration.NewIntegrationRouter(f.store.Execution(), integrations)
 	plan, created, err := router.Freeze(ctx, receipt.Lease(), &integration.IntegrationEvent{
 		Event: integrationdefinition.Event{
-			Kind:      integrationdefinition.EventMessage,
-			Mentioned: false,
-			Scope:     integrationdefinition.Scope{Slack: &scope},
+			Kind: integrationdefinition.EventMessage, Mentioned: false, Scope: integrationdefinition.Scope{Slack: &scope},
 		},
 		Actor: actor, SemanticKey: "cutover-steering", DeliveryMode: executionstore.DeliveryModeSteering,
 		ContentBlocks: json.RawMessage(

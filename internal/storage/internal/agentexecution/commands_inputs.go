@@ -6,7 +6,9 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -55,11 +57,11 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		}
 		q := executiondb.New()
 		row, err := q.ReceiveExecutionInput(ctx, h.unit.DB(), executiondb.ReceiveExecutionInputParams{
-			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, ActorID: nullableID(input.ActorID),
-			TargetID: nullableID(
+			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, ActorID: storeutil.IDFromNil(input.ActorID),
+			TargetID: storeutil.IDFromNil(
 				input.IntegrationTargetID,
 			), Mode: input.DeliveryMode, Kind: "content", Metadata: metadata,
-			Scope: optionalText(input.IdempotencyScope), Key: optionalText(input.IdempotencyKey)})
+			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey)})
 		if err != nil {
 			return ReceivedContent{}, err
 		}
@@ -119,8 +121,8 @@ func (h *Handle) admitInputs(
 			result.Inputs,
 			AdmittedContent{
 				ID:                  row.ID,
-				ActorID:             valueOrZero(row.ActorID),
-				IntegrationTargetID: valueOrZero(row.IntegrationTargetID),
+				ActorID:             storeutil.ValueOrZero(row.ActorID),
+				IntegrationTargetID: storeutil.ValueOrZero(row.IntegrationTargetID),
 				Event:               event,
 			},
 		)
@@ -157,7 +159,7 @@ func (h *Handle) admitInputs(
 	}
 	loaded.View = ExecutionView{AgentID: h.route.AgentID, State: loaded.View.State, Turn: turn}
 	loaded.View.Inputs = InputAvailability{
-		Steering: valueOrZero(rows[0].RemainingSteering), Queued: rows[0].RemainingQueued,
+		Steering: storeutil.ValueOrZero(rows[0].RemainingSteering), Queued: rows[0].RemainingQueued,
 	}
 	loaded.databaseNow = last.Time
 	if err := m.updated(*loaded); err != nil {
@@ -169,12 +171,12 @@ func (h *Handle) admitInputs(
 func (h *Handle) CheckContentCapacity(ctx context.Context) error {
 	pending, err := executiondb.New().CountPendingExecutionContent(ctx, h.unit.DB(),
 		executiondb.CountPendingExecutionContentParams{
-			AgentID: h.route.AgentID, Capacity: storeerr.MaxPendingAgentContentInputs,
+			AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
 		})
 	if err != nil {
 		return err
 	}
-	if pending >= storeerr.MaxPendingAgentContentInputs {
+	if pending >= executionpolicy.MaxPendingAgentContentInputs {
 		return storeerr.ErrAgentBacklogFull
 	}
 	return nil

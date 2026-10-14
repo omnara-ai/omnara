@@ -354,14 +354,11 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 		claimed bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"ClaimProviderRuntimeMismatchDeletion",
+		"claim_provider_runtime_mismatch_deletion",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf(
-					"begin provider runtime mismatch deletion claim: %w",
-					err,
-				)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -439,14 +436,11 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 		claimed bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"ClaimProviderRuntimeTerminatedDeletion",
+		"claim_provider_runtime_terminated_deletion",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf(
-					"begin provider runtime terminated deletion claim: %w",
-					err,
-				)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

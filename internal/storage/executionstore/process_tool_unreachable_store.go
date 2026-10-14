@@ -193,11 +193,11 @@ func (s *Store) expireQueuedProcessToolCall(
 	graceSeconds int32,
 ) (bool, error) {
 	return agentexecution.Retry(ctx,
-		"expireQueuedProcessToolCall",
+		"expire_queued_process_tool_call",
 		func(ctx context.Context) (bool, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return false, fmt.Errorf("begin queued process expiry: %w", err)
+				return false, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -213,10 +213,7 @@ func (s *Store) expireQueuedProcessToolCall(
 			if err != nil {
 				return false, err
 			}
-			if _, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-				ProjectID: process.ProjectID,
-				ID:        process.AgentID,
-			}, nil); err != nil {
+			if _, err := lockExecution(ctx, unit, process.ProjectID, process.AgentID, false, uuid.Nil); err != nil {
 				return false, fmt.Errorf("lock agent for queued process expiry: %w", err)
 			}
 			row, err := qtx.ExpireQueuedProcessToolCall(
@@ -246,8 +243,7 @@ func (s *Store) expireQueuedProcessToolCall(
 				return false, err
 			}
 			if record.ToolCallID != uuid.Nil {
-				if _,
-					err := h.CompleteProcess(ctx,
+				if _, err := h.CompleteProcess(ctx,
 					agentexecution.ProcessResult{ID: record.ID,
 						Observed: nil}); err != nil {
 					return false, err
@@ -297,11 +293,11 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 	graceSeconds int32,
 ) (int64, error) {
 	return agentexecution.Retry(ctx,
-		"failMachineUnreachableQueuedProcessActions",
+		"fail_machine_unreachable_queued_process_actions",
 		func(ctx context.Context) (int64, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return 0, fmt.Errorf("begin machine-unreachable queued action expiry: %w", err)
+				return 0, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -323,10 +319,7 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 				}
 				return 0, nil
 			}
-			if _, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-				ProjectID: action.ProjectID,
-				ID:        action.AgentID,
-			}, nil); err != nil {
+			if _, err := lockExecution(ctx, unit, action.ProjectID, action.AgentID, false, uuid.Nil); err != nil {
 				return 0, fmt.Errorf("lock agent for machine-unreachable queued action expiry: %w", err)
 			}
 			rows, err := qtx.MarkQueuedProcessActionsFailedForProcess(
@@ -402,14 +395,11 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 		return false, err
 	}
 	return agentexecution.Retry(ctx,
-		"completeMachineUnreachableProcessActionToolCall",
+		"complete_machine_unreachable_process_action_tool_call",
 		func(ctx context.Context) (bool, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return false, fmt.Errorf(
-					"begin machine-unreachable process action completion: %w",
-					err,
-				)
+				return false, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -482,7 +472,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 		return false, err
 	}
 	return agentexecution.Retry(ctx,
-		"completeMachineUnreachableToolCall",
+		"complete_machine_unreachable_tool_call",
 		func(ctx context.Context) (bool, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
@@ -508,11 +498,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 				}
 				return false, nil
 			}
-			if _,
-				err := unit.LockAgent(ctx,
-				dbsqlc.LockAgentInProjectParams{ProjectID: projectID,
-					ID: agentID},
-				nil); err != nil {
+			if _, err := lockExecution(ctx, unit, projectID, agentID, false, uuid.Nil); err != nil {
 				return false, err
 			}
 			process, found, err := getProcessByToolCallTx(ctx, tx, projectID, agentID, toolCallID)

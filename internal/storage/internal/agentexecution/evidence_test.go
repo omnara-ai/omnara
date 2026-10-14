@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -160,7 +161,7 @@ func TestEvidenceIdentityAndCost(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
-		require.EqualValues(t, cost, valueOrZero(columns.Cost))
+		require.EqualValues(t, cost, storeutil.ValueOrZero(columns.Cost))
 		require.EqualValues(t, 10, *columns.InputTokens)
 		require.EqualValues(t, 10, *columns.UncachedTokens)
 		require.EqualValues(t, 4, *columns.OutputTokens)

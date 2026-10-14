@@ -48,12 +48,12 @@ func (s *Store) DemoteSteeringInputToQueued(
 func (s *Store) changeBacklog(ctx context.Context, projectID, agentID uuid.UUID,
 	change agentexecution.BacklogChange, cancelInteractions bool) error {
 	_, err := agentexecution.Retry(ctx,
-		"changeBacklog",
+		"change_backlog",
 		func(ctx context.Context) (struct{}, error) {
 			if projectID == uuid.Nil || agentID == uuid.Nil || change.ID == uuid.Nil {
 				return struct{}{}, errors.New("project, agent and input are required")
 			}
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
 			if err != nil {
 				return struct{}{}, err
 			}

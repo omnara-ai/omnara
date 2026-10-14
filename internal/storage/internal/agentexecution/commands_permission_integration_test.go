@@ -72,7 +72,7 @@ func TestExecutionPermissionAndPresentation(t *testing.T) {
 			require.NoError(t, u.Rollback(t.Context()))
 			u, h = f.handle(t, a)
 			_, err = h.RecordPresentation(t.Context(), opened.ID, dest, json.RawMessage(`{}`))
-			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+			require.NoError(t, err)
 			require.NoError(t, u.Rollback(t.Context()))
 			u, h = f.handle(t, a)
 			snapshot := assertCommandState(t, u, h)
@@ -124,8 +124,7 @@ func TestExecutionIntegrationTargetCleanup(t *testing.T) {
 	changed, err := h.SetInteractionTarget(t.Context(), target, "handler", false)
 	require.NoError(t, err)
 	require.True(t, changed)
-	_,
-		err = u.DB().Exec(t.Context(),
+	_, err = u.DB().Exec(t.Context(),
 		`UPDATE integration_targets SET deleted_at=statement_timestamp() WHERE id=$1`,
 		target)
 	require.NoError(t, err)

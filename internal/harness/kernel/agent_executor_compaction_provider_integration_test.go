@@ -1438,8 +1438,7 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		}
 		if result.State != wantState || contextRecord.AttemptNumber != attemptNumber ||
 			contextRecord.State != executionstore.ModelCallContextFailed ||
-			contextRecord.RecoveryKind != wantRecoveryKind ||
-			contextRecord.ErrorCode != "malformed_success_response" ||
+			contextRecord.RecoveryKind != wantRecoveryKind || contextRecord.ErrorCode != "malformed_success_response" ||
 			contextRecord.ProviderResponseID != "" ||
 			!kernelModelCallOutcomeAmbiguous(t, contextRecord.ErrorDetails) {
 			t.Fatalf(
@@ -1461,9 +1460,7 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 			}
 			currentNow = *result.RetryAt
 		} else if result.RetryAt != nil || contextRecord.RetryAt != nil {
-			t.Fatalf("terminal malformed compaction retained retry time: result=%+v context=%+v",
-				result,
-				contextRecord)
+			t.Fatalf("terminal malformed compaction retained retry time: result=%+v context=%+v", result, contextRecord)
 		}
 	}
 	if compactionModel.respondedCount() != maxAttempts {
@@ -1537,16 +1534,8 @@ SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON ag
 		wakeups != 0 || resumable != 0 {
 		t.Fatalf(
 			"terminal malformed compaction state context=%s producer=%s contexts=%d output=%s/%d block=%s/%q/%d wakeups=%d resumable=%d",
-			compactionState,
-			producingState,
-			contexts,
-			outputStopReason,
-			outputCount,
-			blockKind,
-			blockText,
-			blockCount,
-			wakeups,
-			resumable,
+			compactionState, producingState, contexts, outputStopReason, outputCount,
+			blockKind, blockText, blockCount, wakeups, resumable,
 		)
 	}
 }
@@ -1766,8 +1755,7 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	); err != nil {
 		t.Fatalf("load terminal compaction lineage: %v", err)
 	}
-	if failedNormalContexts != 1 || failedCompactionContexts != 1 || normalContexts != 1 ||
-		compactionContexts != 1 {
+	if failedNormalContexts != 1 || failedCompactionContexts != 1 || normalContexts != 1 || compactionContexts != 1 {
 		t.Fatalf(
 			"terminal compaction lineage failed normal/compaction=%d/%d context rows=%d/%d, want 1/1 and 1/1",
 			failedNormalContexts,

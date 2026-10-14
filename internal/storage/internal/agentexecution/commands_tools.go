@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -47,7 +48,7 @@ func (h *Handle) transitionTool(
 	n, err := executiondb.New().
 		TransitionExecutionTool(ctx, h.unit.DB(), executiondb.TransitionExecutionToolParams{
 			AgentID: h.route.AgentID, ID: row.ID, PreviousState: row.State, PreviousRuntimeID: row.RuntimeLockID,
-			NextState: state, NextRuntimeID: nullableID(owner), FenceID: nullableID(fence)})
+			NextState: state, NextRuntimeID: storeutil.IDFromNil(owner), FenceID: storeutil.IDFromNil(fence)})
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func (h *Handle) RequeueTool(ctx context.Context, ref ToolRef) (bool, error) {
 		if row.State == "ready" {
 			return false, nil
 		}
-		if row.State != "running" || valueOrZero(row.RuntimeLockID) != ref.RuntimeLockID {
+		if row.State != "running" || storeutil.ValueOrZero(row.RuntimeLockID) != ref.RuntimeLockID {
 			return false, storeerr.ErrStateTransitionConflict
 		}
 		if err = h.transitionTool(ctx, m, row, "ready", uuid.Nil, ref.RuntimeLockID); err != nil {
@@ -155,8 +156,8 @@ func (h *Handle) WaitForTool(ctx context.Context, ref ToolRef, owner ToolOwner) 
 		}
 		durable, err := executiondb.New().
 			ExecutionToolOwner(ctx, h.unit.DB(), executiondb.ExecutionToolOwnerParams{
-				AgentID: h.route.AgentID, ToolID: row.ID, InteractionID: nullableID(owner.InteractionID),
-				ProcessID: nullableID(owner.ProcessID), ActionID: nullableID(owner.ActionID)})
+				AgentID: h.route.AgentID, ToolID: row.ID, InteractionID: storeutil.IDFromNil(owner.InteractionID),
+				ProcessID: storeutil.IDFromNil(owner.ProcessID), ActionID: storeutil.IDFromNil(owner.ActionID)})
 		if err != nil {
 			return false, err
 		}
@@ -187,7 +188,7 @@ func (h *Handle) CompleteTool(ctx context.Context, input ToolCompletion) (Comple
 			return CompletedTool{}, err
 		}
 		allowed := row.State == "completed" || (row.State == "ready" && row.Type != "custom") ||
-			(row.State == "running" && valueOrZero(row.RuntimeLockID) == input.RuntimeLockID) ||
+			(row.State == "running" && storeutil.ValueOrZero(row.RuntimeLockID) == input.RuntimeLockID) ||
 			((row.State == "awaiting_authorization" ||
 				row.State == "awaiting_permission") &&
 				input.Outcome != "succeeded")
@@ -237,23 +238,18 @@ func (h *Handle) completeTool(
 		}
 	}
 	if row.State == "completed" {
-		if valueOrZero(row.Outcome) != outcome || row.ResultID == nil || row.ResultEventID == nil {
+		if storeutil.ValueOrZero(row.Outcome) != outcome || row.ResultID == nil || row.ResultEventID == nil {
 			return CompletedTool{}, storeerr.ErrIdempotencyConflict
 		}
-		err := h.matchContent(
-			ctx,
-			executiondb.ReadExecutionContentParams{AgentID: h.route.AgentID, ResultID: row.ResultID},
-			content,
-		)
 		return CompletedTool{
 			ID:       row.ID,
 			ResultID: *row.ResultID,
 			Event: ExecutionEvent{ID: *row.ResultEventID, TurnID: row.TurnID,
 				EventBoundary: EventBoundary{
-					Sequence: valueOrZero(row.ResultSequence),
-					Time:     valueOrZero(row.CompletedAt),
+					Sequence: storeutil.ValueOrZero(row.ResultSequence),
+					Time:     storeutil.ValueOrZero(row.CompletedAt),
 				}},
-		}, err
+		}, nil
 	}
 	if err := h.transitionTool(ctx, m, row, "completed", uuid.Nil, fence); err != nil {
 		return CompletedTool{}, err
@@ -274,7 +270,7 @@ func (h *Handle) completeTool(
 		TurnID:         &row.TurnID,
 		Kind:           "tool_result",
 		ResultID:       &id,
-		IdempotencyKey: optionalText("tool-call-result-authority:" + row.ID.String())})
+		IdempotencyKey: storeutil.TextFromEmpty("tool-call-result-authority:" + row.ID.String())})
 	if err != nil {
 		return CompletedTool{}, err
 	}

@@ -20,15 +20,7 @@ func applyAdmissionDestination(
 		return nil
 	}
 	tx := unit.DB()
-	inputs := make([]AgentInputRecord, len(admission.Inputs))
-	for i, input := range admission.Inputs {
-		inputs[i] = AgentInputRecord{
-			ID:                  input.ID,
-			ActorID:             input.ActorID,
-			IntegrationTargetID: input.IntegrationTargetID,
-			InputKind:           "content",
-		}
-	}
+	inputs := admission.Inputs
 	q := dbsqlc.New(tx)
 	row, err := q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
 		ProjectID: projectID, AgentID: agentID,
@@ -39,7 +31,7 @@ func applyAdmissionDestination(
 	if row.InteractionTargetID == nil {
 		hasOrigin := false
 		for _, input := range inputs {
-			if input.InputKind == "content" && input.IntegrationTargetID != uuid.Nil {
+			if input.IntegrationTargetID != uuid.Nil {
 				hasOrigin = true
 				break
 			}
@@ -52,9 +44,6 @@ func applyAdmissionDestination(
 	seen := map[uuid.UUID]bool{}
 	for i := len(inputs) - 1; i >= 0; i-- {
 		input := inputs[i]
-		if input.InputKind != "content" {
-			continue
-		}
 		if input.IntegrationTargetID != uuid.Nil || input.ActorID == uuid.Nil {
 			break
 		}
@@ -80,8 +69,7 @@ func applyAdmissionDestination(
 	}
 	for i := len(inputs) - 1; i >= 0; i-- {
 		input := inputs[i]
-		if input.InputKind != "content" ||
-			(input.IntegrationTargetID == uuid.Nil && preserves[input.ActorID]) {
+		if input.IntegrationTargetID == uuid.Nil && preserves[input.ActorID] {
 			continue
 		}
 		selection, err := interactionSelectionForOrigin(

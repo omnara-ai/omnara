@@ -1145,8 +1145,7 @@ func isDurationArithmetic(expression *pg_query.A_Expr) bool {
 	if len(operator) != 1 || (operator[0] != "*" && operator[0] != "/") {
 		return false
 	}
-	return expressionContainsInterval(expression.GetLexpr()) ||
-		expressionContainsInterval(expression.GetRexpr())
+	return expressionContainsInterval(expression.GetLexpr()) || expressionContainsInterval(expression.GetRexpr())
 }
 
 func expressionContainsInterval(expression *pg_query.Node) bool {

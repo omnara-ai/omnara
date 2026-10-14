@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -89,7 +91,7 @@ func evidenceParams(e ModelEvidence) (executiondb.FinishExecutionAttemptParams, 
 		CacheWriteTokens: tokenCount(usage.CacheWriteTokens),
 		OutputTokens:     tokenCount(usage.OutputTokens),
 		ReasoningTokens:  tokenCount(usage.ReasoningTokens),
-		Cost:             optionalText(string(e.Cost)),
+		Cost:             storeutil.TextFromEmpty(string(e.Cost)),
 		ProviderMetadata: metadata,
 		ErrorDetails:     json.RawMessage(`{}`),
 	}, nil
@@ -103,6 +105,15 @@ func (h *Handle) finishAttempt(
 	failure ModelFailure,
 	evidence ModelEvidence,
 ) (bool, error) {
+	if row.RuntimeLockID != failure.RuntimeLockID {
+		return false, storeerr.ErrRuntimeLockInactive
+	}
+	if row.State != "started" {
+		if row.State != string(state) {
+			return false, storeerr.ErrIdempotencyConflict
+		}
+		return false, nil
+	}
 	args, err := evidenceParams(evidence)
 	if err != nil {
 		return false, err
@@ -111,32 +122,8 @@ func (h *Handle) finishAttempt(
 	if err != nil {
 		return false, err
 	}
-	if row.RuntimeLockID != failure.RuntimeLockID {
-		return false, storeerr.ErrRuntimeLockInactive
-	}
-	storedCost, _ := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
-	if row.State != "started" {
-		if row.State != string(state) || valueOrZero(row.RecoveryKind) != string(failure.Recovery) ||
-			row.ApiFormat != args.ApiFormat ||
-			row.ApiVariant != args.ApiVariant ||
-			row.ProviderRequestID != args.RequestID ||
-			row.ProviderResponseID != args.ResponseID ||
-			row.ErrorKind != string(failure.ErrorKind) ||
-			row.ErrorCode != failure.ErrorCode ||
-			row.ErrorMessage != failure.ErrorMessage || !equalJSON(row.ErrorDetails, details) ||
-			storedCost != evidence.Cost ||
-			valueOrZero(row.InputTokensTotal) != valueOrZero(args.InputTokens) ||
-			valueOrZero(row.UncachedInputTokens) != valueOrZero(args.UncachedTokens) ||
-			valueOrZero(row.CacheReadInputTokens) != valueOrZero(args.CacheReadTokens) ||
-			valueOrZero(row.CacheWriteInputTokens) != valueOrZero(args.CacheWriteTokens) ||
-			valueOrZero(row.OutputTokensTotal) != valueOrZero(args.OutputTokens) ||
-			valueOrZero(row.ReasoningOutputTokens) != valueOrZero(args.ReasoningTokens) ||
-			!equalJSON(row.ProviderMetadata, args.ProviderMetadata) {
-			return false, storeerr.ErrIdempotencyConflict
-		}
-		return false, nil
-	}
-	if failure.Recovery == RecoveryRetry && (row.AttemptNumber > 8 || failure.RetryDelay < 0) {
+	if failure.Recovery == RecoveryRetry &&
+		(row.AttemptNumber > executionpolicy.MaxModelCallRetriesPerOperation || failure.RetryDelay < 0) {
 		return false, storeerr.ErrStateTransitionConflict
 	}
 	if failure.Recovery == RecoveryRetry {
@@ -144,7 +131,7 @@ func (h *Handle) finishAttempt(
 		args.RetryMicroseconds = &delay
 	}
 	args.State = string(state)
-	args.Recovery = optionalText(string(failure.Recovery))
+	args.Recovery = storeutil.TextFromEmpty(string(failure.Recovery))
 	args.ErrorKind = string(failure.ErrorKind)
 	args.ErrorCode = failure.ErrorCode
 	args.ErrorMessage = failure.ErrorMessage
@@ -217,18 +204,7 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	q := executiondb.New()
 	parts := []Content{{Kind: "error", Text: input.ErrorMessage}}
 	if !changed {
-		output, err := q.FindExecutionOutput(
-			ctx,
-			h.unit.DB(),
-			executiondb.FindExecutionOutputParams{AgentID: h.route.AgentID, ContextID: input.ContextID},
-		)
-		if err != nil {
-			return false, err
-		}
-		if output.StopReason != "error" || output.ServedProviderModelSlug != input.ServedModel {
-			return false, storeerr.ErrIdempotencyConflict
-		}
-		return false, h.contentMatches(ctx, uuid.Nil, output.ID, parts)
+		return false, nil
 	}
 	output, err := q.CreateExecutionOutput(ctx, h.unit.DB(), executiondb.CreateExecutionOutputParams{
 		AgentID: h.route.AgentID, ContextID: input.ContextID, StopReason: "error", ServedModel: input.ServedModel})

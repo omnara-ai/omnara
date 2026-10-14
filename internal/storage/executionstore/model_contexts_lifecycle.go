@@ -12,17 +12,17 @@ func (s *Store) RecordRetryableModelCallFailure(
 	ctx context.Context,
 	input RecordRecoverableModelCallFailureInput,
 ) (ModelCallContextRecord, error) {
+	if input.RecoveryKind == "" {
+		input.RecoveryKind = ModelCallRecoveryRetry
+	}
+	if input.RecoveryKind != ModelCallRecoveryRetry {
+		return ModelCallContextRecord{}, errors.New("retry recovery is required")
+	}
 	return agentexecution.Retry(ctx,
-		"RecordRetryableModelCallFailure",
+		"record_retryable_model_call_failure",
 		func(ctx context.Context) (ModelCallContextRecord,
 			error) {
-			if input.RecoveryKind == "" {
-				input.RecoveryKind = ModelCallRecoveryRetry
-			}
-			if input.RecoveryKind != ModelCallRecoveryRetry {
-				return ModelCallContextRecord{}, errors.New("retry recovery is required")
-			}
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 			if err != nil {
 				return ModelCallContextRecord{}, err
 			}

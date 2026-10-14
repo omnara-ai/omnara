@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/stretchr/testify/require"
 )
@@ -17,20 +18,15 @@ func TestInteractionSelectionOriginPrecedesBackgroundActor(t *testing.T) {
 	f := newIntegrationInteractionFixture(t)
 	actor, err := executionstore.CronTriggerActor(testOrgID, uuid.New(), "Scheduled thread")
 	require.NoError(t, err)
-	input, _, _, err := f.store.Execution().
-		CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: actor,
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"scheduled"}]`),
-		})
+	input, _, _, err := f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: actor,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"scheduled"}]`),
+	})
 	require.NoError(t, err)
 	unit, err := f.store.Execution().IntegrationBeginUnit(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = unit.Rollback(f.ctx) }()
-	_, err = unit.LockAgent(
-		f.ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID},
-		nil,
-	)
+	_, err = agentexecution.LockTestAgent(f.ctx, unit, testProjectID, f.process.AgentID, nil)
 	require.NoError(t, err)
 	q := dbsqlc.New(unit.DB())
 	background := input

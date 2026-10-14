@@ -3,6 +3,7 @@
 package agentexecution_test
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -278,14 +279,17 @@ func TestExecutionFactPlans(t *testing.T) {
 					name == "ListExecutionIntegrationTargetAgents" ||
 					name == "ClearExecutionIntegrationTargets" {
 					_, err := connection.Exec(t.Context(), "SET enable_seqscan=off")
+					t.Cleanup(func() {
+						_, err := connection.Exec(context.Background(), "RESET enable_seqscan")
+						require.NoError(t, err)
+					})
 					require.NoError(t, err)
 					indexed, err := connection.Conn().PgConn().
 						Exec(t.Context(), "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+query).ReadAll()
 					require.NoError(t, err)
 					require.Len(t, indexed, 1)
 					require.NotContains(t, string(indexed[0].Rows[0][0]), `"Node Type": "Seq Scan"`)
-					_, err = connection.Exec(t.Context(), "RESET enable_seqscan")
-					require.NoError(t, err)
+
 					t.Logf("generic plan: %d nodes", strings.Count(plan, `"Node Type"`))
 				}
 			})

@@ -7,14 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
-
-func nullableID(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	return &id
-}
 
 func loadExecution(
 	ctx context.Context,
@@ -55,7 +49,7 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 	scope := facts.scope
 	if scope.AgentID != route.AgentID ||
 		scope.RootAgentID != route.RootAgentID ||
-		valueOrZero(scope.TurnID) != head.CurrentTurnID {
+		storeutil.ValueOrZero(scope.TurnID) != head.CurrentTurnID {
 		return ExecutionSnapshot{}, fmt.Errorf("%w: execution scope", ErrInvalidState)
 	}
 	now := scope.DatabaseNow
@@ -82,9 +76,9 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 			Operation:              Operation(row.OperationKind),
 			Attempt:                row.AttemptNumber,
 			InputEventSequence:     row.InputEventSequence,
-			SourceEventSequenceEnd: valueOrZero(row.SourceEventSequenceEnd),
+			SourceEventSequenceEnd: storeutil.ValueOrZero(row.SourceEventSequenceEnd),
 			State:                  ContextState(row.State),
-			Recovery:               RecoveryKind(valueOrZero(row.RecoveryKind)),
+			Recovery:               RecoveryKind(storeutil.ValueOrZero(row.RecoveryKind)),
 			RetryAt:                row.RetryAt,
 			Opening:                Opening{InputIDs: row.OpeningInputIds, EventSequence: row.OpeningEventSequence}}
 	}
@@ -113,10 +107,10 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 			return ExecutionSnapshot{}, fmt.Errorf("%w: missing output context", ErrInvalidState)
 		}
 		output := ModelOutput{ID: *row.OutputID,
-			EventID: valueOrZero(row.OutputEventID),
+			EventID: storeutil.ValueOrZero(row.OutputEventID),
 			Context: *source,
-			Event: EventBoundary{Sequence: valueOrZero(row.OutputSequence),
-				Time: valueOrZero(row.OutputCreatedAt)}}
+			Event: EventBoundary{Sequence: storeutil.ValueOrZero(row.OutputSequence),
+				Time: storeutil.ValueOrZero(row.OutputCreatedAt)}}
 		if *row.OutputID == head.PendingToolOutputID {
 			b := facts.scope
 			if !b.BatchHasTools {
@@ -129,7 +123,7 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 				}
 				view.ToolBatch.Completion = &BatchCompletion{LastResultSequence: b.BatchLastSequence, ReadyAt: b.BatchReadyAt}
 			}
-		} else if *row.OutputID == head.PendingOutputLimitID && valueOrZero(row.OutputStopReason) == "max_tokens" {
+		} else if *row.OutputID == head.PendingOutputLimitID && storeutil.ValueOrZero(row.OutputStopReason) == "max_tokens" {
 			view.OutputLimit = &output
 		} else {
 			return ExecutionSnapshot{}, fmt.Errorf("%w: pending output", ErrInvalidState)

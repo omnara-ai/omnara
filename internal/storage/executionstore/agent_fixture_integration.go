@@ -5,7 +5,6 @@ package executionstore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,7 +57,7 @@ func (s *Store) IntegrationChangeAgentConfigOnce(
 
 func (s *Store) IntegrationArchiveAgentOnce(
 	ctx context.Context,
-	orgID, projectID, agentID uuid.UUID,
+	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
 	type transactionResult struct {
@@ -124,7 +123,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 		func(ctx context.Context) (AgentRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return AgentRecord{}, fmt.Errorf("begin create agent fixture: %w", err)
+				return AgentRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

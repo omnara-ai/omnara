@@ -774,13 +774,11 @@ func TestResourceLimitLocksDoNotBlockUnrelatedCreates(t *testing.T) {
 
 	tokenCtx, cancelToken := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelToken()
-	if _,
-		err := store.Execution().CreateBYOMachineDaemonToken(tokenCtx,
-		executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:     testOrgID,
-			MachineID: machine.ID,
-			Name:      "Resource limit lock token",
-		}); err != nil {
+	if _, err := store.Execution().CreateBYOMachineDaemonToken(tokenCtx, executionstore.CreateBYOMachineDaemonTokenInput{
+		OrgID:     testOrgID,
+		MachineID: machine.ID,
+		Name:      "Resource limit lock token",
+	}); err != nil {
 		_ = blocker.Rollback(ctx)
 		<-skillResult
 		t.Fatalf("create daemon token while skill creation is blocked: %v", err)
@@ -846,10 +844,9 @@ FROM generate_series(1, $3::integer) AS n
 		t.Fatalf("machine over limit error = %v, want ErrConflict", err)
 	}
 
-	firstToken, err := store.Execution().
-		CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID: testOrgID, MachineID: machine.ID, Name: "First daemon token",
-		})
+	firstToken, err := store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
+		OrgID: testOrgID, MachineID: machine.ID, Name: "First daemon token",
+	})
 	if err != nil {
 		t.Fatalf("create first daemon token: %v", err)
 	}

@@ -2,8 +2,11 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -30,19 +33,13 @@ func prepareExecutionModel(
 }
 
 func executionFailure(input RecordRecoverableModelCallFailureInput) agentexecution.ModelFailure {
-	return agentexecution.ModelFailure{
-		ContextID:     input.ModelCallContextID,
-		RuntimeLockID: input.RuntimeLockID,
-		Recovery:      agentexecution.RecoveryKind(input.RecoveryKind),
-		RetryDelay:    input.RetryDelay,
-		ErrorKind:     input.ErrorKind,
-		ErrorCode:     input.ErrorCode,
-		ErrorMessage:  input.ErrorMessage,
-		ErrorDetails:  input.ErrorDetails,
-		Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat, APIVariant: input.APIVariant,
-			RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID, Usage: input.Usage,
-			Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata},
-	}
+	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
+		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
+			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
+	failure.Recovery = agentexecution.RecoveryKind(input.RecoveryKind)
+	failure.RetryDelay = input.RetryDelay
+	return failure
 }
 
 func executionClaim(
@@ -62,4 +59,28 @@ func executionClaim(
 		prepared.Context.ID,
 	)
 	return ModelCallClaim{Context: record, Claimed: prepared.Claimed, Created: prepared.Created}, err
+}
+
+func executionTerminalFailure(input RecordModelCallErrorAndCompleteContextInput) agentexecution.ModelFailure {
+	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
+		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
+			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
+	failure.ServedModel = input.ServedProviderModelSlug
+	return failure
+}
+
+func executionFailureDetails(contextID, runtimeID uuid.UUID, kind modelprotocol.ErrorKind,
+	code, message string, details json.RawMessage, evidence agentexecution.ModelEvidence) agentexecution.ModelFailure {
+	return agentexecution.ModelFailure{
+		ContextID: contextID, RuntimeLockID: runtimeID, ErrorKind: kind,
+		ErrorCode: code, ErrorMessage: message, ErrorDetails: details, Evidence: evidence,
+	}
+}
+
+func executionEvidence(format modelprotocol.APIFormat, variant modelprotocol.APIVariant,
+	requestID, responseID string, usage modelenvelope.Usage, cost modelenvelope.ProviderReportedCostUSD,
+	metadata modelenvelope.ProviderMetadata) agentexecution.ModelEvidence {
+	return agentexecution.ModelEvidence{APIFormat: format, APIVariant: variant, RequestID: requestID,
+		ResponseID: responseID, Usage: usage, Cost: cost, Metadata: metadata}
 }

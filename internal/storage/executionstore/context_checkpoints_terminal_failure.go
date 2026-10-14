@@ -34,24 +34,16 @@ func (s *Store) RecordTerminalCompactionFailure(
 	input RecordTerminalCompactionFailureInput,
 ) error {
 	_, err := agentexecution.Retry(ctx,
-		"RecordTerminalCompactionFailure",
+		"record_terminal_compaction_failure",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, true, input.RuntimeLockID)
 			if err != nil {
 				return struct{}{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			_, err = h.FailModel(
 				ctx,
-				agentexecution.ModelFailure{ContextID: input.ModelCallContextID, RuntimeLockID: input.RuntimeLockID,
-					ErrorKind:    input.ErrorKind,
-					ErrorCode:    input.ErrorCode,
-					ErrorMessage: input.ErrorMessage,
-					ErrorDetails: input.ErrorDetails,
-					ServedModel:  input.ServedProviderModelSlug,
-					Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat,
-						APIVariant: input.APIVariant, RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID,
-						Usage: input.Usage, Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata}},
+				executionTerminalFailure(RecordModelCallErrorAndCompleteContextInput(input)),
 			)
 			if err != nil {
 				return struct{}{}, err

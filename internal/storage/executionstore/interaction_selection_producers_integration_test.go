@@ -105,8 +105,7 @@ func TestCronTriggerAgentInputPreservesInteractionSelection(t *testing.T) {
 	input := cronTriggerInput("Scheduled review", f.process.AgentID, true)
 	trigger, err := f.store.Execution().CreateCronTrigger(f.ctx, input)
 	require.NoError(t, err)
-	_, err = f.store.pool.Exec(
-		f.ctx,
+	_, err = f.store.pool.Exec(f.ctx,
 		`UPDATE cron_triggers SET next_fire_after = statement_timestamp() - interval '1 minute' WHERE id = $1`,
 		trigger.ID,
 	)

@@ -449,10 +449,8 @@ func TestCompactionAllowanceFitPrefersWholeTurnAndPreservesPartialProgress(t *te
 	}{
 		{name: "whole turn fits reduced allowance", firstText: "short request", secondText: largeText,
 			firstKind: string(events.KindAgentInput), wantEnd: 2, wantReduced: true},
-		{name: "oversized turn keeps preferred partial",
-			firstText:  "short request",
-			secondText: largeText + largeText,
-			firstKind:  string(events.KindAgentInput), wantEnd: 1},
+		{name: "oversized turn keeps preferred partial", firstText: "short request", secondText: largeText + largeText,
+			firstKind: string(events.KindAgentInput), wantEnd: 1},
 		{name: "oversized turn keeps reduced partial", firstText: largeText, secondText: largeText,
 			firstKind: string(events.KindModelOutput), wantEnd: 1, wantReduced: true},
 		{name: "preferred whole turn wins", firstText: "small output", secondText: largeText,

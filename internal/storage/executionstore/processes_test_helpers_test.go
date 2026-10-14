@@ -190,14 +190,16 @@ GROUP BY call.model_output_id
 `, input.ProjectID, input.AgentID, callID).Scan(&modelOutputID, &ordinal); err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, tx, executionstore.CreateContentBlockInput{
-		ProjectID:          input.ProjectID,
-		AgentID:            input.AgentID,
+	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, tx, executionstore.IntegrationContentBlockInput{
 		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
 		OwnerModelOutputID: modelOutputID,
-		Ordinal:            ordinal,
-		BlockKind:          executionstore.ContentBlockKindToolCall,
-		ToolCallID:         callID,
+		CreateContentBlockInput: executionstore.CreateContentBlockInput{
+			ProjectID:  input.ProjectID,
+			AgentID:    input.AgentID,
+			Ordinal:    ordinal,
+			BlockKind:  executionstore.ContentBlockKindToolCall,
+			ToolCallID: callID,
+		},
 	}); err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}

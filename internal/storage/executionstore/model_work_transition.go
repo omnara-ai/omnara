@@ -25,7 +25,7 @@ func (s *Store) AcceptModelOutputAndAdvance(
 	input AcceptModelOutputAndAdvanceInput,
 ) (OwnedAgentWorkTransition, error) {
 	return agentexecution.Retry(ctx,
-		"accept model output",
+		"accept_model_output",
 		func(ctx context.Context) (OwnedAgentWorkTransition, error) {
 			return s.acceptModelOutput(ctx, input, true)
 		})
@@ -37,7 +37,7 @@ func (s *Store) acceptModelOutput(ctx context.Context,
 	error) {
 	output := input.Output
 	unit, h, err := beginExecution(ctx, s, output.ProjectID, output.AgentID,
-		agentexecution.ParentEffectKind(output.ProviderResponse) != "")
+		agentexecution.ParentEffectKind(output.ProviderResponse) != "", output.RuntimeLockID)
 	if err != nil {
 		return OwnedAgentWorkTransition{}, err
 	}

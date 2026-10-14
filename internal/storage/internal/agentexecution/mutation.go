@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type executionMutation struct {
@@ -45,16 +45,16 @@ func (m *executionMutation) publicationParams(route AgentRoute) executiondb.Publ
 	return executiondb.PublishExecutionParams{
 		AgentID:                 route.AgentID,
 		InsertHead:              m.insertHead,
-		CurrentTurnID:           nullableID(h.CurrentTurnID),
+		CurrentTurnID:           storeutil.IDFromNil(h.CurrentTurnID),
 		StopSequence:            h.StopSequence,
 		MaxNormalInputSequence:  h.MaxNormalInputSequence,
 		MaxContextInputSequence: h.MaxContextInputSequence,
-		NormalContextID:         nullableID(h.NormalContextID),
-		CompactionContextID:     nullableID(h.CompactionContextID),
-		PendingToolOutputID:     nullableID(h.PendingToolOutputID),
-		PendingOutputLimitID:    nullableID(h.PendingOutputLimitID),
-		PendingConfigInputID:    nullableID(h.PendingConfigInputID),
-		PendingCheckpointID:     nullableID(h.PendingCheckpointID),
+		NormalContextID:         storeutil.IDFromNil(h.NormalContextID),
+		CompactionContextID:     storeutil.IDFromNil(h.CompactionContextID),
+		PendingToolOutputID:     storeutil.IDFromNil(h.PendingToolOutputID),
+		PendingOutputLimitID:    storeutil.IDFromNil(h.PendingOutputLimitID),
+		PendingConfigInputID:    storeutil.IDFromNil(h.PendingConfigInputID),
+		PendingCheckpointID:     storeutil.IDFromNil(h.PendingCheckpointID),
 		TurnContinuable:         h.TurnContinuable,
 		IncompleteTools:         h.IncompleteTools,
 		LogicalReadyAt:          h.LogicalReadyAt,

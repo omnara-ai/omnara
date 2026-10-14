@@ -47,17 +47,13 @@ func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create maintenance cursor agent %d: %v", index, err)
 		}
-		if _,
-			_,
-			_,
-			err := store.Execution().CreateAgentContentInput(ctx,
-			executionstore.CreateAgentContentInputInput{
-				ProjectID:      testProjectID,
-				AgentID:        agent.ID,
-				Actor:          mustOmnaraActorParams(t, user.ID),
-				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"maintenance cursor work"}]`),
-				IdempotencyKey: fmt.Sprintf("maintenance-cursor-input-%03d", index),
-			}); err != nil {
+		if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        agent.ID,
+			Actor:          mustOmnaraActorParams(t, user.ID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"maintenance cursor work"}]`),
+			IdempotencyKey: fmt.Sprintf("maintenance-cursor-input-%03d", index),
+		}); err != nil {
 			t.Fatalf("create maintenance cursor input %d: %v", index, err)
 		}
 	}
@@ -150,14 +146,13 @@ func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"recover me"}]`),
-			IdempotencyKey: "claim-recovers-unstarted-turn",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"recover me"}]`),
+		IdempotencyKey: "claim-recovers-unstarted-turn",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -196,8 +191,7 @@ func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T
 	if !found || recoveredClaim.Kind != executionstore.AgentWorkModel {
 		t.Fatalf("recovered claim = %+v found=%v, want executable", recoveredClaim, found)
 	}
-	if recoveredClaim.Model.TurnID != firstClaim.Model.TurnID ||
-		!claimedOpeningInputIDsEqual(recoveredClaim, input.ID) {
+	if recoveredClaim.Model.TurnID != firstClaim.Model.TurnID || !claimedOpeningInputIDsEqual(recoveredClaim, input.ID) {
 		t.Fatalf("recovered claim = %+v, want same turn/input", recoveredClaim)
 	}
 }
@@ -215,14 +209,13 @@ func TestStartedModelContextOnLiveLeaseIsNotSchedulerResumable(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"active context"}]`),
-			IdempotencyKey: "claim-keeps-active-context-claimable",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"active context"}]`),
+		IdempotencyKey: "claim-keeps-active-context-claimable",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -230,8 +223,7 @@ func TestStartedModelContextOnLiveLeaseIsNotSchedulerResumable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	claimTestNormalModelCallForWork(t, ctx, fixture, claim, now.Add(2*time.Second))
@@ -266,14 +258,13 @@ func TestClaimNextAgentWorkRecoversFailedAbandonedContext(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"retry abandoned"}]`),
-			IdempotencyKey: "claim-recovers-failed-abandoned-context",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"retry abandoned"}]`),
+		IdempotencyKey: "claim-recovers-failed-abandoned-context",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -281,8 +272,7 @@ func TestClaimNextAgentWorkRecoversFailedAbandonedContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, claim, now.Add(2*time.Second))
@@ -391,8 +381,7 @@ WHERE agent.id = wake.agent_id AND agent.project_id = $1 AND wake.agent_id = $2`
 	if err != nil {
 		t.Fatalf("claim failed abandoned context recovery: %v", err)
 	}
-	if !found || recovered.Kind != executionstore.AgentWorkModel ||
-		recovered.Model.TurnID != claim.Model.TurnID ||
+	if !found || recovered.Kind != executionstore.AgentWorkModel || recovered.Model.TurnID != claim.Model.TurnID ||
 		!claimedOpeningInputIDsEqual(recovered, input.ID) {
 		t.Fatalf(
 			"failed abandoned context recovery claim = %+v found=%v, want same executable turn/input",
@@ -450,14 +439,13 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"retry ambiguous send"}]`),
-			IdempotencyKey: "claim-recovers-ambiguous-abandoned-context",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"retry ambiguous send"}]`),
+		IdempotencyKey: "claim-recovers-ambiguous-abandoned-context",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -465,8 +453,7 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, claim, now.Add(2*time.Second))
@@ -511,8 +498,7 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim ambiguous abandoned context recovery: %v", err)
 	}
-	if !found || recovered.Kind != executionstore.AgentWorkModel ||
-		recovered.Model.TurnID != claim.Model.TurnID ||
+	if !found || recovered.Kind != executionstore.AgentWorkModel || recovered.Model.TurnID != claim.Model.TurnID ||
 		!claimedOpeningInputIDsEqual(recovered, input.ID) {
 		t.Fatalf("ambiguous recovery claim = %+v found=%v, want same executable turn/input", recovered, found)
 	}
@@ -660,17 +646,16 @@ func TestReapedModelCallWorkerCannotPublishAfterReplacementClaim(t *testing.T) {
 		ctx := context.Background()
 		fixture, oldWork, oldClaim, replacementWork, replacementClaim :=
 			claimReplacementAfterReapedCompaction(t, ctx, "stale_worker_checkpoint")
-		_, err := fixture.Store.Execution().
-			PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
-				ProjectID:          testProjectID,
-				AgentID:            fixture.AgentID,
-				RuntimeLockID:      oldWork.RuntimeLock.ID,
-				ModelCallContextID: oldClaim.Context.ID,
-				Summary:            "late checkpoint",
-				APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-				APIVariant:         modelprotocol.APIVariantDefault,
-				ProviderResponseID: "resp_stale_checkpoint",
-			})
+		_, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			RuntimeLockID:      oldWork.RuntimeLock.ID,
+			ModelCallContextID: oldClaim.Context.ID,
+			Summary:            "late checkpoint",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			APIVariant:         modelprotocol.APIVariantDefault,
+			ProviderResponseID: "resp_stale_checkpoint",
+		})
 		if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 			t.Fatalf("stale checkpoint publication error = %v, want %v", err, storeerr.ErrRuntimeLockInactive)
 		}
@@ -785,8 +770,7 @@ func TestCompleteRuntimeToolCallRejectsCanceledRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build runtime failure content parts: %v", err)
 	}
-	if _,
-		err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
+	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
 		executionstore.CompleteRuntimeToolCallInput{
 			ProjectID:          testProjectID,
 			AgentID:            fixture.AgentID,
@@ -938,8 +922,7 @@ func TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build late runtime tool result: %v", err)
 	}
-	if _,
-		err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
+	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
 		executionstore.CompleteRuntimeToolCallInput{
 			ProjectID:          testProjectID,
 			AgentID:            fixture.AgentID,
@@ -1034,13 +1017,11 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 			found,
 		)
 	}
-	if _,
-		err := fixture.Store.Execution().ResolveAgentInteraction(ctx,
-		executionstore.ResolveAgentInteractionInput{
-			ProjectID: testProjectID, AgentID: fixture.AgentID, ID: interaction.ID,
-			Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{0}}}},
-			Actor:      mustOmnaraActorParams(t, fixture.UserID),
-		}); err != nil {
+	if _, err := fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, ID: interaction.ID,
+		Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{0}}}},
+		Actor:      mustOmnaraActorParams(t, fixture.UserID),
+	}); err != nil {
 		t.Fatalf("answer question after worker interruption: %v", err)
 	}
 	completed, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)

@@ -26,9 +26,9 @@ const cancelReasonAgentCanceled = "agent_canceled"
 
 func (s *Store) CancelAgent(ctx context.Context, input CancelAgentInput) (CancelAgentResult, error) {
 	return agentexecution.Retry(ctx,
-		"CancelAgent",
+		"cancel_agent",
 		func(ctx context.Context) (CancelAgentResult, error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, uuid.Nil)
 			if err != nil {
 				return CancelAgentResult{}, err
 			}

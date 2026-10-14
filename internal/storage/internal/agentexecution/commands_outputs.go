@@ -101,9 +101,6 @@ func outputParts(
 
 func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (AcceptedOutput, error) {
-		if err := input.Response.Validate(); err != nil {
-			return AcceptedOutput{}, err
-		}
 		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
 			return AcceptedOutput{}, err
 		}
@@ -116,8 +113,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if err != nil {
 			return AcceptedOutput{}, err
 		}
-		if source.OperationKind != "normal" ||
-			source.ProviderModelSlug != input.Response.RequestedProviderModelSlug {
+		if source.OperationKind != "normal" {
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		if source.RuntimeLockID != input.RuntimeLockID {
@@ -126,14 +122,20 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if source.State != "started" && source.State != "succeeded" {
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
+		if source.State == "succeeded" {
+			return h.replayOutput(ctx, source.ID)
+		}
+		if err := input.Response.Validate(); err != nil {
+			return AcceptedOutput{}, err
+		}
+		if source.ProviderModelSlug != input.Response.RequestedProviderModelSlug {
+			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
+		}
 		evidence := ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
 			RequestID:  input.RequestID,
 			ResponseID: input.Response.Normalized.ID,
 			Usage:      input.Response.Normalized.Usage,
 			Cost:       input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
-		if source.State == "succeeded" {
-			return h.replayOutput(ctx, m, source, input, evidence)
-		}
 		parts, proposals, err := outputParts(input.Response, input.Tools)
 		if err != nil {
 			return AcceptedOutput{}, err
@@ -222,103 +224,26 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 	})
 }
 
-func (h *Handle) replayOutput(
-	ctx context.Context,
-	m *executionMutation,
-	source executiondb.ReadExecutionAttemptRow,
-	input AcceptOutputInput,
-	evidence ModelEvidence,
-) (AcceptedOutput, error) {
-	if _, err := h.finishAttempt(
-		ctx, m, source, ContextSucceeded, ModelFailure{RuntimeLockID: input.RuntimeLockID}, evidence,
-	); err != nil {
-		return AcceptedOutput{}, err
-	}
+func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID) (AcceptedOutput, error) {
 	q := executiondb.New()
-	output, err := q.FindExecutionOutput(
-		ctx,
-		h.unit.DB(),
-		executiondb.FindExecutionOutputParams{AgentID: h.route.AgentID, ContextID: source.ID},
-	)
+	output, err := q.FindExecutionOutput(ctx, h.unit.DB(), executiondb.FindExecutionOutputParams{
+		AgentID: h.route.AgentID, ContextID: contextID,
+	})
 	if err != nil {
 		return AcceptedOutput{}, err
 	}
-	replayPresent := len(input.Response.ProviderReplay) > 0 || output.ProviderReplay != nil
-	replayMatches := equalJSON(valueOrZero(output.ProviderReplay), input.Response.ProviderReplay)
-	if output.StopReason != string(input.Response.Normalized.StopReason) ||
-		output.ServedProviderModelSlug != input.Response.ServedProviderModelSlug ||
-		(replayPresent && !replayMatches) {
-		return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
-	}
-	stored, err := q.ReadExecutionProposals(
-		ctx,
-		h.unit.DB(),
-		executiondb.ReadExecutionProposalsParams{AgentID: h.route.AgentID, OutputID: output.ID},
-	)
+	stored, err := q.ReadExecutionProposals(ctx, h.unit.DB(), executiondb.ReadExecutionProposalsParams{
+		AgentID: h.route.AgentID, OutputID: output.ID,
+	})
 	if err != nil {
 		return AcceptedOutput{}, err
 	}
-	bindings := make([]ToolProposal, len(input.Tools))
-	copy(bindings, input.Tools)
-	for i, binding := range bindings {
-		for _, call := range stored {
-			if binding.ProviderCallID == call.ProviderCallID && binding.ID == uuid.Nil {
-				bindings[i].ID = call.ID
-			}
-		}
-	}
-	parts, proposals, err := outputParts(input.Response, bindings)
-	if err != nil {
-		return AcceptedOutput{}, err
-	}
-	if len(stored) != len(proposals) {
-		return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
-	}
-	for _, call := range stored {
-		matched := false
-		for _, proposal := range proposals {
-			if proposal.ID == call.ID && proposal.ProviderCallID == call.ProviderCallID &&
-				proposal.Name == call.Name &&
-				proposal.Type == call.Type &&
-				equalJSON(proposal.Input, call.Input) {
-				if proposal.Error != "" {
-					row, err := h.tool(ctx, call.ID)
-					if err != nil {
-						return AcceptedOutput{}, err
-					}
-					body, err := json.Marshal(
-						map[string]string{"error": proposal.Error, "error_code": "malformed"},
-					)
-					if err != nil {
-						return AcceptedOutput{}, err
-					}
-					if row.ResultID == nil || valueOrZero(row.Outcome) != "failed" {
-						return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
-					}
-					if err = h.matchContent(ctx,
-						executiondb.ReadExecutionContentParams{AgentID: h.route.AgentID,
-							ResultID: row.ResultID},
-						[]Content{{Kind: "structured_data",
-							Data: body}}); err != nil {
-						return AcceptedOutput{}, err
-					}
-				}
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
-		}
-	}
-	if err = h.contentMatches(ctx, uuid.Nil, output.ID, parts); err != nil {
-		return AcceptedOutput{}, err
+	bindings := make([]ToolProposal, len(stored))
+	for i, call := range stored {
+		bindings[i] = ToolProposal{ID: call.ID, ProviderCallID: call.ProviderCallID, Type: call.Type}
 	}
 	return AcceptedOutput{ID: output.ID, Event: ExecutionEvent{ID: output.EventID, TurnID: output.TurnID,
-		EventBoundary: EventBoundary{
-			Sequence: output.Sequence,
-			Time:     output.CreatedAt,
-		}}, Tools: bindings}, nil
+		EventBoundary: EventBoundary{Sequence: output.Sequence, Time: output.CreatedAt}}, Tools: bindings}, nil
 }
 
 func applyAcceptedOutput(

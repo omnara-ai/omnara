@@ -518,8 +518,7 @@ func completeProcessFailedWithoutExecutionTx(
 		return err
 	}
 	if failed.ToolCallID != uuid.Nil {
-		if _,
-			err := h.CompleteProcess(ctx,
+		if _, err := h.CompleteProcess(ctx,
 			agentexecution.ProcessResult{ID: failed.ID,
 				Observed: nil}); err != nil {
 			return err
@@ -792,13 +791,7 @@ func lockAgentForProcessRecordTx(ctx context.Context, unit *agentexecution.Unit,
 	if record.ProjectID == uuid.Nil || record.AgentID == uuid.Nil {
 		return nil
 	}
-	if _, err := unit.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: record.ProjectID,
-			ID:        record.AgentID,
-		},
-		nil); err != nil {
+	if _, err := lockExecution(ctx, unit, record.ProjectID, record.AgentID, false, uuid.Nil); err != nil {
 		return fmt.Errorf("lock agent for process authority mutation: %w", err)
 	}
 	return nil

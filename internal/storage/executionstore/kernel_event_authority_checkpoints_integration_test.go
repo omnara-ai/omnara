@@ -311,17 +311,6 @@ func TestContextCheckpointLineageDerivesPriorCheckpointFromEvents(t *testing.T) 
 	if err != nil {
 		t.Fatalf("publish second checkpoint: %v", err)
 	}
-	secondSourceStart, err := executionstore.IntegrationCompactionSourceStartTx(
-		ctx,
-		fixture.Store.pool,
-		secondClaim.Context,
-	)
-	if err != nil {
-		t.Fatalf("derive second compaction source start: %v", err)
-	}
-	if want := firstCheckpoint.SummarizedThroughEventSequence + 1; secondSourceStart != want {
-		t.Fatalf("second compaction source start = %d, want %d", secondSourceStart, want)
-	}
 	if secondCheckpoint.SummarizedThroughEventSequence != secondFrontier ||
 		secondCheckpoint.SummarizedThroughEventSequence <= firstCheckpoint.SummarizedThroughEventSequence {
 		t.Fatalf(

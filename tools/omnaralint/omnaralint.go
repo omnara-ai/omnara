@@ -77,8 +77,7 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 	filename := slashPath(pass.Fset.Position(file.Pos()).Filename)
 	packagePath := pass.Pkg.Path()
 	inStorage := packageWithin(packagePath, storagePackage)
-	inGeneratedDBSQLC := packageWithin(packagePath, dbsqlcImport) ||
-		packageWithin(packagePath, stateDBSQLCImport)
+	inGeneratedDBSQLC := packageWithin(packagePath, dbsqlcImport) || packageWithin(packagePath, stateDBSQLCImport)
 	inInternal := packageWithin(packagePath, internalPackage)
 	inTestutil := packageWithin(packagePath, testutilPackage)
 	isTest := strings.HasSuffix(filename, "_test.go")
@@ -111,8 +110,7 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 			}
 		case *ast.InterfaceType:
 			if inGeneratedDBSQLC && !isAllowedDBSQLCInterface(pass, n) {
-				pass.Reportf(n.Pos(),
-					"unexpected interface{} in generated dbsqlc; add an explicit SQL cast at the query boundary")
+				pass.Reportf(n.Pos(), "unexpected interface{} in generated dbsqlc; add an explicit SQL cast at the query boundary")
 			}
 		case *ast.SelectorExpr:
 			if inGeneratedDBSQLC {

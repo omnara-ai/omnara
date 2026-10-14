@@ -625,8 +625,7 @@ func (f kernelFixture) admitSlackContentInputTurn(
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
 		"queued Slack content must not select a destination before turn admission")
-	claim, found, err := f.Store.Execution().
-		ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
+	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)

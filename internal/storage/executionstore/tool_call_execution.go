@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -90,7 +89,7 @@ func (s *Store) executeToolCallOnce(
 ) (ExecuteToolCallResult, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ExecuteToolCallResult{}, fmt.Errorf("begin tool call execution: %w", err)
+		return ExecuteToolCallResult{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()
@@ -161,17 +160,7 @@ func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting b
 	if t.locked || t.disposition != 0 {
 		return nil
 	}
-	err := t.unit.LockAgentRefs(ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID}},
-		nil,
-	)
-	if errors.Is(err, storeerr.ErrNotFound) {
-		return storeerr.ErrRuntimeLockInactive
-	}
-	if err != nil {
-		return err
-	}
-	h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
+	h, err := lockExecution(ctx, t.unit, t.input.ProjectID, t.input.AgentID, false, t.input.RuntimeLockID)
 	if err != nil {
 		return err
 	}

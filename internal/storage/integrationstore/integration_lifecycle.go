@@ -111,7 +111,7 @@ func (s *Store) deleteIntegrationOnce(ctx context.Context, orgID, projectID, id 
 	}); err != nil {
 		return err
 	}
-	if err := s.access.ClearIntegrationTargetsFromAgents(ctx, unit, projectID, id); err != nil {
+	if err := unit.ClearIntegrationTargets(ctx, projectID, id); err != nil {
 		return err
 	}
 	if err := q.DeleteIntegrationTargets(

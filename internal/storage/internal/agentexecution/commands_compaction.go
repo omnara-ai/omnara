@@ -2,15 +2,12 @@ package agentexecution
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -38,12 +35,12 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 		if err != nil {
 			return CompactionStart{}, err
 		}
-		if input.Failure.ErrorKind == "" || input.Failure.ErrorMessage == "" {
+		if source.State == "started" && (input.Failure.ErrorKind == "" || input.Failure.ErrorMessage == "") {
 			return CompactionStart{}, errors.New("compaction requires failure evidence")
 		}
 		if input.SourceEnd <= 0 || input.SourceEnd > source.InputEventSequence ||
 			source.OperationKind == "compaction" &&
-				input.SourceEnd >= valueOrZero(source.SourceEventSequenceEnd) {
+				input.SourceEnd >= storeutil.ValueOrZero(source.SourceEventSequenceEnd) {
 			return CompactionStart{}, storeerr.ErrStateTransitionConflict
 		}
 		input.Failure.Recovery = RecoveryCompact
@@ -313,35 +310,12 @@ func (h *Handle) ResumeCompaction(ctx context.Context, input ResumeCompactionInp
 			return CompactionStart{}, err
 		}
 		if parent.OperationKind != "normal" || parent.State != "failed" ||
-			valueOrZero(parent.RecoveryKind) != "compact" || parent.InputEventSequence != input.Watermark {
+			storeutil.ValueOrZero(parent.RecoveryKind) != "compact" || parent.InputEventSequence != input.Watermark {
 			return CompactionStart{}, storeerr.ErrAgentNotAdvanceable
 		}
-		var metadata modelenvelope.ProviderMetadata
-		if err := json.Unmarshal(parent.ProviderMetadata, &metadata); err != nil {
-			return CompactionStart{}, err
-		}
-		cost, _ := modelenvelope.ParseProviderReportedCostUSD(parent.ProviderReportedCostUsd)
 		return h.BeginCompaction(ctx, BeginCompactionInput{
 			SourceEnd: input.SourceEnd,
-			Failure: ModelFailure{
-				ContextID: parent.ID, RuntimeLockID: input.RuntimeLockID,
-				ErrorKind: modelprotocol.ErrorKind(parent.ErrorKind), ErrorCode: parent.ErrorCode,
-				ErrorMessage: parent.ErrorMessage, ErrorDetails: parent.ErrorDetails,
-				Evidence: ModelEvidence{
-					APIFormat:  modelprotocol.APIFormat(parent.ApiFormat),
-					APIVariant: modelprotocol.APIVariant(parent.ApiVariant),
-					RequestID:  parent.ProviderRequestID, ResponseID: parent.ProviderResponseID,
-					Usage: modelenvelope.Usage{
-						InputTokens:         int(valueOrZero(parent.InputTokensTotal)),
-						UncachedInputTokens: int(valueOrZero(parent.UncachedInputTokens)),
-						CacheReadTokens:     int(valueOrZero(parent.CacheReadInputTokens)),
-						CacheWriteTokens:    int(valueOrZero(parent.CacheWriteInputTokens)),
-						OutputTokens:        int(valueOrZero(parent.OutputTokensTotal)),
-						ReasoningTokens:     int(valueOrZero(parent.ReasoningOutputTokens)),
-					},
-					Cost: cost, Metadata: metadata,
-				},
-			},
+			Failure:   ModelFailure{ContextID: parent.ID, RuntimeLockID: input.RuntimeLockID},
 		})
 	})
 }

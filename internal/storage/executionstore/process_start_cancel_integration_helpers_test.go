@@ -50,14 +50,13 @@ func claimReplacementAfterReapedNormalModelCallSetup(
 		t.Fatalf("release initial runtime lock: %v", err)
 	}
 	now := fixture.Now.Add(time.Minute)
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise stale worker fencing"}]`),
-			IdempotencyKey: fixtureName,
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise stale worker fencing"}]`),
+		IdempotencyKey: fixtureName,
+	})
 	if err != nil {
 		t.Fatalf("create stale-worker input: %v", err)
 	}
@@ -153,13 +152,12 @@ func claimReplacementModelCallContext(
 		work.Model.ModelCallContextID != predecessorContextID {
 		t.Fatalf("claim replacement model work = %+v found=%v err=%v", work, found, err)
 	}
-	claim, err := fixture.Store.Execution().
-		ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-			ProjectID:                     testProjectID,
-			AgentID:                       fixture.AgentID,
-			PredecessorModelCallContextID: predecessorContextID,
-			RuntimeLockID:                 work.RuntimeLock.ID,
-		})
+	claim, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID:                     testProjectID,
+		AgentID:                       fixture.AgentID,
+		PredecessorModelCallContextID: predecessorContextID,
+		RuntimeLockID:                 work.RuntimeLock.ID,
+	})
 	if err != nil {
 		t.Fatalf("claim replacement model context: %v", err)
 	}
@@ -244,14 +242,13 @@ func claimExhaustedCompactionModelContext(
 	); err != nil {
 		t.Fatalf("release compaction fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise compaction retry limit"}]`),
-			IdempotencyKey: fixtureName,
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise compaction retry limit"}]`),
+		IdempotencyKey: fixtureName,
+	})
 	if err != nil {
 		t.Fatalf("create compaction content input: %v", err)
 	}
@@ -400,14 +397,13 @@ func claimExhaustedNormalModelContext(
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise model call retry limit"}]`),
-			IdempotencyKey: fixtureName,
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"exercise model call retry limit"}]`),
+		IdempotencyKey: fixtureName,
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}

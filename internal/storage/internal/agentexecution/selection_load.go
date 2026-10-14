@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type ExecutionHead struct {
@@ -71,24 +72,17 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 func executionHead(row executiondb.LoadExecutionBaseRow) ExecutionHead {
 	return ExecutionHead{
 		AgentID:                 row.AgentID,
-		CurrentTurnID:           valueOrZero(row.CurrentTurnID),
+		CurrentTurnID:           storeutil.ValueOrZero(row.CurrentTurnID),
 		StopSequence:            row.StopSequence,
 		MaxNormalInputSequence:  row.MaxNormalInputSequence,
-		MaxContextInputSequence: row.MaxContextInputSequence, NormalContextID: valueOrZero(row.NormalContextID),
-		CompactionContextID: valueOrZero(
+		MaxContextInputSequence: row.MaxContextInputSequence, NormalContextID: storeutil.ValueOrZero(row.NormalContextID),
+		CompactionContextID: storeutil.ValueOrZero(
 			row.CompactionContextID,
-		), PendingToolOutputID: valueOrZero(row.PendingToolOutputID),
-		PendingOutputLimitID: valueOrZero(
+		), PendingToolOutputID: storeutil.ValueOrZero(row.PendingToolOutputID),
+		PendingOutputLimitID: storeutil.ValueOrZero(
 			row.PendingOutputLimitID,
-		), PendingConfigInputID: valueOrZero(row.PendingConfigInputID),
-		PendingCheckpointID: valueOrZero(row.PendingCheckpointID), TurnContinuable: row.TurnContinuable,
+		), PendingConfigInputID: storeutil.ValueOrZero(row.PendingConfigInputID),
+		PendingCheckpointID: storeutil.ValueOrZero(row.PendingCheckpointID), TurnContinuable: row.TurnContinuable,
 		IncompleteTools: row.IncompleteTools, LogicalReadyAt: row.LogicalReadyAt,
 	}
-}
-
-func valueOrZero[T any](value *T) (zero T) {
-	if value != nil {
-		return *value
-	}
-	return zero
 }

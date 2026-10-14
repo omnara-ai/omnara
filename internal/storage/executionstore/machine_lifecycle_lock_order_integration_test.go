@@ -1583,7 +1583,6 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,
@@ -1788,7 +1787,6 @@ func startAgentArchiveBlockedAtAgent(
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,
@@ -1829,7 +1827,6 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,

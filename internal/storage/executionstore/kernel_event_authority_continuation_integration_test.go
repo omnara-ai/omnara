@@ -245,8 +245,7 @@ func TestSemanticContextIdentityPreventsLaterOutputAtStaleFrontier(t *testing.T)
 	if err != nil {
 		t.Fatalf("next continuation seed: %v", err)
 	}
-	if !found || seed.TurnID != completed.TurnID || len(seed.InputIDs) != 1 ||
-		seed.InputIDs[0] != openingInputID {
+	if !found || seed.TurnID != completed.TurnID || len(seed.InputIDs) != 1 || seed.InputIDs[0] != openingInputID {
 		t.Fatalf(
 			"continuation seed found=%v seed=%+v, want turn %s input %s",
 			found,
@@ -269,13 +268,7 @@ func TestExecutionHeadExcludesHistoricalTurn(t *testing.T) {
 			"latest_frontier_active_context",
 		)
 		contextRecord := createContextForAdmittedTurnTest(
-			t,
-			ctx,
-			fixture,
-			admitted,
-			agent,
-			"latest-frontier-active-context",
-			fixture.Now.Add(4*time.Second),
+			t, ctx, fixture, admitted, agent, "latest-frontier-active-context", fixture.Now.Add(4*time.Second),
 		)
 		assertFrontierCountTest(
 			t,
@@ -362,13 +355,7 @@ func TestExecutionHeadExcludesHistoricalTurn(t *testing.T) {
 			"latest_frontier_completed_tool",
 		)
 		contextRecord := createContextForAdmittedTurnTest(
-			t,
-			ctx,
-			fixture,
-			admitted,
-			agent,
-			"latest-frontier-completed-tool",
-			fixture.Now.Add(4*time.Second),
+			t, ctx, fixture, admitted, agent, "latest-frontier-completed-tool", fixture.Now.Add(4*time.Second),
 		)
 		completeToolCallForContinuationSeedTest(
 			t, ctx, fixture, admitted.Turn.ID, contextRecord.ID, "latest_frontier_completed_tool",
@@ -431,11 +418,7 @@ func TestExecutionHeadExcludesHistoricalTurn(t *testing.T) {
 		}
 
 		appendSyntheticLatestContentTurnForFrontierTest(
-			t,
-			ctx,
-			fixture,
-			"latest_frontier_running_barrier_newer",
-			fixture.Now.Add(time.Minute+time.Second),
+			t, ctx, fixture, "latest_frontier_running_barrier_newer", fixture.Now.Add(time.Minute+time.Second),
 		)
 
 		if err := fixture.Store.pool.QueryRow(
@@ -513,11 +496,7 @@ WHERE agent_id = $1
 		!strings.Contains(err.Error(), "completion state must match result existence") {
 		t.Fatalf("complete sibling without typed result error = %v", err)
 	}
-	if seed,
-		found,
-		err := fixture.Store.Execution().NextAgentModelWork(ctx,
-		testProjectID,
-		fixture.AgentID); err != nil {
+	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("next continuation seed: %v", err)
 	} else if found {
 		t.Fatalf("continuation seed = %+v, want none while sibling tool remains open", seed)
@@ -554,11 +533,7 @@ func TestContinuationSeedKeepsLaterToolResultAfterEarlierResultConsumed(t *testi
 		t, ctx, fixture, admitted.Turn.ID, laterContext.ID, "continuation_seed_later_result_second",
 		fixture.Now.Add(8*time.Second),
 	)
-	if seed,
-		found,
-		err := fixture.Store.Execution().NextAgentModelWork(ctx,
-		testProjectID,
-		fixture.AgentID); err != nil {
+	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("next continuation seed: %v", err)
 	} else if !found || seed.TurnID != completed.TurnID || len(seed.InputIDs) != 2 ||
 		seed.InputIDs[0] != admitted.Inputs[0].ID || seed.InputIDs[1] != admitted.Inputs[1].ID {
@@ -747,14 +722,13 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		fixture.Now.Add(31*time.Second),
 	)
 
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"visible"}]`),
-			IdempotencyKey: "kernel-context-visible-input",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"visible"}]`),
+		IdempotencyKey: "kernel-context-visible-input",
+	})
 	if err != nil {
 		t.Fatalf("create visible agent input: %v", err)
 	}
@@ -874,8 +848,7 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 		t.Fatalf("list compaction source events: %v", err)
 	}
 	for _, event := range compactionEvents {
-		if event.Sequence == 1 &&
-			strings.Contains(string(event.ContentParts), "Agent configuration changed") {
+		if event.Sequence == 1 && strings.Contains(string(event.ContentParts), "Agent configuration changed") {
 			t.Fatalf("baseline config change should not be projected into compaction source: %+v", event)
 		}
 	}
@@ -926,15 +899,13 @@ func TestCompactionSourceEventsIncludeToolCallAndResultSemantics(t *testing.T) {
 	siblingToolCall := toolCalls[1]
 	markToolCallReadyForTest(t, ctx, fixture, toolCallID, now.Add(2*time.Millisecond))
 	markToolCallReadyForTest(t, ctx, fixture, siblingToolCall.ID, now.Add(3*time.Millisecond))
-	openRows, err := fixture.Store.Execution().
-		ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
+	openRows, err := fixture.Store.Execution().ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
 	if err != nil {
 		t.Fatalf("list open tool compaction source events: %v", err)
 	}
 	var openToolCallSequence int64
 	for _, row := range openRows {
-		if row.Kind == string(events.KindModelOutput) &&
-			strings.Contains(string(row.ContentParts), `"name": "run_command"`) {
+		if row.Kind == string(events.KindModelOutput) && strings.Contains(string(row.ContentParts), `"name": "run_command"`) {
 			openToolCallSequence = row.Sequence
 		}
 	}
@@ -968,8 +939,7 @@ func TestCompactionSourceEventsIncludeToolCallAndResultSemantics(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete tool call: %v", err)
 	}
-	partialRows, err := fixture.Store.Execution().
-		ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
+	partialRows, err := fixture.Store.Execution().ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
 	if err != nil {
 		t.Fatalf("list partially completed tool compaction source events: %v", err)
 	}
@@ -1000,8 +970,7 @@ func TestCompactionSourceEventsIncludeToolCallAndResultSemantics(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete sibling tool call: %v", err)
 	}
-	rows, err := fixture.Store.Execution().
-		ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
+	rows, err := fixture.Store.Execution().ListCompactionSourceEvents(ctx, testProjectID, fixture.AgentID, 0, 100)
 	if err != nil {
 		t.Fatalf("list compaction source events: %v", err)
 	}

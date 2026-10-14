@@ -12,15 +12,15 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	ctx context.Context,
 	input RecordModelCallFailureAndClaimCompactionInput,
 ) (TriggeredCompactionHandoff, error) {
+	f := input.Failure
+	if input.ParentContextID != f.ModelCallContextID || f.RecoveryKind != ModelCallRecoveryCompact {
+		return TriggeredCompactionHandoff{}, storeerr.ErrStateTransitionConflict
+	}
 	return agentexecution.Retry(ctx,
-		"RecordModelCallFailureAndClaimCompaction",
+		"record_model_call_failure_and_claim_compaction",
 		func(ctx context.Context) (TriggeredCompactionHandoff,
 			error) {
-			f := input.Failure
-			if input.ParentContextID != f.ModelCallContextID || f.RecoveryKind != ModelCallRecoveryCompact {
-				return TriggeredCompactionHandoff{}, storeerr.ErrStateTransitionConflict
-			}
-			unit, h, err := beginExecution(ctx, s, f.ProjectID, f.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, f.ProjectID, f.AgentID, false, f.RuntimeLockID)
 			if err != nil {
 				return TriggeredCompactionHandoff{}, err
 			}
@@ -72,25 +72,19 @@ func (s *Store) ReplaceCompactionSource(
 	input ReplaceCompactionSourceInput,
 ) (ReplaceCompactionSourceResult, error) {
 	return agentexecution.Retry(ctx,
-		"ReplaceCompactionSource",
+		"replace_compaction_source",
 		func(ctx context.Context) (ReplaceCompactionSourceResult,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 			if err != nil {
 				return ReplaceCompactionSourceResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
-			failure := agentexecution.ModelFailure{
-				ContextID:     input.ModelCallContextID,
-				RuntimeLockID: input.RuntimeLockID,
-				ErrorKind:     input.ErrorKind,
-				ErrorCode:     input.ErrorCode,
-				ErrorMessage:  input.ErrorMessage,
-				ErrorDetails:  input.ErrorDetails,
-				Evidence: agentexecution.ModelEvidence{APIFormat: input.APIFormat, APIVariant: input.APIVariant,
-					RequestID: input.ProviderRequestID, ResponseID: input.ProviderResponseID, Usage: input.Usage,
-					Cost: input.ProviderReportedCostUSD, Metadata: input.ProviderMetadata},
-			}
+			failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
+				input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
+				executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
+					input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
+
 			result, err := h.BeginCompaction(
 				ctx,
 				agentexecution.BeginCompactionInput{Failure: failure, SourceEnd: input.NextSourceEventSequenceEnd},

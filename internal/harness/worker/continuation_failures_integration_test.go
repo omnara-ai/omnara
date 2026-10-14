@@ -6,14 +6,18 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,6 +50,7 @@ func (e delayedFusedExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
 	error) {
 	if e.before != nil {
 		e.before()
+		options.Deadline = time.Unix(1, 0)
 	}
 	work, advanced, err := e.AgentExecutor.ExecuteModelWorkAndAdvance(ctx, input, options)
 	if e.observe != nil {
@@ -62,14 +67,21 @@ func TestWorkerContinuationDurationNeverAbandonsPreparedContext(t *testing.T) {
 		for _, boundary := range []string{"before", "during", "after"} {
 			t.Run(path+"/"+boundary, func(t *testing.T) {
 				ctx := t.Context()
-				pool := openWorkerIntegrationDB(t, ctx)
+				base := openWorkerIntegrationDB(t, ctx)
+				trace := &integrationdb.QueryTrace{}
+				config := base.Config()
+				config.ConnConfig.Tracer = multitracer.New(config.ConnConfig.Tracer, trace)
+				pool, err := pgxpool.NewWithConfig(ctx, config)
+				require.NoError(t, err)
+				defer pool.Close()
+				var worker *Worker
 				store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
 				agent, user := createWorkerAgentWithTools(t, ctx, store, time.Now(), "list_agents")
 				createWorkerInput(t, ctx, store, agent, user, "continue", time.Now())
 				first := continuationFinalResponse(1)
 				first.StopReason = model.StopReasonMaxTokens
 				executor := newObservedContinuationExecutor(store, first, continuationFinalResponse(2))
-				pause := func() { <-time.NewTimer(1100 * time.Millisecond).C }
+				pause := func() { worker.continuation.MaxDuration = 0 }
 				var workerStore Store = store.Execution()
 				var workerExecutor AgentWorkExecutor = executor
 				if path == "owned" {
@@ -90,17 +102,20 @@ func TestWorkerContinuationDurationNeverAbandonsPreparedContext(t *testing.T) {
 					workerExecutor = fused
 				}
 				if boundary == "during" {
-					_, err := pool.Exec(ctx, `CREATE FUNCTION delay_successor() RETURNS trigger LANGUAGE plpgsql AS $$
-     BEGIN IF EXISTS(SELECT 1 FROM model_outputs WHERE agent_id=NEW.agent_id) THEN
- PERFORM pg_sleep(1.1); END IF; RETURN NEW; END $$;
-     CREATE TRIGGER delay_successor BEFORE INSERT ON model_call_contexts
- FOR EACH ROW EXECUTE FUNCTION delay_successor()`)
-					require.NoError(t, err)
+					starts := 0
+					trace.OnQuery = func(query string) {
+						if strings.HasPrefix(query, "-- name: CreateExecutionAttempt ") {
+							starts++
+							if starts == 2 {
+								pause()
+							}
+						}
+					}
 				}
-				worker := NewWorker(workerStore,
+				worker = NewWorker(workerStore,
 					workerExecutor,
 					Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
-						MaxDuration: time.Second}})
+						MaxDuration: time.Hour}})
 				requireWorkerClaim(t, ctx, worker, "duration boundary")
 				var contexts, outputs, failed int
 				require.NoError(t,

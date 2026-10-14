@@ -2,22 +2,26 @@ package storeerr
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 )
 
 const (
-	MaxPendingAgentContentInputs = 50
-	AgentBacklogFullCode         = "agent_backlog_full"
-	AgentBacklogFullMessage      = "This agent already has 50 pending messages. " +
-		"Wait for messages to be processed or cancel a pending message, then try again."
+	AgentBacklogFullCode             = "agent_backlog_full"
 	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
 	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
 )
 
 var (
-	ErrCommitOutcomeUnknown          = errors.New("transaction commit outcome is unknown")
-	ErrAgentBacklogFull              = agentBacklogFullError{}
+	ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")
+	ErrCommitOutcomeUnknown     = errors.New("transaction commit outcome is unknown")
+	AgentBacklogFullMessage     = fmt.Sprintf(
+		"This agent already has %d pending messages. "+
+			"Wait for messages to be processed or cancel a pending message, then try again.",
+		executionpolicy.MaxPendingAgentContentInputs)
+	ErrAgentBacklogFull              = errors.New(AgentBacklogFullMessage)
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
@@ -117,9 +121,3 @@ func InvalidRequest(err error) error {
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows)
 }
-
-var ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")
-
-type agentBacklogFullError struct{}
-
-func (agentBacklogFullError) Error() string { return AgentBacklogFullMessage }

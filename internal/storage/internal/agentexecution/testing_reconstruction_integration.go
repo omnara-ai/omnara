@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, error) {
@@ -264,9 +265,9 @@ func contextRecord(row ReconstructExecutionContextsRow) ModelContext {
 		Operation:              Operation(row.OperationKind),
 		Attempt:                row.AttemptNumber,
 		InputEventSequence:     row.InputEventSequence,
-		SourceEventSequenceEnd: valueOrZero(row.SourceEventSequenceEnd),
+		SourceEventSequenceEnd: storeutil.ValueOrZero(row.SourceEventSequenceEnd),
 		State:                  ContextState(row.State),
-		Recovery:               RecoveryKind(valueOrZero(row.RecoveryKind)),
+		Recovery:               RecoveryKind(storeutil.ValueOrZero(row.RecoveryKind)),
 		RetryAt:                row.RetryAt,
 		Opening: Opening{
 			InputIDs:      row.OpeningInputIds,

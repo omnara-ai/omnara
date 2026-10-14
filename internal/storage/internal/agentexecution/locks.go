@@ -100,8 +100,8 @@ func (u *Unit) lockAgents(ctx context.Context, plan MutationPlan, skipLocked boo
 		if u.runtimeLocked {
 			return false, u.expandPlan(missing...)
 		}
+		_, excluded := u.exclusiveProjects[route.ProjectID]
 		for _, held := range u.handles {
-			_, excluded := u.exclusiveProjects[route.ProjectID]
 			if held.created || excluded {
 				continue
 			}
@@ -246,30 +246,6 @@ func (u *Unit) CreatedAgent(projectID, agentID, parentID uuid.UUID) error {
 	route := AgentRoute{ProjectID: projectID, AgentID: agentID, RootAgentID: rootID}
 	u.handles[agentID] = &Handle{unit: u, route: route, created: true}
 	return nil
-}
-
-func (u *Unit) LockAgent(
-	ctx context.Context, arg dbsqlc.LockAgentInProjectParams, authority *RuntimeAuthority,
-) (dbsqlc.LockAgentInProjectRow, error) {
-	if err := u.LockAgentRefs(
-		ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: arg.ProjectID, AgentID: arg.ID}},
-		authority,
-	); err != nil {
-		if errors.Is(err, storeerr.ErrNotFound) {
-			err = pgx.ErrNoRows
-		}
-		return dbsqlc.LockAgentInProjectRow{}, err
-	}
-	h := u.handles[arg.ID]
-	if h.identity != nil && (h.mutation == nil || !h.mutation.dirty) {
-		return *h.identity, nil
-	}
-	row, err := dbsqlc.New(u.DB()).LockAgentInProject(ctx, arg)
-	if err == nil {
-		h.identity = &row
-	}
-	return row, err
 }
 
 func (u *Unit) PlanAgentFamily(

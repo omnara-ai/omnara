@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -78,10 +77,10 @@ func (s *Store) CreatePermissionInteraction(
 	input CreatePermissionInteractionInput,
 ) (AgentInteractionRecord, error) {
 	return agentexecution.Retry(ctx,
-		"CreatePermissionInteraction",
+		"create_permission_interaction",
 		func(ctx context.Context) (AgentInteractionRecord,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, uuid.Nil)
 			if err != nil {
 				return AgentInteractionRecord{}, err
 			}
@@ -114,18 +113,11 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	ctx context.Context,
 	input CreateQuestionInteractionInput,
 ) (AgentInteractionRecord, error) {
-	plan, err := t.unit.PlanAgentFamily(ctx, t.input.ProjectID, t.input.AgentID, nil)
-	if err == nil {
-		err = t.unit.LockAgents(ctx, plan)
-	}
+	h, err := lockExecution(ctx, t.unit, t.input.ProjectID, t.input.AgentID, true, t.input.RuntimeLockID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
 	destination, err := captureInteractionDestinationTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -165,11 +157,11 @@ func (s *Store) ResolveAgentInteraction(
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
 	return agentexecution.Retry(ctx,
-		"ResolveAgentInteraction",
+		"resolve_agent_interaction",
 		func(ctx context.Context) (AgentInteractionRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return AgentInteractionRecord{}, fmt.Errorf("begin resolve agent interaction: %w", err)
+				return AgentInteractionRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			record, err := resolveExecutionInteraction(ctx, unit, input)
@@ -188,18 +180,12 @@ func resolveExecutionInteraction(
 	unit *agentexecution.Unit,
 	input ResolveAgentInteractionInput,
 ) (AgentInteractionRecord, error) {
-	if err := unit.LockAgentRefs(ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID,
-			AgentID: input.AgentID}},
-		nil); err != nil {
+	h, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
+	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
 	q := dbsqlc.New(unit.DB())
 	actor, err := resolveActorTx(ctx, q, input.ProjectID, input.Actor)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	h, err := unit.Handle(input.ProjectID, input.AgentID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}

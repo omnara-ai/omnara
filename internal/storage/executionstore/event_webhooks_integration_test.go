@@ -56,10 +56,7 @@ func enableEventWebhook(t *testing.T, fixture processDaemonFixture, events []str
 			), CompiledDefinition: compiled.CanonicalJSON,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
-		AgentID:   fixture.AgentID,
-		ActorType: identitystore.PrincipalTypeUser,
-		ActorID:   user.ID,
-		Reason:    "user_update",
+		AgentID: fixture.AgentID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
 	})
 	require.NoError(t, err)
 }
@@ -71,8 +68,7 @@ func assertWebhookToolStates(
 	expected []string,
 ) {
 	t.Helper()
-	rows, err := fixture.Store.pool.Query(
-		t.Context(),
+	rows, err := fixture.Store.pool.Query(t.Context(),
 		"SELECT tool_state FROM event_webhook_deliveries WHERE agent_id = $1 AND tool_call_id = $2 ORDER BY id",
 		fixture.AgentID,
 		toolID,
@@ -182,20 +178,18 @@ func TestInteractionWebhookLifecycle(t *testing.T) {
 					)
 					require.NoError(t, err)
 				case "steer":
-					_, _, _, err := fixture.Store.Execution().
-						CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-							ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
-							ContentBlocks: json.RawMessage(`[{"type":"text","text":"change direction"}]`),
-							DeliveryMode:  executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
-							IdempotencyKey: "cancel-interaction",
-						})
+					_, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+						ProjectID: testProjectID, AgentID: fixture.AgentID, Actor: mustOmnaraActorParams(t, fixture.UserID),
+						ContentBlocks: json.RawMessage(`[{"type":"text","text":"change direction"}]`),
+						DeliveryMode:  executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
+						IdempotencyKey: "cancel-interaction",
+					})
 					require.NoError(t, err)
 				case "fail":
-					_, err := fixture.Store.Execution().
-						CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
-							ProjectID: testProjectID, AgentID: fixture.AgentID, ID: toolID,
-							RuntimeLockID: fixture.Lock.ID, Outcome: executionstore.ToolResultOutcomeFailed,
-						})
+					_, err := fixture.Store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
+						ProjectID: testProjectID, AgentID: fixture.AgentID, ID: toolID,
+						RuntimeLockID: fixture.Lock.ID, Outcome: executionstore.ToolResultOutcomeFailed,
+					})
 					require.NoError(t, err)
 				}
 				assertInteractionWebhookUpdates(
@@ -266,7 +260,6 @@ func TestInteractionWebhookPermissionThenQuestion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "permission_then_question_webhook")
-
 	toolID := createToolCallForProcessTestWithPermission(t, ctx, fixture,
 		"permission_then_question_webhook", "ask_question", false)
 	enableEventWebhook(t, fixture, []string{"tool_call_update"})
@@ -409,8 +402,7 @@ func TestEventWebhookClaimsRecoverAndExpire(t *testing.T) {
 	)
 	_, err = fixture.Store.Execution().RetryEventWebhookDelivery(ctx, first.ID, first.ClaimToken, time.Minute)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	retry, err := fixture.Store.Execution().
-		RetryEventWebhookDelivery(ctx, second.ID, second.ClaimToken, time.Minute)
+	retry, err := fixture.Store.Execution().RetryEventWebhookDelivery(ctx, second.ID, second.ClaimToken, time.Minute)
 	require.NoError(t, err)
 	require.False(t, retry.GaveUp)
 	var nextAttemptAt time.Time
@@ -430,14 +422,12 @@ func TestEventWebhookClaimsRecoverAndExpire(t *testing.T) {
 	require.Equal(t, first.ID, third.ID)
 	require.Equal(t, first.InteractionUpdate, third.InteractionUpdate)
 	require.Equal(t, int32(3), third.AttemptCount)
-	_, err = fixture.Store.pool.Exec(
-		ctx,
+	_, err = fixture.Store.pool.Exec(ctx,
 		"UPDATE event_webhook_deliveries SET created_at = statement_timestamp() - interval '9 minutes 30 seconds' WHERE id = $1",
 		third.ID,
 	)
 	require.NoError(t, err)
-	retry, err = fixture.Store.Execution().
-		RetryEventWebhookDelivery(ctx, third.ID, third.ClaimToken, time.Minute)
+	retry, err = fixture.Store.Execution().RetryEventWebhookDelivery(ctx, third.ID, third.ClaimToken, time.Minute)
 	require.NoError(t, err)
 	require.True(t, retry.GaveUp)
 	require.NoError(t, fixture.Store.pool.QueryRow(ctx,
@@ -489,8 +479,7 @@ func TestEventWebhookClaimsShareOrganizationLimits(t *testing.T) {
 	require.NoError(t, err)
 
 	otherOrgID, otherProjectID := uuid.New(), uuid.New()
-	_, err = pool.Exec(
-		ctx,
+	_, err = pool.Exec(ctx,
 		"INSERT INTO orgs(id, name, created_at, updated_at) VALUES ($1, 'Other org', statement_timestamp(), statement_timestamp())",
 		otherOrgID,
 	)
@@ -566,8 +555,7 @@ event_webhook:
 	_, err = workers[0].ClaimEventWebhookDelivery(ctx, perOrgLimit)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	_, err = pool.Exec(
-		ctx,
+	_, err = pool.Exec(ctx,
 		"UPDATE event_webhook_deliveries SET claim_expires_at = statement_timestamp() - interval '1 second' WHERE id = $1",
 		claimed[2].ID,
 	)

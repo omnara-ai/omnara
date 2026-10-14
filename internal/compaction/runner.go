@@ -131,8 +131,7 @@ func (r Runner) run(
 	}
 	resolved, err := r.Resolver.Resolve(ctx, selection)
 	if err != nil {
-		if ctx.Err() != nil &&
-			(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return RunResult{}, err
 		}
 		return r.recordPreSendFailure(
@@ -266,8 +265,7 @@ func (r Runner) run(
 	providerAttempt.ProviderRequestStarted = true
 	providerAttempt.Response = response
 	if err != nil {
-		if ctx.Err() != nil &&
-			(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return RunResult{}, err
 		}
 		if _, classified := model.ClassifyError(err); !classified {

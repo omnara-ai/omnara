@@ -58,11 +58,11 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	input.Capacity = normalizedJSON(input.Capacity)
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
 	return agentexecution.Retry(ctx,
-		"RegisterDaemonRuntimeWithReconciliation",
+		"register_daemon_runtime_with_reconciliation",
 		func(ctx context.Context) (DaemonRuntimeRegistrationRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("begin register daemon runtime: %w", err)
+				return DaemonRuntimeRegistrationRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -279,11 +279,11 @@ func (s *Store) HeartbeatDaemonRuntime(
 	}
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
 	return agentexecution.Retry(ctx,
-		"HeartbeatDaemonRuntime",
+		"heartbeat_daemon_runtime",
 		func(ctx context.Context) (DaemonRuntimeRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonRuntimeRecord{}, fmt.Errorf("begin heartbeat daemon runtime: %w", err)
+				return DaemonRuntimeRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -341,11 +341,11 @@ func (s *Store) EndDaemonRuntime(
 		return DaemonRuntimeRecord{}, err
 	}
 	return agentexecution.Retry(ctx,
-		"EndDaemonRuntime",
+		"end_daemon_runtime",
 		func(ctx context.Context) (DaemonRuntimeRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonRuntimeRecord{}, fmt.Errorf("begin end daemon runtime: %w", err)
+				return DaemonRuntimeRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -397,11 +397,11 @@ func (s *Store) SleepDaemonRuntime(
 		return DaemonRuntimeRecord{}, err
 	}
 	return agentexecution.Retry(ctx,
-		"SleepDaemonRuntime",
+		"sleep_daemon_runtime",
 		func(ctx context.Context) (DaemonRuntimeRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonRuntimeRecord{}, fmt.Errorf("begin sleep daemon runtime: %w", err)
+				return DaemonRuntimeRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -724,8 +725,7 @@ func TestExecutionPreparationRevalidatesAfterBlockedConfig(t *testing.T) {
 					agentexecution.BeginCompactionInput{Failure: failure,
 						SourceEnd: model.Context.InputEventSequence})
 				require.NoError(t, err)
-				_,
-					err = h.PublishCheckpoint(t.Context(),
+				_, err = h.PublishCheckpoint(t.Context(),
 					agentexecution.PublishCheckpointInput{ContextID: compact.Model.Context.ID,
 						RuntimeLockID: lease,
 						Summary:       "checkpoint",
@@ -747,12 +747,7 @@ func TestExecutionPreparationRevalidatesAfterBlockedConfig(t *testing.T) {
 			defer cancel()
 			result := make(chan error, 1)
 			go func() { result <- prepareBlockedCandidate(ctx, f, a, lease, *selected.Selection.Model) }()
-			require.Eventually(t, func() bool {
-				var blocked bool
-				err := f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
- WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)`).Scan(&blocked)
-				return err == nil && blocked
-			}, 5*time.Second, 10*time.Millisecond)
+			integrationdb.WaitForLockWaiters(t, ctx, f.pool, "", 1)
 			require.NoError(t, writer.Commit(ctx, "concurrent config"))
 			require.ErrorIs(t, <-result, storeerr.ErrAgentNotAdvanceable)
 			check, checkHandle := f.handle(t, a)
@@ -815,12 +810,7 @@ func TestExecutionFenceSamplesTimeAfterRuntimeLock(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() { result <- prepareBlockedCandidate(ctx, f, a, lease, *selected.Selection.Model) }()
-	require.Eventually(t, func() bool {
-		var blocked bool
-		err := f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
- WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)`).Scan(&blocked)
-		return err == nil && blocked
-	}, time.Second, 10*time.Millisecond)
+	integrationdb.WaitForLockWaiters(t, ctx, f.pool, "", 1)
 	require.Eventually(t, func() bool {
 		var expired bool
 		err := f.pool.QueryRow(ctx, `
@@ -835,7 +825,7 @@ SELECT count(*) FROM model_call_contexts WHERE agent_id=$1`, a).Scan(&contexts))
 	require.Zero(t, contexts)
 }
 
-func TestExecutionOutputReplayRejectsConflictingEvidence(t *testing.T) {
+func TestExecutionOutputReplayReturnsStoredEvidence(t *testing.T) {
 	f, a, lease := commandFixture(t)
 	u, h := f.handle(t, a)
 	receiveCommand(t, h, "queued", "work")
@@ -866,9 +856,11 @@ func TestExecutionOutputReplayRejectsConflictingEvidence(t *testing.T) {
 					{Type: "text", Text: "different"},
 				}
 			}
-			_, err := h.AcceptOutput(t.Context(), conflict)
+			replayed, err := h.AcceptOutput(t.Context(), conflict)
 			require.NoError(t, u.Rollback(t.Context()))
-			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+			require.NoError(t, err)
+			require.Equal(t, accepted.ID, replayed.ID)
+			require.False(t, replayed.Created)
 		})
 	}
 	u, h = f.handle(t, a)

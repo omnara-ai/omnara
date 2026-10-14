@@ -54,43 +54,11 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 
 func TestSlackIntegrationCutoverPreservesConversationsAndHistory(t *testing.T) {
 	for _, scenario := range []string{
-		"normal",
-		"memory_store",
-		"pre_internal_ids",
-		"injected_failure",
-		"rewrite_failure",
-		"continuable_retry",
-		"custom_collision",
+		"normal", "memory_store", "pre_internal_ids", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
 		"live_lease", "unsupported_setup",
-		"fixed_agent",
-		"mislabeled_fixed_agent",
-		"multiple_targets",
-		"multiple_integrations",
-		"enabled",
-		"json",
-		"yaml",
-		"yaml_alias",
-		"enabled_json",
-		"enabled_yaml",
-		"channel",
-		"dm",
-		"wire_json",
-		"wire_yaml",
-		"enabled_wire_json",
-		"enabled_wire_yaml",
-		"enabled_null_json",
-		"enabled_null_yaml",
-		"absent_send",
-		"preflight_invalid_policy",
-		"preflight_unmapped_policy",
-		"preflight_address",
-		"preflight_quota",
-		"invalid_policy",
-		"unmapped_policy",
-		"invalid_address",
-		"bad_hash",
-		"bad_source_hash",
-		"config_limit",
+		"fixed_agent", "mislabeled_fixed_agent", "multiple_targets", "multiple_integrations", "enabled", "json", "yaml", "yaml_alias", "enabled_json", "enabled_yaml", "channel", "dm",
+		"wire_json", "wire_yaml", "enabled_wire_json", "enabled_wire_yaml", "enabled_null_json", "enabled_null_yaml",
+		"absent_send", "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota", "invalid_policy", "unmapped_policy", "invalid_address", "bad_hash", "bad_source_hash", "config_limit",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -278,8 +246,7 @@ tools:
 				ids.ProviderAdminUserID,
 				credentialID,
 			)
-			exec(
-				`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
+			exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
              provider,integration_kind,
 			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,
              credential_secret_id,created_at,updated_at)
@@ -387,8 +354,7 @@ tools:
 					)
 					q(`UPDATE agents SET next_event_sequence=3 WHERE id=$1`, agentID)
 					failed := uuid.New()
-					q(
-						`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
+					q(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
                       agent_config_id,configured_model_revision_id,input_event_sequence,
                       runtime_lock_id,state,created_at)
                       VALUES($1,$2,$3,$4,'normal',1,$5,$6,2,$7,'started',now())`,
@@ -473,15 +439,10 @@ tools:
 					if scenario == "multiple_targets" {
 						otherIntegration = integrationID
 					}
-					q(
-						`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
+					q(`INSERT INTO integration_targets(id,project_id,agent_id,integration_install_id,target_ref,
                      provider_ref,provider_ref_kind,created_at,updated_at)
 					 VALUES($1,$2,$3,$4,'other',$5,'dm',now(),now())`,
-						uuid.New(),
-						ids.ProjectID,
-						agentID,
-						otherIntegration,
-						fmt.Sprintf(
+						uuid.New(), ids.ProjectID, agentID, otherIntegration, fmt.Sprintf(
 							"D%d",
 							i+1,
 						),
@@ -577,23 +538,15 @@ tools:
 				 VALUES($1,$2,$3,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
 			}
 			switch scenario {
-			case "preflight_invalid_policy",
-				"preflight_unmapped_policy",
-				"preflight_address",
-				"preflight_quota",
-				"custom_collision",
-				"live_lease",
-				"unsupported_setup",
-				"fixed_agent",
-				"mislabeled_fixed_agent",
-				"multiple_targets":
+			case "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota",
+				"custom_collision", "live_lease",
+				"unsupported_setup", "fixed_agent", "mislabeled_fixed_agent", "multiple_targets":
 				err := applyProductionPostgresMigrations(ctx, db)
 				want := "requires maintenance"
 				if scenario == "custom_collision" {
 					want = "conflicts with a new integration built-in"
 				}
-				if scenario == "unsupported_setup" || scenario == "fixed_agent" ||
-					scenario == "mislabeled_fixed_agent" {
+				if scenario == "unsupported_setup" || scenario == "fixed_agent" || scenario == "mislabeled_fixed_agent" {
 					want = "not a profile-bound Slack webhook setup"
 				}
 				if scenario == "multiple_targets" {
@@ -698,9 +651,7 @@ tools:
 				require.Zero(t, owners)
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
-				scenario == "bad_hash" ||
-				scenario == "bad_source_hash" ||
-				scenario == "config_limit" {
+				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 48))
 				if scenario == "config_limit" {
 					exec(
@@ -899,7 +850,7 @@ tools:
 			execution := executionstore.New(pool, executionstore.Config{})
 			conversations := integrationstore.New(
 				pool,
-				integrationstore.Config{Access: executionstore.IntegrationAccess{}},
+				integrationstore.Config{},
 			)
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
@@ -1362,8 +1313,7 @@ func assertSlackCutoverInputGuards(
 	t.Helper()
 	ctx := t.Context()
 	var targetID, inputID uuid.UUID
-	require.NoError(t, db.QueryRowContext(
-		ctx,
+	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT id FROM integration_targets WHERE project_id=$1 AND agent_id=$2 AND integration_id=$3 AND deleted_at IS NULL`,
 		projectID,
 		agentID,
@@ -1391,8 +1341,7 @@ func assertSlackCutoverInputGuards(
 	require.ErrorContains(t, err, "terminal agent_inputs are immutable")
 	_, err = db.ExecContext(ctx, `DELETE FROM agent_inputs WHERE id=$1`, inputID)
 	require.ErrorContains(t, err, "agent_inputs are immutable")
-	_, err = db.ExecContext(
-		ctx,
+	_, err = db.ExecContext(ctx,
 		`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,integration_target_id,queued_at)
         VALUES($1,$2,'received','content','queued',$3,now())`,
 		projectID,
@@ -1404,8 +1353,7 @@ func assertSlackCutoverInputGuards(
 		`UPDATE agents SET interaction_target_id=$2,interaction_handler_key='int__slack__default'
         WHERE id=$1`, otherAgentID, targetID)
 	require.ErrorContains(t, err, "agents_project_id_id_interaction_target_id_fkey")
-	_, err = db.ExecContext(
-		ctx,
+	_, err = db.ExecContext(ctx,
 		`INSERT INTO integration_targets(project_id,agent_id,integration_id,scope_kind,scope_ref,created_at,updated_at)
         SELECT project_id,agent_id,integration_id,scope_kind,scope_ref,now(),now()
         FROM integration_targets WHERE id=$1`,
@@ -1415,10 +1363,7 @@ func assertSlackCutoverInputGuards(
 }
 
 func assertSlackCutoverConversationState(
-	t *testing.T,
-	db *sql.DB,
-	projectID, agentID, integrationID uuid.UUID,
-	want integrationstore.ConversationAddress,
+	t *testing.T, db *sql.DB, projectID, agentID, integrationID uuid.UUID, want integrationstore.ConversationAddress,
 ) {
 	t.Helper()
 	var data []byte

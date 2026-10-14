@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AdvanceOwnedAgentWorkInput struct {
@@ -21,20 +20,17 @@ func (s *Store) AdvanceOwnedAgentWork(
 	ctx context.Context,
 	input AdvanceOwnedAgentWorkInput,
 ) (ClaimedAgentWork, bool, error) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
+		return ClaimedAgentWork{}, false, errors.New("project, agent, and runtime lock ids are required")
+	}
 	type executionResult struct {
 		work  ClaimedAgentWork
 		found bool
 	}
 	result, err := agentexecution.Retry(ctx,
-		"AdvanceOwnedAgentWork",
+		"advance_owned_agent_work",
 		func(ctx context.Context) (executionResult, error) {
-			if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil {
-				return executionResult{ClaimedAgentWork{}, false}, errors.New("project, agent, and runtime lock ids are required")
-			}
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
-			if errors.Is(err, storeerr.ErrNotFound) {
-				return executionResult{ClaimedAgentWork{}, false}, storeerr.ErrRuntimeLockInactive
-			}
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}

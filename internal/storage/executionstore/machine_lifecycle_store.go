@@ -652,11 +652,11 @@ func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 		claimed bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"ClaimExpiredIdlePoolMachineDeletion",
+		"claim_expired_idle_pool_machine_deletion",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf("begin claim expired idle pool machine deletion: %w", err)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -722,11 +722,11 @@ func (s *Store) ClaimPoolMachineDeletion(
 		claimed bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"ClaimPoolMachineDeletion",
+		"claim_pool_machine_deletion",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf("begin claim pool machine deletion: %w", err)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -954,11 +954,11 @@ func (s *Store) CompletePoolMachineDeletion(
 		return errors.New("delete attempt is required")
 	}
 	_, retryErr := agentexecution.Retry(ctx,
-		"CompletePoolMachineDeletion",
+		"complete_pool_machine_deletion",
 		func(ctx context.Context) (struct{}, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return struct{}{}, fmt.Errorf("begin complete pool machine deletion: %w", err)
+				return struct{}{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

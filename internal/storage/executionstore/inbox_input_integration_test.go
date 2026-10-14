@@ -42,10 +42,7 @@ func inboxInputIntegration(
 	integration, err := f.store.Integrations().CreateIntegration(
 		f.ctx,
 		integrationstore.SaveIntegrationInput{
-			OrgID:           testOrgID,
-			ProjectID:       testProjectID,
-			Name:            "github",
-			IntegrationKind: integrationdefinition.GitHubPR,
+			OrgID: testOrgID, ProjectID: testProjectID, Name: "github", IntegrationKind: integrationdefinition.GitHubPR,
 		},
 	)
 	require.NoError(t, err)
@@ -53,18 +50,21 @@ func inboxInputIntegration(
 		f.ctx,
 		integrationstore.ConfigureIntegrationInput{
 
-			OrgID:                 testOrgID,
-			ProjectID:             testProjectID,
-			IntegrationID:         integration.ID,
-			InstalledByUserID:     f.user.ID,
-			Provider:              provider,
-			ProviderTenantID:      "123",
-			ProviderAccountRef:    "456",
-			CredentialAppID:       123,
+			OrgID:             testOrgID,
+			ProjectID:         testProjectID,
+			IntegrationID:     integration.ID,
+			InstalledByUserID: f.user.ID,
+
+			Provider:           provider,
+			ProviderTenantID:   "123",
+			ProviderAccountRef: "456",
+			CredentialAppID:    123,
+
 			CredentialSecretID:    secret.ID,
 			CredentialVersionID:   secret.CurrentVersionID,
 			ExpectedSetupRevision: integration.SetupRevision,
-			ProviderIdentity:      json.RawMessage(`{"bot_user_id":789,"bot_login":"kernel-test[bot]"}`),
+
+			ProviderIdentity: json.RawMessage(`{"bot_user_id":789,"bot_login":"kernel-test[bot]"}`),
 		},
 	)
 	require.NoError(t, err)
@@ -134,8 +134,7 @@ func freezeInboxInput(
 		)
 	require.NoError(t, err)
 	require.True(t, found)
-	integration, err := f.store.Integrations().
-		GetIntegration(f.ctx, testProjectID, recipient.Input.Origin.IntegrationID)
+	integration, err := f.store.Integrations().GetIntegration(f.ctx, testProjectID, recipient.Input.Origin.IntegrationID)
 	require.NoError(t, err)
 	switch integration.Provider {
 	case integrationdefinition.ProviderSlack:
@@ -239,8 +238,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, before.CurrentConfigID, after.CurrentConfigID)
 			require.Empty(t, f.activation().subscriptions(t, f.process.AgentID))
-			selection, err := f.store.Execution().
-				GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(
 				t,
@@ -256,15 +254,13 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			selected := f.selectOrigin(t, f.a.ID)
 			newPrompt := createQuestionInteractionForTest(t, f.ctx, f.process, calls[2])
 			duplicate := freezeInboxInput(t, f.activation(), recipient, "other-callback", time.Minute)
-			replayed, err := f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, duplicate.Lease(), "recipient", nil)
+			replayed, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, duplicate.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.False(t, replayed.Created)
 			require.Equal(t, result.AgentInput.ID, replayed.AgentInput.ID)
 			require.Empty(t, replayed.CanceledInteractionIDs)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, newPrompt.ID).State)
-			selection, err = f.store.Execution().
-				GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			selection, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(t, selected, selection)
 			require.NoError(
@@ -276,8 +272,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			recipient.Input.DeliveryMode = executionstore.DeliveryModeQueued
 			recipient.Input.CancelOpenInteractions = false
 			queued := freezeInboxInput(t, f.activation(), recipient, "commit-callback", time.Minute)
-			result, err = f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, queued.Lease(), "recipient", nil)
+			result, err = f.store.Execution().AdmitInboxInputRecipient(f.ctx, queued.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.Equal(t, executionstore.DeliveryModeQueued, result.AgentInput.DeliveryMode)
 			require.Empty(t, result.CanceledInteractionIDs)
@@ -285,8 +280,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			recipient.Input.DeliveryMode = executionstore.DeliveryModeSteering
 			recipient.Input.IdempotencyKey = "steer-without-cancel"
 			steering := freezeInboxInput(t, f.activation(), recipient, "steering-callback", time.Minute)
-			result, err = f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, steering.Lease(), "recipient", nil)
+			result, err = f.store.Execution().AdmitInboxInputRecipient(f.ctx, steering.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.Empty(t, result.CanceledInteractionIDs)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, newPrompt.ID).State)
@@ -297,8 +291,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationActivationFixture(t)
-	agent, err := f.store.Execution().
-		LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "existing-recipient"))
+	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "existing-recipient"))
 	require.NoError(t, err)
 	recipient := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.integration, "message:file"))
 	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
@@ -306,8 +299,7 @@ func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 	second := freezeInboxInput(t, f, recipient, "file-two", time.Minute)
 
 	start := make(chan struct{})
-	admit := func(receipt integrationstore.IntegrationInboxRecord) func() (executionstore.InboxInputResult,
-		error) {
+	admit := func(receipt integrationstore.IntegrationInboxRecord) func() (executionstore.InboxInputResult, error) {
 		return func() (executionstore.InboxInputResult, error) {
 			<-start
 			return f.store.Execution().AdmitInboxInputRecipient(
@@ -388,8 +380,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 	var count int
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM artifacts WHERE id=$1`, recipient.ArtifactIDs[0]).
-			Scan(&count),
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM artifacts WHERE id=$1`, recipient.ArtifactIDs[0]).Scan(&count),
 	)
 	require.Zero(t, count)
 	require.NoError(
@@ -428,8 +419,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 func TestInboxInputIntegrationGateBeforeReceiptAndAgent(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationActivationFixture(t)
-	agent, err := f.store.Execution().
-		LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "lock-recipient"))
+	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "lock-recipient"))
 	require.NoError(t, err)
 	recipient := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:lock")
 	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
@@ -482,12 +472,10 @@ func TestInboxInputSelectionChangesOnlyOnContentAdmission(t *testing.T) {
 			recipient.Input.DeliveryMode = mode
 			recipient.Input.CancelOpenInteractions = false
 			receipt := freezeInboxInput(t, f.activation(), recipient, "handler-origin", time.Minute)
-			result, err := f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
+			result, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.True(t, result.Created)
-			selected, err := f.store.Execution().
-				GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(
 				t,
@@ -500,8 +488,7 @@ func TestInboxInputSelectionChangesOnlyOnContentAdmission(t *testing.T) {
 			require.True(t, found)
 			require.Len(t, admitted.Inputs, 1)
 			require.Equal(t, result.AgentInput.ID, admitted.Inputs[0].ID)
-			selected, err = f.store.Execution().
-				GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			selected, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(t, "other", selected.HandlerKey)
 			require.Equal(t, f.b.ID, selected.IntegrationTargetID)
@@ -546,8 +533,7 @@ func TestInboxInputSelectionChangesOnlyOnContentAdmission(t *testing.T) {
 			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, after)
 
 			current := f.selectOrigin(t, f.a.ID)
-			replayed, err := f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
+			replayed, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.False(t, replayed.Created)
 			_, found = admitNextAgentInputAndOpenTurnForTest(
@@ -694,8 +680,7 @@ func TestInboxInputInvalidArtifactsOrActorLeavesNoAdmission(t *testing.T) {
 			if scenario == "substituted-artifact" {
 				artifacts[0].ID = uuid.Must(uuid.NewV7())
 			}
-			_, err = f.store.Execution().
-				AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", artifacts)
+			_, err = f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", artifacts)
 			require.Error(t, err)
 			for _, check := range []struct {
 				query string

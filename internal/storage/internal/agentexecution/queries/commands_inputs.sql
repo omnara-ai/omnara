@@ -100,6 +100,6 @@ FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(pro
 -- name: CountPendingExecutionContent :one
 SELECT count(*) FROM (
     SELECT 1 FROM agent_inputs
-    WHERE agent_id=$1 AND state='received' AND input_kind='content'
+    WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
     ORDER BY delivery_mode,input_rank,queued_at,id LIMIT sqlc.arg(capacity)::bigint
 ) pending;

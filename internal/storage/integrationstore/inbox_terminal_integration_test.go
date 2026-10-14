@@ -28,7 +28,7 @@ func freezeInboxLaunchClaim(
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	store := integrationstore.New(f.pool, integrationstore.Config{Access: executionstore.IntegrationAccess{}})
+	store := integrationstore.New(f.pool, integrationstore.Config{})
 	integration, err := store.UpdateIntegration(
 		f.ctx,
 		f.integrationID,

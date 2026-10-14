@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -45,9 +46,7 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(
 	tx := txUnit.DB()
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, testOrgID, testProjectID))
 	require.NoError(t, integrationstore.LockIntegrationsTx(f.ctx, tx, testProjectID, nil, f.integration.ID))
-	_, err = txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: testProjectID, ID: launch.Agent.ID,
-	}, nil)
+	_, err = agentexecution.LockTestAgent(f.ctx, txUnit, testProjectID, launch.Agent.ID, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.store.Integrations().AssignAgentIntegrationConversationTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,
@@ -181,8 +180,7 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 					"config activation cannot grant live authority to a revoked integration",
 				)
 				if state == "deleted" || order == "revocation-first" {
-					selection, err := f.store.Execution().
-						GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
+					selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 					require.NoError(t, err)
 					require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 				}

@@ -116,7 +116,7 @@ func TestInboxInputArchiveRechecksStateAfterAgentLockWait(t *testing.T) {
 	archiveActor := mustOmnaraActorParams(t, f.user.ID)
 	archive := integrationdb.RunAsyncError(func() error {
 		_, _, err := f.store.Execution().IntegrationArchiveAgentOnce(
-			f.ctx, testOrgID, testProjectID, agent.Agent.ID, archiveActor,
+			f.ctx, testProjectID, agent.Agent.ID, archiveActor,
 		)
 		return err
 	})

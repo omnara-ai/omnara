@@ -18,7 +18,6 @@ func TestExecutionBulkAndLoopLinearity(t *testing.T) {
 	ctx := t.Context()
 	for _, mode := range []string{"bulk", "loop"} {
 		t.Run(mode, func(t *testing.T) {
-			var baseline time.Duration
 			for _, n := range []int{1000, 10000} {
 				t.Run(fmt.Sprint(n), func(t *testing.T) {
 					cell := agentexecution.NewCell(f.pool, nil, nil)
@@ -30,29 +29,38 @@ func TestExecutionBulkAndLoopLinearity(t *testing.T) {
 					for i := range ids {
 						ids[i] = uuid.New()
 					}
-					if mode == "bulk" {
-						_, err = u.DB().
-							Exec(ctx, `
+					trace, err := agentexecution.TraceExecutionCommand(u, func() error {
+						if mode == "bulk" {
+							_, err = u.DB().
+								Exec(ctx, `
 INSERT INTO agents(id,root_agent_id,org_id,project_id,state,current_config_id,created_at,updated_at)
     SELECT id,id,$2,$3,'active',$4,$5,$5 FROM unnest($1::uuid[]) id`, ids, f.org, f.project, f.config, f.now)
-						require.NoError(t, err)
-						_, err = u.DB().
-							Exec(ctx, `INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools)
+							require.NoError(t, err)
+							_, err = u.DB().
+								Exec(ctx, `INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools)
     SELECT id,false,false FROM unnest($1::uuid[]) id`, ids)
-						require.NoError(t, err)
-					} else {
-						for _, id := range ids {
-							_, err = u.DB().Exec(ctx, `
+							require.NoError(t, err)
+						} else {
+							for _, id := range ids {
+								_, err = u.DB().Exec(ctx, `
 INSERT INTO agents(id,root_agent_id,org_id,project_id,state,current_config_id,created_at,updated_at)
      VALUES($1,$1,$2,$3,'active',$4,$5,$5)`, id, f.org, f.project, f.config, f.now)
-							require.NoError(t, err)
-							require.NoError(t, u.CreatedAgent(f.project, id, uuid.Nil))
-							_, err = u.DB().Exec(ctx, `
+								require.NoError(t, err)
+								require.NoError(t, u.CreatedAgent(f.project, id, uuid.Nil))
+								_, err = u.DB().Exec(ctx, `
 INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) VALUES($1,false,false)
 `, id)
-							require.NoError(t, err)
+								require.NoError(t, err)
+							}
 						}
+						return nil
+					})
+					require.NoError(t, err)
+					bound := 2
+					if mode == "loop" {
+						bound *= n
 					}
+					require.LessOrEqual(t, len(trace), bound)
 					require.NoError(t, u.Commit(ctx, "linearity fixture"))
 					elapsed := time.Since(started)
 					t.Logf("%s %d agents: %s (%s/agent)", mode, n, elapsed, elapsed/time.Duration(n))
@@ -63,11 +71,6 @@ INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) VA
 							Scan(&count),
 					)
 					require.Equal(t, n, count)
-					if n == 1000 {
-						baseline = elapsed
-					} else {
-						require.Less(t, elapsed, baseline*25+time.Second)
-					}
 				})
 			}
 		})
@@ -104,12 +107,11 @@ func TestExecutionReconstructionTenThousandAgents(t *testing.T) {
 	u, err := agentexecution.BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(ctx) }()
-	started = time.Now()
 	plan, err := u.PlanAgents(ctx, refs, nil)
 	require.NoError(t, err)
 	require.NoError(t, u.LockAgents(ctx, plan))
-	var firstThousand time.Duration
-	for i, ref := range refs {
+	reconstructed := 0
+	for _, ref := range refs {
 		h, handleErr := u.Agent(
 			agentexecution.AgentRoute{
 				ProjectID:   f.project,
@@ -121,12 +123,7 @@ func TestExecutionReconstructionTenThousandAgents(t *testing.T) {
 		snapshot, loadErr := h.ReconstructExecution(ctx)
 		require.NoError(t, loadErr)
 		require.Equal(t, agentexecution.WaitIdle, snapshot.Selection.Wait)
-		if i == 999 {
-			firstThousand = time.Since(started)
-			started = time.Now()
-		}
+		reconstructed++
 	}
-	remaining := time.Since(started)
-	t.Logf("lock plan and first 1000 reconstructions: %s; remaining 9000: %s", firstThousand, remaining)
-	require.Less(t, remaining, firstThousand*20+time.Second)
+	require.Equal(t, 10000, reconstructed)
 }

@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +58,7 @@ SELECT (array_agg(id ORDER BY input_rank))[1],(array_agg(id ORDER BY input_rank)
 					{"../dbsqlc/agent_inputs.sql.go", "ListQueuedBacklogInputs"},
 					{"internal/executiondb/commands_runtime.sql.go", "CancelExecutionInputs"},
 				} {
-					query := generatedQuery(t, consumer.path, consumer.name)
+					query := integrationdb.GeneratedQuery(t, consumer.path, consumer.name)
 					plans, err := conn.Conn().PgConn().Exec(t.Context(), "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+query).ReadAll()
 					require.NoError(t, err)
 					require.Len(t, plans, 1)
@@ -171,24 +173,22 @@ WHERE xmin=pg_current_xact_id()::text::xid GROUP BY agent_id,delivery_mode`)
 								require.Contains(t, string(raw), `"Node Type": "Index Only Scan"`)
 								require.NotContains(t, string(raw), `"Node Type": "Sort"`)
 							}
-							var plan []struct {
-								Plan struct {
-									Plans []struct {
-										Rows  float64 `json:"Actual Rows"`
-										Plans []struct {
-											Rows float64 `json:"Actual Rows"`
-										} `json:"Plans"`
-									} `json:"Plans"`
+							limits := 0
+							integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+								if node.Type == "Limit" {
+									limits++
+									require.LessOrEqual(t, node.Rows, float64(executionpolicy.MaxPendingAgentContentInputs))
 								}
-							}
-							require.NoError(t, json.Unmarshal(raw, &plan))
-							require.EqualValues(t, 50, plan[0].Plan.Plans[0].Rows)
-							require.EqualValues(t, 50, plan[0].Plan.Plans[0].Plans[0].Rows)
+								if size == 10000 && strings.Contains(node.Type, "Scan") {
+									require.LessOrEqual(t, node.Rows, float64(executionpolicy.MaxPendingAgentContentInputs))
+								}
+							})
+							require.Positive(t, limits)
 						}
 					}
-					total += planBuffers(t, raw)
+					total += integrationdb.PlanBuffers(t, raw)
 					if command != "renumber" && !strings.Contains(name, "CountPendingExecutionContent") {
-						assert.LessOrEqual(t, planBuffers(t, raw), 128, name)
+						assert.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 128, name)
 						var plan []struct {
 							Plan struct {
 								Rows float64 `json:"Actual Rows"`

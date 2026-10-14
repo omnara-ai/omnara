@@ -52,10 +52,7 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 		})},
 		{name: "mixed visible and hidden bundle", hidden: true, parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "text", "text": strings.Repeat("visible", 10000)},
-			{"type": "text",
-				"text": strings.Repeat("hidden",
-					10000),
-				"metadata": map[string]string{"omnara_hidden": "true"}},
+			{"type": "text", "text": strings.Repeat("hidden", 10000), "metadata": map[string]string{"omnara_hidden": "true"}},
 			{"type": "media_ref", "artifact_id": imageID.String()},
 		})},
 		{name: "bundle with hidden media", hidden: true, parts: mustTestRawJSON(t, []map[string]any{
@@ -82,14 +79,11 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 			{"type": "structured_data", "value": map[string]any{"status_code": 200}},
 			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
 		})},
-		{name: "escaped metadata fits inline",
-			contentType: "text/plain",
-			parts: mustTestRawJSON(t,
-				[]map[string]any{
-					{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
-					{"type": "structured_data", "value": strings.Repeat("\t", 20900)},
-					{"type": "media_ref", "artifact_id": imageID.String()},
-				})},
+		{name: "escaped metadata fits inline", contentType: "text/plain", parts: mustTestRawJSON(t, []map[string]any{
+			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
+			{"type": "structured_data", "value": strings.Repeat("\t", 20900)},
+			{"type": "media_ref", "artifact_id": imageID.String()},
+		})},
 		{name: "escaped metadata exceeds inline budget", parts: mustTestRawJSON(t, []map[string]any{
 			{"type": "text", "text": strings.Repeat("TARGET é\n", 8000)},
 			{"type": "structured_data", "value": strings.Repeat("\t", 21000)},
@@ -138,8 +132,7 @@ func TestToolResultOverflowPreservesContentAndAttachments(t *testing.T) {
 					t.Fatalf("generated %s block hidden=%t, want %t", block.BlockKind, hidden, test.hidden)
 				}
 			}
-			if bytes.Contains(parts, []byte(imageID.String())) &&
-				!bytes.Contains(result, []byte(imageID.String())) {
+			if bytes.Contains(parts, []byte(imageID.String())) && !bytes.Contains(result, []byte(imageID.String())) {
 				t.Fatal("lost existing media")
 			}
 			repeated, err := prepareToolResultOverflow(inputBlocks, parts)

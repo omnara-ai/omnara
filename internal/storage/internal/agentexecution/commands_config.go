@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -54,8 +55,9 @@ func (h *Handle) ActivateConfig(ctx context.Context, input ActivateConfigInput) 
 		}
 		row, err := q.ReceiveExecutionInput(ctx, h.unit.DB(), executiondb.ReceiveExecutionInputParams{
 			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, Kind: "config_change", Mode: "immediate",
-			ConfigID: &input.ConfigID, ActorID: nullableID(input.ActorID), Scope: optionalText("agent_config_change"),
-			Key: optionalText(input.IdempotencyKey), Metadata: metadata})
+			ConfigID: &input.ConfigID, ActorID: storeutil.IDFromNil(input.ActorID),
+			Scope: storeutil.TextFromEmpty("agent_config_change"),
+			Key:   storeutil.TextFromEmpty(input.IdempotencyKey), Metadata: metadata})
 		if err != nil {
 			return ActivatedConfig{}, err
 		}

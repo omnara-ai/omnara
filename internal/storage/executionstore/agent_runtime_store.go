@@ -425,7 +425,7 @@ func (s *Store) archiveAgentOnce(
 ) (AgentRecord, []MachineRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return AgentRecord{}, nil, fmt.Errorf("begin archive agent: %w", err)
+		return AgentRecord{}, nil, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

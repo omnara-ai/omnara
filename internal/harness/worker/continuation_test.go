@@ -19,7 +19,7 @@ type continuationStore struct {
 	advances     []executionstore.AdvanceOwnedAgentWorkInput
 	advanceError error
 	advancePanic bool
-	advanceDelay time.Duration
+	afterAdvance func()
 }
 
 func (s *continuationStore) AdvanceOwnedAgentWork(
@@ -27,8 +27,8 @@ func (s *continuationStore) AdvanceOwnedAgentWork(
 	input executionstore.AdvanceOwnedAgentWorkInput,
 ) (executionstore.ClaimedAgentWork, bool, error) {
 	s.advances = append(s.advances, input)
-	if s.advanceDelay > 0 {
-		time.Sleep(s.advanceDelay) //nolint:omnaralint // Exercise elapsed time; no concurrent state is being awaited.
+	if s.afterAdvance != nil {
+		s.afterAdvance()
 	}
 	if s.advancePanic {
 		panic("advance failed")
@@ -115,7 +115,7 @@ func TestWorkerOwnedContinuationBudget(t *testing.T) {
 		},
 		{"disabled", ContinuationOptions{}, []executionstore.AgentWorkKind{model}},
 		{
-			"elapsed", ContinuationOptions{MaxModelStarts: 5, MaxDuration: time.Nanosecond},
+			"elapsed", ContinuationOptions{MaxModelStarts: 5, MaxDuration: 0},
 			[]executionstore.AgentWorkKind{model},
 		},
 	} {
@@ -238,11 +238,12 @@ func TestWorkerOwnedContinuationKeepsRenewalRunning(t *testing.T) {
 
 func TestWorkerOwnedContinuationExecutesWorkAfterSoftDeadline(t *testing.T) {
 	store := newContinuationStore(executionstore.AgentWorkModel)
-	store.advanceDelay = 110 * time.Millisecond
+
 	executor := &continuationExecutor{}
 	worker := NewWorker(store, executor, Options{
-		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: 100 * time.Millisecond},
+		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: time.Hour},
 	})
+	store.afterAdvance = func() { worker.continuation.MaxDuration = 0 }
 	worked, err := worker.RunOnce(t.Context())
 	if err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
@@ -264,7 +265,7 @@ func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
 			store := newContinuationStore()
 			store.claim.LocalLeaseBudgetStartedAt = time.Now().Add(-test.age)
 			worker := NewWorker(store,
-				&fusedContinuationTestExecutor{},
+				&continuationExecutor{},
 				Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
 					MaxDuration: 30 * time.Second},
 					RuntimeLockLeaseDuration: time.Minute})
@@ -277,14 +278,6 @@ func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
 			}
 		})
 	}
-}
-
-type fusedContinuationTestExecutor struct{ continuationExecutor }
-
-func (e *fusedContinuationTestExecutor) ExecuteModelWorkAndAdvance(
-	ctx context.Context, input kernel.ModelWorkExecution, _ kernel.ModelWorkAdvanceOptions,
-) (executionstore.OwnedAgentWorkTransition, bool, error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
 }
 
 func (e *continuationExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,

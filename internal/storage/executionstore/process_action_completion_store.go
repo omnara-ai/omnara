@@ -66,8 +66,7 @@ func replayDaemonProcessActionReportTx(
 			reportMatchesAction = false
 		}
 	case ProcessActionStateFailed, ProcessActionStateUnknown:
-		if record.StateReasonCode != input.StateReasonCode ||
-			record.StateReasonMessage != input.StateReasonMessage {
+		if record.StateReasonCode != input.StateReasonCode || record.StateReasonMessage != input.StateReasonMessage {
 			reportMatchesAction = false
 		}
 		outcome = ToolResultOutcomeFailed
@@ -230,11 +229,11 @@ func (s *Store) completeDaemonProcessAction(
 		)
 	}
 	return agentexecution.Retry(ctx,
-		"completeDaemonProcessAction",
+		"complete_daemon_process_action",
 		func(ctx context.Context) (DaemonProcessActionReportApplication, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonProcessActionReportApplication{}, fmt.Errorf("begin complete process action: %w", err)
+				return DaemonProcessActionReportApplication{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -270,10 +269,7 @@ func completeDaemonProcessActionTx(
 	input processActionCompletionInput,
 	state ProcessActionState,
 ) (DaemonProcessActionReportApplication, error) {
-	_, err := unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: input.ProjectID,
-		ID:        input.AgentID,
-	}, nil)
+	_, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, fmt.Errorf(
 			"lock agent for process action completion: %w",

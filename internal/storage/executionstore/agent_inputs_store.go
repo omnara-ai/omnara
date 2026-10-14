@@ -105,7 +105,7 @@ func (s *Store) ClaimNextAgentWork(
 		found bool
 	}
 	result, err := agentexecution.Retry(ctx,
-		"ClaimNextAgentWork",
+		"claim_next_agent_work",
 		func(ctx context.Context) (executionResult, error) {
 			if input.WorkerProcessID == uuid.Nil {
 				return executionResult{ClaimedAgentWork{}, false}, errors.New("worker process id is required")

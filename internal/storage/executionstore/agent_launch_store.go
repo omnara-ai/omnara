@@ -108,7 +108,7 @@ func (s *Store) launchAgentOnce(
 ) (LaunchAgentResult, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return LaunchAgentResult{}, fmt.Errorf("begin launch agent: %w", err)
+		return LaunchAgentResult{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

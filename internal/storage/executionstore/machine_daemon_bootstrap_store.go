@@ -334,11 +334,11 @@ func (s *Store) RevokeBYOMachineDaemonToken(
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
 	return agentexecution.Retry(ctx,
-		"RevokeBYOMachineDaemonToken",
+		"revoke_byo_machine_daemon_token",
 		func(ctx context.Context) (MachineDaemonTokenRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return MachineDaemonTokenRecord{}, fmt.Errorf("begin revoke machine daemon token: %w", err)
+				return MachineDaemonTokenRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 
@@ -549,11 +549,11 @@ func (s *Store) RecordMachineFailureReport(
 		DaemonTokenID:   input.DaemonTokenID,
 	}
 	_, retryErr := agentexecution.Retry(ctx,
-		"RecordMachineFailureReport",
+		"record_machine_failure_report",
 		func(ctx context.Context) (struct{}, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return struct{}{}, fmt.Errorf("begin machine failure report: %w", err)
+				return struct{}{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

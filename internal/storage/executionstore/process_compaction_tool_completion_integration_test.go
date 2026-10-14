@@ -85,17 +85,16 @@ func TestReplaceCompactionSourceRejectsLargerRange(t *testing.T) {
 		t.Fatalf("record compaction recovery: %v", err)
 	}
 	compactionClaim := handoff.CompactionCall
-	_, err = fixture.Store.Execution().
-		ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
-			ProjectID:                  testProjectID,
-			AgentID:                    fixture.AgentID,
-			RuntimeLockID:              fixture.Lock.ID,
-			ModelCallContextID:         compactionClaim.Context.ID,
-			ErrorKind:                  "context_window",
-			ErrorCode:                  "candidate_projection_over_budget",
-			ErrorMessage:               "candidate checkpoint did not fit",
-			NextSourceEventSequenceEnd: admitted.Events[1].Sequence,
-		})
+	_, err = fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
+		ProjectID:                  testProjectID,
+		AgentID:                    fixture.AgentID,
+		RuntimeLockID:              fixture.Lock.ID,
+		ModelCallContextID:         compactionClaim.Context.ID,
+		ErrorKind:                  "context_window",
+		ErrorCode:                  "candidate_projection_over_budget",
+		ErrorMessage:               "candidate checkpoint did not fit",
+		NextSourceEventSequenceEnd: admitted.Events[1].Sequence,
+	})
 	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("larger source replacement err = %v, want %v", err, storeerr.ErrStateTransitionConflict)
 	}
@@ -151,15 +150,14 @@ func TestSucceededCompactionCannotStartAnotherBranch(t *testing.T) {
 		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
 	}
 
-	_, err = fixture.Store.Execution().
-		ClaimCompactionModelCall(ctx, executionstore.ClaimCompactionModelCallInput{
-			ProjectID:              testProjectID,
-			AgentID:                fixture.AgentID,
-			RuntimeLockID:          fixture.Lock.ID,
-			InputEventSequence:     claim.Context.InputEventSequence,
-			SourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd - 1,
-			ParentContextID:        parent.ID,
-		})
+	_, err = fixture.Store.Execution().ClaimCompactionModelCall(ctx, executionstore.ClaimCompactionModelCallInput{
+		ProjectID:              testProjectID,
+		AgentID:                fixture.AgentID,
+		RuntimeLockID:          fixture.Lock.ID,
+		InputEventSequence:     claim.Context.InputEventSequence,
+		SourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd - 1,
+		ParentContextID:        parent.ID,
+	})
 	if !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
 		t.Fatalf("second compaction branch error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
 	}
@@ -198,13 +196,12 @@ func TestCompactionSourceAdjustmentFollowsRetryHistory(t *testing.T) {
 	); err != nil {
 		t.Fatalf("record compaction retry: %v", err)
 	}
-	retry, err := fixture.Store.Execution().
-		ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-			ProjectID:                     testProjectID,
-			AgentID:                       fixture.AgentID,
-			PredecessorModelCallContextID: first.Context.ID,
-			RuntimeLockID:                 fixture.Lock.ID,
-		})
+	retry, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID:                     testProjectID,
+		AgentID:                       fixture.AgentID,
+		PredecessorModelCallContextID: first.Context.ID,
+		RuntimeLockID:                 fixture.Lock.ID,
+	})
 	if err != nil {
 		t.Fatalf("claim compaction retry: %v", err)
 	}
@@ -213,17 +210,16 @@ func TestCompactionSourceAdjustmentFollowsRetryHistory(t *testing.T) {
 	}
 
 	replacementEnd := *retry.Context.SourceEventSequenceEnd - 1
-	replacement, err := fixture.Store.Execution().
-		ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
-			ProjectID:                  testProjectID,
-			AgentID:                    fixture.AgentID,
-			RuntimeLockID:              fixture.Lock.ID,
-			ModelCallContextID:         retry.Context.ID,
-			ErrorKind:                  "context_window",
-			ErrorCode:                  "candidate_projection_over_budget",
-			ErrorMessage:               "candidate checkpoint did not fit",
-			NextSourceEventSequenceEnd: replacementEnd,
-		})
+	replacement, err := fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
+		ProjectID:                  testProjectID,
+		AgentID:                    fixture.AgentID,
+		RuntimeLockID:              fixture.Lock.ID,
+		ModelCallContextID:         retry.Context.ID,
+		ErrorKind:                  "context_window",
+		ErrorCode:                  "candidate_projection_over_budget",
+		ErrorMessage:               "candidate checkpoint did not fit",
+		NextSourceEventSequenceEnd: replacementEnd,
+	})
 	if err != nil || replacement.BoundaryPreempted {
 		t.Fatalf("replace compaction source after retry: result=%+v err=%v", replacement, err)
 	}

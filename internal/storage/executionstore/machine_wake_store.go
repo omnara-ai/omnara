@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -36,11 +36,9 @@ func (s *Store) BeginMachineWake(
 		return MachineWakeUnavailable, errors.New("machine wake timeout must be at least one millisecond")
 	}
 
-	return agentexecution.Retry(ctx,
-		"begin_machine_wake",
-		func(ctx context.Context) (MachineWakeDisposition, error) {
-			return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
-		})
+	return storeutil.RetryTransaction(ctx, "begin_machine_wake", func() (MachineWakeDisposition, error) {
+		return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
+	})
 }
 
 func (s *Store) beginMachineWakeOnce(

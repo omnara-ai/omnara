@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func admitNextAgentInputAndOpenTurnForTest(
@@ -51,10 +50,7 @@ func admitNextAgentInputAndOpenTurnForTestErr(
 		)
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
-	if _,
-		err := unit.LockAgent(ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID,
-			ID: agentID},
+	if _, err := agentexecution.LockTestAgent(ctx, unit, projectID, agentID,
 		&agentexecution.RuntimeAuthority{AgentID: agentID,
 			RuntimeLockID: runtimeLockID}); err != nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, err

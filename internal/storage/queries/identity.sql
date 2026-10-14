@@ -1495,4 +1495,4 @@ ON CONFLICT (id) DO NOTHING;
 -- name: CountOrgMemberships :one
 SELECT count(*)::bigint
 FROM org_memberships
-WHERE org_id = $1;
+WHERE org_id = sqlc.arg(org_id);

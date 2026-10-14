@@ -4,16 +4,15 @@ package worker
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +20,7 @@ func TestWorkerModelToolChainPoolAcquisitions(t *testing.T) {
 	ctx := t.Context()
 	fixture := openWorkerIntegrationDB(t, ctx)
 	cfg := fixture.Config()
-	trace := &stepCommitTracer{}
+	trace := &integrationdb.QueryTrace{}
 	cfg.ConnConfig.Tracer = multitracer.New(cfg.ConnConfig.Tracer, trace)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
@@ -41,27 +40,16 @@ func TestWorkerModelToolChainPoolAcquisitions(t *testing.T) {
 		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: 30 * time.Second},
 	})
 	before := pool.Stat().AcquireCount()
-	commitsBefore := trace.commits.Load()
+	commitsBefore := trace.Commits.Load()
 	requireWorkerClaim(t, ctx, worker, "model/tool chain")
 	acquires := pool.Stat().AcquireCount() - before
-	commits := trace.commits.Load() - commitsBefore
+	commits := trace.Commits.Load() - commitsBefore
 	t.Logf("three model calls and two tools: %d pool acquisitions, %d commits", acquires, commits)
 	waitNoRuntimeLock(t, ctx, pool, agentID)
 	waitNoWorkerWakeup(t, ctx, pool, agentID)
 	assertCompletedToolCallCount(t, ctx, pool, agentID, "list_agents", "completed", 2)
 	require.LessOrEqual(t, acquires, int64(30))
 	require.LessOrEqual(t, commits, int64(12))
-}
-
-type stepCommitTracer struct{ commits atomic.Int64 }
-
-func (*stepCommitTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
-	return ctx
-}
-func (t *stepCommitTracer) TraceQueryEnd(_ context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
-	if data.Err == nil && data.CommandTag.String() == "COMMIT" {
-		t.commits.Add(1)
-	}
 }
 
 type credentialResolvingTestModel struct {

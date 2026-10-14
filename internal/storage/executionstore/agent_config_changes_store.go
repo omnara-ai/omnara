@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -59,7 +58,11 @@ func (s *Store) ChangeAgentConfig(
 	return agentexecution.Retry(ctx,
 		"change_agent_config",
 		func(ctx context.Context) (ChangeAgentConfigResult, error) {
-			return s.changeAgentConfigOnce(ctx, input)
+			result, err := s.changeAgentConfigOnce(ctx, input)
+			if isUniqueViolationOnConstraint(err, "agent_inputs_idempotency_idx") {
+				err = storeutil.ErrRetryTransaction
+			}
+			return result, err
 		})
 }
 
@@ -69,7 +72,7 @@ func (s *Store) changeAgentConfigOnce(
 ) (ChangeAgentConfigResult, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ChangeAgentConfigResult{}, fmt.Errorf("begin change agent config: %w", err)
+		return ChangeAgentConfigResult{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()
@@ -369,10 +372,7 @@ func lockAgentForConfigActivationTx(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.AgentConfigID == uuid.Nil {
 		return errors.New("project, agent, and config are required")
 	}
-	if _, err := unit.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-		nil); err != nil {
+	if _, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil); err != nil {
 		return fmt.Errorf("lock agent for config change: %w", err)
 	}
 	return nil
@@ -444,11 +444,6 @@ func activateLockedAuthorizedAgentConfigTx(
 	result, err := h.ActivateConfig(ctx, agentexecution.ActivateConfigInput{
 		ConfigID: input.AgentConfigID, ActorID: actorID, IdempotencyKey: input.IdempotencyKey, Metadata: metadata})
 	if err != nil {
-		var constraint *pgconn.PgError
-		if errors.As(err, &constraint) && constraint.Code == "23505" &&
-			constraint.ConstraintName == "agent_inputs_idempotency_idx" {
-			return AgentConfigChangeRecord{}, storeutil.ErrRetryTransaction
-		}
 		return AgentConfigChangeRecord{}, err
 	}
 	row, err := qtx.GetAgentInput(

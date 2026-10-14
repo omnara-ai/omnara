@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type factsBatch struct {
@@ -65,10 +66,10 @@ func (b *factsBatch) queue(ctx context.Context, route AgentRoute, head Execution
 		b,
 		[]executiondb.LoadExecutionFactsParams{{AgentID: route.AgentID,
 			ProjectID:               route.ProjectID,
-			TurnID:                  nullableID(head.CurrentTurnID),
+			TurnID:                  storeutil.IDFromNil(head.CurrentTurnID),
 			StopSequence:            head.StopSequence,
 			MaxContextInputSequence: head.MaxContextInputSequence,
-			ToolOutputID:            nullableID(head.PendingToolOutputID)}})
+			ToolOutputID:            storeutil.IDFromNil(head.PendingToolOutputID)}})
 	b.readers = append(b.readers, func() {
 		scope.QueryRow(func(_ int, row executiondb.LoadExecutionFactsRow, err error) {
 			facts.scope = row
@@ -81,8 +82,10 @@ func (b *factsBatch) queue(ctx context.Context, route AgentRoute, head Execution
 		head.PendingToolOutputID != uuid.Nil ||
 		head.PendingOutputLimitID != uuid.Nil {
 		rows := q.LoadExecutionContexts(ctx, b, []executiondb.LoadExecutionContextsParams{{AgentID: route.AgentID,
-			NormalContextID: nullableID(head.NormalContextID), CompactionContextID: nullableID(head.CompactionContextID),
-			ToolOutputID: nullableID(head.PendingToolOutputID), LimitOutputID: nullableID(head.PendingOutputLimitID)}})
+			NormalContextID:     storeutil.IDFromNil(head.NormalContextID),
+			CompactionContextID: storeutil.IDFromNil(head.CompactionContextID),
+			ToolOutputID:        storeutil.IDFromNil(head.PendingToolOutputID),
+			LimitOutputID:       storeutil.IDFromNil(head.PendingOutputLimitID)}})
 		b.readers = append(b.readers, func() {
 			rows.Query(func(_ int, rows []executiondb.LoadExecutionContextsRow, err error) {
 				facts.contexts = rows

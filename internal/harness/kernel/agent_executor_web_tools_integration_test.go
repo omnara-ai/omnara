@@ -75,12 +75,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		},
 		Now: func() time.Time { return fixture.Now.Add(2 * time.Second) },
 	}
-	turn := fixture.admitContentInputTurn(t,
-		ctx,
-		agentID,
-		userID,
-		"research go releases",
-		fixture.Now.Add(time.Second))
+	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "research go releases", fixture.Now.Add(time.Second))
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("persist web tool output: %v", err)
 	}
@@ -223,9 +218,7 @@ func (g *gatedSearchProvider) Search(
 	}
 	return webaccess.SearchResponse{
 		Provider: "gated",
-		Results: []webaccess.SearchResult{{URL: "https://example.org/gated",
-			Title:   "Gated",
-			Snippet: "gated result"}},
+		Results:  []webaccess.SearchResult{{URL: "https://example.org/gated", Title: "Gated", Snippet: "gated result"}},
 	}, nil
 }
 

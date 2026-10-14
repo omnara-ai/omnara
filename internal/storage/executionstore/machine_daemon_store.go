@@ -353,11 +353,9 @@ func (s *Store) UpdateMachine(ctx context.Context, input UpdateMachineInput) (Ma
 	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	return agentexecution.Retry(ctx,
-		"update_machine",
-		func(ctx context.Context) (MachineRecord, error) {
-			return s.updateMachineOnce(ctx, input)
-		})
+	return storeutil.RetryTransaction(ctx, "update_machine", func() (MachineRecord, error) {
+		return s.updateMachineOnce(ctx, input)
+	})
 }
 
 func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput) (MachineRecord, error) {
@@ -559,7 +557,7 @@ func (s *Store) deleteMachineOnce(
 ) (MachineRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return MachineRecord{}, fmt.Errorf("begin delete machine: %w", err)
+		return MachineRecord{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 
@@ -1017,10 +1015,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 ) (ProjectMachineGrantRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ProjectMachineGrantRecord{}, fmt.Errorf(
-			"begin delete project machine grant: %w",
-			err,
-		)
+		return ProjectMachineGrantRecord{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

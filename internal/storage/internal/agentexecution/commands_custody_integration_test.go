@@ -99,9 +99,28 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.NoError(t, u.Commit(t.Context(), "before rejected command"))
 			u, h = f.handle(t, a)
 			content[0].Text = "other"
-			_, err = complete()
+			replay, err = complete()
+			require.NoError(t, err)
+			require.Equal(t, result.ResultID, replay.ResultID)
+			require.NoError(t, u.Commit(t.Context(), "replay tool"))
+			u, h = f.handle(t, a)
+			if kind == "custom" {
+				_, err = h.CompleteCustomTool(t.Context(), ref.ID, "failed", content)
+			} else {
+				_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
+					ToolRef: ref, Outcome: "failed", Content: content,
+				})
+			}
 			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 			require.NoError(t, u.Rollback(t.Context()))
+			if kind != "custom" {
+				u, h = f.handle(t, a)
+				ref.RuntimeLockID = uuid.New()
+				_, err = complete()
+				require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+				require.NoError(t, u.Rollback(t.Context()))
+			}
+
 		})
 	}
 }

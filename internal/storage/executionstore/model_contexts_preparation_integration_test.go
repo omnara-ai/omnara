@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
@@ -20,11 +20,7 @@ func TestPrepareNormalModelCallUsesSnapshotAfterLockWait(t *testing.T) {
 	blocker, err := f.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
 	defer func() { _ = blocker.Rollback(ctx) }()
-	_, err = blocker.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.AgentID},
-		nil,
-	)
+	_, err = agentexecution.LockTestAgent(ctx, blocker, testProjectID, f.AgentID, nil)
 	require.NoError(t, err)
 	var pid int32
 	require.NoError(t, blocker.DB().QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid))

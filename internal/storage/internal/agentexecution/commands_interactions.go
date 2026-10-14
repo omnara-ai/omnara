@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -38,7 +39,7 @@ type ResolveInteractionInput struct {
 
 func interactionRecord(row executiondb.ReadExecutionInteractionRow) Interaction {
 	return Interaction{ID: row.ID, ToolID: row.ToolCallID, Kind: row.InteractionKind, State: row.State,
-		Request: row.Request, Resolution: row.Resolution, InputID: valueOrZero(row.ResolvedByInputID)}
+		Request: row.Request, Resolution: row.Resolution, InputID: storeutil.ValueOrZero(row.ResolvedByInputID)}
 }
 
 func interactionForm(kind string, request json.RawMessage) (interactionform.Form, error) {
@@ -59,17 +60,21 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 		}
 		kind := "question"
 		var request json.RawMessage
+		var err error
 		if input.Permission != nil {
 			kind = "permission"
 			if err := input.Permission.Validate(); err != nil {
 				return Interaction{}, err
 			}
-			request, _ = json.Marshal(input.Permission)
+			request, err = json.Marshal(input.Permission)
 		} else {
 			if err := input.Question.Validate(); err != nil {
 				return Interaction{}, err
 			}
-			request, _ = json.Marshal(input.Question)
+			request, err = json.Marshal(input.Question)
+		}
+		if err != nil {
+			return Interaction{}, err
 		}
 		q := executiondb.New()
 		existing, err := q.ReadExecutionInteraction(
@@ -84,8 +89,7 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 				return Interaction{}, err
 			}
 			if kind == "permission" || call.Type != "built_in" ||
-				call.State != "waiting" && call.State != "completed" ||
-				!equalJSON(existing.Request, request) {
+				call.State != "waiting" && call.State != "completed" {
 				return Interaction{}, storeerr.ErrIdempotencyConflict
 			}
 			return interactionRecord(existing), nil
@@ -181,13 +185,13 @@ func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractio
 				h.unit.DB(),
 				executiondb.ReadExecutionInputParams{
 					AgentID: h.route.AgentID,
-					ID:      valueOrZero(row.ResolvedByInputID),
+					ID:      storeutil.ValueOrZero(row.ResolvedByInputID),
 				},
 			)
 			if err != nil {
 				return Interaction{}, err
 			}
-			if valueOrZero(response.ActorID) != input.ActorID {
+			if storeutil.ValueOrZero(response.ActorID) != input.ActorID {
 				return Interaction{}, storeerr.ErrIdempotencyConflict
 			}
 			return interactionRecord(row), nil
@@ -202,7 +206,7 @@ func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractio
 		id, err := q.InsertExecutionResponse(ctx, h.unit.DB(), executiondb.InsertExecutionResponseParams{
 			ProjectID:     h.route.ProjectID,
 			AgentID:       h.route.AgentID,
-			ActorID:       nullableID(input.ActorID),
+			ActorID:       storeutil.IDFromNil(input.ActorID),
 			InteractionID: &row.ID})
 		if err != nil {
 			return Interaction{}, err
@@ -318,8 +322,7 @@ func (h *Handle) applyInteraction(
 			`{"error":"Question response exceeded the size limit. Ask fewer or shorter questions, or request a shorter answer."}`,
 		)
 	}
-	if _,
-		err = h.completeTool(ctx,
+	if _, err = h.completeTool(ctx,
 		m,
 		call,
 		outcome,
@@ -364,6 +367,27 @@ func (h *Handle) cancelInteractions(
 	turn, input uuid.UUID,
 	reason string,
 ) ([]uuid.UUID, error) {
+	interactions, err := h.cancelInteractionRows(ctx, turn, input, reason)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(interactions))
+	for _, i := range interactions {
+		call, err := h.tool(ctx, i.ToolID)
+		if err != nil {
+			return nil, err
+		}
+		if err = h.applyInteraction(ctx, m, i, call); err != nil {
+			return nil, err
+		}
+		ids = append(ids, i.ID)
+	}
+	return ids, nil
+}
+
+func (h *Handle) cancelInteractionRows(
+	ctx context.Context, turn, input uuid.UUID, reason string,
+) ([]Interaction, error) {
 	q := executiondb.New()
 	ids, err := q.ListExecutionInteractions(
 		ctx,
@@ -377,6 +401,7 @@ func (h *Handle) cancelInteractions(
 	if err != nil {
 		return nil, err
 	}
+	result := make([]Interaction, 0, len(ids))
 	for _, id := range ids {
 		row, err := q.ReadExecutionInteraction(
 			ctx,
@@ -390,7 +415,7 @@ func (h *Handle) cancelInteractions(
 			ctx,
 			h.unit.DB(),
 			executiondb.ResolveExecutionInteractionParams{
-				AgentID: h.route.AgentID, ID: id, State: "canceled", Resolution: resolution, InputID: nullableID(input)},
+				AgentID: h.route.AgentID, ID: id, State: "canceled", Resolution: resolution, InputID: storeutil.IDFromNil(input)},
 		)
 		if err != nil {
 			return nil, err
@@ -398,19 +423,13 @@ func (h *Handle) cancelInteractions(
 		if n != 1 {
 			return nil, storeerr.ErrStateTransitionConflict
 		}
-		call, err := h.tool(ctx, row.ToolCallID)
-		if err != nil {
-			return nil, err
-		}
 		i := interactionRecord(row)
 		i.State = "canceled"
 		i.Resolution = resolution
 		i.InputID = input
-		if err = h.applyInteraction(ctx, m, i, call); err != nil {
-			return nil, err
-		}
+		result = append(result, i)
 	}
-	return ids, nil
+	return result, nil
 }
 
 func (h *Handle) RecordPresentation(
@@ -437,9 +456,6 @@ func (h *Handle) RecordPresentation(
 		return false, storeerr.ErrUnauthorized
 	}
 	if row.PresentationReceipt != nil {
-		if !equalJSON(*row.PresentationReceipt, receipt) {
-			return false, storeerr.ErrIdempotencyConflict
-		}
 		return false, nil
 	}
 	n, err := q.WriteExecutionPresentation(

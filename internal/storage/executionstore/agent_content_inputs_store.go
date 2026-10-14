@@ -64,14 +64,11 @@ func (s *Store) CreateAgentContentInput(
 		created       bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"CreateAgentContentInput",
+		"create_agent_content_input",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf(
-					"begin create agent content input: %w",
-					err,
-				)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -138,11 +135,7 @@ func admitAgentContentInputTx(
 		return createAgentContentInputTxResult{}, err
 	}
 	tx := unit.DB()
-	agent, err := unit.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-		nil,
-	)
+	h, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
 	if err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)
 	}
@@ -175,7 +168,11 @@ func admitAgentContentInputTx(
 			}, nil
 		}
 	}
-	if AgentState(agent.State) == AgentStateArchived {
+	snapshot, err := h.LoadExecution(ctx)
+	if err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
+	if snapshot.View.State == agentexecution.AgentArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
 	return createAgentContentInputTx(ctx, unit, qtx, input, contentBlocks)

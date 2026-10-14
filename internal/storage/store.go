@@ -99,7 +99,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.memories = memorystore.New(pool, config.memoryFS, config.memoryRecorder)
 	store.artifacts = artifactstore.New(pool, config.blobs)
 	store.integrations = integrationstore.New(pool, integrationstore.Config{
-		PostCommitPublisher: config.postCommitPublisher, Access: executionstore.IntegrationAccess{},
+		PostCommitPublisher: config.postCommitPublisher,
 	})
 	store.execution = executionstore.New(pool, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,

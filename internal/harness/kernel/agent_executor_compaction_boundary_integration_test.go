@@ -258,8 +258,7 @@ LIMIT 1
 	if err != nil {
 		t.Fatalf("claim normal work after recovered compaction: %v", err)
 	}
-	if !found || finalClaim.Kind != executionstore.AgentWorkModel ||
-		finalClaim.Model.ModelCallContextID != uuid.Nil {
+	if !found || finalClaim.Kind != executionstore.AgentWorkModel || finalClaim.Model.ModelCallContextID != uuid.Nil {
 		t.Fatalf("post-compaction work = %+v found=%v, want a fresh normal call", finalClaim, found)
 	}
 	finalTurn := modelWorkExecutionFromClaimForKernelTest(finalClaim, recoveryNow.Add(2*time.Second))
@@ -551,14 +550,13 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 			if response.ID != "resp_truncated_summary_before_config" {
 				return
 			}
-			changeResult, changeErr = fixture.Store.Execution().
-				ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-					CreateAgentConfigInput: nextConfig,
-					AgentID:                agentID,
-					ActorType:              identitystore.PrincipalTypeSystem,
-					Reason:                 "test_inflight_compaction_change",
-					IdempotencyKey:         "config-during-truncated-compaction",
-				})
+			changeResult, changeErr = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+				CreateAgentConfigInput: nextConfig,
+				AgentID:                agentID,
+				ActorType:              identitystore.PrincipalTypeSystem,
+				Reason:                 "test_inflight_compaction_change",
+				IdempotencyKey:         "config-during-truncated-compaction",
+			})
 		},
 	}
 	newModel := &sequenceKernelModel{
@@ -611,8 +609,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 	oldModel.mu.Lock()
 	remainingOldResponses := append([]model.Response(nil), oldModel.responses...)
 	oldModel.mu.Unlock()
-	if len(remainingOldResponses) != 1 ||
-		remainingOldResponses[0].ID != "resp_smaller_compaction_should_not_send" {
+	if len(remainingOldResponses) != 1 || remainingOldResponses[0].ID != "resp_smaller_compaction_should_not_send" {
 		t.Fatalf("smaller stale compaction consumed a provider response: %+v", remainingOldResponses)
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(

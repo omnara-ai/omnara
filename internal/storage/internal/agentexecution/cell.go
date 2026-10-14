@@ -3,6 +3,7 @@ package agentexecution
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -40,7 +41,7 @@ func (c *AgentCell) Begin(ctx context.Context) (*Unit, error) {
 	}
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("begin execution: %w", err)
 	}
 	u := newUnit(c, tx)
 	u.expanded = plan

@@ -471,8 +471,7 @@ func TestSecondStatementRequiresItsOwnQueryAnnotation(t *testing.T) {
 		"-- name: Multiple :many\nSELECT id FROM users ORDER BY id LIMIT 1;\nSELECT id FROM users;\n",
 	)
 	issues := checkSource("fixture.sql", source)
-	if len(issues) != 1 || issues[0].Rule != ruleNamedQueryRequired || issues[0].Line != 3 ||
-		issues[0].Column != 1 {
+	if len(issues) != 1 || issues[0].Rule != ruleNamedQueryRequired || issues[0].Line != 3 || issues[0].Column != 1 {
 		t.Fatalf("issues = %+v, want a line 3:1 %s violation", issues, ruleNamedQueryRequired)
 	}
 }

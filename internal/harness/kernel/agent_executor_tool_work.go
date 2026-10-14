@@ -53,11 +53,10 @@ func (e AgentExecutor) executeToolWork(
 		return storeerr.ErrStateTransitionConflict
 	}
 	specs, err := e.toolRuntimeFromConfig(ctx, input.ProjectID, input.AgentID, input.Prepared.Config, input.Now)
-	first := input.Prepared.FirstCall
-
 	if err != nil {
 		return fmt.Errorf("load tool work runtime contract: %w", err)
 	}
+	first := input.Prepared.FirstCall
 	turn := toolWorkTurn(input, contextRecord.OrgID, specs)
 	deferredToolCallIDs := make([]uuid.UUID, 0)
 	for {

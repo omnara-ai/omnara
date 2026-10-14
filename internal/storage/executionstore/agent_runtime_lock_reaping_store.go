@@ -77,11 +77,11 @@ func (s *Store) reapExpiredAgentRuntimeLock(
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) (bool, error) {
 	return agentexecution.Retry(ctx,
-		"reapExpiredAgentRuntimeLock",
+		"reap_expired_agent_runtime_lock",
 		func(ctx context.Context) (bool, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return false, fmt.Errorf("begin reap expired agent runtime lock: %w", err)
+				return false, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 

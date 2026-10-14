@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
-
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type Content struct {
@@ -23,11 +22,6 @@ type Content struct {
 	Exclude    bool
 	Metadata   json.RawMessage
 }
-
-type ContentConflictError struct{ Stored []Content }
-
-func (e *ContentConflictError) Error() string { return storeerr.ErrIdempotencyConflict.Error() }
-func (e *ContentConflictError) Unwrap() error { return storeerr.ErrIdempotencyConflict }
 
 type ExecutionEvent struct {
 	ID     uuid.UUID
@@ -53,12 +47,6 @@ func equalJSON(a, b json.RawMessage) bool {
 	return jsoncanonical.Equal(a, b)
 }
 
-func optionalText(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
 func optionalSequence(n int64) *int64 {
 	if n == 0 {
 		return nil
@@ -76,13 +64,13 @@ func (h *Handle) appendEvent(
 	args := executiondb.AppendExecutionEventParams{ID: uuid.New(),
 		AgentID:   h.route.AgentID,
 		ProjectID: h.route.ProjectID,
-		TurnID:    nullableID(turn),
+		TurnID:    storeutil.IDFromNil(turn),
 		Kind:      kind,
-		InputID: nullableID(
+		InputID: storeutil.IDFromNil(
 			input,
-		), OutputID: nullableID(output), CheckpointID: nullableID(checkpoint), Opening: opening}
+		), OutputID: storeutil.IDFromNil(output), CheckpointID: storeutil.IDFromNil(checkpoint), Opening: opening}
 	if input != uuid.Nil {
-		args.IdempotencyKey = optionalText("agent_input:" + input.String())
+		args.IdempotencyKey = storeutil.TextFromEmpty("agent_input:" + input.String())
 	}
 	row, err := executiondb.New().AppendExecutionEvent(ctx, h.unit.DB(), args)
 	if err != nil {
@@ -117,8 +105,8 @@ func (h *Handle) writeContent(ctx context.Context, kind string, id uuid.UUID, pa
 			OwnerKind:  kind,
 			Ordinal:    ordinal,
 			Kind:       part.Kind,
-			ArtifactID: nullableID(part.ArtifactID),
-			ToolID:     nullableID(part.ToolID),
+			ArtifactID: storeutil.IDFromNil(part.ArtifactID),
+			ToolID:     storeutil.IDFromNil(part.ToolID),
 			Exclude:    part.Exclude,
 			Metadata:   metadata}
 		switch kind {
@@ -143,61 +131,6 @@ func (h *Handle) writeContent(ctx context.Context, kind string, id uuid.UUID, pa
 		}
 		if err := executiondb.New().InsertExecutionContent(ctx, h.unit.DB(), args); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func (h *Handle) contentMatches(ctx context.Context, input, output uuid.UUID, parts []Content) error {
-	return h.matchContent(ctx, executiondb.ReadExecutionContentParams{
-		AgentID: h.route.AgentID, InputID: nullableID(input), OutputID: nullableID(output)}, parts)
-}
-
-func (h *Handle) matchContent(
-	ctx context.Context,
-	args executiondb.ReadExecutionContentParams,
-	parts []Content,
-) error {
-	rows, err := executiondb.New().ReadExecutionContent(ctx, h.unit.DB(), args)
-	if err != nil {
-		return err
-	}
-	conflict := &ContentConflictError{Stored: make([]Content, len(rows))}
-	for i, row := range rows {
-		conflict.Stored[i] = Content{
-			Ordinal:    row.Ordinal,
-			Kind:       row.BlockKind,
-			Text:       valueOrZero(row.TextContent),
-			Data:       valueOrZero(row.StructuredData),
-			ArtifactID: valueOrZero(row.ArtifactID),
-			ToolID:     valueOrZero(row.ToolCallID),
-			Exclude:    row.ExcludeFromModelContext,
-			Metadata:   row.Metadata,
-		}
-	}
-	if len(rows) != len(parts) {
-		return conflict
-	}
-	for i, row := range rows {
-		part := parts[i]
-		metadata, err := objectJSON(part.Metadata)
-		if err != nil {
-			return err
-		}
-		ordinal := int32(i)
-		if args.OutputID != nil {
-			ordinal = part.Ordinal
-		}
-		if row.Ordinal != ordinal || row.BlockKind != part.Kind || valueOrZero(row.TextContent) != part.Text ||
-			valueOrZero(row.ArtifactID) != part.ArtifactID ||
-			valueOrZero(row.ToolCallID) != part.ToolID ||
-			row.ExcludeFromModelContext != part.Exclude ||
-			!equalJSON(row.Metadata, metadata) ||
-			((len(part.Data) > 0 ||
-				row.StructuredData != nil) &&
-				!equalJSON(valueOrZero(row.StructuredData),
-					part.Data)) {
-			return conflict
 		}
 	}
 	return nil

@@ -47,14 +47,12 @@ func TestListMachinePoolSourcesUsesCurrentNamesAfterSwap(t *testing.T) {
 			2,
 			now.Add(time.Duration(index)*time.Second),
 		)
-		if _,
-			err := store.Execution().CreateProjectMachinePoolGrant(ctx,
-			executionstore.CreateProjectMachinePoolGrantInput{
-				OrgID:          testOrgID,
-				ProjectID:      testProjectID,
-				MachinePoolID:  machinePools[index].ID,
-				IdempotencyKey: fmt.Sprintf("idem-agent-pool-name-swap-grant-%d", index),
-			}); err != nil {
+		if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachinePoolID:  machinePools[index].ID,
+			IdempotencyKey: fmt.Sprintf("idem-agent-pool-name-swap-grant-%d", index),
+		}); err != nil {
 			t.Fatalf("create pool grant: %v", err)
 		}
 	}
@@ -287,8 +285,7 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		if err != nil {
 			t.Fatalf("load rolled-back tool call: %v", err)
 		}
-		if rolledBackToolCall.State != executionstore.ToolCallStateReady ||
-			rolledBackToolCall.RuntimeLockID != uuid.Nil {
+		if rolledBackToolCall.State != executionstore.ToolCallStateReady || rolledBackToolCall.RuntimeLockID != uuid.Nil {
 			t.Fatalf(
 				"rolled-back tool call state/runtime = %s/%s, want ready/unowned",
 				rolledBackToolCall.State,
@@ -398,16 +395,14 @@ func TestLaunchAndCreatePoolMachineAfterEnvironmentSecretDeletion(t *testing.T) 
 			DefaultMachineEnv:             json.RawMessage(`{"PLAIN":"plain"}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test"}`),
 		}, 2, fixture.Now)
-	if _,
-		err := store.Execution().CreateProjectMachinePoolGrant(ctx,
-		projectGrantInputWithDefaultMachineOverlayForTest(
-			executionstore.CreateProjectMachinePoolGrantInput{
-				OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID,
-			},
-			defaultMachineOverlayFieldsForTest{
-				DefaultMachineSecretEnvOverlay: json.RawMessage(`{"GRANT_SECRET":"` + secret.ID.String() + `"}`),
-			},
-		)); err != nil {
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID,
+		},
+		defaultMachineOverlayFieldsForTest{
+			DefaultMachineSecretEnvOverlay: json.RawMessage(`{"GRANT_SECRET":"` + secret.ID.String() + `"}`),
+		},
+	)); err != nil {
 		t.Fatalf("grant machine pool: %v", err)
 	}
 	machine, err := store.Execution().GetMachine(ctx, testOrgID, fixture.MachineID)
@@ -537,22 +532,20 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
-	if _,
-		err := store.Execution().CreateProjectMachinePoolGrant(ctx,
-		projectGrantInputWithDefaultMachineOverlayForTest(
-			executionstore.CreateProjectMachinePoolGrantInput{
-				OrgID:          testOrgID,
-				ProjectID:      testProjectID,
-				MachinePoolID:  machinePool.ID,
-				DefaultCwd:     "/grant",
-				IdempotencyKey: "idem-agent-pool-machine-resolved-grant",
-			},
-			defaultMachineOverlayFieldsForTest{
-				DefaultMachineMemoryMB:               new(4096),
-				DefaultMachineEnvOverlay:             json.RawMessage(`{"GRANT":"one","SHARED":"grant","REMOVE":null}`),
-				DefaultMachineProviderOptionsOverlay: json.RawMessage(`{"image":"grant","grant_only":"grant"}`),
-			},
-		)); err != nil {
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachinePoolID:  machinePool.ID,
+			DefaultCwd:     "/grant",
+			IdempotencyKey: "idem-agent-pool-machine-resolved-grant",
+		},
+		defaultMachineOverlayFieldsForTest{
+			DefaultMachineMemoryMB:               new(4096),
+			DefaultMachineEnvOverlay:             json.RawMessage(`{"GRANT":"one","SHARED":"grant","REMOVE":null}`),
+			DefaultMachineProviderOptionsOverlay: json.RawMessage(`{"image":"grant","grant_only":"grant"}`),
+		},
+	)); err != nil {
 		t.Fatalf("create pool grant: %v", err)
 	}
 	config := mustCreateAgentConfigFromYAML(
@@ -1435,8 +1428,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete pool machine: %v", err)
 	}
-	if deleted.Machine.LifecycleState != "deleting" ||
-		deleted.Machine.LifecycleReasonCode != "machine_tool_delete" {
+	if deleted.Machine.LifecycleState != "deleting" || deleted.Machine.LifecycleReasonCode != "machine_tool_delete" {
 		t.Fatalf("deleted machine = %+v", deleted.Machine)
 	}
 	if deleted.Binding.CreateToolCallID != createTransaction.ToolCallID {
@@ -1523,14 +1515,13 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		t.Fatalf("replacement pool machine while deleting error = %v, want state transition conflict", err)
 	}
 
-	claimedDelete, ok, err := store.Execution().
-		ClaimPoolMachineDeletion(ctx, executionstore.MachineDeletingInput{
-			OrgID:                    testOrgID,
-			MachineID:                created.Machine.Machine.ID,
-			LifecycleReasonCode:      cleanup[0].ReasonCode,
-			LifecycleReasonMessage:   cleanup[0].ReasonMessage,
-			ExpectedLifecycleVersion: cleanup[0].Machine.LifecycleVersion,
-		})
+	claimedDelete, ok, err := store.Execution().ClaimPoolMachineDeletion(ctx, executionstore.MachineDeletingInput{
+		OrgID:                    testOrgID,
+		MachineID:                created.Machine.Machine.ID,
+		LifecycleReasonCode:      cleanup[0].ReasonCode,
+		LifecycleReasonMessage:   cleanup[0].ReasonMessage,
+		ExpectedLifecycleVersion: cleanup[0].Machine.LifecycleVersion,
+	})
 	if err != nil || !ok {
 		t.Fatalf("claim pool machine deletion ok=%v err=%v", ok, err)
 	}
@@ -1672,8 +1663,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete provisioning pool machine: %v", err)
 	}
-	if deleted.Machine.LifecycleState != "deleting" ||
-		deleted.Machine.LifecycleReasonCode != "machine_tool_delete" {
+	if deleted.Machine.LifecycleState != "deleting" || deleted.Machine.LifecycleReasonCode != "machine_tool_delete" {
 		t.Fatalf("deleted provisioning machine = %+v", deleted.Machine)
 	}
 	if err := store.Execution().CompletePoolMachineProvisioning(
@@ -2003,8 +1993,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load deleted pool-backed machine: %v", err)
 	}
-	if deletedMachine.LifecycleState != executionstore.MachineLifecycleStateDeleted ||
-		deletedMachine.DeletedAt == nil {
+	if deletedMachine.LifecycleState != executionstore.MachineLifecycleStateDeleted || deletedMachine.DeletedAt == nil {
 		t.Fatalf("deleted pool-backed machine = %+v", deletedMachine)
 	}
 	if count := countProjectMachineGrantsForMachineForTest(
@@ -2506,10 +2495,9 @@ func TestCreatePoolMachineRejectsUnsupportedSizing(t *testing.T) {
 			}
 			machinePool, err := store.Execution().CreateMachinePool(ctx, input)
 			require.NoError(t, err)
-			_, err = store.Execution().
-				CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
-					OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
-				})
+			_, err = store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+				OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
+			})
 			require.NoError(t, err)
 			config := mustCreateAgentConfigFromYAML(
 				t,

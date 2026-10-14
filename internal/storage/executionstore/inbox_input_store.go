@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -102,9 +101,7 @@ func (s *Store) admitInboxInputRecipientOnce(
 	); err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{
-		ProjectID: lease.ProjectID, AgentID: recipient.AgentID,
-	}}, nil); err != nil {
+	if _, err := lockExecution(ctx, unit, lease.ProjectID, recipient.AgentID, false, uuid.Nil); err != nil {
 		return InboxInputResult{}, err
 	}
 	outcome, err := resolveInboxInputOutcome(ctx, q, recipient)

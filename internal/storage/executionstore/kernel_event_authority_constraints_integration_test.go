@@ -339,8 +339,7 @@ WHERE project_id = $1 AND id = $5
 `, testProjectID, turnID, "agent_input:"+inputID.String(), inputID, fixture.AgentID); err != nil {
 		t.Fatalf("insert orphan agent-input event: %v", err)
 	}
-	if _,
-		err := tx.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		`SET CONSTRAINTS agent_input_events_admission_valid IMMEDIATE`); !isPgCheckViolation(
 		err,
 	) {
@@ -623,14 +622,16 @@ WHERE agent_id = $1 AND id = $2
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
 			OwnerModelOutputID: modelOutputID,
-			Ordinal:            0,
-			BlockKind:          executionstore.ContentBlockKindText,
-			TextContent:        "duplicate",
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:   testProjectID,
+				AgentID:     fixture.AgentID,
+				Ordinal:     0,
+				BlockKind:   executionstore.ContentBlockKindText,
+				TextContent: "duplicate",
+			},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("duplicate content block ordinal error = %v, want constraint violation", err)
@@ -639,14 +640,16 @@ WHERE agent_id = $1 AND id = $2
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
 			OwnerModelOutputID: modelOutputID,
-			Ordinal:            1,
-			BlockKind:          executionstore.ContentBlockKindArtifact,
-			TextContent:        "not an artifact",
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:   testProjectID,
+				AgentID:     fixture.AgentID,
+				Ordinal:     1,
+				BlockKind:   executionstore.ContentBlockKindArtifact,
+				TextContent: "not an artifact",
+			},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("invalid artifact block error = %v, want constraint violation", err)
@@ -654,14 +657,16 @@ WHERE agent_id = $1 AND id = $2
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:          executionstore.ContentBlockOwnerToolCallResult,
 			OwnerModelOutputID: modelOutputID,
-			Ordinal:            2,
-			BlockKind:          executionstore.ContentBlockKindReasoning,
-			TextContent:        "invalid owner/kind",
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:   testProjectID,
+				AgentID:     fixture.AgentID,
+				Ordinal:     2,
+				BlockKind:   executionstore.ContentBlockKindReasoning,
+				TextContent: "invalid owner/kind",
+			},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("invalid owner/block kind error = %v, want constraint violation", err)
@@ -678,14 +683,16 @@ WHERE agent_id = $1 AND id = $2
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:         testProjectID,
-			AgentID:           fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
 			OwnerAgentInputID: contentInputID,
-			Ordinal:           0,
-			BlockKind:         executionstore.ContentBlockKindText,
-			TextContent:       "hello",
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:   testProjectID,
+				AgentID:     fixture.AgentID,
+				Ordinal:     0,
+				BlockKind:   executionstore.ContentBlockKindText,
+				TextContent: "hello",
+			},
 		},
 	); err != nil {
 		t.Fatalf("create agent input content block: %v", err)
@@ -711,14 +718,16 @@ WHERE agent_id = $1 AND id = $2
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:         testProjectID,
-			AgentID:           fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
 			OwnerAgentInputID: configInputID,
-			Ordinal:           0,
-			BlockKind:         executionstore.ContentBlockKindText,
-			TextContent:       "must not be accepted",
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:   testProjectID,
+				AgentID:     fixture.AgentID,
+				Ordinal:     0,
+				BlockKind:   executionstore.ContentBlockKindText,
+				TextContent: "must not be accepted",
+			},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("config-change content block error = %v, want constraint violation", err)
@@ -849,18 +858,17 @@ func TestModelOutputContentBlockInsertSerializesWithContextClosure(t *testing.T)
 	if err != nil {
 		t.Fatalf("create model output for owner lock: %v", err)
 	}
-	if _,
-		err := executionstore.IntegrationCreateContentBlockTx(ctx,
-		blockTx,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
-			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
-			OwnerModelOutputID: output.ID,
-			Ordinal:            0,
-			BlockKind:          executionstore.ContentBlockKindText,
-			TextContent:        "concurrent model output block",
-		}); err != nil {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, blockTx, executionstore.IntegrationContentBlockInput{
+		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
+		OwnerModelOutputID: output.ID,
+		CreateContentBlockInput: executionstore.CreateContentBlockInput{
+			ProjectID:   testProjectID,
+			AgentID:     fixture.AgentID,
+			Ordinal:     0,
+			BlockKind:   executionstore.ContentBlockKindText,
+			TextContent: "concurrent model output block",
+		},
+	}); err != nil {
 		t.Fatalf("create model output block for owner lock: %v", err)
 	}
 
@@ -932,14 +940,13 @@ func TestKernelTypedFrontierRequiresTurnMembership(t *testing.T) {
 	store := newIntegrationStore(pool)
 	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "orphan-event@example.com", "Orphan Event")
-	input, _, _, err := store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        agentID,
-			Actor:          mustOmnaraActorParams(t, user.ID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"orphan"}]`),
-			IdempotencyKey: "orphan-event-input",
-		})
+	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        agentID,
+		Actor:          mustOmnaraActorParams(t, user.ID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"orphan"}]`),
+		IdempotencyKey: "orphan-event-input",
+	})
 	if err != nil {
 		t.Fatalf("create input for orphan event: %v", err)
 	}

@@ -60,11 +60,11 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	input RecordModelOutputAndCompleteContextInput,
 ) (events.Event, error) {
 	return agentexecution.Retry(ctx,
-		"RecordModelOutputAndCompleteContext",
+		"record_model_output_and_complete_context",
 		func(ctx context.Context) (events.Event,
 			error) {
 			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID,
-				agentexecution.ParentEffectKind(input.ProviderResponse) != "")
+				agentexecution.ParentEffectKind(input.ProviderResponse) != "", input.RuntimeLockID)
 			if err != nil {
 				return events.Event{}, err
 			}
@@ -90,11 +90,11 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	}
 	result,
 		err := agentexecution.Retry(ctx,
-		"RecordToolCallSourceAndCompleteContext",
+		"record_tool_call_source_and_complete_context",
 		func(ctx context.Context) (executionResult,
 			error) {
 			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID,
-				agentexecution.ParentEffectKind(input.ProviderResponse) != "")
+				agentexecution.ParentEffectKind(input.ProviderResponse) != "", input.RuntimeLockID)
 			if err != nil {
 				return executionResult{events.Event{}, nil}, err
 			}

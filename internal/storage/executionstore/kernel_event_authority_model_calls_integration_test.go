@@ -4,7 +4,6 @@ package executionstore_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -230,12 +228,10 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			}
 			changedReason := recordInput
 			changedReason.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
-			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedReason); !errors.Is(
-				err,
-				storeerr.ErrIdempotencyConflict,
-			) {
-				t.Fatalf("changed stop reason replay error = %v, want idempotency conflict", err)
-			}
+			replayed, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedReason)
+			require.NoError(t, err)
+			require.Equal(t, event.ID, replayed.ID)
+
 			var pending int
 			require.NoError(
 				t,
@@ -260,26 +256,16 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				recordInput.ProviderResponse.Normalized.Content...,
 			)
 			conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
-			if _, err := fixture.Store.Execution().
-				RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(
-				err,
-				storeerr.ErrIdempotencyConflict,
-			) {
-				t.Fatalf(
-					"conflicting output replay error = %v, want %v",
-					err,
-					storeerr.ErrIdempotencyConflict,
-				)
-			}
+			replayed, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput)
+			require.NoError(t, err)
+			require.Equal(t, event.ID, replayed.ID)
+
 			conflictingCostInput := recordInput
 			conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
-			if _, err := fixture.Store.Execution().
-				RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(
-				err,
-				storeerr.ErrIdempotencyConflict,
-			) {
-				t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-			}
+			replayed, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput)
+			require.NoError(t, err)
+			require.Equal(t, event.ID, replayed.ID)
+
 			var modelOutputID uuid.UUID
 			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id

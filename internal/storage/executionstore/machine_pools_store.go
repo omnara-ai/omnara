@@ -997,7 +997,7 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id uuid.UUID) ([]M
 func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id uuid.UUID) ([]MachineRecord, error) {
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin delete machine pool: %w", err)
+		return nil, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	tx := unit.DB()

@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/agentmessage"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -58,14 +60,14 @@ func (u *Unit) CreateAgent(ctx context.Context, input CreateAgentInput) (*Handle
 		ID:        input.ID,
 		ProjectID: input.ProjectID,
 		RootID:    root,
-		ParentID:  nullableID(input.ParentID),
+		ParentID:  storeutil.IDFromNil(input.ParentID),
 		ConfigID:  input.ConfigID,
-		ProfileID: nullableID(
+		ProfileID: storeutil.IDFromNil(
 			input.ProfileID,
 		),
 		Name:                    input.Name,
 		SubagentKey:             input.SubagentKey,
-		IdempotencyKey:          optionalText(input.IdempotencyKey),
+		IdempotencyKey:          storeutil.TextFromEmpty(input.IdempotencyKey),
 		ArchiveAfterIdleMinutes: input.ArchiveAfterIdleMinutes})
 	if err != nil {
 		return nil, err
@@ -92,8 +94,8 @@ func (h *Handle) SetInteractionTarget(
 		WriteExecutionInteractionTarget(ctx,
 			h.unit.DB(),
 			executiondb.WriteExecutionInteractionTargetParams{ID: h.route.AgentID,
-				TargetID:   nullableID(id),
-				HandlerKey: optionalText(handler),
+				TargetID:   storeutil.IDFromNil(id),
+				HandlerKey: storeutil.TextFromEmpty(handler),
 				AutoSelect: automatic})
 	return n > 0, err
 }
@@ -110,10 +112,10 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	if err != nil {
 		return err
 	}
-	parent := h.unit.handles[valueOrZero(child.ParentAgentID)]
+	parent := h.unit.handles[storeutil.ValueOrZero(child.ParentAgentID)]
 	if parent == nil {
 		return h.unit.expandPlan(lifecyclelock.AgentRef{ProjectID: h.route.ProjectID,
-			AgentID: valueOrZero(child.ParentAgentID)})
+			AgentID: storeutil.ValueOrZero(child.ParentAgentID)})
 	}
 	snapshot, err := parent.LoadExecution(ctx)
 	if err != nil {
@@ -125,8 +127,8 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	_, err = executiondb.New().FindExecutionInput(ctx,
 		h.unit.DB(),
 		executiondb.FindExecutionInputParams{AgentID: parent.route.AgentID,
-			Scope: optionalText("subagent_message"),
-			Key:   optionalText(key)})
+			Scope: storeutil.TextFromEmpty("subagent_message"),
+			Key:   storeutil.TextFromEmpty(key)})
 	if err == nil {
 		return nil
 	}
@@ -196,7 +198,7 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	if name == "" {
 		name = "agent"
 	}
-	body := agentmessage.Render(name, child.SubagentKey, principal, kind, text)
+	body := renderChildMessage(name, child.SubagentKey, principal, kind, text)
 	_, err = parent.ReceiveContent(
 		ctx,
 		ReceiveContentInput{
@@ -208,9 +210,6 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 			Content:          []Content{{Kind: "text", Text: body}},
 		},
 	)
-	if err != nil {
-		return err
-	}
 	return err
 }
 
@@ -253,4 +252,31 @@ func (u *Unit) ClearIntegrationTargets(ctx context.Context, projectID, integrati
 			AgentIds:      ids,
 		},
 	)
+}
+
+func renderChildMessage(displayName, key, childPublicID, kind, text string) string {
+	label := fmt.Sprintf(
+		"Subagent %q (agent_id %s, key %q)", displayName, childPublicID, key,
+	)
+	var header string
+	switch kind {
+	case "result":
+		header = label + " finished its turn:"
+	case "refused":
+		header = label + " stopped because its model refused to continue; it produced no final answer:"
+	case "content_filtered":
+		header = label + " stopped because its model output was blocked by a content filter; " +
+			"it produced no final answer:"
+	case "failed":
+		header = label + " failed:"
+	case "question":
+		header = label + " asked a question and is paused until a human answers it. " +
+			"Messaging it with send_agent_message cancels the question."
+	default:
+		header = label + ":"
+	}
+	if strings.TrimSpace(text) == "" {
+		return header
+	}
+	return header + "\n\n" + text
 }

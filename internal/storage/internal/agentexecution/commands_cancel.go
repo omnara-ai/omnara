@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/omnara-ai/omnara/internal/notifications"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -113,7 +113,7 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 			h.unit.DB(),
 			executiondb.InsertExecutionStopParams{
 				AgentID: h.route.AgentID,
-				ActorID: nullableID(input.ActorID),
+				ActorID: storeutil.IDFromNil(input.ActorID),
 			},
 		)
 		if err != nil {
@@ -142,51 +142,12 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 			if err = h.advanceTurn(ctx, result.Event, false); err != nil {
 				return result, err
 			}
-			ids, err := q.ListExecutionInteractions(
-				ctx,
-				h.unit.DB(),
-				executiondb.ListExecutionInteractionsParams{AgentID: h.route.AgentID, TurnID: turn},
-			)
+			interactions, err := h.cancelInteractionRows(ctx, turn, id, input.Reason)
 			if err != nil {
 				return result, err
 			}
-			resolution, err := json.Marshal(map[string]string{"reason": input.Reason})
-			if err != nil {
-				return result, err
-			}
-			for _, interactionID := range ids {
-				row, err := q.ReadExecutionInteraction(
-					ctx,
-					h.unit.DB(),
-					executiondb.ReadExecutionInteractionParams{AgentID: h.route.AgentID, ID: interactionID},
-				)
-				if err != nil {
-					return result, err
-				}
-				n, err := q.ResolveExecutionInteraction(
-					ctx,
-					h.unit.DB(),
-					executiondb.ResolveExecutionInteractionParams{
-						AgentID:    h.route.AgentID,
-						ID:         interactionID,
-						State:      "canceled",
-						InputID:    &id,
-						Resolution: resolution,
-					},
-				)
-				if err != nil {
-					return result, err
-				}
-				if n != 1 {
-					return result, storeerr.ErrStateTransitionConflict
-				}
-				i := interactionRecord(row)
-				i.State = "canceled"
-				updates[i.ToolID] = &notifications.AgentInteractionUpdate{
-					ID:              i.ID,
-					InteractionKind: i.Kind,
-					State:           i.State,
-				}
+			for _, i := range interactions {
+				updates[i.ToolID] = &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State}
 			}
 			if err = h.cancelTurnProcesses(ctx, turn); err != nil {
 				return result, err
@@ -204,8 +165,7 @@ func (h *Handle) Cancel(ctx context.Context, input CancelInput) (CanceledExecuti
 				if err != nil {
 					return result, err
 				}
-				if _,
-					err = h.completeTool(ctx,
+				if _, err = h.completeTool(ctx,
 					m,
 					call,
 					"canceled",

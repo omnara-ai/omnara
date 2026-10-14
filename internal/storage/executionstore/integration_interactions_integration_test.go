@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -232,9 +233,7 @@ func (f integrationInteractionFixture) selectOrigin(
 	txUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
 	require.NoError(t, unitErr)
 	defer func() { _ = txUnit.Rollback(f.ctx) }()
-	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, nil)
+	_, err := agentexecution.LockTestAgent(f.ctx, txUnit, testProjectID, f.process.AgentID, nil)
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, txUnit, testProjectID, f.process.AgentID, targetID,
@@ -533,9 +532,7 @@ func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 	txUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
 	require.NoError(t, unitErr)
 	defer func() { _ = txUnit.Rollback(f.ctx) }()
-	_, err := txUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, nil)
+	_, err := agentexecution.LockTestAgent(f.ctx, txUnit, testProjectID, f.process.AgentID, nil)
 	require.NoError(t, err)
 	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, txUnit, testProjectID, f.process.AgentID, foreign.ID,
@@ -609,9 +606,7 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 	selectionTxUnit, unitErr := f.store.Execution().IntegrationBeginUnit(f.ctx)
 	require.NoError(t, unitErr)
 	defer func() { _ = selectionTxUnit.Rollback(f.ctx) }()
-	_, err = selectionTxUnit.LockAgent(f.ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: testProjectID, ID: f.process.AgentID,
-	}, nil)
+	_, err = agentexecution.LockTestAgent(f.ctx, selectionTxUnit, testProjectID, f.process.AgentID, nil)
 	require.NoError(t, err)
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().

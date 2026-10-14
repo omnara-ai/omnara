@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -53,11 +52,11 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 	}
 
 	_, retryErr := agentexecution.Retry(ctx,
-		"CreateCronTriggerAgentInput",
+		"create_cron_trigger_agent_input",
 		func(ctx context.Context) (struct{}, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return struct{}{}, fmt.Errorf("begin cron trigger input delivery: %w", err)
+				return struct{}{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

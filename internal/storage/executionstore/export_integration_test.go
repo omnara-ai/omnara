@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -44,9 +43,9 @@ func (s *Store) AcquireAgentRuntimeLock(
 		return AgentRuntimeLockRecord{}, err
 	}
 	return agentexecution.Retry(ctx,
-		"AcquireAgentRuntimeLock",
+		"acquire_agent_runtime_lock",
 		func(ctx context.Context) (AgentRuntimeLockRecord, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
 			if err != nil {
 				return AgentRuntimeLockRecord{}, err
 			}
@@ -86,9 +85,9 @@ func (s *Store) AcquireAgentRuntimeLock(
 
 func (s *Store) RepairExecutionForTest(ctx context.Context, projectID, agentID uuid.UUID) error {
 	_, retryErr := agentexecution.Retry(ctx,
-		"RepairExecutionForTest",
+		"repair_execution_for_test",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
 			if err != nil {
 				return struct{}{}, err
 			}
@@ -121,9 +120,9 @@ func (s *Store) NextAgentModelWork(
 		found bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"NextAgentModelWork",
+		"next_agent_model_work",
 		func(ctx context.Context) (transactionResult, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
 			if err != nil {
 				return transactionResult{}, err
 			}
@@ -338,24 +337,6 @@ func (s *Store) IntegrationResolveLaunchMachineSourcesTx(
 	return nil
 }
 
-func IntegrationValidateResponseEnvelopeForModelCallContext(
-	ctx context.Context,
-	db dbsqlc.DBTX,
-	envelope modelenvelope.ResponseEnvelope,
-	record ModelCallContextRecord,
-) error {
-	var slug string
-	if err := db.QueryRow(ctx,
-		`SELECT provider_model_slug FROM configured_model_revisions WHERE id=$1`,
-		record.ConfiguredModelRevisionID).Scan(&slug); err != nil {
-		return err
-	}
-	if slug != envelope.RequestedProviderModelSlug {
-		return errors.New("requested model differs from captured revision")
-	}
-	return nil
-}
-
 func IntegrationRenewAgentRuntimeLockTx(
 	ctx context.Context,
 	unit *agentexecution.Unit,
@@ -398,20 +379,6 @@ func IntegrationUpsertActorIdentityTx(
 	return upsertActorIdentityTx(ctx, qtx, input)
 }
 
-func IntegrationCompactionSourceStartTx(
-	ctx context.Context,
-	db dbsqlc.DBTX,
-	row ModelCallContextRecord,
-) (int64, error) {
-	var n int64
-	err := db.QueryRow(ctx,
-		`SELECT coalesce(max(summarized_through_event_sequence),0)+1 FROM context_checkpoints WHERE agent_id=$1 AND summarized_through_event_sequence<$2`,
-		row.AgentID,
-		row.SourceEventSequenceEnd).
-		Scan(&n)
-	return n, err
-}
-
 func IntegrationCreateModelOutputAuthorityTx(
 	ctx context.Context,
 	db dbsqlc.DBTX,
@@ -444,7 +411,7 @@ func IntegrationCreateModelOutputAuthorityTx(
 func IntegrationCreateContentBlockTx(
 	ctx context.Context,
 	db dbsqlc.DBTX,
-	input CreateContentBlockInput,
+	input IntegrationContentBlockInput,
 ) (ContentBlockRecord, error) {
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
@@ -647,9 +614,9 @@ func IntegrationAppendToolResultEventTx(
 	for _, block := range blocks {
 		block.ProjectID = record.ProjectID
 		block.AgentID = record.AgentID
-		block.OwnerKind = ContentBlockOwnerToolCallResult
-		block.OwnerToolCallResultID = resultID
-		if _, err = IntegrationCreateContentBlockTx(ctx, tx, block); err != nil {
+		if _, err = IntegrationCreateContentBlockTx(ctx, tx, IntegrationContentBlockInput{
+			CreateContentBlockInput: block, OwnerKind: ContentBlockOwnerToolCallResult, OwnerToolCallResultID: resultID,
+		}); err != nil {
 			return events.Event{}, err
 		}
 	}
@@ -737,7 +704,7 @@ type ContentBlockRecord struct {
 	ID                    uuid.UUID
 	ProjectID             uuid.UUID
 	AgentID               uuid.UUID
-	OwnerKind             ContentBlockOwnerKind
+	OwnerKind             string
 	OwnerAgentInputID     uuid.UUID
 	OwnerModelOutputID    uuid.UUID
 	OwnerToolCallResultID uuid.UUID
@@ -779,4 +746,12 @@ type ToolCallResultAuthorityRecord struct {
 	ToolCallID  uuid.UUID
 	Outcome     ToolResultOutcome
 	CompletedAt time.Time
+}
+
+type IntegrationContentBlockInput struct {
+	CreateContentBlockInput
+	OwnerKind             string
+	OwnerAgentInputID     uuid.UUID
+	OwnerModelOutputID    uuid.UUID
+	OwnerToolCallResultID uuid.UUID
 }

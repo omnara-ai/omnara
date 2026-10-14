@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -147,7 +148,7 @@ func (t *toolCallTransaction) processActionCreateBlocker(
 		return fmt.Errorf("diagnose process action create blocker: %w", err)
 	}
 	state := ProcessState(row.State)
-	if isProcessTerminal(state) {
+	if processresult.TerminalState(string(state)) {
 		if input.ActionKind == ProcessActionKindRead && !row.TerminalReadSupported {
 			return storeerr.ErrProcessTerminal
 		}

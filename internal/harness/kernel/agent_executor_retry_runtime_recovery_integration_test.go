@@ -58,8 +58,7 @@ WHERE context.project_id = $1
 		t.Fatalf("load malformed response attempt: %v", err)
 	}
 	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryRetry ||
-		errorCode != "malformed_success_response" ||
-		strings.Contains(errorMessage, "\x00") ||
+		errorCode != "malformed_success_response" || strings.Contains(errorMessage, "\x00") ||
 		!kernelModelCallOutcomeAmbiguous(t, errorDetails) {
 		t.Fatalf(
 			"malformed response attempt = %q/%q/%q message=%q",

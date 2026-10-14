@@ -232,28 +232,26 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	}
 	machineSecretID := machineSecret.ID.String()
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Provider Config Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     4,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(1024),
-			},
-			1,
-			1024,
-			map[string]string{"PLAIN": "plain"},
-			map[string]string{"API_TOKEN": machineSecretID},
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Provider Config Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     4,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(1024),
+		},
+		1,
+		1024,
+		map[string]string{"PLAIN": "plain"},
+		map[string]string{"API_TOKEN": machineSecretID},
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -306,12 +304,9 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	}
 	provider := &captureProvider{
 		provisionResourceID: "resource-1",
-		prepare: func(provisioning executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		prepare: func(provisioning executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			if provisioning.CPU != nil || provisioning.MemoryMB != nil {
-				t.Fatalf("preparation input resources = cpu %v memory %v, want unresolved",
-					provisioning.CPU,
-					provisioning.MemoryMB)
+				t.Fatalf("preparation input resources = cpu %v memory %v, want unresolved", provisioning.CPU, provisioning.MemoryMB)
 			}
 			return executionstore.MachineResourceFacts{
 				CPU:      new(1),
@@ -404,8 +399,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		); err != nil {
 			t.Fatalf("insert second project machine grant: %v", err)
 		}
-		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
 				CPU:      new(1),
 				MemoryMB: new(2048),
@@ -454,8 +448,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		); err != nil {
 			t.Fatalf("insert drift project machine grant: %v", err)
 		}
-		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
 				CPU:      new(1),
 				MemoryMB: new(1024),
@@ -466,8 +459,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		if err := manager.ProvisionMachine(ctx, orgID, driftMachineID); !errors.Is(err, provisionErr) {
 			t.Fatalf("initial provider failure = %v, want provision failure", err)
 		}
-		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
 				CPU:      new(2),
 				MemoryMB: new(1024),
@@ -476,10 +468,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		provider.provisionErr = nil
 		provider.provisioning = nil
 		makePoolMachineReadyForManagerReconcile(t, ctx, pool, orgID, driftMachineID)
-		if err := manager.ProvisionMachine(ctx,
-			orgID,
-			driftMachineID); !errors.Is(err,
-			storeerr.ErrStateTransitionConflict) {
+		if err := manager.ProvisionMachine(ctx, orgID, driftMachineID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 			t.Fatalf("provider fact drift error = %v, want state transition conflict", err)
 		}
 		driftMachine, err := store.Execution().GetMachine(ctx, orgID, driftMachineID)
@@ -498,10 +487,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		provider.inspectResourceID = "resource-from-ambiguous-first-attempt"
 		provider.inspectFound = true
 		makePoolMachineReadyForManagerReconcile(t, ctx, pool, orgID, driftMachineID)
-		if err := manager.ProvisionMachine(ctx,
-			orgID,
-			driftMachineID); !errors.Is(err,
-			storeerr.ErrStateTransitionConflict) {
+		if err := manager.ProvisionMachine(ctx, orgID, driftMachineID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 			t.Fatalf("final provider fact drift error = %v, want state transition conflict", err)
 		}
 		driftMachine, err = store.Execution().GetMachine(ctx, orgID, driftMachineID)
@@ -552,8 +538,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		); err != nil {
 			t.Fatalf("seed final provisioning attempt: %v", err)
 		}
-		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
 				CPU:      new(1),
 				MemoryMB: new(1024),
@@ -610,10 +595,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		provider.provisionResourceID = "resource-with-permanent-error"
 		provider.provisionErr = permanentErr
 		provider.deletedResourceIDs = nil
-		if err := manager.ProvisionMachine(ctx,
-			orgID,
-			permanentMachineID); !errors.Is(err,
-			providers.ErrPermanent) {
+		if err := manager.ProvisionMachine(ctx, orgID, permanentMachineID); !errors.Is(err, providers.ErrPermanent) {
 			t.Fatalf("permanent provider failure = %v, want permanent error", err)
 		}
 		permanentMachine, err := store.Execution().GetMachine(ctx, orgID, permanentMachineID)
@@ -638,17 +620,13 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		); err != nil {
 			t.Fatalf("seed final admission attempt: %v", err)
 		}
-		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-			error) {
+		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
 				CPU:      new(1),
 				MemoryMB: new(2048),
 			}, nil
 		}
-		if err := manager.ProvisionMachine(ctx,
-			orgID,
-			machineID); !errors.Is(err,
-			storeerr.ErrStateTransitionConflict) {
+		if err := manager.ProvisionMachine(ctx, orgID, machineID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 			t.Fatalf("final admission error = %v, want state transition conflict", err)
 		}
 		machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
@@ -705,28 +683,26 @@ func TestManagerValidatesPoolPolicyBeforeProvisioning(t *testing.T) {
 		"provider-policy-auth",
 		"pool-token",
 	)
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Provider Policy Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(100),
-				MaxTotalMemoryMB:     new(1024 * 1024),
-				MaxMachineCPU:        new(100),
-				MaxMachineMemoryMB:   new(1024 * 1024),
-			},
-			1,
-			1024,
-			nil,
-			nil,
-			map[string]any{"image": "default"},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Provider Policy Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(100),
+			MaxTotalMemoryMB:     new(1024 * 1024),
+			MaxMachineCPU:        new(100),
+			MaxMachineMemoryMB:   new(1024 * 1024),
+		},
+		1,
+		1024,
+		nil,
+		nil,
+		map[string]any{"image": "default"},
+	))
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
@@ -829,28 +805,26 @@ func TestManagerProvisioningEnvironmentSecrets(t *testing.T) {
 				t.Fatalf("create machine secret: %v", err)
 			}
 			machineSecretID := machineSecret.ID.String()
-			machinePool,
-				err := store.Execution().CreateMachinePool(ctx,
-				machinePoolInputWithDefaultMachineForManagerTest(
-					t,
-					executionstore.CreateMachinePoolInput{
-						OrgID:                orgID,
-						Name:                 "Secret Resolution Pool",
-						Provider:             "capture",
-						ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
-						ProviderAuthSecretID: providerAuthSecretID,
-						MaxTotalMachines:     1,
-						MaxTotalCPU:          new(100),
-						MaxTotalMemoryMB:     new(1024 * 1024),
-						MaxMachineCPU:        new(100),
-						MaxMachineMemoryMB:   new(1024 * 1024),
-					},
-					1,
-					1024,
-					map[string]string{"PLAIN": "plain"},
-					map[string]string{"API_TOKEN": machineSecretID},
-					map[string]any{},
-				))
+			machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+				t,
+				executionstore.CreateMachinePoolInput{
+					OrgID:                orgID,
+					Name:                 "Secret Resolution Pool",
+					Provider:             "capture",
+					ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
+					ProviderAuthSecretID: providerAuthSecretID,
+					MaxTotalMachines:     1,
+					MaxTotalCPU:          new(100),
+					MaxTotalMemoryMB:     new(1024 * 1024),
+					MaxMachineCPU:        new(100),
+					MaxMachineMemoryMB:   new(1024 * 1024),
+				},
+				1,
+				1024,
+				map[string]string{"PLAIN": "plain"},
+				map[string]string{"API_TOKEN": machineSecretID},
+				map[string]any{},
+			))
 
 			if err != nil {
 				t.Fatalf("create machine pool: %v", err)
@@ -918,10 +892,7 @@ func TestManagerProvisioningEnvironmentSecrets(t *testing.T) {
 
 			err = manager.ProvisionMachine(ctx, orgID, machineID)
 			if scenario == "invalid_value" {
-				if !errors.Is(err,
-					storeerr.ErrPermanentEnvironment) ||
-					!strings.Contains(err.Error(),
-						"secret_env.API_TOKEN") {
+				if !errors.Is(err, storeerr.ErrPermanentEnvironment) || !strings.Contains(err.Error(), "secret_env.API_TOKEN") {
 					t.Fatalf("provision machine error = %v, want permanent environment failure", err)
 				}
 			} else if err != nil {
@@ -974,28 +945,26 @@ func TestManagerUsesArchivedPoolProviderConfigForCleanup(t *testing.T) {
 		"cleanup-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Cleanup Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{"mode":"cleanup"}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(maxMemoryMB),
-			},
-			1,
-			1024,
-			map[string]string{},
-			nil,
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Cleanup Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{"mode":"cleanup"}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -1365,28 +1334,26 @@ func TestManagerDeletesMachineWithoutProviderProvisionAttempt(t *testing.T) {
 		"must-not-load",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Unattempted Deleting Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{"api_token":"must-not-load"}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(maxMemoryMB),
-			},
-			1,
-			1024,
-			map[string]string{},
-			nil,
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Unattempted Deleting Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{"api_token":"must-not-load"}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -1505,28 +1472,26 @@ func TestManagerRetriesDeletingAttemptedMachineWithoutResource(t *testing.T) {
 		"attempted-delete-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Attempted Cleanup Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(maxMemoryMB),
-			},
-			1,
-			1024,
-			map[string]string{},
-			nil,
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Attempted Cleanup Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -1581,8 +1546,7 @@ func TestManagerRetriesDeletingAttemptedMachineWithoutResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get delete failed machine: %v", err)
 	}
-	if machine.LifecycleState != "delete_failed" ||
-		machine.LifecycleReasonCode != "provider_resource_not_found" ||
+	if machine.LifecycleState != "delete_failed" || machine.LifecycleReasonCode != "provider_resource_not_found" ||
 		machine.DeleteAttempts != 1 {
 		t.Fatalf("machine did not enter provider missing-resource retry: %+v", machine)
 	}
@@ -1612,28 +1576,26 @@ func TestManagerFinalizesStaleMissingProviderResource(t *testing.T) {
 		"stale-missing-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Stale Missing Provider Resource Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(maxMemoryMB),
-			},
-			1,
-			1024,
-			map[string]string{},
-			nil,
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Stale Missing Provider Resource Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -1712,28 +1674,26 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 		"deleting-resource-token",
 	)
 	maxCPU, maxMemoryMB := 100, 1024*1024
-	machinePool,
-		err := store.Execution().CreateMachinePool(ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Deleting Resource Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{"api_token":"deleting-token"}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          new(maxCPU),
-				MaxTotalMemoryMB:     new(maxMemoryMB),
-				MaxMachineCPU:        new(maxCPU),
-				MaxMachineMemoryMB:   new(maxMemoryMB),
-			},
-			1,
-			1024,
-			map[string]string{},
-			nil,
-			map[string]any{},
-		))
+	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Deleting Resource Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{"api_token":"deleting-token"}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     1,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -1869,10 +1829,7 @@ func seedManagerProjectActor(
 	}
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: orgID,
-			ProjectID: projectID,
-			UserID:    actor.ID,
-			Role:      "admin"},
+		identitystore.AddProjectMembershipInput{OrgID: orgID, ProjectID: projectID, UserID: actor.ID, Role: "admin"},
 	); err != nil {
 		t.Fatalf("add actor project membership: %v", err)
 	}
@@ -2305,15 +2262,14 @@ func testProviderCatalog(definition providers.Definition) Catalog {
 }
 
 type captureProvider struct {
-	provisionResourceID string
-	provisioning        *executionstore.MachineProvisioningConfig
-	machineEnv          map[string]string
-	machineToken        string
-	firstAttempt        bool
-	provisionErr        error
-	validateConfigErr   error
-	prepare             func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts,
-		error)
+	provisionResourceID   string
+	provisioning          *executionstore.MachineProvisioningConfig
+	machineEnv            map[string]string
+	machineToken          string
+	firstAttempt          bool
+	provisionErr          error
+	validateConfigErr     error
+	prepare               func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error)
 	installationID        uuid.UUID
 	machineID             uuid.UUID
 	inspectResourceID     string
@@ -2416,11 +2372,7 @@ func (p *captureProvider) DeleteMachine(
 }
 
 // Only this test database contains the trigger and its nontransactional counter.
-func installWakeCommitFailure(t *testing.T,
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	code string,
-	failures int) {
+func installWakeCommitFailure(t *testing.T, ctx context.Context, pool *pgxpool.Pool, code string, failures int) {
 	t.Helper()
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE SEQUENCE test_wake_attempts;

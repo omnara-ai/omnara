@@ -330,21 +330,17 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 	}
 	input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	return agentexecution.Retry(ctx,
-		"CompleteProcess",
+		"complete_process",
 		func(ctx context.Context) (ProcessRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
+				return ProcessRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
 
 			qtx := dbsqlc.New(tx)
-			if _, err := unit.LockAgent(
-				ctx,
-				dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-				nil,
-			); err != nil {
+			if _, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil); err != nil {
 				return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
 			}
 			row, err := qtx.CompleteProcess(

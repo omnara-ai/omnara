@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -146,8 +147,7 @@ func TestExecutionRecoveryExhaustion(t *testing.T) {
 				prepared = start.Model
 			}
 			for range 8 {
-				_,
-					err = h.FailModel(t.Context(),
+				_, err = h.FailModel(t.Context(),
 					agentexecution.ModelFailure{ContextID: prepared.Context.ID,
 						RuntimeLockID: lease,
 						Recovery:      agentexecution.RecoveryRetry,
@@ -194,8 +194,7 @@ func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
 			return
 		}
 		defer func() { _ = u.Rollback(context.Background()) }()
-		_,
-			err = u.RenewRuntime(t.Context(),
+		_, err = u.RenewRuntime(t.Context(),
 			agentexecution.AgentRoute{ProjectID: f.project,
 				AgentID:     a,
 				RootAgentID: a},
@@ -203,12 +202,7 @@ func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
 			90*time.Second)
 		result <- err
 	}()
-	require.Eventually(t, func() bool {
-		var blocked bool
-		err := f.pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
- WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)`).Scan(&blocked)
-		return err == nil && blocked
-	}, time.Second, 10*time.Millisecond)
+	integrationdb.WaitForLockWaiters(t, t.Context(), f.pool, "", 1)
 	require.Eventually(t, func() bool {
 		var expired bool
 		err := f.pool.QueryRow(t.Context(), `SELECT lease_expires_at<=statement_timestamp()

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -113,7 +114,7 @@ func (h *Handle) Advance(
 		if err != nil {
 			return OwnedWork{}, err
 		}
-		if valueOrZero(retained) {
+		if storeutil.ValueOrZero(retained) {
 			if err = h.releaseRuntime(ctx, m, runtime, false); err != nil {
 				return OwnedWork{}, err
 			}
@@ -182,8 +183,7 @@ func (h *Handle) lockRuntime(
 				executiondb.TryLockExecutionRuntimeParams{AgentID: h.route.AgentID, ID: id},
 			)
 		} else {
-			_,
-				err = q.LockExecutionRuntime(ctx,
+			_, err = q.LockExecutionRuntime(ctx,
 				h.unit.DB(),
 				executiondb.LockExecutionRuntimeParams{AgentID: h.route.AgentID,
 					ID: id})
@@ -327,7 +327,7 @@ func (h *Handle) releaseRuntime(
 		if row.AttemptNumber <= executionpolicy.MaxModelCallRetriesPerOperation {
 			delay := max(0, h.unit.cell.retryBackoff(int(row.AttemptNumber), c.ID.String()).Microseconds())
 			args.RetryMicroseconds = &delay
-			args.Recovery = optionalText("retry")
+			args.Recovery = storeutil.TextFromEmpty("retry")
 		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
@@ -384,8 +384,7 @@ func (h *Handle) releaseRuntime(
 		if err != nil {
 			return err
 		}
-		if _,
-			err = h.completeTool(ctx,
+		if _, err = h.completeTool(ctx,
 			m,
 			call,
 			"failed",

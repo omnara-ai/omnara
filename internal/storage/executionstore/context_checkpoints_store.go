@@ -31,10 +31,10 @@ func (s *Store) PublishContextCheckpoint(
 	input PublishContextCheckpointInput,
 ) (ContextCheckpointRecord, error) {
 	return agentexecution.Retry(ctx,
-		"PublishContextCheckpoint",
+		"publish_context_checkpoint",
 		func(ctx context.Context) (ContextCheckpointRecord,
 			error) {
-			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 			if err != nil {
 				return ContextCheckpointRecord{}, err
 			}
@@ -42,12 +42,10 @@ func (s *Store) PublishContextCheckpoint(
 			result, err := h.PublishCheckpoint(
 				ctx,
 				agentexecution.PublishCheckpointInput{RuntimeLockID: input.RuntimeLockID,
-					ContextID: input.ModelCallContextID, Summary: input.Summary, Evidence: agentexecution.ModelEvidence{
-						APIFormat: input.APIFormat, APIVariant: input.APIVariant, RequestID: input.ProviderRequestID,
-						ResponseID: input.ProviderResponseID,
-						Usage:      input.Usage,
-						Cost:       input.ProviderReportedCostUSD,
-						Metadata:   input.ProviderMetadata}},
+					ContextID: input.ModelCallContextID, Summary: input.Summary,
+					Evidence: executionEvidence(input.APIFormat, input.APIVariant,
+						input.ProviderRequestID, input.ProviderResponseID, input.Usage,
+						input.ProviderReportedCostUSD, input.ProviderMetadata)},
 			)
 			if err != nil {
 				return ContextCheckpointRecord{}, err

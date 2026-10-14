@@ -3,11 +3,11 @@
 package agentexecution_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,14 +71,14 @@ EXPLAIN (GENERIC_PLAN,FORMAT JSON)
 		assert.Contains(t, string(results[0].Rows[0][0]), "tool_calls_runtime_reference_idx")
 		t.Logf("history=%d RI probe: %s", size, raw)
 		assert.NotContains(t, string(raw), `"Node Type": "Seq Scan"`)
-		assert.LessOrEqual(t, planBuffers(t, raw), 10)
+		assert.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 10)
 		release, err := tx.Begin(t.Context())
 		require.NoError(t, err)
 		require.NoError(t, release.QueryRow(t.Context(), `
 EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) DELETE FROM agent_runtime_locks WHERE agent_id=$1 AND id=$2
 `, agent, lease).Scan(&raw))
 		t.Logf("history=%d delete: %s", size, raw)
-		assert.LessOrEqual(t, planBuffers(t, raw), 20)
+		assert.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 20)
 		require.NoError(t, release.Rollback(t.Context()))
 	}
 	_, err = tx.Exec(t.Context(), `
@@ -99,26 +99,16 @@ UPDATE tool_calls SET state='running',runtime_lock_id=$2 WHERE agent_id=$1 AND p
 `, agent, lease)
 	require.NoError(t, err)
 	var raw []byte
-	query := generatedQuery(t, "internal/executiondb/commands_runtime.sql.go", "ListExecutionUnfinishedTools")
+	query := integrationdb.GeneratedQuery(
+		t, "internal/executiondb/commands_runtime.sql.go", "ListExecutionUnfinishedTools",
+	)
 	require.NoError(t, tx.QueryRow(t.Context(), "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+query, agent,
 		nil, lease).Scan(&raw))
 	t.Logf("running tools plan=%s", raw)
-	require.LessOrEqual(t, planBuffers(t, raw), 20)
+	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 20)
 	require.NotContains(t, string(raw), `"Node Type": "Seq Scan"`)
 	_, err = tx.Exec(t.Context(), `DELETE FROM agent_runtime_locks WHERE agent_id=$1 AND id=$2`, agent, lease)
 	require.ErrorContains(t, err, "tool_calls_runtime_lock_id_fkey")
-}
-
-func planBuffers(t *testing.T, raw []byte) int {
-	t.Helper()
-	var plans []struct {
-		Plan struct {
-			Hit  int `json:"Shared Hit Blocks"`
-			Read int `json:"Shared Read Blocks"`
-		}
-	}
-	require.NoError(t, json.Unmarshal(raw, &plans))
-	return plans[0].Plan.Hit + plans[0].Plan.Read
 }
 
 func TestExecutionHotPathScopeConstraints(t *testing.T) {
@@ -227,4 +217,43 @@ SELECT count(*) FROM pg_constraint WHERE conname=ANY($1::text[]) AND convalidate
 			"processes_org_id_fkey", "processes_org_id_project_id_fkey", "processes_project_id_agent_id_fkey",
 			"process_actions_org_id_fkey", "process_actions_org_id_project_id_fkey"}).Scan(&n))
 	require.Zero(t, n)
+}
+
+func TestContextInsertAvoidsSharedScopeLocks(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	_, err := f.pool.Exec(t.Context(), `CREATE EXTENSION pageinspect`)
+	require.NoError(t, err)
+	query := `
+INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
+agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
+opening_input_ids,opening_event_sequence)
+ VALUES($1,$2,$3,$4,$5,'normal',1,$6,$7,1,$8,now(),ARRAY[$9::uuid],1)
+`
+	type opening struct{ agent, turn, input uuid.UUID }
+	var openings []opening
+	for range 2 {
+		agent := f.create(t, uuid.New(), uuid.Nil)
+		turn, input := f.opening(t, agent, 1, uuid.Nil, "content")
+		openings = append(openings, opening{agent, turn, input})
+	}
+	for _, o := range openings {
+		agent, turn, input := o.agent, o.turn, o.input
+		tx, err := f.pool.Begin(t.Context())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = tx.Rollback(t.Context()) })
+		_, err = tx.Exec(t.Context(), `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, agent)
+		require.NoError(t, err)
+		_, err = tx.Exec(t.Context(), query, uuid.New(), f.org, f.project, agent, turn, f.config,
+			f.revision, uuid.New(), input)
+		require.NoError(t, err)
+	}
+	for _, table := range []string{"orgs", "projects", "agent_configs"} {
+		n := integrationdb.MultiXacts(t, f.pool, table)
+		t.Logf("%s MultiXact tuples=%d", table, n)
+		if table == "agent_configs" {
+			require.Positive(t, n, table)
+		} else {
+			require.Zero(t, n, table)
+		}
+	}
 }

@@ -24,12 +24,11 @@ type CreateModelOutputAuthorityInput struct {
 	ProviderReplay          json.RawMessage
 	Usage                   modelenvelope.Usage
 }
-type ContentBlockOwnerKind = string
 
 const (
-	ContentBlockOwnerAgentInput     ContentBlockOwnerKind = "agent_input"
-	ContentBlockOwnerModelOutput    ContentBlockOwnerKind = "model_output"
-	ContentBlockOwnerToolCallResult ContentBlockOwnerKind = "tool_call_result"
+	ContentBlockOwnerAgentInput     = "agent_input"
+	ContentBlockOwnerModelOutput    = "model_output"
+	ContentBlockOwnerToolCallResult = "tool_call_result"
 )
 
 type ModelOutputAuthorityRecord struct {

@@ -17,7 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -688,11 +688,7 @@ func claimSentCompactionForRangeTest(
 	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
 	defer func() { _ = unit.Rollback(ctx) }()
-	_, err = unit.LockAgent(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.AgentID},
-		nil,
-	)
+	_, err = agentexecution.LockTestAgent(ctx, unit, testProjectID, fixture.AgentID, nil)
 	require.NoError(t, err)
 	admitted, err := executionstore.IntegrationAdmitInputs(ctx, unit, testProjectID, fixture.AgentID)
 	require.NoError(t, err)
@@ -781,15 +777,14 @@ func publishCheckpointForRangeTest(
 	summary string,
 	now time.Time,
 ) (executionstore.ContextCheckpointRecord, error) {
-	return fixture.Store.Execution().
-		PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
-			ProjectID: testProjectID, AgentID: fixture.AgentID,
-			RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
-			Summary:            summary,
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         modelprotocol.APIVariantDefault,
-			ProviderResponseID: "resp_" + summary,
-		})
+	return fixture.Store.Execution().PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID,
+		RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
+		Summary:            summary,
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		APIVariant:         modelprotocol.APIVariantDefault,
+		ProviderResponseID: "resp_" + summary,
+	})
 }
 
 func appendCancelStopEventForContinuationSeedTest(

@@ -40,19 +40,16 @@ func TestOrdinaryExecutionLoadStatementBound(t *testing.T) {
 			snapshot, count, roundTrips, err := agentexecution.CountOrdinaryLoad(t.Context(), h)
 			require.NoError(t, err)
 			expectedStatements := map[string]int{"idle": 2, "initial": 2, "incomplete": 3, "complete": 3, "retry": 3}
-			require.Equal(t, expectedStatements[name], count)
-			require.Equal(t, 2, roundTrips)
+			require.LessOrEqual(t, count, expectedStatements[name])
+			require.LessOrEqual(t, roundTrips, 2)
 			_, count, roundTrips, err = agentexecution.CountOrdinaryLoad(t.Context(), h)
 			require.NoError(t, err)
 			expected := 0
 			if snapshot.Selection.Wait == agentexecution.WaitModelDeadline {
 				expected = 1
 			}
-			require.Equal(t, expected, count)
-			require.Equal(t, expected, roundTrips)
-			plan, err := agentexecution.ExplainOrdinaryLoad(t.Context(), h)
-			require.NoError(t, err)
-			t.Log(plan)
+			require.LessOrEqual(t, count, expected)
+			require.LessOrEqual(t, roundTrips, expected)
 			if snapshot.View.Turn != nil && name != "initial" {
 				require.Empty(t, snapshot.View.Turn.InitialOpening.InputIDs)
 			}

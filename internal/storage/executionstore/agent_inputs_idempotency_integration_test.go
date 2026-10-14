@@ -231,7 +231,7 @@ func TestCreateAgentContentInputRechecksArchiveAfterAgentLockWait(t *testing.T) 
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID})
 	require.NoError(t, err)
 	archive := integrationdb.RunAsyncError(func() error {
-		_, _, err := store.Execution().IntegrationArchiveAgentOnce(ctx, testOrgID, testProjectID, agentID, actor)
+		_, _, err := store.Execution().IntegrationArchiveAgentOnce(ctx, testProjectID, agentID, actor)
 		return err
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)

@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -52,8 +53,8 @@ func attemptRecord(row executiondb.ReadExecutionAttemptRow) PreparedModel {
 		Operation:              Operation(row.OperationKind),
 		Attempt:                row.AttemptNumber,
 		InputEventSequence:     row.InputEventSequence,
-		SourceEventSequenceEnd: valueOrZero(row.SourceEventSequenceEnd), State: ContextState(row.State),
-		Recovery: RecoveryKind(valueOrZero(row.RecoveryKind)), RetryAt: row.RetryAt,
+		SourceEventSequenceEnd: storeutil.ValueOrZero(row.SourceEventSequenceEnd), State: ContextState(row.State),
+		Recovery: RecoveryKind(storeutil.ValueOrZero(row.RecoveryKind)), RetryAt: row.RetryAt,
 		Opening: Opening{InputIDs: row.OpeningInputIds, EventSequence: row.OpeningEventSequence}},
 		ConfigID: row.AgentConfigID, RevisionID: row.ConfiguredModelRevisionID, RuntimeLockID: row.RuntimeLockID}
 }

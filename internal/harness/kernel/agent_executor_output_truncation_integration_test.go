@@ -35,12 +35,8 @@ func TestLargeOutputCompactsWithinAvailableContextAndContinues(t *testing.T) {
 		partialSummary   bool
 	}{
 		{name: "completed summary", sourceStopReason: model.StopReasonMaxTokens},
-		{name: "partial summary after answer cutoff",
-			sourceStopReason: model.StopReasonMaxTokens,
-			partialSummary:   true},
-		{name: "partial summary after completed answer",
-			sourceStopReason: model.StopReasonEndTurn,
-			partialSummary:   true},
+		{name: "partial summary after answer cutoff", sourceStopReason: model.StopReasonMaxTokens, partialSummary: true},
+		{name: "partial summary after completed answer", sourceStopReason: model.StopReasonEndTurn, partialSummary: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()

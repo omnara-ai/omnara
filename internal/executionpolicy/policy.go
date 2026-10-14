@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	MaxPendingAgentContentInputs    = 50
 	MaxModelCallRetriesPerOperation = 8
 	DefaultLeaseDuration            = 90 * time.Second
 	MinimumLeaseDuration            = 15 * time.Second

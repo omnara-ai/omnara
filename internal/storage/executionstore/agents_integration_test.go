@@ -45,13 +45,7 @@ func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"agent-profile-launch",
-		"Launch Profile",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-profile-launch", "Launch Profile", `
 instruction: Start with the saved profile config.
 model:
   provider_config: openai-prod
@@ -80,8 +74,7 @@ model:
 		t.Fatalf("launched agent state = %s, want active", launch.Agent.State)
 	}
 	requireAgentWakeupCoverage(t, ctx, store, testProjectID, launch.Agent.ID)
-	if launch.ConfigChange.AgentInput.InputKind != "config_change" ||
-		launch.ConfigChange.AgentInput.State != "resolved" ||
+	if launch.ConfigChange.AgentInput.InputKind != "config_change" || launch.ConfigChange.AgentInput.State != "resolved" ||
 		launch.ConfigChange.AgentInput.AgentConfigID != launch.AgentConfig.ID {
 		t.Fatalf(
 			"initial config change should be resolved with launch config: %+v",
@@ -166,8 +159,7 @@ func TestProjectScopedAgentStorageHidesCrossProjectResources(t *testing.T) {
 	}
 	if _,
 		_,
-		_,
-		err := store.Execution().CreateAgentContentInput(ctx,
+		_, err := store.Execution().CreateAgentContentInput(ctx,
 		executionstore.CreateAgentContentInputInput{
 			ProjectID:      otherProjectID,
 			AgentID:        agentID,
@@ -444,8 +436,7 @@ model:
 	); !isPgCode(err, "25006") {
 		t.Fatalf("mutate resolved config-change input rank error = %v, want SQLSTATE 25006", err)
 	}
-	pinnedConfiguredModel, err := store.Models().
-		GetConfiguredModel(ctx, testOrgID, pinnedConfig.ConfiguredModelID)
+	pinnedConfiguredModel, err := store.Models().GetConfiguredModel(ctx, testOrgID, pinnedConfig.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("load pinned configured model: %v", err)
 	}
@@ -547,13 +538,7 @@ func TestDeleteAgentProfileSerializesWithRetarget(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"delete-retarget",
-		"Delete Retarget",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-retarget", "Delete Retarget", `
 instruction: Initial profile.
 model:
   provider_config: openai-prod
@@ -841,19 +826,17 @@ model:
 	if err != nil {
 		t.Fatalf("retarget profile before create replay: %v", err)
 	}
-	replayedRetarget, err := store.Execution().
-		RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
-			ProjectID:               testProjectID,
-			ProfileID:               first.ID,
-			ExpectedCurrentConfigID: first.CurrentConfigID,
-			IdempotencyKey:          "idem-retarget-profile-replay",
-			ConfigID:                retargetConfig.ID,
-		})
+	replayedRetarget, err := store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
+		ProjectID:               testProjectID,
+		ProfileID:               first.ID,
+		ExpectedCurrentConfigID: first.CurrentConfigID,
+		IdempotencyKey:          "idem-retarget-profile-replay",
+		ConfigID:                retargetConfig.ID,
+	})
 	if err != nil {
 		t.Fatalf("replay retarget profile: %v", err)
 	}
-	if replayedRetarget.ID != retargeted.ID ||
-		replayedRetarget.CurrentConfigID != retargeted.CurrentConfigID ||
+	if replayedRetarget.ID != retargeted.ID || replayedRetarget.CurrentConfigID != retargeted.CurrentConfigID ||
 		replayedRetarget.CurrentGeneration != retargeted.CurrentGeneration {
 		t.Fatalf("unexpected replayed retarget: retargeted=%+v replayed=%+v", retargeted, replayedRetarget)
 	}
@@ -882,8 +865,7 @@ model:
 	if err != nil {
 		t.Fatalf("replay create profile after retarget: %v", err)
 	}
-	if replayedAfterRetarget.ID != first.ID ||
-		replayedAfterRetarget.CurrentConfigID != retargeted.CurrentConfigID ||
+	if replayedAfterRetarget.ID != first.ID || replayedAfterRetarget.CurrentConfigID != retargeted.CurrentConfigID ||
 		replayedAfterRetarget.CurrentConfig.ID != retargeted.CurrentConfigID {
 		t.Fatalf(
 			"replay after retarget should return existing profile head: retargeted=%+v replayed=%+v",
@@ -922,13 +904,7 @@ func TestChangeAgentConfigCreatesConfigChangeEventAndIsIdempotent(t *testing.T) 
 		"agent-config-change-operator@example.com",
 		"Agent Config Change Operator")
 
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"agent-config-change",
-		"Change Profile",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-change", "Change Profile", `
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -1087,14 +1063,12 @@ model:
 		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='config_change'`,
 		launch.Agent.ID).Scan(&count))
 	require.Equal(t, 3, count)
-	_,
-		err = pool.Exec(ctx,
+	_, err = pool.Exec(ctx,
 		`UPDATE project_memberships SET role='operator' WHERE project_id=$1 AND org_membership_id IN (SELECT id FROM org_memberships WHERE user_id=$2)`,
 		testProjectID,
 		user.ID)
 	require.NoError(t, err)
-	_,
-		err = store.Execution().ChangeAgentConfig(ctx,
+	_, err = store.Execution().ChangeAgentConfig(ctx,
 		executionstore.ChangeAgentConfigInput{
 			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{ProjectID: testProjectID},
 			AgentID:                launch.Agent.ID,
@@ -1117,13 +1091,7 @@ func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {
 		store,
 		"agent-config-expected@example.com",
 		"Agent Config Expected")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"agent-config-expected",
-		"Expected Profile",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-expected", "Expected Profile", `
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -1229,13 +1197,7 @@ func TestCaptureAgentConfigForModelContextSeesEventsCommittedBeforeLock(t *testi
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"agent-config-capture",
-		"Capture Profile",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-capture", "Capture Profile", `
 instruction: Original instruction.
 model:
   provider_config: openai-prod
@@ -1281,8 +1243,7 @@ FOR UPDATE
 	resultCh := make(chan captureResult, 1)
 	go func() {
 		close(started)
-		snapshot, err := store.Execution().
-			CaptureAgentConfigForModelContext(ctx, testProjectID, launch.Agent.ID)
+		snapshot, err := store.Execution().CaptureAgentConfigForModelContext(ctx, testProjectID, launch.Agent.ID)
 		resultCh <- captureResult{snapshot: snapshot, err: err}
 	}()
 	<-started
@@ -1399,13 +1360,7 @@ func TestCaptureAgentConfigForEventWatermarkUsesConfigActiveAtSequence(t *testin
 
 	store := newIntegrationStore(pool)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "watermark-config@example.com", "Watermark Config")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"watermark-config",
-		"Watermark Config",
-		`
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "watermark-config", "Watermark Config", `
 instruction: First watermark config.
 model:
   provider_config: openai-prod
@@ -1611,15 +1566,12 @@ func TestChangeAgentConfigReconcilesExplicitMachineSources(t *testing.T) {
 		t.Fatalf("create second machine: %v", err)
 	}
 	for index, machine := range []executionstore.MachineRecord{firstMachine, secondMachine} {
-		if _,
-			_,
-			err := store.Execution().CreateProjectMachineGrant(ctx,
-			executionstore.CreateProjectMachineGrantInput{
-				OrgID:          testOrgID,
-				ProjectID:      testProjectID,
-				MachineID:      machine.ID,
-				IdempotencyKey: fmt.Sprintf("idem-live-explicit-grant-%d", index),
-			}); err != nil {
+		if _, _, err := store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachineID:      machine.ID,
+			IdempotencyKey: fmt.Sprintf("idem-live-explicit-grant-%d", index),
+		}); err != nil {
 			t.Fatalf("grant machine %d: %v", index, err)
 		}
 	}
@@ -1848,12 +1800,11 @@ tools:
 			secondBinding.UpdatedAt,
 		)
 	}
-	token, err := store.Execution().
-		CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
-			OrgID:     testOrgID,
-			MachineID: firstMachine.ID,
-			Name:      "live source removal",
-		})
+	token, err := store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
+		OrgID:     testOrgID,
+		MachineID: firstMachine.ID,
+		Name:      "live source removal",
+	})
 	if err != nil {
 		t.Fatalf("create live source removal daemon token: %v", err)
 	}
@@ -1973,15 +1924,13 @@ tools:
 	}
 	removalCtx, cancelRemoval := context.WithTimeout(ctx, 2*time.Second)
 	defer cancelRemoval()
-	if _,
-		err := store.Execution().IntegrationChangeAgentConfigOnce(removalCtx,
-		executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: changeInputFromRecord(removalConfig),
-			AgentID:                launch.Agent.ID,
-			ActorType:              identitystore.PrincipalTypeUser,
-			ActorID:                user.ID,
-			IdempotencyKey:         "idem-live-explicit-remove",
-		}); err != nil {
+	if _, err := store.Execution().IntegrationChangeAgentConfigOnce(removalCtx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(removalConfig),
+		AgentID:                launch.Agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                user.ID,
+		IdempotencyKey:         "idem-live-explicit-remove",
+	}); err != nil {
 		t.Fatalf("remove explicit source while another grant agent is locked: %v", err)
 	}
 	if err := sharedTx.Commit(ctx); err != nil {
@@ -2004,8 +1953,7 @@ tools:
 	if !publisher.hasProcessTermination(firstMachine.ID, firstProcess.ID) {
 		t.Fatalf("removed explicit source did not publish termination for process %s", firstProcess.ID)
 	}
-	remainingProcess, err := store.Execution().
-		GetProcess(ctx, testProjectID, shared.Agent.ID, sharedProcess.ID)
+	remainingProcess, err := store.Execution().GetProcess(ctx, testProjectID, shared.Agent.ID, sharedProcess.ID)
 	if err != nil {
 		t.Fatalf("load shared explicit source process: %v", err)
 	}
@@ -2078,8 +2026,7 @@ instruction: test
 `
 	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA)
 	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB)
-	if compiledA.Hash != compiledB.Hash ||
-		string(compiledA.CanonicalJSON) != string(compiledB.CanonicalJSON) {
+	if compiledA.Hash != compiledB.Hash || string(compiledA.CanonicalJSON) != string(compiledB.CanonicalJSON) {
 		t.Fatalf(
 			"test sources should compile to equivalent config: hash %q/%q json %s/%s",
 			compiledA.Hash,
@@ -2269,10 +2216,7 @@ func TestEventWebhookTargetFollowsCurrentConfig(t *testing.T) {
 				), CompiledDefinition: compiled.CanonicalJSON,
 				EffectiveDefinitionHash: compiled.Hash,
 			},
-			AgentID:   launch.Agent.ID,
-			ActorType: identitystore.PrincipalTypeUser,
-			ActorID:   user.ID,
-			Reason:    "user_update",
+			AgentID: launch.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
 		})
 		require.NoError(t, err)
 		target, err := store.Execution().GetAgentEventWebhookTarget(ctx, launch.Agent.ID)

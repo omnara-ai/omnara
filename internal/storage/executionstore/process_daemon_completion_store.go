@@ -34,11 +34,11 @@ func (s *Store) MarkProcessStarted(
 	}
 	input.SourceStartedAt = canonicalSourceTime(input.SourceStartedAt)
 	return agentexecution.Retry(ctx,
-		"MarkProcessStarted",
+		"mark_process_started",
 		func(ctx context.Context) (DaemonProcessReportApplication, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("begin mark process started: %w", err)
+				return DaemonProcessReportApplication{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -46,10 +46,7 @@ func (s *Store) MarkProcessStarted(
 			if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-			_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-				ProjectID: input.ProjectID,
-				ID:        input.AgentID,
-			}, nil)
+			_, err = lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
 			if err != nil {
 				return DaemonProcessReportApplication{}, fmt.Errorf(
 					"lock agent for process start observation: %w",
@@ -80,7 +77,7 @@ func (s *Store) MarkProcessStarted(
 				if err != nil {
 					return DaemonProcessReportApplication{}, err
 				}
-				if !isProcessTerminal(record.State) {
+				if !processresult.TerminalState(string(record.State)) {
 					return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
 				}
 			} else if err != nil {
@@ -131,7 +128,7 @@ func (s *Store) CompleteDaemonProcess(
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ID == uuid.Nil {
 		return DaemonProcessReportApplication{}, errors.New("project, agent, and process are required")
 	}
-	if !isProcessTerminal(input.State) {
+	if !processresult.TerminalState(string(input.State)) {
 		return DaemonProcessReportApplication{}, errors.New(
 			"process completion requires a terminal state",
 		)
@@ -152,11 +149,11 @@ func (s *Store) CompleteDaemonProcess(
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	}
 	return agentexecution.Retry(ctx,
-		"CompleteDaemonProcess",
+		"complete_daemon_process",
 		func(ctx context.Context) (DaemonProcessReportApplication, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return DaemonProcessReportApplication{}, fmt.Errorf("begin complete daemon process: %w", err)
+				return DaemonProcessReportApplication{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()
@@ -165,10 +162,7 @@ func (s *Store) CompleteDaemonProcess(
 			if err := requireReportableDaemonRuntimeAuthorityTx(ctx, qtx, input.Authority); err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-			_, err = unit.LockAgent(ctx, dbsqlc.LockAgentInProjectParams{
-				ProjectID: input.ProjectID,
-				ID:        input.AgentID,
-			}, nil)
+			_, err = lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil)
 			if err != nil {
 				return DaemonProcessReportApplication{}, fmt.Errorf(
 					"lock agent for daemon process completion: %w",
@@ -215,7 +209,7 @@ func (s *Store) CompleteDaemonProcess(
 				if err != nil {
 					return DaemonProcessReportApplication{}, err
 				}
-				if !isProcessTerminal(record.State) {
+				if !processresult.TerminalState(string(record.State)) {
 					return DaemonProcessReportApplication{}, storeerr.ErrDaemonRuntimeUnregistered
 				}
 			} else if err != nil {

@@ -30,11 +30,7 @@ func TestConfigOnlyTurnDoesNotBecomeContinuationSeed(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	if seed,
-		found,
-		err := fixture.Store.Execution().NextAgentModelWork(ctx,
-		testProjectID,
-		fixture.AgentID); err != nil {
+	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("load continuation seed for config-only turn: %v", err)
 	} else if found {
 		t.Fatalf("config-only continuation seed = %+v, want none", seed)
@@ -55,8 +51,7 @@ func TestConfigOnlyTurnDoesNotBecomeContinuationSeed(t *testing.T) {
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
 		t.Fatalf("config-only wakeups = %d, want 0", wakeups)
 	}
-	if _,
-		err := fixture.Store.pool.Exec(ctx,
+	if _, err := fixture.Store.pool.Exec(ctx,
 		`INSERT INTO agent_wakeups(agent_id,ready_at,updated_at) VALUES($1,statement_timestamp(),statement_timestamp())`,
 		fixture.AgentID); err != nil {
 		t.Fatal(err)
@@ -92,14 +87,13 @@ func TestClaimNormalModelCallRejectsInputOutsideTurnOpening(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"valid turn input"}]`),
-			IdempotencyKey: "model-context-valid-turn-input",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"valid turn input"}]`),
+		IdempotencyKey: "model-context-valid-turn-input",
+	})
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
@@ -107,8 +101,7 @@ func TestClaimNormalModelCallRejectsInputOutsideTurnOpening(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
 		t.Fatalf("claim = %+v found=%v, want executable input %s", claim, found, input.ID)
 	}
 	var configInputID uuid.UUID
@@ -152,15 +145,14 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release fixture runtime lock: %v", err)
 	}
-	first, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"first steering"}]`),
-			DeliveryMode:   "steering",
-			IdempotencyKey: "exact-opening-input-first",
-		})
+	first, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"first steering"}]`),
+		DeliveryMode:   "steering",
+		IdempotencyKey: "exact-opening-input-first",
+	})
 	if err != nil {
 		t.Fatalf("create first steering input: %v", err)
 	}
@@ -220,8 +212,7 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 	if !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
 		t.Fatalf("duplicate opening input error = %v, want ErrAgentNotAdvanceable", err)
 	}
-	if _,
-		err := fixture.Store.Execution().PrepareNormalModelCall(ctx,
+	if _, err := fixture.Store.Execution().PrepareNormalModelCall(ctx,
 		executionstore.PrepareNormalModelCallInput{
 			ProjectID:       testProjectID,
 			AgentID:         fixture.AgentID,
@@ -388,8 +379,7 @@ func TestResolvedInteractionCreatesWakeup(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "resolved_interaction_wakeup")
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "resolved_interaction_wakeup", "ask_question")
 	interaction := createQuestionInteractionForTest(t, ctx, fixture, toolCallID)
-	questionToolCall, err := fixture.Store.Execution().
-		GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
+	questionToolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
 	if err != nil {
 		t.Fatalf("get question tool call: %v", err)
 	}
@@ -421,8 +411,7 @@ func TestResolvedInteractionCreatesWakeup(t *testing.T) {
 	); err != nil {
 		t.Fatalf("resolve question interaction: %v", err)
 	}
-	resolvedToolCall, err := fixture.Store.Execution().
-		GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
+	resolvedToolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
 	if err != nil {
 		t.Fatalf("get resolved question tool call: %v", err)
 	}
@@ -536,15 +525,14 @@ WHERE input.project_id = $1
 	if responseEvents != 0 {
 		t.Fatalf("stopped interaction response events = %d, want 0", responseEvents)
 	}
-	input, _, _, err := fixture.Store.Execution().
-		CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"next queued input"}]`),
-			DeliveryMode:   "queued",
-			IdempotencyKey: "claim-ignores-stopped-open-interaction-input",
-		})
+	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        fixture.AgentID,
+		Actor:          mustOmnaraActorParams(t, fixture.UserID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"next queued input"}]`),
+		DeliveryMode:   "queued",
+		IdempotencyKey: "claim-ignores-stopped-open-interaction-input",
+	})
 	if err != nil {
 		t.Fatalf("create next queued input: %v", err)
 	}
@@ -552,8 +540,7 @@ WHERE input.project_id = $1
 	if err != nil {
 		t.Fatalf("claim next work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel ||
-		!claimedOpeningInputIDsEqual(claim, input.ID) ||
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) ||
 		claim.Model.TurnID == interaction.TurnID {
 		t.Fatalf(
 			"claim found=%v claim=%+v, want new executable turn for input %s after stopped interaction turn %s",
@@ -597,17 +584,15 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	if waiting.State != executionstore.ToolCallStateAwaitingPermission {
 		t.Fatalf("tool execution after permission prompt state=%q, want awaiting_permission", waiting.State)
 	}
-	if _,
-		err := fixture.Store.Execution().ResolveAgentInteraction(ctx,
-		executionstore.ResolveAgentInteractionInput{
-			ProjectID: testProjectID,
-			AgentID:   fixture.AgentID,
-			ID:        interaction.ID,
-			Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{
-				OptionIndices: []int{toolpermission.AllowOptionIndex},
-			}}},
-			Actor: mustOmnaraActorParams(t, fixture.UserID),
-		}); err != nil {
+	if _, err := fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ID:        interaction.ID,
+		Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{
+			OptionIndices: []int{toolpermission.AllowOptionIndex},
+		}}},
+		Actor: mustOmnaraActorParams(t, fixture.UserID),
+	}); err != nil {
 		t.Fatalf("resolve permission interaction: %v", err)
 	}
 	allowed, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)

@@ -47,11 +47,11 @@ func (s *Store) endExpiredDaemonRuntime(
 		ended   bool
 	}
 	retried, retryErr := agentexecution.Retry(ctx,
-		"endExpiredDaemonRuntime",
+		"end_expired_daemon_runtime",
 		func(ctx context.Context) (transactionResult, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
-				return transactionResult{}, fmt.Errorf("begin end expired daemon runtime: %w", err)
+				return transactionResult{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 			tx := unit.DB()

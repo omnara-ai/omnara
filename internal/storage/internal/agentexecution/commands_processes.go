@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -42,7 +43,7 @@ func processFacts(row executiondb.ReadExecutionProcessOwnerRow) processresult.Pr
 		SourceEndedAt:   row.SourceEndedAt,
 		ExitCode:        exit,
 		ExitSignal:      row.ExitSignal,
-		StateReasonCode: valueOrZero(
+		StateReasonCode: storeutil.ValueOrZero(
 			row.StateReasonCode,
 		), StateReasonMessage: row.StateReasonMessage, ExecutionSpec: row.ExecutionSpec}
 }
@@ -82,9 +83,6 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			if err == nil && len(input.Observed) > 0 {
 				var body map[string]any
 				err = json.Unmarshal(input.Observed, &body)
-				if err == nil && body == nil {
-					err = errors.New("terminal process observation must be an object")
-				}
 				if err == nil {
 					var base map[string]any
 					err = json.Unmarshal(result, &base)
@@ -188,20 +186,20 @@ func (h *Handle) completeProcessAction(
 			} else {
 				message := action.StateReasonMessage
 				if interrupted {
-					message = valueOrZero(action.StateReasonCode)
+					message = storeutil.ValueOrZero(action.StateReasonCode)
 				}
-				result, err = processresult.ReadFailure(facts, request, valueOrZero(action.StateReasonCode), message)
+				result, err = processresult.ReadFailure(facts, request, storeutil.ValueOrZero(action.StateReasonCode), message)
 			}
 		} else if len(result) == 0 || string(result) == "null" {
 			message := action.StateReasonMessage
 			if message == "" && action.State != "applied" {
-				message = valueOrZero(action.StateReasonCode)
+				message = storeutil.ValueOrZero(action.StateReasonCode)
 			}
 			result,
 				err = processresult.ActionResult(process.ID,
 				action.ID,
 				action.State,
-				valueOrZero(action.StateReasonCode),
+				storeutil.ValueOrZero(action.StateReasonCode),
 				message)
 		}
 		if err != nil {
@@ -235,10 +233,10 @@ func (h *Handle) replayProcessRead(
 	raw json.RawMessage,
 ) (ExternalCompletion, error) {
 	result := ExternalCompletion{
-		Tool:      CompletedTool{ID: call.ID, ResultID: valueOrZero(call.ResultID)},
+		Tool:      CompletedTool{ID: call.ID, ResultID: storeutil.ValueOrZero(call.ResultID)},
 		Published: true,
 	}
-	if valueOrZero(call.Outcome) != "succeeded" {
+	if storeutil.ValueOrZero(call.Outcome) != "succeeded" {
 		return result, nil
 	}
 	rows, err := executiondb.New().
@@ -269,10 +267,20 @@ func (h *Handle) completeExternalTool(
 	if call.Type != "built_in" || call.State != "waiting" && call.State != "completed" {
 		return ExternalCompletion{}, storeerr.ErrInvalidToolCallDisposition
 	}
+	if call.State == "completed" {
+		matches, err := h.externalContentMatches(ctx, call.ResultID, parts)
+		if err != nil {
+			return ExternalCompletion{}, err
+		}
+		if !matches {
+			return ExternalCompletion{Tool: CompletedTool{ID: call.ID, ResultID: storeutil.ValueOrZero(call.ResultID)},
+				Published: true}, nil
+		}
+	}
 	completed, err := h.completeTool(ctx, m, call, outcome, parts, uuid.Nil, nil)
 	if errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		return ExternalCompletion{
-			Tool:      CompletedTool{ID: call.ID, ResultID: valueOrZero(call.ResultID)},
+			Tool:      CompletedTool{ID: call.ID, ResultID: storeutil.ValueOrZero(call.ResultID)},
 			Published: call.State == "completed",
 		}, nil
 	}
@@ -303,4 +311,30 @@ func (h *Handle) FailProcessTool(
 		result, err := h.completeExternalTool(ctx, m, call, "failed", content)
 		return result.Tool, err
 	})
+}
+
+func (h *Handle) externalContentMatches(ctx context.Context, resultID *uuid.UUID, parts []Content) (bool, error) {
+	rows, err := executiondb.New().ReadExecutionContent(ctx, h.unit.DB(), executiondb.ReadExecutionContentParams{
+		AgentID: h.route.AgentID, ResultID: resultID})
+	if err != nil {
+		return false, err
+	}
+	if len(rows) != len(parts) {
+		return false, nil
+	}
+	for i, row := range rows {
+		part := parts[i]
+		metadata, err := objectJSON(part.Metadata)
+		if err != nil {
+			return false, err
+		}
+		if row.Ordinal != int32(i) || row.BlockKind != part.Kind || storeutil.TextOrEmpty(row.TextContent) != part.Text ||
+			storeutil.IDFromPtr(row.ArtifactID) != part.ArtifactID || storeutil.IDFromPtr(row.ToolCallID) != part.ToolID ||
+			row.ExcludeFromModelContext != part.Exclude || !equalJSON(row.Metadata, metadata) ||
+			((len(part.Data) > 0 || row.StructuredData != nil) &&
+				!equalJSON(storeutil.ValueOrZero(row.StructuredData), part.Data)) {
+			return false, nil
+		}
+	}
+	return true, nil
 }

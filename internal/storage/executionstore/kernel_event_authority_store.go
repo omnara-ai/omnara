@@ -23,10 +23,6 @@ type TypedAgentEventRecord struct {
 type CreateContentBlockInput struct {
 	ProjectID               uuid.UUID
 	AgentID                 uuid.UUID
-	OwnerKind               string
-	OwnerAgentInputID       uuid.UUID
-	OwnerModelOutputID      uuid.UUID
-	OwnerToolCallResultID   uuid.UUID
 	Ordinal                 int32
 	BlockKind               ContentBlockKind
 	TextContent             string

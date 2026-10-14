@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -23,15 +24,13 @@ func (h *Handle) cancelTurnProcesses(ctx context.Context, turn uuid.UUID) error 
 	if err != nil {
 		return err
 	}
-	if _,
-		err = q.CancelQueuedProcessActionsForAgentTurn(ctx,
+	if _, err = q.CancelQueuedProcessActionsForAgentTurn(ctx,
 		dbsqlc.CancelQueuedProcessActionsForAgentTurnParams{ProjectID: h.route.ProjectID,
 			AgentID: h.route.AgentID,
 			TurnID:  turn}); err != nil {
 		return err
 	}
-	if _,
-		err = q.CancelAcceptedProcessActionsForAgentTurn(ctx,
+	if _, err = q.CancelAcceptedProcessActionsForAgentTurn(ctx,
 		dbsqlc.CancelAcceptedProcessActionsForAgentTurnParams{ProjectID: h.route.ProjectID,
 			AgentID: h.route.AgentID,
 			TurnID:  turn}); err != nil {
@@ -63,7 +62,7 @@ func (h *Handle) interruptActions(
 		dbsqlc.MarkQueuedProcessActionsFailedForProcessParams{
 			OrgID:           orgID,
 			ProcessID:       processID,
-			StateReasonCode: optionalText(queuedReason),
+			StateReasonCode: storeutil.TextFromEmpty(queuedReason),
 		},
 	)
 	if err != nil {
@@ -74,7 +73,7 @@ func (h *Handle) interruptActions(
 		dbsqlc.ResolveAcceptedProcessActionsWithoutEvidenceParams{
 			OrgID:           orgID,
 			ProcessID:       processID,
-			StateReasonCode: optionalText(acceptedReason),
+			StateReasonCode: storeutil.TextFromEmpty(acceptedReason),
 		},
 	)
 	if err != nil {
@@ -104,7 +103,7 @@ func (h *Handle) failQueuedRuntime(ctx context.Context, id uuid.UUID, reason str
 			ProjectID:       h.route.ProjectID,
 			AgentID:         h.route.AgentID,
 			RuntimeLockID:   id,
-			StateReasonCode: optionalText(reason),
+			StateReasonCode: storeutil.TextFromEmpty(reason),
 		},
 	)
 	if err != nil {
@@ -121,7 +120,7 @@ func (h *Handle) failQueuedRuntime(ctx context.Context, id uuid.UUID, reason str
 			ProjectID:       h.route.ProjectID,
 			AgentID:         h.route.AgentID,
 			RuntimeLockID:   id,
-			StateReasonCode: optionalText(reason),
+			StateReasonCode: storeutil.TextFromEmpty(reason),
 		},
 	)
 	if err != nil {
@@ -160,7 +159,7 @@ func (h *Handle) InterruptProcess(ctx context.Context, id uuid.UUID, reason stri
 					ProjectID:       h.route.ProjectID,
 					AgentID:         h.route.AgentID,
 					ID:              id,
-					StateReasonCode: optionalText(reason),
+					StateReasonCode: storeutil.TextFromEmpty(reason),
 				},
 			)
 			if err != nil {
@@ -174,7 +173,7 @@ func (h *Handle) InterruptProcess(ctx context.Context, id uuid.UUID, reason stri
 					OrgID:           row.OrgID,
 					MachineID:       row.MachineID,
 					ID:              id,
-					StateReasonCode: optionalText(reason),
+					StateReasonCode: storeutil.TextFromEmpty(reason),
 				},
 			)
 			if err != nil {
@@ -205,8 +204,7 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 		if identity.State == "archived" {
 			return false, nil
 		}
-		if _,
-			err = h.Cancel(ctx,
+		if _, err = h.Cancel(ctx,
 			CancelInput{ActorID: actorID,
 				Reason:       "agent_archived",
 				Message:      "The model call was stopped because the agent was archived.",
@@ -227,8 +225,7 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 				AgentID: h.route.AgentID}); err != nil {
 			return false, err
 		}
-		if _,
-			err = q.DeleteCronTriggersForAgent(ctx,
+		if _, err = q.DeleteCronTriggersForAgent(ctx,
 			dbsqlc.DeleteCronTriggersForAgentParams{ProjectID: h.route.ProjectID,
 				AgentID: &h.route.AgentID}); err != nil {
 			return false, err
@@ -248,8 +245,7 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 				return false, err
 			}
 		}
-		if _,
-			err = executiondb.New().CancelExecutionInputs(ctx,
+		if _, err = executiondb.New().CancelExecutionInputs(ctx,
 			h.unit.DB(),
 			executiondb.CancelExecutionInputsParams{AgentID: h.route.AgentID,
 				IncludeQueued: true}); err != nil {

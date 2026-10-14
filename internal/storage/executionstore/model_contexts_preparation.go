@@ -27,13 +27,13 @@ func (s *Store) PrepareNormalModelCall(
 	ctx context.Context,
 	input PrepareNormalModelCallInput,
 ) (PreparedNormalModelCall, error) {
+	if input.RuntimeLockID == uuid.Nil || len(input.OpeningInputIDs) == 0 {
+		return PreparedNormalModelCall{}, errors.New("runtime and opening inputs are required")
+	}
 	return agentexecution.Retry(ctx,
-		"PrepareNormalModelCall",
+		"prepare_normal_model_call",
 		func(ctx context.Context) (PreparedNormalModelCall, error) {
-			if input.RuntimeLockID == uuid.Nil || len(input.OpeningInputIDs) == 0 {
-				return PreparedNormalModelCall{}, errors.New("runtime and opening inputs are required")
-			}
-			unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false)
+			unit, _, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 			if err != nil {
 				return PreparedNormalModelCall{}, err
 			}

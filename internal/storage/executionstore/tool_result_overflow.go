@@ -12,9 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/textutil"
@@ -196,99 +194,10 @@ func (s *Store) prepareToolResult(
 	if err != nil {
 		return nil, err
 	}
-	if artifact.Digest != blobstore.ContentDigest(overflow.content) ||
-		artifact.ContentType != overflow.contentType ||
-		artifact.Filename != "tool-result" ||
-		artifact.SizeBytes == nil ||
+	if artifact.Digest != blobstore.ContentDigest(overflow.content) || artifact.ContentType != overflow.contentType ||
+		artifact.Filename != "tool-result" || artifact.SizeBytes == nil ||
 		*artifact.SizeBytes != int64(len(overflow.content)) {
 		return nil, storeerr.ErrIdempotencyConflict
 	}
 	return overflow.contentParts(artifact.ID)
-}
-
-func (s *Store) expandToolResult(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	parts json.RawMessage,
-) (json.RawMessage, error) {
-	blocks, err := parseToolResultContentBlocks(parts)
-	if err != nil {
-		return nil, err
-	}
-	if len(blocks) < 2 || blocks[0].BlockKind != ContentBlockKindStructuredData ||
-		blocks[1].BlockKind != ContentBlockKindArtifact ||
-		!blocks[1].ExcludeFromModelContext {
-		return parts, nil
-	}
-	var marker struct {
-		Path        string `json:"path"`
-		Truncated   bool   `json:"truncated"`
-		ContentType string `json:"content_type"`
-	}
-	if err = json.Unmarshal(blocks[0].StructuredData, &marker); err != nil {
-		return nil, err
-	}
-	id, err := publicid.Encode(publicid.KindArtifact, blocks[1].ArtifactID)
-	if err != nil {
-		return nil, err
-	}
-	if !marker.Truncated || marker.Path != toolcatalog.ArtifactVFSRoot+"/"+id {
-		return parts, nil
-	}
-	if s.artifacts == nil {
-		return nil, errors.New("artifact storage is required for tool result replay")
-	}
-	content, _, err := s.artifacts.GetArtifactBlob(ctx, projectID, agentID, blocks[1].ArtifactID)
-	if err != nil {
-		return nil, err
-	}
-	if marker.ContentType == "text/plain" {
-		return marshalToolResultContentBlocks(
-			append(
-				[]CreateContentBlockInput{{BlockKind: ContentBlockKindText, TextContent: string(content)}},
-				blocks[2:]...),
-		)
-	}
-	return content, nil
-}
-
-func (s *Store) replayToolContent(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	original json.RawMessage,
-	err error,
-) (json.RawMessage, error) {
-	var conflict *agentexecution.ContentConflictError
-	if !errors.As(err, &conflict) {
-		return nil, err
-	}
-	blocks := make([]CreateContentBlockInput, len(conflict.Stored))
-	for i, part := range conflict.Stored {
-		metadata, decodeErr := resourcemeta.FromJSON(part.Metadata)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		blocks[i] = CreateContentBlockInput{
-			Ordinal:                 part.Ordinal,
-			BlockKind:               ContentBlockKind(part.Kind),
-			TextContent:             part.Text,
-			StructuredData:          part.Data,
-			ArtifactID:              part.ArtifactID,
-			ToolCallID:              part.ToolID,
-			ExcludeFromModelContext: part.Exclude,
-			Metadata:                metadata,
-		}
-	}
-	stored, encodeErr := marshalToolResultContentBlocks(blocks)
-	if encodeErr != nil {
-		return nil, encodeErr
-	}
-	expanded, readErr := s.expandToolResult(ctx, projectID, agentID, stored)
-	if readErr != nil {
-		return nil, readErr
-	}
-	if !sameJSON(expanded, original) {
-		return nil, err
-	}
-	return stored, nil
 }

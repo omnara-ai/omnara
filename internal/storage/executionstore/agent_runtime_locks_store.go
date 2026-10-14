@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AgentRuntimeLockRecord struct {
@@ -29,16 +28,13 @@ type AgentRuntimeLockRenewal struct {
 func (s *Store) EnsureRuntimeLockActive(
 	ctx context.Context, projectID, agentID, runtimeID uuid.UUID,
 ) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
+		return errors.New("project, agent, and runtime lock ids are required")
+	}
 	_, err := agentexecution.Retry(ctx,
-		"EnsureRuntimeLockActive",
+		"ensure_runtime_lock_active",
 		func(ctx context.Context) (struct{}, error) {
-			if projectID == uuid.Nil || agentID == uuid.Nil || runtimeID == uuid.Nil {
-				return struct{}{}, errors.New("project, agent, and runtime lock ids are required")
-			}
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
-			if errors.Is(err, storeerr.ErrNotFound) {
-				return struct{}{}, storeerr.ErrRuntimeLockInactive
-			}
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, runtimeID)
 			if err != nil {
 				return struct{}{}, err
 			}
@@ -57,7 +53,7 @@ func (s *Store) RenewAgentRuntimeLock(
 	leaseDuration time.Duration,
 ) (AgentRuntimeLockRenewal, error) {
 	return agentexecution.Retry(ctx,
-		"RenewAgentRuntimeLock",
+		"renew_agent_runtime_lock",
 		func(ctx context.Context) (AgentRuntimeLockRenewal, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
@@ -96,12 +92,9 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) error {
 	_, err := agentexecution.Retry(ctx,
-		"ReleaseAgentRuntimeLock",
+		"release_agent_runtime_lock",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false)
-			if errors.Is(err, storeerr.ErrNotFound) {
-				return struct{}{}, storeerr.ErrRuntimeLockInactive
-			}
+			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, runtimeLockID)
 			if err != nil {
 				return struct{}{}, err
 			}

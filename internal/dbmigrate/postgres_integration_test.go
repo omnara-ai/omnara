@@ -263,18 +263,12 @@ INSERT INTO projects(org_id, name, created_at, updated_at)
 VALUES ($1, 'immutable-project', statement_timestamp(), statement_timestamp())
 RETURNING id::text
 `, originalOrgID).Scan(&projectID))
-	if _,
-		err := db.ExecContext(ctx,
-		`UPDATE projects SET org_id = $1 WHERE id = $2`,
-		otherOrgID,
-		projectID); err == nil {
+	if _, err := db.ExecContext(ctx, `UPDATE projects SET org_id = $1 WHERE id = $2`, otherOrgID, projectID); err == nil {
 		t.Fatal("project organization update succeeded")
 	}
 	var retainedOrgID string
 	require.NoError(
-		t,
-		db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).
-			Scan(&retainedOrgID),
+		t, db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID),
 	)
 	if retainedOrgID != originalOrgID {
 		t.Fatalf("project org_id = %s, want %s", retainedOrgID, originalOrgID)
@@ -825,10 +819,7 @@ WHERE id = $1
 `, grantID); err != nil {
 		t.Fatalf("set valid grant minimums: %v", err)
 	}
-	if _,
-		err := db.ExecContext(ctx,
-		`UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`,
-		poolID); err == nil {
+	if _, err := db.ExecContext(ctx, `UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`, poolID); err == nil {
 		t.Fatal("pool minimum above maximum unexpectedly succeeded")
 	}
 	if _, err := db.ExecContext(
