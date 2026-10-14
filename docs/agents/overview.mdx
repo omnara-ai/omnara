@@ -46,12 +46,11 @@ The CLI takes `--profile`, and `--config`, `--file`, or `--source` for the confi
 ### Attach integrations and an initial input atomically
 
 The create-agent API accepts `tools` and `interaction_handlers`
-alongside the pinned `config`. They use the same names and capability selections as
-ordinary config authoring. Derivation adds missing entries and preserves existing
-entries as a whole, including explicit disabled tools. The base's pinned model
-and other identities are retained.
-When `profile` is supplied, the base `config` must be its current config or a
-historical version of that profile.
+alongside `profile`, `config`, or `config_source`. They extend the config the launch
+would otherwise run, and the result is saved as a new config. They use the same names
+and capability selections as ordinary config authoring. Derivation adds missing entries
+and preserves existing entries as a whole, including explicit disabled tools. The
+base's pinned model and other identities are retained.
 The separate `subscriptions` array attaches integration-owned conversations to the new
 agent, using `integration_id` and `conversation`. The integration determines which
 activity is forwarded. Subscriptions alone leave the pinned config unchanged. Ordinary API attachments do not establish
