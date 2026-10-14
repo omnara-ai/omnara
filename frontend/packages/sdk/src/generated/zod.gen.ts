@@ -3457,10 +3457,17 @@ export const zIntegrationSubscriptionAttachment = z.object({
     conversation: zIntegrationConversation
 });
 
-/**
- * Send at least one of profile, config, or config_source, and not both config and config_source. With only profile, the agent runs the profile's current config. With profile and config or config_source, the agent is attributed to the profile but runs the given config, which need not be one of the profile's versions. config_source is compiled and saved as a new config during the launch.
- */
-export const zCreateAgentRequest = z.object({
+export const zCreateAgentRequest = z.intersection(z.union([
+    z.object({
+        profile: zAgentProfileId
+    }),
+    z.object({
+        config: zAgentConfigId
+    }),
+    z.object({
+        config_source: zCreateAgentConfigRequest
+    })
+]), z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId.optional(),
     config_source: zCreateAgentConfigRequest.optional(),
@@ -3470,7 +3477,7 @@ export const zCreateAgentRequest = z.object({
     subscriptions: z.array(zIntegrationSubscriptionAttachment).max(100).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
-});
+}));
 
 export const zCreateIntegrationSubscriptionRequest = z.object({
     agent_id: zAgentId,

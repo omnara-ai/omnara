@@ -11987,6 +11987,25 @@ components:
         and saved as a new config during the launch.
       type: object
       additionalProperties: false
+      anyOf:
+        - type: object
+          required: [profile]
+          properties:
+            profile:
+              $ref: '#/components/schemas/AgentProfileID'
+        - type: object
+          required: [config]
+          properties:
+            config:
+              $ref: '#/components/schemas/AgentConfigID'
+        - type: object
+          required: [config_source]
+          properties:
+            config_source:
+              $ref: '#/components/schemas/CreateAgentConfigRequest'
+      not:
+        type: object
+        required: [config, config_source]
       properties:
         profile:
           $ref: '#/components/schemas/AgentProfileID'

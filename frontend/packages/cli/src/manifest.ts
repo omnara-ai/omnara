@@ -65,7 +65,6 @@ export const commandGroups: CommandGroup[] = [
           message: z.string().optional(),
         }),
         transformBody: ({ profile, name, message, ...attachment }) => ({
-          profile,
           name,
           message,
           ...renderLaunchConfig(profile, attachment),

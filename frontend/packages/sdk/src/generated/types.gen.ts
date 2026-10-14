@@ -1989,10 +1989,13 @@ export type ListCronTriggersResponse = {
     next_cursor: string | null;
 };
 
-/**
- * Send at least one of profile, config, or config_source, and not both config and config_source. With only profile, the agent runs the profile's current config. With profile and config or config_source, the agent is attributed to the profile but runs the given config, which need not be one of the profile's versions. config_source is compiled and saved as a new config during the launch.
- */
-export type CreateAgentRequest = {
+export type CreateAgentRequest = ({
+    profile: AgentProfileId;
+} | {
+    config: AgentConfigId;
+} | {
+    config_source: CreateAgentConfigRequest;
+}) & {
     profile?: AgentProfileId;
     config?: AgentConfigId;
     config_source?: CreateAgentConfigRequest;

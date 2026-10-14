@@ -81,11 +81,14 @@ describe('renderConfigSource', () => {
 
 describe('renderLaunchConfig', () => {
   it('runs the profile config when no config is given', () => {
-    expect(renderLaunchConfig('apf_1', {})).toEqual({})
+    expect(renderLaunchConfig('apf_1', {})).toEqual({ profile: 'apf_1' })
   })
 
   it('passes an existing config ID', () => {
-    expect(renderLaunchConfig('apf_1', { config: 'apc_1' })).toEqual({ config: 'apc_1' })
+    expect(renderLaunchConfig('apf_1', { config: 'apc_1' })).toEqual({
+      profile: 'apf_1',
+      config: 'apc_1',
+    })
   })
 
   it('sends an inline source as config_source', () => {
