@@ -3244,7 +3244,7 @@ export const createMachinePool = <ThrowOnError extends boolean = true>(options: 
 /**
  * Check machine pool connection
  *
- * Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider. Nothing is stored. When the provider rejects the credential or config, or the config is invalid, the API responds 422. When the provider fails or does not respond, the API responds 424; retrying may succeed. Both carry a plain-language `error` and, when the provider call failed, the provider's original error in `details`.
+ * Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider.
  */
 export const checkMachinePoolConnection = <ThrowOnError extends boolean = true>(options: Options<CheckMachinePoolConnectionData, ThrowOnError>): RequestResult<CheckMachinePoolConnectionResponses, CheckMachinePoolConnectionErrors, ThrowOnError> => (options.client ?? client).post<CheckMachinePoolConnectionResponses, CheckMachinePoolConnectionErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCheckMachinePoolConnectionResponse),
