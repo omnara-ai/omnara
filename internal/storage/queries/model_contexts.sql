@@ -552,7 +552,8 @@ WITH current AS MATERIALIZED (
   WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
     AND context.id = sqlc.arg(model_call_context_id)
 ), latest_optional AS MATERIALIZED (
-  SELECT prior.id, prior.project_id, prior.agent_id, prior.optional_input_target_tokens, prior.completed_at
+  SELECT prior.id, prior.project_id, prior.agent_id, prior.input_event_sequence,
+         prior.optional_input_target_tokens, prior.completed_at
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
   WHERE prior.project_id = current.project_id
     AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'compact_optional'
@@ -574,6 +575,7 @@ WITH current AS MATERIALIZED (
     AND measured.configured_model_revision_id = current.configured_model_revision_id
     AND measured.agent_config_id = current.agent_config_id
   JOIN latest_optional ON measured.created_at > latest_optional.completed_at
+    AND measured.input_event_sequence >= latest_optional.input_event_sequence
   WHERE measured.operation_kind = 'normal' AND measured.state = 'succeeded'
     AND measured.created_at < current.created_at
   ORDER BY measured.created_at DESC, measured.id DESC LIMIT 1
