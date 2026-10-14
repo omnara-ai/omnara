@@ -621,6 +621,8 @@
       "type": "object"
     },
     "AgentConfigDefinitionToolInputSchema": {
+      "additionalProperties": true,
+      "description": "A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.",
       "properties": {
         "properties": {
           "additionalProperties": {

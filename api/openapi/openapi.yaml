@@ -8979,7 +8979,11 @@ components:
       x-go-type-import:
         path: github.com/omnara-ai/omnara/internal/agentconfig
     AgentConfigDefinitionToolInputSchema:
+      description: >-
+        A JSON Schema for the tool's input. Keywords beyond those listed, such
+        as additionalProperties or description, are allowed.
       type: object
+      additionalProperties: true
       required: [type]
       properties:
         properties:

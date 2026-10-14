@@ -179,6 +179,9 @@ export type AgentConfigDefinitionTool = {
     type?: 'built_in' | 'custom';
 };
 
+/**
+ * A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.
+ */
 export type AgentConfigDefinitionToolInputSchema = {
     properties?: {
         [key: string]: {
@@ -187,6 +190,7 @@ export type AgentConfigDefinitionToolInputSchema = {
     };
     required?: Array<string>;
     type: 'object';
+    [key: string]: unknown;
 };
 
 export type AgentConfigDefinitionToolPermission = {

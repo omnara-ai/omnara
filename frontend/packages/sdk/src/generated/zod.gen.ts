@@ -48,7 +48,10 @@ export const zAgentConfigDefinitionSubagentInstruction = z.object({
     append: z.string().optional()
 });
 
-export const zAgentConfigDefinitionToolInputSchema = z.object({
+/**
+ * A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.
+ */
+export const zAgentConfigDefinitionToolInputSchema = z.looseObject({
     properties: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     required: z.array(z.string().min(1)).optional(),
     type: z.literal('object')
@@ -209,7 +212,7 @@ export const zAgentConfigDefinition = z.object({
 /**
  * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
  */
-export const zAgentConfigToolsDefinition = z.object({
+export const zAgentConfigToolsDefinition = z.looseObject({
     git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
     interaction_handlers: zAgentConfigDefinitionInteractionHandlers.optional(),
     machine_sources: zAgentConfigDefinitionMachineSources.optional(),
