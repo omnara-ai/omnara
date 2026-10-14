@@ -1,6 +1,7 @@
 import { createOmnaraClient, type JsonBody, schemas } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import * as z from 'zod'
 
 import { runAgentMcpAdd, zMcpAddBody } from './mcp-add.ts'
 
@@ -133,7 +134,7 @@ it('adds the server to the generated source when the config has no saved source'
   ).rejects.toThrow()
   const body = schemas.zUpdateAgentConfigRequest.parse(update)
   expect(body).toMatchObject({ source_format: 'yaml', expected_current_config_id: configId })
-  expect(parse(body.source)).toEqual({
+  expect(parse(z.string().parse(body.source))).toEqual({
     instruction: 'Help.',
     mcp: { docs: { url: 'https://mcp.example.com', auth: { type: 'oauth', secret_id: secretId } } },
   })
