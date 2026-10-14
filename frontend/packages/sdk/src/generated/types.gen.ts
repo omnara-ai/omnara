@@ -1567,6 +1567,10 @@ export type AgentConfig = {
     compiled_definition: CompiledAgentConfig;
 };
 
+export type AgentConfigGeneratedSource = {
+    source: string;
+};
+
 export type CreateAgentProfileRequest = {
     name: ResourceName;
     config: AgentConfigId;
@@ -9634,6 +9638,80 @@ export type GetAgentConfigResponses = {
 };
 
 export type GetAgentConfigResponse = GetAgentConfigResponses[keyof GetAgentConfigResponses];
+
+export type GetAgentConfigGeneratedSourceData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+        agentConfigID: string;
+    };
+    query?: {
+        /**
+         * Format of the returned source.
+         */
+        source_format?: 'yaml' | 'json';
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source';
+};
+
+export type GetAgentConfigGeneratedSourceErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentConfigGeneratedSourceError = GetAgentConfigGeneratedSourceErrors[keyof GetAgentConfigGeneratedSourceErrors];
+
+export type GetAgentConfigGeneratedSourceResponses = {
+    /**
+     * Generated agent config source.
+     */
+    200: AgentConfigGeneratedSource;
+};
+
+export type GetAgentConfigGeneratedSourceResponse = GetAgentConfigGeneratedSourceResponses[keyof GetAgentConfigGeneratedSourceResponses];
 
 export type ListAgentProfilesData = {
     body?: never;

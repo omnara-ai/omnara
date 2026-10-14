@@ -734,6 +734,11 @@ model:
   })
 })
 
+it('accepts max_depth without subagents', () => {
+  expect(basicConfigValid({ ...fullConfig, subagents: [], maxSubagents: '' })).toBe(true)
+  expect(basicConfigValid({ ...fullConfig, subagents: [] })).toBe(false)
+})
+
 describe('basic agent config names', () => {
   it.each([
     ['provider config', { providerConfig: ' anthropic' }],

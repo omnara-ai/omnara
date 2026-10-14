@@ -1065,6 +1065,10 @@ export const zAgentConfigSummary = z.object({
     created_at: zTimestamp
 });
 
+export const zAgentConfigGeneratedSource = z.object({
+    source: z.string()
+});
+
 export const zCreateAgentProfileRequest = z.object({
     name: zResourceName,
     config: zAgentConfigId
@@ -4372,6 +4376,21 @@ export const zGetAgentConfigPath = z.object({
  * Agent config.
  */
 export const zGetAgentConfigResponse = zAgentConfig;
+
+export const zGetAgentConfigGeneratedSourcePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentConfigID: z.string().regex(/^acfg_[a-z2-7]{26}$/)
+});
+
+export const zGetAgentConfigGeneratedSourceQuery = z.object({
+    source_format: z.enum(['yaml', 'json']).optional().default('yaml')
+});
+
+/**
+ * Generated agent config source.
+ */
+export const zGetAgentConfigGeneratedSourceResponse = zAgentConfigGeneratedSource;
 
 export const zListAgentProfilesPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

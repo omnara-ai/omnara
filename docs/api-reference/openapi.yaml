@@ -3263,6 +3263,65 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentConfigID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^acfg_[a-z2-7]{26}$'
+    get:
+      operationId: getAgentConfigGeneratedSource
+      tags: [Configs and Profiles]
+      summary: Get generated agent config source
+      description: >-
+        Rebuilds a source from the config's compiled_definition, for configs
+        saved without a source.
+      parameters:
+        - name: source_format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [yaml, json]
+            default: yaml
+          description: Format of the returned source.
+      responses:
+        '200':
+          description: Generated agent config source.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentConfigGeneratedSource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-profiles:
     parameters:
       - name: orgID
@@ -11084,6 +11143,13 @@ components:
           $ref: '#/components/schemas/Timestamp'
         compiled_definition:
           $ref: '#/components/schemas/CompiledAgentConfig'
+    AgentConfigGeneratedSource:
+      type: object
+      additionalProperties: false
+      required: [source]
+      properties:
+        source:
+          type: string
     CreateAgentProfileRequest:
       type: object
       additionalProperties: false

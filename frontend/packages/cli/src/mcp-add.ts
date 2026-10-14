@@ -146,6 +146,19 @@ async function loadConfig(
   return (await sdk.getAgentConfig({ client, path: { ...path, agentConfigID: configId } })).data
 }
 
+async function withEditableSource(
+  client: OmnaraClient,
+  scope: ProjectScope,
+  config: AgentConfig,
+): Promise<AgentConfig> {
+  if (config.source !== undefined) return config
+  const { data } = await sdk.getAgentConfigGeneratedSource({
+    client,
+    path: { orgID: scope.orgId, projectID: scope.projectId, agentConfigID: config.id },
+  })
+  return { ...config, source: data.source, source_format: 'yaml' }
+}
+
 async function applyConfig(
   client: OmnaraClient,
   scope: ProjectScope,
@@ -208,7 +221,11 @@ async function runMcpAdd(
     owner: { kind: 'project', project_id: scope.projectId },
     name: secret_name ?? `${server_name}-mcp`,
   }
-  const currentConfig = await loadConfig(client, scope, target, targetId)
+  const currentConfig = await withEditableSource(
+    client,
+    scope,
+    await loadConfig(client, scope, target, targetId),
+  )
   const prepared = prepareConfig(currentConfig, server_name, request.mcp_url)
   let secret: Secret
   try {

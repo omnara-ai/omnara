@@ -81,7 +81,7 @@ export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string,
     subagents.every(subagentValid) &&
     optionalPositiveInt32Valid(maxSubagents) &&
     maxDepthValid(maxDepth) &&
-    ((maxSubagents === '' && maxDepth === '') || subagents.length > 0)
+    (maxSubagents === '' || subagents.length > 0)
   )
 }
 

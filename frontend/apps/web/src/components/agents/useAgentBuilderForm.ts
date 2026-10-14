@@ -23,6 +23,7 @@ import {
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import {
   type BasicSubagent,
+  maxDepthValid,
   subagentsValid,
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
@@ -253,7 +254,7 @@ export function useAgentBuilderForm(
           ? {
               subagents,
               maxSubagents: '',
-              maxDepth: '',
+              maxDepth: maxDepthValid(draft.maxDepth) ? draft.maxDepth : '',
               tools: draft.tools.filter((tool) => tool.name !== 'spawn_agent'),
             }
           : { subagents },
