@@ -14,11 +14,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (

@@ -1,0 +1,77 @@
+package integration
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+const inboxDeliveryUnavailableMessage = "I couldn't deliver this request to the agent. " +
+	"Please contact the integration owner."
+
+func (c *IntegrationInboxConsumer) FinalizeFailure(
+	ctx context.Context, projectID, receiptID uuid.UUID, cause error,
+) error {
+	receipt, err := c.inbox.GetIntegrationInbox(ctx, projectID, receiptID)
+	if err != nil {
+		return err
+	}
+	if receipt.State != integrationstore.IntegrationInboxFailed {
+		return storeerr.ErrStateTransitionConflict
+	}
+	message := inboxFailureMessage
+	unfinished := true
+	var failures []error
+	var plan IntegrationInboxPlan
+	if len(receipt.Plan) != 0 {
+		plan, err = decodeIntegrationInboxPlan(receipt.Plan)
+		if err != nil {
+			return err
+		}
+		outcomes, err := c.router.execution.GetIntegrationInboxOutcomes(ctx, receipt)
+		unfinished = false
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			pendingSubscription := false
+			for key, outcome := range outcomes {
+				if outcome == executionstore.InboxRecipientPending {
+					unfinished = true
+					pendingSubscription = pendingSubscription || plan.Recipients[key].Subscription != nil
+				} else if outcome == executionstore.InboxRecipientDelivered {
+					message = "I couldn't deliver this request to every agent. Some agents have already received it."
+				}
+			}
+			if pendingSubscription && message == inboxFailureMessage {
+				message = inboxDeliveryUnavailableMessage
+			}
+		}
+	}
+	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
+		message = launchUnavailableMessage
+	}
+	if unfinished {
+		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		integration, err := c.inbox.GetIntegrationByID(noticeCtx, receipt.IntegrationID)
+		if err == nil {
+			if provider, ok := c.providers[integration.Provider].(interface {
+				NotifyInboxFailure(
+					context.Context, integrationstore.IntegrationRecord, integrationstore.IntegrationInboxRecord, string,
+				) error
+			}); ok {
+				err = provider.NotifyInboxFailure(noticeCtx, integration, receipt, message)
+			}
+		}
+		cancel()
+		failures = append(failures, err)
+	}
+	if artifacts, ok := c.artifacts.(IntegrationInboxArtifactCleaner); ok && integrationInboxPlanHasArtifacts(plan) {
+		failures = append(failures, CleanupTerminalIntegrationInboxArtifacts(ctx, c.inbox, artifacts, projectID, receiptID))
+	}
+	return errors.Join(failures...)
+}

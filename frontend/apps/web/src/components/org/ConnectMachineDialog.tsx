@@ -1,8 +1,8 @@
 import { useConnectMachine } from '@omnara/react'
-import { type SyntheticEvent, useReducer } from 'react'
+import { type SyntheticEvent, useId, useReducer } from 'react'
 
 import { CheckIcon, CopyIcon } from '@/components/icons'
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -81,6 +81,7 @@ export function ConnectMachineDialog({
   onOpenChange: (open: boolean) => void
   orgId: string
 }) {
+  const idPrefix = useId()
   const connectMachine = useConnectMachine(orgId)
   const { data: webConfig } = useWebConfig()
   const [state, dispatch] = useReducer(reducer, initialState)
@@ -147,16 +148,20 @@ export function ConnectMachineDialog({
                   Agent configs reference this name via machine_sources.machine_name.
                 </FieldDescription>
               </Field>
-              <ProjectGrantsField
-                orgId={orgId}
-                isProjectEligible={(project) => project.access.can_manage_access}
-                value={state.projectGrantIds}
-                onChange={(projectGrantIds) => {
-                  dispatch({ type: 'setProjectGrantIds', projectGrantIds })
-                }}
-                disabled={state.submitting}
-                description="Agents in selected projects will be able to run commands on the machine."
-              />
+              <Field>
+                <ProjectShareChips
+                  orgId={orgId}
+                  isProjectEligible={(project) => project.access.can_manage_access}
+                  value={state.projectGrantIds}
+                  onChange={(projectGrantIds) => {
+                    dispatch({ type: 'setProjectGrantIds', projectGrantIds })
+                  }}
+                  disabled={state.submitting}
+                />
+                <FieldDescription>
+                  Agents in selected projects will be able to run commands on the machine.
+                </FieldDescription>
+              </Field>
               {state.error && (
                 <p className="text-destructive whitespace-pre-wrap text-sm">{state.error}</p>
               )}
@@ -173,8 +178,10 @@ export function ConnectMachineDialog({
           </form>
         ) : (
           <FieldGroup>
-            <Field>
-              <FieldLabel>Install command</FieldLabel>
+            <Field aria-labelledby={`${idPrefix}-command`}>
+              <div id={`${idPrefix}-command`} className="type-label">
+                Install command
+              </div>
               <pre className="bg-muted max-h-56 min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
                 {installCommand}
               </pre>
@@ -194,8 +201,10 @@ export function ConnectMachineDialog({
                 {state.copied === 'command' ? 'Copied' : 'Copy command'}
               </Button>
             </Field>
-            <Field>
-              <FieldLabel>Machine token</FieldLabel>
+            <Field aria-labelledby={`${idPrefix}-token`}>
+              <div id={`${idPrefix}-token`} className="type-label">
+                Machine token
+              </div>
               <pre className="bg-muted min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
                 {state.machineToken}
               </pre>

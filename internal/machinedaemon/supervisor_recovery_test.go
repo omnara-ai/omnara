@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb/statedbtest"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1035,10 +1036,8 @@ func TestExecutionBoundaryPersistenceFailurePreventsSpawn(t *testing.T) {
 	assignment := ProcessAssignment{
 		ID: bootstrap.ProcessID,
 		Process: Process{
-			Command:       command,
-			ShellSelector: "default",
+			ExecutionSpec: processcmd.ForShell(command, "default", "pipe"),
 			Cwd:           commandDir,
-			IOMode:        "pipe",
 		},
 		Env: map[string]string{"MARKER": markerPath},
 	}
@@ -1096,8 +1095,10 @@ func TestActionBoundaryPersistenceFailurePreventsEffect(t *testing.T) {
 		processState: supervisor,
 		prepared:     runner,
 		assignment: ProcessAssignment{
-			ID:      bootstrap.ProcessID,
-			Process: Process{IOMode: "pipe"},
+			ID: bootstrap.ProcessID,
+			Process: Process{
+				ExecutionSpec: processcmd.ForShell("", "", "pipe"),
+			},
 		},
 	}
 	if err := supervisor.Close(); err != nil {
@@ -1166,8 +1167,10 @@ func TestActionAfterExecutionClosureFreezesNoEffectOutcome(t *testing.T) {
 				processState: supervisor,
 				prepared:     runner,
 				assignment: ProcessAssignment{
-					ID:      bootstrap.ProcessID,
-					Process: Process{IOMode: "pipe"},
+					ID: bootstrap.ProcessID,
+					Process: Process{
+						ExecutionSpec: processcmd.ForShell("", "", "pipe"),
+					},
 				},
 			}
 			action := ProcessAction{

@@ -1,7 +1,15 @@
-import type { ComponentProps, ReactNode } from 'react'
+import type { ComponentProps } from 'react'
 
-import { Field, FieldDescription, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  RequiredFieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+
+import { shownFieldError } from './machinePoolValidation'
 
 type MachinePoolInputFieldProps = Omit<
   ComponentProps<typeof Input>,
@@ -13,7 +21,8 @@ type MachinePoolInputFieldProps = Omit<
   onValueChange: (value: string) => void
   description?: string
   descriptionHref?: string
-  error?: ReactNode
+  /** Why the value is invalid; an empty field isn't flagged, it only blocks progress. */
+  error?: string
 }
 
 export function MachinePoolInputField({
@@ -26,6 +35,7 @@ export function MachinePoolInputField({
   error,
   ...inputProps
 }: MachinePoolInputFieldProps) {
+  const shownError = shownFieldError(value, error)
   return (
     <Field>
       {inputProps.required ? (
@@ -37,11 +47,12 @@ export function MachinePoolInputField({
         {...inputProps}
         id={id}
         value={value}
+        aria-invalid={shownError !== undefined || undefined}
         onChange={(event) => {
           onValueChange(event.target.value)
         }}
       />
-      {error}
+      {shownError && <FieldError>{shownError}</FieldError>}
       {description && (
         <FieldDescription>
           {description}{' '}

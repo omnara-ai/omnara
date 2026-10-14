@@ -12,6 +12,7 @@ import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
+import { useLogout } from '@/lib/use-logout'
 
 type OnboardingAction = { kind: 'idle' } | { kind: 'creating' } | { kind: 'error'; message: string }
 
@@ -127,6 +128,39 @@ export function Onboarding() {
           </CardContent>
         </Card>
       </div>
+
+      <OnboardingFooter returnTo={returnTo} />
     </div>
+  )
+}
+
+function OnboardingFooter({ returnTo }: { returnTo: string }) {
+  const { status, logout } = useLogout()
+  return (
+    <footer className="text-muted-foreground flex flex-col items-center gap-1 text-sm">
+      <div className="flex items-center gap-4">
+        <a
+          href={
+            returnTo === '/'
+              ? '/user/account'
+              : `/user/account?return_to=${encodeURIComponent(returnTo)}`
+          }
+          className="hover:text-foreground underline-offset-4 hover:underline"
+        >
+          Account settings
+        </a>
+        <button
+          type="button"
+          className="hover:text-foreground underline-offset-4 hover:underline disabled:opacity-50"
+          disabled={status.kind === 'pending'}
+          onClick={() => {
+            void logout()
+          }}
+        >
+          Log out
+        </button>
+      </div>
+      {status.kind === 'error' && <p className="text-destructive text-xs">{status.message}</p>}
+    </footer>
   )
 }

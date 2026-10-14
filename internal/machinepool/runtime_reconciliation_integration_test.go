@@ -1650,6 +1650,13 @@ func (*runtimeReconciliationTestProvider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{}, errors.New("not implemented by runtime test provider")
 }
 
+func (*runtimeReconciliationTestProvider) ValidateMachineConfig(
+	executionstore.MachineProvisioningConfig,
+	map[string]string,
+) error {
+	return nil
+}
+
 func (*runtimeReconciliationTestProvider) ProvisionMachine(
 	context.Context,
 	uuid.UUID,
@@ -1657,6 +1664,7 @@ func (*runtimeReconciliationTestProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return providers.ProvisionMachineResult{}, errors.New("not implemented by runtime test provider")
 }
@@ -1669,6 +1677,13 @@ func (*runtimeReconciliationTestProvider) InspectMachine(
 	string,
 ) (string, bool, error) {
 	return "", false, errors.New("not implemented by runtime test provider")
+}
+
+func (*runtimeReconciliationTestProvider) CheckConnection(
+	context.Context,
+	executionstore.MachineProvisioningConfig,
+) error {
+	return nil
 }
 
 func (p *runtimeReconciliationTestProvider) DeleteMachine(

@@ -33,17 +33,36 @@ type EventWebhook struct {
 }
 
 type AgentConfigSource struct {
-	Version        string                               `json:"version,omitempty"`
-	Instruction    string                               `json:"instruction"`
-	Model          AgentConfigModelSource               `json:"model"`
-	MachineSources []AgentConfigMachineSource           `json:"machine_sources,omitempty"`
-	Tools          map[string]AgentConfigToolSource     `json:"tools,omitempty"`
-	MCP            map[string]AgentConfigMCPSource      `json:"mcp,omitempty"`
-	EventWebhook   *EventWebhook                        `json:"event_webhook,omitempty"`
-	Skills         []string                             `json:"skills,omitempty"`
-	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
-	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
-	MaxDepth       *int                                 `json:"max_depth,omitempty"`
+	Version             string                                            `json:"version,omitempty"`
+	Instruction         string                                            `json:"instruction"`
+	Model               AgentConfigModelSource                            `json:"model"`
+	MachineSources      []AgentConfigMachineSource                        `json:"machine_sources,omitempty"`
+	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
+	MCP                 map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
+	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsSource                             `json:"git_credentials,omitempty"`
+	Skills              []string                                          `json:"skills,omitempty"`
+	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                              `json:"max_depth,omitempty"`
+	EventWebhook        *EventWebhook                                     `json:"event_webhook,omitempty"`
+	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
+}
+
+type MemoryStoreAccess string
+
+const (
+	MemoryStoreAccessRead      MemoryStoreAccess = "read"
+	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
+)
+
+func (access MemoryStoreAccess) Valid() bool {
+	return access == MemoryStoreAccessRead || access == MemoryStoreAccessReadWrite
+}
+
+type MemoryStoreSource struct {
+	Name   string            `json:"name"`
+	Access MemoryStoreAccess `json:"access"`
 }
 
 type AgentConfigModelSource struct {
@@ -84,7 +103,7 @@ type AgentConfigToolSource struct {
 }
 
 type AgentConfigMCPSource struct {
-	URL            string                              `json:"url"`
+	URL            string                              `json:"url,omitempty"`
 	Auth           *AgentConfigMCPAuthSource           `json:"auth,omitempty"`
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
@@ -306,7 +325,7 @@ func normalizeYAMLValue(value any) (any, error) {
 var compiledSourceSchema = sync.OnceValues(newCompiledSourceSchema)
 
 func newCompiledSourceSchema() (*kjsonschema.Schema, error) {
-	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
+	schemaJSON, err := SourceJSONSchema()
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +344,7 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
-func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
+func SourceJSONSchema() ([]byte, error) {
 	schemaJSON, err := json.Marshal(agentConfigSourceSchema())
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config JSON schema: %w", err)
@@ -344,7 +363,13 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 		)),
 		kjsonschema.Prop("tools", kjsonschema.Object(
 			kjsonschema.PropertyNames(kjsonschema.AllOf(
-				kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
+				kjsonschema.AnyOf(
+					kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
+					kjsonschema.String(
+						kjsonschema.Pattern(`^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$`),
+						kjsonschema.MaxLength(64),
+					),
+				),
 				kjsonschema.Not(kjsonschema.String(kjsonschema.Pattern(`^`+toolcatalog.MCPRuntimeToolPrefix))),
 			)),
 			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigToolSource")),
@@ -353,6 +378,16 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPServerKeyPattern))),
 			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPSource")),
 		)),
+		kjsonschema.Prop("memory_stores", kjsonschema.Array(kjsonschema.Items(kjsonschema.Object(
+			kjsonschema.Prop("name", kjsonschema.String(
+				kjsonschema.MinLength(1),
+				kjsonschema.MaxLength(64),
+				kjsonschema.Pattern(`^[a-z0-9]+(-[a-z0-9]+)*$`),
+			)),
+			kjsonschema.Prop("access", kjsonschema.Enum(MemoryStoreAccessRead, MemoryStoreAccessReadWrite)),
+			kjsonschema.Required("name", "access"),
+			kjsonschema.AdditionalProps(false),
+		)))),
 		kjsonschema.Prop("event_webhook", kjsonschema.Ref("#/$defs/EventWebhook")),
 		kjsonschema.Prop("skills", kjsonschema.AnyOf(
 			kjsonschema.Array(
@@ -580,6 +615,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			),
 		}),
 	)
+	addIntegrationSourceSchema(schema)
 	return schema
 }
 

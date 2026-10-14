@@ -11,10 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -342,4 +344,15 @@ func createLaunchTestAgent(
 		t.Fatalf("create launch agent profile: %v", err)
 	}
 	return profile
+}
+
+func mustIntegrationActorParams(
+	t *testing.T,
+	integration integrationstore.IntegrationRecord,
+	userID string,
+) *executionstore.ActorParams {
+	t.Helper()
+	actor, err := executionstore.IntegrationActorParams(integration, userID, nil)
+	require.NoError(t, err)
+	return &actor
 }

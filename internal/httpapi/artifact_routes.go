@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -87,7 +88,7 @@ func (response artifactContentResponse) VisitGetArtifactContentResponse(w http.R
 	return response.write(w)
 }
 
-func (response artifactContentResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
+func (response artifactContentResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
 	return response.write(w)
 }
 
@@ -102,6 +103,7 @@ func (response artifactContentResponse) write(w http.ResponseWriter) error {
 	w.Header().Set("Content-Disposition", contentDisposition(response.artifact.Filename))
 	if response.artifact.Digest != "" {
 		w.Header().Set("ETag", `"`+response.artifact.Digest+`"`)
+		w.Header().Set(daemonprotocol.FileDigestHeader, response.artifact.Digest)
 	}
 	// Artifact content is immutable: the digest never changes for an id.
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

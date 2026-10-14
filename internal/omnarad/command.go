@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 var version = daemonversion.Development
@@ -41,19 +42,20 @@ type daemonCommand struct {
 	Uninstall *struct {
 		Yes bool `arg:"--yes"`
 	} `arg:"subcommand:uninstall"`
+	GitCredential *struct {
+		Endpoint  string `arg:"positional,required"`
+		ProcessID string `arg:"positional,required"`
+		Operation string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_git_credential,hidden"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_process_runner,hidden"`
-	UploadArtifact *struct {
-		ToolCallID  string `arg:"positional,required"`
-		EncodedPath string `arg:"positional,required"`
-	} `arg:"subcommand:__omnara_upload_artifact,hidden"`
-	DownloadArtifact *struct {
-		ToolCallID  string `arg:"positional,required"`
-		ArtifactID  string `arg:"positional,required"`
-		EncodedPath string `arg:"positional,required"`
-	} `arg:"subcommand:__omnara_download_artifact,hidden"`
+	FileTransfer *struct {
+		Direction string `arg:"positional,required"`
+		ProcessID string `arg:"positional,required"`
+		LocalPath string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_file_transfer,hidden"`
 	RunService *struct {
 		Supervised bool `arg:"--supervised"`
 	} `arg:"subcommand:run-service,hidden"`
@@ -220,6 +222,15 @@ func Run(
 	case command.Version:
 		_, _ = fmt.Fprintln(stdout, version)
 		return 0
+	case command.GitCredential != nil:
+		if err := machinedaemon.RunGitCredentialHelper(
+			ctx, command.GitCredential.Endpoint, command.GitCredential.ProcessID,
+			command.GitCredential.Operation, stdin, stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	case command.ProcessRunner != nil:
 		if err := machinedaemon.RunCommandSupervisorFromBootstrap(
 			ctx,
@@ -230,23 +241,16 @@ func Run(
 			return 1
 		}
 		return 0
-	case command.UploadArtifact != nil:
-		if err := runUploadArtifactCommand(
-			ctx,
-			command.UploadArtifact.ToolCallID,
-			command.UploadArtifact.EncodedPath,
-			stdout,
-		); err != nil {
-			_, _ = fmt.Fprintln(stderr, err)
+	case command.FileTransfer != nil:
+		result := os.NewFile(3, "file-transfer-result")
+		defer func() { _ = result.Close() }()
+		if info, err := result.Stat(); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+			_, _ = fmt.Fprintln(stderr, "file transfer requires a result pipe")
 			return 1
 		}
-		return 0
-	case command.DownloadArtifact != nil:
-		if err := runDownloadArtifactCommand(
-			ctx,
-			command.DownloadArtifact.ToolCallID,
-			command.DownloadArtifact.ArtifactID,
-			command.DownloadArtifact.EncodedPath,
+		if err := runFileTransfer(
+			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
+			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

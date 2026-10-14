@@ -48,6 +48,7 @@ type apiClient interface {
 	GetInstanceByUUID(ctx context.Context, uuid string) (instance, bool, error)
 	GetInstanceByName(ctx context.Context, name string) (instance, bool, error)
 	DeleteInstanceByUUID(ctx context.Context, uuid string) error
+	CheckConnection(ctx context.Context) error
 }
 
 type restClient struct {
@@ -229,6 +230,11 @@ func (c *restClient) DeleteInstanceByUUID(ctx context.Context, uuid string) erro
 	return err
 }
 
+func (c *restClient) CheckConnection(ctx context.Context) error {
+	_, err := c.doRequest(ctx, http.MethodGet, "/v1/users/quotas", nil, nil, false)
+	return err
+}
+
 func (c *restClient) doRequest(
 	ctx context.Context,
 	method, path string,
@@ -255,9 +261,9 @@ func (c *restClient) doRequest(
 		if err := json.Unmarshal(raw, &errorResponse); err == nil {
 			message = errorResponse.errorMessage()
 		}
-		return responseEnvelope{}, providers.WithRetryAfter(
+		return responseEnvelope{}, providers.WithResponse(
 			apiError{StatusCode: statusCode, Message: message},
-			response.Header,
+			response,
 		)
 	}
 	if len(raw) == 0 {

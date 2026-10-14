@@ -49,6 +49,12 @@ const alwaysAllowProfile: ToolPermissionProfile = {
       description: 'Always ask.',
       parameters_schema: {},
     },
+    {
+      name: 'always_deny',
+      label: 'Always deny',
+      description: 'Always deny.',
+      parameters_schema: {},
+    },
   ],
 }
 
@@ -72,15 +78,12 @@ const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'send_integration_message'].map((name) => ({
+  built_in_tools: ['run_command', 'skill', 'list_agents'].map((name) => ({
     name,
     description: name,
     implicit: true,
     default_permission: alwaysAllowProfile.default_permission,
-    permission_modes:
-      name === 'send_integration_message'
-        ? alwaysAllowProfile.permission_modes.slice(0, 1)
-        : alwaysAllowProfile.permission_modes,
+    permission_modes: alwaysAllowProfile.permission_modes,
   })),
 }
 
@@ -337,7 +340,7 @@ function click(selector: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'send_integration_message'])(
+it.each(['run_command', 'skill', 'list_agents'])(
   'displays the catalog default for configured %s without changing its source',
   async (name) => {
     const onToolsChange = vi.fn()
@@ -373,18 +376,68 @@ tools:
 
 const defaultIncludedSource = `${includedSource}  run_command: {}\n`
 
-function IncludedToolsHarness({ source = defaultIncludedSource }: { source?: string }) {
+it.each([
+  ['Always ask', 'always_ask'],
+  ['Always deny', 'always_deny'],
+])(
+  'preserves integration tool deferral and %s permission through disable and re-enable',
+  async (label, mode) => {
+    const name = 'int__engineering__post_message'
+    const integrationCatalog = {
+      ...includedCatalog,
+      built_in_tools: [
+        ...includedCatalog.built_in_tools,
+        {
+          name,
+          description: 'Post a Slack message.',
+          implicit: true,
+          ...alwaysAllowProfile,
+        },
+      ],
+    }
+    await renderAndFlush(
+      <IncludedToolsHarness
+        catalog={integrationCatalog}
+        source={`${includedSource}  ${name}:
+    deferred: true
+    permission:
+      mode: ${mode}
+`}
+      />,
+    )
+    click('[data-slot="collapsible-trigger"]')
+    expect(
+      container
+        .querySelector(`[aria-label="${name} permission"] [role="radio"][aria-label="${label}"]`)
+        ?.getAttribute('aria-checked'),
+    ).toBe('true')
+    await selectIncludedPermission(name, 'Disabled')
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      ['tools', name],
+      { deferred: true, enabled: false, permission: { mode } },
+    )
+    await selectIncludedPermission(name, label)
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+      web_search: { permission: { mode: 'always_ask' } },
+      [name]: { deferred: true, permission: { mode } },
+    })
+  },
+)
+
+function IncludedToolsHarness({
+  source = defaultIncludedSource,
+  catalog = includedCatalog,
+}: {
+  source?: string
+  catalog?: ToolCatalog
+}) {
   const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
   })
   return (
     <>
-      <AgentConfigToolsField
-        catalog={includedCatalog}
-        tools={form.tools}
-        onToolsChange={form.setTools}
-      />
+      <AgentConfigToolsField catalog={catalog} tools={form.tools} onToolsChange={form.setTools} />
       <output>{form.yaml}</output>
     </>
   )
@@ -401,7 +454,45 @@ async function selectIncludedPermission(name: string, label: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'send_integration_message'])(
+it('adds interaction helpers and edits their permissions as ordinary tools', async () => {
+  const helpers = ['list_interaction_handlers', 'set_interaction_handler']
+  const manualCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [
+      ...catalog.built_in_tools,
+      ...helpers.map((name) => ({
+        name,
+        description: name,
+        implicit: false,
+        ...alwaysAllowProfile,
+      })),
+    ],
+  }
+  await renderAndFlush(<IncludedToolsHarness catalog={manualCatalog} source={includedSource} />)
+  for (const name of helpers) {
+    await act(async () => {
+      container
+        .querySelector('[aria-label="Add tools"]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === name,
+    )
+    if (!option) throw new Error(`Missing ${name} in Add tools`)
+    act(() => {
+      option.click()
+    })
+    await selectIncludedPermission(name, 'Always ask')
+  }
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+    web_search: { permission: { mode: 'always_ask' } },
+    list_interaction_handlers: { type: 'built_in', permission: { mode: 'always_ask' } },
+    set_interaction_handler: { type: 'built_in', permission: { mode: 'always_ask' } },
+  })
+})
+
+it.each(['run_command', 'skill', 'list_agents'])(
   'disables and re-enables %s without changing other tools',
   async (name) => {
     await renderAndFlush(<IncludedToolsHarness source={`${includedSource}  ${name}: {}\n`} />)
@@ -468,7 +559,7 @@ it('reopens disabled tools and preserves their permission until a new one is cho
 it.each([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['skill', 'skill'],
-  ['send_integration_message', 'send_integration_message'],
+  ['list_agents', 'list_agents'],
 ])(
   'shows the frontend description or catalog fallback for %s on hover and keyboard focus',
   async (name, description) => {
@@ -596,7 +687,7 @@ it.each(['cluster', 'tenant', 'error'])(
   },
 )
 
-it('groups configured machine, skill, and integration tools in one dropdown inside Tools', async () => {
+it('groups configured machine, skill, and interaction tools in one dropdown inside Tools', async () => {
   const onToolsChange = vi.fn()
   await renderAndFlush(
     <AgentConfigToolsField
@@ -604,7 +695,7 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
       tools={[
         { name: 'run_command', permission: null },
         { name: 'skill', permission: null },
-        { name: 'send_integration_message', permission: null },
+        { name: 'list_agents', permission: null },
         { name: 'web_search', permission: null },
       ]}
       onToolsChange={onToolsChange}
@@ -615,12 +706,12 @@ it('groups configured machine, skill, and integration tools in one dropdown insi
     'Built-in tools',
   )
   expect(container.textContent).toContain('web_search')
-  for (const name of ['run_command', 'skill', 'send_integration_message']) {
+  for (const name of ['run_command', 'skill', 'list_agents']) {
     expect(container.textContent).not.toContain(name)
     expect(container.querySelector(`[aria-label="Remove ${name}"]`)).toBeNull()
   }
   click('[data-slot="collapsible-trigger"]')
-  for (const name of ['run_command', 'skill', 'send_integration_message']) {
+  for (const name of ['run_command', 'skill', 'list_agents']) {
     const control = container.querySelector(`[aria-label="${name} permission"]`)
     expect(control).not.toBeNull()
     expect(control?.closest('[data-slot="collapsible-content"]')).not.toBeNull()
@@ -668,4 +759,9 @@ it('preserves an inherited MCP permission when its profile loads', async () => {
 
   expect(onServersChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always ask')
+  click('[aria-label="Toggle server details"]')
+  const authLabel = [...container.querySelectorAll('label')].find(
+    (label) => label.textContent === 'Authentication',
+  )
+  expect(authLabel?.control?.getAttribute('role')).toBe('combobox')
 })

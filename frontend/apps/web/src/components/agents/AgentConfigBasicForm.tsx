@@ -1,8 +1,11 @@
 import { useToolCatalog } from '@omnara/react'
 
 import { AgentConfigEventWebhookField } from '@/components/agents/AgentConfigEventWebhookField'
+import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
+import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -64,12 +67,22 @@ export function AgentConfigBasicForm({
             resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
+          {Object.keys(form.interactionHandlers).length > 0 && (
+            <AgentConfigSectionCard title="Integration capabilities" action={null}>
+              <div className="space-y-2 px-4 pb-4 text-sm sm:px-5">
+                <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
+                <p className="text-muted-foreground">
+                  Edit interaction settings in YAML. Sending tools are configured separately.
+                </p>
+              </div>
+            </AgentConfigSectionCard>
+          )}
           {form.toolsPending && (
             <p className="text-muted-foreground text-sm">Loading built-in tools…</p>
           )}
           {form.toolsError && (
             <p className="text-destructive text-sm" role="alert">
-              Couldn’t load built-in tools.{' '}
+              {form.toolsErrorMessage}{' '}
               <button type="button" className="underline" onClick={form.retryTools}>
                 Retry
               </button>
@@ -102,12 +115,21 @@ export function AgentConfigBasicForm({
             agentName={agentName}
             onBeforeOAuthRedirect={onBeforeOAuthRedirect}
           />
+          <AgentConfigMemoryField
+            orgId={orgId}
+            projectId={projectId}
+            stores={form.memoryStores}
+            onChange={form.setMemoryStores}
+          />
           <Collapsible className="pt-2">
             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring group flex items-center gap-1.5 rounded-sm py-1 text-left text-sm focus-visible:ring-2 focus-visible:ring-offset-2">
               <ChevronRightIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
               Advanced
             </CollapsibleTrigger>
-            <CollapsibleContent className="pt-4">
+            <CollapsibleContent
+              forceMount
+              className="flex flex-col gap-3 pt-4 data-[state=closed]:hidden"
+            >
               <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
                 <AgentConfigEventWebhookField
                   orgId={orgId}
@@ -120,6 +142,12 @@ export function AgentConfigBasicForm({
                   onSigningSecretIdChange={form.setEventWebhookSigningSecretId}
                 />
               </FieldGroup>
+              <AgentConfigGitCredentialsField
+                orgId={orgId}
+                projectId={projectId}
+                integration={form.gitCredentialsIntegration}
+                onIntegrationChange={form.setGitCredentialsIntegration}
+              />
             </CollapsibleContent>
           </Collapsible>
         </div>

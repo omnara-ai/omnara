@@ -634,11 +634,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		t.Fatalf("begin waiting input transaction: %v", err)
 	}
 	defer func() { _ = waitingTx.Rollback(ctx) }()
-	waitingAgent, err := executionstore.IntegrationLoadAgentTx(ctx, waitingTx, agentID)
-	if err != nil {
-		t.Fatalf("load waiting input agent: %v", err)
-	}
-
 	blockingTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin blocking input transaction: %v", err)
@@ -672,7 +667,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 			notifications.NewTxNotifications(),
 			waitingTx,
 			store.q.WithTx(waitingTx),
-			waitingAgent,
 			executionstore.CreateAgentContentInputInput{
 				ProjectID:      testProjectID,
 				AgentID:        agentID,
@@ -699,7 +693,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		notifications.NewTxNotifications(),
 		blockingTx,
 		blockingQueries,
-		waitingAgent,
 		executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
 			AgentID:        agentID,

@@ -337,9 +337,10 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	}
 	if _, err := createPoolMachineForTest(
 		ctx, store, staleTransaction, staleInput,
-	); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
-		!strings.Contains(err.Error(), "machine pool limit reached") {
-		t.Fatalf("stale create after lower max_machines error = %v, want machine pool limit conflict", err)
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) || err.Error() != `this agent's machine limit for `+
+		`machine pool "Captured Pool" is 1 and it already has 1; use list_machines to see them and `+
+		`delete_machine to free a slot (a machine counts until its deletion finishes)` {
+		t.Fatalf("stale create after lower max_machines error = %v, want agent machine limit conflict", err)
 	}
 	activateAgentConfigForPoolMachineTest(
 		t,

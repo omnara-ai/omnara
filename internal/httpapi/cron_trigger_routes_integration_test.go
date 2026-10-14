@@ -221,9 +221,16 @@ func TestCronTriggerRoutes(t *testing.T) {
 		`{"delivery_mode":"queued"}`,
 		`{"target":{"type":"profile","agent_profile_id":"` + profileID + `"}}`,
 		`{"target":{"type":"agent","agent_id":"` + otherAgentID + `","delivery_mode":"queued"}}`,
+		`{"message_template":"before\u0000after"}`,
+		`{"message_template":"before{{printf \"%c\" 0}}"}`,
 	} {
 		requestJSONWithHeaders(t, handler, http.MethodPatch, triggersPath+"/"+agentTriggerID,
 			body, "", http.StatusBadRequest, authHeaders(project.AdminToken))
+	}
+	unchanged := requestJSONWithHeaders(t, handler, http.MethodGet, triggersPath+"/"+agentTriggerID,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	if unchanged["message_template"] != "Check the queue." {
+		t.Fatalf("rejected patches must not change the trigger: %+v", unchanged)
 	}
 	requeued := requestJSONWithHeaders(
 		t,

@@ -36,10 +36,10 @@ rules:
     message: "cron_triggers query must filter deleted_at (or annotate @sqlc-vet-disable cron-triggers-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+cron_triggers\b') && !query.sql.contains('deleted_at')
-  - name: integration-installs-deleted-at
-    message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
+  - name: integrations-deleted-at
+    message: "integrations query must filter deleted_at (or annotate @sqlc-vet-disable integrations-deleted-at)"
     rule: >-
-      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_installs\b') && !query.sql.contains('deleted_at')
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integrations\b') && !query.sql.contains('deleted_at')
   - name: integration-targets-deleted-at
     message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
     rule: >-
@@ -73,7 +73,7 @@ sql:
       - configured-models-deleted-at
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
-      - integration-installs-deleted-at
+      - integrations-deleted-at
       - integration-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at
@@ -92,6 +92,10 @@ sql:
         output_db_file_name: "db_gen.go"
         output_models_file_name: "models_gen.go"
         overrides:
+          - column: "processes.execution_spec"
+            go_type:
+              import: "github.com/omnara-ai/omnara/internal/processcmd"
+              type: "ExecutionSpec"
           - db_type: "pg_catalog.uuid"
             go_type:
               import: "github.com/google/uuid"

@@ -3,13 +3,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   derivedMemoryTotalCapPlaceholder,
+  machinePoolConnectionCheckRequest,
   machinePoolCreateRequest,
   machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
-  machinePoolFormValid,
+  machinePoolProviders,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
+import { machinePoolFormValid } from './machinePoolValidation'
 
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {
@@ -81,6 +83,137 @@ describe('machine pool names', () => {
       expect(machinePoolFormValid({ ...validValues, name })).toBe(false)
     },
   )
+})
+
+describe('Tenki machine pools', () => {
+  it('creates a base-image pool without provider options', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'tenki' as const,
+      name: 'tenki-pool',
+      image: '',
+      secretId: 'sec_tenki',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'tenki',
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a custom image while preserving disk size when editing', () => {
+    const pool = machinePool({
+      provider: 'tenki',
+      default_machine_provider_options: { image: 'workspace/custom', disk_size_gb: 40 },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Tenki pool form')
+    expect(values.location).toBe('')
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      location: 'stale-region',
+    })
+    expect(request.default_machine_provider_options).toEqual({ disk_size_gb: 40 })
+  })
+})
+
+describe('boxd machine pools', () => {
+  it('creates a base-image pool limited to the default boxd size', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'boxd'),
+      name: 'boxd-pool',
+      secretId: 'sec_boxd',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'boxd',
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 8192,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request).not.toHaveProperty('default_machine_memory_mb')
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a snapshot while preserving the sleep window when editing', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { snapshot: 'agent-box', sleep_after_ms: 300000 },
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected boxd pool form')
+    expect(values).toMatchObject({ image: 'agent-box', cpu: '4', memoryGb: '16' })
+    const request = machinePoolUpdateRequest(pool, { ...values, image: '' })
+    expect(request.default_machine_provider_options).toEqual({ sleep_after_ms: 300000 })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 16384 })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
+describe('CreateOS machine pools', () => {
+  it('creates a pool with the default root filesystem and default limits', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'createos'),
+      name: 'createos-pool',
+      image: ' s-2vcpu-4gb ',
+      maxMachines: '3',
+      secretId: 'sec_createos',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'createos',
+      default_machine_provider_options: { ['shape']: 's-2vcpu-4gb', rootfs: 'devbox:1' },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+  })
+
+  it('edits the shape and root filesystem while preserving API-only options', () => {
+    const pool = machinePool({
+      provider: 'createos',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        ['shape']: 's-2vcpu-4gb',
+        rootfs: 'devbox:1',
+        startup_script: 'echo ready',
+      },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected CreateOS pool form')
+    expect(values).toMatchObject({
+      image: 's-2vcpu-4gb',
+      location: 'devbox:1',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: 's-4vcpu-8gb',
+      location: 'ubuntu:26.04',
+      cpu: '4',
+      memoryGb: '8',
+    })
+    expect(request.default_machine_provider_options).toEqual({
+      ['shape']: 's-4vcpu-8gb',
+      rootfs: 'ubuntu:26.04',
+      startup_script: 'echo ready',
+    })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 8192 })
+  })
 })
 
 describe('Modal machine pools', () => {
@@ -231,6 +364,47 @@ describe('Freestyle machine pools', () => {
       machinePoolUpdateRequest(pool, { ...values, image: 'team/configured-worker' })
         .default_machine_provider_options,
     ).toEqual({ snapshot: 'team/configured-worker', sleep_after_ms: 60_000 })
+  })
+})
+
+describe('Arker machine pools', () => {
+  it('creates a pool with a source VM and region', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'arker' as const,
+      name: 'arker-pool',
+      image: 'ubuntu-base',
+      location: 'aws-us-west-2',
+      secretId: 'sec_arker',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, location: '' })).toBe(false)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'arker',
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('updates the source VM and leaves provider config untouched', () => {
+    const pool = machinePool({
+      provider: 'arker',
+      provider_config: { allowed_regions: ['aws-us-west-2'] },
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Arker form values')
+
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'tools-template' })
+    expect(request.provider_config).toBeUndefined()
+    expect(request.default_machine_provider_options).toEqual({
+      source: 'tools-template',
+      region: 'aws-us-west-2',
+    })
   })
 })
 
@@ -501,3 +675,44 @@ function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     ...overrides,
   }
 }
+
+describe('machine pool connection checks', () => {
+  it('checks the saved provider config with the form fields on top', () => {
+    const modal = machinePoolFormAfterProviderChange(
+      { ...machinePoolFormDefaults, secretId: 'secret_1' },
+      'modal',
+    )
+    expect(
+      machinePoolConnectionCheckRequest(
+        { ...modal, providerScope: 'agents' },
+        { app: 'omnara', environment: 'staging' },
+      ).provider_config,
+    ).toEqual({ app: 'agents', environment: 'staging' })
+    const arker = machinePoolFormAfterProviderChange(modal, 'arker')
+    expect(
+      machinePoolConnectionCheckRequest(arker, { api_base_url: 'https://arker.example/api' })
+        .provider_config,
+    ).toEqual({ api_base_url: 'https://arker.example/api' })
+    expect(
+      machinePoolConnectionCheckRequest({
+        ...arker,
+        image: 'ubuntu-base',
+        startupScript: 'apt-get update',
+      }).default_machine_provider_options,
+    ).toEqual({ region: 'aws-us-west-2' })
+  })
+})
+
+it('lists providers alphabetically', () => {
+  expect(machinePoolProviders.map((provider) => provider.label)).toEqual([
+    'Arker',
+    'Blaxel',
+    'boxd',
+    'CreateOS',
+    'Daytona',
+    'Freestyle',
+    'Modal',
+    'Tenki',
+    'Unikraft',
+  ])
+})

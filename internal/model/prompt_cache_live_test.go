@@ -73,7 +73,7 @@ func livePromptCacheRoutes() []livePromptCacheRoute {
 					Auth:              openRouterAuth(apiKey),
 					BaseURL:           openRouterBaseURL,
 					EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
-					ProviderModelSlug: "qwen/qwen3-coder-plus",
+					ProviderModelSlug: "qwen/qwen3-coder-flash",
 					APIVariant:        modelprotocol.APIVariantOpenRouter,
 				}
 			},

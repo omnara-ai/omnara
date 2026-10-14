@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestProviderProvisionCreatesSandbox(t *testing.T) {
@@ -27,6 +28,7 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 				testProvisioning(t, region),
 				"machine-token",
 				map[string]string{"APP_ENV": "production"},
+				true,
 			)
 			if err != nil {
 				t.Fatalf("provision modal machine: %v", err)
@@ -46,9 +48,8 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 			); diff != "" {
 				t.Fatal(diff)
 			}
-			env := rpc.secret.GetEnvDict()
-			if rpc.secret.GetEnvironmentName() != "staging" ||
-				env["APP_ENV"] != "production" ||
+			env := rpc.create.GetEphemeralSecrets().GetContents()
+			if env["APP_ENV"] != "production" ||
 				env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 				env[providers.ManagedBootstrapScriptEnvVar] == "" {
 				t.Fatalf("create env = %+v", env)
@@ -71,9 +72,6 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 				t.Fatalf("incorrect create request: %v", rpc.create)
 			}
 			if diff := cmp.Diff(providers.ManagedDaemonLauncherArgs(), definition.GetEntrypointArgs()); diff != "" {
-				t.Fatal(diff)
-			}
-			if diff := cmp.Diff([]string{"st-test"}, definition.GetSecretIds()); diff != "" {
 				t.Fatal(diff)
 			}
 			var regions []string
@@ -101,6 +99,7 @@ func TestProviderProvisionFailsOnLookupError(t *testing.T) {
 		testProvisioning(t, ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if status.Code(err) != codes.PermissionDenied || rpc.createCalls != 0 {
 		t.Fatalf("lookup failure: %v, create calls = %d", err, rpc.createCalls)
@@ -123,6 +122,7 @@ func TestProviderProvisionAdoptsExistingSandbox(t *testing.T) {
 		testProvisioning(t, ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("adopt modal sandbox: %v", err)
@@ -144,6 +144,7 @@ func TestProviderProvisionRecoversAfterAmbiguousCreateError(t *testing.T) {
 		testProvisioning(t, ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("recover modal sandbox: %v", err)
@@ -161,7 +162,7 @@ func TestProviderRetriesAfterExistingSandboxTerminates(t *testing.T) {
 	p := testProvider(t, rpc)
 	ctx := context.Background()
 	provisioning := testProvisioning(t, "")
-	result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
+	result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil, true)
 	if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "" {
 		t.Fatalf("terminated sandbox result = %+v, error = %v", result, err)
 	}
@@ -169,7 +170,7 @@ func TestProviderRetriesAfterExistingSandboxTerminates(t *testing.T) {
 		t.Fatal("unexpected mutation of terminated sandbox")
 	}
 	delete(rpc.sandboxes, fakeSandboxID("terminated"))
-	result, err = p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
+	result, err = p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil, true)
 	if err != nil || result.ProviderResourceID != fakeSandboxID(name) || rpc.createCalls != 1 {
 		t.Fatalf("replacement sandbox result = %+v, error = %v, creates = %d", result, err, rpc.createCalls)
 	}
@@ -241,7 +242,7 @@ func TestProviderRejectsMismatchedOwnershipTags(t *testing.T) {
 				p := testProvider(t, rpc)
 				ctx := context.Background()
 				provisioning := testProvisioning(t, "")
-				result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
+				result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil, true)
 				if err == nil {
 					t.Fatal("adopted foreign sandbox")
 				}
@@ -264,5 +265,18 @@ func TestProviderRejectsMismatchedOwnershipTags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestProviderCheckConnectionListsSandboxesInEnvironment(t *testing.T) {
+	rpc := newFakeControlPlane()
+	rpc.listErr = status.Error(codes.Unauthenticated, "token rejected")
+
+	err := testProvider(t, rpc).CheckConnection(context.Background(), executionstore.MachineProvisioningConfig{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("check connection error = %v, want unauthenticated", err)
+	}
+	if rpc.list.GetEnvironmentName() != "staging" {
+		t.Fatalf("listed environment = %q, want staging", rpc.list.GetEnvironmentName())
 	}
 }

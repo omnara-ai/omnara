@@ -38,6 +38,11 @@ tags:
     externalDocs:
       description: Guide
       url: https://docs.omnara.com/agents/configuration
+  - name: Integrations
+    description: Connect project integrations, route conversations, and manage launch settings.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/integrations/overview
   - name: Models
     description: Configure model providers and models, and grant projects access to them.
     externalDocs:
@@ -419,7 +424,7 @@ paths:
         Deletion is blocked while the user is the last owner of any organization (add another owner
         or delete the organization first), while a personal skill is referenced by an active
         agent's configuration, or while a personal secret is referenced by a model provider config,
-        machine pool, or integration install. Organization and project resources are unaffected,
+        machine pool, or integration. Organization and project resources are unaffected,
         and agents, machines, and other records the user created are kept with their attribution.
       security:
         - bearerAuth: []
@@ -568,19 +573,8 @@ paths:
       summary: Get org overview
       description: >-
         Returns the data backing the web app's overview page: the caller's visible
-        projects, the most recently active agents and most recently updated agent
-        profiles, today's activity, and the last 30 days of model usage across the
-        projects the caller can read. Internal to the web app and subject to change
-        without notice.
-      parameters:
-        - name: timezone
-          in: query
-          required: false
-          schema:
-            type: string
-            default: UTC
-            maxLength: 64
-          description: IANA time zone that decides where today and each day of `usage` start.
+        projects, the most recently active agents, and the most recently updated
+        agent profiles. Internal to the web app and subject to change without notice.
       responses:
         '200':
           description: Overview data for the organization.
@@ -615,8 +609,10 @@ paths:
       summary: Get org usage
       description: >-
         Tallies model token usage and provider-reported cost across every
-        agent in the organization, broken down by configured model. Optionally
-        limits the tally to a time window or to a subset of projects.
+        project the caller can read in the organization, broken down by
+        configured model. Optionally limits the tally to a time window or to a
+        subset of those projects; including a project the caller can't read is
+        not found.
       parameters:
         - $ref: '#/components/parameters/UsageSince'
         - $ref: '#/components/parameters/UsageUntil'
@@ -629,6 +625,231 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/usage/timeseries:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgUsageTimeseries
+      tags: [Organizations and Projects]
+      summary: Get usage timeseries
+      description: >-
+        Buckets model usage over time for one metric, optionally broken down by
+        configured model or agent profile. Covers every project the caller can
+        read in the organization; `project_ids` and `agent_profile_ids` narrow
+        that scope. Buckets are calendar days, weeks (starting Monday), or months
+        in `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: UTC
+            maxLength: 64
+          description: IANA time zone that decides where each bucket starts.
+        - name: interval
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesInterval'
+          description: >-
+            Bucket width. Omit to pick one from the window length: days up to 92
+            days, weeks up to 730 days, months beyond. Hourly buckets are used
+            only when requested. The window may span at most 400 buckets.
+        - name: metric
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesMetric'
+          description: Value plotted in each bucket. Defaults to `sum_tokens`.
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesGroupBy'
+          description: Break the metric down into one series per group. Omit for a single series.
+        - name: group_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 8
+          description: >-
+            With `group_by`, how many groups get their own series, ranked by the
+            metric. The rest are folded into one `other` series.
+        - name: project_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/ProjectID'
+          description: Only count usage from these projects.
+        - name: agent_profile_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/AgentProfileID'
+          description: >-
+            Only count usage from top-level agents launched from these agent
+            profiles.
+        - name: include_subagents
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: >-
+            With `agent_profile_ids`, also count usage from subagents spawned by
+            those agents.
+      responses:
+        '200':
+          description: Usage timeseries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageTimeseries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/agents:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgAgents
+      tags: [Agents]
+      summary: List agents across projects
+      description: >-
+        Lists agents in every project of the organization where the caller can
+        read agents. Each agent carries its project_id. Items are ordered by
+        created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: agent_profile_id
+          in: query
+          description: Return only agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
+        - name: include_archived
+          in: query
+          description: Include archived agents. Defaults to false.
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/AgentIncludeUsage'
+        - name: sort
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceListSort'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Agents across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/agent-profiles:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgAgentProfiles
+      tags: [Configs and Profiles]
+      summary: List agent profiles across projects
+      description: >-
+        Lists agent profiles in every project of the organization the caller can
+        read. Each profile carries its project_id. Items are ordered by created_at
+        descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/AgentProfileIncludeStats'
+        - $ref: '#/components/parameters/AgentProfileStatsSince'
+        - name: sort
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceListSort'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Agent profiles across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentProfilesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -744,9 +965,9 @@ paths:
       tags: [Organizations and Projects]
       summary: Delete project
       description: >-
-        Deletes the project, its memberships, profiles and profile versions, integration installs
-        and targets, project-owned skills and revisions, and grants owned by or targeting the
-        project. Project-owned secrets are permanently deleted with their versions and
+        Deletes the project, its memberships, profiles and profile versions, integrations and their
+        interaction targets, project-owned skills and revisions, and grants owned by or targeting
+        the project. Project-owned secrets are permanently deleted with their versions and
         grants. The project's agents are archived and their runtimes and queued work are stopped.
         Machine, machine-pool, and model grants are removed without deleting the shared machine, pool,
         or model. Deletion fails if agent teardown cannot complete.
@@ -917,7 +1138,7 @@ paths:
         organization. The member's personal secrets and skills in the organization are deleted with
         the membership. Removal is blocked when the user is the organization's last owner, while a
         personal skill is referenced by an active agent's configuration, or while a personal secret
-        is referenced by a model provider config, machine pool, or integration install.
+        is referenced by a model provider config, machine pool, or integration.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1893,6 +2114,495 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/memory-stores:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+    get:
+      operationId: listOrgMemoryStores
+      tags:
+        - Memory Stores
+      summary: List memory stores across projects
+      description: >-
+        Lists memory stores in every project of the organization the caller can
+        read. Each store carries its project_id. Items are ordered by name, then id.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/ResourceNameFilter"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Memory stores across the caller's readable projects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStoreList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/projects/{projectID}/memory-stores:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProjectID"
+    post:
+      operationId: createMemoryStore
+      tags:
+        - Memory Stores
+      summary: Create memory store
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMemoryStore"
+      responses:
+        "201":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: listMemoryStores
+      tags:
+        - Memory Stores
+      summary: List memory stores
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/ResourceNameFilter"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStoreList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/OrganizationID"
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProjectID"
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/MemoryStoreID"
+    get:
+      operationId: getMemoryStore
+      tags:
+        - Memory Stores
+      summary: Get memory store
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    patch:
+      operationId: updateMemoryStore
+      tags:
+        - Memory Stores
+      summary: Update memory store
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryStore"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryStore"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    delete:
+      operationId: deleteMemoryStore
+      tags:
+        - Memory Stores
+      summary: Delete memory store
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        "204":
+          description: Success.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MemoryStoreID'
+    get:
+      operationId: listMemoryFiles
+      tags: [Memory Stores]
+      summary: List memory files
+      description: List a directory's immediate children in name order. Omit path to list the store root.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          schema:
+            type: string
+            maxLength: 1024
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryFileList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: memoryStoreID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MemoryStoreID'
+    get:
+      operationId: downloadMemoryFile
+      tags: [Memory Stores]
+      summary: Download memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+      responses:
+        '200':
+          description: Success.
+          headers:
+            ETag:
+              schema:
+                type: string
+            X-Omnara-File-Digest:
+              schema:
+                type: string
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: writeMemoryFile
+      tags: [Memory Stores]
+      summary: Write memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+        - name: expected_digest
+          description: Digest of the contents being replaced or deleted. Required to change an existing file.
+          in: query
+          schema:
+            type: string
+            pattern: '^sha256:[0-9a-f]{64}$'
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Returns the file's store-relative path and digest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadFileResponse'
+        '413':
+          description: File exceeds the 10 MiB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteMemoryFile
+      tags: [Memory Stores]
+      summary: Delete memory file
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      parameters:
+        - name: path
+          in: query
+          description: Literal path relative to the store root.
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+        - name: expected_digest
+          description: Digest of the contents being replaced or deleted. Required to change an existing file.
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^sha256:[0-9a-f]{64}$'
+      responses:
+        '204':
+          description: Success.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/secrets:
     parameters:
       - name: orgID
@@ -2084,7 +2794,7 @@ paths:
       description: >-
         Deletes the secret and permanently destroys all of its versions and project grants; the
         ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a
-        model provider config, machine pool, or integration install.
+        model provider config, machine pool, or integration.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2265,107 +2975,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs:
-    parameters:
-      - name: orgID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
-      - name: projectID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
-    get:
-      operationId: listIntegrationInstalls
-      tags: [Configs and Profiles]
-      summary: List integration installs
-      description: >-
-        Items are ordered by created_at descending, then id descending. The list's logical name is
-        provider_agent_display_name.
-      parameters:
-        - $ref: '#/components/parameters/ResourceNameFilter'
-        - $ref: '#/components/parameters/IntegrationInstallAgentProfileFilter'
-        - $ref: '#/components/parameters/IntegrationInstallOAuthFlowIDFilter'
-        - name: sort
-          in: query
-          schema:
-            $ref: '#/components/schemas/ResourceListSort'
-        - $ref: '#/components/parameters/PageLimit'
-        - $ref: '#/components/parameters/PageCursor'
-      responses:
-        '200':
-          description: Integration installs in the project, newest first.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListIntegrationInstallsResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
-    parameters:
-      - name: orgID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
-      - name: projectID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
-      - name: integrationInstallID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^iin_[a-z2-7]{26}$'
-    delete:
-      operationId: deleteIntegrationInstall
-      tags: [Configs and Profiles]
-      summary: Delete integration install
-      description: >-
-        Deletes the install and all of its integration targets and clears those target associations from
-        agents. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials
-        already issued by the provider are not revoked and provider-side webhooks are not removed.
-      security:
-        - bearerAuth: []
-        - browserSessionCookie: []
-          csrfHeader: []
-      responses:
-        '204':
-          description: Integration install deleted.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':
@@ -2720,6 +3329,8 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/AgentProfileIncludeStats'
+        - $ref: '#/components/parameters/AgentProfileStatsSince'
         - name: sort
           in: query
           schema:
@@ -2839,8 +3450,8 @@ paths:
         Deletes the profile, all of its profile versions, and any cron triggers targeting the
         profile. Agents launched from the profile are retained and keep running: each agent holds an
         immutable snapshot of the configuration it was launched with, so its reference to the profile
-        becomes historical provenance only. Deletion is blocked while an active integration install
-        references the profile.
+        becomes historical provenance only. Integration settings may retain the public profile ID;
+        future launches fail as unavailable until those settings reference an available profile.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2979,30 +3590,29 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup:
     parameters:
       - name: orgID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
-      - name: agentProfileID
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^aprf_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/IntegrationID'
     post:
       operationId: createIntegrationOAuthSetup
-      tags: [Configs and Profiles]
-      summary: Create integration OAuth setup
+      tags: [Integrations]
+      summary: Connect an integration through OAuth
+      description: >-
+        Starts OAuth for this integration (currently Slack). The callback pins the integration and setup revision, records verified credentials, and returns integration_oauth=success and integration_id to the supplied local return_to route. It requires a browser session for the initiating user and current project management access. Replayed, stale, or deleted-integration callbacks are rejected.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3036,30 +3646,29 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup:
     parameters:
       - name: orgID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
-      - name: agentProfileID
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^aprf_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: createSlackSetup
-      tags: [Configs and Profiles]
-      summary: Create Slack app and OAuth setup
+      operationId: createIntegrationSlackSetup
+      tags: [Integrations]
+      summary: Create a Slack provider app and connect it to an Omnara integration
+      description: >-
+        Creates a provider-side Slack app using the supplied configuration token, name and optional icon, then starts OAuth for this saved Omnara integration. The callback activates this integration only. It never creates another Omnara integration or changes launcher settings.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3077,6 +3686,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SlackSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    post:
+      operationId: createIntegrationGitHubSetup
+      tags: [Integrations]
+      summary: Start registration of a customer-owned GitHub App
+      description: >-
+        Starts guided registration on github.com for a never-connected GitHub integration. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical integration page with github_setup=credentials_saved and credential_secret_id (a public secret ID). It does not connect an installation or change launcher settings.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGitHubSetupRequest'
+      responses:
+        '201':
+          description: GitHub setup information verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    post:
+      operationId: inspectIntegrationGitHubInstallations
+      tags: [Integrations]
+      summary: Inspect installations of a customer-owned GitHub App
+      description: >-
+        Verifies the supplied project-available GitHub credential secret using App authentication and returns one bounded page of installations. Requires a browser session and project management access. Inspection does not connect or change this integration. Explicit confirmation uses ConfigureIntegration with the returned provider_app_id, selected installation ID, credential secret ID and current expected setup revision. A saved secret remains usable while organization approval is pending; there is no expiring continuation. Guided links support github.com only.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectGitHubInstallationsRequest'
+      responses:
+        '200':
+          description: GitHub setup information verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubInstallations'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3176,6 +3895,11 @@ paths:
           description: Only return triggers targeting this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: integration_id
+          in: query
+          description: Only return scheduled launches for this integration.
+          schema:
+            $ref: '#/components/schemas/IntegrationID'
         - name: sort
           in: query
           schema:
@@ -3330,7 +4054,13 @@ paths:
       operationId: createAgent
       tags: [Agents]
       summary: Create agent
-      description: Reusing an idempotency key returns the current agent even if the retry body differs. The retry body is not applied.
+      description: >-
+        Launch from a pinned config, optionally adding agent-local integration tools, subscriptions and interaction handlers
+        and admitting an attributed initial text input in the same transaction.
+        Adding integration capabilities requires project management permission; launching an
+        existing config requires agent operate permission. Reusing an idempotency
+        key returns the current agent even if the retry body differs. The retry
+        body is not applied and integration references are not resolved again.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3405,6 +4135,7 @@ paths:
           description: Include archived agents. Defaults to false.
           schema:
             type: boolean
+        - $ref: '#/components/parameters/AgentIncludeUsage'
         - name: sort
           in: query
           schema:
@@ -4751,6 +5482,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -5202,6 +5939,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -6056,6 +6799,58 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/machine-pools/check-connection:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+    post:
+      operationId: checkMachinePoolConnection
+      tags: [Machine Pools]
+      summary: Check machine pool connection
+      description: Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckMachinePoolConnectionRequest'
+      responses:
+        '204':
+          description: The provider accepted the credential and config.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: The provider rejected the credential or config, or the config is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachinePoolConnectionCheckError'
+        '424':
+          description: The provider failed or did not respond. Retrying may succeed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachinePoolConnectionCheckError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
@@ -6237,6 +7032,12 @@ paths:
       description: Items are ordered by created_at descending, then id descending.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only the grant for this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -6682,6 +7483,57 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/processes/{processID}/git-credentials:
+    parameters:
+      - name: processID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProcessID'
+    post:
+      operationId: getDaemonGitCredentials
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Get Git credentials for an active daemon process
+      description: >-
+        Requires machine daemon authentication and an active, execution-granted process
+        on that machine. The process's original config and the agent's current config must
+        enable Git credentials for the same pinned integration. Credentials inherit the
+        connected GitHub installation's full access and are reauthorized on every request.
+      security:
+        - machineDaemonAuth: []
+      responses:
+        '200':
+          description: Short-lived installation credentials. Never cache this response.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token, expires_at]
+                properties:
+                  token:
+                    type: string
+                  expires_at:
+                    $ref: '#/components/schemas/Timestamp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
@@ -6740,42 +7592,136 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/tool-calls/{toolCallID}/artifact:
+  /daemon/processes/{processID}/file:
     parameters:
-      - name: toolCallID
+      - name: processID
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ToolCallID'
+          $ref: "#/components/schemas/ProcessID"
     post:
-      operationId: uploadDaemonArtifact
+      operationId: uploadDaemonFile
       x-hidden: true
-      tags: [Machine Daemon]
-      summary: Upload daemon artifact
+      tags:
+        - Machine Daemon
+      summary: Upload daemon file
       security:
         - machineDaemonAuth: []
       parameters:
         - name: filename
           in: query
-          required: true
+          description: Required for artifact uploads; ignored for memory uploads.
           schema:
             type: string
-            minLength: 1
-            maxLength: 255
       requestBody:
-        required: true
+        required: false
         content:
           application/octet-stream:
             schema:
               type: string
               format: binary
       responses:
-        '201':
-          description: Artifact created.
+        "201":
+          description: Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadArtifactResponse'
+                $ref: "#/components/schemas/UploadFileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: The uploaded file is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: downloadDaemonFile
+      x-hidden: true
+      tags:
+        - Machine Daemon
+      summary: Download daemon file
+      security:
+        - machineDaemonAuth: []
+      responses:
+        "200":
+          description: Success.
+          headers:
+            ETag:
+              description: Quoted SHA-256 digest of the downloaded file.
+              schema:
+                type: string
+                pattern: '^"sha256:[0-9a-f]{64}"$'
+            X-Omnara-File-Digest:
+              description: SHA-256 digest of the downloaded file.
+              schema:
+                type: string
+                pattern: '^sha256:[0-9a-f]{64}$'
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        4XX:
+          $ref: "#/components/responses/ClientError"
+        5XX:
+          $ref: "#/components/responses/ServerError"
+  /orgs/{orgID}/integrations:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgIntegrations
+      tags: [Integrations]
+      summary: List integrations across projects
+      description: >-
+        Lists integrations in every project of the organization the caller can
+        read. Each integration carries its project_id. Items are ordered by
+        created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Integrations across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6784,51 +7730,457 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '413':
-          description: The uploaded artifact is too large.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content:
+  /orgs/{orgID}/projects/{projectID}/integrations:
     parameters:
-      - name: toolCallID
+      - name: orgID
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ToolCallID'
-      - name: artifactID
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ArtifactID'
+          $ref: '#/components/schemas/ProjectID'
     get:
-      operationId: downloadDaemonArtifact
-      x-hidden: true
-      tags: [Machine Daemon]
-      summary: Download daemon artifact
-      security:
-        - machineDaemonAuth: []
+      operationId: listIntegrations
+      tags: [Integrations]
+      summary: List project integrations
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Artifact bytes, served with the artifact's stored content type.
+          description: List project integrations.
           content:
-            '*/*':
+            application/json:
               schema:
-                type: string
-                format: binary
+                $ref: '#/components/schemas/ListIntegrationsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createIntegration
+      tags: [Integrations]
+      summary: Create an integration and optional launcher
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationRequest'
+      responses:
+        '201':
+          description: Create an integration and optional launcher.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    get:
+      operationId: getIntegration
+      tags: [Integrations]
+      summary: Get project integration
+      responses:
+        '200':
+          description: Get project integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    put:
+      operationId: updateIntegration
+      tags: [Integrations]
+      summary: Update integration settings
+      description: Replaces integration-owned settings while preserving credentials. The request contains only settings; name and integration_kind are immutable and accepted only on create. Preserve integration-level fields when editing the launcher. Settings follow capabilities.settings.input_schema from the integration catalog.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIntegrationRequest'
+      responses:
+        '200':
+          description: Updated integration settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteIntegration
+      tags: [Integrations]
+      summary: Delete integration setup and revoke its capabilities
+      description: >-
+        Deletes the integration setup and its cron schedules, revokes its capabilities, and releases
+        its credential reference. Existing agents, agent history, and provider messages are preserved.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Delete integration setup and revoke its capabilities.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    get:
+      operationId: listIntegrationSubscriptions
+      tags: [Integrations]
+      summary: List integration conversation subscriptions
+      description: Requires project read permission. Disconnected integrations retain their subscriptions and support listing.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Integration conversation subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationSubscriptionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createIntegrationSubscription
+      tags: [Integrations]
+      summary: Attach an agent to an integration conversation
+      description: Requires project management permission. Repeating an active attachment returns the same subscription. Subscriptions do not change the agent config or grant sending tools.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationSubscriptionRequest'
+      responses:
+        '201':
+          description: Created or existing subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+      - name: subscriptionID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationSubscriptionID'
+    delete:
+      operationId: deleteIntegrationSubscription
+      tags: [Integrations]
+      summary: Stop forwarding an integration conversation to an agent
+      description: Requires project management permission. Missing subscriptions are a no-op within an existing integration. Disconnected integrations support deletion. Stops future incoming forwarding for this subscription. The agent, sending tools, interaction handlers, and history remain available. Attaching the conversation again through the API resumes forwarding with a new subscription ID.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Subscription removed or already absent.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    post:
+      operationId: configureIntegration
+      tags: [Integrations]
+      summary: Verify and configure integration credentials
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      description: Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. Setup preserves integration settings; verified provider identity scopes incoming events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigureIntegrationRequest'
+      responses:
+        '200':
+          description: Integration setup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    post:
+      operationId: disconnectIntegration
+      tags: [Integrations]
+      summary: Disconnect this integration without deleting its configuration
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: Integration setup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integration-definitions:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: listIntegrationDefinitions
+      tags: [Integrations]
+      summary: List installed integration implementations and their capabilities
+      responses:
+        '200':
+          description: The code-defined integration catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListIntegrationDefinitionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -6858,6 +8210,34 @@ components:
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
+    AgentIncludeUsage:
+      name: include_usage
+      in: query
+      required: false
+      schema:
+        type: boolean
+      description: >-
+        Include each agent's `usage`, so a list can show costs without a
+        request per agent.
+    AgentProfileIncludeStats:
+      name: include_stats
+      in: query
+      required: false
+      schema:
+        type: boolean
+      description: >-
+        Include each profile's `stats`, so a list can show instance counts and
+        usage without a request per profile.
+    AgentProfileStatsSince:
+      name: stats_since
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >-
+        Start of the window `stats.usage` tallies, with `include_stats`. Omit to
+        tally from the earliest recorded call.
     UsageSince:
       name: since
       in: query
@@ -6902,7 +8282,7 @@ components:
         items:
           $ref: '#/components/schemas/ProjectID'
       description: >-
-        Tally model calls from every project except these. Cannot be combined
+        Tally model calls from every readable project except these. Cannot be combined
         with `include_project_ids`.
     IdempotencyKey:
       name: Idempotency-Key
@@ -7011,20 +8391,6 @@ components:
       schema:
         $ref: '#/components/schemas/MCPOAuthFlowID'
       description: Filter to secrets that have a version created by this MCP OAuth flow.
-    IntegrationInstallAgentProfileFilter:
-      name: agent_profile_id
-      in: query
-      required: false
-      schema:
-        $ref: '#/components/schemas/AgentProfileID'
-      description: Only return integration installs bound to this agent profile.
-    IntegrationInstallOAuthFlowIDFilter:
-      name: oauth_flow_id
-      in: query
-      required: false
-      schema:
-        $ref: '#/components/schemas/IntegrationOAuthFlowID'
-      description: Only return the integration install completed by this OAuth setup flow.
     SecretAvailabilitySourceFilter:
       name: availability_source
       in: query
@@ -7140,6 +8506,12 @@ components:
       maxLength: 64
       pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
       description: Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+    MemoryStoreName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      description: Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
     ResourceListSort:
       type: string
       description: Sort order for named resources that expose created and modified timestamps.
@@ -7179,6 +8551,10 @@ components:
         error:
           type: string
           description: Human-readable error message. Do not match on it programmatically.
+        current_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Current file digest for file_content_conflict or expected_digest_required; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
         issues:
           type: array
           description: >-
@@ -7189,12 +8565,17 @@ components:
         code:
           type: string
           description: Stable error code for programmatic handling.
-          enum:
+          x-go-type: ErrorCode
+          x-extensible-enum:
             - invalid_request
             - unauthorized
             - forbidden
             - not_found
             - conflict
+            - file_content_conflict
+            - file_read_only
+            - expected_digest_required
+            - not_a_file
             - gone
             - request_too_large
             - unsupported_media_type
@@ -7212,10 +8593,40 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+    ErrorCode:
+      type: string
+      description: Known error codes.
+      enum:
+        - invalid_request
+        - unauthorized
+        - forbidden
+        - not_found
+        - conflict
+        - file_content_conflict
+        - file_read_only
+        - expected_digest_required
+        - not_a_file
+        - gone
+        - request_too_large
+        - unsupported_media_type
+        - unprocessable
+        - upstream_unavailable
+        - rate_limited
+        - internal_error
+        - service_unavailable
+        - idempotency_key_conflict
+        - state_transition_conflict
+        - managed_work_admission_denied
+        - pending_work
+        - not_wake_capable
+        - daemon_runtime_unregistered
+        - validation_failed
+        - csrf_check_failed
+        - authentication_unavailable
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-      enum:
+      x-extensible-enum:
         - invalid_request
         - validation_failed
         - unauthorized
@@ -7223,6 +8634,10 @@ components:
         - csrf_check_failed
         - not_found
         - conflict
+        - file_content_conflict
+        - file_read_only
+        - expected_digest_required
+        - not_a_file
         - idempotency_key_conflict
         - state_transition_conflict
         - pending_work
@@ -7237,7 +8652,7 @@ components:
     ServerErrorCode:
       type: string
       description: Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-      enum:
+      x-extensible-enum:
         - internal_error
         - service_unavailable
         - authentication_unavailable
@@ -7284,9 +8699,9 @@ components:
     CronTriggerID:
       type: string
       pattern: '^cron_[a-z2-7]{26}$'
-    IntegrationInstallID:
+    IntegrationTargetID:
       type: string
-      pattern: '^iin_[a-z2-7]{26}$'
+      pattern: '^itgt_[a-z2-7]{26}$'
     AgentEventID:
       type: string
       pattern: '^evt_[a-z2-7]{26}$'
@@ -7611,6 +9026,14 @@ components:
           minimum: 1
           maximum: 2147483647
           description: Provider-advertised maximum output limit in tokens, when available.
+        supports_reasoning:
+          type: boolean
+          description: Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+        supported_reasoning_efforts:
+          type: array
+          description: Reasoning effort values the model accepts, when reported.
+          items:
+            type: string
         pricing:
           $ref: '#/components/schemas/DiscoveredModelPricing'
     DiscoveredModelPricing:
@@ -8010,12 +9433,31 @@ components:
     ProjectModelGrantListItem:
       type: object
       additionalProperties: false
-      required: [grant, model]
+      required: [grant, model, effective_reasoning]
       properties:
         grant:
           $ref: '#/components/schemas/ProjectModelGrant'
         model:
           $ref: '#/components/schemas/ConfiguredModelSummary'
+        effective_reasoning:
+          $ref: '#/components/schemas/ProjectModelGrantEffectiveReasoning'
+    ProjectModelGrantEffectiveReasoning:
+      type: object
+      additionalProperties: false
+      description: Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+      required: [supports_reasoning, default_reasoning_effort, supported_reasoning_efforts]
+      properties:
+        supports_reasoning:
+          type: boolean
+          description: Whether agents can use this model's reasoning features. False when the grant no longer fits the configured model.
+        default_reasoning_effort:
+          type: string
+          description: Reasoning effort sent when an agent config does not set model.reasoning.effort. Empty means the provider default.
+        supported_reasoning_efforts:
+          type: array
+          description: Values an agent config may set as model.reasoning.effort, including limits the model's API format imposes when the configured model lists none. Empty means any value is accepted.
+          items:
+            type: string
     ConfiguredModelSummary:
       type: object
       additionalProperties: false
@@ -8064,6 +9506,9 @@ components:
     SkillGrantID:
       type: string
       pattern: '^skg_[a-z2-7]{26}$'
+    MemoryStoreID:
+      type: string
+      pattern: ^mst_[a-z2-7]{26}$
     SecretID:
       type: string
       pattern: '^sec_[a-z2-7]{26}$'
@@ -8348,6 +9793,135 @@ components:
             $ref: '#/components/schemas/SkillGrantListItem'
         next_cursor:
           type: [string, "null"]
+    MemoryStoreAccess:
+      type: string
+      enum: [read, read_write]
+    MemoryStore:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - name
+        - description
+        - agent_access
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/MemoryStoreID"
+        project_id:
+          $ref: "#/components/schemas/ProjectID"
+        name:
+          $ref: "#/components/schemas/MemoryStoreName"
+        description:
+          type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateMemoryStore:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          $ref: "#/components/schemas/MemoryStoreName"
+        description:
+          type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
+          default: read_write
+    UpdateMemoryStore:
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
+    MemoryStoreList:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryStore"
+        next_cursor:
+          type: [string, "null"]
+    MemoryFile:
+      oneOf:
+        - $ref: '#/components/schemas/MemoryRegularFile'
+        - $ref: '#/components/schemas/MemoryDirectory'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/MemoryRegularFile'
+          directory: '#/components/schemas/MemoryDirectory'
+    MemoryRegularFile:
+      type: object
+      additionalProperties: false
+      required: [path, type, size_bytes, modified_at]
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file]
+          x-enum-varnames: [MemoryRegularFileTypeFile]
+        size_bytes:
+          type: integer
+          format: int64
+        modified_at:
+          $ref: '#/components/schemas/Timestamp'
+    MemoryDirectory:
+      type: object
+      additionalProperties: false
+      required: [path, type, modified_at]
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum: [directory]
+          x-enum-varnames: [MemoryDirectoryTypeDirectory]
+        modified_at:
+          $ref: '#/components/schemas/Timestamp'
+    MemoryFileList:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryFile'
+        next_cursor:
+          type: [string, "null"]
+    UploadFileResponse:
+      type: object
+      additionalProperties: false
+      description: Returns the uploaded file's path and digest.
+      required: [path, digest]
+      properties:
+        path:
+          type: string
+        digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
     MCPOAuthStartRequest:
       type: object
       additionalProperties: false
@@ -8405,9 +9979,6 @@ components:
       additionalProperties: false
       required: [client_id, client_secret, signing_secret]
       properties:
-        provider:
-          type: string
-          default: slack
         client_id:
           type: string
           minLength: 1
@@ -8419,61 +9990,39 @@ components:
           minLength: 1
         return_to:
           type: string
-    IntegrationInstall:
-      type: object
-      additionalProperties: false
+    IntegrationKind:
+      type: string
+      description: Registered integration implementation; independent of the saved integration's name and immutable ID.
+      enum: [slack_thread, discord_thread, github_pr]
+      x-enum-varnames: [IntegrationKindSlackThread, IntegrationKindDiscordThread, IntegrationKindGitHubPR]
+    IntegrationProviderDisplayName:
+      type: string
+      maxLength: 512
       description: >-
-        A provider app installation that connects an agent profile or a single agent to an external
-        app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never
-        returned.
-      required: [id, org_id, project_id, provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, created_at, updated_at]
-      properties:
-        id:
-          $ref: '#/components/schemas/IntegrationInstallID'
-        org_id:
-          $ref: '#/components/schemas/OrganizationID'
-        project_id:
-          $ref: '#/components/schemas/ProjectID'
-        agent_profile_id:
-          $ref: '#/components/schemas/AgentProfileID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
-        provider:
-          type: string
-        integration_kind:
-          type: string
-        connection_mode:
-          type: string
-        state:
-          type: string
-          enum: [active, disabled]
-        provider_tenant_id:
-          type: string
-        provider_account_ref:
-          type: string
-        provider_agent_display_name:
-          type: string
-        created_at:
-          $ref: '#/components/schemas/Timestamp'
-        updated_at:
-          $ref: '#/components/schemas/Timestamp'
-    ListIntegrationInstallsResponse:
+        Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace
+        is trimmed on save. Empty means no label; an omitted or empty value clears the label on
+        account-management updates.
+    IntegrationProviderConfig:
       type: object
-      additionalProperties: false
-      required: [data, next_cursor]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/IntegrationInstall'
-        next_cursor:
-          type: [string, "null"]
-          description: Opaque cursor for the next page, or null when this is the last page.
+      additionalProperties: true
+      description: >-
+        Non-secret provider configuration, validated for the selected provider. Slack and GitHub
+        integrations require an empty object. Discord accepts only public_key (optional,
+        a 32-byte hex-encoded Ed25519 verification key for interaction callbacks).
+        Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior
+        are not accepted here.
     IntegrationOAuthSetup:
       type: object
       additionalProperties: false
-      required: [provider, flow_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [integration_id, setup_revision, provider, flow_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+          description: Integration setup revision captured by this authorization flow.
         provider:
           type: string
         flow_id:
@@ -8492,6 +10041,98 @@ components:
           format: uri
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    CreateGitHubSetupRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_setup_revision]
+      properties:
+        expected_setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+        app_name:
+          type: string
+          minLength: 1
+          maxLength: 34
+          description: Optional initial GitHub App name suggestion. When omitted, the user chooses a name on GitHub during registration.
+        organization:
+          type: string
+          minLength: 1
+          maxLength: 39
+          pattern: '^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$'
+          description: GitHub organization login. Omit to register under a personal account.
+    GitHubSetup:
+      type: object
+      additionalProperties: false
+      required: [integration_id, setup_revision, registration_url, manifest, expires_at]
+      properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+        registration_url:
+          type: string
+          format: uri
+        manifest:
+          type: object
+          additionalProperties: true
+          description: Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    InspectGitHubInstallationsRequest:
+      type: object
+      additionalProperties: false
+      required: [credential_secret_id]
+      properties:
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        page:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 1
+    GitHubInstallations:
+      type: object
+      additionalProperties: false
+      required: [provider_app_id, name, slug, install_url, installations]
+      properties:
+        provider_app_id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        name:
+          type: string
+        slug:
+          type: string
+        install_url:
+          type: string
+          format: uri
+          description: Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+        installations:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitHubSetupInstallation'
+        next_page:
+          type: integer
+          minimum: 1
+          maximum: 1000
+    GitHubSetupInstallation:
+      type: object
+      additionalProperties: false
+      required: [id, account, settings_url]
+      properties:
+        id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        account:
+          type: string
+          description: Provider-verified installation account login.
+        account_type:
+          type: string
+        settings_url:
+          type: string
+          format: uri
     CreateSlackSetupRequest:
       type: object
       additionalProperties: false
@@ -8521,8 +10162,15 @@ components:
     SlackSetup:
       type: object
       additionalProperties: false
-      required: [provider, flow_id, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
+      required: [integration_id, setup_revision, provider, flow_id, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+          description: Integration setup revision captured by this authorization flow.
         provider:
           type: string
         flow_id:
@@ -9008,11 +10656,23 @@ components:
             $ref: '#/components/schemas/CompiledMCPServer'
         event_webhook:
           $ref: '#/components/schemas/CompiledEventWebhook'
+        interaction_handlers:
+          type: object
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            $ref: '#/components/schemas/CompiledIntegrationCapability'
+        git_credentials:
+          $ref: '#/components/schemas/CompiledGitCredentials'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
           items:
             $ref: '#/components/schemas/CompiledSkill'
+        memory_stores:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            $ref: '#/components/schemas/CompiledMemoryStore'
         subagents:
           type: object
           x-go-type-skip-optional-pointer: true
@@ -9129,6 +10789,12 @@ components:
       additionalProperties: false
       required: [enabled, permission]
       properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
         enabled:
           type: boolean
         type:
@@ -9152,6 +10818,29 @@ components:
           additionalProperties: true
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
+    CompiledIntegrationCapability:
+      type: object
+      additionalProperties: false
+      required: [integration_id]
+      properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledGitCredentials:
+      type: object
+      additionalProperties: false
+      description: Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+      required: [integration, integration_id]
+      properties:
+        integration:
+          $ref: '#/components/schemas/IntegrationName'
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
     CompiledMCPServer:
       type: object
       additionalProperties: false
@@ -9258,6 +10947,18 @@ components:
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledMemoryStore:
+      type: object
+      additionalProperties: false
+      required: [id, access]
+      properties:
+        id:
+          $ref: '#/components/schemas/MemoryStoreID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+        access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
     CompiledSubagent:
       oneOf:
         - $ref: '#/components/schemas/CompiledSelfSubagent'
@@ -9432,6 +11133,24 @@ components:
           $ref: '#/components/schemas/Timestamp'
         current_config:
           $ref: '#/components/schemas/AgentConfigSummary'
+        stats:
+          $ref: '#/components/schemas/AgentProfileStats'
+    AgentProfileStats:
+      type: object
+      additionalProperties: false
+      description: Present when the list was requested with `include_stats`.
+      required: [agent_count, usage]
+      properties:
+        agent_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unarchived top-level agents launched from the profile.
+        usage:
+          $ref: '#/components/schemas/UsageTotals'
+          description: >-
+            Model usage by the profile's agents and their subagents since
+            `stats_since`.
     AgentProfile:
       type: object
       additionalProperties: false
@@ -9490,15 +11209,35 @@ components:
           enum: [profile]
         agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
+    IntegrationCronTriggerTarget:
+      type: object
+      additionalProperties: false
+      required: [type, integration_id, settings]
+      properties:
+        type:
+          type: string
+          enum: [integration]
+          x-enum-varnames: [IntegrationCronTriggerTargetTypeIntegration]
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        settings:
+          type: object
+          additionalProperties: true
+          description: >-
+            Settings validated by the target integration's published schedule input schema.
+            Each accepted occurrence retains its own copy. Integration resource references
+            are resolved when the integration handles the occurrence.
     CronTriggerTarget:
       oneOf:
         - $ref: '#/components/schemas/AgentCronTriggerTarget'
         - $ref: '#/components/schemas/AgentProfileCronTriggerTarget'
+        - $ref: '#/components/schemas/IntegrationCronTriggerTarget'
       discriminator:
         propertyName: type
         mapping:
           agent: '#/components/schemas/AgentCronTriggerTarget'
           profile: '#/components/schemas/AgentProfileCronTriggerTarget'
+          integration: '#/components/schemas/IntegrationCronTriggerTarget'
     CronExpression:
       type: string
       description: >-
@@ -9515,7 +11254,9 @@ components:
       type: string
       description: >-
         Go text/template rendered on each firing to produce the message sent to the target. The
-        template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields.
+        template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields.
+        Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone.
+        Required for agent and profile targets; omitted for integration targets, which use their own settings.
         Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf`
         width and precision specifiers are capped at 1024; a firing whose template fails to
         render is recorded in `failure_report` without sending a message.
@@ -9542,7 +11283,7 @@ components:
     CreateCronTriggerRequest:
       type: object
       additionalProperties: false
-      required: [name, target, cron, message_template]
+      required: [name, target, cron]
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
@@ -9563,7 +11304,7 @@ components:
       properties:
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
-          description: Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+          description: Updates target options. The target type and ID cannot change. Integration settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
         name:
           $ref: '#/components/schemas/ResourceName'
         cron:
@@ -9574,10 +11315,31 @@ components:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
           type: boolean
+    CronTriggerLastRunState:
+      type: string
+      enum: [queued, processing, completed, failed]
+      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStateProcessing, CronTriggerLastRunStateCompleted, CronTriggerLastRunStateFailed]
+      description: >-
+        State of the latest accepted scheduled integration action. Completed means the integration handled
+        the occurrence; it does not indicate completion of any agent task that action started.
+    CronTriggerLastRun:
+      type: object
+      additionalProperties: false
+      required: [state, created_at, updated_at, failure_message]
+      properties:
+        state:
+          $ref: '#/components/schemas/CronTriggerLastRunState'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        failure_message:
+          type: [string, "null"]
+          description: Coarse scheduled action failure description; no raw provider errors.
     CronTrigger:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, created_at, updated_at]
+      required: [id, org_id, project_id, name, target, cron, timezone, enabled, last_fired_at, next_fire_at, failure_report, last_run, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/CronTriggerID'
@@ -9601,7 +11363,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
-          description: When the trigger last fired, or null if it has never fired.
+          description: When the trigger last fired, or null if it has never fired. For integration targets this means durable inbox handoff.
         next_fire_at:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -9614,6 +11376,15 @@ components:
           description: >-
             Most recent failed firing, or null if no firing has failed since the last
             successful firing.
+        last_run:
+          oneOf:
+            - $ref: '#/components/schemas/CronTriggerLastRun'
+            - type: "null"
+          description: >-
+            Status of the latest accepted scheduled integration launch, scoped to this project and integration.
+            Null for ordinary cron, before any launch is accepted, or when retained details have expired.
+            Never falls back to an older launch. Schedule firing failures remain separate in failure_report.
+            Deleting or disabling a schedule does not cancel launch work already accepted by the integration.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9644,6 +11415,45 @@ components:
           description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
+          description: Optional initial text message. Mutually exclusive with initial_input.
+        tools:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ConfigToolSource'
+          description: Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+        subscriptions:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/IntegrationSubscriptionAttachment'
+          description: Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+        interaction_handlers:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ConfigIntegrationCapabilitySource'
+          description: Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
+        initial_input:
+          $ref: '#/components/schemas/AgentLaunchInitialInput'
+    AgentLaunchInitialInput:
+      type: object
+      additionalProperties: false
+      required: [content_blocks]
+      description: >-
+        Initial queued text input, committed atomically with the agent and any
+        derived config. Mutually exclusive with message. Initial inline media is
+        not supported; upload it through the agent input endpoint after launch.
+      properties:
+        content_blocks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TextContentBlock'
+        actor:
+          $ref: '#/components/schemas/ExternalActorParams'
+          description: >-
+            Optional external actor for API key authentication. User-authenticated
+            requests must omit this field. Without it, the authenticated user or
+            API key is the actor.
     Agent:
       type: object
       additionalProperties: false
@@ -9664,6 +11474,11 @@ components:
           $ref: '#/components/schemas/AgentName'
         integration_target:
           $ref: '#/components/schemas/IntegrationTarget'
+          description: >-
+            Selected question/approval destination. Automatic mode updates it when
+            content inputs are admitted. Prompts use it only while the integration
+            and handler remain eligible. It is not launch provenance or permission
+            to post.
         current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
         model:
@@ -9675,8 +11490,13 @@ components:
           description: The `subagents` key this agent was spawned from.
           type: string
         activity:
-          description: Current activity, present on list responses.
+          description: Current activity, present on list and get responses.
           $ref: '#/components/schemas/AgentActivity'
+        usage:
+          description: >-
+            All-time model usage by the agent and its subagents. Present when
+            the list was requested with `include_usage`.
+          $ref: '#/components/schemas/UsageTotals'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9690,9 +11510,10 @@ components:
       properties:
         state:
           description: >-
-            running while the agent has work in progress, waiting_on_interaction
-            while it has an open question or permission request, idle otherwise,
-            and archived once the agent is archived.
+            running while the agent has work in progress, which includes a
+            custom tool call awaiting its result; waiting_on_interaction while
+            it has an open question or permission request; idle otherwise; and
+            archived once the agent is archived.
           type: string
           enum: [running, idle, waiting_on_interaction, archived]
         last_activity_at:
@@ -9710,14 +11531,12 @@ components:
     IntegrationTarget:
       type: object
       additionalProperties: false
-      required: [provider, provider_ref, provider_ref_kind, display_name]
+      required: [provider, conversation, display_name]
       properties:
         provider:
           type: string
-        provider_ref:
-          type: string
-        provider_ref_kind:
-          type: string
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
         display_name:
           type: string
         provider_uri:
@@ -10309,6 +12128,20 @@ components:
           $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
+        interaction_update:
+          description: Only present when this transition opens, resolves, or cancels an interaction.
+          $ref: '#/components/schemas/AgentInteractionUpdate'
+    AgentInteractionUpdate:
+      type: object
+      additionalProperties: false
+      required: [id, interaction_kind, state]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentInteractionID'
+        interaction_kind:
+          $ref: '#/components/schemas/AgentInteractionKind'
+        state:
+          $ref: '#/components/schemas/AgentInteractionState'
     ListToolCallsResponse:
       type: object
       additionalProperties: false
@@ -11075,6 +12908,26 @@ components:
         actor:
           description: External actor to attribute to the generated interaction_response agent input, upserted by (provider_tenant_id, provider_user_id) atomically with the resolution; a rejected request writes no actor. Only allowed for non-user principals; requests authenticated as a user must omit it and are attributed to the user's omnara actor. When a non-user request omits it, the generated input has no actor attribution.
           $ref: '#/components/schemas/ExternalActorParams'
+    AgentInteractionDestination:
+      type: object
+      additionalProperties: false
+      required: [integration_kind, handler_key, integration_id, integration_target_id, conversation]
+      description: Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
+      properties:
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
+        handler_key:
+          type: string
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        integration_target_id:
+          $ref: '#/components/schemas/IntegrationTargetID'
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
+    InteractionPresentationReceipt:
+      type: object
+      additionalProperties: true
+      description: Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
     AgentInteraction:
       type: object
       additionalProperties: false
@@ -11107,8 +12960,13 @@ components:
           $ref: '#/components/schemas/InteractionForm'
         resolution:
           $ref: '#/components/schemas/InteractionResolution'
+        destination:
+          description: Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+          $ref: '#/components/schemas/AgentInteractionDestination'
+        presentation_receipt:
+          $ref: '#/components/schemas/InteractionPresentationReceipt'
         resolved_by_input_id:
-          description: The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+          description: The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
           $ref: '#/components/schemas/AgentInputID'
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -11116,11 +12974,11 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ActorProvider:
       type: string
-      description: omnara for project members, an integration provider such as slack, or external for API-managed actors.
-      enum: [omnara, slack, external]
+      description: omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
+      enum: [omnara, integration, external]
       x-enum-varnames:
         - ActorProviderOmnara
-        - ActorProviderSlack
+        - ActorProviderIntegration
         - ActorProviderExternal
     Actor:
       type: object
@@ -11137,11 +12995,14 @@ components:
           $ref: '#/components/schemas/ActorProvider'
         provider_tenant_id:
           type: string
+          description: Project-scoped identity namespace. Integration actors use a stable platform namespace (slack:<workspace ID>, discord, or github:github.com), shared across configured bots and integration kinds on that platform. Retained for attribution after integration deletion; not an authorization principal.
         provider_user_id:
           type: string
+          description: Stable sender identifier within the actor identity namespace.
         display_name:
           type: string
         metadata:
+          description: Saved actor attributes. Hosted integration actors store source_label (such as Slack) for display without a live integration lookup.
           $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -11149,7 +13010,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ExternalActorParams:
       type: object
-      description: Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+      description: Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
       additionalProperties: false
       required: [provider_user_id]
       properties:
@@ -11351,17 +13212,37 @@ components:
           type: string
           minLength: 1
           description: Requires role_arn.
+    GitHubAppCredentialsSecretMaterial:
+      type: object
+      additionalProperties: false
+      required: [kind, app_id, private_key, webhook_secret]
+      properties:
+        kind:
+          type: string
+          enum: [github_app_credentials]
+        app_id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        private_key:
+          type: string
+          minLength: 1
+          description: Unencrypted RSA private key in PEM format. Stored encrypted.
+        webhook_secret:
+          type: string
+          minLength: 1
     SecretMaterial:
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
         - $ref: '#/components/schemas/AWSCredentialsSecretMaterial'
+        - $ref: '#/components/schemas/GitHubAppCredentialsSecretMaterial'
       discriminator:
         propertyName: kind
         mapping:
           generic: '#/components/schemas/GenericSecretMaterial'
           oauth_token_set: '#/components/schemas/OAuthTokenSetSecretMaterial'
           aws_credentials: '#/components/schemas/AWSCredentialsSecretMaterial'
+          github_app_credentials: '#/components/schemas/GitHubAppCredentialsSecretMaterial'
     CreateSecretRequest:
       type: object
       additionalProperties: false
@@ -11400,12 +13281,13 @@ components:
           $ref: '#/components/schemas/ProjectID'
     SecretKind:
       type: string
-      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials]
+      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials, github_app_credentials]
       x-enum-varnames:
         - SecretKindGeneric
         - SecretKindOAuthTokenSet
         - SecretKindSlackAppCredentials
         - SecretKindAWSCredentials
+        - SecretKindGitHubAppCredentials
     Secret:
       type: object
       additionalProperties: false
@@ -11769,7 +13651,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [unikraft, modal, freestyle]
+                  enum: [arker, freestyle, modal, tenki, unikraft]
                 default_machine_cpu:
                   type: integer
                   format: int32
@@ -11793,7 +13675,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona]
+                  enum: [boxd, createos, daytona]
                 max_total_cpu:
                   type: integer
                   format: int32
@@ -11827,6 +13709,36 @@ components:
                   - required: [max_total_cpu]
                   - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
+    CheckMachinePoolConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, provider_auth_secret_id]
+      properties:
+        provider:
+          type: string
+          minLength: 1
+        provider_auth_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          type: object
+          additionalProperties: true
+        default_machine_provider_options:
+          type: object
+          additionalProperties: true
+    MachinePoolConnectionCheckError:
+      type: object
+      additionalProperties: false
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Why the check failed, in plain language. Do not match on it programmatically.
+        code:
+          type: string
+          enum: [unprocessable, upstream_unavailable]
+        details:
+          type: string
+          description: The provider's original error, for troubleshooting. Present when the provider call failed.
     CreateMachinePoolRequestBase:
       type: object
       additionalProperties: false
@@ -12098,7 +14010,7 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         usage:
-          description: Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+          description: Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
           $ref: '#/components/schemas/MachinePoolUsage'
     MachinePoolUsage:
       type: object
@@ -13000,13 +14912,6 @@ components:
           $ref: '#/components/schemas/InstallationID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
-    UploadArtifactResponse:
-      type: object
-      additionalProperties: false
-      required: [artifact_id]
-      properties:
-        artifact_id:
-          $ref: '#/components/schemas/ArtifactID'
     CreateProjectRequest:
       type: object
       additionalProperties: false
@@ -13070,13 +14975,23 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles, today, usage]
+      required: [projects, project_activity, recent_agents, recent_agent_profiles, referenced_agent_profiles]
       properties:
         projects:
           type: array
-          description: Projects visible to the caller, newest first (capped).
+          description: >-
+            Projects visible to the caller, most recently active first, capped
+            at 200. Recents and activity still cover every visible project.
           items:
             $ref: '#/components/schemas/VisibleProject'
+        project_activity:
+          type: array
+          description: >-
+            When each listed project last had an active top-level agent or an
+            agent profile updated, among those the caller can read. Projects
+            with neither are omitted.
+          items:
+            $ref: '#/components/schemas/OrgOverviewProjectActivity'
         recent_agents:
           type: array
           description: >-
@@ -13099,10 +15014,15 @@ components:
             since deleted are omitted.
           items:
             $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
-        today:
-          $ref: '#/components/schemas/OrgOverviewToday'
-        usage:
-          $ref: '#/components/schemas/OrgOverviewUsage'
+    OrgOverviewProjectActivity:
+      type: object
+      additionalProperties: false
+      required: [project_id, last_active_at]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        last_active_at:
+          $ref: '#/components/schemas/Timestamp'
     OrgOverviewAgentProfileReference:
       type: object
       additionalProperties: false
@@ -13117,129 +15037,117 @@ components:
           format: int64
           minimum: 0
           description: Agents, not counting subagents, launched from the profile, including archived ones.
-    OrgOverviewToday:
-      type: object
-      additionalProperties: false
-      description: Activity since the start of today in `timezone`, across the readable projects in `projects`.
-      required: [agents_created, messages_sent]
-      properties:
-        agents_created:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Agents created today, not counting subagents.
-        messages_sent:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Messages sent to agents today, not counting messages to or from subagents.
-    OrgOverviewUsage:
-      type: object
-      additionalProperties: false
+    UsageTimeseriesInterval:
+      type: string
+      enum: [hour, day, week, month]
+      x-enum-varnames:
+        - UsageTimeseriesIntervalHour
+        - UsageTimeseriesIntervalDay
+        - UsageTimeseriesIntervalWeek
+        - UsageTimeseriesIntervalMonth
+    UsageTimeseriesMetric:
+      type: string
       description: >-
-        Model usage over the last 30 days in `timezone`, today included, across the
-        readable projects in `projects`.
-      required: [totals, active_agents, models, profiles, days]
+        `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported
+        cost in USD. `count_model_calls` counts model calls that recorded usage.
+      enum: [sum_tokens, sum_input_tokens, sum_output_tokens, sum_cost, count_model_calls]
+      x-enum-varnames:
+        - UsageTimeseriesMetricSumTokens
+        - UsageTimeseriesMetricSumInputTokens
+        - UsageTimeseriesMetricSumOutputTokens
+        - UsageTimeseriesMetricSumCost
+        - UsageTimeseriesMetricCountModelCalls
+    UsageTimeseriesGroupBy:
+      type: string
+      enum: [model, profile]
+      x-enum-varnames: [UsageTimeseriesGroupByModel, UsageTimeseriesGroupByProfile]
+    UsageTimeseries:
+      type: object
+      additionalProperties: false
+      required: [metric, interval, timezone, bucket_starts, until, totals, active_agents, series]
       properties:
+        metric:
+          $ref: '#/components/schemas/UsageTimeseriesMetric'
+        interval:
+          $ref: '#/components/schemas/UsageTimeseriesInterval'
+        group_by:
+          $ref: '#/components/schemas/UsageTimeseriesGroupBy'
+        timezone:
+          type: string
+          description: IANA time zone the buckets follow.
+        bucket_starts:
+          type: array
+          description: >-
+            Start of each bucket in `timezone`, oldest first, including buckets
+            without usage. The first bucket starts at the beginning of the
+            interval containing `since`, but only usage at or after `since` counts.
+          items:
+            $ref: '#/components/schemas/Timestamp'
+        until:
+          $ref: '#/components/schemas/Timestamp'
+          description: End of the window; usage at or after this instant is excluded.
         totals:
           $ref: '#/components/schemas/UsageTotals'
+          description: All usage in the window, regardless of `metric` and `group_by`.
         active_agents:
           type: integer
           format: int64
           minimum: 0
-          description: Agents, not counting subagents, that made at least one model call.
-        models:
+          description: Agents, not counting subagents, that made at least one model call in the window.
+        series:
           type: array
           description: >-
-            The configured models with the most tokens, most first, up to eight.
-            Usage from any other model still counts toward every total.
+            Without `group_by`, a single `all` series. With it, one series per
+            ranked group, most first, then an `other` series when usage remains.
           items:
-            $ref: '#/components/schemas/OrgOverviewUsageModel'
-        profiles:
-          type: array
+            $ref: '#/components/schemas/UsageTimeseriesSeries'
+    UsageTimeseriesSeries:
+      type: object
+      additionalProperties: false
+      required: [kind, total, values]
+      properties:
+        kind:
+          type: string
+          enum: [all, model, profile, no_profile, other]
+          x-enum-varnames:
+            - UsageTimeseriesSeriesKindAll
+            - UsageTimeseriesSeriesKindModel
+            - UsageTimeseriesSeriesKindProfile
+            - UsageTimeseriesSeriesKindNoProfile
+            - UsageTimeseriesSeriesKindOther
           description: >-
-            The agent profiles with the most tokens, most first, up to eight. Usage
-            from a subagent counts toward the subagent's own profile.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageProfile'
-        days:
-          type: array
-          description: One entry per day, oldest first and ending today, including days without usage.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDay'
-    OrgOverviewUsageModel:
-      type: object
-      additionalProperties: false
-      required: [id, name, totals]
-      properties:
+            `no_profile` groups usage from agents launched without a profile;
+            `other` folds together every group beyond `group_limit`.
         id:
-          $ref: '#/components/schemas/ConfiguredModelID'
-        name:
-          $ref: '#/components/schemas/ResourceName'
-          description: Configured model name, resolved even if the model has since been deleted.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-    OrgOverviewUsageProfile:
-      type: object
-      additionalProperties: false
-      required: [totals]
-      properties:
-        id:
-          $ref: '#/components/schemas/AgentProfileID'
-          description: Omitted for usage from agents launched without a profile.
+          type: string
+          description: Configured model ID for `model` series, agent profile ID for `profile` series.
         name:
           $ref: '#/components/schemas/ResourceName'
           description: >-
-            Agent profile name, resolved even if the profile has since been deleted.
-            Omitted along with `id`.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-    OrgOverviewUsageDay:
-      type: object
-      additionalProperties: false
-      required: [start, totals, models, profiles]
-      properties:
-        start:
-          $ref: '#/components/schemas/Timestamp'
-          description: Start of the day in `timezone`.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-          description: All usage in the day, including models and profiles missing from `models` and `profiles`.
-        models:
-          type: array
-          description: Tokens in the day for each model in `models` that has any, in `models` order.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDayModel'
-        profiles:
-          type: array
-          description: Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDayProfile'
-    OrgOverviewUsageDayModel:
-      type: object
-      additionalProperties: false
-      required: [id, tokens]
-      properties:
-        id:
-          $ref: '#/components/schemas/ConfiguredModelID'
-        tokens:
-          type: integer
-          format: int64
+            Configured model or agent profile name, resolved even if it has since
+            been deleted. Present with `id`.
+        model_provider_config_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Name of the configured model's provider config, so same-named models
+            can be told apart. Present on `model` series.
+        project_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Name of the agent profile's project, so same-named profiles in different
+            projects can be told apart. Present on `profile` series.
+        total:
+          type: number
+          format: double
           minimum: 0
-          description: Input plus output tokens.
-    OrgOverviewUsageDayProfile:
-      type: object
-      additionalProperties: false
-      required: [tokens]
-      properties:
-        id:
-          $ref: '#/components/schemas/AgentProfileID'
-          description: Omitted for usage from agents launched without a profile.
-        tokens:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Input plus output tokens.
+          description: Metric over the whole window.
+        values:
+          type: array
+          description: Metric in each bucket, aligned with `bucket_starts`.
+          items:
+            type: number
+            format: double
+            minimum: 0
     UsageTokenTotals:
       type: object
       additionalProperties: false
@@ -13478,3 +15386,342 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
+    IntegrationID:
+      type: string
+      pattern: '^itg_[a-z2-7]{26}$'
+    IntegrationSettings:
+      type: object
+      additionalProperties: true
+      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+    UpdateIntegrationRequest:
+      type: object
+      additionalProperties: false
+      required: [settings]
+      description: Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
+      properties:
+        settings:
+          $ref: '#/components/schemas/IntegrationSettings'
+    CreateIntegrationRequest:
+      type: object
+      additionalProperties: false
+      required: [name, integration_kind, settings]
+      description: Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
+      properties:
+        name:
+          $ref: '#/components/schemas/IntegrationName'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
+        settings:
+          $ref: '#/components/schemas/IntegrationSettings'
+    Integration:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, name, integration_kind, state, setup_revision, settings, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        name:
+          $ref: '#/components/schemas/IntegrationName'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
+        state:
+          $ref: '#/components/schemas/IntegrationState'
+        setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+          description: Credential and transport revision. Launcher edits leave this value unchanged.
+        last_oauth_flow_id:
+          $ref: '#/components/schemas/IntegrationOAuthFlowID'
+        runtime_failure:
+          $ref: '#/components/schemas/IntegrationRuntimeFailure'
+        settings:
+          $ref: '#/components/schemas/IntegrationSettings'
+        provider_tenant_id:
+          type: string
+          description: Verified provider identity, omitted until first connection. Retained after disconnect.
+        provider_account_ref:
+          type: string
+          description: Verified provider account, omitted until first connection. Retained after disconnect.
+        provider_agent_display_name:
+          $ref: '#/components/schemas/IntegrationProviderDisplayName'
+        bot_mention:
+          type: string
+          description: GitHub App mention including the leading @, derived from the verified App slug. Omitted when the verified slug is unavailable or the integration is not GitHub. Retained after disconnect.
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationProviderConfig'
+        capabilities:
+          $ref: '#/components/schemas/IntegrationCapabilities'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    IntegrationRuntimeFailure:
+      type: object
+      additionalProperties: false
+      required: [message, retry_at]
+      description: >-
+        Most recent connection failure for the active integration's current setup and credential
+        version. Returned only by Get integration, not list or mutation responses. Omission does
+        not establish provider connectivity; a runtime lease is not a connection check.
+      properties:
+        message:
+          type: string
+          description: Connection failure recorded by the integration runtime.
+        retry_at:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: Earliest time the runtime may retry. A retry can start later.
+    ListIntegrationsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Integration'
+        next_cursor:
+          type: [string, 'null']
+    # BEGIN GENERATED INTEGRATION CAPABILITY SCHEMAS
+    ConfigAgentToolInputSchema:
+      properties:
+        properties:
+          additionalProperties:
+            type: object
+          type: object
+        required:
+          items:
+            minLength: 1
+            type: string
+          type: array
+        type:
+          const: object
+      required:
+        - type
+      type: object
+    ConfigIntegrationCapabilitySource:
+      additionalProperties: false
+      type: object
+      x-go-type: agentconfig.AgentConfigIntegrationCapabilitySource
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/agentconfig
+    ConfigToolPermissionSelection:
+      additionalProperties: false
+      properties:
+        mode:
+          minLength: 1
+          pattern: \S
+          type: string
+        parameters:
+          type: object
+      required:
+        - mode
+      type: object
+    ConfigToolSource:
+      additionalProperties: false
+      else:
+        not:
+          anyOf:
+            - required:
+                - description
+              type: object
+            - required:
+                - input_schema
+              type: object
+      if:
+        properties:
+          type:
+            const: custom
+        required:
+          - type
+        type: object
+      properties:
+        deferred:
+          type: boolean
+        description:
+          minLength: 1
+          type: string
+        enabled:
+          anyOf:
+            - type: boolean
+            - type: "null"
+        input_schema:
+          $ref: '#/components/schemas/ConfigAgentToolInputSchema'
+        permission:
+          $ref: '#/components/schemas/ConfigToolPermissionSelection'
+        type:
+          enum:
+            - built_in
+            - custom
+      then:
+        required:
+          - description
+          - input_schema
+      type: object
+      x-go-type: agentconfig.AgentConfigToolSource
+      x-go-type-import:
+        path: github.com/omnara-ai/omnara/internal/agentconfig
+    # END GENERATED INTEGRATION CAPABILITY SCHEMAS
+    IntegrationName:
+      type: string
+      pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
+      description: Immutable, project-unique integration name used in config keys and qualified tool names.
+    IntegrationState:
+      type: string
+      enum: [active, disconnected]
+      x-enum-varnames: [IntegrationStateActive, IntegrationStateDisconnected]
+    ConfigureIntegrationRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_setup_revision, provider_tenant_id, credential_secret_id]
+      description: >-
+        Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID;
+        the secret is github_app_credentials. Discord tenant is the Application ID;
+        its generic secret contains the bot token, from which the bot User ID is discovered automatically.
+        Reconnect preserves the original verified provider identity.
+        A concurrent setup change rejects this request. Credential payloads are never returned.
+      properties:
+        expected_setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+        provider_tenant_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provider_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
+        provider_agent_display_name:
+          $ref: '#/components/schemas/IntegrationProviderDisplayName'
+          description: Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
+        credential_secret_id:
+          $ref: '#/components/schemas/SecretID'
+        provider_config:
+          $ref: '#/components/schemas/IntegrationProviderConfig'
+          description: Omit to preserve current provider settings. A supplied object replaces them; include every setting you intend to retain.
+    IntegrationCapabilityDefinition:
+      type: object
+      additionalProperties: false
+      required: [input_schema]
+      properties:
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+    IntegrationSubscriptionID:
+      type: string
+      pattern: '^isub_[a-z2-7]{26}$'
+    IntegrationConversation:
+      type: object
+      additionalProperties: true
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+    IntegrationSubscriptionAttachment:
+      type: object
+      additionalProperties: false
+      required: [integration_id, conversation]
+      properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
+    CreateIntegrationSubscriptionRequest:
+      type: object
+      additionalProperties: false
+      required: [agent_id, conversation]
+      properties:
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
+    IntegrationSubscription:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, integration_id, agent_id, agent_name, conversation, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationSubscriptionID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
+        conversation_name:
+          type: string
+          description: Saved display name for the conversation, when available.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    ListIntegrationSubscriptionsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationSubscription'
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or null when this is the last page.
+    IntegrationSubscriptionDefinition:
+      type: object
+      additionalProperties: false
+      required: [conversation_schema]
+      properties:
+        conversation_schema:
+          type: object
+          additionalProperties: true
+          description: Schema for one concrete provider conversation address.
+    IntegrationCapabilities:
+      type: object
+      additionalProperties: false
+      required: [tools]
+      properties:
+        settings:
+          $ref: '#/components/schemas/IntegrationCapabilityDefinition'
+          description: Schema for this integration's complete settings document, including its optional launcher.
+        tools:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/IntegrationCapabilityDefinition'
+        subscription:
+          $ref: '#/components/schemas/IntegrationSubscriptionDefinition'
+          description: Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
+        interaction_handler:
+          $ref: '#/components/schemas/IntegrationCapabilityDefinition'
+        schedule:
+          $ref: '#/components/schemas/IntegrationCapabilityDefinition'
+    IntegrationDefinition:
+      type: object
+      additionalProperties: false
+      required: [integration_kind, capabilities]
+      properties:
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
+        capabilities:
+          $ref: '#/components/schemas/IntegrationCapabilities'
+    ListIntegrationDefinitionsResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationDefinition'

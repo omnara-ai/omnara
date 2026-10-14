@@ -357,7 +357,8 @@ func TestPublicSecretErrorsDoNotEchoPayloads(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+project.AdminToken)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), `a secret named \"duplicate\" already exists; choose a different name`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "private-value") {
@@ -445,24 +446,4 @@ func createHTTPOrgMemberToken(
 		t.Fatalf("create %s pat: %v", seed, err)
 	}
 	return user, pat.Token
-}
-
-func requestRawWithHeaders(
-	t *testing.T,
-	handler http.Handler,
-	method, path, body string,
-	wantStatus int,
-	headers map[string]string,
-) string {
-	t.Helper()
-	req := newJSONRequest(method, path, body)
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != wantStatus {
-		t.Fatalf("%s %s status=%d want=%d body=%s", method, path, rec.Code, wantStatus, rec.Body.String())
-	}
-	return rec.Body.String()
 }

@@ -1,0 +1,65 @@
+---
+title: Daytona
+description: Lightning-fast, isolated sandboxes for running AI-generated code
+icon: "/logo/providers/daytona.svg"
+---
+
+[Daytona](https://www.daytona.io) is secure and elastic infrastructure for running AI-generated code. Connect your Daytona organization with a custom pool.
+
+## Why Daytona
+
+- **Lightning-fast sandboxes.** Daytona creates a sandbox in under 90 ms, from code to execution.
+- **Isolated runtime protection.** Each machine is its own sandbox, separated from your infrastructure, so AI-generated code runs isolated from your systems.
+- **Massive parallelization.** Run many sandboxes side by side for concurrent agent workflows.
+- **Your existing Docker images.** Build snapshots from any tagged registry image or Dockerfile, including private images on Docker Hub, GitHub, Google Artifact Registry, and Amazon ECR. Start from a Docker-in-Docker image, and agents can run `docker compose` stacks right inside their machine.
+- **Work alongside your agents.** Open a web terminal from the Daytona dashboard, or connect over SSH from your own editor, to look at an agent's files and processes or lend a hand.
+
+## Set up a Daytona pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Daytona dashboard](https://app.daytona.io/dashboard/keys), click **Create Key** and give it the `write:sandboxes` and `delete:sandboxes` permissions. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose or build a snapshot">
+    Daytona's default `daytona-medium` snapshot (2 vCPU, 4 GiB) works as is.
+
+    To build your own, start from an image with a pinned tag that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements), and set its size:
+
+    ```bash
+    daytona snapshot create omnara-agent --dockerfile ./Dockerfile --cpu 2 --memory 4 --disk 10
+    ```
+
+    Wait until the snapshot is **Active** in the region you plan to use. For private registry images, add the registry in the Daytona dashboard first.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Daytona**. Enter the credential, snapshot name, target, CPU and memory maximums, and capacity limits. The maximums must be at least the snapshot's size.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "daytona-pool",
+  "provider": "daytona",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "snapshot": "daytona-medium",
+    "target": "us"
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 4096,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `snapshot` is the snapshot's name, not its ID.
+- `target` is `us` or `eu`. For a custom region, use its ID from the Daytona dashboard.
+- The snapshot sets each machine's size, so CPU and memory defaults are optional, and the maximums must be at least the snapshot's size.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts. In `provider_config`, `api_base_url` defaults to `https://app.daytona.io/api`, and `allowed_snapshots` and `allowed_targets` are [allowlists](/machines/providers/overview#allowlists).

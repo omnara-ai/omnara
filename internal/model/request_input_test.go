@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) {
+func TestRequestInputIdentityMatchesPreparedPrefix(t *testing.T) {
 	for _, format := range []modelprotocol.APIFormat{
 		modelprotocol.APIFormatOpenAIChatCompletions,
 		modelprotocol.APIFormatOpenAIResponses,
@@ -23,7 +23,7 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 			}
 			body := `{"model":"test","` + allowance + `":32000,"` + key + `":[` +
 				`{"role":"system","content":"instructions"},` +
-				`{"role":"user","content":"question"},{"role":"system","content":"integration targets"}]}`
+				`{"role":"user","content":"question"}]}`
 			prior, err := projectRequestInput(json.RawMessage(body), format)
 			if err != nil {
 				t.Fatal(err)
@@ -34,12 +34,12 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 				t.Fatal(err)
 			}
 			if identity.ItemCount != 1 {
-				t.Fatalf("conversation item count = %d; system prefix/footer must be static", identity.ItemCount)
+				t.Fatalf("conversation item count = %d; system prefix must be static", identity.ItemCount)
 			}
 			next := strings.Replace(body, `32000`, `16000`, 1)
-			next = strings.Replace(next, `{"role":"system","content":"integration targets"}`,
-				`{"role":"assistant","content":"answer"},{"role":"user","content":"next"},`+
-					`{"role":"system","content":"integration targets"}`, 1)
+			next = strings.Replace(next, `{"role":"user","content":"question"}`,
+				`{"role":"user","content":"question"},`+
+					`{"role":"assistant","content":"answer"},{"role":"user","content":"next"}`, 1)
 			projection, err := projectRequestInput(json.RawMessage(next), format)
 			if err != nil || !projection.matches(identity, route) {
 				t.Fatalf("unchanged input plus suffix must match across output clamping: %v", err)
@@ -49,7 +49,6 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 			}
 			for _, changed := range []string{
 				strings.Replace(next, "instructions", "new instructions", 1),
-				strings.Replace(next, "integration targets", "different targets", 1),
 				strings.Replace(next, "question", "edited question", 1),
 			} {
 				projection, err := projectRequestInput(json.RawMessage(changed), format)
@@ -60,6 +59,9 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 					t.Fatal("changed measured input reused old measurement")
 				}
 			}
+			withSystemMessage := strings.Replace(next, `"role":"assistant"`, `"role":"system"`, 1)
+			_, err = projectRequestInput(json.RawMessage(withSystemMessage), format)
+			require.Error(t, err)
 		})
 	}
 }

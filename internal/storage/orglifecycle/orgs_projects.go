@@ -138,8 +138,11 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectCronTriggers(ctx, dbsqlc.DeleteProjectCronTriggersParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project cron triggers: %w", err)
 	}
-	if err := q.DeleteProjectIntegrationInstalls(ctx, dbsqlc.DeleteProjectIntegrationInstallsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
-		return fmt.Errorf("delete project integration installs: %w", err)
+	if err := q.DeleteIntegrationsForProjectDeletion(ctx, dbsqlc.DeleteIntegrationsForProjectDeletionParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integrations: %w", err)
+	}
+	if err := q.DeleteProjectSubscriptions(ctx, dbsqlc.DeleteProjectSubscriptionsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project subscriptions: %w", err)
 	}
 	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration targets: %w", err)
@@ -464,6 +467,11 @@ func (s *Service) deleteProjectOnce(
 	if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
 		return nil, err
 	}
+	if err := q.DeleteMemoryStoresForProjects(ctx, dbsqlc.DeleteMemoryStoresForProjectsParams{
+		ProjectIds: []uuid.UUID{projectID},
+	}); err != nil {
+		return nil, fmt.Errorf("delete project memory stores: %w", err)
+	}
 	skillArchives, err := deleteProjectOwnedContentTx(ctx, q, orgID, projectID)
 	if err != nil {
 		return nil, err
@@ -598,6 +606,9 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	if err := q.DeleteOrganizationModelProviderConfigs(ctx, dbsqlc.DeleteOrganizationModelProviderConfigsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization model provider configs: %w", err)
+	}
+	if err := q.DeleteMemoryStoresForProjects(ctx, dbsqlc.DeleteMemoryStoresForProjectsParams{ProjectIds: orgProjectIDs}); err != nil {
+		return nil, fmt.Errorf("delete organization memory stores: %w", err)
 	}
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {

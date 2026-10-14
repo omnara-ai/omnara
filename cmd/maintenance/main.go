@@ -16,21 +16,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/errutil"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/maintenance"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
 	providerRuntimeDiscoveryInterval = 5 * time.Minute
 	providerRuntimeRecheckInterval   = 30 * time.Second
 	idleMachineReconcileInterval     = time.Minute
+	memoryCleanupInterval            = time.Hour
 )
 
 type maintenanceOutcome struct {
@@ -118,10 +120,18 @@ func main() {
 		logger.Error("configure secret encryption", "error", err)
 		os.Exit(1)
 	}
+	memoryFS, err := memorystore.OpenUnpreparedFilesystem(cfg.MemoryDir)
+	if err != nil {
+		logger.Error("configure memory storage", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = memoryFS.Close() }()
 	store := storage.NewStore(
 		db,
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
+		storage.WithMemoryFilesystem(memoryFS),
+		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 	)
 	healthErr := metrics.Serve(
@@ -133,6 +143,13 @@ func main() {
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
+	discordRuntimeRecorder := metrics.NewDiscordRuntimeDemandRecorder(metricSet)
+	discordRuntimeDone := make(chan struct{})
+	go func() {
+		defer close(discordRuntimeDone)
+		runDiscordRuntimeMetricsLoop(ctx, logger, store.Integrations(),
+			discordRuntimeRecorder)
+	}()
 
 	machineLoopDone := make(chan struct{})
 	go func() {
@@ -143,6 +160,11 @@ func main() {
 	go func() {
 		defer close(idleAgentArchiveLoopDone)
 		runIdleAgentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
+	}()
+	memoryCleanupDone := make(chan struct{})
+	go func() {
+		defer close(memoryCleanupDone)
+		runMemoryCleanupLoop(ctx, logger, memoryCleanupInterval, store.Memories().CleanupFiles)
 	}()
 	runtimeDiscoveryDone := make(chan struct{})
 	go func() {
@@ -218,8 +240,10 @@ func main() {
 	cancel()
 	<-machineLoopDone
 	<-idleAgentArchiveLoopDone
+	<-memoryCleanupDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-discordRuntimeDone
 	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -379,6 +403,9 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
 	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookCleanupErr)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
+	statesOutcome := completedMaintenanceOutcome(ctx, result.IntegrationStatesCleanupErr)
+	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
+	deletedInboxOutcome := completedMaintenanceOutcome(ctx, result.DeletedInboxCleanupErr)
 	authCleanupDeleted := result.AuthCleanup.DeletedInactiveTokens > 0 ||
 		result.AuthCleanup.DeletedBrowserSessions > 0 ||
 		result.AuthCleanup.DeletedAbandonedUsers > 0 ||
@@ -389,7 +416,10 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 		result.ExpiredDaemonRuntimes > 0 ||
 		result.ExpiredProcessTools > 0 ||
 		authCleanupDeleted ||
-		result.DeletedWebhooks > 0
+		result.DeletedWebhooks > 0 ||
+		result.DeletedIntegrationStates > 0 ||
+		result.CompletedInbox > 0 ||
+		result.DeletedInbox > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		result.ReapedRuntimeLocks,
@@ -400,9 +430,29 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
 			authCleanupOutcome.err,
+			completedInboxOutcome.err,
+			deletedInboxOutcome.err,
+			statesOutcome.err,
 			webhookCleanupOutcome.err,
 		),
 	)
+	if statesOutcome.err != nil {
+		log.Error("cleanup integration states", "error", statesOutcome.err)
+	} else if !statesOutcome.interrupted && result.DeletedIntegrationStates > 0 {
+		log.Info("cleaned integration states", "count", result.DeletedIntegrationStates)
+	}
+	if completedInboxOutcome.err != nil {
+		log.Error("cleanup completed integration inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
+	} else if !completedInboxOutcome.interrupted && (result.CompletedInbox > 0 || result.CompletedInboxBudgetExhausted) {
+		log.Info("cleaned completed integration inbox", "count", result.CompletedInbox,
+			"retention", maintenance.IntegrationInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
+	}
+	if deletedInboxOutcome.err != nil {
+		log.Error("cleanup deleted integration inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
+	} else if !deletedInboxOutcome.interrupted && (result.DeletedInbox > 0 || result.DeletedInboxBudgetExhausted) {
+		log.Info("cleaned deleted integration inbox", "count", result.DeletedInbox,
+			"budget_exhausted", result.DeletedInboxBudgetExhausted)
+	}
 	if expireDaemonRuntimesOutcome.err != nil {
 		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
 	} else if !expireDaemonRuntimesOutcome.interrupted && result.ExpiredDaemonRuntimes > 0 {
@@ -555,5 +605,53 @@ func runIdleAgentArchiveTick(
 	}
 	if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
 		log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
+	}
+}
+
+func runMemoryCleanupLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	interval time.Duration,
+	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
+) {
+	for {
+		runMemoryCleanupTick(ctx, log, cleanup)
+		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runMemoryCleanupTick(
+	ctx context.Context,
+	log *slog.Logger,
+	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
+) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Error("memory cleanup tick panicked", "error", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	result, err := cleanup(ctx)
+	outcome := completedMaintenanceOutcome(ctx, err)
+	if outcome.err != nil {
+		log.Error(
+			"cleanup memory files",
+			"removed_stores", result.RemovedStores,
+			"discarded_staged_files", result.DiscardedStagedFiles,
+			"error", outcome.err,
+		)
+	} else if !outcome.interrupted && result != (memorystore.FileCleanupResult{}) {
+		log.Info(
+			"cleaned memory files",
+			"removed_stores", result.RemovedStores,
+			"discarded_staged_files", result.DiscardedStagedFiles,
+		)
 	}
 }

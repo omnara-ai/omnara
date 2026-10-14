@@ -20,6 +20,10 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'line',
   use: {
     baseURL,
+    ignoreHTTPSErrors: true,
+    launchOptions: {
+      args: ['--host-resolver-rules=MAP app.omnara.test 127.0.0.1'],
+    },
     trace: 'on-first-retry',
   },
   projects: [

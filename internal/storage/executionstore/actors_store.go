@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -19,16 +20,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+type ActorProvider string
+
 const (
-	ActorProviderOmnara   = "omnara"
-	ActorProviderSlack    = "slack"
-	ActorProviderExternal = "external"
+	ActorProviderOmnara      ActorProvider = "omnara"
+	ActorProviderIntegration ActorProvider = "integration"
+	ActorProviderExternal    ActorProvider = "external"
 )
 
 type ActorRecord struct {
 	ID               uuid.UUID       `json:"id"`
 	ProjectID        uuid.UUID       `json:"project_id"`
-	Provider         string          `json:"provider"`
+	Provider         ActorProvider   `json:"provider"`
 	ProviderTenantID string          `json:"provider_tenant_id,omitempty"`
 	ProviderUserID   string          `json:"provider_user_id"`
 	DisplayName      string          `json:"display_name"`
@@ -39,10 +42,11 @@ type ActorRecord struct {
 
 type UpsertActorIdentityInput struct {
 	ProjectID        uuid.UUID
-	Provider         string
+	Provider         ActorProvider
 	ProviderTenantID string
 	ProviderUserID   string
 	DisplayName      string
+	Metadata         resourcemeta.Metadata
 }
 
 func upsertActorIdentityTx(
@@ -50,7 +54,7 @@ func upsertActorIdentityTx(
 	qtx *dbsqlc.Queries,
 	input UpsertActorIdentityInput,
 ) (ActorRecord, error) {
-	provider := strings.TrimSpace(input.Provider)
+	provider := ActorProvider(strings.TrimSpace(string(input.Provider)))
 	providerTenantID := strings.TrimSpace(input.ProviderTenantID)
 	providerUserID := strings.TrimSpace(input.ProviderUserID)
 	if input.ProjectID == uuid.Nil || provider == "" || providerUserID == "" {
@@ -59,26 +63,49 @@ func upsertActorIdentityTx(
 	if provider != ActorProviderExternal && providerTenantID == "" {
 		return ActorRecord{}, errors.New("provider tenant id is required for non-external actors")
 	}
+	if err := validateActorText(providerTenantID, providerUserID, input.DisplayName); err != nil {
+		return ActorRecord{}, err
+	}
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return ActorRecord{}, err
+	}
 	displayName := strings.TrimSpace(input.DisplayName)
 	identity := dbsqlc.GetActorByIdentityParams{
 		ProjectID:        input.ProjectID,
-		Provider:         provider,
+		Provider:         string(provider),
 		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
 	}
 	row, err := qtx.GetActorByIdentity(ctx, identity)
 	if err == nil && (displayName == "" || stringFromSQLCText(row.DisplayName) == displayName) {
-		return actorRecordFromSQLC(row), nil
+		unchanged := true
+		if len(input.Metadata) > 0 {
+			var stored resourcemeta.Metadata
+			if err := json.Unmarshal(row.Metadata, &stored); err != nil {
+				return ActorRecord{}, fmt.Errorf("decode actor metadata: %w", err)
+			}
+			for key, value := range input.Metadata {
+				if previous, exists := stored[key]; !exists || previous != value {
+					unchanged = false
+					break
+				}
+			}
+		}
+		if unchanged {
+			return actorRecordFromSQLC(row), nil
+		}
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ActorRecord{}, fmt.Errorf("upsert actor: %w", err)
 	}
 	row, err = qtx.UpsertActorIdentity(ctx, dbsqlc.UpsertActorIdentityParams{
 		ProjectID:        input.ProjectID,
-		Provider:         provider,
+		Provider:         string(provider),
 		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
 		DisplayName:      displayName,
+		Metadata:         metadata,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		row, err = qtx.GetActorByIdentity(ctx, identity)
@@ -177,7 +204,7 @@ func putActorTx(ctx context.Context, q *dbsqlc.Queries, input PutActorInput) (Ac
 		// write; read the current row instead.
 		row, err = q.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 			ProjectID:        input.ProjectID,
-			Provider:         ActorProviderExternal,
+			Provider:         string(ActorProviderExternal),
 			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 			ProviderUserID:   providerUserID,
 		})
@@ -213,6 +240,9 @@ func validatePutActorInput(input PutActorInput) error {
 	if input.DisplayName != nil {
 		displayName = strings.TrimSpace(*input.DisplayName)
 	}
+	if err := validateActorText(providerTenantID, providerUserID, displayName); err != nil {
+		return err
+	}
 	if utf8.RuneCountInString(displayName) > MaxActorDisplayNameLength {
 		return fmt.Errorf(
 			"%w: display name must be at most %d characters",
@@ -222,6 +252,19 @@ func validatePutActorInput(input PutActorInput) error {
 	if input.Metadata != nil {
 		if err := input.Metadata.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", storeerr.ErrInvalidActorRequest, err)
+		}
+	}
+	return nil
+}
+
+func validateActorText(tenantID, userID, displayName string) error {
+	for _, field := range []struct{ name, value string }{
+		{"provider tenant id", tenantID},
+		{"provider user id", userID},
+		{"display name", displayName},
+	} {
+		if err := dbsafe.Text(field.value); err != nil {
+			return fmt.Errorf("%w: %s %w", storeerr.ErrInvalidActorRequest, field.name, err)
 		}
 	}
 	return nil
@@ -243,7 +286,7 @@ func (s *Store) GetActor(ctx context.Context, projectID, actorID uuid.UUID) (Act
 
 type ListActorsInput struct {
 	ProjectID        uuid.UUID
-	Provider         string
+	Provider         ActorProvider
 	ProviderTenantID string
 	ProviderUserID   string
 	After            listing.KeysetCursor
@@ -266,7 +309,7 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 	}
 	rows, err := s.q.ListActors(ctx, dbsqlc.ListActorsParams{
 		ProjectID:        input.ProjectID,
-		Provider:         strings.TrimSpace(input.Provider),
+		Provider:         strings.TrimSpace(string(input.Provider)),
 		ProviderTenantID: strings.TrimSpace(input.ProviderTenantID),
 		ProviderUserID:   strings.TrimSpace(input.ProviderUserID),
 		CursorCreatedAt:  cursorCreatedAt,
@@ -286,7 +329,8 @@ func (s *Store) ListActors(ctx context.Context, input ListActorsInput) ([]ActorR
 func (s *Store) ListActorDisplayNames(
 	ctx context.Context,
 	projectID uuid.UUID,
-	provider, providerTenantID string,
+	provider ActorProvider,
+	providerTenantID string,
 	providerUserIDs []string,
 ) (map[string]string, error) {
 	if projectID == uuid.Nil || provider == "" {
@@ -299,7 +343,7 @@ func (s *Store) ListActorDisplayNames(
 		ctx,
 		dbsqlc.ListActorDisplayNamesParams{
 			ProjectID:        projectID,
-			Provider:         provider,
+			Provider:         string(provider),
 			ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 			ProviderUserIds:  providerUserIDs,
 		},
@@ -316,7 +360,7 @@ func (s *Store) ListActorDisplayNames(
 
 type UpdateActorDisplayNameInput struct {
 	ProjectID        uuid.UUID
-	Provider         string
+	Provider         ActorProvider
 	ProviderTenantID string
 	ProviderUserID   string
 	DisplayName      string
@@ -343,7 +387,7 @@ func (s *Store) UpdateActorDisplayName(
 		ctx,
 		dbsqlc.UpdateActorDisplayNameParams{
 			ProjectID:        input.ProjectID,
-			Provider:         input.Provider,
+			Provider:         string(input.Provider),
 			ProviderTenantID: storeutil.TextFromEmpty(input.ProviderTenantID),
 			ProviderUserID:   input.ProviderUserID,
 			DisplayName:      strings.TrimSpace(input.DisplayName),
@@ -362,7 +406,7 @@ func actorRecordFromSQLC(row dbsqlc.Actor) ActorRecord {
 	return ActorRecord{
 		ID:               row.ID,
 		ProjectID:        row.ProjectID,
-		Provider:         row.Provider,
+		Provider:         ActorProvider(row.Provider),
 		ProviderTenantID: stringFromSQLCText(row.ProviderTenantID),
 		ProviderUserID:   row.ProviderUserID,
 		DisplayName:      stringFromSQLCText(row.DisplayName),

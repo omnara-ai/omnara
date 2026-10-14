@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 import {
   eventWebhookEventTypes,
   eventWebhookUrlError,
@@ -33,6 +35,7 @@ export function AgentConfigEventWebhookField({
   onUrlChange: (url: string) => void
   onSigningSecretIdChange: (secretId: string) => void
 }) {
+  const signingSecretInputId = useId()
   const urlError = eventWebhookUrlError(url)
   const selectedEventTypes = new Set(events)
   const selectedEvents = eventWebhookEventTypes.filter((option) =>
@@ -82,8 +85,9 @@ export function AgentConfigEventWebhookField({
             {events.length === 0 && <FieldError>Select at least one event type.</FieldError>}
           </Field>
           <Field>
-            <FieldLabel>Signing secret (optional)</FieldLabel>
+            <FieldLabel htmlFor={signingSecretInputId}>Signing secret (optional)</FieldLabel>
             <SecretSelect
+              inputId={signingSecretInputId}
               orgId={orgId}
               projectId={projectId}
               enabled

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,7 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestManagerValidatesDefaultMachinePool(t *testing.T) {
@@ -367,6 +372,7 @@ func (p provisionRetryProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return p.provision()
 }
@@ -382,6 +388,10 @@ func (provisionRetryProvider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{}, errors.New("not implemented")
 }
 
+func (provisionRetryProvider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (provisionRetryProvider) InspectMachine(
 	context.Context,
 	uuid.UUID,
@@ -390,6 +400,10 @@ func (provisionRetryProvider) InspectMachine(
 	string,
 ) (string, bool, error) {
 	return "", false, errors.New("not implemented")
+}
+
+func (provisionRetryProvider) CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error {
+	return nil
 }
 
 func (provisionRetryProvider) DeleteMachine(
@@ -414,6 +428,7 @@ func provisionWithRetryForTest(
 		executionstore.MachineProvisioningConfig{},
 		"",
 		nil,
+		true,
 	)
 }
 
@@ -505,9 +520,12 @@ func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testi
 }
 
 func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
-	providerErr := providers.WithRetryAfter(
+	providerErr := providers.WithResponse(
 		errors.New("rate limited"),
-		http.Header{"Retry-After": []string{"12"}},
+		providers.HTTPResponse{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": []string{"12"}},
+		},
 	)
 	if delay := providerProvisionRetryDelay(0, providerErr); delay != 12*time.Second {
 		t.Fatalf("retry delay = %s, want 12s", delay)
@@ -586,5 +604,83 @@ func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	}
 	if result.ProviderResourceID != "resource-1" {
 		t.Fatalf("provision result = %+v, want first observed resource", result)
+	}
+}
+
+func TestConnectionCheckFailure(t *testing.T) {
+	const (
+		rejected    = "The provider rejected this API key."
+		forbidden   = "This API key doesn't have access to the configured workspace or resources."
+		notFound    = "The provider couldn't find the configured workspace, environment, or API."
+		rateLimited = "The provider is rate limiting requests. Try again in a minute."
+		unreachable = "Couldn't reach the provider. Try again in a moment."
+	)
+	httpStatus := func(code int) error {
+		return fmt.Errorf("check: %w", providers.WithResponse(
+			fmt.Errorf("provider API returned HTTP %d", code),
+			providers.HTTPResponse{StatusCode: code},
+		))
+	}
+	request := func(err error) error {
+		return fmt.Errorf(
+			"provider request failed: %w",
+			&url.Error{Op: "Get", URL: "https://api.example", Err: err},
+		)
+	}
+	for _, test := range []struct {
+		name         string
+		err          error
+		want         string
+		wantUpstream bool
+	}{
+		{"http 401", httpStatus(401), rejected, false},
+		{"http 403", httpStatus(403), forbidden, false},
+		{"http 404", httpStatus(404), notFound, false},
+		{"http 429", httpStatus(429), rateLimited, true},
+		{"http 502", httpStatus(502), unreachable, true},
+		{"http 418", httpStatus(418), "The provider returned an unexpected error (HTTP 418).", false},
+		{
+			"grpc unauthenticated",
+			fmt.Errorf("failed to get auth token: %w", status.Error(codes.Unauthenticated, "Token not found")),
+			rejected,
+			false,
+		},
+		{"grpc permission denied", status.Error(codes.PermissionDenied, "denied"), forbidden, false},
+		{"grpc not found", status.Error(codes.NotFound, "No such environment 'staging'"), notFound, false},
+		{"grpc resource exhausted", status.Error(codes.ResourceExhausted, "slow down"), rateLimited, true},
+		{"grpc unavailable", status.Error(codes.Unavailable, "down"), unreachable, true},
+		{
+			"blocked address",
+			request(fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress)),
+			"This API address isn't allowed.",
+			false,
+		},
+		{
+			"unknown host",
+			request(&net.DNSError{Err: "no such host", Name: "api.example", IsNotFound: true}),
+			"Couldn't find the provider's API. Check the region or API URL.",
+			false,
+		},
+		{
+			"dns timeout",
+			request(&net.DNSError{Err: "i/o timeout", Name: "api.example", IsTimeout: true}),
+			unreachable,
+			true,
+		},
+		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable, true},
+		{"connection refused", request(errors.New("connection refused")), unreachable, true},
+		{
+			"unknown",
+			errors.New("decode provider response: unexpected end of JSON input"),
+			"The provider returned an unexpected error.",
+			true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			message, upstream := connectionCheckFailure(test.err)
+			if message != test.want || upstream != test.wantUpstream {
+				t.Fatalf("failure = (%q, %t), want (%q, %t)", message, upstream, test.want, test.wantUpstream)
+			}
+		})
 	}
 }

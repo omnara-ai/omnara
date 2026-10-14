@@ -1,7 +1,9 @@
 import {
   type CreateOrganizationRequest,
+  type CurrentUser,
   type ListOrgInvitationsData,
   type ListOrgMembersData,
+  type OrgOverviewResponse,
   sdk,
 } from '@omnara/sdk'
 import {
@@ -14,6 +16,7 @@ import {
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { activeAgentsRefetchInterval } from './agent-activity'
 import {
   type ListFilters,
   type ListSort,
@@ -48,18 +51,38 @@ export function useCreateOrganization() {
   })
 }
 
+export function useDeleteOrganization() {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (orgID: string) => {
+      await sdk.deleteOrganization({ path: { orgID }, client })
+      return orgID
+    },
+    onSuccess: async (orgID) => {
+      // Drop the org from the cached user before refetching so nothing keeps
+      // rendering or querying the deleted org while the refetch is in flight.
+      const queryKey = getCurrentUserQueryKey({ client })
+      queryClient.setQueryData<CurrentUser>(queryKey, (me) =>
+        me ? { ...me, orgs: me.orgs.filter((org) => org.id !== orgID) } : me,
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+}
+
+/** Polls while any recent agent is active, or while the caller's interval asks to. */
 export function useOrgOverview(
   orgID: string,
-  options?: Pick<ReturnType<typeof getOrgOverviewOptions>, 'refetchInterval'>,
+  options?: { refetchInterval?: (data: OrgOverviewResponse | undefined) => number | false },
 ) {
   const client = useOmnaraClient()
   return useQuery({
-    ...getOrgOverviewOptions({
-      path: { orgID },
-      query: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-      client,
-    }),
-    refetchInterval: options?.refetchInterval,
+    ...getOrgOverviewOptions({ path: { orgID }, client }),
+    refetchInterval: activeAgentsRefetchInterval(
+      (data: OrgOverviewResponse | undefined) => data?.recent_agents ?? [],
+      options?.refetchInterval,
+    ),
   })
 }
 

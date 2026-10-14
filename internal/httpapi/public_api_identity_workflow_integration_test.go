@@ -28,7 +28,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -37,6 +36,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type capturedAuthEmail struct {
@@ -4204,7 +4204,10 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			server := &Server{store: store}
 			buffer, logger := newRequestEventCapture()
 			handlerCalls := 0
-			handler := requestLog(logger)(server.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(server.auth(http.HandlerFunc(func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
 				handlerCalls++
 				principal, ok := r.Context().Value(principalContextKey{}).(identitystore.PrincipalRecord)
 				if !ok || principal.ID != user.ID || principal.BrowserSessionID != session.ID {

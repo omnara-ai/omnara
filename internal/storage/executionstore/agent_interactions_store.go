@@ -55,24 +55,32 @@ type ResolveAgentInteractionInput struct {
 }
 
 type AgentInteractionRecord struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    AgentInteractionKind
-	State              AgentInteractionState
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     AgentInteractionKind
+	State               AgentInteractionState
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	Destination         json.RawMessage
+	PresentationReceipt json.RawMessage
+	ResolvedByInputID   uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          time.Time
 }
 
 func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
 	return interactionFormForInteraction(record.InteractionKind, record.Request)
+}
+
+func interactionUpdateFromRecord(record AgentInteractionRecord) *notifications.AgentInteractionUpdate {
+	return &notifications.AgentInteractionUpdate{
+		ID: record.ID, InteractionKind: string(record.InteractionKind), State: string(record.State),
+	}
 }
 
 func (s *Store) CreatePermissionInteraction(
@@ -108,12 +116,17 @@ func (s *Store) CreatePermissionInteraction(
 	); err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	destination, err := captureInteractionDestinationTx(ctx, tx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	interactionID, err := qtx.InsertAgentInteraction(ctx, dbsqlc.InsertAgentInteractionParams{
 		ProjectID:       input.ProjectID,
 		AgentID:         input.AgentID,
 		ToolCallID:      input.ToolCallID,
 		InteractionKind: string(AgentInteractionKindPermission),
 		Request:         request,
+		Destination:     sqlcRawMessageFromEmpty(destination),
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
@@ -139,6 +152,7 @@ func (s *Store) CreatePermissionInteraction(
 		input.AgentID,
 		input.ToolCallID,
 		input.RuntimeLockID,
+		interactionUpdateFromRecord(record),
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("link tool call to agent interaction: %w", err)
 	}
@@ -191,12 +205,17 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	destination, err := captureInteractionDestinationTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	interactionID, err := t.q.InsertAgentInteraction(ctx, dbsqlc.InsertAgentInteractionParams{
 		ProjectID:       t.input.ProjectID,
 		AgentID:         t.input.AgentID,
 		ToolCallID:      t.input.ToolCallID,
 		InteractionKind: string(AgentInteractionKindQuestion),
 		Request:         request,
+		Destination:     sqlcRawMessageFromEmpty(destination),
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
@@ -226,6 +245,7 @@ func markToolCallAwaitingPermissionTx(
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	projectID, agentID, toolCallID, runtimeLockID uuid.UUID,
+	interactionUpdate *notifications.AgentInteractionUpdate,
 ) error {
 	_, err := qtx.MarkToolCallAwaitingPermission(
 		ctx,
@@ -244,6 +264,7 @@ func markToolCallAwaitingPermissionTx(
 			agentID,
 			toolCallID,
 			string(ToolCallStateAwaitingPermission),
+			interactionUpdate,
 		)
 		return nil
 	}
@@ -334,9 +355,7 @@ func resolveAgentInteractionTx(
 			ctx,
 			qtx,
 			input.ProjectID,
-			input.AgentID,
 			input.Actor,
-			input.IntegrationTargetID,
 		)
 		if err != nil {
 			return AgentInteractionRecord{}, err
@@ -500,7 +519,7 @@ func applyPermissionInteractionResolutionTx(
 			}
 			return fmt.Errorf("mark permitted tool call ready: %w", err)
 		}
-		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State)
+		txNotifications.AddToolCallUpdate(row.AgentID, row.ID, row.State, interactionUpdateFromRecord(record))
 		return nil
 	}
 	return completePermissionDeniedToolCallTx(
@@ -577,7 +596,9 @@ func completePermissionDeniedToolCallTx(
 	}
 	resultRecord := toolCallRecordFromPermissionInteractionCompleteSQLC(row)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(
+		ctx, txNotifications, tx, resultRecord, interactionUpdateFromRecord(record),
+	); err != nil {
 		return err
 	}
 	return nil
@@ -676,7 +697,9 @@ func completeQuestionToolCallTx(
 	}
 	resultRecord := toolCallRecordFromQuestionInteractionCompleteSQLC(row)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(
+		ctx, txNotifications, tx, resultRecord, interactionUpdateFromRecord(interaction),
+	); err != nil {
 		return err
 	}
 	return nil

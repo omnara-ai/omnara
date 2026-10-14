@@ -567,6 +567,7 @@ WITH listed AS (
  JOIN machine_pools pool ON pool.org_id = g.org_id AND pool.id = g.machine_pool_id AND pool.deleted_at IS NULL
  WHERE g.org_id = $7 AND g.project_id = $8
   AND ($9::text = '' OR pool.name ILIKE $9::text ESCAPE '\')
+  AND ($10::uuid IS NULL OR g.machine_pool_id = $10::uuid)
 )
 SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu,
  default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay,
@@ -584,15 +585,16 @@ LIMIT $5::bigint
 `
 
 type ListProjectMachinePoolGrantsParams struct {
-	CursorSet   bool
-	SortDesc    bool
-	CursorKey   string
-	CursorID    uuid.UUID
-	RowLimit    int64
-	SortField   string
-	OrgID       uuid.UUID
-	ProjectID   uuid.UUID
-	NamePattern string
+	CursorSet     bool
+	SortDesc      bool
+	CursorKey     string
+	CursorID      uuid.UUID
+	RowLimit      int64
+	SortField     string
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	NamePattern   string
+	MachinePoolID *uuid.UUID
 }
 
 type ListProjectMachinePoolGrantsRow struct {
@@ -640,6 +642,7 @@ func (q *Queries) ListProjectMachinePoolGrants(ctx context.Context, arg ListProj
 		arg.OrgID,
 		arg.ProjectID,
 		arg.NamePattern,
+		arg.MachinePoolID,
 	)
 	if err != nil {
 		return nil, err

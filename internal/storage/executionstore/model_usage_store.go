@@ -218,3 +218,123 @@ func sumModelUsageTotals(items []ModelUsageTotals) (ModelUsageTotals, error) {
 	totals.ProviderReportedCostUSD = cost
 	return totals, nil
 }
+
+type AgentProfileStatsInput struct {
+	ProjectIDs      []uuid.UUID
+	AgentProfileIDs []uuid.UUID
+	// Window.Since starts the usage window; nil tallies from the earliest call.
+	// Window.Until is ignored.
+	Window UsageWindow
+}
+
+type AgentProfileStats struct {
+	// AgentCount is the profile's unarchived top-level agents.
+	AgentCount int64
+	// Usage is by those agents and their subagents since the window start.
+	Usage ModelUsageTotals
+}
+
+// AgentProfileStats returns each profile's agent count and usage for a page of
+// profiles in two queries. Every requested profile gets an entry.
+func (s *Store) AgentProfileStats(
+	ctx context.Context,
+	input AgentProfileStatsInput,
+) (map[uuid.UUID]AgentProfileStats, error) {
+	noUsage, err := sumModelUsageTotals(nil)
+	if err != nil {
+		return nil, err
+	}
+	stats := make(map[uuid.UUID]AgentProfileStats, len(input.AgentProfileIDs))
+	for _, id := range input.AgentProfileIDs {
+		stats[id] = AgentProfileStats{Usage: noUsage}
+	}
+	if len(input.AgentProfileIDs) == 0 || len(input.ProjectIDs) == 0 {
+		return stats, nil
+	}
+	counts, err := s.q.CountActiveAgentsByProfile(ctx, dbsqlc.CountActiveAgentsByProfileParams{
+		ProjectIds: input.ProjectIDs, AgentProfileIds: input.AgentProfileIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count agents by profile: %w", err)
+	}
+	for _, row := range counts {
+		entry := stats[row.AgentProfileID]
+		entry.AgentCount = row.AgentCount
+		stats[row.AgentProfileID] = entry
+	}
+	usage, err := s.q.SumModelCallUsageByAgentProfile(ctx, dbsqlc.SumModelCallUsageByAgentProfileParams{
+		ProjectIds: input.ProjectIDs, AgentProfileIds: input.AgentProfileIDs, Since: input.Window.Since,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sum model usage by profile: %w", err)
+	}
+	for _, row := range usage {
+		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		if !ok {
+			return nil, fmt.Errorf("sum model usage by profile: invalid cost total %q", row.ProviderReportedCostUsd)
+		}
+		entry := stats[row.AgentProfileID]
+		entry.Usage = ModelUsageTotals{
+			ModelCalls:                 row.ModelCalls,
+			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
+			InputTokensTotal:           row.InputTokensTotal,
+			UncachedInputTokens:        row.UncachedInputTokens,
+			CacheReadInputTokens:       row.CacheReadInputTokens,
+			CacheWriteInputTokens:      row.CacheWriteInputTokens,
+			OutputTokensTotal:          row.OutputTokensTotal,
+			ReasoningOutputTokens:      row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:    cost,
+		}
+		stats[row.AgentProfileID] = entry
+	}
+	return stats, nil
+}
+
+type AgentUsageTotalsInput struct {
+	ProjectIDs []uuid.UUID
+	AgentIDs   []uuid.UUID
+}
+
+// AgentUsageTotals returns each agent's all-time usage by itself and its
+// subagents for a page of agents in one query. Every requested agent gets an
+// entry.
+func (s *Store) AgentUsageTotals(
+	ctx context.Context,
+	input AgentUsageTotalsInput,
+) (map[uuid.UUID]ModelUsageTotals, error) {
+	noUsage, err := sumModelUsageTotals(nil)
+	if err != nil {
+		return nil, err
+	}
+	totals := make(map[uuid.UUID]ModelUsageTotals, len(input.AgentIDs))
+	for _, id := range input.AgentIDs {
+		totals[id] = noUsage
+	}
+	if len(input.AgentIDs) == 0 || len(input.ProjectIDs) == 0 {
+		return totals, nil
+	}
+	rows, err := s.q.SumModelCallUsageByAgentTree(ctx, dbsqlc.SumModelCallUsageByAgentTreeParams{
+		ProjectIds: input.ProjectIDs, AgentIds: input.AgentIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sum model usage by agent: %w", err)
+	}
+	for _, row := range rows {
+		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		if !ok {
+			return nil, fmt.Errorf("sum model usage by agent: invalid cost total %q", row.ProviderReportedCostUsd)
+		}
+		totals[row.AgentID] = ModelUsageTotals{
+			ModelCalls:                 row.ModelCalls,
+			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
+			InputTokensTotal:           row.InputTokensTotal,
+			UncachedInputTokens:        row.UncachedInputTokens,
+			CacheReadInputTokens:       row.CacheReadInputTokens,
+			CacheWriteInputTokens:      row.CacheWriteInputTokens,
+			OutputTokensTotal:          row.OutputTokensTotal,
+			ReasoningOutputTokens:      row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:    cost,
+		}
+	}
+	return totals, nil
+}

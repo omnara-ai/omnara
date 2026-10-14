@@ -233,7 +233,8 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 		return machineUnavailableResult{Cause: ErrMachineSelectionRequired, Content: content}, nil
 	}
 	if errors.Is(cause, ErrMachineIDUnavailable) {
-		body["error"] = "machine_id is unavailable"
+		body["error"] = "machine_id is unavailable; " +
+			"it may be provisioning, offline, failed, deleted, or not attached to this agent"
 		body["error_code"] = ErrMachineIDUnavailable.Error()
 		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)

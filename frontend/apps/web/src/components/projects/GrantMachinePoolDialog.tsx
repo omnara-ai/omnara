@@ -4,7 +4,7 @@ import {
   useProjectMachinePoolGrants,
 } from '@omnara/react'
 import { type MachinePool } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -34,7 +34,7 @@ const MachinePoolCombobox = createResourceCombobox<MachinePool>({
   itemKey: (pool) => pool.id,
   itemLabel: (pool) => pool.name,
   placeholder: 'Search machine pools…',
-  emptyMessage: 'No ungranted pools found.',
+  emptyMessage: 'No pools to share.',
 })
 
 interface SelectedPool {
@@ -55,6 +55,7 @@ export function GrantMachinePoolDialog({
   projectId: string
   onGranted?: (pool: MachinePool) => void
 }) {
+  const inputId = useId()
   const createGrant = useCreateProjectMachinePoolGrant(orgId, projectId)
   const [selected, setSelected] = useState<SelectedPool | null>(null)
   const [status, setStatus] = useState<SubmitStatus>(idle)
@@ -75,7 +76,7 @@ export function GrantMachinePoolDialog({
     try {
       await createGrant.mutateAsync(poolGrantCreateRequest(selected.pool, selected.draft))
     } catch (err) {
-      setStatus(submitError(err, 'Could not grant machine pool'))
+      setStatus(submitError(err, 'Could not share machine pool'))
       return
     }
     setStatus(idle)
@@ -88,7 +89,7 @@ export function GrantMachinePoolDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Grant machine pool</DialogTitle>
+          <DialogTitle>Share machine pool</DialogTitle>
           <DialogDescription>
             Let agents in this project run on an organization machine pool.
           </DialogDescription>
@@ -96,8 +97,9 @@ export function GrantMachinePoolDialog({
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Machine pool</FieldLabel>
+              <FieldLabel htmlFor={inputId}>Machine pool</FieldLabel>
               <MachinePoolCombobox
+                id={inputId}
                 items={pools}
                 value={selected?.pool ?? null}
                 onValueChange={(pool) => {
@@ -112,7 +114,7 @@ export function GrantMachinePoolDialog({
                 completeGrants.isComplete &&
                 pools.length === 0 && (
                   <FieldDescription>
-                    Every organization machine pool is already granted, or none exist yet.
+                    Every organization machine pool is already shared, or none exist yet.
                   </FieldDescription>
                 )}
             </Field>
@@ -131,7 +133,7 @@ export function GrantMachinePoolDialog({
             )}
             {queryError && (
               <p className="text-destructive text-sm">
-                Could not load grantable machine pools.{' '}
+                Could not load machine pools.{' '}
                 <button
                   type="button"
                   className="underline"
@@ -150,7 +152,7 @@ export function GrantMachinePoolDialog({
                 disabled={selectionLocked || !selected || !poolGrantOverridesValid(selected.draft)}
                 loading={isSubmitting}
               >
-                Grant pool
+                Share pool
               </Button>
             </DialogFooter>
           </FieldGroup>

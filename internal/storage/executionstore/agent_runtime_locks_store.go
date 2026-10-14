@@ -255,8 +255,8 @@ func failRuntimeToolCallsTx(
 	reason string,
 ) error {
 	result, err := marshalJSON(map[string]any{
-		"code":    reason,
-		"message": RuntimeToolInterruptedMessage,
+		"error_code": reason,
+		"message":    RuntimeToolInterruptedMessage,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal interrupted runtime tool result: %w", err)
@@ -280,7 +280,7 @@ func failRuntimeToolCallsTx(
 	for _, row := range rows {
 		record := toolCallRecordFromFailRuntimeSQLC(row)
 		record.ResultContentParts = contentParts
-		if _, err := appendToolResultEventTx(ctx, txNotifications, tx, record); err != nil {
+		if _, err := appendToolResultEventTx(ctx, txNotifications, tx, record, nil); err != nil {
 			return err
 		}
 	}

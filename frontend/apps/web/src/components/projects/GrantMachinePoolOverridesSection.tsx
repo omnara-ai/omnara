@@ -38,8 +38,8 @@ export function PoolGrantOverridesCollapsible({
       <FieldGroup>
         <FieldDescription>
           Pool values are shown as placeholders. Fields left empty keep following the pool; values
-          you enter are stored as overrides for this grant. For idle deletion, 0 disables it at this
-          level and enabled values must be at least 5.
+          you enter are stored as overrides for this project. For idle deletion, 0 disables it at
+          this level and enabled values must be at least 5.
         </FieldDescription>
         <PoolGrantOverrideFields
           orgId={orgId}
@@ -173,8 +173,10 @@ export function PoolGrantOverrideFields({
           onChange({ ...values, envRows: textRows, secretEnvRows: secretRows })
         }}
       />
-      <Field>
-        <FieldLabel>Limits</FieldLabel>
+      <Field aria-labelledby={`${idPrefix}-limits`}>
+        <div id={`${idPrefix}-limits`} className="type-label">
+          Limits
+        </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <NumberField
             id={`${idPrefix}-delete-after-idle`}

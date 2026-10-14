@@ -13,14 +13,34 @@ import (
 )
 
 const countAgentsWithModelCalls = `-- name: CountAgentsWithModelCalls :one
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE $5::uuid[] IS NOT NULL
+    AND ($2::uuid[] IS NULL OR agent.project_id = ANY($2::uuid[]))
+    AND agent.agent_profile_id = ANY($5::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE $6::boolean
+    AND ($2::uuid[] IS NULL OR child.project_id = ANY($2::uuid[]))
+    AND profile_agents.depth < 64
+)
 SELECT count(DISTINCT context.agent_id)::bigint AS agent_count
 FROM model_call_contexts context
 JOIN agents agent ON agent.project_id = context.project_id
   AND agent.id = context.agent_id
-WHERE context.org_id = $1
-  AND context.project_id = ANY($2::uuid[])
-  AND agent.parent_agent_id IS NULL
-  AND context.created_at >= $3::timestamptz
+WHERE agent.parent_agent_id IS NULL
+  AND context.org_id = ANY($1::uuid[])
+  AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
+  AND ($3::timestamptz IS NULL OR context.created_at >= $3::timestamptz)
+  AND context.created_at < $4::timestamptz
+  AND (
+    $5::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
@@ -29,24 +49,280 @@ WHERE context.org_id = $1
 `
 
 type CountAgentsWithModelCallsParams struct {
-	OrgID      uuid.UUID
-	ProjectIds []uuid.UUID
-	Since      time.Time
+	OrgIds                  []uuid.UUID
+	ProjectIds              []uuid.UUID
+	Since                   *time.Time
+	Until                   time.Time
+	AgentProfileIds         []uuid.UUID
+	IncludeProfileSubagents bool
 }
 
 func (q *Queries) CountAgentsWithModelCalls(ctx context.Context, arg CountAgentsWithModelCallsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAgentsWithModelCalls, arg.OrgID, arg.ProjectIds, arg.Since)
+	row := q.db.QueryRow(ctx, countAgentsWithModelCalls,
+		arg.OrgIds,
+		arg.ProjectIds,
+		arg.Since,
+		arg.Until,
+		arg.AgentProfileIds,
+		arg.IncludeProfileSubagents,
+	)
 	var agent_count int64
 	err := row.Scan(&agent_count)
 	return agent_count, err
 }
 
-const sumModelCallUsageByDay = `-- name: SumModelCallUsageByDay :many
-SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS day_number,
+const firstModelCallUsageAt = `-- name: FirstModelCallUsageAt :one
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE $5::uuid[] IS NOT NULL
+    AND ($2::uuid[] IS NULL OR agent.project_id = ANY($2::uuid[]))
+    AND agent.agent_profile_id = ANY($5::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE $6::boolean
+    AND ($2::uuid[] IS NULL OR child.project_id = ANY($2::uuid[]))
+    AND profile_agents.depth < 64
+)
+SELECT context.created_at
+FROM model_call_contexts context
+WHERE context.org_id = ANY($1::uuid[])
+  AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
+  AND ($3::timestamptz IS NULL OR context.created_at >= $3::timestamptz)
+  AND context.created_at < $4::timestamptz
+  AND (
+    $5::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
+  AND (
+    context.input_tokens_total IS NOT NULL
+    OR context.output_tokens_total IS NOT NULL
+    OR context.provider_reported_cost_usd IS NOT NULL
+  )
+ORDER BY context.created_at
+LIMIT 1
+`
+
+type FirstModelCallUsageAtParams struct {
+	OrgIds                  []uuid.UUID
+	ProjectIds              []uuid.UUID
+	Since                   *time.Time
+	Until                   time.Time
+	AgentProfileIds         []uuid.UUID
+	IncludeProfileSubagents bool
+}
+
+func (q *Queries) FirstModelCallUsageAt(ctx context.Context, arg FirstModelCallUsageAtParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, firstModelCallUsageAt,
+		arg.OrgIds,
+		arg.ProjectIds,
+		arg.Since,
+		arg.Until,
+		arg.AgentProfileIds,
+		arg.IncludeProfileSubagents,
+	)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
+const sumModelCallUsageByAgentProfile = `-- name: SumModelCallUsageByAgentProfile :many
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, agent.agent_profile_id AS profile_id, 1 AS depth
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.agent_profile_id = ANY($3::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.profile_id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE child.project_id = ANY($1::uuid[])
+    AND profile_agents.depth < 64
+)
+SELECT profile_agents.profile_id::uuid AS agent_profile_id,
+       count(*)::bigint AS model_calls,
+       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
+       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
+       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
+       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
+       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
+       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
+       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
+       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
+FROM model_call_contexts context
+JOIN profile_agents ON profile_agents.id = context.agent_id
+WHERE context.project_id = ANY($1::uuid[])
+  AND ($2::timestamptz IS NULL OR context.created_at >= $2::timestamptz)
+  AND (
+    context.input_tokens_total IS NOT NULL
+    OR context.output_tokens_total IS NOT NULL
+    OR context.provider_reported_cost_usd IS NOT NULL
+  )
+GROUP BY profile_agents.profile_id
+`
+
+type SumModelCallUsageByAgentProfileParams struct {
+	ProjectIds      []uuid.UUID
+	Since           *time.Time
+	AgentProfileIds []uuid.UUID
+}
+
+type SumModelCallUsageByAgentProfileRow struct {
+	AgentProfileID             uuid.UUID
+	ModelCalls                 int64
+	ModelCallsWithReportedCost int64
+	InputTokensTotal           int64
+	UncachedInputTokens        int64
+	CacheReadInputTokens       int64
+	CacheWriteInputTokens      int64
+	OutputTokensTotal          int64
+	ReasoningOutputTokens      int64
+	ProviderReportedCostUsd    string
+}
+
+// Each profile's usage by its top-level agents and their subagents, for a page of profiles at once.
+func (q *Queries) SumModelCallUsageByAgentProfile(ctx context.Context, arg SumModelCallUsageByAgentProfileParams) ([]SumModelCallUsageByAgentProfileRow, error) {
+	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentProfile, arg.ProjectIds, arg.Since, arg.AgentProfileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SumModelCallUsageByAgentProfileRow{}
+	for rows.Next() {
+		var i SumModelCallUsageByAgentProfileRow
+		if err := rows.Scan(
+			&i.AgentProfileID,
+			&i.ModelCalls,
+			&i.ModelCallsWithReportedCost,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderReportedCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sumModelCallUsageByAgentTree = `-- name: SumModelCallUsageByAgentTree :many
+WITH RECURSIVE agent_trees AS (
+  SELECT agent.id, agent.id AS root_agent_id, 1 AS depth
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.id = ANY($2::uuid[])
+  UNION ALL
+  SELECT child.id, agent_trees.root_agent_id, agent_trees.depth + 1
+  FROM agents child
+  JOIN agent_trees ON child.parent_agent_id = agent_trees.id
+  WHERE child.project_id = ANY($1::uuid[])
+    AND agent_trees.depth < 64
+)
+SELECT agent_trees.root_agent_id::uuid AS agent_id,
+       count(*)::bigint AS model_calls,
+       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
+       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
+       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
+       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
+       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
+       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
+       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
+       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
+FROM model_call_contexts context
+JOIN agent_trees ON agent_trees.id = context.agent_id
+WHERE context.project_id = ANY($1::uuid[])
+  AND (
+    context.input_tokens_total IS NOT NULL
+    OR context.output_tokens_total IS NOT NULL
+    OR context.provider_reported_cost_usd IS NOT NULL
+  )
+GROUP BY agent_trees.root_agent_id
+`
+
+type SumModelCallUsageByAgentTreeParams struct {
+	ProjectIds []uuid.UUID
+	AgentIds   []uuid.UUID
+}
+
+type SumModelCallUsageByAgentTreeRow struct {
+	AgentID                    uuid.UUID
+	ModelCalls                 int64
+	ModelCallsWithReportedCost int64
+	InputTokensTotal           int64
+	UncachedInputTokens        int64
+	CacheReadInputTokens       int64
+	CacheWriteInputTokens      int64
+	OutputTokensTotal          int64
+	ReasoningOutputTokens      int64
+	ProviderReportedCostUsd    string
+}
+
+// Each agent's usage by itself and its subagents, for a page of agents at once.
+func (q *Queries) SumModelCallUsageByAgentTree(ctx context.Context, arg SumModelCallUsageByAgentTreeParams) ([]SumModelCallUsageByAgentTreeRow, error) {
+	rows, err := q.db.Query(ctx, sumModelCallUsageByAgentTree, arg.ProjectIds, arg.AgentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SumModelCallUsageByAgentTreeRow{}
+	for rows.Next() {
+		var i SumModelCallUsageByAgentTreeRow
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.ModelCalls,
+			&i.ModelCallsWithReportedCost,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderReportedCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sumModelCallUsageByBucket = `-- name: SumModelCallUsageByBucket :many
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE $6::uuid[] IS NOT NULL
+    AND ($3::uuid[] IS NULL OR agent.project_id = ANY($3::uuid[]))
+    AND agent.agent_profile_id = ANY($6::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE $7::boolean
+    AND ($3::uuid[] IS NULL OR child.project_id = ANY($3::uuid[]))
+    AND profile_agents.depth < 64
+)
+SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS bucket_number,
        revision.configured_model_id,
        configured_model.name AS configured_model_name,
+       provider_config.name AS model_provider_config_name,
        agent.agent_profile_id,
        coalesce(profile.name, '')::text AS agent_profile_name,
+       project.name AS project_name,
        count(*)::bigint AS model_calls,
        count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
        coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
@@ -61,35 +337,50 @@ JOIN configured_model_revisions revision ON revision.org_id = context.org_id
   AND revision.id = context.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
+JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
+  AND provider_config.id = configured_model.model_provider_config_id
+JOIN projects project ON project.org_id = context.org_id
+  AND project.id = context.project_id
 JOIN agents agent ON agent.project_id = context.project_id
   AND agent.id = context.agent_id
 LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
   AND profile.id = agent.agent_profile_id
-WHERE context.org_id = $2
-  AND context.project_id = ANY($3::uuid[])
-  AND context.created_at >= $4::timestamptz
+WHERE context.org_id = ANY($2::uuid[])
+  AND ($3::uuid[] IS NULL OR context.project_id = ANY($3::uuid[]))
+  AND ($4::timestamptz IS NULL OR context.created_at >= $4::timestamptz)
+  AND context.created_at < $5::timestamptz
+  AND (
+    $6::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
     OR context.provider_reported_cost_usd IS NOT NULL
   )
-GROUP BY day_number, revision.configured_model_id, configured_model.name, agent.agent_profile_id, profile.name
-ORDER BY day_number, revision.configured_model_id, agent.agent_profile_id
+GROUP BY bucket_number, revision.configured_model_id, configured_model.name, provider_config.name,
+         agent.agent_profile_id, profile.name, project.id, project.name
+ORDER BY bucket_number, revision.configured_model_id, agent.agent_profile_id
 `
 
-type SumModelCallUsageByDayParams struct {
-	DayStarts  []time.Time
-	OrgID      uuid.UUID
-	ProjectIds []uuid.UUID
-	Since      time.Time
+type SumModelCallUsageByBucketParams struct {
+	BucketStarts            []time.Time
+	OrgIds                  []uuid.UUID
+	ProjectIds              []uuid.UUID
+	Since                   *time.Time
+	Until                   time.Time
+	AgentProfileIds         []uuid.UUID
+	IncludeProfileSubagents bool
 }
 
-type SumModelCallUsageByDayRow struct {
-	DayNumber                  int32
+type SumModelCallUsageByBucketRow struct {
+	BucketNumber               int32
 	ConfiguredModelID          uuid.UUID
 	ConfiguredModelName        string
+	ModelProviderConfigName    string
 	AgentProfileID             *uuid.UUID
 	AgentProfileName           string
+	ProjectName                string
 	ModelCalls                 int64
 	ModelCallsWithReportedCost int64
 	InputTokensTotal           int64
@@ -101,28 +392,34 @@ type SumModelCallUsageByDayRow struct {
 	ProviderReportedCostUsd    string
 }
 
-// @sqlc-vet-disable configured-models-deleted-at agent-profiles-deleted-at
-// Usage must still resolve when the configured model or agent profile is soft deleted.
-func (q *Queries) SumModelCallUsageByDay(ctx context.Context, arg SumModelCallUsageByDayParams) ([]SumModelCallUsageByDayRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByDay,
-		arg.DayStarts,
-		arg.OrgID,
+// @sqlc-vet-disable configured-models-deleted-at agent-profiles-deleted-at model-provider-configs-deleted-at projects-deleted-at
+// Usage must still resolve when its model, provider config, profile, or project is soft deleted.
+// Provider and project names tell apart same-named models and profiles.
+func (q *Queries) SumModelCallUsageByBucket(ctx context.Context, arg SumModelCallUsageByBucketParams) ([]SumModelCallUsageByBucketRow, error) {
+	rows, err := q.db.Query(ctx, sumModelCallUsageByBucket,
+		arg.BucketStarts,
+		arg.OrgIds,
 		arg.ProjectIds,
 		arg.Since,
+		arg.Until,
+		arg.AgentProfileIds,
+		arg.IncludeProfileSubagents,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SumModelCallUsageByDayRow{}
+	items := []SumModelCallUsageByBucketRow{}
 	for rows.Next() {
-		var i SumModelCallUsageByDayRow
+		var i SumModelCallUsageByBucketRow
 		if err := rows.Scan(
-			&i.DayNumber,
+			&i.BucketNumber,
 			&i.ConfiguredModelID,
 			&i.ConfiguredModelName,
+			&i.ModelProviderConfigName,
 			&i.AgentProfileID,
 			&i.AgentProfileName,
+			&i.ProjectName,
 			&i.ModelCalls,
 			&i.ModelCallsWithReportedCost,
 			&i.InputTokensTotal,

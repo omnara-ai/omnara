@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const maxTransactionAttempts = 3

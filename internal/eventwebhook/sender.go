@@ -21,12 +21,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -163,6 +163,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 		event = "tool_call_update"
 		data, err = publicevents.ToolCallUpdate(notifications.ToolCallUpdatedCommitted{
 			AgentID: delivery.AgentID, ToolCallID: *delivery.ToolCallID, State: *delivery.ToolState,
+			InteractionUpdate: delivery.InteractionUpdate,
 		})
 	}
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,9 +21,7 @@ const (
 	readbackPageLimit    = 100
 	readbackMaxPages     = 8
 
-	MessageMarkerEventType     = "omnara_integration_message"
-	AgentRequestFailureMessage = "I couldn't complete this request. " +
-		"Please try again later or contact this bot's owner."
+	MessageMarkerEventType = "omnara_integration_message"
 )
 
 type MessageTarget struct {
@@ -32,9 +31,23 @@ type MessageTarget struct {
 	BotToken  string
 }
 
+type ErrorCode string
+
+const (
+	RateLimited             ErrorCode = "rate_limited"
+	DeliveryUnknown         ErrorCode = "delivery_unknown"
+	TransientFailure        ErrorCode = "transient_failure"
+	PermanentFailure        ErrorCode = "permanent_failure"
+	IntegrationDisconnected ErrorCode = "integration_disconnected"
+	InvalidFileURL          ErrorCode = "invalid_file_url"
+	FileTooLarge            ErrorCode = "file_too_large"
+	ProviderError           ErrorCode = "provider_error"
+)
+
 type APIResult struct {
+	StatusCode       int
 	MessageID        string
-	Code             string
+	Code             ErrorCode
 	ProviderCode     string
 	RateLimited      bool
 	RetryAfter       time.Duration
@@ -43,6 +56,22 @@ type APIResult struct {
 	DeliveryUnknown  bool
 	Message          string
 }
+
+type APIError struct {
+	Result APIResult
+}
+
+func (e *APIError) Error() string {
+	if e.Result.Message != "" {
+		return e.Result.Message
+	}
+	if e.Result.Code != "" {
+		return "slack " + string(e.Result.Code)
+	}
+	return "slack request failed"
+}
+
+func (e *APIError) RetryDelay() time.Duration { return e.Result.RetryAfter }
 
 type postMessageResponse struct {
 	OK      bool   `json:"ok"`
@@ -73,7 +102,7 @@ type readbackMessage struct {
 
 func Destination(kind, ref string) (channel, threadTS string, err error) {
 	switch kind {
-	case "dm":
+	case "channel", "dm":
 		if ref == "" {
 			return "", "", errors.New("slack dm target is missing channel")
 		}
@@ -286,12 +315,24 @@ func callFormAt(
 	return doRequest(client, req, out)
 }
 
-func doRequest(client *http.Client, req *http.Request, out any) (APIResult, error) {
+func doRequest(client *http.Client, req *http.Request, out any) (result APIResult, requestErr error) {
 	resp, err := httpClientWithoutRedirects(client).Do(req)
 	if err != nil {
+		var rejected *requestCheckError
+		if errors.As(err, &rejected) {
+			return APIResult{}, rejected.cause
+		}
 		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			result.StatusCode = resp.StatusCode
+		}
+		if result.RateLimited || result.TransientFailure || result.DeliveryUnknown {
+			result.RetryAfter = max(result.RetryAfter, retryAfter(resp.Header.Get("Retry-After")))
+		}
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := retryAfter(resp.Header.Get("Retry-After"))
 		return APIResult{RateLimited: true, RetryAfter: retryAfter, Message: "slack rate limited the request"}, nil
@@ -304,24 +345,24 @@ func doRequest(client *http.Client, req *http.Request, out any) (APIResult, erro
 		if code := slackErrorCode(body); code != "" {
 			result := ErrorResult(code)
 			if resp.StatusCode < 500 || result.RateLimited || result.TransientFailure ||
-				result.Code == "integration_disabled" {
+				result.Code == IntegrationDisconnected {
 				return result, nil
 			}
 			return APIResult{
-				Code:             "transient_failure",
+				Code:             TransientFailure,
 				TransientFailure: true,
 				Message:          fmt.Sprintf("slack returned status %d: %s", resp.StatusCode, code),
 			}, nil
 		}
 		if resp.StatusCode >= 500 {
 			return APIResult{
-				Code:             "transient_failure",
+				Code:             TransientFailure,
 				TransientFailure: true,
 				Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 			}, nil
 		}
 		return APIResult{
-			Code:             "permanent_failure",
+			Code:             PermanentFailure,
 			PermanentFailure: true,
 			Message:          fmt.Sprintf("slack returned status %d", resp.StatusCode),
 		}, nil
@@ -341,15 +382,15 @@ func endpointURL(apiURL, method string) string {
 }
 
 func retryAfter(raw string) time.Duration {
-	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || seconds <= 0 {
 		return 0
 	}
-	return time.Duration(seconds) * time.Second
+	return time.Duration(min(seconds, math.MaxInt64/int64(time.Second))) * time.Second
 }
 
 func slackTimestamp(t time.Time) string {
-	return strconv.FormatFloat(float64(t.UnixNano())/float64(time.Second), 'f', 6, 64)
+	return fmt.Sprintf("%d.%06d", t.Unix(), t.Nanosecond()/int(time.Microsecond))
 }
 
 func ErrorResult(code string) APIResult {
@@ -361,16 +402,16 @@ func ErrorResult(code string) APIResult {
 	case "ratelimited":
 		return APIResult{ProviderCode: code, RateLimited: true, Message: message}
 	case "internal_error", "fatal_error", "service_unavailable", "request_timeout":
-		return APIResult{Code: "transient_failure", ProviderCode: code, TransientFailure: true, Message: message}
+		return APIResult{Code: TransientFailure, ProviderCode: code, TransientFailure: true, Message: message}
 	case "not_authed", "invalid_auth", "account_inactive", "token_revoked":
 		return APIResult{
-			Code:             "integration_disabled",
+			Code:             IntegrationDisconnected,
 			ProviderCode:     code,
 			PermanentFailure: true,
-			Message:          "integration is disabled or credentials are invalid",
+			Message:          "integration is disconnected or credentials are invalid",
 		}
 	default:
-		return APIResult{Code: "permanent_failure", ProviderCode: code, PermanentFailure: true, Message: message}
+		return APIResult{Code: PermanentFailure, ProviderCode: code, PermanentFailure: true, Message: message}
 	}
 }
 

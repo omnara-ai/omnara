@@ -119,12 +119,19 @@ type AgentEventCommitted struct {
 func (AgentEventCommitted) postCommitIntent() {}
 
 type ToolCallUpdatedCommitted struct {
-	AgentID    uuid.UUID `json:"-"`
-	ToolCallID uuid.UUID `json:"tool_call_id"`
-	State      string    `json:"state"`
+	AgentID           uuid.UUID               `json:"-"`
+	ToolCallID        uuid.UUID               `json:"tool_call_id"`
+	State             string                  `json:"state"`
+	InteractionUpdate *AgentInteractionUpdate `json:"interaction_update,omitempty"`
 }
 
 func (ToolCallUpdatedCommitted) postCommitIntent() {}
+
+type AgentInteractionUpdate struct {
+	ID              uuid.UUID `json:"id"`
+	InteractionKind string    `json:"interaction_kind"`
+	State           string    `json:"state"`
+}
 
 type WorkerControlCommitted struct {
 	WorkerProcessID uuid.UUID
@@ -307,14 +314,19 @@ func (n *TxNotifications) AddAgentEvent(agentID uuid.UUID, sequence int64, kind 
 	n.agentEventByID[agentID] = append(n.agentEventByID[agentID], AgentEventReference{Sequence: sequence, Kind: kind})
 }
 
-func (n *TxNotifications) AddToolCallUpdate(agentID, toolCallID uuid.UUID, state string) {
+func (n *TxNotifications) AddToolCallUpdate(
+	agentID, toolCallID uuid.UUID,
+	state string,
+	interactionUpdate *AgentInteractionUpdate,
+) {
 	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
 		return
 	}
 	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
-		AgentID:    agentID,
-		ToolCallID: toolCallID,
-		State:      state,
+		AgentID:           agentID,
+		ToolCallID:        toolCallID,
+		State:             state,
+		InteractionUpdate: interactionUpdate,
 	})
 }
 

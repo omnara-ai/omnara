@@ -41,6 +41,16 @@ func options(
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
+	opts.ResolveIntegrationName = func(name string) (agentconfig.IntegrationResolution, error) {
+		integration, err := store.Integrations().GetIntegrationByName(ctx, projectID, name)
+		if err != nil {
+			return agentconfig.IntegrationResolution{}, err
+		}
+		return agentconfig.IntegrationResolution{
+			IntegrationID:   integration.ID,
+			IntegrationKind: integration.IntegrationKind,
+		}, nil
+	}
 	opts.ValidateSecretID = func(secretID uuid.UUID, expectedKind secrets.Kind) error {
 		return store.Secrets().ValidateProjectSecretReference(ctx, orgID, projectID, secretID, expectedKind)
 	}
@@ -80,6 +90,16 @@ func options(
 			return uuid.Nil, err
 		}
 		return profileID, nil
+	}
+	opts.ResolveMemoryStoreName = func(name string) (uuid.UUID, error) {
+		record, err := store.Memories().Resolve(ctx, projectID, name)
+		if err != nil {
+			if storeerr.IsNotFound(err) {
+				return uuid.Nil, fmt.Errorf("memory store %q was not found: %w", name, storeerr.ErrNotFound)
+			}
+			return uuid.Nil, err
+		}
+		return record.ID, nil
 	}
 	opts.ResolveSkillID = func(skillID string) (agentconfig.SkillResolution, error) {
 		records, missing, err := store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{

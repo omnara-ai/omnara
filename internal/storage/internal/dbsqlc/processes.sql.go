@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 const acceptDaemonProcess = `-- name: AcceptDaemonProcess :one
@@ -45,7 +46,7 @@ WHERE process.org_id = runtime.org_id
       AND binding.machine_id = process.machine_id
       AND binding.state = 'attached'
   )
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.execution_spec
 `
 
 type AcceptDaemonProcessParams struct {
@@ -67,9 +68,6 @@ type AcceptDaemonProcessRow struct {
 	AgentMachineBindingID uuid.UUID
 	MachineID             uuid.UUID
 	ExecutionGrantedAt    *time.Time
-	IoMode                string
-	Command               string
-	ShellSelector         string
 	Cwd                   string
 	TimeoutSeconds        int32
 	InitialWaitMs         int32
@@ -84,6 +82,7 @@ type AcceptDaemonProcessRow struct {
 	ExitSignal            string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	ExecutionSpec         processcmd.ExecutionSpec
 }
 
 func (q *Queries) AcceptDaemonProcess(ctx context.Context, arg AcceptDaemonProcessParams) (AcceptDaemonProcessRow, error) {
@@ -106,9 +105,6 @@ func (q *Queries) AcceptDaemonProcess(ctx context.Context, arg AcceptDaemonProce
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.TimeoutSeconds,
 		&i.InitialWaitMs,
@@ -123,6 +119,7 @@ func (q *Queries) AcceptDaemonProcess(ctx context.Context, arg AcceptDaemonProce
 		&i.ExitSignal,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -285,7 +282,7 @@ WHERE process.project_id = $9
     OR coalesce(process.source_started_at, $2::timestamptz) IS NULL
     OR $4::timestamptz IS NOT NULL
   )
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 `
 
 type CompleteDaemonObservedProcessParams struct {
@@ -329,9 +326,6 @@ func (q *Queries) CompleteDaemonObservedProcess(ctx context.Context, arg Complet
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -349,6 +343,7 @@ func (q *Queries) CompleteDaemonObservedProcess(ctx context.Context, arg Complet
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -369,7 +364,7 @@ WHERE project_id = $7
   AND id = $9
   AND runtime_lock_id = $10
   AND state IN ('starting', 'running')
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 `
 
 type CompleteProcessParams struct {
@@ -409,9 +404,6 @@ func (q *Queries) CompleteProcess(ctx context.Context, arg CompleteProcessParams
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -429,6 +421,7 @@ func (q *Queries) CompleteProcess(ctx context.Context, arg CompleteProcessParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -466,7 +459,7 @@ WHERE process.org_id = $3
   AND process.id = $5
   AND process.state = 'starting'
   AND process.source_started_at IS NULL
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 `
 
 type FailProcessBeforeExecutionParams struct {
@@ -496,9 +489,6 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -516,53 +506,109 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
-const getDaemonArtifactProcessScope = `-- name: GetDaemonArtifactProcessScope :one
-SELECT process.project_id,
-       process.agent_id,
-       COALESCE(tool_call.input->>'path', '')::text AS path
+const getDaemonFileProcessScope = `-- name: GetDaemonFileProcessScope :one
+SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec
 FROM processes process
-JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
-  AND tool_call.id = process.tool_call_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
-  AND process.tool_call_id = $3
+  AND process.id = $3
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND tool_call.type = 'built_in'
-  AND tool_call.name = $4
 `
 
-type GetDaemonArtifactProcessScopeParams struct {
-	OrgID      uuid.UUID
-	MachineID  uuid.UUID
-	ToolCallID uuid.UUID
-	ToolName   string
+type GetDaemonFileProcessScopeParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	ProcessID uuid.UUID
 }
 
-type GetDaemonArtifactProcessScopeRow struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
+type GetDaemonFileProcessScopeRow struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	ExecutionSpec processcmd.ExecutionSpec
 }
 
-func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaemonArtifactProcessScopeParams) (GetDaemonArtifactProcessScopeRow, error) {
-	row := q.db.QueryRow(ctx, getDaemonArtifactProcessScope,
-		arg.OrgID,
-		arg.MachineID,
-		arg.ToolCallID,
-		arg.ToolName,
+func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFileProcessScopeParams) (GetDaemonFileProcessScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonFileProcessScope, arg.OrgID, arg.MachineID, arg.ProcessID)
+	var i GetDaemonFileProcessScopeRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.ToolCallID,
+		&i.ExecutionSpec,
 	)
-	var i GetDaemonArtifactProcessScopeRow
-	err := row.Scan(&i.ProjectID, &i.AgentID, &i.Path)
+	return i, err
+}
+
+const getDaemonGitCredentialsScope = `-- name: GetDaemonGitCredentialsScope :one
+SELECT process.project_id, process.agent_id,
+       coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
+       coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS current_integration_id
+FROM processes process
+JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
+  AND project.deleted_at IS NULL
+JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
+JOIN agents agent ON agent.org_id = process.org_id AND agent.project_id = process.project_id
+  AND agent.id = process.agent_id AND agent.state = 'active'
+JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
+  AND binding.project_id = process.project_id AND binding.agent_id = process.agent_id
+  AND binding.id = process.agent_machine_binding_id AND binding.machine_id = process.machine_id
+  AND binding.state = 'attached'
+JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
+  AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
+JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
+  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_call_contexts context ON context.project_id = process.project_id
+  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN agent_configs original_config ON original_config.project_id = process.project_id
+  AND original_config.id = context.agent_config_id
+JOIN agent_configs current_config ON current_config.project_id = process.project_id
+  AND current_config.id = agent.current_config_id
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND process.id = $3
+  AND process.execution_spec->>'kind' = 'shell'
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+`
+
+type GetDaemonGitCredentialsScopeParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	ProcessID uuid.UUID
+}
+
+type GetDaemonGitCredentialsScopeRow struct {
+	ProjectID             uuid.UUID
+	AgentID               uuid.UUID
+	OriginalIntegrationID uuid.UUID
+	CurrentIntegrationID  uuid.UUID
+}
+
+func (q *Queries) GetDaemonGitCredentialsScope(ctx context.Context, arg GetDaemonGitCredentialsScopeParams) (GetDaemonGitCredentialsScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonGitCredentialsScope, arg.OrgID, arg.MachineID, arg.ProcessID)
+	var i GetDaemonGitCredentialsScopeRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.OriginalIntegrationID,
+		&i.CurrentIntegrationID,
+	)
 	return i, err
 }
 
 const getDaemonProcessForMachineReport = `-- name: GetDaemonProcessForMachineReport :one
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 FROM processes process
 JOIN reportable_daemon_runtimes runtime ON runtime.org_id = process.org_id
   AND runtime.machine_id = process.machine_id
@@ -600,9 +646,6 @@ func (q *Queries) GetDaemonProcessForMachineReport(ctx context.Context, arg GetD
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -620,12 +663,13 @@ func (q *Queries) GetDaemonProcessForMachineReport(ctx context.Context, arg GetD
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
 const getDaemonProcessForProjectReport = `-- name: GetDaemonProcessForProjectReport :one
-SELECT processes.id, processes.org_id, processes.project_id, processes.agent_id, processes.tool_call_id, processes.runtime_lock_id, processes.agent_machine_binding_id, processes.machine_id, processes.execution_granted_at, processes.io_mode, processes.command, processes.shell_selector, processes.cwd, processes.env, processes.secret_env, processes.timeout_seconds, processes.initial_wait_ms, processes.default_output_cursor, processes.state, processes.state_reason_code, processes.state_reason_message, processes.source_started_at, processes.source_ended_at, processes.state_changed_at, processes.exit_code, processes.exit_signal, processes.created_at, processes.updated_at, processes.last_activity_at
+SELECT processes.id, processes.org_id, processes.project_id, processes.agent_id, processes.tool_call_id, processes.runtime_lock_id, processes.agent_machine_binding_id, processes.machine_id, processes.execution_granted_at, processes.cwd, processes.env, processes.secret_env, processes.timeout_seconds, processes.initial_wait_ms, processes.default_output_cursor, processes.state, processes.state_reason_code, processes.state_reason_message, processes.source_started_at, processes.source_ended_at, processes.state_changed_at, processes.exit_code, processes.exit_signal, processes.created_at, processes.updated_at, processes.last_activity_at, processes.execution_spec
 FROM processes
 WHERE processes.project_id = $1
   AND processes.machine_id = $2
@@ -651,9 +695,6 @@ func (q *Queries) GetDaemonProcessForProjectReport(ctx context.Context, arg GetD
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -671,12 +712,13 @@ func (q *Queries) GetDaemonProcessForProjectReport(ctx context.Context, arg GetD
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
 const getProcess = `-- name: GetProcess :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 FROM processes
 WHERE project_id = $1
   AND agent_id = $2
@@ -702,9 +744,6 @@ func (q *Queries) GetProcess(ctx context.Context, arg GetProcessParams) (Process
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -722,12 +761,13 @@ func (q *Queries) GetProcess(ctx context.Context, arg GetProcessParams) (Process
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
 const getProcessByMachine = `-- name: GetProcessByMachine :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 FROM processes
 WHERE org_id = $1
   AND machine_id = $2
@@ -753,9 +793,6 @@ func (q *Queries) GetProcessByMachine(ctx context.Context, arg GetProcessByMachi
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -773,12 +810,13 @@ func (q *Queries) GetProcessByMachine(ctx context.Context, arg GetProcessByMachi
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
 const getProcessByToolCall = `-- name: GetProcessByToolCall :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 FROM processes
 WHERE project_id = $1
   AND agent_id = $2
@@ -804,9 +842,6 @@ func (q *Queries) GetProcessByToolCall(ctx context.Context, arg GetProcessByTool
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -824,6 +859,7 @@ func (q *Queries) GetProcessByToolCall(ctx context.Context, arg GetProcessByTool
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -898,7 +934,7 @@ func (q *Queries) GetProcessExecutionConfig(ctx context.Context, arg GetProcessE
 }
 
 const getProcessForUpdate = `-- name: GetProcessForUpdate :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 FROM processes
 WHERE project_id = $1
   AND agent_id = $2
@@ -925,9 +961,6 @@ func (q *Queries) GetProcessForUpdate(ctx context.Context, arg GetProcessForUpda
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -945,6 +978,7 @@ func (q *Queries) GetProcessForUpdate(ctx context.Context, arg GetProcessForUpda
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -953,25 +987,25 @@ const insertProcess = `-- name: InsertProcess :one
 WITH target_agent AS MATERIALIZED (
   SELECT agent.org_id, agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $11
-    AND agent.id = $12
+  WHERE agent.project_id = $9
+    AND agent.id = $10
 ),
 live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agents agent ON agent.id = runtime_lock.agent_id
-  WHERE agent.project_id = $11
-    AND runtime_lock.agent_id = $12
-    AND runtime_lock.id = $13
+  WHERE agent.project_id = $9
+    AND runtime_lock.agent_id = $10
+    AND runtime_lock.id = $11
     AND runtime_lock.cancel_requested_at IS NULL
     AND runtime_lock.lease_expires_at > statement_timestamp()
 ),
 bound_machine AS MATERIALIZED (
   SELECT binding.machine_id
   FROM agent_machine_bindings binding
-  WHERE binding.project_id = $11
-    AND binding.agent_id = $12
-    AND binding.id = $10
+  WHERE binding.project_id = $9
+    AND binding.agent_id = $10
+    AND binding.id = $8
     AND binding.state = 'attached'
 ),
 reachable_machine AS MATERIALIZED (
@@ -981,28 +1015,26 @@ reachable_machine AS MATERIALIZED (
     AND connection.machine_id = bound.machine_id
   WHERE connection.connection_state IN ('online', 'asleep')
 )
-INSERT INTO processes(org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, state, state_changed_at, created_at, updated_at)
-SELECT agent.org_id, agent.project_id, agent.id, tool_call.id, runtime_lock.id, binding.id, binding.machine_id, NULL, $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, 'queued', statement_timestamp(), statement_timestamp(), statement_timestamp()
+INSERT INTO processes(org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, execution_spec, cwd, env, secret_env, timeout_seconds, initial_wait_ms, state, state_changed_at, created_at, updated_at)
+SELECT agent.org_id, agent.project_id, agent.id, tool_call.id, runtime_lock.id, binding.id, binding.machine_id, NULL, $1, $2, $3::jsonb, $4::jsonb, $5, $6, 'queued', statement_timestamp(), statement_timestamp(), statement_timestamp()
 FROM target_agent agent
 JOIN live_runtime runtime_lock ON runtime_lock.project_id = agent.project_id
   AND runtime_lock.agent_id = agent.id
 JOIN tool_calls tool_call ON tool_call.agent_id = agent.id
-  AND tool_call.id = $9
+  AND tool_call.id = $7
 JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
   AND binding.agent_id = agent.id
-  AND binding.id = $10
+  AND binding.id = $8
   AND binding.state = 'attached'
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
   AND pmgrant.machine_id = binding.machine_id
 JOIN reachable_machine ON true
 ON CONFLICT (agent_id, tool_call_id) DO NOTHING
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 `
 
 type InsertProcessParams struct {
-	IoMode                string
-	Command               string
-	ShellSelector         string
+	ExecutionSpec         processcmd.ExecutionSpec
 	Cwd                   string
 	Env                   json.RawMessage
 	SecretEnv             json.RawMessage
@@ -1017,9 +1049,7 @@ type InsertProcessParams struct {
 
 func (q *Queries) InsertProcess(ctx context.Context, arg InsertProcessParams) (Process, error) {
 	row := q.db.QueryRow(ctx, insertProcess,
-		arg.IoMode,
-		arg.Command,
-		arg.ShellSelector,
+		arg.ExecutionSpec,
 		arg.Cwd,
 		arg.Env,
 		arg.SecretEnv,
@@ -1042,9 +1072,6 @@ func (q *Queries) InsertProcess(ctx context.Context, arg InsertProcessParams) (P
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -1062,12 +1089,13 @@ func (q *Queries) InsertProcess(ctx context.Context, arg InsertProcessParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
 
 const listActiveProcesses = `-- name: ListActiveProcesses :many
-SELECT id, state, machine_id, io_mode, command, shell_selector, cwd, source_started_at, created_at, updated_at, tool_call_id
+SELECT id, state, machine_id, cwd, source_started_at, created_at, updated_at, tool_call_id, execution_spec
 FROM processes
 WHERE project_id = $1
   AND agent_id = $2
@@ -1085,14 +1113,12 @@ type ListActiveProcessesRow struct {
 	ID              uuid.UUID
 	State           string
 	MachineID       uuid.UUID
-	IoMode          string
-	Command         string
-	ShellSelector   string
 	Cwd             string
 	SourceStartedAt *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	ToolCallID      uuid.UUID
+	ExecutionSpec   processcmd.ExecutionSpec
 }
 
 func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcessesParams) ([]ListActiveProcessesRow, error) {
@@ -1108,14 +1134,12 @@ func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcess
 			&i.ID,
 			&i.State,
 			&i.MachineID,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.SourceStartedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ToolCallID,
+			&i.ExecutionSpec,
 		); err != nil {
 			return nil, err
 		}
@@ -1136,7 +1160,10 @@ WITH runtime AS MATERIALIZED (
     AND runtime.machine_id = $2
     AND runtime.daemon_token_id = $6::uuid
 )
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec,
+       coalesce((CASE WHEN process.execution_spec->>'kind' = 'shell'
+                     THEN config.compiled_definition->'git_credentials'->>'integration_id' END)::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
 FROM processes process
 JOIN runtime ON runtime.org_id = process.org_id
   AND runtime.machine_id = process.machine_id
@@ -1147,6 +1174,11 @@ JOIN agent_machine_bindings binding ON binding.project_id = process.project_id
   AND binding.state = 'attached'
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
   AND pmgrant.machine_id = binding.machine_id
+JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
+  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_call_contexts context ON context.project_id = process.project_id
+  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN agent_configs config ON config.project_id = process.project_id AND config.id = context.agent_config_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
   AND process.state = 'queued'
@@ -1164,7 +1196,38 @@ type ListDaemonProcessOffersParams struct {
 	DaemonTokenID       uuid.UUID
 }
 
-func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]Process, error) {
+type ListDaemonProcessOffersRow struct {
+	ID                          uuid.UUID
+	OrgID                       uuid.UUID
+	ProjectID                   uuid.UUID
+	AgentID                     uuid.UUID
+	ToolCallID                  uuid.UUID
+	RuntimeLockID               uuid.UUID
+	AgentMachineBindingID       uuid.UUID
+	MachineID                   uuid.UUID
+	ExecutionGrantedAt          *time.Time
+	Cwd                         string
+	Env                         json.RawMessage
+	SecretEnv                   json.RawMessage
+	TimeoutSeconds              int32
+	InitialWaitMs               int32
+	DefaultOutputCursor         int64
+	State                       string
+	StateReasonCode             *string
+	StateReasonMessage          string
+	SourceStartedAt             *time.Time
+	SourceEndedAt               *time.Time
+	StateChangedAt              time.Time
+	ExitCode                    *int32
+	ExitSignal                  string
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	LastActivityAt              time.Time
+	ExecutionSpec               processcmd.ExecutionSpec
+	GitCredentialsIntegrationID uuid.UUID
+}
+
+func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]ListDaemonProcessOffersRow, error) {
 	rows, err := q.db.Query(ctx, listDaemonProcessOffers,
 		arg.OrgID,
 		arg.MachineID,
@@ -1177,9 +1240,9 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Process{}
+	items := []ListDaemonProcessOffersRow{}
 	for rows.Next() {
-		var i Process
+		var i ListDaemonProcessOffersRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -1190,9 +1253,6 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 			&i.AgentMachineBindingID,
 			&i.MachineID,
 			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.Env,
 			&i.SecretEnv,
@@ -1210,6 +1270,8 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.ExecutionSpec,
+			&i.GitCredentialsIntegrationID,
 		); err != nil {
 			return nil, err
 		}
@@ -1283,7 +1345,7 @@ func (q *Queries) ListMachineLifecycleTerminalAgentRefs(ctx context.Context, arg
 }
 
 const listProcessesForExecutionRevoked = `-- name: ListProcessesForExecutionRevoked :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 FROM processes process
 WHERE process.project_id = $1
   AND (
@@ -1363,9 +1425,6 @@ func (q *Queries) ListProcessesForExecutionRevoked(ctx context.Context, arg List
 			&i.AgentMachineBindingID,
 			&i.MachineID,
 			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.Env,
 			&i.SecretEnv,
@@ -1383,6 +1442,7 @@ func (q *Queries) ListProcessesForExecutionRevoked(ctx context.Context, arg List
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.ExecutionSpec,
 		); err != nil {
 			return nil, err
 		}
@@ -1395,7 +1455,7 @@ func (q *Queries) ListProcessesForExecutionRevoked(ctx context.Context, arg List
 }
 
 const listProcessesForMachineLifecycleTermination = `-- name: ListProcessesForMachineLifecycleTermination :many
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 FROM processes process
 WHERE process.org_id = $1
   AND process.machine_id = $2
@@ -1437,9 +1497,6 @@ func (q *Queries) ListProcessesForMachineLifecycleTermination(ctx context.Contex
 			&i.AgentMachineBindingID,
 			&i.MachineID,
 			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.Env,
 			&i.SecretEnv,
@@ -1457,6 +1514,7 @@ func (q *Queries) ListProcessesForMachineLifecycleTermination(ctx context.Contex
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.ExecutionSpec,
 		); err != nil {
 			return nil, err
 		}
@@ -1469,7 +1527,7 @@ func (q *Queries) ListProcessesForMachineLifecycleTermination(ctx context.Contex
 }
 
 const listProcessesForMachineReconciliation = `-- name: ListProcessesForMachineReconciliation :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 FROM processes process
 WHERE process.org_id = $1
   AND process.machine_id = $2
@@ -1510,9 +1568,6 @@ func (q *Queries) ListProcessesForMachineReconciliation(ctx context.Context, arg
 			&i.AgentMachineBindingID,
 			&i.MachineID,
 			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
 			&i.Cwd,
 			&i.Env,
 			&i.SecretEnv,
@@ -1530,6 +1585,7 @@ func (q *Queries) ListProcessesForMachineReconciliation(ctx context.Context, arg
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.ExecutionSpec,
 		); err != nil {
 			return nil, err
 		}
@@ -1690,7 +1746,7 @@ WHERE org_id = $3
   AND machine_id = $4
   AND id = $5
   AND state IN ('starting', 'running')
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, io_mode, command, shell_selector, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
 `
 
 type MarkActiveProcessUnknownByMachineParams struct {
@@ -1720,9 +1776,6 @@ func (q *Queries) MarkActiveProcessUnknownByMachine(ctx context.Context, arg Mar
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -1740,6 +1793,7 @@ func (q *Queries) MarkActiveProcessUnknownByMachine(ctx context.Context, arg Mar
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }
@@ -1765,7 +1819,7 @@ WHERE process.project_id = $2
   AND process.id = $4
   AND process.machine_id = $5
   AND process.state IN ('starting', 'running')
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
 `
 
 type MarkProcessStartedParams struct {
@@ -1795,9 +1849,6 @@ func (q *Queries) MarkProcessStarted(ctx context.Context, arg MarkProcessStarted
 		&i.AgentMachineBindingID,
 		&i.MachineID,
 		&i.ExecutionGrantedAt,
-		&i.IoMode,
-		&i.Command,
-		&i.ShellSelector,
 		&i.Cwd,
 		&i.Env,
 		&i.SecretEnv,
@@ -1815,6 +1866,7 @@ func (q *Queries) MarkProcessStarted(ctx context.Context, arg MarkProcessStarted
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastActivityAt,
+		&i.ExecutionSpec,
 	)
 	return i, err
 }

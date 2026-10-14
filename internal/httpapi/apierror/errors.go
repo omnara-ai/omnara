@@ -1,7 +1,6 @@
 package apierror
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,6 +22,10 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeForbidden:               {http.StatusForbidden, "forbidden"},
 	openapi.ErrorCodeNotFound:                {http.StatusNotFound, "not found"},
 	openapi.ErrorCodeConflict:                {http.StatusConflict, "conflict"},
+	openapi.ErrorCodeFileContentConflict:     {http.StatusConflict, "file content conflict"},
+	openapi.ErrorCodeFileReadOnly:            {http.StatusConflict, "file access is read-only"},
+	openapi.ErrorCodeExpectedDigestRequired:  {http.StatusConflict, "expected_digest is required"},
+	openapi.ErrorCodeNotAFile:                {http.StatusBadRequest, "path is not a file"},
 	openapi.ErrorCodeGone:                    {http.StatusGone, "gone"},
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
@@ -89,11 +92,12 @@ var sentinelCodes = []sentinelMapping{
 }
 
 type ResponseError struct {
-	Status  int
-	Code    openapi.ErrorCode
-	Message string
-	Issues  []openapi.AgentConfigErrorIssue
-	cause   error
+	Status        int
+	Code          openapi.ErrorCode
+	Message       string
+	Issues        []openapi.AgentConfigErrorIssue
+	CurrentDigest *string
+	cause         error
 }
 
 func (err ResponseError) Error() string {
@@ -131,7 +135,7 @@ func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.
 }
 
 func (err ResponseError) body() openapi.Error {
-	body := openapi.Error{Error: err.Message, Code: err.Code}
+	body := openapi.Error{Error: err.Message, Code: err.Code, CurrentDigest: err.CurrentDigest}
 	if len(err.Issues) > 0 {
 		issues := append([]openapi.AgentConfigErrorIssue(nil), err.Issues...)
 		body.Issues = &issues
@@ -141,7 +145,13 @@ func (err ResponseError) body() openapi.Error {
 
 func FromError(err error) ResponseError {
 	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
-	if errors.Is(err, pgx.ErrNoRows) {
+	var fileConflict *storeerr.FileContentConflictError
+	if code := storeerr.FileErrorCode(err); code != "" {
+		responseErr = FromCode(openapi.ErrorCode(code), err.Error())
+		if errors.As(err, &fileConflict) && fileConflict.CurrentDigest != "" {
+			responseErr.CurrentDigest = &fileConflict.CurrentDigest
+		}
+	} else if errors.Is(err, pgx.ErrNoRows) {
 		responseErr = FromCode(openapi.ErrorCodeNotFound, err.Error())
 	} else {
 		for _, mapping := range sentinelCodes {
@@ -207,12 +217,12 @@ func (err ResponseError) write(w http.ResponseWriter) error {
 		err.Message = def.message
 	}
 
-	var buf bytes.Buffer
-	if encodeErr := json.NewEncoder(&buf).Encode(err.body()); encodeErr != nil {
+	data, encodeErr := json.Marshal(err.body())
+	if encodeErr != nil {
 		return encodeErr
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(def.status)
-	_, writeErr := buf.WriteTo(w)
+	_, writeErr := w.Write(append(data, '\n'))
 	return writeErr
 }

@@ -6,9 +6,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type Pool struct {

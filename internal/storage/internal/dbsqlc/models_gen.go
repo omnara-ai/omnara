@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 type Actor struct {
@@ -73,20 +74,22 @@ type AgentEventReadProjection struct {
 }
 
 type AgentInteractionReadProjection struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    string
-	State              string
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  *uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         *time.Time
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
 }
 
 type AgentMcpConnection struct {
@@ -214,6 +217,10 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
+	MaxActiveMemoryStoresPerProject           int64
+	MaxMemoriesPerStore                       int64
+	MaxActiveIntegrationsPerProject           int64
+	MaxActiveIntegrationSubscriptionsPerAgent int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
@@ -221,19 +228,14 @@ type ExpiredIdlePoolMachineCandidate struct {
 	MachineID uuid.UUID
 }
 
-type IntegrationInstall struct {
+type Integration struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
-	AgentProfileID           *uuid.UUID
-	AgentID                  *uuid.UUID
-	InstalledByUserID        uuid.UUID
-	Provider                 string
-	IntegrationKind          string
-	ConnectionMode           string
+	InstalledByUserID        *uuid.UUID
 	State                    string
-	ProviderTenantID         string
-	ProviderAccountRef       string
+	ProviderTenantID         *string
+	ProviderAccountRef       *string
 	ProviderAgentDisplayName string
 	CredentialSecretID       *uuid.UUID
 	ProviderConfig           json.RawMessage
@@ -243,21 +245,57 @@ type IntegrationInstall struct {
 	DeletedAt                *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	Name                     string
+	IntegrationKind          string
+	Settings                 json.RawMessage
+	SetupRevision            int64
 }
 
-type IntegrationTarget struct {
-	ID                   uuid.UUID
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	IntegrationInstallID uuid.UUID
-	TargetRef            string
-	ProviderRef          string
-	ProviderRefKind      string
-	DisplayName          string
-	ProviderMetadata     json.RawMessage
-	DeletedAt            *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+type IntegrationInbox struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	IntegrationID      uuid.UUID
+	ReceiptKey         string
+	Payload            []byte
+	Source             string
+	IntegrationStateID *uuid.UUID
+	ReservedScopeKind  *string
+	ReservedScopeRef   *string
+	Plan               *json.RawMessage
+	State              string
+	AttemptCount       int32
+	NextAttemptAt      time.Time
+	ClaimToken         *uuid.UUID
+	ClaimExpiresAt     *time.Time
+	LastError          *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	CompletedAt        *time.Time
+}
+
+type IntegrationState struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	Key           string
+	ScopeKind     *string
+	ScopeRef      *string
+	Data          json.RawMessage
+	Revision      int64
+	ExpiresAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type IntegrationSubscription struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
+	CreatedAt     time.Time
 }
 
 type MachineDaemonToken struct {
@@ -332,6 +370,18 @@ type McpServerCatalog struct {
 	UpdatedAt             time.Time
 }
 
+type MemoryStore struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	Name           string
+	Description    string
+	AgentAccess    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      *time.Time
+	FilesRemovedAt *time.Time
+}
+
 type ModelProviderConfig struct {
 	ID                 uuid.UUID
 	OrgID              uuid.UUID
@@ -396,9 +446,6 @@ type Process struct {
 	AgentMachineBindingID uuid.UUID
 	MachineID             uuid.UUID
 	ExecutionGrantedAt    *time.Time
-	IoMode                string
-	Command               string
-	ShellSelector         string
 	Cwd                   string
 	Env                   json.RawMessage
 	SecretEnv             json.RawMessage
@@ -416,6 +463,7 @@ type Process struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastActivityAt        time.Time
+	ExecutionSpec         processcmd.ExecutionSpec
 }
 
 type ProcessAction struct {

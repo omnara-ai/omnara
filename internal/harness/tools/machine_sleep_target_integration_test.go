@@ -153,7 +153,6 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 		Store:              store,
 		MachinePoolManager: manager,
 		BackgroundRunner:   immediateIntegrationBackgroundRunner(ctx),
-		Now:                func() time.Time { return now.Add(6 * time.Second) },
 	}).Dispatch(
 		ctx,
 		Turn{

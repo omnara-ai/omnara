@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -287,9 +288,8 @@ func TestLostProcessAcceptAcknowledgementRecoversThroughRegistration(
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "sleep 1",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -479,9 +479,8 @@ func TestRevokeBYOMachineDaemonTokenEndsRuntimeAndBlocksProcessStart(t *testing.
 		ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "revoke_token_runtime_start", "run_command"),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("bash", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "bash",
-		ShellSelector:         "sh",
 	})
 	if !errors.Is(err, storeerr.ErrMachineNotReachable) {
 		t.Fatalf("start process after daemon token revoke error = %v, want ErrMachineNotReachable", err)
@@ -609,9 +608,8 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
@@ -787,9 +785,8 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start active process: %v", err)
@@ -821,9 +818,8 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo queued", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo queued",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start queued process: %v", err)
@@ -988,9 +984,8 @@ func TestFreshDaemonRuntimePredicateBlocksStaleActiveRuntime(t *testing.T) {
 		ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "stale_active_runtime_start", "run_command"),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("bash", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "bash",
-		ShellSelector:         "sh",
 	})
 	if !errors.Is(err, storeerr.ErrMachineNotReachable) {
 		t.Fatalf("start process with stale active daemon runtime error = %v, want ErrMachineNotReachable", err)
@@ -1306,9 +1301,8 @@ func TestReplacementRuntimeWithoutProcessClaimClosesQueuedReadAction(t *testing.
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1409,9 +1403,8 @@ func TestReplacementDaemonRuntimeRoutesLiveProcessClaimByMachine(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1526,9 +1519,8 @@ func TestReplacementDaemonRuntimeRedeliversAcceptedActionMissingLocally(t *testi
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1995,9 +1987,8 @@ func TestReplacementDaemonRuntimeSettlesAlreadyAppliedActionEvidence(t *testing.
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2151,9 +2142,8 @@ func TestReplacementDaemonRuntimeSettlesFailedActionEvidence(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2288,9 +2278,8 @@ func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t 
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2444,9 +2433,8 @@ func TestDaemonRuntimeEndPreservesLiveProcess(t *testing.T) {
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2533,9 +2521,8 @@ func TestExpiredDaemonRuntimeHeartbeatRestoresSameRuntime(t *testing.T) {
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2602,9 +2589,8 @@ func TestExpiredDaemonRuntimeRegistrationRefreshesSameRuntime(t *testing.T) {
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2761,9 +2747,8 @@ func TestEndExpiredDaemonRuntimesEndsRuntimeWithoutUnknowningRecoverableWork(t *
 		ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "expired_runtime_gc_start", "run_command"),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2818,9 +2803,8 @@ func TestReplacementDaemonRuntimeMarksUnclaimedGrantedProcessUnknownAfterLeaseEx
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2911,9 +2895,8 @@ func TestExpiredDaemonRuntimeLeasePreservesUnacceptedProcess(t *testing.T) {
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo hi", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo hi",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2972,9 +2955,8 @@ func TestTerminalReportBeforeReconnectCompletesToolCallWithOutputResult(t *testi
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo terminal", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo terminal",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3066,9 +3048,8 @@ func TestRuntimeRegistrationReconciliationLocksAgentBeforeProcessAndReadMutation
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo lock", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo lock",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3225,9 +3206,8 @@ func TestRuntimeRegistrationClosesPreparationForStillQueuedProcess(t *testing.T)
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo terminal", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo terminal",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3393,9 +3373,8 @@ func TestReplacementRuntimeWithoutProcessClaimFailsAcceptedRead(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3502,9 +3481,8 @@ func TestReplacementRuntimeWithoutProcessClaimClosesProcessUnknown(t *testing.T)
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3585,9 +3563,8 @@ func TestExpiredAgentRuntimeLockFailsUnacceptedProcess(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3647,9 +3624,8 @@ func TestExpiredAgentRuntimeLockRetainsAcceptedProcess(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3725,9 +3701,8 @@ func TestExpiredAgentRuntimeLockRetainsAcceptedProcessAction(t *testing.T) {
 		ToolCallID:    startToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {

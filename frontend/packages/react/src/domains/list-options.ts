@@ -9,7 +9,6 @@ export const RESOURCE_LIST_SORTS: readonly ResourceListSort[] = zResourceListSor
 export const CREATED_RESOURCE_LIST_SORTS: readonly CreatedResourceListSort[] =
   zCreatedResourceListSort.unwrap().options
 
-/** Glob that matches exactly one name, for point lookups through list filters. */
 export function exactNameGlob(value: string) {
   return value.replace(/[\\*?]/g, (wildcard) => `\\${wildcard}`)
 }

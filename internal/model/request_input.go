@@ -320,34 +320,30 @@ func projectRequestInput(body json.RawMessage, format modelprotocol.APIFormat) (
 		items[index] = stripMessageCacheControls(item, format)
 	}
 
-	prefixEnd, suffixStart := 0, len(items)
+	prefixEnd := 0
 	if format != modelprotocol.APIFormatAnthropicMessages {
-		for prefixEnd < suffixStart && isSystemInputItem(items[prefixEnd]) {
+		for prefixEnd < len(items) && isSystemInputItem(items[prefixEnd]) {
 			prefixEnd++
 		}
-		for suffixStart > prefixEnd && isSystemInputItem(items[suffixStart-1]) {
-			suffixStart--
-		}
 	}
-	for _, item := range items[prefixEnd:suffixStart] {
+	for _, item := range items[prefixEnd:] {
 		if isSystemInputItem(item) {
 			return requestInputProjection{}, errors.New("system input inside the conversation cannot be reused")
 		}
 	}
-	if prefixEnd == suffixStart {
+	if prefixEnd == len(items) {
 		return requestInputProjection{}, errors.New("prepared request contains only static input")
 	}
 	static, err := json.Marshal(struct {
 		Format       modelprotocol.APIFormat    `json:"format"`
 		Options      map[string]json.RawMessage `json:"options"`
 		SystemPrefix []json.RawMessage          `json:"system_prefix,omitempty"`
-		SystemSuffix []json.RawMessage          `json:"system_suffix,omitempty"`
 		LoadedTools  []string                   `json:"loaded_tools,omitempty"`
-	}{format, object, items[:prefixEnd], items[suffixStart:], loadedInputTools(items, format)})
+	}{format, object, items[:prefixEnd], loadedInputTools(items, format)})
 	if err != nil {
 		return requestInputProjection{}, err
 	}
-	return requestInputProjection{static: static, items: items[prefixEnd:suffixStart]}, nil
+	return requestInputProjection{static: static, items: items[prefixEnd:]}, nil
 }
 
 func loadedInputTools(items []json.RawMessage, format modelprotocol.APIFormat) []string {

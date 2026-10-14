@@ -1874,55 +1874,6 @@ func (q *Queries) NextRunnableToolCallForModelOutput(ctx context.Context, arg Ne
 	return i, err
 }
 
-const releaseToolCallRuntimeOwnership = `-- name: ReleaseToolCallRuntimeOwnership :execrows
-WITH live_runtime AS MATERIALIZED (
-  SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
-  FROM agent_runtime_locks runtime_lock
-  JOIN agents agent ON agent.id = runtime_lock.agent_id
-  WHERE agent.project_id = $2
-    AND runtime_lock.agent_id = $3
-    AND runtime_lock.id = $4
-    AND runtime_lock.cancel_requested_at IS NULL
-    AND runtime_lock.lease_expires_at > statement_timestamp()
-)
-UPDATE tool_calls call
-SET state = 'waiting',
-    runtime_lock_id = NULL
-FROM live_runtime runtime_lock
-WHERE call.agent_id = runtime_lock.agent_id
-  AND call.id = $1
-  AND call.state = 'running'
-  AND call.runtime_lock_id = runtime_lock.id
-  AND EXISTS (
-    SELECT 1
-    FROM agent_interactions interaction
-    WHERE interaction.agent_id = call.agent_id
-      AND interaction.tool_call_id = call.id
-      AND interaction.interaction_kind = 'question'
-      AND interaction.state = 'open'
-  )
-`
-
-type ReleaseToolCallRuntimeOwnershipParams struct {
-	ID            uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	RuntimeLockID uuid.UUID
-}
-
-func (q *Queries) ReleaseToolCallRuntimeOwnership(ctx context.Context, arg ReleaseToolCallRuntimeOwnershipParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseToolCallRuntimeOwnership,
-		arg.ID,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.RuntimeLockID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const requeueRuntimeToolCall = `-- name: RequeueRuntimeToolCall :execrows
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id

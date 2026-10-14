@@ -131,6 +131,9 @@ func toolImplementationFor(name string) (toolImplementation, bool, error) {
 	if err != nil {
 		return toolImplementation{}, false, err
 	}
+	if implementation, ok := integrationToolImplementation(name); ok {
+		return implementation, true, nil
+	}
 	if implementation, ok := mcpToolImplementation(name); ok {
 		return implementation, true, nil
 	}
@@ -165,11 +168,18 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 }
 
 func builtInToolRegistrations() []toolRegistration {
-	return []toolRegistration{
+	registrations := interactionToolRegistrations()
+	return append(registrations, []toolRegistration{
 		{
 			name:                   toolcatalog.ToolNameReadFile,
 			semanticInputValidator: validateReadFileInput,
 			handler:                toolHandler{Async: runReadFileAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameWriteFile,
+			semanticInputValidator: validateWriteFileInput,
+			handler:                toolHandler{Async: runWriteFileAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
@@ -246,6 +256,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameListFiles,
+			semanticInputValidator: validateListFiles,
+			handler:                toolHandler{Async: runListFiles},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameListMachines,
 			semanticInputValidator: validateListMachinesInput,
 			handler:                toolHandler{Transactional: listMachines},
@@ -304,23 +320,9 @@ func builtInToolRegistrations() []toolRegistration {
 			semanticInputValidator: validateQuestionInput,
 			handler: toolHandler{
 				Transactional: prepareStructuredQuestion,
-				Async:         deliverStructuredQuestionPrompts,
+				Background:    presentStructuredQuestion,
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameSendIntegrationMessage,
-			semanticInputValidator: validateIntegrationMessageInput,
-			handler:                toolHandler{Async: runIntegrationMessageAsync},
-			permissionModes:        alwaysAllowPermissionModeHandlers(),
-		},
-		{
-			name:                   toolcatalog.ToolNameSetIntegrationTarget,
-			semanticInputValidator: validateIntegrationTargetInput,
-			handler:                toolHandler{Transactional: setIntegrationTarget},
-			permissionModes: commonPermissionModeHandlers(
-				setIntegrationTargetPermissionChallenge,
-			),
 		},
 		{
 			name:                   toolcatalog.ToolNameWebSearch,
@@ -340,7 +342,7 @@ func builtInToolRegistrations() []toolRegistration {
 			handler:                toolHandler{Async: runSkillTool},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
-	}
+	}...)
 }
 
 func validateWriteProcessInput(input json.RawMessage) error {

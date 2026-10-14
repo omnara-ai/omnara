@@ -167,9 +167,31 @@ func TestResolveMachineEnvironmentRejectsNULValue(t *testing.T) {
 	}
 }
 
+func TestResolveMachineEnvironmentBoundsEntrySize(t *testing.T) {
+	largest := strings.Repeat("x", MaxEnvironmentEntryBytes-len("VALUE="))
+	if _, err := resolveMachineEnvironment(
+		MachineEnvironment{},
+		MachineEnvironmentOverlay{Env: map[string]*string{"VALUE": &largest}},
+	); err != nil {
+		t.Fatalf("resolve largest environment entry: %v", err)
+	}
+	oversized := largest + "x"
+	want := fmt.Sprintf("env.VALUE must be at most %d bytes including its key", MaxEnvironmentEntryBytes)
+	if _, err := resolveMachineEnvironment(
+		MachineEnvironment{},
+		MachineEnvironmentOverlay{Env: map[string]*string{"VALUE": &oversized}},
+	); err == nil || err.Error() != want {
+		t.Fatalf("resolve oversized environment entry error = %v", err)
+	}
+}
+
 func TestResolveEnvironmentSecretsRejectsOversizedEnvironment(t *testing.T) {
 	store := &Store{}
-	env, err := json.Marshal(map[string]string{"VALUE": strings.Repeat("x", MaxResolvedEnvironmentBytes)})
+	values := map[string]string{}
+	for index := range MaxResolvedEnvironmentBytes/MaxEnvironmentEntryBytes + 1 {
+		values[fmt.Sprintf("VALUE_%d", index)] = strings.Repeat("x", MaxEnvironmentEntryBytes-len("VALUE_0="))
+	}
+	env, err := json.Marshal(values)
 	if err != nil {
 		t.Fatalf("marshal oversized environment: %v", err)
 	}

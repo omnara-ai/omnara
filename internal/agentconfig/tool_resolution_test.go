@@ -17,16 +17,16 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := missingDefaultToolNames(source)
-	if len(names) != 12 {
-		t.Fatalf("expected 12 missing pool and retrieval tools, got %v", names)
+	if len(names) != 13 {
+		t.Fatalf("expected 13 missing pool and retrieval tools, got %v", names)
 	}
 	for _, name := range names {
 		if _, configured := source.Tools[name]; configured {
 			t.Fatalf("returned an already configured tool: %s", name)
 		}
 	}
-	compiled, err := compileTools(source)
-	if err != nil || len(compiled) != 13 || compiled["run_command"].Enabled {
+	compiled, err := compileTools(source, CompileOptions{})
+	if err != nil || len(compiled) != 14 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
@@ -38,17 +38,23 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 	skillID := testMachineSourcePublicID(t, publicid.KindSkill, "preview-skill")
 	for _, source := range []string{
 		"",
+		"memory_stores: [{name: notes, access: read_write}]\n",
+		"memory_stores: [{name: notes, access: read}]\n",
+		"memory_stores: [{name: notes, access: read}]\ntools: {write_file: {enabled: false}, list_files: {permission: {mode: always_ask}}}\n",
 		"mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
 		"machine_sources: [{machine_name: build-box}]\n",
 		"machine_sources: [{machine_pool_name: build-pool, max_machines: 0, initial_num_machines: 0}]\n",
 		"skills: [" + skillID + "]\n",
 		"subagents: {worker: {type: self}}\n",
 		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
-		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  send_integration_message: {enabled: false}\n",
-		"tools:\n  send_integration_message: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
+		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  web_search: {enabled: false}\n",
+		"tools:\n  web_search: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
+			opts.ResolveMemoryStoreName = func(_ string) (uuid.UUID, error) {
+				return uuid.NewSHA1(uuid.NameSpaceOID, []byte("preview-memory")), nil
+			}
 			opts.ResolveSkillID = func(id string) (SkillResolution, error) {
 				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 			}
@@ -109,8 +115,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 13 {
-		t.Fatalf("got %d entries, want 13", len(entries))
+	if len(entries) != 14 {
+		t.Fatalf("got %d entries, want 14", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {
@@ -128,7 +134,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 	for _, raw := range []string{
 		`null`, `[]`, `{`, `{} {}`, `{"tools":null}`, `{"tools":{"run_command":{"enabled":"false"}}}`,
 		`{"tools":{"not_registered":{}}}`, `{"tools":{"run_command":{"permission":{"mode":"bogus"}}}}`,
-		`{"machine_sources":[{}]}`, `{"skills":["invalid"]}`, `{"tools":{"run_command":{"typo":true}}}`,
+		`{"memory_stores":[{"name":"notes","access":"invalid"}]}`, `{"machine_sources":[{}]}`, `{"skills":["invalid"]}`, `{"tools":{"run_command":{"typo":true}}}`,
 		`{"subagents":{"worker":{"type":"profile"}}}`, `{"subagents":{"worker":{"type":"unknown"}}}`,
 	} {
 		if _, err := ToolsFromSource(SourceFormatJSON, []byte(raw)); err == nil {

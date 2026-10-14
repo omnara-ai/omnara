@@ -89,7 +89,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 	}
 	if !sawBYOK || !sawNonBYOK {
 		t.Fatalf(
-			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK integrations or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
+			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK apps or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
 			sawBYOK,
 			sawNonBYOK,
 		)
@@ -296,7 +296,7 @@ func liveTextContent(t *testing.T, text string) json.RawMessage {
 }
 
 func liveChatCompletionsToken() string {
-	stamp := time.Now().UTC().Format("20060102T150405000000000")
+	stamp := time.Now().UTC().Format("20060102T150405.000000000")
 	return "OMNARA_LIVE_CHAT_" + stamp
 }
 

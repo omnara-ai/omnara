@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -26,9 +27,8 @@ func TestCancelAgentOrdersCancelBeforeCanceledToolResult(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -739,9 +739,8 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 		ToolCallID:    firstToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start first process: %v", err)
@@ -807,9 +806,8 @@ func TestCancelAgentCanCancelLaterFrontierAfterPriorCancel(t *testing.T) {
 		ToolCallID:    secondToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start second process: %v", err)

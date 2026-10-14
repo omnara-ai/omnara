@@ -70,10 +70,8 @@ function normalizeRequestOptions<O extends object>(options: O): O {
   return normalized
 }
 
-// Drops the leaked `client` init key, which throws on Deno and Bun (TODO:
-// remove once hey-api/hey-api#4177 is fixed and regenerated), and sends object
-// multipart fields as JSON parts. The default client is patched too because
-// generated operations fall back to it when no `client` is passed.
+// Drop the reserved Request init key until https://github.com/hey-api/hey-api/issues/4177
+// is fixed upstream. Generated operations can bypass createOmnaraClient via the default client.
 function patchGeneratedRequests(client: OmnaraClient): void {
   const { request } = client
   client.request = (options) => request(normalizeRequestOptions(options))

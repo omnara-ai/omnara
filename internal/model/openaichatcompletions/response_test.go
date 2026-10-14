@@ -13,13 +13,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {

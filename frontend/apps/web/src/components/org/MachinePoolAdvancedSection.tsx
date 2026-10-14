@@ -1,31 +1,54 @@
-import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
+import { useState } from 'react'
+
 import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { CheckboxField, FieldGroup } from '@/components/ui/field'
 
 import {
   derivedMemoryTotalCapPlaceholder,
   derivedTotalCapPlaceholder,
+  type MachinePoolFormSetValue,
   type MachinePoolFormValues,
 } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
+import { type MachinePoolFieldErrors, type MachinePoolFieldKey } from './machinePoolValidation'
 
+const advancedFieldKeys = [
+  'deleteAfterIdleMinutes',
+  'maxTotalCpu',
+  'minMachineCpu',
+  'maxMachineCpu',
+  'maxTotalMemoryGb',
+  'minMachineMemoryGb',
+  'maxMachineMemoryGb',
+] as const satisfies readonly MachinePoolFieldKey[]
+
+/**
+ * Resource caps and machine lifecycle, collapsed by default. It stays open while one of its
+ * fields is invalid so the error that blocks the form is always visible.
+ */
 export function MachinePoolAdvancedSection({
-  orgId,
-  enabled,
   clusterManaged,
   values,
   setValue,
+  errors,
 }: {
-  orgId: string
-  enabled: boolean
   clusterManaged: boolean
   values: MachinePoolFormValues
-  setValue: <K extends keyof MachinePoolFormValues>(key: K, value: MachinePoolFormValues[K]) => void
+  setValue: MachinePoolFormSetValue
+  errors: MachinePoolFieldErrors
 }) {
+  const invalid = advancedFieldKeys.some((key) => errors[key] !== undefined)
+  const [open, setOpen] = useState(invalid)
   const resources = machinePoolProviderDefinitions[values.provider].resources
   return (
-    <OverridesCollapsible title="Advanced">
+    <OverridesCollapsible
+      title="Advanced"
+      open={open || invalid}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !invalid) setOpen(nextOpen)
+      }}
+    >
       <FieldGroup>
         {!clusterManaged && (
           <CheckboxField
@@ -49,30 +72,7 @@ export function MachinePoolAdvancedSection({
           onValueChange={(value) => {
             setValue('deleteAfterIdleMinutes', value)
           }}
-        />
-        {!clusterManaged && (
-          <MachinePoolInputField
-            id="mpool-cwd"
-            label="Working directory"
-            value={values.cwd}
-            placeholder="/workspace"
-            onValueChange={(value) => {
-              setValue('cwd', value)
-            }}
-          />
-        )}
-        <KeyValueEditor
-          orgId={orgId}
-          enabled={enabled}
-          label="Environment variables"
-          itemLabel="Variable"
-          keyPlaceholder="NAME"
-          textRows={values.envRows}
-          secretRows={values.secretEnvRows}
-          onChange={({ textRows, secretRows }) => {
-            setValue('envRows', textRows)
-            setValue('secretEnvRows', secretRows)
-          }}
+          error={errors.deleteAfterIdleMinutes}
         />
         <div className="grid gap-4 sm:grid-cols-3">
           {resources.cpu !== 'unsupported' && (
@@ -89,6 +89,7 @@ export function MachinePoolAdvancedSection({
                   onValueChange={(value) => {
                     setValue('maxTotalCpu', value)
                   }}
+                  error={errors.maxTotalCpu}
                 />
               )}
               <MachinePoolInputField
@@ -102,6 +103,7 @@ export function MachinePoolAdvancedSection({
                 onValueChange={(value) => {
                   setValue('minMachineCpu', value)
                 }}
+                error={errors.minMachineCpu}
               />
               {resources.cpu === 'configured' && (
                 <MachinePoolInputField
@@ -115,6 +117,7 @@ export function MachinePoolAdvancedSection({
                   onValueChange={(value) => {
                     setValue('maxMachineCpu', value)
                   }}
+                  error={errors.maxMachineCpu}
                 />
               )}
             </>
@@ -136,6 +139,7 @@ export function MachinePoolAdvancedSection({
                   onValueChange={(value) => {
                     setValue('maxTotalMemoryGb', value)
                   }}
+                  error={errors.maxTotalMemoryGb}
                 />
               )}
               <MachinePoolInputField
@@ -149,6 +153,7 @@ export function MachinePoolAdvancedSection({
                 onValueChange={(value) => {
                   setValue('minMachineMemoryGb', value)
                 }}
+                error={errors.minMachineMemoryGb}
               />
               {resources.memoryMb === 'configured' && (
                 <MachinePoolInputField
@@ -162,6 +167,7 @@ export function MachinePoolAdvancedSection({
                   onValueChange={(value) => {
                     setValue('maxMachineMemoryGb', value)
                   }}
+                  error={errors.maxMachineMemoryGb}
                 />
               )}
             </>

@@ -37,7 +37,7 @@ func PreparePrefix(t testing.TB, client model.Client, bundle modelcontext.Bundle
 	}
 	messages, _ := body[messagesKey].([]any)
 	delete(body, messagesKey)
-	return PreparedPrefix{static: body, messages: withoutTrailingSystemContext(messages)}
+	return PreparedPrefix{static: body, messages: messages}
 }
 
 func PrefixViolation(previous, next PreparedPrefix) string {
@@ -67,16 +67,4 @@ func withoutCacheControl(value any) {
 			withoutCacheControl(child)
 		}
 	}
-}
-
-func withoutTrailingSystemContext(messages []any) []any {
-	end := len(messages)
-	for end > 1 {
-		message, _ := messages[end-1].(map[string]any)
-		if message["role"] != "system" {
-			break
-		}
-		end--
-	}
-	return messages[:end]
 }

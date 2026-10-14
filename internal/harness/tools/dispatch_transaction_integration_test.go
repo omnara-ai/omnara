@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,23 +15,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
-
-type backgroundRunnerFunc func(string, func(context.Context) error) bool
-
-func (f backgroundRunnerFunc) Submit(label string, task func(context.Context) error) bool {
-	return f(label, task)
-}
-
-func (f backgroundRunnerFunc) TrySubmit(label string, task func(context.Context) error) bool {
-	return f(label, task)
-}
 
 func dispatchTestStructuredResult(raw string) toolResultContent {
 	content, err := structuredToolResultContent(json.RawMessage(raw))
@@ -69,7 +62,6 @@ func TestTransactionalToolDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 	result, err := (Executor{
 		Store: storage.NewStore(pool),
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch transactional tool with one database connection: %v", err)
@@ -140,7 +132,6 @@ func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 	result, err := (Executor{
 		Store: storage.NewStore(pool),
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch spawn_agent with one database connection: %v", err)
@@ -177,10 +168,7 @@ func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {
 	turn.Tools["spawn_agent"] = ToolSpec{
 		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 	}
-	result, err := (Executor{
-		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}).Dispatch(ctx, turn, call)
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
 	require.NoError(t, err)
 	require.Equal(t, DispatchCompleted, result.Disposition)
 	require.Contains(t, string(result.ContentParts), `"error_code":"spawn_agent_failed"`)
@@ -284,13 +272,13 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					`INSERT INTO processes(
 					   id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id,
 					   agent_machine_binding_id, machine_id, execution_granted_at,
-					   io_mode, command, shell_selector, cwd,
+					   execution_spec, cwd,
 					   state, source_started_at, source_ended_at, state_changed_at,
 					   exit_code, created_at, updated_at
 					 )
 						 VALUES (
 						   $1, $2, $3, $4, $5, $6, $7, $8, $9,
-						   'pipe', 'true', 'sh', '/',
+						   '{"kind":"shell","shell":{"command":"true","shell_selector":"sh","io_mode":"pipe"}}', '/',
 						   'exited', $9, $10, $10, 0, $9, $10
 						 )
 						 RETURNING last_activity_at`,
@@ -313,12 +301,12 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					`INSERT INTO processes(
 					   id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id,
 					   agent_machine_binding_id, machine_id, execution_granted_at,
-					   io_mode, command, shell_selector, cwd,
+					   execution_spec, cwd,
 					   state, state_reason_code, state_changed_at, created_at, updated_at
 					 )
 					 VALUES (
 					   $1, $2, $3, $4, $5, $6, $7, $8, $9,
-					   'pipe', 'true', 'sh', '/',
+					   '{"kind":"shell","shell":{"command":"true","shell_selector":"sh","io_mode":"pipe"}}', '/',
 					   'unknown', 'daemon_lost', $9, $9, $9
 					 )`,
 					processID,
@@ -386,7 +374,7 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 func TestToolHandlerPhaseOrdering(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "typed-phase-ordering")
-	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}
@@ -394,7 +382,6 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 	executor := Executor{
 		Store:            fixture.Store,
 		BackgroundRunner: backgroundRunner,
-		Now:              func() time.Time { return fixture.Now.Add(30 * time.Second) },
 	}
 	turn := fixture.turn()
 
@@ -491,28 +478,29 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 		toolHandler{
 			Transactional: func(
 				_ context.Context,
-				call transactionalToolContext,
+				_ transactionalToolContext,
 			) (transactionalPhaseResult, error) {
-				return createDispatchTestInteraction(call)
+				return continueAsync(), nil
 			},
 			Async: func(
 				ctx context.Context,
 				call asyncToolContext,
 			) (asyncPhaseResult, error) {
-				var interactions int
+				var running bool
 				if err := fixture.Pool.QueryRow(
 					ctx,
-					`SELECT count(*) FROM agent_interactions WHERE tool_call_id = $1`,
+					`SELECT state = 'running' AND runtime_lock_id = $2 FROM tool_calls WHERE id = $1`,
 					call.ToolCallID,
-				).Scan(&interactions); err != nil {
+					call.Turn.RuntimeLockID,
+				).Scan(&running); err != nil {
 					return nil, err
 				}
-				if interactions != 1 {
+				if !running {
 					return nil, errors.New(
 						"transactional phase was not committed before async execution",
 					)
 				}
-				return awaitDurableAsynchronously(), nil
+				return completeAsynchronously(dispatchTestStructuredResult(`{"value":"combined"}`)), nil
 			},
 			Background: func(
 				ctx context.Context,
@@ -521,7 +509,7 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 				var released bool
 				if err := fixture.Pool.QueryRow(
 					ctx,
-					`SELECT state = 'waiting' AND runtime_lock_id IS NULL
+					`SELECT state = 'completed' AND runtime_lock_id IS NULL
 					 FROM tool_calls
 					 WHERE id = $1`,
 					call.ToolCallID,
@@ -542,10 +530,10 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 	select {
 	case <-backgroundStarted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("background phase did not start after async durable handoff")
+		t.Fatal("background phase did not start after async completion")
 	}
-	assertDispatchTestToolState(t, ctx, fixture, combined.ID, "waiting", false)
-	assertDispatchTestInteractionCount(t, ctx, fixture, combined.ID, 1)
+	assertDispatchTestToolState(t, ctx, fixture, combined.ID, "completed", false)
+	assertDispatchTestResultCount(t, ctx, fixture, combined.ID, 1)
 }
 
 func TestCompletedAsyncAdmitsBackgroundBeforeReleasingCapacity(t *testing.T) {
@@ -575,7 +563,6 @@ func TestCompletedAsyncAdmitsBackgroundBeforeReleasingCapacity(t *testing.T) {
 	result, err := (Executor{
 		Store:            fixture.Store,
 		BackgroundRunner: runner,
-		Now:              func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -828,60 +815,6 @@ func TestTransactionalPanicRollsBackAndReleasesReservedAsyncCapacity(t *testing.
 	}
 }
 
-func TestUnownedAsyncHandoffFailsOnce(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "unowned-async-handoff")
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_unowned_async_handoff",
-		"list_processes",
-		`{}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	if _, err := fixture.Store.Execution().ExecuteToolCall(
-		ctx,
-		executionstore.ExecuteToolCallInput{
-			ProjectID:     toolsTestProjectID,
-			AgentID:       fixture.Agent.ID,
-			ToolCallID:    toolCallID,
-			RuntimeLockID: fixture.Lock.ID,
-		},
-		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-			return executionstore.StartToolCallAsync(), nil
-		},
-	); err != nil {
-		t.Fatalf("start async execution: %v", err)
-	}
-
-	err := (Executor{
-		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}).executeAsyncTool(
-		ctx,
-		asyncToolContext{
-			Executor:   Executor{Store: fixture.Store},
-			Turn:       fixture.turn(),
-			Call:       call,
-			ToolCallID: toolCallID,
-		},
-		toolHandler{
-			Async: func(
-				context.Context,
-				asyncToolContext,
-			) (asyncPhaseResult, error) {
-				return awaitDurableAsynchronously(), nil
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("execute unowned async handoff: %v", err)
-	}
-	assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
-	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 1)
-}
-
 func TestRuntimeToolCanBeRequeuedBeforeAsyncWorkBegins(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "runtime-tool-requeue")
@@ -916,7 +849,6 @@ func TestRuntimeToolCanBeRequeuedBeforeAsyncWorkBegins(t *testing.T) {
 	handlerCalled := false
 	executor := Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}
 	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -968,7 +900,6 @@ func TestAsyncSuccessRemainsAuthoritativeWhenExecutionContextEnds(t *testing.T) 
 	scope := NewAsyncExecutionScope(nil)
 	result, err := (Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -1013,7 +944,7 @@ func TestAsyncSuccessRemainsAuthoritativeWhenExecutionContextEnds(t *testing.T) 
 	)
 }
 
-func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
+func TestDurableQuestionSkipsAsyncFailure(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "async-failure-interaction")
 	backgroundStarted := make(chan struct{}, 1)
@@ -1038,7 +969,6 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 		Executor{
 			Store:            fixture.Store,
 			BackgroundRunner: backgroundRunner,
-			Now:              func() time.Time { return fixture.Now.Add(22 * time.Second) },
 		},
 		fixture.turn(),
 		call,
@@ -1054,6 +984,7 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 				context.Context,
 				asyncToolContext,
 			) (asyncPhaseResult, error) {
+				t.Error("a durably waiting question must not enter the async phase")
 				return failAsynchronously(
 					dispatchTestStructuredResult(`{"code":"delivery_failed"}`),
 					errors.New("delivery failed"),
@@ -1068,8 +999,8 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 			},
 		},
 	)
-	assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
-	assertDispatchTestToolOutcome(t, ctx, fixture, call.ID, "failed")
+	assertDispatchTestToolState(t, ctx, fixture, call.ID, "waiting", false)
+	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 0)
 	interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,
 		toolsTestProjectID,
@@ -1080,13 +1011,51 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list interactions after async failure: %v", err)
 	}
-	if !found || interaction.State != executionstore.AgentInteractionStateCanceled {
-		t.Fatalf("interaction after async failure = %+v found=%v, want canceled", interaction, found)
+	if !found || interaction.State != executionstore.AgentInteractionStateOpen {
+		t.Fatalf("durable question = %+v found=%v, want open", interaction, found)
 	}
 	select {
 	case <-backgroundStarted:
-		t.Fatal("background phase started after async failure")
 	default:
+		t.Fatal("background phase did not start after durable wait committed")
+	}
+}
+
+func TestAsyncFileFailureCodes(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	conflict := &storeerr.FileContentConflictError{CurrentDigest: digest}
+	for _, test := range []struct {
+		code   string
+		cause  error
+		digest string
+	}{
+		{"file_read_only", storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.ErrConflict), ""},
+		{"expected_digest_required", storeerr.Tag(storeerr.ErrExpectedDigestRequired, conflict), digest},
+		{"file_content_conflict", conflict, digest},
+		{"not_a_file", storeerr.InvalidRequest(storeerr.ErrNotAFile), ""},
+		{"operation_unavailable", errFileToolUnavailable, ""},
+		{"async_tool_interrupted", context.Canceled, ""},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			ctx := t.Context()
+			fixture := newIntegrationToolFixture(t, ctx, test.code)
+			call := fixture.recordToolCall(t, ctx, "call_file_failure", "read_file",
+				`{"path":"/memory/notes/file.txt"}`, fixture.Now.Add(20*time.Second))
+			callID := fixture.toolCallID(t, ctx, call.ID)
+			dispatchTestAsyncHandler(t, ctx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, toolHandler{
+				Async: func(context.Context, asyncToolContext) (asyncPhaseResult, error) { return nil, test.cause },
+			})
+			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+			var parts []struct {
+				Value map[string]string `json:"value"`
+			}
+			require.NoError(t, json.Unmarshal(record.ResultContentParts, &parts))
+			require.Len(t, parts, 1)
+			require.Equal(t, test.code, parts[0].Value["error_code"])
+			require.Equal(t, test.digest, parts[0].Value["current_digest"])
+		})
 	}
 }
 
@@ -1104,7 +1073,6 @@ func TestAsyncPanicFailsOnlyItsToolAndReleasesCapacity(t *testing.T) {
 	scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
 	result, err := (Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -1298,10 +1266,25 @@ func assertDispatchTestResultCount(
 }
 
 func TestFileToolsApprovalDispatch(t *testing.T) {
-	for _, name := range []string{"upload_file", "download_file"} {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		memory bool
+	}{
+		{name: "upload_file"},
+		{name: "download_file"},
+		{name: "upload_file", memory: true},
+		{name: "download_file", memory: true},
+	} {
+		namespace := "/artifacts"
+		if tc.memory {
+			namespace = "/memory"
+		}
+		t.Run(tc.name+namespace, func(t *testing.T) {
+			name := tc.name
 			ctx := context.Background()
-			fixture := newIntegrationToolFixture(t, ctx, "file-approval-"+name)
+			fixture := newIntegrationToolFixtureWithOptions(
+				t, ctx, "file-approval-"+name, toolFixtureOptions{withMemory: tc.memory},
+			)
 			machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, name, fixture.Now.Add(time.Second))
 			var bindingID uuid.UUID
 			err := fixture.Pool.QueryRow(ctx, `
@@ -1322,17 +1305,38 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			input := `{"path":"/artifacts","source":"report.pdf","machine_id":"` + machineID + `"}`
+			serverPath := "/artifacts"
 			if name == "download_file" {
-				input = `{"path":"/artifacts/` + artifactID + `","destination":"report.pdf","machine_id":"` + machineID + `"}`
+				serverPath += "/" + artifactID
 			}
-			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, input, fixture.Now.Add(20*time.Second))
+			if tc.memory {
+				serverPath = "/memory/engineering/report.pdf"
+			}
+			inputFields := map[string]string{"path": serverPath, "machine_id": machineID}
+			source, destination := "report.pdf", serverPath
+			if name == "upload_file" {
+				inputFields["source"] = "report.pdf"
+			} else {
+				inputFields["destination"] = "report.pdf"
+				source, destination = serverPath, "report.pdf"
+			}
+			if tc.memory {
+				delete(inputFields, "machine_id")
+				if name == "upload_file" {
+					inputFields["expected_digest"] = "sha256:" + strings.Repeat("a", 64)
+				}
+			}
+			input, err := json.Marshal(inputFields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := fixture.recordPendingToolCall(t, ctx, "call_file", name, string(input), fixture.Now.Add(20*time.Second))
 			turn := fixture.turn()
 			turn.Tools = map[string]ToolSpec{name: {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}}
 			wakes := 0
 			executor := Executor{
-				Store:            fixture.Store,
-				Now:              func() time.Time { return fixture.Now.Add(21 * time.Second) },
+				Store: fixture.Store,
+
 				BackgroundRunner: backgroundRunnerFunc(func(string, func(context.Context) error) bool { wakes++; return true }),
 			}
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
@@ -1349,15 +1353,20 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantAuth, err := uploadArtifactAuthorizationInput(bindingID, "report.pdf")
-			if name == "download_file" {
-				wantAuth, err = downloadArtifactAuthorizationInput(bindingID, artifactID, "report.pdf")
-			}
+			wantAuth, err := fileTransferAuthorizationInput(bindingID, input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if string(request.Authorization.Input) != string(wantAuth) {
 				t.Fatalf("authorization = %s, want %s", request.Authorization.Input, wantAuth)
+			}
+			wantContext := []interactionform.ContextItem{
+				{Label: "Source", Value: source},
+				{Label: "Destination", Value: destination},
+				{Label: "Machine", Value: machineID},
+			}
+			if !slices.Equal(request.Form.Context, wantContext) {
+				t.Fatalf("approval context = %+v, want %+v", request.Form.Context, wantContext)
 			}
 			approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), interaction, fixture.User.ID)
 			wakes = 0
@@ -1374,26 +1383,121 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil || !found {
 				t.Fatalf("load process found=%v err=%v", found, err)
 			}
-			publicCallID, err := publicid.Encode(publicid.KindToolCall, callID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := uploadArtifactProcessInput(publicCallID, "report.pdf")
+			direction, timeout := processcmd.FileTransferUpload, fileUploadProcessTimeoutSeconds
 			if name == "download_file" {
-				want = downloadArtifactProcessInput(publicCallID, artifactID, "report.pdf")
+				direction, timeout = processcmd.FileTransferDownload, fileDownloadProcessTimeoutSeconds
 			}
-			if process.AgentMachineBindingID != bindingID || process.Command != want.Command ||
-				process.TimeoutSeconds != want.TimeoutSeconds {
-				t.Fatalf("process=%+v want=%+v", process, want)
+			transfer := process.ExecutionSpec.FileTransfer
+			if process.AgentMachineBindingID != bindingID || process.ExecutionSpec.Shell != nil ||
+				process.TimeoutSeconds != timeout || transfer == nil ||
+				transfer.Direction != direction || transfer.LocalPath != "report.pdf" {
+				t.Fatalf("process = %+v", process)
 			}
 			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if string(record.Input) == "" || !strings.Contains(string(record.Input), "/artifacts") {
+			if string(record.Input) == "" || !strings.Contains(string(record.Input), serverPath) {
 				t.Fatalf("lost VFS input: %s", record.Input)
 			}
+			if tc.memory {
+				target := transfer.Target.Memory
+				if target == nil || target.Path != "report.pdf" {
+					t.Fatalf("memory target = %+v", target)
+				}
+				if name == "upload_file" &&
+					(target.ExpectedDigest == nil || *target.ExpectedDigest != inputFields["expected_digest"]) {
+					t.Fatalf("expected digest was not saved: %+v", target)
+				}
+				if _, err := fixture.Pool.Exec(ctx,
+					`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE id = $1`, target.StoreID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := fixture.Pool.Exec(ctx,
+					`INSERT INTO memory_stores(project_id, name)
+SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err != nil {
+					t.Fatal(err)
+				}
+				execution, err := fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+					ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
+				}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+					prepared, err := fileTransferProcessInput(ctx, reader, direction, "report.pdf", serverPath, target.ExpectedDigest)
+					if err != nil {
+						return nil, err
+					}
+					prepared.AgentMachineBindingID = bindingID
+					return executionstore.StartProcessForToolCall(prepared), nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				replay, ok := execution.CommandResult.(executionstore.ProcessRecord)
+				if !ok || replay.ID != process.ID || replay.ExecutionSpec.FileTransfer.Target.Memory.StoreID != target.StoreID {
+					t.Fatalf("replay changed the saved memory target: %+v", execution)
+				}
+			}
 		})
+	}
+}
+
+func TestFileToolsUnavailableMemoryStoreFailsDispatch(t *testing.T) {
+	for _, tool := range []struct{ name, localField string }{
+		{"upload_file", "source"},
+		{"download_file", "destination"},
+	} {
+		for _, scenario := range []string{"missing", "unattached", "deleted"} {
+			t.Run(tool.name+"/"+scenario, func(t *testing.T) {
+				ctx := t.Context()
+				fixture := newIntegrationToolFixtureWithOptions(
+					t, ctx, "file-unavailable", toolFixtureOptions{withMemory: true},
+				)
+				machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, tool.name, fixture.Now)
+				_, err := fixture.Pool.Exec(ctx, `
+					INSERT INTO agent_machine_bindings(
+						org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)`,
+					toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
+				)
+				require.NoError(t, err)
+				storeName := scenario
+				switch scenario {
+				case "unattached":
+					_, err := fixture.Pool.Exec(ctx,
+						`INSERT INTO memory_stores(project_id, name) VALUES ($1, 'unattached')`, toolsTestProjectID)
+					require.NoError(t, err)
+				case "deleted":
+					storeName = "engineering"
+					_, err := fixture.Pool.Exec(ctx,
+						`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE project_id = $1`, toolsTestProjectID)
+					require.NoError(t, err)
+				}
+				input, err := json.Marshal(map[string]string{
+					"path": "/memory/" + storeName + "/report.pdf", tool.localField: "report.pdf",
+				})
+				require.NoError(t, err)
+				call := fixture.recordToolCall(t, ctx, "call_file", tool.name, string(input), fixture.Now.Add(20*time.Second))
+				turn := fixture.turn()
+				turn.Tools[tool.name] = ToolSpec{Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)}
+				executor := Executor{Store: fixture.Store}
+				result, err := executor.Dispatch(ctx, turn, call)
+				require.NoError(t, err)
+				require.Equal(t, DispatchCompleted, result.Disposition)
+				body := toolResultMapFromTestParts(t, result.ContentParts)
+				require.Equal(t, "memory store is unavailable: not found", body["error"])
+				assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
+				assertDispatchTestToolOutcome(t, ctx, fixture, call.ID, "failed")
+				_, found, err := fixture.Store.Execution().GetProcessByToolCall(
+					ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
+				)
+				require.NoError(t, err)
+				require.False(t, found)
+				replayed, err := executor.Dispatch(ctx, turn, call)
+				require.NoError(t, err)
+				require.Equal(t, DispatchCompleted, replayed.Disposition)
+				require.JSONEq(t, string(result.ContentParts), string(replayed.ContentParts))
+				assertDispatchTestResultCount(t, ctx, fixture, call.ID, 1)
+			})
+		}
 	}
 }
 

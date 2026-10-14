@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -56,21 +57,25 @@ type ArtifactStore interface {
 }
 
 type IntegrationStore interface {
-	ListIntegrationTargets(
-		ctx context.Context,
-		projectID, agentID uuid.UUID,
-	) ([]integrationstore.IntegrationTargetSummary, error)
+	GetAgentIntegrationConversation(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (integrationstore.ConversationAddress, bool, error)
+	ResolveIntegrationDefinitions(
+		context.Context,
+		uuid.UUID,
+		[]uuid.UUID,
+	) (map[uuid.UUID]agentconfig.IntegrationResolution, error)
 }
 
 type Store interface {
-	ArtifactStore
 	IntegrationStore
+	ArtifactStore
 	ExecutionStore
 }
 
 type composedStore struct {
-	ArtifactStore
 	IntegrationStore
+	ArtifactStore
 	ExecutionStore
 }
 
@@ -80,8 +85,8 @@ func NewStore(
 	integrations IntegrationStore,
 ) Store {
 	return composedStore{
-		ArtifactStore:    artifacts,
 		IntegrationStore: integrations,
+		ArtifactStore:    artifacts,
 		ExecutionStore:   execution,
 	}
 }

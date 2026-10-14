@@ -252,6 +252,21 @@ describe('openAgentEventStream', () => {
     expect(requestOf(fetch.mock.calls[1]?.[0]).headers.get('Last-Event-ID')).toBe('3')
   })
 
+  it('preserves interaction updates on tool call frames', async () => {
+    const update = {
+      ...toolUpdate,
+      state: 'awaiting_permission',
+      interaction_update: {
+        id: `int_${idSuffix}`,
+        interaction_kind: 'permission',
+        state: 'open',
+      },
+    }
+    const { client } = scriptedClient(sse(update), new Response(null, { status: 401 }))
+    const result = await collectUntilError(openAgentEventStream({ client, path }))
+    expect(result.frames).toEqual([update])
+  })
+
   it('retries service_unavailable envelopes but throws other API errors', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const { client, fetch } = scriptedClient(

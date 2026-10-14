@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -25,6 +26,7 @@ const (
 )
 
 type insertAgentInput struct {
+	ID                      uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	AgentProfileID          uuid.UUID
@@ -45,7 +47,7 @@ type AgentRecord struct {
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     uuid.UUID  `json:"current_config_id"`
 	Model               AgentModelDisplay
-	IntegrationTargetID uuid.UUID `json:"integration_target_id,omitempty"`
+	InteractionTargetID uuid.UUID `json:"interaction_target_id,omitempty"`
 	IntegrationTarget   IntegrationTargetDisplay
 	IdempotencyKey      string     `json:"idempotency_key,omitempty"`
 	NextEventSequence   int64      `json:"-"`
@@ -69,11 +71,11 @@ type AgentModelDisplay struct {
 }
 
 type IntegrationTargetDisplay struct {
-	Provider         string `json:"provider,omitempty"`
-	ProviderTenantID string `json:"-"`
-	ProviderRef      string `json:"provider_ref,omitempty"`
-	ProviderRefKind  string `json:"provider_ref_kind,omitempty"`
-	DisplayName      string `json:"display_name,omitempty"`
+	Provider         integrationdefinition.Provider `json:"provider,omitempty"`
+	ProviderTenantID string                         `json:"-"`
+	ScopeRef         string                         `json:"scope_ref,omitempty"`
+	ScopeKind        string                         `json:"scope_kind,omitempty"`
+	DisplayName      string                         `json:"display_name,omitempty"`
 }
 
 func insertAdmittedAgentTx(
@@ -83,6 +85,7 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
+		ID:                      storeutil.IDFromNil(input.ID),
 		OrgID:                   input.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          storeutil.IDFromNil(input.AgentProfileID),
@@ -152,14 +155,6 @@ func loadAgentByIdempotencyKeyTx(
 	return agentRecordFromIdempotencySQLC(row), nil
 }
 
-func loadAgentTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (AgentRecord, error) {
-	row, err := dbsqlc.New(tx).GetAgent(ctx, dbsqlc.GetAgentParams{ID: id})
-	if err != nil {
-		return AgentRecord{}, fmt.Errorf("load agent: %w", err)
-	}
-	return agentRecordFromGetSQLC(row), nil
-}
-
 func loadAgentInProjectTx(ctx context.Context, tx pgx.Tx, projectID, id uuid.UUID) (AgentRecord, error) {
 	row, err := dbsqlc.New(tx).
 		GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: id})
@@ -183,93 +178,87 @@ func (s *Store) GetAgentInProject(ctx context.Context, projectID, id uuid.UUID) 
 	return agentRecordFromProjectSQLC(row), nil
 }
 
-type ListAgentsForProjectInput struct {
-	ProjectID uuid.UUID
-	Filters   AgentListFilters
-	List      listing.Options
-	Limit     int
+type ListAgentsForProjectsInput struct {
+	ProjectIDs []uuid.UUID
+	Filters    AgentListFilters
+	List       listing.Options
+	Limit      int
 }
 
 type AgentListFilters struct {
-	IntegrationProviders   []string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	IncludeArchived        bool
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	IncludeArchived  bool
 }
 
-type ListAgentsForProjectResult struct {
+type ListAgentsForProjectsResult struct {
 	Agents  []AgentRecord
 	HasMore bool
 	Next    listing.Cursor
 }
 
-// ListAgentsForProject returns one keyset page of a project's active agents, newest first.
-func (s *Store) ListAgentsForProject(
+// ListAgentsForProjects returns one keyset page of agents across the given projects.
+func (s *Store) ListAgentsForProjects(
 	ctx context.Context,
-	input ListAgentsForProjectInput,
-) (ListAgentsForProjectResult, error) {
-	if input.ProjectID == uuid.Nil {
-		return ListAgentsForProjectResult{}, errors.New("project id is required")
-	}
+	input ListAgentsForProjectsInput,
+) (ListAgentsForProjectsResult, error) {
 	if input.Limit <= 0 {
-		return ListAgentsForProjectResult{}, errors.New("limit must be positive")
+		return ListAgentsForProjectsResult{}, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return ListAgentsForProjectsResult{}, nil
 	}
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
-		"name", "created_at", "updated_at", "state", "integration_provider", "integration_target_kind",
+		"name", "created_at", "updated_at", "state",
 	) {
-		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
+		return ListAgentsForProjectsResult{}, errors.New("unsupported agent list sort")
 	}
 	if input.List.SortField == "created_at" && input.List.SortDesc {
-		result, err := s.listAgentsForProjectByCreatedAtDesc(ctx, input)
+		result, err := s.listAgentsForProjectsByCreatedAtDesc(ctx, input)
 		if err != nil {
-			return ListAgentsForProjectResult{}, err
+			return ListAgentsForProjectsResult{}, err
 		}
-		return s.attachAgentActivity(ctx, input.ProjectID, result)
+		return s.attachAgentActivity(ctx, input.ProjectIDs, result)
 	}
-	params := dbsqlc.ListAgentsForProjectParams{
-		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
+	params := dbsqlc.ListAgentsForProjectsParams{
+		ProjectIds: input.ProjectIDs, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
-		CursorIsNull: input.List.After.IsNull, CursorKey: input.List.After.Key,
-		CursorID:               input.List.After.ID,
-		IntegrationProviders:   input.Filters.IntegrationProviders,
-		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-		AgentProfileID:         input.Filters.AgentProfileID,
-		ParentAgentID:          input.Filters.ParentAgentID,
-		IncludeSubagents:       input.Filters.IncludeSubagents,
-		IncludeArchived:        input.Filters.IncludeArchived,
+		CursorKey:        input.List.After.Key,
+		CursorID:         input.List.After.ID,
+		AgentProfileID:   input.Filters.AgentProfileID,
+		ParentAgentID:    input.Filters.ParentAgentID,
+		IncludeSubagents: input.Filters.IncludeSubagents,
+		IncludeArchived:  input.Filters.IncludeArchived,
 	}
-	rows, err := s.q.ListAgentsForProject(ctx, params)
+	rows, err := s.q.ListAgentsForProjects(ctx, params)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agents: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agents: %w", err)
 	}
-	result := ListAgentsForProjectResult{}
+	result := ListAgentsForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
 	}
 	if result.HasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		result.Next = listing.Cursor{Set: true, IsNull: last.SortIsNull, Key: last.SortKey, ID: last.ID}
+		result.Next = listing.Cursor{Set: true, Key: last.SortKey, ID: last.ID}
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectSQLC(row))
+		result.Agents = append(result.Agents, agentRecordFromListForProjectsSQLC(row))
 	}
-	return s.attachAgentActivity(ctx, input.ProjectID, result)
+	return s.attachAgentActivity(ctx, input.ProjectIDs, result)
 }
 
 func (s *Store) attachAgentActivity(
 	ctx context.Context,
-	projectID uuid.UUID,
-	result ListAgentsForProjectResult,
-) (ListAgentsForProjectResult, error) {
+	projectIDs []uuid.UUID,
+	result ListAgentsForProjectsResult,
+) (ListAgentsForProjectsResult, error) {
 	if len(result.Agents) == 0 {
 		return result, nil
 	}
@@ -278,19 +267,14 @@ func (s *Store) attachAgentActivity(
 		agentIDs = append(agentIDs, agent.ID)
 	}
 	rows, err := s.q.ListAgentActivityForAgents(
-		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectID: projectID, AgentIds: agentIDs},
+		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectIds: projectIDs, AgentIds: agentIDs},
 	)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agent activity: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agent activity: %w", err)
 	}
 	activity := make(map[uuid.UUID]AgentActivity, len(rows))
 	for _, row := range rows {
-		activity[row.ID] = AgentActivity{
-			State: agentActivityState(
-				row.State == string(AgentStateArchived), row.HasOpenQuestion, row.HasOpenPermission, row.IsRunning,
-			),
-			LastActivityAt: row.LastActivityAt,
-		}
+		activity[row.ID] = agentActivityFromRow(row)
 	}
 	for i := range result.Agents {
 		if value, ok := activity[result.Agents[i].ID]; ok {
@@ -300,40 +284,60 @@ func (s *Store) attachAgentActivity(
 	return result, nil
 }
 
-func (s *Store) listAgentsForProjectByCreatedAtDesc(
+func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UUID) (AgentActivity, error) {
+	rows, err := s.q.ListAgentActivityForAgents(
+		ctx,
+		dbsqlc.ListAgentActivityForAgentsParams{ProjectIds: []uuid.UUID{projectID}, AgentIds: []uuid.UUID{agentID}},
+	)
+	if err != nil {
+		return AgentActivity{}, fmt.Errorf("get agent activity: %w", err)
+	}
+	if len(rows) == 0 {
+		return AgentActivity{}, storeerr.ErrNotFound
+	}
+	return agentActivityFromRow(rows[0]), nil
+}
+
+func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
+	return AgentActivity{
+		State: agentActivityState(
+			row.State == string(AgentStateArchived), row.HasOpenQuestion, row.HasOpenPermission, row.IsRunning,
+		),
+		LastActivityAt: row.LastActivityAt,
+	}
+}
+
+func (s *Store) listAgentsForProjectsByCreatedAtDesc(
 	ctx context.Context,
-	input ListAgentsForProjectInput,
-) (ListAgentsForProjectResult, error) {
+	input ListAgentsForProjectsInput,
+) (ListAgentsForProjectsResult, error) {
 	var cursorCreatedAt time.Time
 	if input.List.After.Set {
 		var err error
 		cursorCreatedAt, err = listing.ParseTimestampKey(input.List.After.Key)
 		if err != nil {
-			return ListAgentsForProjectResult{}, fmt.Errorf("parse created_at cursor: %w", err)
+			return ListAgentsForProjectsResult{}, fmt.Errorf("parse created_at cursor: %w", err)
 		}
 	}
-	rows, err := s.q.ListAgentsForProjectByCreatedAtDesc(
+	rows, err := s.q.ListAgentsForProjectsByCreatedAtDesc(
 		ctx,
-		dbsqlc.ListAgentsForProjectByCreatedAtDescParams{
-			ProjectID:              input.ProjectID,
-			NamePattern:            input.List.NamePattern,
-			IntegrationProviders:   input.Filters.IntegrationProviders,
-			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-			AgentProfileID:         input.Filters.AgentProfileID,
-			ParentAgentID:          input.Filters.ParentAgentID,
-			IncludeSubagents:       input.Filters.IncludeSubagents,
-			IncludeArchived:        input.Filters.IncludeArchived,
-			CursorSet:              input.List.After.Set,
-			CursorCreatedAt:        cursorCreatedAt,
-			CursorID:               input.List.After.ID,
-			RowLimit:               int64(input.Limit) + 1,
+		dbsqlc.ListAgentsForProjectsByCreatedAtDescParams{
+			ProjectIds:       input.ProjectIDs,
+			NamePattern:      input.List.NamePattern,
+			AgentProfileID:   input.Filters.AgentProfileID,
+			ParentAgentID:    input.Filters.ParentAgentID,
+			IncludeSubagents: input.Filters.IncludeSubagents,
+			IncludeArchived:  input.Filters.IncludeArchived,
+			CursorSet:        input.List.After.Set,
+			CursorCreatedAt:  cursorCreatedAt,
+			CursorID:         input.List.After.ID,
+			RowLimit:         int64(input.Limit) + 1,
 		},
 	)
 	if err != nil {
-		return ListAgentsForProjectResult{}, fmt.Errorf("list agents by created_at descending: %w", err)
+		return ListAgentsForProjectsResult{}, fmt.Errorf("list agents by created_at descending: %w", err)
 	}
-	result := ListAgentsForProjectResult{}
+	result := ListAgentsForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
@@ -348,7 +352,7 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectByCreatedAtDescSQLC(row))
+		result.Agents = append(result.Agents, agentRecordFromListForProjectsByCreatedAtDescSQLC(row))
 	}
 	return result, nil
 }
@@ -466,7 +470,7 @@ func archiveAgentTx(
 	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	actorID, err := resolveActorTx(ctx, qtx, projectID, agentID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, qtx, projectID, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -478,6 +482,11 @@ func archiveAgentTx(
 		return nil, storeerr.ErrNotFound
 	}
 
+	if err := qtx.DeleteAgentIntegrationSubscriptions(ctx, dbsqlc.DeleteAgentIntegrationSubscriptionsParams{
+		ProjectID: projectID, AgentID: agentID,
+	}); err != nil {
+		return nil, fmt.Errorf("remove archived agent subscriptions: %w", err)
+	}
 	if _, err := qtx.CancelQueuedBacklogInputsForAgent(ctx, dbsqlc.CancelQueuedBacklogInputsForAgentParams{
 		ProjectID: projectID,
 		AgentID:   agentID,

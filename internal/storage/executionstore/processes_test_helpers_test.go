@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -58,18 +59,8 @@ func createQuestionInteractionForTest(
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if execution.Disposition == executionstore.ToolCallDispositionRunning {
-		if err := fixture.Store.Execution().ReleaseToolCallRuntimeOwnership(
-			ctx,
-			executionstore.ReleaseToolCallRuntimeOwnershipInput{
-				ProjectID:     testProjectID,
-				AgentID:       fixture.AgentID,
-				ToolCallID:    toolCallID,
-				RuntimeLockID: fixture.Lock.ID,
-			},
-		); err != nil {
-			t.Fatalf("release question tool call: %v", err)
-		}
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 	return interaction
 }
@@ -292,7 +283,7 @@ func mustEnsureOmnaraActor(
 	if err != nil {
 		t.Fatalf("omnara actor params: %v", err)
 	}
-	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, uuid.Nil, params, uuid.Nil)
+	actorID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, projectID, params)
 	if err != nil {
 		t.Fatalf("ensure omnara actor: %v", err)
 	}
@@ -1172,9 +1163,8 @@ func createTerminalProcessActionsForLifecycleTest(
 				RuntimeLockID: fixture.Lock.ID,
 			},
 			executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "cat",
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			},
 		)
@@ -1505,7 +1495,12 @@ func completedToolCallForTest(
 	toolCallID uuid.UUID,
 ) executionstore.ToolCallRecord {
 	t.Helper()
-	completed, err := store.Execution().ListCompletedToolCallsForTurn(context.Background(), testProjectID, agentID, turnID)
+	completed, err := store.Execution().ListCompletedToolCallsForTurn(
+		context.Background(),
+		testProjectID,
+		agentID,
+		turnID,
+	)
 	if err != nil {
 		t.Fatalf("list completed tool calls for turn: %v", err)
 	}

@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/omnara-ai/omnara/internal/errutil"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 	"github.com/stretchr/testify/require"
 )
 

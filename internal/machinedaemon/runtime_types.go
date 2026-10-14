@@ -21,6 +21,7 @@ import (
 )
 
 type Config struct {
+	GitCredentialsDisabled bool
 	APIURL                 string
 	MachineToken           string
 	DaemonVersion          string
@@ -45,12 +46,13 @@ type DaemonRuntime struct {
 }
 
 type Client struct {
-	cfg            Config
-	instanceID     uuid.UUID
-	http           *http.Client
-	log            *slog.Logger
-	bootstrap      daemonBootstrap
-	runnerLauncher processRunnerLauncher
+	gitCredentialsUnavailable bool
+	cfg                       Config
+	instanceID                uuid.UUID
+	http                      *http.Client
+	log                       *slog.Logger
+	bootstrap                 daemonBootstrap
+	runnerLauncher            processRunnerLauncher
 
 	stateMu sync.Mutex
 	state   *statedb.Store
@@ -119,19 +121,19 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	Process          Process           `json:"process"`
-	ID               string            `json:"process_id"`
-	Env              map[string]string `json:"env,omitempty"`
-	PreparationError string            `json:"preparation_error,omitempty"`
-	WaitMs           int               `json:"wait_ms,omitempty"`
-	TimeoutSeconds   int               `json:"timeout_seconds"`
+	GitCredentials      bool                 `json:"git_credentials,omitempty"`
+	GitCredentialHelper *gitCredentialHelper `json:"git_credential_helper,omitempty"`
+	Process             Process              `json:"process"`
+	ID                  string               `json:"process_id"`
+	Env                 map[string]string    `json:"env,omitempty"`
+	PreparationError    string               `json:"preparation_error,omitempty"`
+	WaitMs              int                  `json:"wait_ms,omitempty"`
+	TimeoutSeconds      int                  `json:"timeout_seconds"`
 }
 
 type Process struct {
-	Command       string                   `json:"command"`
-	ShellSelector processcmd.ShellSelector `json:"shell_selector"`
+	ExecutionSpec processcmd.ExecutionSpec `json:"execution_spec"`
 	Cwd           string                   `json:"cwd"`
-	IOMode        processcmd.IOMode        `json:"io_mode"`
 }
 
 type ProcessAction struct {
@@ -203,6 +205,9 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
+	fileTransfer        *processcmd.FileTransfer
+	transferReader      *os.File
+	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd
 	startErr            error
 	containment         atomic.Pointer[processContainment]

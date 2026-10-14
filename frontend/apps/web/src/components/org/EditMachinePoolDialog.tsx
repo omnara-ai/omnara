@@ -14,14 +14,15 @@ import {
 import { FieldGroup } from '@/components/ui/field'
 import { errorMessage } from '@/lib/submit-status'
 
-import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolFormFromPool,
-  machinePoolFormValid,
+  type MachinePoolFormSetValue,
   type MachinePoolFormValues,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
-import { MachinePoolFields, type MachinePoolFormSetValue } from './MachinePoolFields'
+import { MachinePoolFields } from './MachinePoolFields'
+import { machinePoolFormValid } from './machinePoolValidation'
+import { useMachinePoolConnectionState } from './useMachinePoolConnectionState'
 
 export function EditMachinePoolDialog({
   open,
@@ -40,6 +41,7 @@ export function EditMachinePoolDialog({
     machinePoolFormFromPool(pool),
   )
   const [error, setError] = useState('')
+  const connection = useMachinePoolConnectionState(orgId, open, mode, values, pool.provider_config)
 
   const setValue: MachinePoolFormSetValue = (key, value) => {
     setValues((previous) => (previous === null ? null : { ...previous, [key]: value }))
@@ -85,13 +87,7 @@ export function EditMachinePoolDialog({
                 mode={mode}
                 values={values}
                 setValue={setValue}
-              />
-              <MachinePoolAdvancedSection
-                orgId={orgId}
-                enabled={open}
-                clusterManaged={mode === 'cluster-edit'}
-                values={values}
-                setValue={setValue}
+                connection={connection}
               />
               {error && <p className="text-destructive text-sm">{error}</p>}
               <DialogFooter>

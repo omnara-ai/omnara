@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -316,7 +317,6 @@ tools:
 	}
 	executor := Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(8 * time.Second) },
 	}
 	if err := executor.PrepareToolCallPermission(ctx, turn, inspectCall); err != nil {
 		t.Fatalf("prepare inspect_machine permission: %v", err)
@@ -361,7 +361,6 @@ tools:
 		t.Fatal("inspect_machine permission interaction not found")
 	}
 	approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), interaction, fixture.UserID)
-	executor.Now = func() time.Time { return fixture.Now.Add(9 * time.Second) }
 	inspectResult, err := executor.Dispatch(ctx, turn, inspectCall)
 	if err != nil {
 		t.Fatalf("dispatch inspect_machine: %v", err)
@@ -409,7 +408,7 @@ tools:
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		},
 	}
-	executor.Now = func() time.Time { return fixture.Now.Add(10 * time.Second) }
+
 	alwaysAllowMixedResult, err := executor.Dispatch(ctx, alwaysAllowTurn, alwaysAllowMixedInspectCall)
 	if err != nil {
 		t.Fatalf("dispatch always-allow mixed-source inspect_machine: %v", err)
@@ -424,7 +423,8 @@ tools:
 	}
 	staleBody := toolResultMapFromTestParts(t, staleResult.ContentParts)
 	if staleBody["error_code"] != ErrMachineIDUnavailable.Error() ||
-		staleBody["error"] != "machine_id is unavailable" ||
+		staleBody["error"] != "machine_id is unavailable; "+
+			"it may be provisioning, offline, failed, deleted, or not attached to this agent" ||
 		staleBody["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("stale inspect_machine result = %+v", staleBody)
 	}
@@ -512,7 +512,6 @@ func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	}
 	executor := Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(9 * time.Second) },
 	}
 	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 		t.Fatalf("prepare run permission: %v", err)
@@ -558,7 +557,6 @@ func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 		t.Fatalf("attach replacement machine target: %v", err)
 	}
 
-	executor.Now = func() time.Time { return fixture.Now.Add(12 * time.Second) }
 	result, err := executor.Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch after approved target change: %v", err)
@@ -749,7 +747,7 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 	); err != nil {
 		t.Fatalf("mark permission allowed: %v", err)
 	}
-	result, err := (Executor{Store: store, Now: func() time.Time { return now.Add(13 * time.Second) }}).Dispatch(
+	result, err := (Executor{Store: store}).Dispatch(
 		ctx,
 		Turn{
 			ProjectID:          toolsTestProjectID,
@@ -822,7 +820,7 @@ func TestCreateMachineRejectsInvalidOverridesBeforeApproval(t *testing.T) {
 			"create_machine": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
 		},
 	}
-	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(6 * time.Second) }}
+	executor := Executor{Store: fixture.Store}
 	for i, call := range calls {
 		t.Run(call.ID, func(t *testing.T) {
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
@@ -935,7 +933,7 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 			return nil
 		},
 	}
-	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1)
+	backgroundRunner, err := NewBackgroundExecutionRunner(ctx, nil, 1, nil)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}
@@ -944,7 +942,6 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 		Store:              fixture.Store,
 		MachinePoolManager: manager,
 		BackgroundRunner:   backgroundRunner,
-		Now:                func() time.Time { return fixture.Now.Add(6 * time.Second) },
 	}
 	result, err := executor.Dispatch(ctx, turn, call)
 	if err != nil {
@@ -1023,7 +1020,6 @@ func TestManagedWorkAdmissionProducesDurableToolFailures(t *testing.T) {
 		closeManagedWorkAdmissionForToolsTest(t, ctx, fixture.Pool)
 		result, err := (Executor{
 			Store: fixture.Store,
-			Now:   func() time.Time { return fixture.Now.Add(6 * time.Second) },
 		}).Dispatch(ctx, Turn{
 			ProjectID:          toolsTestProjectID,
 			AgentID:            fixture.Launch.Agent.ID,
@@ -1100,7 +1096,6 @@ WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL
 		}
 		executor := Executor{
 			Store: fixture.Store,
-			Now:   func() time.Time { return fixture.Now.Add(6 * time.Second) },
 		}
 		if _, err := executor.Dispatch(ctx, turn, createCall); err != nil {
 			t.Fatalf("dispatch admitted create_machine: %v", err)
@@ -1326,7 +1321,6 @@ func TestMissedMachineBackgroundProvisioningCanBeReconciled(t *testing.T) {
 	}
 	executor := Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(6 * time.Second) },
 	}
 	result, err := executor.Dispatch(ctx, turn, call)
 	if err != nil {
@@ -1536,7 +1530,6 @@ func TestApprovedMachineDeletionCanBeReconciled(t *testing.T) {
 	}
 	executor := Executor{
 		Store: store,
-		Now:   func() time.Time { return now.Add(12 * time.Second) },
 	}
 	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 		t.Fatalf("prepare delete permission: %v", err)
@@ -1802,10 +1795,8 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 			RuntimeLockID: lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("printf done", "sh", "pipe"),
 			AgentMachineBindingID: agentBinding.ID,
-			IOMode:                "pipe",
-			Command:               "printf done",
-			ShellSelector:         "sh",
 			Cwd:                   "/replay",
 		},
 	)
@@ -1972,7 +1963,6 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 		Store:              store,
 		MachinePoolManager: manager,
 		BackgroundRunner:   immediateIntegrationBackgroundRunner(ctx),
-		Now:                func() time.Time { return endedAt.Add(time.Second) },
 	}).Dispatch(
 		ctx,
 		Turn{

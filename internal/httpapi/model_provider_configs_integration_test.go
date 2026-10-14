@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -575,6 +576,54 @@ model:
 		restoredGrant["supports_tools"] != true {
 		t.Fatalf("restored model grant mismatch: %+v", restoredGrant)
 	}
+	listedGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/model-grants",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)["data"])
+	var effectiveReasoning map[string]any
+	for _, listed := range listedGrants {
+		item := testutil.RequireType[map[string]any](t, listed)
+		if testutil.RequireType[map[string]any](t, item["model"])["id"] == configuredModelID {
+			effectiveReasoning = testutil.RequireType[map[string]any](t, item["effective_reasoning"])
+		}
+	}
+	listedEfforts := testutil.RequireType[[]any](t, effectiveReasoning["supported_reasoning_efforts"])
+	if effectiveReasoning["supports_reasoning"] != true ||
+		effectiveReasoning["default_reasoning_effort"] != "medium" ||
+		len(listedEfforts) != 2 || listedEfforts[0] != "low" || listedEfforts[1] != "medium" {
+		t.Fatalf("listed effective reasoning = %+v, want grant reasoning", effectiveReasoning)
+	}
+
+	// Project developers and viewers can list the project's shared models (the
+	// agent builder reads them), but only access managers can change grants.
+	developerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-developer", "developer")
+	viewerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-viewer", "viewer")
+	for _, token := range []string{developerToken, viewerToken} {
+		readerGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+			t, handler, http.MethodGet, project.ProjectPath+"/model-grants", "", "", http.StatusOK,
+			authHeaders(token),
+		)["data"])
+		if len(readerGrants) != len(listedGrants) {
+			t.Fatalf("reader listed %d model grants, want %d", len(readerGrants), len(listedGrants))
+		}
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodPatch, grantPath, `{"max_output_tokens":1024}`, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodDelete, grantPath, "", "", http.StatusForbidden, authHeaders(token),
+		)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -1048,7 +1097,8 @@ func TestGetModelCatalog(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":[
-			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
+			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048,
+			 "supported_parameters":["reasoning"],"reasoning":{"supported_efforts":["high","low"]}},
 			{"id":"gpt-b"}
 		]}`))
 	}))
@@ -1109,6 +1159,13 @@ func TestGetModelCatalog(t *testing.T) {
 	if firstModel["context_window_tokens"] != float64(65536) ||
 		firstModel["max_output_tokens"] != float64(2048) {
 		t.Fatalf("model catalog token limits mismatch: %+v", firstModel)
+	}
+	if firstModel["supports_reasoning"] != true ||
+		!slices.Equal(testutil.RequireType[[]any](t, firstModel["supported_reasoning_efforts"]), []any{"high", "low"}) {
+		t.Fatalf("model catalog reasoning support mismatch: %+v", firstModel)
+	}
+	if _, reported := testutil.RequireType[map[string]any](t, models[1])["supports_reasoning"]; reported {
+		t.Fatalf("model catalog should omit unreported reasoning support: %+v", models[1])
 	}
 
 	badConfigID := createProvider("catalog-failed", "catalog-bad-key", "sk-bad")

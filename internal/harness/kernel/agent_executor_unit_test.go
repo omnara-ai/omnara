@@ -20,7 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -216,64 +215,45 @@ func TestMCPInitializationRetryableFailureClassification(t *testing.T) {
 	}
 }
 
-func TestShouldPostIntegrationRuntimeError(t *testing.T) {
-	baseCtx := context.Background()
-	canceledCtx, cancelCanceled := context.WithCancel(baseCtx)
-	cancelCanceled()
-	deadlineCtx, cancelDeadline := context.WithDeadline(baseCtx, time.Unix(1, 0))
-	defer cancelDeadline()
-	<-deadlineCtx.Done()
-
-	tests := []struct {
-		name    string
-		ctxKind string
-		err     error
-		want    bool
-	}{
-		{name: "nil", err: nil, want: false},
-		{name: "canceled", err: context.Canceled, want: false},
-		{name: "wrapped turn canceled", ctxKind: "canceled", err: errors.New("transient: context canceled"), want: false},
-		{name: "child deadline", err: context.DeadlineExceeded, want: true},
-		{name: "turn deadline", ctxKind: "deadline", err: context.DeadlineExceeded, want: false},
-		{
-			name:    "wrapped turn deadline",
-			ctxKind: "deadline",
-			err:     errors.New("transient: context deadline exceeded"),
-			want:    false,
-		},
-		{name: "unavailable model grant", err: storeerr.ErrModelGrantUnavailable, want: true},
-		{name: "agent not advanceable", err: storeerr.ErrAgentNotAdvanceable, want: false},
-		{name: "daemon runtime unregistered", err: storeerr.ErrDaemonRuntimeUnregistered, want: false},
-		{name: "runtime lock inactive", err: storeerr.ErrRuntimeLockInactive, want: false},
-		{name: "state transition conflict", err: storeerr.ErrStateTransitionConflict, want: false},
-		{name: "runtime error", err: errors.New("configured model is not available"), want: true},
+func TestAgentExecutorUncommittedErrorDoesNotNotify(t *testing.T) {
+	input := ModelWorkExecution{
+		OrgID: uuid.New(), ProjectID: uuid.New(), AgentID: uuid.New(), TurnID: uuid.New(),
+		RuntimeLockID: uuid.New(), InputIDs: []uuid.UUID{uuid.New()}, OpeningEventSequence: 1,
+		Kind: executionstore.ModelWorkStart,
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := baseCtx
-			switch tc.ctxKind {
-			case "canceled":
-				ctx = canceledCtx
-			case "deadline":
-				ctx = deadlineCtx
-			}
-			if got := shouldPostIntegrationRuntimeError(ctx, tc.err); got != tc.want {
-				t.Fatalf("should post = %t, want %t", got, tc.want)
-			}
-		})
+	executor := AgentExecutor{
+		Store: storage.NewStore(nil),
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+			t.Fatal("an uncommitted configuration failure must not send a terminal notice")
+			return nil
+		},
+	}
+	if err := executor.ExecuteModelWork(t.Context(), input); err == nil {
+		t.Fatal("missing resolver must return an error")
 	}
 }
 
-func TestShouldPostIntegrationRuntimeMessageAllowsUnavailableGrantAfterModelResponse(t *testing.T) {
-	ctx := context.Background()
-	if !shouldPostIntegrationRuntimeMessage(ctx, storeerr.ErrModelGrantUnavailable, true) {
-		t.Fatal("unavailable model grant after a prior model response should still post a runtime message")
-	}
-	if shouldPostIntegrationRuntimeMessage(ctx, errors.New("boom"), true) {
-		t.Fatal("generic runtime error after a prior model response should not post a duplicate runtime message")
-	}
-	if !shouldPostIntegrationRuntimeMessage(ctx, errors.New("boom"), false) {
-		t.Fatal("generic runtime error before a model response should post a runtime message")
+func TestAgentExecutorFailureCallbackIsOptionalAndBounded(t *testing.T) {
+	input := ModelWorkExecution{ProjectID: uuid.New(), AgentID: uuid.New(), RuntimeLockID: uuid.New()}
+	(AgentExecutor{}).notifyModelFailure(t.Context(), input)
+	calls := 0
+	executor := AgentExecutor{OnModelFailure: func(ctx context.Context, project, agent, runtime uuid.UUID) error {
+		calls++
+		if project != input.ProjectID || agent != input.AgentID || runtime != input.RuntimeLockID {
+			t.Fatal("failure callback lost runtime authority")
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 10*time.Second {
+			t.Fatal("failure callback must have a ten-second budget")
+		}
+		return nil
+	}}
+	executor.notifyModelFailure(t.Context(), input)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	executor.notifyModelFailure(ctx, input)
+	if calls != 1 {
+		t.Fatalf("failure callback calls = %d, want one live callback", calls)
 	}
 }
 

@@ -61,7 +61,7 @@ Your first org is created during onboarding. Creation atomically sets up the org
   <MembersProjectCreate />
 </Tab>
 <Tab title="Dashboard">
-  Under **Projects** in the sidebar, click **New project** and give it a name.
+  Open the project switcher in the page header, click **New project**, and give it a name.
 </Tab>
 </Tabs>
 
@@ -84,7 +84,7 @@ Invitations are org-scoped and email-addressed. Invite as `admin` or `member` (`
   Accepting creates the organization membership. The invitation is then removed from the pending list.
 </Tab>
 <Tab title="Dashboard">
-  Open **Members** in the sidebar and click **Invite user**: email plus role. Pending invitees appear in the list until accepted; **Revoke invitation** withdraws one. The invitee accepts from their own account when they sign in.
+  With **All projects** selected in the project switcher, open **Members** and click **Invite user**: email plus role. Pending invitees appear in the list until accepted; **Revoke invitation** withdraws one. The invitee accepts from their own account when they sign in.
 </Tab>
 </Tabs>
 
@@ -99,7 +99,7 @@ Invitations are org-scoped and email-addressed. Invite as `admin` or `member` (`
   <MembersUpdate />
 </Tab>
 <Tab title="Dashboard">
-  The **Members** page lists everyone with their org role. Expand a member to change their **Org role** (admin/member toggle) or **Remove from organization**.
+  The **Members** page (with **All projects** selected in the project switcher) lists everyone with their org role. Expand a member to change their **Org role** (admin/member toggle) or **Remove from organization**.
 </Tab>
 </Tabs>
 
@@ -122,7 +122,7 @@ Use `operator` for teammates who should run agents and handle approvals without 
   `GET …/projects` (`listMemberProjectAccess`) lists the member's explicit project roles. `DELETE` on the same project path (`removeMemberProjectAccess`) removes one.
 </Tab>
 <Tab title="Dashboard">
-  1. Open **Members** and expand the member.
+  1. With **All projects** selected in the project switcher, open **Members** and expand the member.
   2. Under **Project access**, choose a project and role.
   3. Click **Add**.
 

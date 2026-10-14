@@ -90,45 +90,49 @@ func DoHTTPResponse(
 	}, nil
 }
 
-type retryAfterError struct {
-	err   error
-	delay time.Duration
+type responseError struct {
+	err           error
+	statusCode    int
+	retryAfter    time.Duration
+	hasRetryAfter bool
 }
 
-func (e retryAfterError) Error() string {
+func (e responseError) Error() string {
 	return e.err.Error()
 }
 
-func (e retryAfterError) Unwrap() error {
+func (e responseError) Unwrap() error {
 	return e.err
 }
 
-func (e retryAfterError) ProviderRetryAfter() time.Duration {
-	return e.delay
-}
-
-// WithRetryAfter preserves a provider's Retry-After response hint without
-// coupling provider adapters to reconciliation policy.
-func WithRetryAfter(err error, header http.Header) error {
+func WithResponse(err error, response HTTPResponse) error {
 	if err == nil {
 		return nil
 	}
-	delay, ok := retryAfterDelay(header.Get("Retry-After"), time.Now())
-	if !ok {
-		return err
+	retryAfter, hasRetryAfter := retryAfterDelay(response.Header.Get("Retry-After"), time.Now())
+	return responseError{
+		err:           err,
+		statusCode:    response.StatusCode,
+		retryAfter:    retryAfter,
+		hasRetryAfter: hasRetryAfter,
 	}
-	return retryAfterError{err: err, delay: delay}
+}
+
+func HTTPStatus(err error) (int, bool) {
+	var responseErr responseError
+	if !errors.As(err, &responseErr) {
+		return 0, false
+	}
+	return responseErr.statusCode, true
 }
 
 // RetryAfter returns a delay carried by any wrapped provider error.
 func RetryAfter(err error) (time.Duration, bool) {
-	var hinted interface {
-		ProviderRetryAfter() time.Duration
-	}
-	if !errors.As(err, &hinted) {
+	var responseErr responseError
+	if !errors.As(err, &responseErr) || !responseErr.hasRetryAfter {
 		return 0, false
 	}
-	return max(hinted.ProviderRetryAfter(), 0), true
+	return max(responseErr.retryAfter, 0), true
 }
 
 func retryAfterDelay(value string, now time.Time) (time.Duration, bool) {

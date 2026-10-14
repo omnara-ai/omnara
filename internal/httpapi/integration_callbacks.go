@@ -1,14 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -17,9 +16,21 @@ func readIntegrationCallbackBody(
 	r *http.Request,
 	maxBodyBytes int64,
 ) ([]byte, bool) {
+	deadline := time.Now().Add(integrationIntakeTimeout)
+	if requestDeadline, ok := r.Context().Deadline(); ok && requestDeadline.Before(deadline) {
+		deadline = requestDeadline
+	}
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(deadline)
+	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
-		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
+		} else {
+			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
+		}
 		return nil, false
 	}
 	if int64(len(raw)) > maxBodyBytes {
@@ -29,42 +40,15 @@ func readIntegrationCallbackBody(
 	return raw, true
 }
 
-func (s *Server) verifySignedSlackCallback(
-	w http.ResponseWriter,
-	r *http.Request,
-	raw []byte,
-	appID, workspaceID string,
-) (integrationstore.IntegrationInstallRecord, bool) {
-	if s.store == nil {
-		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
-		return integrationstore.IntegrationInstallRecord{}, false
+func writeIntegrationProviderError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, storeerr.ErrNotFound):
+		apierror.Write(w, openapi.ErrorCodeNotFound)
+	case errors.Is(err, storeerr.ErrUnauthorized):
+		apierror.Write(w, openapi.ErrorCodeForbidden)
+	case errors.Is(err, storeerr.ErrConflict), errors.Is(err, storeerr.ErrIdempotencyConflict):
+		apierror.Write(w, openapi.ErrorCodeConflict)
+	default:
+		apierror.Write(w, openapi.ErrorCodeInternalError)
 	}
-	if appID == "" || workspaceID == "" {
-		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack callback identity")
-		return integrationstore.IntegrationInstallRecord{}, false
-	}
-	install, err := s.store.Integrations().GetIntegrationInstallByProviderAccount(
-		r.Context(),
-		integrationstore.IntegrationProviderSlack,
-		workspaceID,
-		appID,
-	)
-	if err != nil {
-		if storeerr.IsNotFound(err) {
-			apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
-			return integrationstore.IntegrationInstallRecord{}, false
-		}
-		writeIntegrationProviderError(w, err)
-		return integrationstore.IntegrationInstallRecord{}, false
-	}
-	credentials, err := s.integrationSlackCredentials(r.Context(), install)
-	if err != nil {
-		writeIntegrationProviderError(w, err)
-		return integrationstore.IntegrationInstallRecord{}, false
-	}
-	if !slack.ValidSignature(r.Header, raw, credentials.SigningSecret, time.Now().UTC()) {
-		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
-		return integrationstore.IntegrationInstallRecord{}, false
-	}
-	return install, true
 }

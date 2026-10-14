@@ -16,8 +16,8 @@ Launch your first agent with Omnara via the **dashboard**, or programmatically w
 
 Sign in at [app.omnara.com](https://app.omnara.com). When you sign in the first time, Omnara creates your first organization and project, plus two default resources this guide uses:
 
-- **`omnara-openrouter`** — a model provider with frontier models such as `anthropic/claude-fable-5.1` and `openai/gpt-6-sol`.
-- **`default-pool`** — a pool of Omnara-managed sandboxes.
+- **`omnara-openrouter`** — a model provider with frontier models such as `anthropic/claude-fable-5.1` and `openai/gpt-6.1-sol`.
+- **`default-pool`** — a pool of Omnara-managed sandboxes with [common development tools preinstalled](/machines/pools#default-machine-environment).
 
 ## Setup with a Skill
 
@@ -35,12 +35,12 @@ Help me setup Omnara by fetching the Skill file here: https://github.com/omnara-
 
   <Steps>
     <Step title="Set up">
-      The CLI signs in through your browser; if you have not logged in yet, the first command that needs your account starts the login for you. The REST API and the SDK authenticate with an API token. In the web browser, open **Tokens** in the sidebar, click **New token**, and save the value.
+      The CLI signs in through your browser; if you have not logged in yet, the first command that needs your account starts the login for you. The REST API and the SDK authenticate with an API token. In the web browser, open your account menu at the bottom of the sidebar, choose **Personal tokens**, click **New token**, and save the value.
 
       <ApiSetup />
     </Step>
     <Step title="Write the config">
-      Save this config as `agent.yaml`. The machine tools run on the cloud machine that Omnara creates from `default-pool` at launch:
+      Save this config as `agent.yaml`. The agent runs commands on the cloud machine that Omnara creates from `default-pool` at launch:
 
       <QuickstartAgentConfig />
     </Step>
@@ -78,6 +78,8 @@ Help me setup Omnara by fetching the Skill file here: https://github.com/omnara-
 </Tabs>
 
 ## Next steps
+
+Prefer a ready-made agent? The [examples](/examples/overview) deploy with one prompt to your coding agent.
 
 <CardGroup cols={2}>
   <Card title="Concepts" icon="sitemap" href="/concepts">

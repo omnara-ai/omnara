@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
@@ -554,6 +554,40 @@ func TestMCPInitializationFailureWarns(t *testing.T) {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
 		}
 	}
+}
+
+func TestMemoryStagedFileDiscardFailed(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	parent := log.NewEvent(ctx, "test.parent")
+	ctx = log.WithEvent(ctx, parent)
+	orgID, projectID, storeID := testID(1), testID(2), testID(3)
+	MemoryStagedFileDiscardFailed(ctx, orgID, projectID, storeID, errors.New("remove failed"))
+	record := oneRecord(t, &buf)
+	for key, want := range map[string]any{
+		"event.name":               "memory.cleanup_failed",
+		"parent.event.name":        "test.parent",
+		"level":                    "warn",
+		"memory.cleanup.operation": "discard_staged_file",
+		"org.id":                   orgID.String(),
+		"project.id":               projectID.String(),
+		"memory_store.id":          storeID.String(),
+		"error.message":            "remove failed",
+	} {
+		if got := record[key]; got != want {
+			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
+		}
+	}
+}
+
+func TestWorkerFileToolsUnavailable(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	WorkerFileToolsUnavailable(ctx, errors.New("sandbox launcher unavailable"))
+	record := oneRecord(t, &buf)
+	require.Equal(t, "worker.file_tools_unavailable", record["event.name"])
+	require.Equal(t, "warn", record["level"])
+	require.Equal(t, "sandbox launcher unavailable", record["error.message"])
 }
 
 func testLogger(buf *bytes.Buffer) *slog.Logger {

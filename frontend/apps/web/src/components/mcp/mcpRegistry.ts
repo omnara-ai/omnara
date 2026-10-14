@@ -1,6 +1,6 @@
 import type { McpRegistryRemote, McpRegistryServer } from '@omnara/sdk'
 
-import { mcpServerNameMaxLength } from '@/components/agents/useAgentBuilderForm'
+import { mcpServerNameMaxLength } from '@/components/agents/agentConfigMcp'
 
 export function registryServerSearchFilters(name: string): { q?: string } {
   const q = name.trim()

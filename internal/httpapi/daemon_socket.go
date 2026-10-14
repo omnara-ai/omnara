@@ -14,11 +14,11 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type daemonSocket struct {

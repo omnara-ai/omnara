@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,6 +28,7 @@ func TestDaytonaProviderProvisionCreatesSandboxAndDaemonSession(t *testing.T) {
 		provisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision daytona sandbox: %v", err)
@@ -60,6 +63,7 @@ func TestDaytonaProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision daytona sandbox: %v", err)
@@ -87,6 +91,7 @@ func TestDaytonaProviderProvisionConvergesOnExistingSession(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision existing daytona sandbox: %v", err)
@@ -113,6 +118,7 @@ func TestDaytonaProviderProvisionRejectsUnexpectedOwnership(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership label") || api.createSessionCalls != 0 {
 		t.Fatalf("ownership error = %v, create session calls = %d", err, api.createSessionCalls)
@@ -132,6 +138,7 @@ func TestDaytonaProviderProvisionReplacesExitedSession(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil || resourceID.ProviderResourceID != api.sandbox.ID || api.deleteSessionCalls != 1 ||
 		api.createSessionCalls != 1 || api.executeCalls != 1 {
@@ -159,6 +166,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if err != nil || resourceID.ProviderResourceID != api.sandbox.ID ||
 			api.getSandboxCalls != 2 || api.deleteCalls != 0 {
@@ -184,6 +192,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if !errors.Is(err, context.DeadlineExceeded) ||
 			result.ProviderResourceID != api.sandbox.ID || api.deleteCalls != 0 {
@@ -206,6 +215,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if !errors.Is(err, providers.ErrResourceReplaced) || api.deleteCalls != 1 {
 			t.Fatalf("terminal result = error %v deletes %d", err, api.deleteCalls)
@@ -222,6 +232,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if err == nil || !strings.Contains(
 			err.Error(),
@@ -309,5 +320,23 @@ func TestDaytonaProviderInspectAndDelete(t *testing.T) {
 	}
 	if api.deleteCalls != 2 {
 		t.Fatalf("already absent machine caused %d delete calls", api.deleteCalls-2)
+	}
+}
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandbox" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := newTestProvider(newRESTClient(server.URL, "test-token", server.Client())).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
 	}
 }

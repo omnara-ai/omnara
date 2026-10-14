@@ -802,5 +802,18 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.Tool
 	if err != nil {
 		return openapi.ToolCallUpdate{}, err
 	}
-	return openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}, nil
+	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
+	if interaction := update.InteractionUpdate; interaction != nil {
+		kind := openapi.AgentInteractionKind(interaction.InteractionKind)
+		interactionState := openapi.AgentInteractionState(interaction.State)
+		if !kind.Valid() || !interactionState.Valid() {
+			return openapi.ToolCallUpdate{}, fmt.Errorf("invalid interaction kind/state %q/%q", kind, interactionState)
+		}
+		id, err := publicID(publicid.KindAgentInteraction, interaction.ID)
+		if err != nil {
+			return openapi.ToolCallUpdate{}, err
+		}
+		response.InteractionUpdate = &openapi.AgentInteractionUpdate{Id: id, InteractionKind: kind, State: interactionState}
+	}
+	return response, nil
 }

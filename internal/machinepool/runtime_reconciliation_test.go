@@ -14,9 +14,12 @@ import (
 func TestRuntimeReconciliationStateCooldownExpiresAndPrunes(t *testing.T) {
 	state := newRuntimeReconciliationState()
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
-	err := providers.WithRetryAfter(
+	err := providers.WithResponse(
 		errors.New("provider unavailable"),
-		http.Header{"Retry-After": []string{"90"}},
+		providers.HTTPResponse{
+			StatusCode: http.StatusServiceUnavailable,
+			Header:     http.Header{"Retry-After": []string{"90"}},
+		},
 	)
 
 	state.recordFailure("scope-a", now, err)
@@ -47,9 +50,12 @@ func TestRuntimeReconciliationStateBoundsProviderRetryAfter(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := newRuntimeReconciliationState()
-			err := providers.WithRetryAfter(
+			err := providers.WithResponse(
 				errors.New("provider unavailable"),
-				http.Header{"Retry-After": []string{test.retryAfter}},
+				providers.HTTPResponse{
+					StatusCode: http.StatusServiceUnavailable,
+					Header:     http.Header{"Retry-After": []string{test.retryAfter}},
+				},
 			)
 			state.recordFailure("scope", now, err)
 			if !state.coolingDown("scope", now.Add(test.want-time.Nanosecond)) {

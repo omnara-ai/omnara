@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ const (
 	processStatusRunning sandboxProcessStatus = "running"
 
 	// Blaxel sandbox states follow https://docs.blaxel.ai/api-reference/compute/get-sandbox.
+	sandboxDeploymentDeploying    sandboxDeploymentStatus = "DEPLOYING"
 	sandboxDeploymentDeployed     sandboxDeploymentStatus = "DEPLOYED"
 	sandboxDeploymentDeactivating sandboxDeploymentStatus = "DEACTIVATING"
 	sandboxDeploymentDeleting     sandboxDeploymentStatus = "DELETING"
@@ -34,11 +36,13 @@ const (
 	sandboxRuntimeRunning sandboxRuntimeState = "RUNNING"
 	sandboxRuntimeStandby sandboxRuntimeState = "STANDBY"
 
-	provisioningTimeout             = 15 * time.Second
+	provisioningTimeout             = time.Minute
 	initialAwakeProcessPollInterval = 100 * time.Millisecond
 	installationLabel               = "omnara-installation"
 	machineLabel                    = "omnara-machine"
 )
+
+var sandboxDeploymentPollInterval = time.Second
 
 type sandboxDeploymentStatus string
 type sandboxRuntimeState string
@@ -80,6 +84,10 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -87,6 +95,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -166,6 +175,23 @@ func (p *provider) ProvisionMachine(
 		)
 	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: name}
+	pollInterval := sandboxDeploymentPollInterval
+	for normalizeSandboxDeploymentStatus(target.Status) == sandboxDeploymentDeploying {
+		select {
+		case <-ctx.Done():
+			return result, fmt.Errorf("wait for blaxel sandbox %q to deploy: %w", name, ctx.Err())
+		case <-time.After(pollInterval - rand.N(pollInterval)/4):
+		}
+		pollInterval = min(2*pollInterval, 5*time.Second)
+		refreshed, found, err := api.GetSandbox(ctx, name)
+		if err != nil {
+			return result, err
+		}
+		if !found {
+			return result, fmt.Errorf("blaxel sandbox %q disappeared while deploying", name)
+		}
+		target = refreshed
+	}
 	if sandboxDeploymentTerminal(target.Status) {
 		if err := api.DeleteSandbox(ctx, name); err != nil {
 			return result, err
@@ -327,6 +353,15 @@ func (p *provider) InspectMachine(
 		return "", false, fmt.Errorf("blaxel sandbox %q does not have the expected ownership labels", lookup)
 	}
 	return expectedName, true, nil
+}
+
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	lister, ok := p.apiClient().(sandboxLister)
+	if !ok {
+		return errors.New("blaxel api client cannot list sandboxes")
+	}
+	_, err := lister.ListSandboxes(ctx, "", 1)
+	return err
 }
 
 func (p *provider) DeleteMachine(

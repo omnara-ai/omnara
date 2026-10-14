@@ -61,6 +61,10 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -68,6 +72,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -153,6 +158,23 @@ func (p *provider) InspectMachine(
 	}
 	defer client.Close()
 	return p.inspectMachine(ctx, client, installationID, machineID, providerResourceID)
+}
+
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	client, err := p.newClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	sandboxes, err := client.Sandboxes.List(ctx, nil)
+	if err != nil {
+		return err
+	}
+	sandboxes(func(_ *modalsdk.Sandbox, listErr error) bool {
+		err = listErr
+		return false
+	})
+	return err
 }
 
 func (p *provider) DeleteMachine(

@@ -39,10 +39,12 @@ const toolDescriptions = new Map([
   ['delete_machine', 'Delete a machine created for the agent.'],
   ['list_machines', 'List the machines and machine pools available to the agent.'],
   ['inspect_machine', 'View details about a machine available to the agent.'],
-  ['read_file', "Read a text or image file in Omnara's virtual filesystem."],
-  ['search_files', "Search text inside files in Omnara's virtual filesystem."],
-  ['upload_file', "Copy a file into Omnara's virtual filesystem."],
-  ['download_file', "Copy a file from Omnara's virtual filesystem to a machine."],
+  ['list_files', 'List files and directories in Omnara matching a glob.'],
+  ['read_file', 'Read a text or image file stored in Omnara.'],
+  ['search_files', 'Search text in files stored in Omnara.'],
+  ['write_file', 'Create or edit a memory text file.'],
+  ['upload_file', 'Copy a file from an attached machine into Omnara.'],
+  ['download_file', 'Copy a file stored in Omnara to an attached machine.'],
   ['ask_question', 'Ask the user a question and wait for their response.'],
   ['web_search', 'Search the public web for current information.'],
   ['web_fetch', 'Read the contents of a public webpage.'],
@@ -71,15 +73,10 @@ export function AgentConfigToolsField({
     .filter((tool) => catalogByName.get(tool.name)?.implicit)
     .sort((a, b) => a.name.localeCompare(b.name))
   const visibleTools = catalog
-    ? tools.filter(
-        (tool) => !catalogByName.get(tool.name)?.implicit && tool.name !== 'set_integration_target',
-      )
+    ? tools.filter((tool) => !catalogByName.get(tool.name)?.implicit)
     : []
   const availableTools = catalogTools.filter(
-    (entry) =>
-      !entry.implicit &&
-      entry.name !== 'set_integration_target' &&
-      tools.every((tool) => tool.name !== entry.name),
+    (entry) => !entry.implicit && tools.every((tool) => tool.name !== entry.name),
   )
 
   return (
@@ -131,14 +128,9 @@ export function AgentConfigToolsField({
               >
                 <ToolName name={tool.name} entry={entry} />
                 <PermissionModeSelect
-                  toolName={tool.name}
+                  tool={tool}
                   entry={entry}
                   allowDisable={tool.enabled === false}
-                  value={
-                    tool.enabled === false
-                      ? 'disabled'
-                      : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                  }
                   onChange={(mode) => {
                     onToolsChange(
                       tools.map((currentTool) =>
@@ -223,14 +215,9 @@ function AgentConfigIncludedTools({
             <div key={name} className="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-5">
               <ToolName name={name} entry={entry} />
               <PermissionModeSelect
-                toolName={name}
+                tool={tool}
                 entry={entry}
                 allowDisable
-                value={
-                  tool.enabled === false
-                    ? 'disabled'
-                    : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                }
                 onChange={(mode) => {
                   onToolChange({
                     ...tool,
@@ -248,24 +235,23 @@ function AgentConfigIncludedTools({
 }
 
 function PermissionModeSelect({
-  toolName,
+  tool,
   entry,
-  value,
   allowDisable = false,
   onChange,
 }: {
-  toolName: string
+  tool: BasicTool
   entry?: ToolCatalogEntry
-  value: string
   allowDisable?: boolean
   onChange: (mode: string) => void
 }) {
-  const options = permissionModeOptions(entry?.permission_modes, value)
+  const permissionMode = tool.permission?.mode ?? entry?.default_permission.mode ?? ''
+  const options = permissionModeOptions(entry?.permission_modes, permissionMode)
   return (
     <PermissionModeGroup
-      label={`${toolName} permission`}
+      label={`${tool.name} permission`}
       options={allowDisable ? [...options, disabledPermissionOption] : options}
-      value={value}
+      value={tool.enabled === false ? 'disabled' : permissionMode}
       disabled={entry == null || (!allowDisable && options.length === 1)}
       onChange={onChange}
     />

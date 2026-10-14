@@ -255,14 +255,16 @@ func TestToolOverflowCompletionAndReplay(t *testing.T) {
 	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, callID, id); err == nil {
 		t.Fatal("cross-agent artifact access succeeded")
 	}
-	for _, kind := range []string{toolcatalog.ToolTypeMCP, toolcatalog.ToolTypeCustom} {
+	for _, kind := range []string{toolcatalog.ToolTypeMCP, toolcatalog.ToolTypeCustom, toolcatalog.ToolTypeBuiltIn} {
 		name := "read_process"
 		if kind == toolcatalog.ToolTypeMCP {
 			name = "mcp__docs__search"
+		} else if kind == toolcatalog.ToolTypeBuiltIn {
+			name = "int__reviews__read"
 		}
 		id := createTypedToolCallForProcessTest(t, ctx, fixture, "overflow_"+kind, name, kind, true)
 		var completedParts json.RawMessage
-		if kind == toolcatalog.ToolTypeMCP {
+		if kind != toolcatalog.ToolTypeCustom {
 			claimToolCallForTest(t, ctx, store, fixture.AgentID, id, fixture.Lock.ID, true)
 			completion := executionstore.CompleteRuntimeToolCallInput{
 				ProjectID:          testProjectID,
@@ -640,8 +642,8 @@ func TestToolOverflowExcludesBoundedAndControlTools(t *testing.T) {
 	}
 	for _, name := range []string{
 		"read_file", "search_files", "run_command", "read_process", "list_processes", "write_process", "stop_process",
-		"upload_file", "download_file",
-		"create_machine", "delete_machine", "inspect_machine", "set_integration_target", "send_integration_message",
+		"upload_file", "download_file", "list_files", "write_file",
+		"create_machine", "delete_machine", "inspect_machine", "set_interaction_handler",
 	} {
 		for _, outcome := range []executionstore.ToolResultOutcome{
 			executionstore.ToolResultOutcomeSucceeded, executionstore.ToolResultOutcomeFailed,

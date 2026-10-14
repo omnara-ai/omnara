@@ -43,8 +43,8 @@ function projectProgress(overview: OrgOverviewResponse | undefined, projectId: s
 
 export function useOnboarding(input: { orgId: string; projectId: string }): OnboardingProgress {
   const overviewQuery = useOrgOverview(input.orgId, {
-    refetchInterval: (query) =>
-      projectProgress(query.state.data, input.projectId).agent == null ? pollIntervalMs : false,
+    refetchInterval: (overview) =>
+      projectProgress(overview, input.projectId).agent == null ? pollIntervalMs : false,
   })
   const live = projectProgress(overviewQuery.data, input.projectId)
   const tokensQuery = usePersonalAccessTokens(tokenPageSize, {

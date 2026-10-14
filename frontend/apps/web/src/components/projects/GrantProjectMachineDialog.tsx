@@ -1,6 +1,8 @@
 import { useGrantMachineToProject, useMachines, useProjectMachineGrants } from '@omnara/react'
 import { type VisibleMachine } from '@omnara/sdk'
+import { useId } from 'react'
 
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -23,11 +25,13 @@ const MachineMultiCombobox = createResourceMultiCombobox<VisibleMachine>({
   renderItem: (machine) => (
     <span className="flex min-w-0 flex-col">
       <span className="truncate">{machine.display_name}</span>
-      <span className="text-muted-foreground text-xs">{machine.provider}</span>
+      <span className="text-muted-foreground text-xs">
+        {machinePoolProviderLabel(machine.provider)}
+      </span>
     </span>
   ),
   placeholder: 'Search machines…',
-  emptyMessage: 'No ungranted machines found.',
+  emptyMessage: 'No machines to share.',
 })
 
 export function GrantProjectMachineDialog({
@@ -45,8 +49,8 @@ export function GrantProjectMachineDialog({
 }) {
   const mutation = useGrantMachineToProject(orgId)
   const batch = useBatchGrantSubmit<VisibleMachine>({
-    label: 'machine grant',
-    fallbackError: 'Could not grant machines',
+    label: 'machine',
+    fallbackError: 'Could not share machines',
     itemKey: (machine) => machine.id,
     grant: async (machine) => {
       await mutation.mutateAsync({ projectID: projectId, machineID: machine.id })
@@ -56,6 +60,7 @@ export function GrantProjectMachineDialog({
       onOpenChange(false)
     },
   })
+  const inputId = useId()
   const search = useTypeaheadSearch()
   const machinesQuery = useMachines(orgId, {
     filters: { source_kind: 'byo', ...search.filters },
@@ -81,7 +86,7 @@ export function GrantProjectMachineDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Grant machines</DialogTitle>
+          <DialogTitle>Share machines</DialogTitle>
           <DialogDescription>
             Let this project run agents on an organization BYO machine.
           </DialogDescription>
@@ -89,8 +94,9 @@ export function GrantProjectMachineDialog({
         <form onSubmit={(event) => void batch.submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Machines</FieldLabel>
+              <FieldLabel htmlFor={inputId}>Machines</FieldLabel>
               <MachineMultiCombobox
+                id={inputId}
                 items={machines}
                 value={batch.items}
                 onValueChange={batch.setItems}
@@ -101,13 +107,13 @@ export function GrantProjectMachineDialog({
               />
               {!queryError && !machinesQuery.isPending && machines.length === 0 && (
                 <FieldDescription>
-                  Every organization BYO machine is already granted, or none exist yet.
+                  Every organization BYO machine is already shared, or none exist yet.
                 </FieldDescription>
               )}
             </Field>
             {queryError && (
               <p className="text-destructive text-sm">
-                Could not load grantable machines.{' '}
+                Could not load machines.{' '}
                 <button
                   type="button"
                   className="underline"
@@ -131,7 +137,7 @@ export function GrantProjectMachineDialog({
                 }
                 loading={batch.isSubmitting}
               >
-                Grant machines
+                Share machines
               </Button>
             </DialogFooter>
           </FieldGroup>

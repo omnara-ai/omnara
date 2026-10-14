@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
@@ -374,9 +375,8 @@ func TestFastTerminalResultAdvancesInitialOutputCursor(t *testing.T) {
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo fast", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo fast",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -634,9 +634,8 @@ func startRunningProcessForReadTest(
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "cat",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)

@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -16,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func secretListFilters(metadata *openapi.SecretMetadataFilter) secretstore.SecretListFilters {
@@ -147,6 +147,8 @@ func secretAPIError(ctx context.Context, err error) apierror.ResponseError {
 	switch {
 	case errors.Is(err, storeerr.ErrUnauthorized):
 		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	case errors.Is(err, storeerr.ErrSecretNameExists):
+		return apierror.FromCode(openapi.ErrorCodeConflict, err.Error())
 	case errors.Is(err, storeerr.ErrConflict):
 		return apierror.FromCode(openapi.ErrorCodeConflict, "conflict")
 	case errors.Is(err, storeerr.ErrStateTransitionConflict):
@@ -260,6 +262,15 @@ func parseSecretMaterial(
 			}
 		}
 		return oauth, nil
+	case secrets.KindGitHubAppCredentials:
+		material, err := input.AsGitHubAppCredentialsSecretMaterial()
+		if err != nil {
+			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid GitHub App credentials material")
+			return nil, &apiErr
+		}
+		return secrets.GitHubAppCredentialsMaterial{
+			AppID: material.AppId, PrivateKey: material.PrivateKey, WebhookSecret: material.WebhookSecret,
+		}, nil
 	case secrets.KindAWSCredentials:
 		material, err := input.AsAWSCredentialsSecretMaterial()
 		if err != nil {

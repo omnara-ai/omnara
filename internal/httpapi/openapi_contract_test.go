@@ -141,6 +141,41 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	}
 }
 
+func TestOpenAPIIntegrationIDsUseSharedSchemas(t *testing.T) {
+	spec, err := openapi.GetSpec()
+	if err != nil {
+		t.Fatalf("load generated openapi spec: %v", err)
+	}
+	for path, item := range spec.Paths.Map() {
+		if !strings.HasPrefix(path, "/orgs/{orgID}/projects/{projectID}/integrations") {
+			continue
+		}
+		t.Run(path, func(t *testing.T) {
+			for name, schema := range map[string]string{
+				"orgID": "OrganizationID", "projectID": "ProjectID", "integrationID": "IntegrationID",
+				"subscriptionID": "IntegrationSubscriptionID",
+			} {
+				if !strings.Contains(path, "{"+name+"}") {
+					continue
+				}
+				var parameter *openapi3.Parameter
+				for _, ref := range item.Parameters {
+					if ref.Value != nil && ref.Value.In == openapi3.ParameterInPath && ref.Value.Name == name {
+						parameter = ref.Value
+						break
+					}
+				}
+				if parameter == nil || !parameter.Required || parameter.Schema == nil {
+					t.Fatalf("%s must declare required path parameter %s with a schema", path, name)
+				}
+				if want := "#/components/schemas/" + schema; parameter.Schema.Ref != want {
+					t.Errorf("%s parameter %s: schema ref = %q, want %q", path, name, parameter.Schema.Ref, want)
+				}
+			}
+		})
+	}
+}
+
 func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	var doc struct {
 		Security   []any          `yaml:"security"`
@@ -274,9 +309,10 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/daemon/runtimes/{runtimeID}/socket", "get"},
 		{"/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/daemon/runtimes/{runtimeID}/sleep", "post"},
+		{"/daemon/processes/{processID}/git-credentials", "post"},
 		{"/daemon/skills/{skillID}/archive", "get"},
-		{"/daemon/tool-calls/{toolCallID}/artifact", "post"},
-		{"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", "get"},
+		{"/daemon/processes/{processID}/file", "post"},
+		{"/daemon/processes/{processID}/file", "get"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -301,6 +337,8 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 
 	browserOnlyMutations := map[string]bool{
+		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup":               true,
+		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations": true,
 		"post /personal-access-tokens":                               true,
 		"post /orgs/{orgID}/api-keys":                                true,
 		"patch /orgs/{orgID}/api-keys/{keyID}":                       true,
@@ -309,12 +347,13 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /daemon/bootstrap":                        true,
-		"post /daemon/failures":                         true,
-		"post /daemon/runtimes":                         true,
-		"post /daemon/runtimes/{runtimeID}/end":         true,
-		"post /daemon/runtimes/{runtimeID}/sleep":       true,
-		"post /daemon/tool-calls/{toolCallID}/artifact": true,
+		"post /daemon/processes/{processID}/git-credentials": true,
+		"post /daemon/bootstrap":                             true,
+		"post /daemon/failures":                              true,
+		"post /daemon/runtimes":                              true,
+		"post /daemon/runtimes/{runtimeID}/end":              true,
+		"post /daemon/runtimes/{runtimeID}/sleep":            true,
+		"post /daemon/processes/{processID}/file":            true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -373,32 +412,44 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
-		"Agent.name":                                     "#/components/schemas/AgentName",
-		"AgentInteraction.agent_name":                    "#/components/schemas/AgentName",
-		"CreateAgentRequest.name":                        "#/components/schemas/AgentName",
-		"Skill.name":                                     "#/components/schemas/SkillName",
-		"Actor.display_name":                             "",
-		"AgentInteraction.tool_name":                     "",
-		"CreateMachinePoolRequestBase.provider_config":   "",
-		"CreateSlackSetupRequest.app_name":               "",
-		"CurrentUserIdentity.display_name":               "",
-		"DiscoveredProviderModel.display_name":           "",
-		"ExternalActorParams.display_name":               "",
-		"IntegrationInstall.provider_agent_display_name": "",
-		"IntegrationTarget.display_name":                 "",
-		"MachinePool.provider_config":                    "",
-		"MCPRegistryHeader.name":                         "",
-		"MCPRegistryServer.name":                         "",
-		"MCPServerInfo.name":                             "",
-		"MCPServerTool.name":                             "",
-		"ModelOutputToolUseStreamBlock.tool_name":        "",
-		"ModelToolCallContentBlock.name":                 "",
-		"OrgMember.display_name":                         "",
-		"ToolCall.name":                                  "",
-		"ToolCatalogEntry.name":                          "",
-		"ResolvedAgentConfigTool.name":                   "",
-		"ToolPermissionMode.name":                        "",
-		"UpdateMachinePoolRequest.provider_config":       "",
+		"MemoryStore.name":                                        "#/components/schemas/MemoryStoreName",
+		"CreateMemoryStore.name":                                  "#/components/schemas/MemoryStoreName",
+		"Integration.name":                                        "#/components/schemas/IntegrationName",
+		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
+		"Agent.name":                                              "#/components/schemas/AgentName",
+		"AgentInteraction.agent_name":                             "#/components/schemas/AgentName",
+		"IntegrationSubscription.agent_name":                      "#/components/schemas/AgentName",
+		"CreateAgentRequest.name":                                 "#/components/schemas/AgentName",
+		"Skill.name":                                              "#/components/schemas/SkillName",
+		"Actor.display_name":                                      "",
+		"AgentInteraction.tool_name":                              "",
+		"CreateMachinePoolRequestBase.provider_config":            "",
+		"CreateSlackSetupRequest.app_name":                        "",
+		"CreateGitHubSetupRequest.app_name":                       "",
+		"GitHubInstallations.name":                                "",
+		"CurrentUserIdentity.display_name":                        "",
+		"DiscoveredProviderModel.display_name":                    "",
+		"ExternalActorParams.display_name":                        "",
+		"Integration.provider_agent_display_name":                 "#/components/schemas/IntegrationProviderDisplayName",
+		"ConfigureIntegrationRequest.provider_agent_display_name": "#/components/schemas/IntegrationProviderDisplayName",
+		"Integration.provider_config":                             "#/components/schemas/IntegrationProviderConfig",
+		"ConfigureIntegrationRequest.provider_config":             "#/components/schemas/IntegrationProviderConfig",
+		"IntegrationTarget.display_name":                          "",
+		"IntegrationSubscription.conversation_name":               "",
+		"MachinePool.provider_config":                             "",
+		"MCPRegistryHeader.name":                                  "",
+		"MCPRegistryServer.name":                                  "",
+		"MCPServerInfo.name":                                      "",
+		"MCPServerTool.name":                                      "",
+		"ModelOutputToolUseStreamBlock.tool_name":                 "",
+		"ModelToolCallContentBlock.name":                          "",
+		"OrgMember.display_name":                                  "",
+		"ToolCall.name":                                           "",
+		"ToolCatalogEntry.name":                                   "",
+		"ResolvedAgentConfigTool.name":                            "",
+		"CheckMachinePoolConnectionRequest.provider_config":       "",
+		"ToolPermissionMode.name":                                 "",
+		"UpdateMachinePoolRequest.provider_config":                "",
 	}
 
 	var failures []string
@@ -432,6 +483,41 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 func openAPINameProperty(property string) bool {
 	return property == "name" || property == "display_name" || property == "provider_config" ||
 		strings.HasSuffix(property, "_name")
+}
+
+func TestOpenAPIErrorCodesContract(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Enum           []string       `yaml:"enum"`
+				ExtensibleEnum []string       `yaml:"x-extensible-enum"`
+				Properties     map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+	code := openAPIPropertySchema(t, doc.Components.Schemas["Error"].Properties, "code")
+	if _, closed := code["enum"]; closed || code["x-go-type"] != "ErrorCode" {
+		t.Fatal("Error.code must be extensible and use the Go ErrorCode type")
+	}
+	values, ok := code["x-extensible-enum"].([]any)
+	known := doc.Components.Schemas["ErrorCode"].Enum
+	if !ok || len(known) == 0 || !slices.Equal(openAPIStringSlice(values), known) {
+		t.Fatal("Error.code extensible values must match the known ErrorCode enum")
+	}
+	for _, name := range []string{"ClientErrorCode", "ServerErrorCode"} {
+		schema := doc.Components.Schemas[name]
+		if len(schema.Enum) != 0 || len(schema.ExtensibleEnum) == 0 {
+			t.Fatalf("%s must be extensible", name)
+		}
+		for _, value := range schema.ExtensibleEnum {
+			if !slices.Contains(known, value) {
+				t.Fatalf("%s contains unknown code %q", name, value)
+			}
+		}
+	}
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
@@ -884,6 +970,34 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "tenki",
+			body: `{"provider":"tenki",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "tenki missing cpu",
+			body: `{"provider":"tenki",` + common +
+				`,"default_machine_memory_mb":1024,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "arker",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "arker missing cpu",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_memory_mb":1024,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "daytona without resource defaults",
 			body: `{"provider":"daytona",` + common +
 				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
@@ -900,6 +1014,30 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 		{
 			name: "daytona missing cpu limit",
 			body: `{"provider":"daytona",` + common +
+				`,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "boxd without resource defaults",
+			body: `{"provider":"boxd",` + common +
+				`,"max_total_cpu":4,"max_total_memory_mb":16384,"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "boxd missing memory limit",
+			body: `{"provider":"boxd",` + common +
+				`,"max_total_cpu":4,"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "createos",
+			body: `{"provider":"createos",` + common +
+				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "createos missing cpu limit",
+			body: `{"provider":"createos",` + common +
 				`,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
 			want: http.StatusBadRequest,
 		},
@@ -1305,7 +1443,7 @@ func (*trackingReadCloser) Close() error {
 	return nil
 }
 
-func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+func TestOpenAPIRequestValidatorDoesNotPreReadDaemonFileBody(t *testing.T) {
 	t.Parallel()
 	validator, err := newOpenAPIRequestValidator()
 	if err != nil {
@@ -1315,7 +1453,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	source := &trackingReadCloser{reader: bytes.NewReader(body)}
 	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if source.bytesRead != 0 {
-			t.Errorf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+			t.Errorf("file body was read before reaching handler: %d bytes", source.bytesRead)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
@@ -1334,7 +1472,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	}))
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		"/api/v1/daemon/processes/prc_"+strings.Repeat("a", 26)+"/file?filename=shot.png",
 		source,
 	)
 	req.ContentLength = int64(len(body))

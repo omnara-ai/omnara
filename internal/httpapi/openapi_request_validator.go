@@ -18,7 +18,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 // Configure the process-wide error policy before concurrent construction or validation.
@@ -60,7 +60,8 @@ func newOpenAPIRequestValidator() (middleware, error) {
 					writeOpenAPIRequestError(w, r, err)
 					return
 				}
-				if route.Operation.OperationID == string(operationUploadDaemonArtifact) {
+				if route.Operation.OperationID == string(operationUploadDaemonFile) ||
+					route.Operation.OperationID == string(operationWriteMemoryFile) {
 					next.ServeHTTP(w, r)
 					return
 				}

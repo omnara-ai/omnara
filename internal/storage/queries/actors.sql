@@ -1,14 +1,16 @@
 -- name: UpsertActorIdentity :one
-INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
+INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at)
 VALUES (
   sqlc.arg(project_id), sqlc.arg(provider), sqlc.narg(provider_tenant_id),
   sqlc.arg(provider_user_id), NULLIF(sqlc.arg(display_name)::text, ''),
-  transaction_timestamp(), transaction_timestamp()
+  sqlc.arg(metadata)::jsonb, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id) DO UPDATE
 SET display_name = coalesce(excluded.display_name, actors.display_name),
+    metadata = actors.metadata || excluded.metadata,
     updated_at = excluded.updated_at
 WHERE coalesce(excluded.display_name, actors.display_name) IS DISTINCT FROM actors.display_name
+   OR actors.metadata || excluded.metadata IS DISTINCT FROM actors.metadata
 RETURNING id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at;
 
 -- name: PutActor :one
@@ -39,6 +41,12 @@ SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_n
 FROM actors
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id);
+
+-- name: ListActorIdentitiesByIDs :many
+SELECT id, provider, provider_user_id
+FROM actors
+WHERE project_id = sqlc.arg(project_id)
+  AND id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: ListActors :many
 SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
@@ -72,23 +80,3 @@ WHERE project_id = sqlc.arg(project_id)
   AND provider_tenant_id IS NOT DISTINCT FROM sqlc.narg(provider_tenant_id)
   AND provider_user_id = sqlc.arg(provider_user_id)
   AND display_name IS DISTINCT FROM sqlc.arg(display_name)::text;
-
--- name: ActorMatchesIntegrationTarget :one
-SELECT EXISTS (
-  SELECT 1
-  FROM actors actor
-  JOIN integration_targets target
-    ON target.project_id = sqlc.arg(project_id)
-   AND target.agent_id = sqlc.arg(agent_id)
-   AND target.id = sqlc.arg(integration_target_id)
-   AND target.deleted_at IS NULL
-  JOIN integration_installs install
-    ON install.project_id = target.project_id
-   AND install.id = target.integration_install_id
-   AND install.state = 'active'
-   AND install.deleted_at IS NULL
-  WHERE actor.id = sqlc.arg(actor_id)
-    AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
-) AS matches;

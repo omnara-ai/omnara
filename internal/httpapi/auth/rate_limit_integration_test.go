@@ -31,7 +31,7 @@ func TestRedisRateLimiterUsesRollingBudget(t *testing.T) {
 			t.Fatalf("burst request %d error = %v", i, err)
 		}
 	}
-	if err := limiter.Allow(ctx, key, limit, window); !errors.Is(err, errRateLimited) {
+	if err := limiter.Allow(ctx, key, limit, window); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("post-burst request error = %v, want rate limited", err)
 	}
 
@@ -48,7 +48,7 @@ func TestRedisRateLimiterUsesRollingBudget(t *testing.T) {
 	if err := limiter.Allow(ctx, boundaryKey, limit, window); err != nil {
 		t.Fatalf("first boundary request error = %v", err)
 	}
-	if err := limiter.Allow(ctx, boundaryKey, limit, window); !errors.Is(err, errRateLimited) {
+	if err := limiter.Allow(ctx, boundaryKey, limit, window); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("second boundary request error = %v, want rate limited", err)
 	}
 }

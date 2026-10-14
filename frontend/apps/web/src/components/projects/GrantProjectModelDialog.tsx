@@ -38,7 +38,7 @@ const ConfiguredModelMultiCombobox = createResourceMultiCombobox<ConfiguredModel
   itemKey: (model) => model.id,
   itemLabel: (model) => model.name,
   placeholder: 'Search configured models…',
-  emptyMessage: 'No ungranted models found.',
+  emptyMessage: 'No models to share.',
 })
 
 function useGrantableModels(
@@ -110,8 +110,8 @@ export function GrantProjectModelDialog({
   const providerSearch = useTypeaheadSearch()
   const createGrant = useCreateProjectModelGrant(orgId)
   const batch = useBatchGrantSubmit<ConfiguredModel>({
-    label: 'model grant',
-    fallbackError: 'Could not grant models',
+    label: 'model',
+    fallbackError: 'Could not share models',
     itemKey: (model) => model.id,
     grant: async (model) => {
       await createGrant.mutateAsync({ projectID: projectId, configured_model_id: model.id })
@@ -142,7 +142,7 @@ export function GrantProjectModelDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
-          <DialogTitle>Grant models</DialogTitle>
+          <DialogTitle>Share models</DialogTitle>
           <DialogDescription>
             Let agents in this project use an organization model.
           </DialogDescription>
@@ -182,7 +182,7 @@ export function GrantProjectModelDialog({
               />
               {showEmptyModels && (
                 <FieldDescription>
-                  This provider has no ungranted configured models.
+                  This provider has no configured models left to share.
                 </FieldDescription>
               )}
             </Field>
@@ -196,7 +196,7 @@ export function GrantProjectModelDialog({
                 ])
               }}
             >
-              Could not load grantable models.
+              Could not load models.
             </QueryErrorNotice>
             {batch.errorMessage && <p className="text-destructive text-sm">{batch.errorMessage}</p>}
             <DialogFooter>
@@ -205,7 +205,7 @@ export function GrantProjectModelDialog({
                 disabled={modelsLocked || batch.items.length === 0}
                 loading={batch.isSubmitting}
               >
-                Grant models
+                Share models
               </Button>
             </DialogFooter>
           </FieldGroup>

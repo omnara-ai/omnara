@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/omnarad"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func main() {

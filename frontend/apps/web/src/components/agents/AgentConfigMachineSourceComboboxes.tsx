@@ -8,6 +8,7 @@ import type { MachinePoolSummary, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { GrantMachinePoolDialog } from '@/components/projects/GrantMachinePoolDialog'
 import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMachineDialog'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -15,6 +16,7 @@ import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-que
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { formatMemoryGb } from '@/lib/machine-memory'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -49,14 +51,14 @@ const PoolNameCombobox = createResourceCombobox<PoolOption>({
   itemKey: (item) => item.name,
   itemLabel: (item) => item.name,
   placeholder: 'Search machine pools…',
-  emptyMessage: 'No machine pools granted.',
+  emptyMessage: 'No shared machine pools.',
 })
 
 const MachineNameCombobox = createResourceCombobox<MachineOption>({
   itemKey: (machine) => machine.name,
   itemLabel: (machine) => machine.name,
   placeholder: 'Search machines…',
-  emptyMessage: 'No machines granted.',
+  emptyMessage: 'No shared machines.',
 })
 
 function useStaleName<TItem, TFetchResult>(
@@ -103,7 +105,7 @@ export function PoolSourceCombobox({
   onPoolResolved?: (pool: SelectedPool) => void
   onGrantResolved?: (grant: ResolvedPoolGrant | null) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectMachinePoolGrants(orgId, projectId, {
@@ -153,9 +155,9 @@ export function PoolSourceCombobox({
         query={grantsQuery}
         placeholder={grantsQuery.isPending ? 'Loading pools…' : 'Search machine pools…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
-              label="Grant machine pool"
+              label="Share machine pool"
               onOpen={() => {
                 setGrantOpen(true)
               }}
@@ -197,7 +199,7 @@ export function MachineSourceCombobox({
   onUnavailableChange?: (unavailable: boolean) => void
   onMachinesGranted?: (names: string[]) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const machinesQuery = useProjectMachines(orgId, projectId, {
@@ -235,9 +237,9 @@ export function MachineSourceCombobox({
         query={machinesQuery}
         placeholder={machinesQuery.isPending ? 'Loading machines…' : 'Search machines…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
-              label="Grant machine"
+              label="Share machine"
               onOpen={() => {
                 setGrantOpen(true)
               }}
@@ -284,7 +286,7 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
       ),
       resolve('CPU', grant.default_machine_cpu, inherited?.default_machine_cpu),
       resolve('Max machines', grant.max_total_machines, inherited?.max_total_machines),
-      { label: 'Provider', value: pool.provider },
+      { label: 'Provider', value: machinePoolProviderLabel(pool.provider) },
       { label: 'Management', value: pool.management_kind },
       resolve('Min machine CPU', grant.min_machine_cpu, inherited?.min_machine_cpu),
       resolve(

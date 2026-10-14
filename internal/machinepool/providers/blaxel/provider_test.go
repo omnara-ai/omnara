@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		machineProvisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -89,6 +91,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 		testMachineProvisioning(t, map[string]any{"sleep_after_ms": 45000}),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleeping blaxel machine: %v", err)
@@ -96,7 +99,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 	if result.SandboxURL == "" {
 		t.Fatal("sleeping blaxel machine omitted sandbox url")
 	}
-	if provider.ProvisioningTimeout() != 15*time.Second {
+	if provider.ProvisioningTimeout() != time.Minute {
 		t.Fatalf("provisioning timeout = %s", provider.ProvisioningTimeout())
 	}
 	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
@@ -169,6 +172,7 @@ func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -197,6 +201,7 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 		testMachineProvisioning(t, map[string]any{"startup_script": startupScript}),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -240,6 +245,7 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"retry-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision existing blaxel machine: %v", err)
@@ -267,6 +273,7 @@ func TestBlaxelProviderProvisionRejectsMissingCreateConflict(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "create conflicted but the sandbox is not usable") {
 		t.Fatalf("provision error = %v, want unusable conflict error", err)
@@ -294,6 +301,7 @@ func TestBlaxelProviderProvisionReturnsDaemonStartError(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if !errors.Is(err, startErr) {
 		t.Fatalf("provision error = %v, want %v", err, startErr)
@@ -315,6 +323,7 @@ func TestBlaxelProviderProvisionRejectsNonRunningDaemonProcess(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `started with status "completed"`) {
 		t.Fatalf("provision error = %v, want non-running daemon process error", err)
@@ -383,6 +392,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if !errors.Is(err, providers.ErrResourceReplaced) {
 				t.Fatalf("first provision after %s conflict error = %v", status, err)
@@ -404,6 +414,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err != nil {
 				t.Fatalf("retry provision after %s conflict: %v", status, err)
@@ -422,6 +433,85 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 	}
 }
 
+func TestBlaxelProviderProvisionWaitsForDeployingSandbox(t *testing.T) {
+	savedPollInterval := sandboxDeploymentPollInterval
+	sandboxDeploymentPollInterval = time.Millisecond
+	t.Cleanup(func() { sandboxDeploymentPollInterval = savedPollInterval })
+	machineID := uuid.New()
+	sandboxName, err := providers.MachineAllocationName(testInstallationID(), machineID)
+	if err != nil {
+		t.Fatalf("blaxel sandbox name: %v", err)
+	}
+	for _, test := range []struct {
+		name           string
+		nextStatuses   []sandboxDeploymentStatus
+		timeout        time.Duration
+		wantErr        error
+		wantResourceID string
+		wantDeleted    []string
+		wantProcesses  int
+	}{
+		{
+			name:           "deployed",
+			nextStatuses:   []sandboxDeploymentStatus{"DEPLOYING", "DEPLOYED"},
+			wantResourceID: sandboxName,
+			wantProcesses:  1,
+		},
+		{
+			name:         "failed",
+			nextStatuses: []sandboxDeploymentStatus{"FAILED"},
+			wantErr:      providers.ErrResourceReplaced,
+			wantDeleted:  []string{sandboxName},
+		},
+		{
+			name:           "timeout",
+			timeout:        10 * time.Millisecond,
+			wantErr:        context.DeadlineExceeded,
+			wantResourceID: sandboxName,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			api := newFakeAPI()
+			api.nextStatuses = test.nextStatuses
+			api.sandboxesByName[sandboxName] = sandbox{
+				Metadata: resourceMetadata{
+					Name: sandboxName, URL: "https://sbx-deploying.test.bl.run",
+					Labels: mustSandboxOwnershipLabels(t, testInstallationID(), machineID),
+				},
+				Status: "DEPLOYING",
+			}
+			ctx := context.Background()
+			if test.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, test.timeout)
+				defer cancel()
+			}
+
+			result, err := newTestProvider(api).ProvisionMachine(
+				ctx,
+				testInstallationID(),
+				machineID,
+				testMachineProvisioning(t, nil),
+				"machine-token",
+				nil,
+				true,
+			)
+			if !errors.Is(err, test.wantErr) || result.ProviderResourceID != test.wantResourceID ||
+				len(api.nextStatuses) != 0 || !slices.Equal(api.deletedNames, test.wantDeleted) ||
+				len(api.processRequests) != test.wantProcesses {
+				t.Fatalf(
+					"provision error = %v resource = %q unread statuses = %v deleted = %v process requests = %d",
+					err,
+					result.ProviderResourceID,
+					api.nextStatuses,
+					api.deletedNames,
+					len(api.processRequests),
+				)
+			}
+		})
+	}
+}
+
 func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -430,7 +520,6 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 		{name: "uploading", status: "UPLOADING"},
 		{name: "building", status: "BUILDING"},
 		{name: "built", status: "BUILT"},
-		{name: "deploying", status: "DEPLOYING"},
 		{name: "deleting", status: "DELETING"},
 		{name: "deactivating", status: "DEACTIVATING"},
 		{name: "empty", status: ""},
@@ -459,6 +548,7 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), "not ready") {
 				t.Fatalf("provision error = %v, want non-ready sandbox error", err)
@@ -500,6 +590,7 @@ func TestBlaxelProviderProvisionRejectsNameCollision(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), "ownership label") {
 				t.Fatalf("provision collision error = %v", err)
@@ -673,6 +764,7 @@ type fakeAPI struct {
 	createRequests   []createSandboxRequest
 	processRequests  []processRequest
 	wakeTarget       sandbox
+	nextStatuses     []sandboxDeploymentStatus
 	deletedNames     []string
 	createErr        error
 	startProcessErr  error
@@ -726,6 +818,10 @@ func (f *fakeAPI) GetSandbox(
 	name string,
 ) (sandbox, bool, error) {
 	target, found := f.sandboxesByName[name]
+	if found && len(f.nextStatuses) > 0 {
+		target.Status, f.nextStatuses = f.nextStatuses[0], f.nextStatuses[1:]
+		f.sandboxesByName[name] = target
+	}
 	return target, found, nil
 }
 
@@ -777,4 +873,22 @@ func (f *fakeAPI) GetSandboxProcess(
 func (f *fakeAPI) WakeSandbox(_ context.Context, target sandbox) error {
 	f.wakeTarget = target
 	return f.wakeErr
+}
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandboxes" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := (&provider{api: newTestRESTClient(server.URL)}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if !isStatus(err, http.StatusUnauthorized) {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
 }

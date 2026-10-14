@@ -34,7 +34,6 @@ func markCacheBreakpoints(messages []chatMessage, control *anthropicmessages.Cac
 	}
 	tail := len(messages) - 1
 	for tail > 0 && (messages[tail].Role == chatRoleAssistant ||
-		messages[tail].Role == chatRoleSystem ||
 		!acceptsCacheBreakpoint(messages[tail])) {
 		tail--
 	}

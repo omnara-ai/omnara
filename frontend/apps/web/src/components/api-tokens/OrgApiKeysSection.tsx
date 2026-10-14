@@ -1,33 +1,37 @@
 import { useOrgApiKeys } from '@omnara/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { CreateOrgApiKeyDialog } from '@/components/api-tokens/CreateOrgApiKeyDialog'
 import { OrgApiKeyDetailPanel } from '@/components/api-tokens/OrgApiKeyDetailPanel'
 import { DataTable } from '@/components/data-table/DataTable'
-import { SectionTitle } from '@/components/layout/SectionTitle'
+import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
-export function OrgApiKeysSection({ orgId }: { orgId: string }) {
+/** `actions` are extra header controls shown before the create button, e.g. tabs. */
+export function OrgApiKeysSection({ orgId, actions }: { orgId: string; actions?: ReactNode }) {
   const query = useOrgApiKeys(orgId)
   const paged = usePagedQuery(query, orgId)
   const [createOpen, setCreateOpen] = useState(false)
+  const createButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setCreateOpen(true)
+      }}
+    >
+      New token
+    </Button>
+  )
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionTitle title="Organization API tokens" guide={guides.apiTokens} />
-        <Button
-          size="sm"
-          onClick={() => {
-            setCreateOpen(true)
-          }}
-        >
-          New token
-        </Button>
-      </div>
+      <SearchHeader title="Organization API tokens" guide={guides.apiTokens}>
+        {actions}
+        {createButton}
+      </SearchHeader>
       <DataTable
         columns={[
           {
@@ -93,6 +97,7 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No organization API tokens yet. Create one to give an integration or automation its own org access."
+        emptyAction={createButton}
       />
       <CreateOrgApiKeyDialog open={createOpen} onOpenChange={setCreateOpen} orgId={orgId} />
     </div>

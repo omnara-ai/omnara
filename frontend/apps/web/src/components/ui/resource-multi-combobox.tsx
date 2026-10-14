@@ -48,7 +48,7 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
                 key={config.itemKey(item)}
                 removeLabel={`Remove ${config.itemLabel(item)}`}
               >
-                {config.itemLabel(item)}
+                {config.renderValue?.(item) ?? config.itemLabel(item)}
               </ComboboxChip>
             ))}
           </ComboboxValue>

@@ -91,6 +91,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 		provisioning,
 		"live-smoke-token",
 		nil,
+		true,
 	)
 	provisionCancel()
 	if err != nil {
@@ -114,6 +115,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 		provisioning,
 		"live-smoke-token",
 		nil,
+		true,
 	)
 	reprovisionCancel()
 	if err != nil {

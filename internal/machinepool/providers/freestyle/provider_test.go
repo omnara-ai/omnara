@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestProviderProvisionCreatesResizesAndStartsManagedDaemon(t *testing.T) {
@@ -29,6 +30,7 @@ func TestProviderProvisionCreatesResizesAndStartsManagedDaemon(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		map[string]string{"APP_ENV": "production"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision freestyle VM: %v", err)
@@ -114,6 +116,7 @@ func TestProviderProvisionEnablesSleep(t *testing.T) {
 		provisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleeping freestyle VM: %v", err)
@@ -174,6 +177,7 @@ func TestProviderProvisionAdoptsOwnedVMAfterAmbiguousCreate(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil || result.ProviderResourceID != existing.ID {
 		t.Fatalf("adopt existing VM = %+v, error %v", result, err)
@@ -195,6 +199,7 @@ func TestProviderProvisionRejectsForeignVMBeforeMutation(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership metadata") {
 		t.Fatalf("foreign VM error = %v", err)
@@ -215,6 +220,7 @@ func TestProviderProvisionRejectsOversizedSnapshotPermanently(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if !errors.Is(err, providers.ErrPermanent) {
 		t.Fatalf("oversized snapshot error = %v, want permanent error", err)
@@ -239,6 +245,7 @@ func TestProviderProvisionStartsPausedVM(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	); err != nil {
 		t.Fatalf("provision paused VM: %v", err)
 	}
@@ -270,6 +277,7 @@ func TestProviderProvisionReportsFailedDaemonInstall(t *testing.T) {
 				testProvisioning(t),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("daemon install error = %v, want %q", err, test.want)
@@ -321,5 +329,23 @@ func TestProviderDeleteChecksOwnership(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership metadata") || api.deleteCalls != 0 {
 		t.Fatalf("foreign delete error = %v, delete calls = %d", err, api.deleteCalls)
+	}
+}
+
+func TestProviderCheckConnectionListsOneVM(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := newTestProvider(newRESTClient(server.URL, "test-token", server.Client())).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
 	}
 }

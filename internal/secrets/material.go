@@ -41,6 +41,14 @@ type SlackAppCredentialsMaterial struct {
 
 func (SlackAppCredentialsMaterial) secretMaterial() {}
 
+type GitHubAppCredentialsMaterial struct {
+	AppID         string
+	PrivateKey    string
+	WebhookSecret string
+}
+
+func (GitHubAppCredentialsMaterial) secretMaterial() {}
+
 type AWSCredentialsMaterial struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -85,6 +93,13 @@ func CanonicalizeMaterial(material Material) (CanonicalMaterial, error) {
 			KeyClientID:      value.ClientID,
 			KeyClientSecret:  value.ClientSecret,
 			KeySigningSecret: value.SigningSecret,
+		}
+	case GitHubAppCredentialsMaterial:
+		canonical.Kind = KindGitHubAppCredentials
+		canonical.Payload = Payload{
+			KeyAppID:         value.AppID,
+			KeyPrivateKey:    value.PrivateKey,
+			KeyWebhookSecret: value.WebhookSecret,
 		}
 	case AWSCredentialsMaterial:
 		canonical.Kind = KindAWSCredentials

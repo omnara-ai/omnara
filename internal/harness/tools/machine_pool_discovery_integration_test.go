@@ -94,7 +94,7 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 			"create_machine":  {Permission: createTool.Permission},
 		},
 	}
-	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(2 * time.Second) }}
+	executor := Executor{Store: fixture.Store}
 	dispatch := func(call model.ToolCall) map[string]any {
 		t.Helper()
 		result, err := executor.Dispatch(ctx, turn, call)

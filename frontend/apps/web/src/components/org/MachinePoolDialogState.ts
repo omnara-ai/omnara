@@ -1,22 +1,22 @@
-import type { CreateMachinePoolRequest, MachinePool, UpdateMachinePoolRequest } from '@omnara/sdk'
+import type {
+  CheckMachinePoolConnectionRequest,
+  CreateMachinePoolRequest,
+  MachinePool,
+  UpdateMachinePoolRequest,
+} from '@omnara/sdk'
 
 import {
   recordFromSecretRows,
   recordFromTextRows,
   type SecretRow,
   secretRowsFromRecord,
-  secretRowsValid,
   type TextRow,
   textRowsFromRecord,
-  textRowsValid,
 } from '@/components/key-value/keyValueRows'
 import {
   numberDraft,
   optionalInt,
   optionalIntOrNull,
-  optionalNonNegativeInt32Valid,
-  optionalPoolIdleDeletionMinutesValid,
-  optionalPositiveInt32Valid,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import {
@@ -26,7 +26,6 @@ import {
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
 import { providerOptionStrings } from '@/lib/provider-options'
-import { resourceNameValid } from '@/lib/resource-name'
 
 import {
   isMachinePoolProvider,
@@ -34,10 +33,16 @@ import {
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from './machinePoolProviders'
+import {
+  aggregateFitsInt32,
+  memoryAggregateFitsInt32,
+  nonNegativeInt32,
+  positiveInt32,
+} from './machinePoolValidation'
 
-export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions).map(
-  ([value, definition]) => ({ value, label: definition.label }),
-)
+export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions)
+  .map(([value, definition]) => ({ value, label: definition.label }))
+  .sort((a, b) => a.label.localeCompare(b.label))
 
 export function machinePoolProviderLabel(provider: string) {
   return machinePoolProviders.find((option) => option.value === provider)?.label ?? provider
@@ -73,6 +78,11 @@ export interface MachinePoolFormValues {
 
 export type MachinePoolFormMode = 'create' | 'tenant-edit' | 'cluster-edit'
 
+export type MachinePoolFormSetValue = <K extends keyof MachinePoolFormValues>(
+  key: K,
+  value: MachinePoolFormValues[K],
+) => void
+
 export const machinePoolFormDefaults: MachinePoolFormValues = {
   name: '',
   description: '',
@@ -97,28 +107,6 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
-}
-
-const maxInt32 = 2_147_483_647
-
-function positiveInt32(value: string) {
-  const parsed = Number(value)
-  return value.trim() !== '' && Number.isInteger(parsed) && parsed > 0 && parsed <= maxInt32
-}
-
-function nonNegativeInt32(value: string) {
-  const parsed = Number(value)
-  return value.trim() !== '' && Number.isInteger(parsed) && parsed >= 0 && parsed <= maxInt32
-}
-
-function aggregateFitsInt32(perMachine: string, maxMachines: string) {
-  const perMachineValue = Number(perMachine)
-  const maxMachinesValue = Number(maxMachines)
-  return perMachineValue <= Math.floor(maxInt32 / maxMachinesValue)
-}
-
-function memoryAggregateFitsInt32(perMachineGb: string, maxMachines: string) {
-  return memoryGbToMb(perMachineGb) <= Math.floor(maxInt32 / Number(maxMachines))
 }
 
 /** Placeholder for an aggregate cap input: machine size × max machines. */
@@ -170,50 +158,6 @@ export function machinePoolFormAfterProviderChange(
   }
 }
 
-export function machinePoolFormValid(
-  values: MachinePoolFormValues,
-  mode: MachinePoolFormMode = 'create',
-) {
-  const provider = machinePoolProviderDefinitions[values.provider]
-  const clusterEdit = mode === 'cluster-edit'
-  const maxMachinesValid = clusterEdit || nonNegativeInt32(values.maxMachines)
-  const cpuValid =
-    provider.resources.cpu === 'unsupported' ||
-    (positiveInt32(values.cpu) &&
-      (clusterEdit ||
-        (maxMachinesValid &&
-          (values.maxTotalCpu.trim() !== '' ||
-            aggregateFitsInt32(values.cpu, values.maxMachines)))))
-  const memoryValid =
-    provider.resources.memoryMb === 'unsupported' ||
-    (memoryGbDraftValid(values.memoryGb) &&
-      (clusterEdit ||
-        (maxMachinesValid &&
-          (values.maxTotalMemoryGb.trim() !== '' ||
-            memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
-  return (
-    (clusterEdit ||
-      (resourceNameValid(values.name) &&
-        values.image.trim() !== '' &&
-        (!provider.location?.required || values.location.trim() !== '') &&
-        (!provider.scope?.required || values.providerScope.trim() !== '') &&
-        values.secretId !== '')) &&
-    maxMachinesValid &&
-    cpuValid &&
-    memoryValid &&
-    textRowsValid(values.envRows) &&
-    secretRowsValid(values.secretEnvRows) &&
-    optionalPositiveInt32Valid(values.maxMachineCpu) &&
-    optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes) &&
-    memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
-    (clusterEdit || optionalNonNegativeInt32Valid(values.maxTotalCpu)) &&
-    optionalNonNegativeInt32Valid(values.minMachineCpu) &&
-    (clusterEdit ||
-      memoryGbDraftValid(values.maxTotalMemoryGb, { optional: true, allowZero: true })) &&
-    memoryGbDraftValid(values.minMachineMemoryGb, { optional: true, allowZero: true })
-  )
-}
-
 export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateMachinePoolRequest {
   const cpu = Number(values.cpu)
   const memoryMb = memoryGbToMb(values.memoryGb)
@@ -232,9 +176,11 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'unikraft':
       return {
         ...common,
         provider: values.provider,
@@ -267,10 +213,12 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+    case 'boxd':
+    case 'createos':
     case 'daytona':
       return {
         ...common,
-        provider: 'daytona',
+        provider: values.provider,
         default_machine_provider_options: {
           ...machinePoolCoreProviderOptions(values.provider, values.image, values.location),
           ...startupScript,
@@ -282,6 +230,23 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+  }
+}
+
+export function machinePoolConnectionCheckRequest(
+  values: MachinePoolFormValues,
+  savedProviderConfig?: MachinePool['provider_config'],
+): CheckMachinePoolConnectionRequest {
+  const request = machinePoolCreateRequest(values)
+  const location = machinePoolProviderDefinitions[values.provider].location?.key
+  return {
+    provider: request.provider,
+    provider_auth_secret_id: request.provider_auth_secret_id,
+    provider_config: { ...savedProviderConfig, ...request.provider_config },
+    default_machine_provider_options:
+      location === undefined
+        ? {}
+        : { [location]: request.default_machine_provider_options[location] },
   }
 }
 
@@ -346,7 +311,9 @@ export function machinePoolUpdateRequest(
       ([key]) => !editableOptionKeys.has(key),
     ),
   )
-  defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  if (values.image.trim() !== '') {
+    defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  }
   if (definition.location && values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
@@ -373,9 +340,11 @@ export function machinePoolUpdateRequest(
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'unikraft':
       return {
         ...common,
         provider_config:
@@ -418,6 +387,8 @@ export function machinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'boxd':
+    case 'createos':
     case 'daytona':
       return {
         ...common,
@@ -461,9 +432,11 @@ function clusterMachinePoolUpdateRequest(
     ),
   }
   switch (values.provider) {
-    case 'unikraft':
+    case 'arker':
     case 'freestyle':
     case 'modal':
+    case 'tenki':
+    case 'unikraft':
       return {
         ...common,
         default_machine_cpu: cpu,
@@ -486,6 +459,8 @@ function clusterMachinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'boxd':
+    case 'createos':
     case 'daytona':
       return {
         ...common,

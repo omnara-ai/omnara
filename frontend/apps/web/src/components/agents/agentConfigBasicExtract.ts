@@ -1,5 +1,6 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { type Document, isAlias, isScalar, visit } from 'yaml'
+import { zConfigIntegrationCapabilitySource } from '@omnara/sdk/zod'
+import { type Document, isAlias, isMap, isScalar, parseDocument, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
@@ -133,13 +134,29 @@ const subagentEntry = z.strictObject({
 })
 export type SubagentEntry = z.infer<typeof subagentEntry>
 
+const memoryStoreEntry = z.strictObject({
+  name: z.string(),
+  access: z.enum(['read', 'read_write']),
+})
+export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
-  model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
+  model: z
+    .looseObject({
+      provider_config: optionalText,
+      name: optionalText,
+      reasoning: z.strictObject({ effort: z.string() }).optional(),
+    })
+    .nullable()
+    .optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
+  interaction_handlers: z.record(z.string(), zConfigIntegrationCapabilitySource).optional(),
+  git_credentials: z.strictObject({ integration: z.string() }).optional(),
   skills: z.array(z.string()).optional(),
+  memory_stores: z.array(memoryStoreEntry).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
   event_webhook: z
     .strictObject({
@@ -153,7 +170,22 @@ const basicDocument = z.looseObject({
   max_depth: positiveCount,
 })
 
-export function extractBasicConfig(document: Document): BasicConfig | null {
+export function parseBasicConfigSource(source: string) {
+  const doc = parseSourceDocument(source)
+  return { doc, initialDraft: doc == null ? null : extractBasicConfig(doc) }
+}
+
+function parseSourceDocument(source: string): Document | null {
+  try {
+    const doc = parseDocument(source)
+    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
+    return doc
+  } catch {
+    return null
+  }
+}
+
+function extractBasicConfig(document: Document): BasicConfig | null {
   const sharedYaml = { found: false }
   visit(document, {
     Node(key, node) {
@@ -187,13 +219,17 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     instruction: normalizeMultiline(doc.instruction ?? ''),
     providerConfig: doc.model?.provider_config ?? '',
     modelName: doc.model?.name ?? '',
+    reasoningEffort: doc.model?.reasoning?.effort ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
+    interactionHandlers: doc.interaction_handlers ?? {},
+    gitCredentialsIntegration: doc.git_credentials?.integration ?? '',
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     eventWebhookEvents: doc.event_webhook ? (doc.event_webhook.events ?? []) : ['tool_call_update'],
     eventWebhookUrl: doc.event_webhook?.url ?? '',
     eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],
+    memoryStores: doc.memory_stores ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),
     maxDepth: countDraft(doc.max_depth),

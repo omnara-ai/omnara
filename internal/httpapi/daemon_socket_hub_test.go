@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -36,20 +38,52 @@ func TestDaemonProcessOfferMessageReplacesOversizedOffer(t *testing.T) {
 	if len(encoded) > daemonSocketReadLimitBytes {
 		t.Fatalf("fallback process offer size = %d", len(encoded))
 	}
+	if strings.Contains(string(encoded), `"execution_spec"`) {
+		t.Fatal("preparation failure includes an execution spec")
+	}
 }
 
-func TestDaemonProcessOfferMessageCarriesInitialWait(t *testing.T) {
+func TestDaemonProcessOfferMessageCarriesShellSpec(t *testing.T) {
+	command := "echo " + strings.Repeat("x", daemonSocketReadLimitBytes/2)
+	spec := processcmd.ForShell(command, processcmd.ShellBash, processcmd.IOModePTY)
 	message := daemonProcessOfferMessage("prc_test", executionstore.DaemonProcessOffer{
 		Process: executionstore.ProcessRecord{
-			IOMode:         "pipe",
-			Command:        "echo ok",
-			ShellSelector:  "default",
+			ExecutionSpec:  spec,
 			InitialWaitMS:  750,
 			TimeoutSeconds: 30,
 		},
+		GitCredentials: true,
 	})
-	if message.ProcessOffer == nil || message.ProcessOffer.WaitMs != 750 {
-		t.Fatalf("process offer = %+v, want initial wait 750ms", message.ProcessOffer)
+	body, err := json.Marshal(message.ProcessOffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded daemonprotocol.ProcessOffer
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(spec, decoded.ExecutionSpec); diff != "" {
+		t.Fatalf("shell execution spec mismatch (-want +got):\n%s", diff)
+	}
+	if !decoded.GitCredentials {
+		t.Fatal("shell offer lost Git credential authority")
+	}
+	if decoded.WaitMs != 750 || decoded.TimeoutSeconds != 30 {
+		t.Fatal("shell offer lost initial wait or timeout")
+	}
+}
+
+func TestDaemonProcessOfferMessageCarriesTransferSpec(t *testing.T) {
+	spec := processcmd.ForFileTransfer(processcmd.FileTransfer{
+		Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+		Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+	})
+	message := daemonProcessOfferMessage("prc_test", executionstore.DaemonProcessOffer{
+		Process: executionstore.ProcessRecord{ExecutionSpec: spec},
+	})
+	offer := message.ProcessOffer
+	if offer == nil || offer.ExecutionSpec != spec || offer.GitCredentials {
+		t.Fatalf("transfer offer = %+v", offer)
 	}
 }
 

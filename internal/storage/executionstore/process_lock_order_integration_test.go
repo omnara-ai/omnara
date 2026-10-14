@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -31,9 +32,8 @@ func TestStartProcessLocksMachineBeforeAgent(t *testing.T) {
 		RuntimeLockID: fixture.Lock.ID,
 	}
 	input := executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}
 	assertMachineLockPrecedesAgentLock(
@@ -69,9 +69,8 @@ func TestCreateProcessActionLocksMachineBeforeAgent(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {

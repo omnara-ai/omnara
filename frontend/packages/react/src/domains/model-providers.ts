@@ -5,6 +5,7 @@ import {
   type DiscoveredModelPricing,
   type DiscoveredProviderModel,
   type ListModelProviderConfigsData,
+  type ModelCatalog,
   type ModelProviderConfig,
   type OmnaraClient,
   sdk,
@@ -14,6 +15,8 @@ import {
 import {
   getModelCatalogOptions,
   getModelCatalogQueryKey,
+  getModelProviderConfigOptions,
+  getModelProviderConfigQueryKey,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -58,6 +61,20 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
   })
 }
 
+export function useModelProvider(orgID: string, modelProviderConfigID: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getModelProviderConfigOptions({ path: { orgID, modelProviderConfigID }, client }),
+    enabled: modelProviderConfigID !== '',
+  })
+}
+
+// Probing a catalog calls the provider, so a fetched or seeded catalog is reused for a while.
+// A failed probe goes stale quickly, so fixing the credential clears the warning on the next look.
+function modelCatalogStaleTime(query: { state: { data?: ModelCatalog } }) {
+  return query.state.data?.status === 'failed' ? 15 * 1000 : 5 * 60 * 1000
+}
+
 /**
  * The provider's live model catalog. Every fetch probes the provider's /models
  * endpoint, so keep it disabled until the catalog is actually needed.
@@ -71,10 +88,9 @@ export function useModelCatalog(
   return useQuery({
     ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID }, client }),
     enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
+    staleTime: modelCatalogStaleTime,
   })
 }
-
-const modelCatalogPricingStaleTime = 5 * 60 * 1000
 
 export interface ModelPricingLookup {
   pricingFor: (
@@ -112,7 +128,7 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
   const catalogs = useQueries({
     queries: clusterProviders.map((provider) => ({
       ...getModelCatalogOptions({ path: { orgID, modelProviderConfigID: provider.id }, client }),
-      staleTime: modelCatalogPricingStaleTime,
+      staleTime: modelCatalogStaleTime,
     })),
   })
   const catalogByProvider = new Map<string, DiscoveredProviderModel[]>()
@@ -132,14 +148,14 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
 export function useConfiguredModels(
   orgID: string,
   modelProviderConfigID: string,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; pageSize?: number },
 ) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
     ...cursorPaginated(
       listConfiguredModelsInfiniteOptions({
         path: { orgID, modelProviderConfigID },
-        query: { limit: DEFAULT_LIST_PAGE_SIZE },
+        query: { limit: options?.pageSize ?? DEFAULT_LIST_PAGE_SIZE },
         client,
       }),
     ),
@@ -230,7 +246,15 @@ export function useCreateModelProvider(orgID: string) {
       })
       return data
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      // Creation already probes the catalog; seed it so the model picker doesn't probe again.
+      queryClient.setQueryData(
+        getModelCatalogQueryKey({
+          path: { orgID, modelProviderConfigID: data.config.id },
+          client,
+        }),
+        data.model_catalog,
+      )
       await queryClient.invalidateQueries({
         queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
       })
@@ -282,6 +306,12 @@ export function useUpdateModelProvider(orgID: string) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getModelProviderConfigQueryKey({
+            path: { orgID, modelProviderConfigID },
+            client,
+          }),
         }),
         queryClient.invalidateQueries({
           queryKey: getModelCatalogQueryKey({

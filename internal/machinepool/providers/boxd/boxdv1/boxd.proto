@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package boxd.api.v1;
+
+option go_package = "github.com/omnara-ai/omnara/internal/machinepool/providers/boxd/boxdv1;boxdv1";
+
+// Subset of the boxd public gRPC API (https://boxd.sh/reference/grpc-proto)
+// used by the Omnara boxd machine provider. Message names and field numbers
+// mirror upstream proto/api/v1/api.proto (commit 3d711b70, 2026-09-04) and
+// must stay wire-compatible with it; unused RPCs and fields are omitted.
+// Regenerate the Go stubs with `go generate ./internal/machinepool/providers/boxd/...`.
+service BoxdApi {
+  rpc CreateVm(CreateVmRequest) returns (CreateVmResponse);
+  rpc CreateVmFromSnapshot(CreateVmFromSnapshotRequest) returns (CreateVmResponse);
+  rpc DestroyVm(DestroyVmRequest) returns (DestroyVmResponse);
+  rpc GetVm(GetVmRequest) returns (GetVmResponse);
+  rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+  rpc Exec(stream ExecChunk) returns (stream ExecChunk);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc GetOrgMachineDefaults(GetOrgMachineDefaultsRequest) returns (GetOrgMachineDefaultsResponse);
+}
+
+// VM configuration — all fields use 0/empty as "use default". Sizing must
+// name one of the supported size classes (1 vCPU · 4 GiB, 2 · 8, or 4 · 16)
+// and applies to fresh creates only; restores inherit the snapshot's size.
+message VmConfig {
+  uint32        vcpu         = 1;
+  uint64        memory_bytes = 2;
+  uint64        disk_bytes   = 3;
+  SrfConfig     srf          = 4;
+  NetworkConfig network      = 5;
+  repeated VolumeMount volumes = 6;
+}
+
+message SrfConfig {
+  optional uint32 auto_suspend_timeout_secs = 1;  // unset = server default (30s for new)
+  uint32          auto_destroy_timeout_secs = 2;  // 0 = no auto-destroy
+}
+
+message NetworkConfig {
+  bool                 ssh     = 1;
+  repeated ProxyEntry  proxies = 2;
+}
+
+message ProxyEntry {
+  string name = 1;
+  uint32 port = 2;
+}
+
+message VolumeMount {
+  string disk_id    = 1;
+  string mount_path = 2;
+  bool   read_only  = 3;
+}
+
+message CreateVmRequest {
+  string          name           = 1;
+  string          image_ref      = 2;
+  reserved 3;
+  reserved 4;
+  repeated EnvVar env            = 5;
+  repeated string cmd            = 6;
+  string          restart_policy = 7;
+  VmConfig        config         = 8;
+  string          org            = 9;
+  bool            shared         = 10;
+  repeated string networks       = 11;
+  bool            isolated       = 12;
+  string          team           = 13;
+}
+
+message EnvVar {
+  string key   = 1;
+  string value = 2;
+}
+
+message CreateVmResponse {
+  string vm_id        = 1;
+  string name         = 2;
+  string public_ip    = 3;
+  string url          = 4;
+  string image        = 5;
+  string status       = 6;
+  uint64 boot_time_ms = 7;
+}
+
+message DestroyVmRequest  { string vm_id = 1; }
+message DestroyVmResponse {}
+
+message GetVmRequest { string vm_id = 1; }  // VM name or id
+message GetVmResponse {
+  string vm_id          = 1;
+  string name           = 2;
+  string image_ref      = 3;
+  string public_ip      = 4;
+  string status         = 5;
+  string restart_policy = 6;
+  uint64 disk_bytes     = 7;
+  uint32 auto_suspend_timeout_secs = 8;
+  uint32 ssh_port = 9;
+  string org         = 10;
+  string billing_org = 11;
+  string access_domain = 12;
+  uint32 auto_hibernate_timeout_secs = 13;
+  string source = 14;
+  uint32 vcpu         = 15;
+  uint64 memory_bytes = 16;
+  int64 created_at = 17;
+  int64 hibernated_at_ms = 18;
+  uint32 auto_destroy_timeout_secs = 19;
+  int64 boot_time_ms       = 20;
+  int64 last_connected_ms  = 21;
+  string org_id         = 22;
+  string billing_org_id = 23;
+  VmSource source_info = 24;
+  repeated string networks = 25;
+  bool isolated = 26;
+  repeated CustomDomainInfo custom_domains = 27;
+  repeated string egress_allow = 28;
+}
+
+message VmSource {
+  string kind    = 1;
+  string name    = 2;
+  uint64 version = 3;
+  string id      = 4;
+}
+
+message CustomDomainInfo {
+  string domain     = 1;
+  string vm_id      = 2;
+  string vm_name    = 3;
+  string status     = 4;
+  string last_error = 5;
+}
+
+message ListVmsRequest {
+  string org = 1;
+  bool all_contexts = 2;
+}
+message ListVmsResponse {
+  repeated GetVmResponse vms = 1;
+  string ssh_host_key = 2;
+}
+
+message ExecChunk {
+  bytes  data      = 1;
+  bool   stdin     = 2;
+  bool   tty       = 3;
+  string command   = 4;
+  string vm_id     = 5;  // VM name or id
+  int32  exit_code = 6;
+  uint32 cols          = 7;
+  uint32 rows          = 8;
+  bool   window_change = 9;
+  bool   is_stderr     = 10;
+  string device_id    = 11;
+}
+
+message CreateVmFromSnapshotRequest {
+  string   snapshot = 1;   // snapshot name or id
+  string   name     = 2;   // new VM name (optional; auto-generated if empty)
+  VmConfig config   = 3;   // optional overrides
+  string   org      = 4;   // org context (name or id); empty = active/anchor
+  bool     isolated = 5;
+}
+
+message SnapshotInfo {
+  string snapshot_id      = 1;
+  string name             = 2;
+  uint64 version          = 3;
+  string status           = 4;   // "pending" | "ready" | "failed"
+  reserved 5, 6;
+  reserved "ready_replicas", "desired_replicas";
+  uint64 size_bytes       = 7;
+  int64  updated_at       = 8;
+  uint32 vcpu             = 9;
+  uint64 memory_bytes     = 10;
+  uint64 use_count        = 11;
+  int64  created_at       = 12;
+}
+
+message GetSnapshotRequest {
+  string name = 1;   // snapshot name or id
+  string org  = 2;   // org context (name or id); empty = active/anchor
+}
+message GetSnapshotResponse {
+  SnapshotInfo snapshot = 1;
+}
+
+message GetOrgMachineDefaultsRequest {
+  string org_id = 1;  // name or id; "" = your home org
+}
+
+message GetOrgMachineDefaultsResponse {
+  bool   set                  = 1;
+  uint32 vcpu                 = 2;
+  uint64 memory_bytes         = 3;
+  uint32 ceiling_vcpu         = 4;
+  uint64 ceiling_memory_bytes = 5;
+}

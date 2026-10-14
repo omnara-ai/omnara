@@ -5,10 +5,14 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -22,10 +26,14 @@ type Catalog struct {
 func DefaultCatalog() Catalog {
 	return Catalog{
 		definitions: map[string]providers.Definition{
+			providers.Arker:     arker.Definition{},
 			providers.Blaxel:    blaxel.Definition{},
+			providers.Boxd:      boxd.Definition{},
+			providers.CreateOS:  createos.Definition{},
 			providers.Daytona:   daytona.Definition{},
 			providers.Freestyle: freestyle.Definition{},
 			providers.Modal:     modal.Definition{},
+			providers.Tenki:     tenki.Definition{},
 			providers.Unikraft:  unikraft.Definition{},
 		},
 	}

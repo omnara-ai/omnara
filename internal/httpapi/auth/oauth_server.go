@@ -129,7 +129,7 @@ func (h *Handler) requireOAuthRateLimits(
 	if err == nil {
 		return true
 	}
-	if errors.Is(err, errRateLimited) {
+	if errors.Is(err, ErrRateLimited) {
 		if tokenEndpoint {
 			writeOAuthError(w, http.StatusBadRequest, "slow_down", "polling rate limit exceeded")
 		} else {

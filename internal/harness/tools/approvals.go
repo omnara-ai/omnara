@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (e Executor) PrepareToolCallPermission(
@@ -60,7 +60,7 @@ func (e Executor) PrepareToolCallPermission(
 	if implemented {
 		inputErr = implementation.validateInput(call.Input)
 	}
-	if inputErr == nil && !implemented && supported {
+	if inputErr == nil && supported && (!implemented || toolcatalog.UsesIntegrationToolNamespace(call.Name)) {
 		schema := spec.InputSchema
 		if len(schema) == 0 {
 			inputErr = fmt.Errorf("tool %q has no runtime input schema", call.Name)
@@ -347,22 +347,32 @@ func (e Executor) completeAsyncToolFailure(
 		return nil
 	}
 	errorMessage := cause.Error()
-	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+	// Provider failures may carry a confirmed receipt or delivery uncertainty.
+	// Preserve that evidence even when the underlying cause is a timeout.
+	if !content.isSet && (errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded)) {
 		errorMessage = executionstore.RuntimeToolInterruptedMessage
 		var err error
 		content, err = structuredToolResultContent(map[string]any{
-			"code":    "async_tool_interrupted",
-			"message": errorMessage,
+			"error_code": "async_tool_interrupted",
+			"message":    errorMessage,
 		})
 		if err != nil {
 			return fmt.Errorf("marshal interrupted async tool result: %w", err)
 		}
 	}
 	if !content.isSet {
+		failure := map[string]any{"error": errorMessage}
+		if code := storeerr.FileErrorCode(cause); code != "" {
+			failure["error_code"] = code
+			var conflict *storeerr.FileContentConflictError
+			if errors.As(cause, &conflict) && conflict.CurrentDigest != "" {
+				failure["current_digest"] = conflict.CurrentDigest
+			}
+		} else if errors.Is(cause, errFileToolUnavailable) {
+			failure["error_code"] = "operation_unavailable"
+		}
 		var err error
-		content, err = structuredToolResultContent(
-			map[string]any{"error": errorMessage},
-		)
+		content, err = structuredToolResultContent(failure)
 		if err != nil {
 			return fmt.Errorf("marshal async tool failure result: %w", err)
 		}
@@ -415,8 +425,8 @@ func (e Executor) completeAsyncToolResult(
 		logpkg.LoggerFromContext(ctx).Error("persist async tool result", "tool_call_id", toolCallID, "error", err)
 	}
 	fallback, fallbackErr := structuredToolResultContent(map[string]any{
-		"code":    code,
-		"message": message,
+		"error_code": code,
+		"message":    message,
 	})
 	if fallbackErr != nil {
 		return errors.Join(err, fallbackErr)

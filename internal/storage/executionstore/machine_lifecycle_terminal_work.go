@@ -354,7 +354,7 @@ func completeTerminalProcessActionToolCallTx(
 	}
 	resultRecord := toolCallRecordFromProcessActionCompleteSQLC(toolRow)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
 		return err
 	}
 	metadata, err := marshalJSON(
@@ -437,7 +437,7 @@ func completeProcessToolCallFromRecordTx(
 	}
 	resultRecord := toolCallRecordFromProcessCompleteSQLC(toolRow)
 	resultRecord.ResultContentParts = contentParts
-	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord); err != nil {
+	if _, err := appendToolResultEventTx(ctx, txNotifications, tx, resultRecord, nil); err != nil {
 		return err
 	}
 	metadata, err := marshalJSON(

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -34,9 +35,8 @@ func TestQueuedProcessFailureSkipsCompletedToolCall(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -85,9 +85,8 @@ func TestDaemonReportsRejectTerminalProcessThatWasNeverGranted(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo should-not-run", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo should-not-run",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -180,9 +179,8 @@ func TestDaemonProcessFailureBeforeStartHasNoSourceTimes(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("invalid launch", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "invalid launch",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -245,9 +243,8 @@ func TestProcessCompletionDoesNotOverwriteCompletedObservationToolCall(t *testin
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -342,9 +339,8 @@ func TestDuplicateDaemonProcessFinishedReportReplaysTerminalState(t *testing.T) 
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo hi", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo hi",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -414,9 +410,8 @@ func TestCompleteDaemonProcessRejectsReversedSourceTimes(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo fast", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo fast",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -476,9 +471,8 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -615,9 +609,8 @@ func TestDaemonProcessFinishedPreservesAcceptedTerminateEvidence(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 60",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {

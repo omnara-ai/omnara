@@ -71,39 +71,49 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 		run         asyncToolHandler
 		offsetLine  int
 	}{
-		{"search_files", `{"path":"` + path + `","pattern":"^TARGET","max_matches":20}`, runSearchFilesAsync, 1},
-		{"search_files", `{"path":"` + path + `","pattern":"^TARGET","offset_line":21,"max_matches":20}`,
+		{"search_files", `{"path":"` + path + `","args":["-e","^TARGET"],"limit":20}`, runSearchFilesAsync, 1},
+		{"search_files", `{"path":"` + path + `","args":["-e","^TARGET"],"offset_line":21,"limit":20}`,
 			runSearchFilesAsync, 21},
 		{"read_file", `{"path":"` + path + `","offset_line":2,"limit_lines":1}`, runReadFileAsync, 0},
 	} {
-		call.Call = model.ToolCall{Name: test.name, Input: json.RawMessage(test.input)}
-		dispatch, err := test.run(ctx, call)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw := asyncCompletionContent(t, dispatch)
-		var content []struct {
-			Value struct {
-				MatchCount     int    `json:"match_count"`
-				Truncated      bool   `json:"truncated"`
-				Content        string `json:"content"`
-				NextOffsetLine int    `json:"next_offset_line"`
-				Matches        []struct {
-					MatchLine int `json:"match_line"`
-				} `json:"matches"`
-			} `json:"value"`
-		}
-		if err := json.Unmarshal(raw, &content); err != nil {
-			t.Fatal(err)
-		}
-		if test.name == "search_files" && (content[0].Value.MatchCount != 20 || !content[0].Value.Truncated ||
-			content[0].Value.NextOffsetLine != test.offsetLine+20 || len(content[0].Value.Matches) != 20 ||
-			content[0].Value.Matches[0].MatchLine != test.offsetLine) {
-			t.Fatalf("search did not find separate original lines: %s", raw)
-		}
-		if test.name == "read_file" && content[0].Value.Content != "TARGET 0001 "+strings.Repeat("é", 30)+"\n" {
-			t.Fatalf("read did not preserve original lines: %s", raw)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			if test.name == "search_files" {
+				setupSandbox(t)
+			}
+			call.Call = model.ToolCall{Name: test.name, Input: json.RawMessage(test.input)}
+			dispatch, err := test.run(ctx, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := asyncCompletionContent(t, dispatch)
+			var content []struct {
+				Value struct {
+					MatchCount int    `json:"match_count"`
+					Truncated  bool   `json:"truncated"`
+					Content    string `json:"content"`
+					Lines      []struct {
+						LineNumber int `json:"line_number"`
+					} `json:"lines"`
+				} `json:"value"`
+			}
+			if err := json.Unmarshal(raw, &content); err != nil {
+				t.Fatal(err)
+			}
+			if test.name == "search_files" && (content[0].Value.MatchCount < 1 || content[0].Value.MatchCount > 20 ||
+				!content[0].Value.Truncated ||
+				len(content[0].Value.Lines) != content[0].Value.MatchCount ||
+				content[0].Value.Lines[0].LineNumber != test.offsetLine) {
+				t.Fatalf("search did not find separate original lines: %s", raw)
+			}
+			for index, match := range content[0].Value.Lines {
+				if match.LineNumber != test.offsetLine+index {
+					t.Fatalf("search skipped or duplicated a line: %s", raw)
+				}
+			}
+			if test.name == "read_file" && content[0].Value.Content != "TARGET 0001 "+strings.Repeat("é", 30)+"\n" {
+				t.Fatalf("read did not preserve original lines: %s", raw)
+			}
+		})
 	}
 }
 
@@ -221,7 +231,7 @@ func TestAsyncToolInvalidResult(t *testing.T) {
 			}
 			var parts []struct {
 				Value struct {
-					Code    string `json:"code"`
+					Code    string `json:"error_code"`
 					Message string `json:"message"`
 				} `json:"value"`
 			}

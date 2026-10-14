@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+var ErrProcessMachineDeleted = storeerr.Tag(storeerr.ErrProcessTerminal, errors.New("process machine was deleted"))
+
 func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
 	input CreateProcessActionInput,
@@ -70,6 +72,9 @@ func (t *toolCallTransaction) createProcessAction(
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if input.ActionKind == ProcessActionKindRead {
+				return ProcessActionRecord{}, ErrProcessMachineDeleted
+			}
 			return ProcessActionRecord{}, t.processActionCreateBlocker(ctx, input)
 		}
 		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", err)
@@ -189,7 +194,38 @@ func (s *Store) ListDaemonProcessOffers(ctx context.Context, input DaemonWorkInp
 	}
 	offers := make([]DaemonProcessOffer, 0, len(rows))
 	for _, row := range rows {
-		offer := DaemonProcessOffer{Process: processRecordFromSQLC(row)}
+		offer := DaemonProcessOffer{
+			Process: processRecordFromSQLC(dbsqlc.Process{
+				ID:                    row.ID,
+				OrgID:                 row.OrgID,
+				ProjectID:             row.ProjectID,
+				AgentID:               row.AgentID,
+				ToolCallID:            row.ToolCallID,
+				RuntimeLockID:         row.RuntimeLockID,
+				AgentMachineBindingID: row.AgentMachineBindingID,
+				MachineID:             row.MachineID,
+				ExecutionGrantedAt:    row.ExecutionGrantedAt,
+				ExecutionSpec:         row.ExecutionSpec,
+				Cwd:                   row.Cwd,
+				Env:                   row.Env,
+				SecretEnv:             row.SecretEnv,
+				TimeoutSeconds:        row.TimeoutSeconds,
+				InitialWaitMs:         row.InitialWaitMs,
+				DefaultOutputCursor:   row.DefaultOutputCursor,
+				State:                 row.State,
+				StateReasonCode:       row.StateReasonCode,
+				StateReasonMessage:    row.StateReasonMessage,
+				SourceStartedAt:       row.SourceStartedAt,
+				SourceEndedAt:         row.SourceEndedAt,
+				StateChangedAt:        row.StateChangedAt,
+				ExitCode:              row.ExitCode,
+				ExitSignal:            row.ExitSignal,
+				CreatedAt:             row.CreatedAt,
+				UpdatedAt:             row.UpdatedAt,
+				LastActivityAt:        row.LastActivityAt,
+			}),
+			GitCredentials: row.GitCredentialsIntegrationID != uuid.Nil,
+		}
 		env, err := s.ResolveEnvironmentSecrets(ctx, row.OrgID, row.ProjectID, row.Env, row.SecretEnv)
 		if err != nil {
 			if !errors.Is(err, storeerr.ErrPermanentEnvironment) {

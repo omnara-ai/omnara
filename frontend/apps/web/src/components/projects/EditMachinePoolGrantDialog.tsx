@@ -56,7 +56,7 @@ export function EditMachinePoolGrantDialog({
         ...poolGrantUpdateRequest(pool, item.grant, draft),
       })
     } catch (err) {
-      setStatus(submitError(err, 'Could not update machine pool grant'))
+      setStatus(submitError(err, 'Could not update shared machine pool'))
       return
     }
     setStatus(idle)
@@ -67,7 +67,7 @@ export function EditMachinePoolGrantDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Edit pool grant</DialogTitle>
+          <DialogTitle>Edit shared pool</DialogTitle>
           <DialogDescription>
             Overrides for the {item.machine_pool.name} pool in this project.
           </DialogDescription>

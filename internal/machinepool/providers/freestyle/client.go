@@ -244,10 +244,10 @@ func (c *restClient) doRequest(
 			Code string `json:"code"`
 		}
 		_ = json.Unmarshal(response.Body, &errorBody)
-		return providers.WithRetryAfter(apiError{
+		return providers.WithResponse(apiError{
 			StatusCode: response.StatusCode,
 			Code:       strings.TrimSpace(errorBody.Code),
-		}, response.Header)
+		}, response)
 	}
 	if out == nil {
 		return nil

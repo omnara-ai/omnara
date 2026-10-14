@@ -21,18 +21,26 @@ const (
 	defaultPoolInitialNumMachines = 1
 )
 
+type MemoryStoreCompiled struct {
+	ID     uuid.UUID         `json:"id"`
+	Access MemoryStoreAccess `json:"access"`
+}
+
 type Compiled struct {
-	Version        string                       `json:"version,omitempty"`
-	Instruction    string                       `json:"instruction"`
-	Model          ModelCompiled                `json:"model,omitempty"`
-	MachineSources []MachineSourceCompiled      `json:"machine_sources,omitempty"`
-	Tools          map[string]ToolCompiled      `json:"tools,omitempty"`
-	MCP            map[string]MCPServerCompiled `json:"mcp,omitempty"`
-	EventWebhook   *EventWebhookCompiled        `json:"event_webhook,omitempty"`
-	Skills         []SkillCompiled              `json:"skills,omitempty"`
-	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
-	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
-	MaxDepth       *int                         `json:"max_depth,omitempty"`
+	Version             string                                   `json:"version,omitempty"`
+	Instruction         string                                   `json:"instruction"`
+	Model               ModelCompiled                            `json:"model,omitempty"`
+	MachineSources      []MachineSourceCompiled                  `json:"machine_sources,omitempty"`
+	Tools               map[string]ToolCompiled                  `json:"tools,omitempty"`
+	MCP                 map[string]MCPServerCompiled             `json:"mcp,omitempty"`
+	InteractionHandlers map[string]IntegrationCapabilityCompiled `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsCompiled                  `json:"git_credentials,omitempty"`
+	Skills              []SkillCompiled                          `json:"skills,omitempty"`
+	Subagents           map[string]SubagentCompiled              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                     `json:"max_depth,omitempty"`
+	EventWebhook        *EventWebhookCompiled                    `json:"event_webhook,omitempty"`
+	MemoryStores        []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
 }
 
 type SkillCompiled struct {
@@ -109,12 +117,13 @@ type MachineSourceCompiled struct {
 }
 
 type ToolCompiled struct {
-	Enabled     bool                     `json:"enabled"`
-	Type        string                   `json:"type,omitempty"`
-	Permission  toolpermission.Selection `json:"permission"`
-	Deferred    bool                     `json:"deferred,omitempty"`
-	Description string                   `json:"description,omitempty"`
-	InputSchema json.RawMessage          `json:"input_schema,omitempty"`
+	IntegrationID uuid.UUID                `json:"integration_id,omitzero"`
+	Enabled       bool                     `json:"enabled"`
+	Type          string                   `json:"type,omitempty"`
+	Permission    toolpermission.Selection `json:"permission"`
+	Deferred      bool                     `json:"deferred,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	InputSchema   json.RawMessage          `json:"input_schema,omitempty"`
 }
 
 type MCPServerCompiled struct {
@@ -151,6 +160,8 @@ type Result struct {
 }
 
 type CompileOptions struct {
+	ResolveIntegrationName    func(name string) (IntegrationResolution, error)
+	ResolveMemoryStoreName    func(string) (uuid.UUID, error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
@@ -252,7 +263,8 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	compiled.Tools, err = compileTools(source)
+	opts = cacheIntegrationResolver(opts)
+	compiled.Tools, err = compileTools(source, opts)
 	if err != nil {
 		return Compiled{}, err
 	}
@@ -262,6 +274,27 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 			return Compiled{}, err
 		}
 		compiled.MCP = mcpServers
+	}
+	if err := compileIntegrationCapabilities(source, opts, &compiled); err != nil {
+		return Compiled{}, err
+	}
+	seenMemoryStores := make(map[uuid.UUID]bool)
+	for i, store := range source.MemoryStores {
+		if opts.ResolveMemoryStoreName == nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores"), "memory store resolution is unavailable")
+		}
+		id, err := opts.ResolveMemoryStoreName(store.Name)
+		if err != nil {
+			return Compiled{}, issueOr(jsonPointer("memory_stores", i), err)
+		}
+		if id == uuid.Nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "invalid resolved memory store")
+		}
+		if seenMemoryStores[id] {
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "duplicate memory store %q", store.Name)
+		}
+		seenMemoryStores[id] = true
+		compiled.MemoryStores = append(compiled.MemoryStores, MemoryStoreCompiled{ID: id, Access: store.Access})
 	}
 	if len(source.Skills) > 0 {
 		skills, err := compileSkills(source.Skills, opts)
@@ -283,7 +316,11 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	}
 	compiled.MaxDepth = source.MaxDepth
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
-		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", compiledModel.sourceName)
+		return Compiled{}, issuef(
+			jsonPointer("model", "name"),
+			"model %q does not support tools",
+			compiledModel.sourceName,
+		)
 	}
 	return compiled, nil
 }
@@ -346,6 +383,12 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
+	for _, store := range source.MemoryStores {
+		if store.Access == MemoryStoreAccessReadWrite {
+			names = append(names, toolcatalog.ToolNameWriteFile)
+			break
+		}
+	}
 	if sourceDefersAnyTool(source) {
 		names = append(names, toolcatalog.ToolNameToolSearch)
 	}
@@ -353,21 +396,25 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		_, configured := source.Tools[name]
 		return configured
 	})
-	hasTools := len(names) > 0 || len(source.MCP) > 0
+	includeFileRetrievalDefaults := len(names) > 0 || len(source.MCP) > 0 || len(source.MemoryStores) > 0
 	for _, tool := range source.Tools {
 		if tool.Enabled == nil || *tool.Enabled {
-			hasTools = true
+			includeFileRetrievalDefaults = true
 			break
 		}
 	}
-	if hasTools {
-		for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
+	if includeFileRetrievalDefaults {
+		for _, name := range fileRetrievalToolNames() {
 			if _, configured := source.Tools[name]; !configured {
 				names = append(names, name)
 			}
 		}
 	}
 	return names
+}
+
+func fileRetrievalToolNames() []string {
+	return []string{toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles}
 }
 
 func sourceDefersAnyTool(source AgentConfigSource) bool {
@@ -433,6 +480,15 @@ func compileBuiltInTool(
 	enabled bool,
 	catalog toolcatalog.Catalog,
 ) (ToolCompiled, error) {
+	if source.Type != "" && source.Type != toolcatalog.ToolTypeBuiltIn {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "type"), "must be built_in or custom")
+	}
+	if source.Description != "" || source.InputSchema != nil {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name),
+			"built-in tools cannot redefine description or input_schema",
+		)
+	}
 	entry, ok := catalog.Lookup(name)
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "tool %q is not registered", name)
@@ -462,8 +518,14 @@ func compileCustomTool(
 	enabled bool,
 	catalog toolcatalog.Catalog,
 ) (ToolCompiled, error) {
-	if toolcatalog.UsesMCPRuntimeNamespace(name) {
-		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name uses the reserved MCP tool namespace")
+	if strings.TrimSpace(source.Description) == "" {
+		return ToolCompiled{}, issuef(jsonPointer("tools", name, "description"), "is required")
+	}
+	if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name),
+			"custom tool name uses a reserved integration or MCP tool namespace",
+		)
 	}
 	if _, ok := catalog.Lookup(name); ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name collides with a built-in tool")
@@ -694,7 +756,10 @@ func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, 
 		return 0, 0, issuef(jsonPointer("machine_sources", index, "initial_num_machines"), "cannot be negative")
 	}
 	if maxMachines > math.MaxInt32 {
-		return 0, 0, issuef(jsonPointer("machine_sources", index, "max_machines"), "must fit the machine pool capacity range")
+		return 0, 0, issuef(
+			jsonPointer("machine_sources", index, "max_machines"),
+			"must fit the machine pool capacity range",
+		)
 	}
 	if initialNumMachines > math.MaxInt32 {
 		return 0, 0, issuef(

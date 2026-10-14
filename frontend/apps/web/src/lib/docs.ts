@@ -11,6 +11,7 @@ export const guides = {
   machinePools: 'machines/pools',
   machines: 'machines/connect',
   members: 'organization/members',
+  memory: 'agents/configuration#memory-stores',
   modelProviders: 'organization/model-providers',
   secrets: 'organization/secrets',
   skills: 'tools/skills',

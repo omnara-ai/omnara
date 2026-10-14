@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
@@ -20,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -762,6 +764,97 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 	if ids := machineIDsFromListResponse(t, poolOnly); stringSetHas(ids, byoID) || !stringSetHas(ids, poolMachineID) {
 		t.Fatalf("pool filter should only include pool machine, got %+v", ids)
 	}
+	poolPublicID := testPublicID(t, publicid.KindMachinePool, machinePool.ID)
+	inPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := machineIDsFromListResponse(t, inPool); stringSetHas(ids, byoID) || !stringSetHas(ids, poolMachineID) {
+		t.Fatalf("machine pool filter should only include that pool's machine, got %+v", ids)
+	}
+	otherPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+
+			testPublicID(t, publicid.KindMachinePool, uuid.New()),
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := machineIDsFromListResponse(t, otherPool); len(ids) != 0 {
+		t.Fatalf("unknown machine pool filter should match nothing, got %+v", ids)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+poolMachineID,
+		"",
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	poolDetail := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	poolUsage := testutil.RequireType[map[string]any](t, poolDetail["usage"])
+	if poolUsage["machines"] != float64(1) || poolUsage["cpu"] != float64(1) ||
+		poolUsage["memory_mb"] != float64(1024) {
+		t.Fatalf("machine pool detail should report the pool machine's usage, got %+v", poolUsage)
+	}
+	poolGrantPublicID := testPublicID(t, publicid.KindProjectMachinePoolGrant, poolGrant.ID)
+	poolGrantsForPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machine-pool-grants?machine_pool_id="+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := poolGrantIDsFromListResponse(t, poolGrantsForPool); len(ids) != 1 || ids[0] != poolGrantPublicID {
+		t.Fatalf("pool grant filter should return only that pool's grant, got %+v", ids)
+	}
+	poolGrantsForOtherPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machine-pool-grants?machine_pool_id="+
+			testPublicID(t, publicid.KindMachinePool, uuid.New()),
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := poolGrantIDsFromListResponse(t, poolGrantsForOtherPool); len(ids) != 0 {
+		t.Fatalf("pool grant filter for an unknown pool should match nothing, got %+v", ids)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machine-pool-grants?machine_pool_id="+poolMachineID,
+		"",
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
 	detail := requestJSONWithHeaders(
 		t,
 		handler,
@@ -860,6 +953,33 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 		http.StatusBadRequest,
 		authHeaders(viewerPAT.Token),
 	)
+	projectInPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machines?machine_pool_id="+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(viewerPAT.Token),
+	)
+	if ids := machineIDsFromListResponse(t, projectInPool); !stringSetHas(ids, poolMachineID) {
+		t.Fatalf("project machine pool filter should include the pool machine, got %+v", ids)
+	}
+	projectOtherPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machines?machine_pool_id="+
+			testPublicID(t, publicid.KindMachinePool, uuid.New()),
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(viewerPAT.Token),
+	)
+	if ids := machineIDsFromListResponse(t, projectOtherPool); len(ids) != 0 {
+		t.Fatalf("project filter for an unknown pool should match nothing, got %+v", ids)
+	}
 	poolTokenID := testPublicID(t, publicid.KindMachineDaemonToken, httpTestID("pool-machine-token-route"))
 	requestJSONWithHeaders(
 		t,
@@ -1596,9 +1716,8 @@ func TestMachineDaemonRuntimeRegistrationReportsTerminalAndUnknownProcesses(
 			RuntimeLockID: terminal.RuntimeLock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
 			AgentMachineBindingID: terminal.BindingUUID,
-			Command:               "sleep 60",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -2924,6 +3043,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 	toolName string,
 	additionalToolCalls []model.ToolCall,
 	primaryToolInputBuilder func(uuid.UUID) json.RawMessage,
+	executionOverride ...processcmd.ExecutionSpec,
 ) daemonProcessFixture {
 	t.Helper()
 	_, err := storagetest.CreateVerifiedUser(
@@ -2998,6 +3118,53 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 		additionalToolCalls,
 		primaryToolInputBuilder,
 	)
+	spec := processcmd.ForShell("echo ok", "sh", "pipe")
+	if toolName == "upload_file" || toolName == "download_file" {
+		var input struct {
+			Path           string  `json:"path"`
+			Source         string  `json:"source"`
+			Destination    string  `json:"destination"`
+			ExpectedDigest *string `json:"expected_digest"`
+		}
+		if err := json.Unmarshal(toolCall.Input, &input); err != nil {
+			t.Fatal(err)
+		}
+		transfer := processcmd.FileTransfer{Direction: processcmd.FileTransferUpload, LocalPath: input.Source}
+		if toolName == "download_file" {
+			transfer.Direction, transfer.LocalPath = processcmd.FileTransferDownload, input.Destination
+		}
+		if strings.HasPrefix(input.Path, "/memory/") {
+			parts := strings.SplitN(strings.TrimPrefix(input.Path, "/memory/"), "/", 2)
+			if len(parts) != 2 {
+				t.Fatal("memory fixture path requires a file")
+			}
+			var id uuid.UUID
+			err := pool.QueryRow(ctx,
+				`SELECT id FROM memory_stores WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL`,
+				project.ProjectUUID, parts[0]).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				id = uuid.New()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: parts[1], ExpectedDigest: input.ExpectedDigest}
+			spec = processcmd.ForFileTransfer(transfer)
+		} else if input.Path == "/artifacts" || strings.HasPrefix(input.Path, "/artifacts/") {
+			target := &processcmd.ArtifactTarget{}
+			if transfer.Direction == processcmd.FileTransferDownload {
+				id, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(input.Path, "/artifacts/"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				target.ID = id
+			}
+			transfer.Target.Artifact = target
+			spec = processcmd.ForFileTransfer(transfer)
+		}
+	}
+	if len(executionOverride) > 0 {
+		spec = executionOverride[0]
+	}
 	process, err := storagetest.StartProcessForToolCall(
 		ctx,
 		store,
@@ -3008,9 +3175,8 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 			RuntimeLockID: lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         spec,
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo ok",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -3180,4 +3346,16 @@ func quote(value string) string {
 		panic(err)
 	}
 	return string(body)
+}
+
+func poolGrantIDsFromListResponse(t *testing.T, response map[string]any) []string {
+	t.Helper()
+	items := testutil.RequireType[[]any](t, response["data"])
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		entry := testutil.RequireType[map[string]any](t, item)
+		grant := testutil.RequireType[map[string]any](t, entry["grant"])
+		ids = append(ids, testutil.RequireType[string](t, grant["id"]))
+	}
+	return ids
 }

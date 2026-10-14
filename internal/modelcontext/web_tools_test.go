@@ -37,7 +37,7 @@ func TestRuntimeContractToolSpecsRenderWebToolDescriptions(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	specs, err := RuntimeContractToolSpecs(
 		context.Background(),
-		nil,
+		&fakeContextStore{},
 		uuid.UUID{},
 		uuid.UUID{},
 		webToolsContract(t),

@@ -15,12 +15,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (

@@ -8,20 +8,41 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ActorParams struct {
-	Provider         string
-	ProviderTenantID string
-	ProviderUserID   string
-	DisplayName      *string
-	Metadata         resourcemeta.Metadata
+	Provider         ActorProvider         `json:"provider"`
+	ProviderTenantID string                `json:"provider_tenant_id"`
+	ProviderUserID   string                `json:"provider_user_id"`
+	DisplayName      *string               `json:"display_name,omitempty"`
+	Metadata         resourcemeta.Metadata `json:"metadata,omitempty"`
+}
+
+func IntegrationActorParams(
+	integration integrationstore.IntegrationRecord,
+	userID string,
+	displayName *string,
+) (ActorParams, error) {
+	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
+	if !ok || definition.Provider != integration.Provider {
+		return ActorParams{}, errors.New("integration actor requires a matching integration kind and provider")
+	}
+	tenantID, sourceLabel, err := definition.ActorIdentity(integration.ProviderTenantID)
+	if err != nil {
+		return ActorParams{}, err
+	}
+	return ActorParams{
+		Provider: ActorProviderIntegration, ProviderTenantID: tenantID,
+		ProviderUserID: userID, DisplayName: displayName,
+		Metadata: resourcemeta.Metadata{"source_label": sourceLabel},
+	}, nil
 }
 
 func OmnaraActorParams(orgID uuid.UUID, principal identitystore.PrincipalRecord) (*ActorParams, error) {
@@ -98,17 +119,13 @@ func omnaraActorDisplayNameTx(
 func resolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
+	projectID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID uuid.UUID,
 ) (uuid.UUID, error) {
 	if projectID == uuid.Nil {
 		return uuid.Nil, errors.New("project id is required for input actor")
 	}
 	if params == nil {
-		if integrationTargetID != uuid.Nil {
-			return uuid.Nil, errors.New("integration target input requires an actor")
-		}
 		return uuid.Nil, nil
 	}
 	var actor ActorRecord
@@ -139,30 +156,11 @@ func resolveActorTx(
 			ProviderTenantID: params.ProviderTenantID,
 			ProviderUserID:   params.ProviderUserID,
 			DisplayName:      displayName,
+			Metadata:         params.Metadata,
 		})
 	}
 	if err != nil {
 		return uuid.Nil, err
-	}
-	if integrationTargetID != uuid.Nil {
-		if agentID == uuid.Nil {
-			return uuid.Nil, errors.New("agent is required for integration-target input actor")
-		}
-		matches, err := qtx.ActorMatchesIntegrationTarget(
-			ctx,
-			dbsqlc.ActorMatchesIntegrationTargetParams{
-				ProjectID:           projectID,
-				AgentID:             agentID,
-				IntegrationTargetID: integrationTargetID,
-				ActorID:             actor.ID,
-			},
-		)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("validate integration target actor: %w", err)
-		}
-		if !matches {
-			return uuid.Nil, storeerr.ErrUnauthorized
-		}
 	}
 	return actor.ID, nil
 }
@@ -176,9 +174,12 @@ func lookupActorIDTx(
 	if params == nil {
 		return uuid.Nil, true, nil
 	}
+	if err := validateActorText(params.ProviderTenantID, params.ProviderUserID, ""); err != nil {
+		return uuid.Nil, false, err
+	}
 	row, err := qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 		ProjectID:        projectID,
-		Provider:         strings.TrimSpace(params.Provider),
+		Provider:         strings.TrimSpace(string(params.Provider)),
 		ProviderTenantID: storeutil.TextFromEmpty(strings.TrimSpace(params.ProviderTenantID)),
 		ProviderUserID:   strings.TrimSpace(params.ProviderUserID),
 	})

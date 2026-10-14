@@ -5,6 +5,7 @@ import { providerOptionStrings } from '@/lib/provider-options'
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
+    optional?: boolean
     key: string
     label: string
     placeholder: string
@@ -60,7 +61,10 @@ export function machinePoolCoreProviderOptions(
   location: string,
 ) {
   const definition = machinePoolProviderDefinitions[provider]
-  const options = { [definition.resource.key]: resource.trim() }
+  const options: Record<string, string> = {}
+  if (!definition.resource.optional || resource.trim() !== '') {
+    options[definition.resource.key] = resource.trim()
+  }
   if (definition.location && (definition.location.required || location.trim() !== '')) {
     options[definition.location.key] = location.trim()
   }
@@ -108,6 +112,7 @@ const blaxel: MachinePoolProviderDefinition = {
     label: 'Workspace',
     placeholder: 'Workspace name',
     required: true,
+    description: 'The workspace name in your Blaxel console URL: app.blaxel.ai/{workspace}.',
   },
   resources: { cpu: 'unsupported', memoryMb: 'configured' },
 }
@@ -179,12 +184,92 @@ const freestyle: MachinePoolProviderDefinition = {
   },
 }
 
+const tenki: MachinePoolProviderDefinition = {
+  label: 'Tenki',
+  resource: {
+    key: 'image',
+    label: 'Image',
+    placeholder: 'Tenki base image',
+    optional: true,
+    description:
+      'Leave empty to use the Tenki base image, or enter a Tenki registry image reference.',
+    descriptionHref: 'https://tenki.cloud/docs/sandbox/templates',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
+const arker: MachinePoolProviderDefinition = {
+  label: 'Arker',
+  resource: {
+    key: 'source',
+    label: 'Source VM',
+    placeholder: 'ubuntu-base',
+    description: 'Each machine is a fork of this VM, including its disk and running processes.',
+    descriptionHref: 'https://arker.ai/docs/vms',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'aws-us-west-2',
+    defaultValue: 'aws-us-west-2',
+    required: true,
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
+const boxd: MachinePoolProviderDefinition = {
+  label: 'boxd',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot',
+    placeholder: 'boxd base image',
+    optional: true,
+    description:
+      "Leave empty to use the boxd base image, or enter a saved snapshot's name. Machines take the snapshot's size, or your boxd org's default size without one.",
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '8',
+  },
+}
+
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-2vcpu-4gb',
+    description: 'The max vCPU and memory must be at least the shape size.',
+    descriptionHref: 'https://docs.createos.sh/Sandbox/Limits',
+  },
+  location: {
+    key: 'rootfs',
+    label: 'Root filesystem',
+    placeholder: 'devbox:1',
+    defaultValue: 'devbox:1',
+    required: true,
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
   daytona,
   modal,
   freestyle,
+  tenki,
+  arker,
+  boxd,
+  createos,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

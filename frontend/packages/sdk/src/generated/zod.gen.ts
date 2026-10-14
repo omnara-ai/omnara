@@ -18,6 +18,11 @@ export const zAgentName = z.string().refine(value => Array.from(value).length <=
 export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 /**
+ * Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export const zMemoryStoreName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export const zResourceListSort = z.enum([
@@ -48,65 +53,52 @@ export const zAgentConfigErrorIssue = z.object({
 
 export const zError = z.object({
     error: z.string(),
+    current_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
     issues: z.array(zAgentConfigErrorIssue).optional(),
-    code: z.enum([
-        'invalid_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'conflict',
-        'gone',
-        'request_too_large',
-        'unsupported_media_type',
-        'unprocessable',
-        'upstream_unavailable',
-        'rate_limited',
-        'internal_error',
-        'service_unavailable',
-        'idempotency_key_conflict',
-        'state_transition_conflict',
-        'managed_work_admission_denied',
-        'pending_work',
-        'not_wake_capable',
-        'daemon_runtime_unregistered',
-        'validation_failed',
-        'csrf_check_failed',
-        'authentication_unavailable'
-    ])
+    code: z.string()
 });
 
 /**
- * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ * Known error codes.
  */
-export const zClientErrorCode = z.enum([
+export const zErrorCode = z.enum([
     'invalid_request',
-    'validation_failed',
     'unauthorized',
     'forbidden',
-    'csrf_check_failed',
     'not_found',
     'conflict',
-    'idempotency_key_conflict',
-    'state_transition_conflict',
-    'pending_work',
-    'not_wake_capable',
+    'file_content_conflict',
+    'file_read_only',
+    'expected_digest_required',
+    'not_a_file',
     'gone',
-    'daemon_runtime_unregistered',
     'request_too_large',
     'unsupported_media_type',
     'unprocessable',
     'upstream_unavailable',
-    'rate_limited'
+    'rate_limited',
+    'internal_error',
+    'service_unavailable',
+    'idempotency_key_conflict',
+    'state_transition_conflict',
+    'managed_work_admission_denied',
+    'pending_work',
+    'not_wake_capable',
+    'daemon_runtime_unregistered',
+    'validation_failed',
+    'csrf_check_failed',
+    'authentication_unavailable'
 ]);
+
+/**
+ * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+ */
+export const zClientErrorCode = z.string();
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
  */
-export const zServerErrorCode = z.enum([
-    'internal_error',
-    'service_unavailable',
-    'authentication_unavailable'
-]);
+export const zServerErrorCode = z.string();
 
 /**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
@@ -137,7 +129,7 @@ export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
 
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
-export const zIntegrationInstallId = z.string().regex(/^iin_[a-z2-7]{26}$/);
+export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
 
 export const zAgentEventId = z.string().regex(/^evt_[a-z2-7]{26}$/);
 
@@ -216,6 +208,8 @@ export const zDiscoveredProviderModel = z.object({
     display_name: z.string().optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    supports_reasoning: z.boolean().optional(),
+    supported_reasoning_efforts: z.array(z.string()).optional(),
     pricing: zDiscoveredModelPricing.optional()
 });
 
@@ -296,6 +290,15 @@ export const zUpdateProjectModelGrantRequest = z.object({
     output_modalities: z.array(z.string()).optional()
 });
 
+/**
+ * Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+ */
+export const zProjectModelGrantEffectiveReasoning = z.object({
+    supports_reasoning: z.boolean(),
+    default_reasoning_effort: z.string(),
+    supported_reasoning_efforts: z.array(z.string())
+});
+
 export const zMachinePoolId = z.string().regex(/^mpo_[a-z2-7]{26}$/);
 
 export const zMachineId = z.string().regex(/^mch_[a-z2-7]{26}$/);
@@ -311,6 +314,8 @@ export const zSkillId = z.string().regex(/^skl_[a-z2-7]{26}$/);
 export const zSkillRevisionId = z.string().regex(/^skr_[a-z2-7]{26}$/);
 
 export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
+
+export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
 
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
@@ -473,7 +478,8 @@ export const zConfiguredModelSummary = z.object({
 
 export const zProjectModelGrantListItem = z.object({
     grant: zProjectModelGrant,
-    model: zConfiguredModelSummary
+    model: zConfiguredModelSummary,
+    effective_reasoning: zProjectModelGrantEffectiveReasoning
 });
 
 export const zListProjectModelGrantsResponse = z.object({
@@ -522,18 +528,18 @@ export const zSkillOwner = z.discriminatedUnion('kind', [
 
 export const zCreateSkillRequest = z.object({
     owner: zSkillOwnerInput,
-    archive: z.string()
+    archive: z.instanceof(Blob)
 });
 
 export const zUpdateSkillRequest = z.intersection(z.union([
     z.object({
-        archive: z.string()
+        archive: z.instanceof(Blob)
     }),
     z.object({
         skill_md: z.string()
     })
 ]), z.object({
-    archive: z.string().optional(),
+    archive: z.instanceof(Blob).optional(),
     skill_md: z.string().optional()
 }));
 
@@ -598,6 +604,65 @@ export const zSkillGrant = z.object({
     created_at: zTimestamp
 });
 
+export const zMemoryStoreAccess = z.enum(['read', 'read_write']);
+
+export const zMemoryStore = z.object({
+    id: zMemoryStoreId,
+    project_id: zProjectId,
+    name: zMemoryStoreName,
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }),
+    agent_access: zMemoryStoreAccess,
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateMemoryStore = z.object({
+    name: zMemoryStoreName,
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
+    agent_access: zMemoryStoreAccess.optional().default('read_write')
+});
+
+export const zUpdateMemoryStore = z.object({
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
+    agent_access: zMemoryStoreAccess.optional()
+});
+
+export const zMemoryStoreList = z.object({
+    data: z.array(zMemoryStore),
+    next_cursor: z.string().nullable()
+});
+
+export const zMemoryRegularFile = z.object({
+    path: z.string(),
+    type: z.enum(['file']),
+    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    modified_at: zTimestamp
+});
+
+export const zMemoryDirectory = z.object({
+    path: z.string(),
+    type: z.enum(['directory']),
+    modified_at: zTimestamp
+});
+
+export const zMemoryFile = z.discriminatedUnion('type', [
+    zMemoryRegularFile.extend({ type: z.literal('file') }),
+    zMemoryDirectory.extend({ type: z.literal('directory') })
+]);
+
+export const zMemoryFileList = z.object({
+    data: z.array(zMemoryFile),
+    next_cursor: z.string().nullable()
+});
+
+/**
+ * Returns the uploaded file's path and digest.
+ */
+export const zUploadFileResponse = z.object({
+    path: z.string(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+
 /**
  * User-supplied metadata for the stored secret. A restriction of Metadata that leaves room for one reserved pair - Omnara sets mcp_url on the secret to the flow's MCP endpoint URL, so the key is reserved and at most 15 user pairs are accepted.
  */
@@ -610,7 +675,6 @@ export const zMcpoAuthStartResponse = z.object({
 });
 
 export const zCreateIntegrationOAuthSetupRequest = z.object({
-    provider: z.string().optional().default('slack'),
     client_id: z.string().min(1),
     client_secret: z.string().min(1),
     signing_secret: z.string().min(1),
@@ -618,38 +682,49 @@ export const zCreateIntegrationOAuthSetupRequest = z.object({
 });
 
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * Registered integration implementation; independent of the saved integration's name and immutable ID.
  */
-export const zIntegrationInstall = z.object({
-    id: zIntegrationInstallId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_profile_id: zAgentProfileId.optional(),
-    agent_id: zAgentId.optional(),
-    provider: z.string(),
-    integration_kind: z.string(),
-    connection_mode: z.string(),
-    state: z.enum(['active', 'disabled']),
-    provider_tenant_id: z.string(),
-    provider_account_ref: z.string(),
-    provider_agent_display_name: z.string(),
-    created_at: zTimestamp,
-    updated_at: zTimestamp
+export const zIntegrationKind = z.enum([
+    'slack_thread',
+    'discord_thread',
+    'github_pr'
+]);
+
+/**
+ * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
+ */
+export const zIntegrationProviderDisplayName = z.string().max(512);
+
+/**
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
+ */
+export const zIntegrationProviderConfig = z.record(z.string(), z.unknown());
+
+export const zCreateGitHubSetupRequest = z.object({
+    expected_setup_revision: z.int().gte(1),
+    app_name: z.string().min(1).max(34).optional(),
+    organization: z.string().min(1).max(39).regex(/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/).optional()
 });
 
-export const zListIntegrationInstallsResponse = z.object({
-    data: z.array(zIntegrationInstall),
-    next_cursor: z.string().nullable()
+export const zInspectGitHubInstallationsRequest = z.object({
+    credential_secret_id: zSecretId,
+    page: z.int().gte(1).lte(1000).optional().default(1)
 });
 
-export const zIntegrationOAuthSetup = z.object({
-    provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
-    oauth_url: z.url(),
-    redirect_uri: z.url(),
-    events_url: z.url(),
-    actions_url: z.url(),
-    expires_at: zTimestamp
+export const zGitHubSetupInstallation = z.object({
+    id: z.string().regex(/^[1-9][0-9]*$/),
+    account: z.string(),
+    account_type: z.string().optional(),
+    settings_url: z.url()
+});
+
+export const zGitHubInstallations = z.object({
+    provider_app_id: z.string().regex(/^[1-9][0-9]*$/),
+    name: z.string(),
+    slug: z.string(),
+    install_url: z.url(),
+    installations: z.array(zGitHubSetupInstallation),
+    next_page: z.int().gte(1).lte(1000).optional()
 });
 
 export const zSlackSetupIcon = z.object({
@@ -662,17 +737,6 @@ export const zCreateSlackSetupRequest = z.object({
     app_configuration_token: z.string().min(1),
     icon: zSlackSetupIcon.optional(),
     return_to: z.string().optional()
-});
-
-export const zSlackSetup = z.object({
-    provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
-    slack_app_id: z.string(),
-    oauth_url: z.url(),
-    redirect_uri: z.url(),
-    events_url: z.url(),
-    actions_url: z.url(),
-    expires_at: zTimestamp
 });
 
 export const zResolveAgentConfigToolsRequest = z.object({
@@ -910,15 +974,6 @@ export const zCompiledMachineSource = z.object({
     description: z.string().optional()
 });
 
-export const zCompiledTool = z.object({
-    enabled: z.boolean(),
-    type: z.enum(['built_in', 'custom']).optional(),
-    permission: zToolPermissionSelection,
-    deferred: z.boolean().optional(),
-    description: z.string().optional(),
-    input_schema: z.record(z.string(), z.unknown()).optional()
-});
-
 export const zCompiledMcpAuthBearer = z.object({
     type: z.enum(['bearer']),
     secret_id: zSecretId
@@ -961,6 +1016,11 @@ export const zCompiledSkill = z.object({
     id: zSkillId
 });
 
+export const zCompiledMemoryStore = z.object({
+    id: zMemoryStoreId,
+    access: zMemoryStoreAccess
+});
+
 export const zCompiledSubagentModel = z.object({
     configured_model_id: zConfiguredModelId.optional(),
     context_window_tokens: z.int().optional(),
@@ -993,23 +1053,6 @@ export const zCompiledSubagent = z.discriminatedUnion('type', [
     zCompiledProfileSubagent.extend({ type: z.literal('profile') })
 ]);
 
-/**
- * Read-only saved compiled configuration, including default tools and derived subagent overrides.
- */
-export const zCompiledAgentConfig = z.object({
-    version: z.string().optional(),
-    instruction: z.string(),
-    model: zCompiledAgentModel,
-    machine_sources: z.array(zCompiledMachineSource).optional(),
-    tools: z.record(z.string(), zCompiledTool).optional(),
-    mcp: z.record(z.string(), zCompiledMcpServer).optional(),
-    event_webhook: zCompiledEventWebhook.optional(),
-    skills: z.array(zCompiledSkill).optional(),
-    subagents: z.record(z.string(), zCompiledSubagent).optional(),
-    max_subagents: z.int().optional(),
-    max_depth: z.int().optional()
-});
-
 export const zAgentConfigSummary = z.object({
     id: zAgentConfigId,
     org_id: zOrganizationId,
@@ -1020,19 +1063,6 @@ export const zAgentConfigSummary = z.object({
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
     created_at: zTimestamp
-});
-
-export const zAgentConfig = z.object({
-    id: zAgentConfigId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    source: z.string().optional(),
-    source_format: z.enum(['yaml', 'json']).optional(),
-    effective_definition_hash: z.string(),
-    model: zAgentConfigModel,
-    instruction_hash: z.string().optional(),
-    created_at: zTimestamp,
-    compiled_definition: zCompiledAgentConfig
 });
 
 export const zCreateAgentProfileRequest = z.object({
@@ -1047,35 +1077,6 @@ export const zUpdateAgentProfileRequest = z.object({
 
 export const zRenameAgentProfileRequest = z.object({
     name: zResourceName
-});
-
-export const zAgentProfileSummary = z.object({
-    id: zAgentProfileId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    current_config_id: zAgentConfigId,
-    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    current_config: zAgentConfigSummary
-});
-
-export const zAgentProfile = z.object({
-    id: zAgentProfileId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    current_config_id: zAgentConfigId,
-    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    current_config: zAgentConfig
-});
-
-export const zListAgentProfilesResponse = z.object({
-    data: z.array(zAgentProfileSummary),
-    next_cursor: z.string().nullable()
 });
 
 export const zAgentProfileCronTriggerTarget = z.object({
@@ -1094,7 +1095,7 @@ export const zCronExpression = z.string().min(9).max(256);
 export const zCronTimezone = z.string().max(64).default('UTC');
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
 
@@ -1109,62 +1110,27 @@ export const zAgentCronTriggerTarget = z.object({
     delivery_mode: zCronTriggerDeliveryMode.optional()
 });
 
-export const zCronTriggerTarget = z.discriminatedUnion('type', [
-    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
-    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
-]);
-
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
     will_retry: z.boolean(),
     failed_at: zTimestamp
 });
 
-export const zCreateCronTriggerRequest = z.object({
-    name: zResourceName,
-    target: zCronTriggerTarget,
-    cron: zCronExpression,
-    timezone: zCronTimezone.optional(),
-    message_template: zCronMessageTemplate,
-    enabled: z.boolean().optional().default(true)
-});
+/**
+ * State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
+ */
+export const zCronTriggerLastRunState = z.enum([
+    'queued',
+    'processing',
+    'completed',
+    'failed'
+]);
 
-export const zUpdateCronTriggerRequest = z.object({
-    target: zCronTriggerTarget.optional(),
-    name: zResourceName.optional(),
-    cron: zCronExpression.optional(),
-    timezone: zCronTimezone.optional(),
-    message_template: zCronMessageTemplate.optional(),
-    enabled: z.boolean().optional()
-});
-
-export const zCronTrigger = z.object({
-    id: zCronTriggerId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    target: zCronTriggerTarget,
-    cron: zCronExpression,
-    timezone: zCronTimezone,
-    message_template: zCronMessageTemplate,
-    enabled: z.boolean(),
-    last_fired_at: zTimestamp.nullable(),
-    next_fire_at: zTimestamp.nullable(),
-    failure_report: zCronTriggerFailureReport.nullable(),
+export const zCronTriggerLastRun = z.object({
+    state: zCronTriggerLastRunState,
     created_at: zTimestamp,
-    updated_at: zTimestamp
-});
-
-export const zListCronTriggersResponse = z.object({
-    data: z.array(zCronTrigger),
-    next_cursor: z.string().nullable()
-});
-
-export const zCreateAgentRequest = z.object({
-    profile: zAgentProfileId.optional(),
-    config: zAgentConfigId,
-    name: zAgentName.optional(),
-    message: z.string().optional()
+    updated_at: zTimestamp,
+    failure_message: z.string().nullable()
 });
 
 export const zAgentActivity = z.object({
@@ -1182,32 +1148,6 @@ export const zAgentModel = z.object({
     name: zResourceName
 });
 
-export const zIntegrationTarget = z.object({
-    provider: z.string(),
-    provider_ref: z.string(),
-    provider_ref_kind: z.string(),
-    display_name: z.string(),
-    provider_uri: z.url().optional()
-});
-
-export const zAgent = z.object({
-    id: zAgentId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_profile_id: zAgentProfileId.optional(),
-    state: z.enum(['active', 'archived']),
-    name: zAgentName,
-    integration_target: zIntegrationTarget.optional(),
-    current_config_id: zAgentConfigId.optional(),
-    model: zAgentModel.optional(),
-    parent_agent_id: zAgentId.optional(),
-    subagent_key: z.string().optional(),
-    activity: zAgentActivity.optional(),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    archived_at: zTimestamp.optional()
-});
-
 export const zAgentMcpConnection = z.object({
     server_key: z.string(),
     endpoint_url: z.string(),
@@ -1221,21 +1161,6 @@ export const zAgentMcpConnection = z.object({
     initialize_error: z.string(),
     created_at: zTimestamp,
     updated_at: zTimestamp
-});
-
-export const zCurrentAgentResponse = z.object({
-    agent: zAgent
-});
-
-export const zGetAgentResponse = z.object({
-    agent: zAgent,
-    machine_ids: z.array(zMachineId),
-    mcp_connections: z.array(zAgentMcpConnection)
-});
-
-export const zListAgentsResponse = z.object({
-    data: z.array(zAgent),
-    next_cursor: z.string().nullable()
 });
 
 export const zAgentInputKind = z.enum([
@@ -1453,19 +1378,6 @@ export const zAgentInput = z.object({
     queued_at: zTimestamp
 });
 
-export const zLaunchAgentResponse = z.object({
-    agent: zAgent,
-    agent_config: zAgentConfig,
-    machine_bindings: z.array(zAgentMachineBinding),
-    agent_input: zAgentInput.optional()
-});
-
-export const zUpdateAgentConfigResponse = z.object({
-    agent_config: zAgentConfig,
-    agent_input: zAgentInput,
-    event_id: zAgentEventId
-});
-
 /**
  * User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
  */
@@ -1538,15 +1450,6 @@ export const zToolCall = z.object({
     outcome: zToolCallOutcome.optional(),
     completed_at: zTimestamp.optional(),
     created_at: zTimestamp
-});
-
-/**
- * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
- */
-export const zToolCallUpdate = z.object({
-    tool_call_id: zToolCallId,
-    agent_id: zAgentId.optional(),
-    state: zToolCallState
 });
 
 export const zListToolCallsResponse = z.object({
@@ -1641,11 +1544,6 @@ export const zEventWebhookContextCheckpointEvent = z.object({
     data: zContextCheckpointEvent
 });
 
-export const zEventWebhookToolCallUpdate = z.object({
-    event: z.enum(['tool_call_update']),
-    data: zToolCallUpdate
-});
-
 export const zModelOutputTextStreamBlock = z.object({
     kind: z.enum(['text'])
 });
@@ -1730,17 +1628,6 @@ export const zEventWebhookModelOutputEvent = z.object({
     data: zModelOutputEvent
 });
 
-/**
- * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
- */
-export const zEventWebhookPayload = z.discriminatedUnion('event', [
-    zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
-    zEventWebhookModelOutputEvent.extend({ event: z.literal('model_output') }),
-    zEventWebhookToolResultEvent.extend({ event: z.literal('tool_result') }),
-    zEventWebhookContextCheckpointEvent.extend({ event: z.literal('context_checkpoint') }),
-    zEventWebhookToolCallUpdate.extend({ event: z.literal('tool_call_update') })
-]);
-
 export const zAgentEvent = z.discriminatedUnion('event_kind', [
     zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
     zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
@@ -1782,16 +1669,6 @@ export const zModelOutputDelta = z.object({
     coalesced_count: zAgentCount,
     event: zModelOutputStreamDelta
 });
-
-/**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
- */
-export const zAgentEventStreamData = z.union([
-    zAgentEvent,
-    zToolCallUpdate,
-    zModelOutputDelta,
-    zError
-]);
 
 export const zListAgentEventsResponse = z.object({
     data: z.array(zAgentEvent),
@@ -1891,30 +1768,59 @@ export const zAgentInteractionState = z.enum([
     'canceled'
 ]);
 
-export const zAgentInteraction = z.object({
+export const zAgentInteractionUpdate = z.object({
     id: zAgentInteractionId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    tool_call_id: zToolCallId,
-    tool_name: z.string().optional(),
-    agent_name: zAgentName.optional(),
-    subagent_key: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
-    state: zAgentInteractionState,
-    request: zInteractionForm,
-    resolution: zInteractionResolution.optional(),
-    resolved_by_input_id: zAgentInputId.optional(),
-    created_at: zTimestamp,
-    resolved_at: zTimestamp.optional()
+    state: zAgentInteractionState
 });
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ */
+export const zToolCallUpdate = z.object({
+    tool_call_id: zToolCallId,
+    agent_id: zAgentId.optional(),
+    state: zToolCallState,
+    interaction_update: zAgentInteractionUpdate.optional()
+});
+
+export const zEventWebhookToolCallUpdate = z.object({
+    event: z.enum(['tool_call_update']),
+    data: zToolCallUpdate
+});
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export const zEventWebhookPayload = z.discriminatedUnion('event', [
+    zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
+    zEventWebhookModelOutputEvent.extend({ event: z.literal('model_output') }),
+    zEventWebhookToolResultEvent.extend({ event: z.literal('tool_result') }),
+    zEventWebhookContextCheckpointEvent.extend({ event: z.literal('context_checkpoint') }),
+    zEventWebhookToolCallUpdate.extend({ event: z.literal('tool_call_update') })
+]);
+
+/**
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ */
+export const zAgentEventStreamData = z.union([
+    zAgentEvent,
+    zToolCallUpdate,
+    zModelOutputDelta,
+    zError
+]);
+
+/**
+ * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+ */
+export const zInteractionPresentationReceipt = z.record(z.string(), z.unknown());
+
+/**
+ * omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
  */
 export const zActorProvider = z.enum([
     'omnara',
-    'slack',
+    'integration',
     'external'
 ]);
 
@@ -1932,13 +1838,21 @@ export const zActor = z.object({
 });
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
  */
 export const zExternalActorParams = z.object({
     provider_tenant_id: z.string().min(1).max(128).optional(),
     provider_user_id: z.string().min(1).max(128),
     display_name: z.string().max(256).optional(),
     metadata: zMetadata.optional()
+});
+
+/**
+ * Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+ */
+export const zAgentLaunchInitialInput = z.object({
+    content_blocks: z.array(zTextContentBlock).min(1),
+    actor: zExternalActorParams.optional()
 });
 
 export const zCreateAgentInputRequest = z.object({
@@ -1959,11 +1873,6 @@ export const zResolveAgentInteractionRequest = z.object({
 
 export const zListActorsResponse = z.object({
     data: z.array(zActor),
-    next_cursor: z.string().nullable()
-});
-
-export const zListAgentInteractionsResponse = z.object({
-    data: z.array(zAgentInteraction),
     next_cursor: z.string().nullable()
 });
 
@@ -2050,10 +1959,18 @@ export const zAwsCredentialsSecretMaterial = z.object({
     external_id: z.string().min(1).optional()
 });
 
+export const zGitHubAppCredentialsSecretMaterial = z.object({
+    kind: z.enum(['github_app_credentials']),
+    app_id: z.string().regex(/^[1-9][0-9]*$/),
+    private_key: z.string().min(1),
+    webhook_secret: z.string().min(1)
+});
+
 export const zSecretMaterial = z.discriminatedUnion('kind', [
     zGenericSecretMaterial.extend({ kind: z.literal('generic') }),
     zOAuthTokenSetSecretMaterial.extend({ kind: z.literal('oauth_token_set') }),
-    zAwsCredentialsSecretMaterial.extend({ kind: z.literal('aws_credentials') })
+    zAwsCredentialsSecretMaterial.extend({ kind: z.literal('aws_credentials') }),
+    zGitHubAppCredentialsSecretMaterial.extend({ kind: z.literal('github_app_credentials') })
 ]);
 
 export const zCreateSecretRequest = z.object({
@@ -2080,7 +1997,8 @@ export const zSecretKind = z.enum([
     'generic',
     'oauth_token_set',
     'slack_app_credentials',
-    'aws_credentials'
+    'aws_credentials',
+    'github_app_credentials'
 ]);
 
 export const zSecret = z.object({
@@ -2242,6 +2160,19 @@ export const zArtifact = z.object({
     created_at: zTimestamp
 });
 
+export const zCheckMachinePoolConnectionRequest = z.object({
+    provider: z.string().min(1),
+    provider_auth_secret_id: zSecretId,
+    provider_config: z.record(z.string(), z.unknown()).optional(),
+    default_machine_provider_options: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zMachinePoolConnectionCheckError = z.object({
+    error: z.string(),
+    code: z.enum(['unprocessable', 'upstream_unavailable']),
+    details: z.string().optional()
+});
+
 export const zCreateMachinePoolRequestBase = z.object({
     name: zResourceName,
     description: z.string().optional(),
@@ -2269,9 +2200,11 @@ export const zCreateMachinePoolRequestBase = z.object({
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
-            'unikraft',
+            'arker',
+            'freestyle',
             'modal',
-            'freestyle'
+            'tenki',
+            'unikraft'
         ]),
         default_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         default_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2281,7 +2214,11 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
         max_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
     }),
     z.object({
-        provider: z.enum(['daytona']),
+        provider: z.enum([
+            'boxd',
+            'createos',
+            'daytona'
+        ]),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2737,10 +2674,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zUploadArtifactResponse = z.object({
-    artifact_id: zArtifactId
-});
-
 export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
@@ -2800,28 +2733,51 @@ export const zListProjectsResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zOrgOverviewProjectActivity = z.object({
+    project_id: zProjectId,
+    last_active_at: zTimestamp
+});
+
 export const zOrgOverviewAgentProfileReference = z.object({
     id: zAgentProfileId,
     name: zResourceName,
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
+export const zUsageTimeseriesInterval = z.enum([
+    'hour',
+    'day',
+    'week',
+    'month'
+]);
+
 /**
- * Activity since the start of today in `timezone`, across the readable projects in `projects`.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
  */
-export const zOrgOverviewToday = z.object({
-    agents_created: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
-    messages_sent: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
-});
+export const zUsageTimeseriesMetric = z.enum([
+    'sum_tokens',
+    'sum_input_tokens',
+    'sum_output_tokens',
+    'sum_cost',
+    'count_model_calls'
+]);
 
-export const zOrgOverviewUsageDayModel = z.object({
-    id: zConfiguredModelId,
-    tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
-});
+export const zUsageTimeseriesGroupBy = z.enum(['model', 'profile']);
 
-export const zOrgOverviewUsageDayProfile = z.object({
-    id: zAgentProfileId.optional(),
-    tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+export const zUsageTimeseriesSeries = z.object({
+    kind: z.enum([
+        'all',
+        'model',
+        'profile',
+        'no_profile',
+        'other'
+    ]),
+    id: z.string().optional(),
+    name: zResourceName.optional(),
+    model_provider_config_name: zResourceName.optional(),
+    project_name: zResourceName.optional(),
+    total: z.number().gte(0),
+    values: z.array(z.number().gte(0))
 });
 
 /**
@@ -2847,43 +2803,42 @@ export const zUsageTotals = z.object({
     cost: zUsageCostTotals
 });
 
-export const zOrgOverviewUsageModel = z.object({
-    id: zConfiguredModelId,
-    name: zResourceName,
-    totals: zUsageTotals
-});
-
-export const zOrgOverviewUsageProfile = z.object({
-    id: zAgentProfileId.optional(),
-    name: zResourceName.optional(),
-    totals: zUsageTotals
-});
-
-export const zOrgOverviewUsageDay = z.object({
-    start: zTimestamp,
-    totals: zUsageTotals,
-    models: z.array(zOrgOverviewUsageDayModel),
-    profiles: z.array(zOrgOverviewUsageDayProfile)
-});
-
 /**
- * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ * Present when the list was requested with `include_stats`.
  */
-export const zOrgOverviewUsage = z.object({
+export const zAgentProfileStats = z.object({
+    agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    usage: zUsageTotals
+});
+
+export const zAgentProfileSummary = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfigSummary,
+    stats: zAgentProfileStats.optional()
+});
+
+export const zListAgentProfilesResponse = z.object({
+    data: z.array(zAgentProfileSummary),
+    next_cursor: z.string().nullable()
+});
+
+export const zUsageTimeseries = z.object({
+    metric: zUsageTimeseriesMetric,
+    interval: zUsageTimeseriesInterval,
+    group_by: zUsageTimeseriesGroupBy.optional(),
+    timezone: z.string(),
+    bucket_starts: z.array(zTimestamp),
+    until: zTimestamp,
     totals: zUsageTotals,
     active_agents: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
-    models: z.array(zOrgOverviewUsageModel),
-    profiles: z.array(zOrgOverviewUsageProfile),
-    days: z.array(zOrgOverviewUsageDay)
-});
-
-export const zOrgOverviewResponse = z.object({
-    projects: z.array(zVisibleProject),
-    recent_agents: z.array(zAgent),
-    recent_agent_profiles: z.array(zAgentProfileSummary),
-    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference),
-    today: zOrgOverviewToday,
-    usage: zOrgOverviewUsage
+    series: z.array(zUsageTimeseriesSeries)
 });
 
 export const zUsageModel = z.object({
@@ -2965,6 +2920,440 @@ export const zListProjectMembershipGrantsResponse = z.object({
     data: z.array(zProjectMembershipGrant)
 });
 
+export const zIntegrationId = z.string().regex(/^itg_[a-z2-7]{26}$/);
+
+export const zIntegrationOAuthSetup = z.object({
+    integration_id: zIntegrationId,
+    setup_revision: z.int().gte(1),
+    provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
+    oauth_url: z.url(),
+    redirect_uri: z.url(),
+    events_url: z.url(),
+    actions_url: z.url(),
+    expires_at: zTimestamp
+});
+
+export const zGitHubSetup = z.object({
+    integration_id: zIntegrationId,
+    setup_revision: z.int().gte(1),
+    registration_url: z.url(),
+    manifest: z.record(z.string(), z.unknown()),
+    expires_at: zTimestamp
+});
+
+export const zSlackSetup = z.object({
+    integration_id: zIntegrationId,
+    setup_revision: z.int().gte(1),
+    provider: z.string(),
+    flow_id: zIntegrationOAuthFlowId,
+    slack_app_id: z.string(),
+    oauth_url: z.url(),
+    redirect_uri: z.url(),
+    events_url: z.url(),
+    actions_url: z.url(),
+    expires_at: zTimestamp
+});
+
+export const zCompiledTool = z.object({
+    integration_id: zIntegrationId.optional(),
+    enabled: z.boolean(),
+    type: z.enum(['built_in', 'custom']).optional(),
+    permission: zToolPermissionSelection,
+    deferred: z.boolean().optional(),
+    description: z.string().optional(),
+    input_schema: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zCompiledIntegrationCapability = z.object({
+    integration_id: zIntegrationId
+});
+
+export const zIntegrationCronTriggerTarget = z.object({
+    type: z.enum(['integration']),
+    integration_id: zIntegrationId,
+    settings: z.record(z.string(), z.unknown())
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') }),
+    zIntegrationCronTriggerTarget.extend({ type: z.literal('integration') })
+]);
+
+export const zCreateCronTriggerRequest = z.object({
+    name: zResourceName,
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate.optional(),
+    enabled: z.boolean().optional().default(true)
+});
+
+export const zUpdateCronTriggerRequest = z.object({
+    target: zCronTriggerTarget.optional(),
+    name: zResourceName.optional(),
+    cron: zCronExpression.optional(),
+    timezone: zCronTimezone.optional(),
+    message_template: zCronMessageTemplate.optional(),
+    enabled: z.boolean().optional()
+});
+
+export const zCronTrigger = z.object({
+    id: zCronTriggerId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    target: zCronTriggerTarget,
+    cron: zCronExpression,
+    timezone: zCronTimezone,
+    message_template: zCronMessageTemplate.optional(),
+    enabled: z.boolean(),
+    last_fired_at: zTimestamp.nullable(),
+    next_fire_at: zTimestamp.nullable(),
+    failure_report: zCronTriggerFailureReport.nullable(),
+    last_run: zCronTriggerLastRun.nullable(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zListCronTriggersResponse = z.object({
+    data: z.array(zCronTrigger),
+    next_cursor: z.string().nullable()
+});
+
+/**
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+ */
+export const zIntegrationSettings = z.record(z.string(), z.unknown());
+
+/**
+ * Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
+ */
+export const zUpdateIntegrationRequest = z.object({
+    settings: zIntegrationSettings
+});
+
+/**
+ * Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ */
+export const zIntegrationRuntimeFailure = z.object({
+    message: z.string(),
+    retry_at: zTimestamp
+});
+
+export const zConfigAgentToolInputSchema = z.object({
+    properties: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+    required: z.array(z.string().min(1)).optional(),
+    type: z.literal('object')
+});
+
+export const zConfigIntegrationCapabilitySource = z.record(z.string(), z.never());
+
+export const zConfigToolPermissionSelection = z.object({
+    mode: z.string().min(1).regex(/\S/),
+    parameters: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zConfigToolSource = z.object({
+    deferred: z.boolean().optional(),
+    description: z.string().min(1).optional(),
+    enabled: z.boolean().nullish(),
+    input_schema: zConfigAgentToolInputSchema.optional(),
+    permission: zConfigToolPermissionSelection.optional(),
+    type: z.enum(['built_in', 'custom']).optional()
+});
+
+/**
+ * Immutable, project-unique integration name used in config keys and qualified tool names.
+ */
+export const zIntegrationName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/);
+
+/**
+ * Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+ */
+export const zCompiledGitCredentials = z.object({
+    integration: zIntegrationName,
+    integration_id: zIntegrationId
+});
+
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export const zCompiledAgentConfig = z.object({
+    version: z.string().optional(),
+    instruction: z.string(),
+    model: zCompiledAgentModel,
+    machine_sources: z.array(zCompiledMachineSource).optional(),
+    tools: z.record(z.string(), zCompiledTool).optional(),
+    mcp: z.record(z.string(), zCompiledMcpServer).optional(),
+    event_webhook: zCompiledEventWebhook.optional(),
+    interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
+    git_credentials: zCompiledGitCredentials.optional(),
+    skills: z.array(zCompiledSkill).optional(),
+    memory_stores: z.array(zCompiledMemoryStore).optional(),
+    subagents: z.record(z.string(), zCompiledSubagent).optional(),
+    max_subagents: z.int().optional(),
+    max_depth: z.int().optional()
+});
+
+export const zAgentConfig = z.object({
+    id: zAgentConfigId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    source: z.string().optional(),
+    source_format: z.enum(['yaml', 'json']).optional(),
+    effective_definition_hash: z.string(),
+    model: zAgentConfigModel,
+    instruction_hash: z.string().optional(),
+    created_at: zTimestamp,
+    compiled_definition: zCompiledAgentConfig
+});
+
+export const zAgentProfile = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfig
+});
+
+export const zUpdateAgentConfigResponse = z.object({
+    agent_config: zAgentConfig,
+    agent_input: zAgentInput,
+    event_id: zAgentEventId
+});
+
+/**
+ * Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
+ */
+export const zCreateIntegrationRequest = z.object({
+    name: zIntegrationName,
+    integration_kind: zIntegrationKind,
+    settings: zIntegrationSettings
+});
+
+export const zIntegrationState = z.enum(['active', 'disconnected']);
+
+/**
+ * Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ */
+export const zConfigureIntegrationRequest = z.object({
+    expected_setup_revision: z.int().gte(1),
+    provider_tenant_id: z.string().min(1).max(512),
+    provider_account_ref: z.string().min(1).max(512).optional(),
+    provider_agent_display_name: zIntegrationProviderDisplayName.optional(),
+    credential_secret_id: zSecretId,
+    provider_config: zIntegrationProviderConfig.optional()
+});
+
+export const zIntegrationCapabilityDefinition = z.object({
+    description: z.string().optional(),
+    input_schema: z.record(z.string(), z.unknown())
+});
+
+export const zIntegrationSubscriptionId = z.string().regex(/^isub_[a-z2-7]{26}$/);
+
+/**
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+ */
+export const zIntegrationConversation = z.record(z.string(), z.unknown());
+
+export const zIntegrationTarget = z.object({
+    provider: z.string(),
+    conversation: zIntegrationConversation,
+    display_name: z.string(),
+    provider_uri: z.url().optional()
+});
+
+export const zAgent = z.object({
+    id: zAgentId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_profile_id: zAgentProfileId.optional(),
+    state: z.enum(['active', 'archived']),
+    name: zAgentName,
+    integration_target: zIntegrationTarget.optional(),
+    current_config_id: zAgentConfigId.optional(),
+    model: zAgentModel.optional(),
+    parent_agent_id: zAgentId.optional(),
+    subagent_key: z.string().optional(),
+    activity: zAgentActivity.optional(),
+    usage: zUsageTotals.optional(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    archived_at: zTimestamp.optional()
+});
+
+export const zCurrentAgentResponse = z.object({
+    agent: zAgent
+});
+
+export const zGetAgentResponse = z.object({
+    agent: zAgent,
+    machine_ids: z.array(zMachineId),
+    mcp_connections: z.array(zAgentMcpConnection)
+});
+
+export const zListAgentsResponse = z.object({
+    data: z.array(zAgent),
+    next_cursor: z.string().nullable()
+});
+
+export const zLaunchAgentResponse = z.object({
+    agent: zAgent,
+    agent_config: zAgentConfig,
+    machine_bindings: z.array(zAgentMachineBinding),
+    agent_input: zAgentInput.optional()
+});
+
+/**
+ * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
+ */
+export const zAgentInteractionDestination = z.object({
+    integration_kind: zIntegrationKind,
+    handler_key: z.string(),
+    integration_id: zIntegrationId,
+    integration_target_id: zIntegrationTargetId,
+    conversation: zIntegrationConversation
+});
+
+export const zAgentInteraction = z.object({
+    id: zAgentInteractionId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    tool_call_id: zToolCallId,
+    tool_name: z.string().optional(),
+    agent_name: zAgentName.optional(),
+    subagent_key: z.string().optional(),
+    interaction_kind: zAgentInteractionKind,
+    state: zAgentInteractionState,
+    request: zInteractionForm,
+    resolution: zInteractionResolution.optional(),
+    destination: zAgentInteractionDestination.optional(),
+    presentation_receipt: zInteractionPresentationReceipt.optional(),
+    resolved_by_input_id: zAgentInputId.optional(),
+    created_at: zTimestamp,
+    resolved_at: zTimestamp.optional()
+});
+
+export const zListAgentInteractionsResponse = z.object({
+    data: z.array(zAgentInteraction),
+    next_cursor: z.string().nullable()
+});
+
+export const zOrgOverviewResponse = z.object({
+    projects: z.array(zVisibleProject),
+    project_activity: z.array(zOrgOverviewProjectActivity),
+    recent_agents: z.array(zAgent),
+    recent_agent_profiles: z.array(zAgentProfileSummary),
+    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference)
+});
+
+export const zIntegrationSubscriptionAttachment = z.object({
+    integration_id: zIntegrationId,
+    conversation: zIntegrationConversation
+});
+
+export const zCreateAgentRequest = z.object({
+    profile: zAgentProfileId.optional(),
+    config: zAgentConfigId,
+    name: zAgentName.optional(),
+    message: z.string().optional(),
+    tools: z.record(z.string(), zConfigToolSource).optional(),
+    subscriptions: z.array(zIntegrationSubscriptionAttachment).max(100).optional(),
+    interaction_handlers: z.record(z.string(), zConfigIntegrationCapabilitySource).optional(),
+    initial_input: zAgentLaunchInitialInput.optional()
+});
+
+export const zCreateIntegrationSubscriptionRequest = z.object({
+    agent_id: zAgentId,
+    conversation: zIntegrationConversation
+});
+
+export const zIntegrationSubscription = z.object({
+    id: zIntegrationSubscriptionId,
+    project_id: zProjectId,
+    integration_id: zIntegrationId,
+    agent_id: zAgentId,
+    agent_name: zAgentName,
+    conversation: zIntegrationConversation,
+    conversation_name: z.string().optional(),
+    created_at: zTimestamp
+});
+
+export const zListIntegrationSubscriptionsResponse = z.object({
+    data: z.array(zIntegrationSubscription),
+    next_cursor: z.string().nullable()
+});
+
+export const zIntegrationSubscriptionDefinition = z.object({
+    conversation_schema: z.record(z.string(), z.unknown())
+});
+
+export const zIntegrationCapabilities = z.object({
+    settings: zIntegrationCapabilityDefinition.optional(),
+    tools: z.record(z.string(), zIntegrationCapabilityDefinition),
+    subscription: zIntegrationSubscriptionDefinition.optional(),
+    interaction_handler: zIntegrationCapabilityDefinition.optional(),
+    schedule: zIntegrationCapabilityDefinition.optional()
+});
+
+export const zIntegration = z.object({
+    id: zIntegrationId,
+    project_id: zProjectId,
+    name: zIntegrationName,
+    integration_kind: zIntegrationKind,
+    state: zIntegrationState,
+    setup_revision: z.int().gte(1),
+    last_oauth_flow_id: zIntegrationOAuthFlowId.optional(),
+    runtime_failure: zIntegrationRuntimeFailure.optional(),
+    settings: zIntegrationSettings,
+    provider_tenant_id: z.string().optional(),
+    provider_account_ref: z.string().optional(),
+    provider_agent_display_name: zIntegrationProviderDisplayName,
+    bot_mention: z.string().optional(),
+    credential_secret_id: zSecretId.optional(),
+    provider_config: zIntegrationProviderConfig,
+    capabilities: zIntegrationCapabilities,
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zListIntegrationsResponse = z.object({
+    data: z.array(zIntegration),
+    next_cursor: z.string().nullable()
+});
+
+export const zIntegrationDefinition = z.object({
+    integration_kind: zIntegrationKind,
+    capabilities: zIntegrationCapabilities
+});
+
+export const zListIntegrationDefinitionsResponse = z.object({
+    data: z.array(zIntegrationDefinition)
+});
+
+/**
+ * Include each agent's `usage`, so a list can show costs without a request per agent.
+ */
+export const zAgentIncludeUsage = z.boolean();
+
+/**
+ * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+ */
+export const zAgentProfileIncludeStats = z.boolean();
+
+/**
+ * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+ */
+export const zAgentProfileStatsSince = z.iso.datetime({ offset: true });
+
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
  */
@@ -2981,7 +3370,7 @@ export const zUsageUntil = z.iso.datetime({ offset: true });
 export const zUsageIncludeProjectIds = z.array(zProjectId).min(1).max(100);
 
 /**
- * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
  */
 export const zUsageExcludeProjectIds = z.array(zProjectId).min(1).max(100);
 
@@ -3057,16 +3446,6 @@ export const zSecretOwnerProjectIdFilter = zProjectId;
  * Filter to secrets that have a version created by this MCP OAuth flow.
  */
 export const zSecretMcpoAuthFlowIdFilter = zMcpoAuthFlowId;
-
-/**
- * Only return integration installs bound to this agent profile.
- */
-export const zIntegrationInstallAgentProfileFilter = zAgentProfileId;
-
-/**
- * Only return the integration install completed by this OAuth setup flow.
- */
-export const zIntegrationInstallOAuthFlowIdFilter = zIntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -3193,10 +3572,6 @@ export const zGetOrgOverviewPath = z.object({
     orgID: zOrganizationId
 });
 
-export const zGetOrgOverviewQuery = z.object({
-    timezone: z.string().max(64).optional().default('UTC')
-});
-
 /**
  * Overview data for the organization.
  */
@@ -3217,6 +3592,67 @@ export const zGetOrgUsageQuery = z.object({
  * Usage totals for the organization.
  */
 export const zGetOrgUsageResponse = zUsageReport;
+
+export const zGetOrgUsageTimeseriesPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgUsageTimeseriesQuery = z.object({
+    since: z.iso.datetime({ offset: true }).optional(),
+    until: z.iso.datetime({ offset: true }).optional(),
+    timezone: z.string().max(64).optional().default('UTC'),
+    interval: zUsageTimeseriesInterval.optional(),
+    metric: zUsageTimeseriesMetric.optional(),
+    group_by: zUsageTimeseriesGroupBy.optional(),
+    group_limit: z.int().gte(1).lte(20).optional().default(8),
+    project_ids: z.array(zProjectId).min(1).max(100).optional(),
+    agent_profile_ids: z.array(zAgentProfileId).min(1).max(100).optional(),
+    include_subagents: z.boolean().optional().default(false)
+});
+
+/**
+ * Usage timeseries.
+ */
+export const zGetOrgUsageTimeseriesResponse = zUsageTimeseries;
+
+export const zListOrgAgentsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgAgentsQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    parent_agent_id: zAgentId.optional(),
+    include_subagents: z.boolean().optional(),
+    include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
+    sort: zResourceListSort.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Agents across the caller's readable projects, newest first.
+ */
+export const zListOrgAgentsResponse = zListAgentsResponse;
+
+export const zListOrgAgentProfilesPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgAgentProfilesQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
+    sort: zResourceListSort.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Agent profiles across the caller's readable projects, newest first.
+ */
+export const zListOrgAgentProfilesResponse = zListAgentProfilesResponse;
 
 export const zListVisibleProjectsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
@@ -3598,6 +4034,150 @@ export const zListProjectAvailableSkillsQuery = z.object({
  */
 export const zListProjectAvailableSkillsResponse = zListProjectSkillAccessesResponse;
 
+export const zListOrgMemoryStoresPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgMemoryStoresQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    name: z.string().min(1).max(200).optional(),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Memory stores across the caller's readable projects.
+ */
+export const zListOrgMemoryStoresResponse = zMemoryStoreList;
+
+export const zListMemoryStoresPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListMemoryStoresQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    name: z.string().min(1).max(200).optional(),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryStoresResponse = zMemoryStoreList;
+
+export const zCreateMemoryStoreBody = zCreateMemoryStore;
+
+export const zCreateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Success.
+ */
+export const zCreateMemoryStoreResponse = zMemoryStore;
+
+export const zDeleteMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryStoreResponse = z.void();
+
+export const zGetMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zGetMemoryStoreResponse = zMemoryStore;
+
+export const zUpdateMemoryStoreBody = zUpdateMemoryStore;
+
+export const zUpdateMemoryStorePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+/**
+ * Success.
+ */
+export const zUpdateMemoryStoreResponse = zMemoryStore;
+
+export const zListMemoryFilesPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zListMemoryFilesQuery = z.object({
+    path: z.string().max(1024).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Success.
+ */
+export const zListMemoryFilesResponse = zMemoryFileList;
+
+export const zDeleteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDeleteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
+});
+
+/**
+ * Success.
+ */
+export const zDeleteMemoryFileResponse = z.void();
+
+export const zDownloadMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zDownloadMemoryFileQuery = z.object({
+    path: z.string().max(1024)
+});
+
+/**
+ * Success.
+ */
+export const zDownloadMemoryFileResponse = z.instanceof(Blob);
+
+export const zWriteMemoryFileBody = z.instanceof(Blob);
+
+export const zWriteMemoryFilePath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    memoryStoreID: zMemoryStoreId
+});
+
+export const zWriteMemoryFileQuery = z.object({
+    path: z.string().max(1024),
+    expected_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional()
+});
+
+/**
+ * Returns the file's store-relative path and digest.
+ */
+export const zWriteMemoryFileResponse = zUploadFileResponse;
+
 export const zListSecretsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
@@ -3729,36 +4309,6 @@ export const zDeleteSecretGrantPath = z.object({
  */
 export const zDeleteSecretGrantResponse = z.void();
 
-export const zListIntegrationInstallsPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
-});
-
-export const zListIntegrationInstallsQuery = z.object({
-    name: z.string().min(1).max(200).optional(),
-    agent_profile_id: zAgentProfileId.optional(),
-    oauth_flow_id: zIntegrationOAuthFlowId.optional(),
-    sort: zResourceListSort.optional(),
-    limit: z.int().gte(1).lte(100).optional().default(50),
-    cursor: z.string().max(1024).optional()
-});
-
-/**
- * Integration installs in the project, newest first.
- */
-export const zListIntegrationInstallsResponse2 = zListIntegrationInstallsResponse;
-
-export const zDeleteIntegrationInstallPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    integrationInstallID: z.string().regex(/^iin_[a-z2-7]{26}$/)
-});
-
-/**
- * Integration install deleted.
- */
-export const zDeleteIntegrationInstallResponse = z.void();
-
 export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
 
 export const zResolveAgentConfigToolsPath = z.object({
@@ -3830,6 +4380,8 @@ export const zListAgentProfilesPath = z.object({
 
 export const zListAgentProfilesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    include_stats: z.boolean().optional(),
+    stats_since: z.iso.datetime({ offset: true }).optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -3928,9 +4480,9 @@ export const zUpdateAgentProfileResponse = zAgentProfile;
 export const zCreateIntegrationOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
 
 export const zCreateIntegrationOAuthSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
 });
 
 /**
@@ -3938,18 +4490,44 @@ export const zCreateIntegrationOAuthSetupPath = z.object({
  */
 export const zCreateIntegrationOAuthSetupResponse = zIntegrationOAuthSetup;
 
-export const zCreateSlackSetupBody = zCreateSlackSetupRequest;
+export const zCreateIntegrationSlackSetupBody = zCreateSlackSetupRequest;
 
-export const zCreateSlackSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
-    agentProfileID: z.string().regex(/^aprf_[a-z2-7]{26}$/)
+export const zCreateIntegrationSlackSetupPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
 });
 
 /**
  * Slack app created and OAuth setup started.
  */
-export const zCreateSlackSetupResponse = zSlackSetup;
+export const zCreateIntegrationSlackSetupResponse = zSlackSetup;
+
+export const zCreateIntegrationGitHubSetupBody = zCreateGitHubSetupRequest;
+
+export const zCreateIntegrationGitHubSetupPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * GitHub setup information verified.
+ */
+export const zCreateIntegrationGitHubSetupResponse = zGitHubSetup;
+
+export const zInspectIntegrationGitHubInstallationsBody = zInspectGitHubInstallationsRequest;
+
+export const zInspectIntegrationGitHubInstallationsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * GitHub setup information verified.
+ */
+export const zInspectIntegrationGitHubInstallationsResponse = zGitHubInstallations;
 
 export const zListCronTriggersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3960,6 +4538,7 @@ export const zListCronTriggersQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_id: zAgentId.optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    integration_id: zIntegrationId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4032,6 +4611,7 @@ export const zListAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4369,7 +4949,7 @@ export const zGetArtifactContentPath = z.object({
 /**
  * Artifact bytes, served with the artifact's stored content type.
  */
-export const zGetArtifactContentResponse = z.string();
+export const zGetArtifactContentResponse = z.instanceof(Blob);
 
 export const zListVisibleProjectMachinesPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -4379,6 +4959,7 @@ export const zListVisibleProjectMachinesPath = z.object({
 export const zListVisibleProjectMachinesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     source_kind: zMachineSourceKind.optional(),
+    machine_pool_id: zMachinePoolId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4517,6 +5098,7 @@ export const zListVisibleMachinesPath = z.object({
 export const zListVisibleMachinesQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     source_kind: zMachineSourceKind.optional(),
+    machine_pool_id: zMachinePoolId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4785,6 +5367,17 @@ export const zCreateMachinePoolPath = z.object({
  */
 export const zCreateMachinePoolResponse = zMachinePool;
 
+export const zCheckMachinePoolConnectionBody = zCheckMachinePoolConnectionRequest;
+
+export const zCheckMachinePoolConnectionPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+/**
+ * The provider accepted the credential and config.
+ */
+export const zCheckMachinePoolConnectionResponse = z.void();
+
 export const zDeleteMachinePoolPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     poolID: z.string().regex(/^mpo_[a-z2-7]{26}$/)
@@ -4824,6 +5417,7 @@ export const zListProjectMachinePoolGrantsPath = z.object({
 
 export const zListProjectMachinePoolGrantsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
+    machine_pool_id: zMachinePoolId.optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -4952,6 +5546,18 @@ export const zSleepMachineDaemonRuntimePath = z.object({
  */
 export const zSleepMachineDaemonRuntimeResponse = zDaemonRuntime;
 
+export const zGetDaemonGitCredentialsPath = z.object({
+    processID: zProcessId
+});
+
+/**
+ * Short-lived installation credentials. Never cache this response.
+ */
+export const zGetDaemonGitCredentialsResponse = z.object({
+    token: z.string(),
+    expires_at: zTimestamp
+});
+
 export const zGetDaemonSkillArchivePath = z.object({
     skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
 });
@@ -4965,29 +5571,180 @@ export const zGetDaemonSkillArchiveQuery = z.object({
 /**
  * Skill archive bytes.
  */
-export const zGetDaemonSkillArchiveResponse = z.string();
+export const zGetDaemonSkillArchiveResponse = z.instanceof(Blob);
 
-export const zUploadDaemonArtifactBody = z.string();
-
-export const zUploadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId
-});
-
-export const zUploadDaemonArtifactQuery = z.object({
-    filename: z.string().min(1).max(255)
+export const zDownloadDaemonFilePath = z.object({
+    processID: zProcessId
 });
 
 /**
- * Artifact created.
+ * Success.
  */
-export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
+export const zDownloadDaemonFileResponse = z.instanceof(Blob);
 
-export const zDownloadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId,
-    artifactID: zArtifactId
+export const zUploadDaemonFileBody = z.instanceof(Blob);
+
+export const zUploadDaemonFilePath = z.object({
+    processID: zProcessId
+});
+
+export const zUploadDaemonFileQuery = z.object({
+    filename: z.string().optional()
 });
 
 /**
- * Artifact bytes, served with the artifact's stored content type.
+ * Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
  */
-export const zDownloadDaemonArtifactResponse = z.string();
+export const zUploadDaemonFileResponse = zUploadFileResponse;
+
+export const zListOrgIntegrationsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListOrgIntegrationsQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Integrations across the caller's readable projects, newest first.
+ */
+export const zListOrgIntegrationsResponse = zListIntegrationsResponse;
+
+export const zListIntegrationsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListIntegrationsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * List project integrations.
+ */
+export const zListIntegrationsResponse2 = zListIntegrationsResponse;
+
+export const zCreateIntegrationBody = zCreateIntegrationRequest;
+
+export const zCreateIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Create an integration and optional launcher.
+ */
+export const zCreateIntegrationResponse = zIntegration;
+
+export const zDeleteIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Delete integration setup and revoke its capabilities.
+ */
+export const zDeleteIntegrationResponse = z.void();
+
+export const zGetIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Get project integration.
+ */
+export const zGetIntegrationResponse = zIntegration;
+
+export const zUpdateIntegrationBody = zUpdateIntegrationRequest;
+
+export const zUpdateIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Updated integration settings.
+ */
+export const zUpdateIntegrationResponse = zIntegration;
+
+export const zListIntegrationSubscriptionsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+export const zListIntegrationSubscriptionsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Integration conversation subscriptions.
+ */
+export const zListIntegrationSubscriptionsResponse2 = zListIntegrationSubscriptionsResponse;
+
+export const zCreateIntegrationSubscriptionBody = zCreateIntegrationSubscriptionRequest;
+
+export const zCreateIntegrationSubscriptionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Created or existing subscription.
+ */
+export const zCreateIntegrationSubscriptionResponse = zIntegrationSubscription;
+
+export const zDeleteIntegrationSubscriptionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId,
+    subscriptionID: zIntegrationSubscriptionId
+});
+
+/**
+ * Subscription removed or already absent.
+ */
+export const zDeleteIntegrationSubscriptionResponse = z.void();
+
+export const zConfigureIntegrationBody = zConfigureIntegrationRequest;
+
+export const zConfigureIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Integration setup.
+ */
+export const zConfigureIntegrationResponse = zIntegration;
+
+export const zDisconnectIntegrationPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Integration setup.
+ */
+export const zDisconnectIntegrationResponse = zIntegration;
+
+export const zListIntegrationDefinitionsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * The code-defined integration catalog.
+ */
+export const zListIntegrationDefinitionsResponse2 = zListIntegrationDefinitionsResponse;

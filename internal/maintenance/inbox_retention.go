@@ -1,0 +1,39 @@
+package maintenance
+
+import (
+	"context"
+	"time"
+)
+
+const (
+	IntegrationInboxRetention      = 7 * 24 * time.Hour
+	integrationInboxCleanupBatch   = 100
+	integrationInboxCleanupBudget  = 250 * time.Millisecond
+	integrationInboxCleanupTimeout = 5 * time.Second
+)
+
+func drainIntegrationInboxCleanup(
+	ctx context.Context,
+	cleanup func(context.Context) (int64, error),
+) (int64, bool, error) {
+	stopAt := time.Now().Add(integrationInboxCleanupBudget)
+	cleanupCtx, cancel := context.WithTimeout(ctx, integrationInboxCleanupTimeout)
+	defer cancel()
+	var total int64
+	for {
+		if err := cleanupCtx.Err(); err != nil {
+			return total, false, err
+		}
+		if !time.Now().Before(stopAt) {
+			return total, true, nil
+		}
+		count, err := cleanup(cleanupCtx)
+		total += count
+		if err != nil {
+			return total, false, err
+		}
+		if count < integrationInboxCleanupBatch {
+			return total, false, nil
+		}
+	}
+}

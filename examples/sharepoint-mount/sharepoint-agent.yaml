@@ -23,9 +23,10 @@ instruction: |
     with the docx module.
   Reading files this way is always safe; only writing needs user confirmation.
 
-  When this conversation is driven through an integration such as Slack, the
-  external user only sees messages you send with send_integration_message —
-  use it for every answer or update they should see.
+  When a Slack integration launcher provides an int__<integration-name>__post_message tool,
+  use it for every answer or update in the conversation that launched you.
+  The external user only sees messages sent with that tool. Otherwise answer
+  directly in the Omnara conversation.
 model:
   provider_config: oai
   name: gpt-6-sol
@@ -33,19 +34,9 @@ machine_sources:
   - machine_name: CHANGE_ME_MACHINE_NAME # name from Connect machine in the web console
     cwd: /mnt/sharepoint
 tools:
+  # Machine tools such as run_command and upload_file are added automatically;
+  # list one here only to change its permission.
   run_command:
     permission:
       mode: always_allow
-  write_process: {}
-  read_process: {}
-  stop_process: {}
-  list_processes: {}
-  list_machines: {}
-  inspect_machine: {}
   ask_question: {}
-  # Integration targets (e.g. a Slack channel bound at launch): the send tool
-  # delivers user-visible replies; the target tool switches conversations.
-  send_integration_message:
-    permission:
-      mode: always_allow
-  set_integration_target: {}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -28,7 +29,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 	fixture.provisionClusterModel(t, ctx, "managed-prod", "managed-model")
 	fixture.setManagedWorkAdmission(t, ctx, false)
 
-	agentID, userID := fixture.createNamedAgentWithModelOptions(
+	agentID, _ := fixture.createNamedAgentWithModelOptions(
 		t,
 		ctx,
 		"Managed Admission Denied",
@@ -36,24 +37,18 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load managed-admission agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"managed-admission",
-		"C_MANAGED_ADMISSION:1.0",
+		"CMANAGEDADMISSION:1.0",
 	)
-	turn := fixture.admitContentInputTurn(
+	turn := fixture.admitSlackContentInputTurn(
 		t,
 		ctx,
-		agentID,
-		userID,
+		handler,
 		"exercise managed model admission",
 		now.Add(time.Millisecond),
 	)
@@ -67,7 +62,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 	}
 	resolver := &selectionRecordingResolver{client: modelClient}
 	postCount := 0
-	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-admission",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -77,12 +72,12 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_MANAGED_ADMISSION","ts":"2.0"}`,
+					`{"ok":true,"channel":"CMANAGEDADMISSION","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil
 		},
-	)}
+	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: resolver,
@@ -90,6 +85,9 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
@@ -755,21 +753,16 @@ func TestAgentExecutorSendsEstimatedOversizedOpeningWithoutFalseRuntimeError(t *
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load irreducible-overflow agent: %v", err)
-	}
-	attachKernelSlackTarget(
+	agentID, _ := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		agentID,
-		agent.AgentProfileID,
 		"irreducible-overflow",
-		"C_IRREDUCIBLE_OVERFLOW:1.0",
+		"CIRREDUCIBLEOVERFLOW:1.0",
 	)
-	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
+	turn := fixture.admitSlackContentInputTurn(t, ctx, handler, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug:          "serialized-overflow-model",
 		preparedInputTokenEstimate: 200_000,
@@ -782,7 +775,7 @@ func TestAgentExecutorSendsEstimatedOversizedOpeningWithoutFalseRuntimeError(t *
 	postCount := 0
 	postedText := ""
 	var postedDecodeErr error
-	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "irreducible-overflow",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -797,12 +790,12 @@ func TestAgentExecutorSendsEstimatedOversizedOpeningWithoutFalseRuntimeError(t *
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_IRREDUCIBLE_OVERFLOW","ts":"2.0"}`,
+					`{"ok":true,"channel":"CIRREDUCIBLEOVERFLOW","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil
 		},
-	)}
+	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
@@ -810,6 +803,9 @@ func TestAgentExecutorSendsEstimatedOversizedOpeningWithoutFalseRuntimeError(t *
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {

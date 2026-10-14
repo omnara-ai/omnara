@@ -67,6 +67,8 @@ type Config struct {
 	WorkerEventWebhookConcurrency     int
 	EventWebhookPerOrgConcurrency     int
 	WorkerCapacity                    int
+	WorkerInboxCapacity               int
+	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
 	DaemonSocketFallbackDrainInterval time.Duration
@@ -92,6 +94,7 @@ type Config struct {
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
 	SkillDownloadSigningKey           string
+	MemoryDir                         string
 	BlobS3Bucket                      string
 	BlobS3Region                      string
 	BlobS3Endpoint                    string
@@ -215,6 +218,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerInboxCapacity, err := getenvInt("OMNARA_WORKER_INBOX_CAPACITY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	workerDiscordCapacity, err := getenvInt("OMNARA_WORKER_DISCORD_CAPACITY", 1024)
+	if err != nil {
+		return Config{}, err
+	}
 	workerAsyncToolCapacity, err := getenvInt("OMNARA_WORKER_ASYNC_TOOL_CAPACITY", 32)
 	if err != nil {
 		return Config{}, err
@@ -256,6 +267,8 @@ func Load() (Config, error) {
 		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
 		EventWebhookPerOrgConcurrency:     eventWebhookPerOrgConcurrency,
 		WorkerCapacity:                    workerCapacity,
+		WorkerInboxCapacity:               workerInboxCapacity,
+		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
@@ -281,6 +294,7 @@ func Load() (Config, error) {
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),
 		SkillDownloadSigningKey:           getenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", ""),
+		MemoryDir:                         getenv("OMNARA_MEMORY_DIR", ""),
 		BlobS3Bucket:                      getenv("OMNARA_BLOB_S3_BUCKET", ""),
 		BlobS3Region:                      getenv("OMNARA_BLOB_S3_REGION", ""),
 		BlobS3Endpoint:                    getenv("OMNARA_BLOB_S3_ENDPOINT", ""),
@@ -322,6 +336,12 @@ func Load() (Config, error) {
 	}
 	if cfg.AllowInsecureDev && cfg.EmailDriver == "none" {
 		cfg.EmailDriver = "console"
+	}
+	if cfg.AllowInsecureDev && cfg.MemoryDir == "" {
+		cfg.MemoryDir, err = filepath.Abs(".local/memory")
+		if err != nil {
+			return Config{}, fmt.Errorf("resolve memory directory: %w", err)
+		}
 	}
 	if cfg.AllowInsecureDev && cfg.BlobS3Bucket == "" {
 		cfg.BlobS3Bucket = "omnara"
@@ -438,6 +458,9 @@ func (cfg Config) ValidateAPI() error {
 	}
 	if err := validateSkillDownloadSigningKeyConfig(cfg); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err
@@ -602,6 +625,12 @@ func (cfg Config) ValidateWorker() error {
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")
 	}
+	if cfg.WorkerInboxCapacity < 1 || cfg.WorkerInboxCapacity > 100 {
+		return fmt.Errorf("OMNARA_WORKER_INBOX_CAPACITY must be between 1 and 100")
+	}
+	if cfg.WorkerDiscordCapacity <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_DISCORD_CAPACITY must be positive")
+	}
 	if cfg.WorkerAsyncToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_ASYNC_TOOL_CAPACITY must be positive")
 	}
@@ -620,6 +649,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if err := cfg.validatePublicURL(true); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err
@@ -745,6 +777,9 @@ func (cfg Config) ValidateMaintenance() error {
 	}
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err

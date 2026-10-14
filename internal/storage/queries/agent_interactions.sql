@@ -1,11 +1,11 @@
 -- name: InsertAgentInteraction :one
 INSERT INTO agent_interactions(
   agent_id, tool_call_id,
-  interaction_kind, state, request, created_at
+  interaction_kind, state, request, created_at, destination
 )
 SELECT tool_call.agent_id,
 	     tool_call.id, sqlc.arg(interaction_kind), 'open',
-	     sqlc.arg(request), statement_timestamp()
+	     sqlc.arg(request), statement_timestamp(), sqlc.narg(destination)::jsonb
 FROM tool_call_read_projection tool_call
 WHERE tool_call.project_id = sqlc.arg(project_id)
 	AND tool_call.agent_id = sqlc.arg(agent_id)
@@ -16,7 +16,7 @@ RETURNING id;
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -26,7 +26,7 @@ WHERE project_id = sqlc.arg(project_id)
 SELECT id, project_id, agent_id, turn_id,
 	   model_call_context_id, tool_call_id, provider_call_id,
 	   interaction_kind, state, request, resolution,
-	   resolved_by_input_id, created_at, resolved_at
+	   resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
 	AND agent_id = sqlc.arg(agent_id)
@@ -51,7 +51,7 @@ FROM agent_interactions interaction
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -129,7 +129,7 @@ WHERE interaction.agent_id = sqlc.arg(agent_id)
 	AND projection.turn_id = sqlc.arg(turn_id)
 RETURNING interaction.id;
 
--- name: CancelOpenAgentInteractionsForToolCall :execrows
+-- name: CancelOpenAgentInteractionsForToolCall :many
 UPDATE agent_interactions
 SET state = 'canceled',
     resolution = jsonb_build_object('reason', sqlc.arg(reason)::text),
@@ -143,4 +143,5 @@ WHERE agent_interactions.agent_id = sqlc.arg(agent_id)
     FROM agents agent
     WHERE agent.id = agent_interactions.agent_id
       AND agent.project_id = sqlc.arg(project_id)
-  );
+  )
+RETURNING id, interaction_kind, state;

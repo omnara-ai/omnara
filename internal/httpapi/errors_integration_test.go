@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +42,7 @@ func TestRequestLogPostgresTimeouts(t *testing.T) {
 			require.NoError(t, err)
 
 			buf, logger := newRequestEventCapture()
-			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, err := tx.Exec(r.Context(), "-- name: TimeoutQuery :exec\n"+tt.query)
 				if err == nil {
 					t.Error("query succeeded instead of timing out")

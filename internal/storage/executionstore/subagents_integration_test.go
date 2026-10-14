@@ -177,10 +177,10 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatalf("subagents = %+v", subagents)
 	}
 
-	topLevel, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
+	topLevel, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
 	})
 	if err != nil {
 		t.Fatalf("list top-level agents: %v", err)
@@ -188,11 +188,11 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if containsAgentID(topLevel.Agents, child.Agent.ID) || !containsAgentID(topLevel.Agents, parent.ID) {
 		t.Fatalf("top-level listing should hide subagents: %+v", agentIDsForTest(topLevel.Agents))
 	}
-	withChildren, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
-		Filters:   executionstore.AgentListFilters{IncludeSubagents: true},
+	withChildren, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
+		Filters:    executionstore.AgentListFilters{IncludeSubagents: true},
 	})
 	if err != nil {
 		t.Fatalf("list with subagents: %v", err)
@@ -201,11 +201,11 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatalf("include_subagents listing should contain the child")
 	}
 	parentID := parent.ID
-	byParent, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
-		Filters:   executionstore.AgentListFilters{ParentAgentID: &parentID},
+	byParent, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
+		Filters:    executionstore.AgentListFilters{ParentAgentID: &parentID},
 	})
 	if err != nil {
 		t.Fatalf("list by parent: %v", err)
@@ -329,6 +329,7 @@ tools:
   send_agent_message: {enabled: false}
   stop_agent: {enabled: false}
   list_agents: {enabled: false}
+  list_files: {enabled: false}
   read_file: {enabled: false}
   search_files: {enabled: false}
 `

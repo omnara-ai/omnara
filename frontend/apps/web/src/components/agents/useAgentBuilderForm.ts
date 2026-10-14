@@ -1,10 +1,12 @@
+import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
 import { useState } from 'react'
-import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
+import { Document, isNode, type Node } from 'yaml'
 
 import {
-  extractBasicConfig,
+  type BasicMemoryStore,
   type MachineEntry,
   normalizeMultiline,
+  parseBasicConfigSource,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -81,13 +83,17 @@ export interface BasicConfig {
   instruction: string
   providerConfig: string
   modelName: string
+  reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
+  interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
+  gitCredentialsIntegration: string
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
   eventWebhookUrl: string
   eventWebhookSigningSecretId: string
   skillIds: string[]
+  memoryStores: BasicMemoryStore[]
   subagents: BasicSubagent[]
   maxSubagents: string
   maxDepth: string
@@ -116,13 +122,17 @@ export const emptyBasicConfig: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',
+  reasoningEffort: '',
   machineSources: [],
   tools: [],
+  interactionHandlers: {},
+  gitCredentialsIntegration: '',
   mcpServers: [],
   eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
   eventWebhookSigningSecretId: '',
   skillIds: [],
+  memoryStores: [],
   subagents: [],
   maxSubagents: '',
   maxDepth: '',
@@ -134,8 +144,7 @@ export interface BasicConfigSession {
 }
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
-  const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc)
+  const { doc, initialDraft } = parseBasicConfigSource(source)
   return {
     initialDraft,
     apply(config) {
@@ -177,15 +186,23 @@ export function useAgentBuilderForm(
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
+    toolsErrorMessage: tools.errorMessage,
     retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
-    model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
+    model: {
+      providerConfig: draft.providerConfig,
+      modelName: draft.modelName,
+      reasoningEffort: draft.reasoningEffort,
+    },
     machineSources: draft.machineSources,
     tools: draft.tools,
+    interactionHandlers: draft.interactionHandlers,
+    gitCredentialsIntegration: draft.gitCredentialsIntegration,
     skillIds: draft.skillIds,
+    memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
     eventWebhookEvents: draft.eventWebhookEvents,
     eventWebhookUrl: draft.eventWebhookUrl,
@@ -197,7 +214,11 @@ export function useAgentBuilderForm(
       patch({ instruction })
     },
     setModel: (model: ModelSelection) => {
-      patch({ providerConfig: model.providerConfig, modelName: model.modelName })
+      patch({
+        providerConfig: model.providerConfig,
+        modelName: model.modelName,
+        reasoningEffort: model.reasoningEffort,
+      })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
       patch({ machineSources })
@@ -205,8 +226,14 @@ export function useAgentBuilderForm(
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
     },
+    setGitCredentialsIntegration: (gitCredentialsIntegration: string) => {
+      patch({ gitCredentialsIntegration })
+    },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
+    },
+    setMemoryStores: (memoryStores: BasicMemoryStore[]) => {
+      patch({ memoryStores })
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
@@ -278,16 +305,6 @@ function machineSourceValid(source: BasicMachineSource) {
   )
 }
 
-function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
-  }
-}
-
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
 
 interface WireObject {
@@ -320,6 +337,12 @@ function applyToDocument(
     if (doc.deleteIn(path)) edits.count += 1
   }
 
+  const applyList = (key: string, items: WireValue[], baseline: WireValue[] | null) => {
+    if (baseline != null && deepEqual(items, baseline)) return
+    if (items.length === 0) del([key])
+    else set([key], items)
+  }
+
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
   const providerConfig = normalizeResourceName(config.providerConfig)
@@ -329,6 +352,11 @@ function applyToDocument(
   const modelName = normalizeResourceName(config.modelName)
   if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
     set(['model', 'name'], modelName)
+  const reasoningEffort = config.reasoningEffort.trim()
+  if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
+    if (reasoningEffort === '') del(['model', 'reasoning'])
+    else set(['model', 'reasoning', 'effort'], reasoningEffort)
+  }
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
@@ -338,7 +366,19 @@ function applyToDocument(
     set,
     del,
   )
-  applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
+  applyNamedEntries(
+    'interaction_handlers',
+    Object.entries(config.interactionHandlers),
+    baseline == null ? null : Object.entries(baseline.interactionHandlers),
+    set,
+    del,
+  )
+  if (config.gitCredentialsIntegration !== (baseline?.gitCredentialsIntegration ?? '')) {
+    if (config.gitCredentialsIntegration === '') del(['git_credentials'])
+    else set(['git_credentials', 'integration'], config.gitCredentialsIntegration)
+  }
+  applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
+  applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(
     'subagents',
     config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
@@ -420,15 +460,6 @@ function applyMachineSources(
   set(['machine_sources'], items)
 }
 
-function applySkills(skillIds: string[], baselineIds: string[] | null, set: Setter, del: Deleter) {
-  if (baselineIds != null && deepEqual(skillIds, baselineIds)) return
-  if (skillIds.length === 0) {
-    del(['skills'])
-    return
-  }
-  set(['skills'], [...skillIds])
-}
-
 function machineSourceComparable(source: BasicMachineSource) {
   return {
     kind: source.kind,
@@ -496,7 +527,7 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
 }
 
 export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = { type: 'built_in' }
+  const wire: ToolEntry = tool.name.startsWith('int__') ? {} : { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true

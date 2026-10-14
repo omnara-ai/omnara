@@ -13,8 +13,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
@@ -32,13 +32,18 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 			buf, logger := newRequestEventCapture()
 			recorder := metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB)
 			finished := make(chan error, 1)
+			// accepted closes once Accept has hijacked the connection. Closing the
+			// client earlier lets net/http's pending background read cancel the
+			// request context first, replacing the socket's cancellation cause.
+			accepted := make(chan struct{})
 			var handlerErr error
-			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := websocket.Accept(w, r, nil)
 				if err != nil {
 					handlerErr = err
 					return
 				}
+				close(accepted)
 				defer func() { _ = conn.CloseNow() }()
 				socket := &daemonSocket{wire: daemonprotocol.NewBackendSocket(conn, ""), done: make(chan struct{})}
 				ctx, cancel := context.WithCancelCause(r.Context())
@@ -60,6 +65,11 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = conn.CloseNow() }()
+			select {
+			case <-accepted:
+			case <-t.Context().Done():
+				t.Fatal("socket handler did not accept")
+			}
 			if tt.code == 0 {
 				_ = conn.CloseNow()
 			} else {

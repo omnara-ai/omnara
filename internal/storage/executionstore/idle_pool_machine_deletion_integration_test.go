@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -258,9 +259,8 @@ func createQueuedProcessActionForIdleTest(
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start idle test process: %v", err)
@@ -583,9 +583,8 @@ func TestProcessFailureBeforeExecutionRestartsIdleWindow(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start idle test process: %v", err)

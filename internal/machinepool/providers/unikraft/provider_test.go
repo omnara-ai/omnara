@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +30,7 @@ func TestUnikraftProviderProvisionCreatesDisposableInstance(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -108,6 +112,7 @@ func TestUnikraftProviderProvisionTrimsImage(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -133,6 +138,7 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 		),
 		"opaque-machine-token",
 		map[string]string{"USER_TOKEN": strings.Repeat("b", 256)},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -180,6 +186,7 @@ func TestUnikraftProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision unikraft machine: %v", err)
@@ -210,6 +217,7 @@ func TestUnikraftProviderAcceptsFutureMetroSlug(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("expected future metro slug to pass local validation: %v", err)
@@ -229,8 +237,9 @@ func TestUnikraftProviderRejectsInvalidMetroSlug(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "valid DNS label") {
+	if err == nil || !strings.Contains(err.Error(), "lowercase letters, numbers, or hyphens") {
 		t.Fatalf("expected invalid metro slug error, got %v", err)
 	}
 }
@@ -253,6 +262,7 @@ func TestUnikraftProviderRequiresMetro(t *testing.T) {
 		},
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "requires metro") {
 		t.Fatalf("expected missing metro error, got %v", err)
@@ -273,6 +283,7 @@ func TestUnikraftProviderRejectsRestartPolicyProviderOption(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "restart_policy"`) {
 		t.Fatalf("expected restart_policy to be rejected as a config field, got %v", err)
@@ -293,6 +304,7 @@ func TestUnikraftProviderRejectsUserArgsUntilStartupScriptsAreSupported(t *testi
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "args"`) {
 		t.Fatalf("expected args to be rejected, got %v", err)
@@ -312,6 +324,7 @@ func TestUnikraftProviderRejectsInvalidStartupScriptShape(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "cannot unmarshal array") {
 		t.Fatalf("expected non-string startup_script error, got %v", err)
@@ -328,6 +341,7 @@ func TestUnikraftProviderRejectsInvalidStartupScriptShape(t *testing.T) {
 		),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "startup_script must be at most") {
 		t.Fatalf("expected startup_script size error, got %v", err)
@@ -350,6 +364,7 @@ func TestUnikraftProviderProvisionRecoversFromCreateErrorWhenInstanceExists(t *t
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision should recover by inspecting existing instance: %v", err)
@@ -376,6 +391,7 @@ func TestUnikraftProviderProvisionRetriesDoNotCreateCompetingInstances(t *testin
 		machineProvisioning,
 		"machine-token-a",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("first provision: %v", err)
@@ -387,6 +403,7 @@ func TestUnikraftProviderProvisionRetriesDoNotCreateCompetingInstances(t *testin
 		machineProvisioning,
 		"machine-token-b",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("second provision: %v", err)
@@ -659,4 +676,41 @@ func (f *fakeAPI) GetInstanceByName(_ context.Context, name string) (instance, b
 func (f *fakeAPI) DeleteInstanceByUUID(_ context.Context, uuid string) error {
 	f.deletedUUIDs = append(f.deletedUUIDs, uuid)
 	return nil
+}
+
+func (*fakeAPI) CheckConnection(context.Context) error {
+	return nil
+}
+
+func TestProviderCheckConnectionReadsQuotas(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/users/quotas" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	client, err := newTestRESTClient(server.URL, "test-token", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = (&provider{api: client}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{
+			ProviderOptions: map[string]json.RawMessage{"metro": json.RawMessage(`"fra"`)},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
+	err = (&provider{api: client}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{
+			ProviderOptions: map[string]json.RawMessage{"metro": json.RawMessage(`"bad metro"`)},
+		},
+	)
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("check connection error = %v, want an invalid request", err)
+	}
 }

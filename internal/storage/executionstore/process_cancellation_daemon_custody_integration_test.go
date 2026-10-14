@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -28,9 +29,8 @@ func TestCancelAgentTerminatesAcceptedProcessBeforeRunCommandResolves(t *testing
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -132,9 +132,8 @@ func TestCancelAgentPreservesProcessAfterRunCommandReturnsHandle(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -276,9 +275,8 @@ func TestProcessReadinessAndAgentCancellationResolveAtomically(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -436,9 +434,8 @@ func TestProcessAcceptAndAgentCancellationResolveAtomically(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -582,9 +579,8 @@ func TestAcceptedProcessActionCancellationAndDaemonReportResolveAtomically(
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "cat",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)

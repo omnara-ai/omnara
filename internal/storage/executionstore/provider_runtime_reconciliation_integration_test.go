@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1730,9 +1731,8 @@ func (f providerRuntimeStorageFixture) createQueuedProcess(
 			RuntimeLockID: processFixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 			AgentMachineBindingID: processFixture.BindingID,
-			Command:               "sleep 3600",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)

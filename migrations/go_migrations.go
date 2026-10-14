@@ -8,5 +8,6 @@ func GoMigrations() []*goose.Migration {
 		newFileToolCutoverMigration(),
 		newExplicitDefaultToolsMigration(),
 		newInternalConfigIDsMigration(),
+		newSlackIntegrationCutoverMigration(),
 	}
 }

@@ -15,14 +15,14 @@ export function useProjectPage() {
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = projectsQuery
 
   useEffect(() => {
-    if (project || !hasNextPage || isFetchingNextPage) return
+    if (!projectId || project || !hasNextPage || isFetchingNextPage) return
     void fetchNextPage()
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, project])
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, project, projectId])
 
   return {
     activeOrg,
     projectId,
     project,
-    isPending: !project && hasNextPage,
+    isPending: projectId !== '' && !project && hasNextPage,
   }
 }

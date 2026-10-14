@@ -12,10 +12,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type Store struct {
@@ -28,6 +30,7 @@ type Store struct {
 	integrations    *integrationstore.Store
 	secrets         *secretstore.Store
 	skills          *skillstore.Store
+	memories        *memorystore.Store
 	organizations   *orglifecycle.Service
 	accountSecurity *accountsecurity.Service
 }
@@ -36,6 +39,8 @@ type storeConfig struct {
 	postCommitPublisher   notifications.PostCommitPublisher
 	secretKeyWrapper      secrets.KeyWrapper
 	blobs                 blobstore.Store
+	memoryFS              *memorystore.Filesystem
+	memoryRecorder        *metrics.MemoryRecorder
 	machinePoolProviders  executionstore.MachinePoolProviders
 	modelCallRetryBackoff func(int, string) time.Duration
 }
@@ -57,6 +62,18 @@ func WithSecretKeyWrapper(keyWrapper secrets.KeyWrapper) Option {
 func WithBlobStore(blobs blobstore.Store) Option {
 	return func(config *storeConfig) {
 		config.blobs = blobs
+	}
+}
+
+func WithMemoryFilesystem(files *memorystore.Filesystem) Option {
+	return func(config *storeConfig) {
+		config.memoryFS = files
+	}
+}
+
+func WithMemoryRecorder(recorder *metrics.MemoryRecorder) Option {
+	return func(config *storeConfig) {
+		config.memoryRecorder = recorder
 	}
 }
 
@@ -85,8 +102,9 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.models = modelstore.New(pool)
 	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
+	store.memories = memorystore.New(pool, config.memoryFS, config.memoryRecorder)
 	store.artifacts = artifactstore.New(pool, config.blobs)
-	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
+	store.integrations = integrationstore.New(pool, executionstore.IntegrationAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,
@@ -145,4 +163,8 @@ func (s *Store) Organizations() *orglifecycle.Service {
 
 func (s *Store) AccountSecurity() *accountsecurity.Service {
 	return s.accountSecurity
+}
+
+func (s *Store) Memories() *memorystore.Store {
+	return s.memories
 }

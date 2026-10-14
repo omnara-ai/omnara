@@ -19,10 +19,11 @@ import (
 type Kind string
 
 const (
-	KindGeneric             Kind = "generic"
-	KindOAuthTokenSet       Kind = "oauth_token_set"
-	KindSlackAppCredentials Kind = "slack_app_credentials"
-	KindAWSCredentials      Kind = "aws_credentials"
+	KindGeneric              Kind = "generic"
+	KindOAuthTokenSet        Kind = "oauth_token_set"
+	KindSlackAppCredentials  Kind = "slack_app_credentials"
+	KindGitHubAppCredentials Kind = "github_app_credentials"
+	KindAWSCredentials       Kind = "aws_credentials"
 
 	KeyValue              = "value"
 	KeyAccessToken        = "access_token"
@@ -31,6 +32,9 @@ const (
 	KeyClientSecret       = "client_secret"
 	KeyClientID           = "client_id"
 	KeySigningSecret      = "signing_secret"
+	KeyAppID              = "app_id"
+	KeyPrivateKey         = "private_key"
+	KeyWebhookSecret      = "webhook_secret"
 	KeyMCPURL             = "mcp_url"
 	KeyResource           = "resource"
 	KeyTokenEndpoint      = "token_endpoint"
@@ -268,6 +272,11 @@ func ValidatePayload(kind Kind, payload Payload) ([]string, error) {
 		allowed[KeyAWSRoleARN] = true
 		allowed[KeyAWSExternalID] = true
 		required = []string{KeyAWSAccessKeyID, KeyAWSSecretAccessKey}
+	case KindGitHubAppCredentials:
+		allowed[KeyAppID] = true
+		allowed[KeyPrivateKey] = true
+		allowed[KeyWebhookSecret] = true
+		required = []string{KeyAppID, KeyPrivateKey, KeyWebhookSecret}
 	default:
 		return nil, fmt.Errorf("unsupported secret kind %q", kind)
 	}

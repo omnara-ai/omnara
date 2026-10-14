@@ -13,9 +13,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type recordingCommitter struct {

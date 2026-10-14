@@ -91,7 +91,7 @@ func (q *Queries) CancelOpenAgentInteractionsForAgent(ctx context.Context, arg C
 	return items, nil
 }
 
-const cancelOpenAgentInteractionsForToolCall = `-- name: CancelOpenAgentInteractionsForToolCall :execrows
+const cancelOpenAgentInteractionsForToolCall = `-- name: CancelOpenAgentInteractionsForToolCall :many
 UPDATE agent_interactions
 SET state = 'canceled',
     resolution = jsonb_build_object('reason', $1::text),
@@ -106,6 +106,7 @@ WHERE agent_interactions.agent_id = $2
     WHERE agent.id = agent_interactions.agent_id
       AND agent.project_id = $4
   )
+RETURNING id, interaction_kind, state
 `
 
 type CancelOpenAgentInteractionsForToolCallParams struct {
@@ -115,24 +116,42 @@ type CancelOpenAgentInteractionsForToolCallParams struct {
 	ProjectID  uuid.UUID
 }
 
-func (q *Queries) CancelOpenAgentInteractionsForToolCall(ctx context.Context, arg CancelOpenAgentInteractionsForToolCallParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelOpenAgentInteractionsForToolCall,
+type CancelOpenAgentInteractionsForToolCallRow struct {
+	ID              uuid.UUID
+	InteractionKind string
+	State           string
+}
+
+func (q *Queries) CancelOpenAgentInteractionsForToolCall(ctx context.Context, arg CancelOpenAgentInteractionsForToolCallParams) ([]CancelOpenAgentInteractionsForToolCallRow, error) {
+	rows, err := q.db.Query(ctx, cancelOpenAgentInteractionsForToolCall,
 		arg.Reason,
 		arg.AgentID,
 		arg.ToolCallID,
 		arg.ProjectID,
 	)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []CancelOpenAgentInteractionsForToolCallRow{}
+	for rows.Next() {
+		var i CancelOpenAgentInteractionsForToolCallRow
+		if err := rows.Scan(&i.ID, &i.InteractionKind, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAgentInteraction = `-- name: GetAgentInteraction :one
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -163,6 +182,8 @@ func (q *Queries) GetAgentInteraction(ctx context.Context, arg GetAgentInteracti
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.Destination,
+		&i.PresentationReceipt,
 	)
 	return i, err
 }
@@ -171,7 +192,7 @@ const getAgentInteractionByToolCallKind = `-- name: GetAgentInteractionByToolCal
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,
        interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
+       resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = $1
   AND agent_id = $2
@@ -209,6 +230,8 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 		&i.ResolvedByInputID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+		&i.Destination,
+		&i.PresentationReceipt,
 	)
 	return i, err
 }
@@ -216,21 +239,22 @@ func (q *Queries) GetAgentInteractionByToolCallKind(ctx context.Context, arg Get
 const insertAgentInteraction = `-- name: InsertAgentInteraction :one
 INSERT INTO agent_interactions(
   agent_id, tool_call_id,
-  interaction_kind, state, request, created_at
+  interaction_kind, state, request, created_at, destination
 )
 SELECT tool_call.agent_id,
 	     tool_call.id, $1, 'open',
-	     $2, statement_timestamp()
+	     $2, statement_timestamp(), $3::jsonb
 FROM tool_call_read_projection tool_call
-WHERE tool_call.project_id = $3
-	AND tool_call.agent_id = $4
-	AND tool_call.id = $5
+WHERE tool_call.project_id = $4
+	AND tool_call.agent_id = $5
+	AND tool_call.id = $6
 RETURNING id
 `
 
 type InsertAgentInteractionParams struct {
 	InteractionKind string
 	Request         json.RawMessage
+	Destination     *json.RawMessage
 	ProjectID       uuid.UUID
 	AgentID         uuid.UUID
 	ToolCallID      uuid.UUID
@@ -240,6 +264,7 @@ func (q *Queries) InsertAgentInteraction(ctx context.Context, arg InsertAgentInt
 	row := q.db.QueryRow(ctx, insertAgentInteraction,
 		arg.InteractionKind,
 		arg.Request,
+		arg.Destination,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ToolCallID,
@@ -348,7 +373,7 @@ const listAgentInteractionsByIDs = `-- name: ListAgentInteractionsByIDs :many
 SELECT id, project_id, agent_id, turn_id,
 	   model_call_context_id, tool_call_id, provider_call_id,
 	   interaction_kind, state, request, resolution,
-	   resolved_by_input_id, created_at, resolved_at
+	   resolved_by_input_id, created_at, resolved_at, destination, presentation_receipt
 FROM agent_interaction_read_projection
 WHERE project_id = $1
 	AND agent_id = $2
@@ -386,6 +411,8 @@ func (q *Queries) ListAgentInteractionsByIDs(ctx context.Context, arg ListAgentI
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
 		); err != nil {
 			return nil, err
 		}

@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool"
-	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 func TestJitteredMaintenanceDelayStaysWithinTenPercent(t *testing.T) {
@@ -218,5 +219,26 @@ func TestProviderRuntimeResultUsesCompletedOutcome(t *testing.T) {
 				t.Fatalf("provider runtime result = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestMemoryCleanupLoopRecoversAndContinuesAfterPanic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var calls atomic.Int32
+
+	runMemoryCleanupLoop(
+		ctx, logger, time.Millisecond,
+		func(context.Context) (memorystore.FileCleanupResult, error) {
+			if calls.Add(1) == 1 {
+				panic("test panic")
+			}
+			cancel()
+			return memorystore.FileCleanupResult{}, nil
+		},
+	)
+
+	if calls.Load() != 2 {
+		t.Fatalf("memory cleanup calls after panic = %d, want 2", calls.Load())
 	}
 }

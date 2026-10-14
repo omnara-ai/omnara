@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -26,7 +25,7 @@ func CompleteToolCallInExecution(input ToolCallCompletionInput) ToolCallCommand 
 
 func StartToolCallAsync() ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		return nil, tx.startToolCall(ctx, true)
+		return nil, tx.startToolCall(ctx, true, nil)
 	})
 }
 
@@ -36,7 +35,7 @@ func StartProcessForToolCall(input CreateProcessInput) ToolCallCommand {
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -46,7 +45,7 @@ func CreateProcessActionForToolCall(input CreateProcessActionInput) ToolCallComm
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -69,7 +68,7 @@ func StopProcessForToolCall(
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, false)
+		return record, tx.startToolCall(ctx, false, nil)
 	})
 }
 
@@ -79,7 +78,7 @@ func CreateQuestionForToolCall(input CreateQuestionInteractionInput) ToolCallCom
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, true)
+		return record, tx.startToolCall(ctx, false, interactionUpdateFromRecord(record))
 	})
 }
 
@@ -123,22 +122,6 @@ func DeletePoolMachineForToolCall(
 			return nil, err
 		}
 		if _, err := tx.completeToolCall(ctx, toolCompletion); err != nil {
-			return nil, err
-		}
-		return record, nil
-	})
-}
-
-func SetIntegrationTargetForToolCall(
-	integrationTargetID uuid.UUID,
-	completion ToolCallCompletionInput,
-) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		record, err := tx.setAgentIntegrationTarget(ctx, integrationTargetID)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.completeToolCall(ctx, completion); err != nil {
 			return nil, err
 		}
 		return record, nil

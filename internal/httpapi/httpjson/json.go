@@ -9,14 +9,17 @@ import (
 )
 
 func Write(w http.ResponseWriter, status int, body any) {
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+	// json.Marshal escapes <, > and & (as Encoder does by default) and is the
+	// form CodeQL recognizes as an XSS sanitizer; the newline keeps the body
+	// byte-identical to Encoder.Encode.
+	data, err := json.Marshal(body)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(buf.Bytes())
+	_, _ = w.Write(append(data, '\n'))
 }
 
 func DecodeStrictRequiredBytes(body []byte, dst any) error {

@@ -1,0 +1,45 @@
+package artifactstore
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+func (s *Store) DeleteUnreferencedPreparedArtifact(
+	ctx context.Context,
+	projectID, agentID, artifactID uuid.UUID,
+) error {
+	// The caller must establish a terminal receipt that minted this artifact ID.
+	// No attempt can then admit it; durable artifact rows retain delivered files,
+	// including archived history. A stale uploader can still recreate unused bytes.
+	if projectID == uuid.Nil || agentID == uuid.Nil || artifactID == uuid.Nil {
+		return storeerr.InvalidRequest(errors.New("project, planned agent and artifact IDs are required"))
+	}
+	if s.blobs == nil {
+		return ErrBlobStoreNotConfigured
+	}
+	agent, err := s.q.GetAgent(ctx, dbsqlc.GetAgentParams{ID: agentID})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("check prepared artifact agent: %w", err)
+	}
+	if err == nil && agent.ProjectID != projectID {
+		return storeerr.ErrUnauthorized
+	}
+	if _, err := s.GetArtifact(ctx, projectID, agentID, artifactID); err == nil {
+		return nil
+	} else if !errors.Is(err, storeerr.ErrNotFound) {
+		return err
+	}
+	if err := s.blobs.DeleteBlob(ctx, artifactObjectKey(agentID, artifactID)); err != nil &&
+		!errors.Is(err, blobstore.ErrNotFound) {
+		return fmt.Errorf("delete unused prepared artifact %s: %w", artifactID, err)
+	}
+	return nil
+}

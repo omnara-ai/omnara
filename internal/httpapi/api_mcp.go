@@ -9,9 +9,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (s *Server) newAPIMCPServer() (*mcp.Server, error) {
@@ -36,11 +36,11 @@ func (s *Server) dispatchAPIRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiDispatchMiddlewares(mux *http.ServeMux) []middleware {
-	middlewares := make([]middleware, 0, 4)
-	if s.recorder != nil {
-		middlewares = append(middlewares, s.recorder.Middleware(mux))
+	return []middleware{
+		requestEvents(s.log, s.recorder, mux),
+		attachMCPToolCall,
+		s.openAPIRequestValidator,
 	}
-	return append(middlewares, s.requestLog, attachMCPToolCall, s.openAPIRequestValidator)
 }
 
 func attachMCPToolCall(next http.Handler) http.Handler {

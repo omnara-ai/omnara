@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { mcpToolEnabled, unexposableMcpTools } from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
@@ -9,17 +10,14 @@ import {
   type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
-  mcpToolEnabled,
-  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
-  eventWebhookEvents: ['tool_call_update'],
-  eventWebhookUrl: '',
-  eventWebhookSigningSecretId: '',
+  ...emptyBasicConfig,
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',
+  reasoningEffort: 'high',
   machineSources: [
     {
       id: 'source-1',
@@ -546,23 +544,54 @@ mcp:
 })
 
 describe('createBasicConfigSession apply', () => {
+  it('writes and clears the model reasoning effort', () => {
+    const source = `instruction: Help.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+  cache_retention: long
+`
+    const draft = mustDeserialize(source)
+    expect(draft.reasoningEffort).toBe('')
+
+    const withEffort = applyToSource(source, { ...draft, reasoningEffort: 'high' })
+    expect(parse(withEffort)).toMatchObject({
+      model: {
+        provider_config: 'anthropic',
+        name: 'claude-sonnet-5',
+        cache_retention: 'long',
+        reasoning: { effort: 'high' },
+      },
+    })
+    expect(mustDeserialize(withEffort).reasoningEffort).toBe('high')
+
+    const cleared = applyToSource(withEffort, {
+      ...mustDeserialize(withEffort),
+      reasoningEffort: '',
+    })
+    expect(parse(cleared)).toEqual(parse(source))
+  })
+
+  it('writes and clears git credentials', () => {
+    const draft = mustDeserialize(minimalYaml)
+    expect(draft.gitCredentialsIntegration).toBe('')
+
+    const withCredentials = applyToSource(minimalYaml, {
+      ...draft,
+      gitCredentialsIntegration: 'reviews',
+    })
+    expect(parse(withCredentials)).toMatchObject({ git_credentials: { integration: 'reviews' } })
+    expect(mustDeserialize(withCredentials).gitCredentialsIntegration).toBe('reviews')
+
+    const cleared = applyToSource(withCredentials, {
+      ...mustDeserialize(withCredentials),
+      gitCredentialsIntegration: '',
+    })
+    expect(parse(cleared)).toEqual(parse(minimalYaml))
+  })
+
   it('keeps an empty source empty for an untouched form', () => {
-    const emptyConfig: BasicConfig = {
-      eventWebhookEvents: ['tool_call_update'],
-      eventWebhookUrl: '',
-      eventWebhookSigningSecretId: '',
-      instruction: '',
-      providerConfig: '',
-      modelName: '',
-      machineSources: [],
-      tools: [],
-      mcpServers: [],
-      skillIds: [],
-      subagents: [],
-      maxSubagents: '',
-      maxDepth: '',
-    }
-    expect(applyToSource('', emptyConfig)).toBe('')
+    expect(applyToSource('', emptyBasicConfig)).toBe('')
   })
 
   it('returns the source verbatim when the draft matches it', () => {

@@ -16,13 +16,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/skillsync"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
 type blockingPrepareLauncher struct {
-	started chan struct{}
-	release chan struct{}
-	runtime *processRuntime
+	started     chan struct{}
+	release     chan struct{}
+	runtime     *processRuntime
+	assignments chan ProcessAssignment
 }
 
 type unresolvedPrepareLauncher struct{}
@@ -37,10 +39,13 @@ type cleanupPendingPrepareLauncher struct {
 }
 
 func (launcher blockingPrepareLauncher) Prepare(
-	context.Context,
-	*Client,
-	ProcessAssignment,
+	_ context.Context,
+	_ *Client,
+	assignment ProcessAssignment,
 ) (*processRuntime, error) {
+	if launcher.assignments != nil {
+		launcher.assignments <- assignment
+	}
 	close(launcher.started)
 	<-launcher.release
 	if launcher.runtime != nil {
@@ -172,6 +177,84 @@ func (runner *recordingProcessRunner) IsDone() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func TestProcessOfferExecutionFormats(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload, wantError string
+		want                     processcmd.ExecutionSpec
+		gitCredentials           bool
+	}{
+		{
+			name: "legacy shell", payload: `{"command":"echo legacy","shell_selector":"sh","io_mode":"pty"}`,
+			wantError: "invalid execution kind",
+		},
+		{
+			name: "null spec", payload: `{"execution_spec":null}`,
+			wantError: "invalid execution kind",
+		},
+		{
+			name: "shell spec", payload: `{"execution_spec":{"kind":"shell","shell":` +
+				`{"command":"echo typed","shell_selector":"sh","io_mode":"pipe"}},"git_credentials":true}`,
+			want: processcmd.ForShell("echo typed", processcmd.ShellSH, processcmd.IOModePipe), gitCredentials: true,
+		},
+		{
+			name: "transfer spec", payload: `{"execution_spec":{"kind":"file_transfer","file_transfer":` +
+				`{"direction":"upload","local_path":"report.txt","target":{"artifact":{}}}},"git_credentials":true}`,
+			want: processcmd.ForFileTransfer(processcmd.FileTransfer{
+				Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+				Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+			}),
+			gitCredentials: true,
+		},
+		{
+			name: "transfer to an unknown target", payload: `{"execution_spec":{"kind":"file_transfer","file_transfer":` +
+				`{"direction":"upload","local_path":"report.txt","target":{"workspace":{}}}}}`,
+			want: processcmd.ForFileTransfer(processcmd.FileTransfer{
+				Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",
+			}),
+		},
+		{
+			name: "empty spec", payload: `{"execution_spec":{}}`,
+			wantError: "invalid execution kind",
+		},
+		{
+			name: "invalid transfer", payload: `{"execution_spec":` +
+				`{"kind":"file_transfer","file_transfer":{"direction":"invalid"}}}`,
+			wantError: "invalid file transfer direction",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var offer daemonprotocol.ProcessOffer
+			require.NoError(t, json.Unmarshal([]byte(tc.payload), &offer))
+			offer.ProcessID = "prc_offer_format"
+			assignments := make(chan ProcessAssignment, 1)
+			release := make(chan struct{})
+			client := New(Config{}, nil, nil)
+			client.runnerLauncher = blockingPrepareLauncher{
+				started: make(chan struct{}), release: release, assignments: assignments,
+			}
+			transport := newDaemonSocketTransport(&client, DaemonRuntime{}, localStartupState{})
+			defer func() {
+				close(release)
+				transport.stopAndWait(func() {})
+			}()
+			transport.offerProcess(t.Context(), offer)
+			select {
+			case assignment := <-assignments:
+				require.Equal(t, tc.gitCredentials, assignment.GitCredentials)
+				_, err := processArgvForLocalOS(offer.ProcessID, assignment.Process)
+				if tc.wantError != "" {
+					require.ErrorContains(t, err, tc.wantError)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, tc.want, assignment.Process.ExecutionSpec)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("offer did not reach process preparation")
+			}
+		})
 	}
 }
 
@@ -322,11 +405,9 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 	defer transport.stopAndWait(func() {})
 
 	transport.offerProcess(ctx, daemonprotocol.ProcessOffer{
+		ExecutionSpec:  processcmd.ForShell("echo should-not-run", processcmd.ShellDefault, invalidMode),
 		ProcessID:      processID,
-		Command:        "echo should-not-run",
-		ShellSelector:  "default",
 		Cwd:            t.TempDir(),
-		IOMode:         invalidMode,
 		TimeoutSeconds: 1,
 	})
 	select {
@@ -446,11 +527,9 @@ func TestTransientPreparationFailureCleansLocalStateWithoutAcceptance(
 	transport.offerProcess(
 		ctx,
 		daemonprotocol.ProcessOffer{
+			ExecutionSpec:  processcmd.ForShell("echo should-not-run", processcmd.ShellDefault, processcmd.IOModePipe),
 			ProcessID:      processID,
-			Command:        "echo should-not-run",
-			ShellSelector:  "default",
 			Cwd:            t.TempDir(),
-			IOMode:         "pipe",
 			TimeoutSeconds: 1,
 		},
 	)

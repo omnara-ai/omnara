@@ -122,6 +122,10 @@ func (p *provider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{CPU: &cpu, MemoryMB: &memoryMB}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -129,6 +133,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -298,6 +303,11 @@ func (p *provider) InspectMachine(
 		return "", false, fmt.Errorf("daytona sandbox %q is missing its id", lookup)
 	}
 	return target.ID, true, nil
+}
+
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	_, err := p.api.ListSandboxes(ctx, listSandboxesQuery{Limit: 1})
+	return err
 }
 
 func (p *provider) DeleteMachine(

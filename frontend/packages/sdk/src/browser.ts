@@ -22,6 +22,7 @@ export interface AuthConnector {
 export interface WebConfig {
   billingURL?: string
   apiURL?: string
+  publicURL?: string
 }
 
 type AuthRequestBody = Record<string, string | undefined>
@@ -40,6 +41,7 @@ const zAuthConnectorsResponse = z.object({
 const zWebConfigResponse = z.object({
   billing_url: z.string().optional(),
   api_url: z.string().optional(),
+  public_url: z.string().optional(),
 })
 
 const zDeviceAuthPendingResponse = z.object({
@@ -115,7 +117,7 @@ export async function fetchWebConfig(): Promise<WebConfig> {
   const response = await fetch('/api/web-config', { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
   const data = zWebConfigResponse.parse(await response.json())
-  return { billingURL: data.billing_url, apiURL: data.api_url }
+  return { billingURL: data.billing_url, apiURL: data.api_url, publicURL: data.public_url }
 }
 
 export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPending> {

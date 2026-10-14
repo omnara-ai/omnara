@@ -6,7 +6,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
 /**
- * Self-contained "Grant models" trigger and dialog for the current project.
+ * Self-contained "Share models" trigger and dialog for the current project.
  * Renders nothing when the viewer can't manage project access.
  */
 export function GrantModelButton() {
@@ -25,7 +25,7 @@ export function GrantModelButton() {
           setOpen(true)
         }}
       >
-        Grant models
+        Share models
       </Button>
       <GrantProjectModelDialog
         open={open}

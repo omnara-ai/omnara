@@ -40,6 +40,7 @@ export function DataTable<TData>({
   isError,
   onRetry,
   emptyMessage,
+  emptyAction,
 }: {
   columns: readonly DataTableColumn<TData>[]
   /** The rows of the current page. Paging and filtering happen in the caller. */
@@ -57,6 +58,8 @@ export function DataTable<TData>({
   isError?: boolean
   onRetry?: () => void
   emptyMessage: string
+  /** Call to action shown under the empty message when the list is empty and unfiltered. */
+  emptyAction?: ReactNode
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const resizing = useColumnResizing(columns)
@@ -111,6 +114,7 @@ export function DataTable<TData>({
                   isFiltered={isFiltered}
                   onRetry={onRetry}
                   emptyMessage={emptyMessage}
+                  emptyAction={emptyAction}
                 />
               ) : (
                 data.map((item) => {
@@ -153,6 +157,7 @@ function DataTableStateRows({
   isFiltered,
   onRetry,
   emptyMessage,
+  emptyAction,
 }: {
   columnCount: number
   isPending?: boolean
@@ -160,6 +165,7 @@ function DataTableStateRows({
   isFiltered?: boolean
   onRetry?: () => void
   emptyMessage: string
+  emptyAction?: ReactNode
 }) {
   if (isPending) {
     return [0, 1].map((index) => (
@@ -194,12 +200,17 @@ function DataTableStateRows({
         <EmptyHeader>
           <EmptyDescription>{isFiltered ? 'No results.' : emptyMessage}</EmptyDescription>
         </EmptyHeader>
+        {!isFiltered && emptyAction && (
+          <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+            {emptyAction}
+          </EmptyContent>
+        )}
       </Empty>
     </StateRow>
   )
 }
 
-function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
+export function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
   if (!pagination.canPrev && !pagination.canNext && pagination.page === 0) return null
   return (
     <div className="bg-muted/50 flex items-center justify-end gap-3 rounded-xl px-4 py-1.5">

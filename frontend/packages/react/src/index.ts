@@ -1,4 +1,5 @@
 export { projectActorsQueryPredicate, useCurrentActorId } from './domains/actors'
+export { isAgentActive } from './domains/agent-activity'
 export {
   type AgentChatAttachmentInput,
   type AgentChatData,
@@ -40,12 +41,13 @@ export {
   type AgentProfileListFilters,
   type AgentProfileListOptions,
   type AgentProfileListSort,
+  type OrgAgentProfileListOptions,
   useAgentProfile,
   useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
-  useCreateSlackSetup,
   useDeleteAgentProfile,
+  useOrgAgentProfiles,
   useRenameAgentProfile,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
@@ -53,12 +55,15 @@ export {
   type AgentListFilters,
   type AgentListOptions,
   type AgentListSort,
+  type OrgAgentListOptions,
   useAgent,
   useAgentConfig,
+  useAgentQuery,
   useAgents,
   useArchiveAgent,
   useCreateAgent,
   useCreateAgentConfig,
+  useOrgAgents,
   useUpdateAgentConfig,
 } from './domains/agents'
 export {
@@ -71,12 +76,25 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
-  type IntegrationInstallListFilters,
-  type IntegrationInstallListOptions,
-  type IntegrationInstallListSort,
-  useDeleteIntegrationInstall,
-  useIntegrationInstalls,
-} from './domains/integration-installs'
+  useCreateIntegrationSubscription,
+  useDeleteIntegrationSubscription,
+  useIntegrationSubscriptions,
+} from './domains/integration-subscriptions'
+export {
+  useConfigureIntegration,
+  useCreateIntegration,
+  useCreateIntegrationGitHubSetup,
+  useCreateIntegrationOAuthSetup,
+  useCreateIntegrationSlackSetup,
+  useDeleteIntegration,
+  useDisconnectIntegration,
+  useInspectIntegrationGitHubInstallations,
+  useIntegration,
+  useIntegrationDefinitions,
+  useIntegrations,
+  useOrgIntegrations,
+  useUpdateIntegration,
+} from './domains/integrations'
 export {
   useAcceptInvitation,
   useDeclineInvitation,
@@ -99,6 +117,7 @@ export {
   useCreateMachinePool,
   useDeleteMachinePool,
   useMachinePool,
+  useMachinePoolConnectionCheck,
   useMachinePools,
   useUpdateMachinePool,
 } from './domains/machine-pools'
@@ -127,7 +146,20 @@ export {
   useServers,
 } from './domains/mcp-registry'
 export { useMcpServerTools } from './domains/mcp-server-tools'
-export { useMe } from './domains/me'
+export { useDeleteCurrentUser, useMe } from './domains/me'
+export {
+  type MemoryScope,
+  useCreateMemoryStore,
+  useDeleteMemoryFile,
+  useDeleteMemoryStore,
+  useMemoryFile,
+  useMemoryFiles,
+  useMemoryStore,
+  useMemoryStores,
+  useOrgMemoryStores,
+  useUpdateMemoryStore,
+  useWriteMemoryFile,
+} from './domains/memory'
 export {
   type ModelOption,
   type ModelPricingLookup,
@@ -142,6 +174,7 @@ export {
   useDeleteConfiguredModel,
   useDeleteModelProvider,
   useModelCatalog,
+  useModelProvider,
   useModelProviders,
   useUpdateConfiguredModel,
   useUpdateModelProvider,
@@ -169,6 +202,7 @@ export {
   type OrgMemberListOptions,
   type OrgMemberListSort,
   useCreateOrganization,
+  useDeleteOrganization,
   useDeleteOrgInvitation,
   useInviteMember,
   useOrgInvitations,
@@ -255,10 +289,12 @@ export { useToolCatalog } from './domains/tool-catalog'
 export {
   type AgentProfileUsageFilters,
   type OrgUsageFilters,
+  type UsageTimeseriesFilters,
   type UsageWindow,
   useAgentProfileUsage,
   useAgentUsage,
   useOrgUsage,
   useProjectUsage,
+  useUsageTimeseries,
 } from './domains/usage'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

@@ -39,7 +39,7 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.attempt_count, delivery.claim_token
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token
 `
 
 type ClaimEventWebhookDeliveryParams struct {
@@ -48,14 +48,15 @@ type ClaimEventWebhookDeliveryParams struct {
 }
 
 type ClaimEventWebhookDeliveryRow struct {
-	ID            uuid.UUID
-	AgentID       uuid.UUID
-	OrgID         uuid.UUID
-	EventSequence *int64
-	ToolCallID    *uuid.UUID
-	ToolState     *string
-	AttemptCount  int32
-	ClaimToken    *uuid.UUID
+	ID                uuid.UUID
+	AgentID           uuid.UUID
+	OrgID             uuid.UUID
+	EventSequence     *int64
+	ToolCallID        *uuid.UUID
+	ToolState         *string
+	InteractionUpdate *json.RawMessage
+	AttemptCount      int32
+	ClaimToken        *uuid.UUID
 }
 
 func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventWebhookDeliveryParams) (ClaimEventWebhookDeliveryRow, error) {
@@ -68,6 +69,7 @@ func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventW
 		&i.EventSequence,
 		&i.ToolCallID,
 		&i.ToolState,
+		&i.InteractionUpdate,
 		&i.AttemptCount,
 		&i.ClaimToken,
 	)
@@ -117,16 +119,17 @@ func (q *Queries) DeleteExpiredEventWebhookDeliveries(ctx context.Context, arg D
 }
 
 const enqueueEventWebhookDelivery = `-- name: EnqueueEventWebhookDelivery :exec
-INSERT INTO event_webhook_deliveries (org_id, agent_id, event_sequence, tool_call_id, tool_state)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO event_webhook_deliveries (org_id, agent_id, event_sequence, tool_call_id, tool_state, interaction_update)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type EnqueueEventWebhookDeliveryParams struct {
-	OrgID         uuid.UUID
-	AgentID       uuid.UUID
-	EventSequence *int64
-	ToolCallID    *uuid.UUID
-	ToolState     *string
+	OrgID             uuid.UUID
+	AgentID           uuid.UUID
+	EventSequence     *int64
+	ToolCallID        *uuid.UUID
+	ToolState         *string
+	InteractionUpdate *json.RawMessage
 }
 
 func (q *Queries) EnqueueEventWebhookDelivery(ctx context.Context, arg EnqueueEventWebhookDeliveryParams) error {
@@ -136,6 +139,7 @@ func (q *Queries) EnqueueEventWebhookDelivery(ctx context.Context, arg EnqueueEv
 		arg.EventSequence,
 		arg.ToolCallID,
 		arg.ToolState,
+		arg.InteractionUpdate,
 	)
 	return err
 }

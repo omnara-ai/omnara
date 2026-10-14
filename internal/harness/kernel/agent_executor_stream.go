@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (e AgentExecutor) streamSinkForCall(

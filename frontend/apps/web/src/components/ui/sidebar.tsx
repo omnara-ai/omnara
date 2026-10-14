@@ -324,7 +324,7 @@ function SidebarMenuItem({ className, ...props }: ComponentProps<'li'>) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground group-has-data-[sidebar=menu-action]/menu-item:pr-8 data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm control-focus transition-[width,height,padding] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium [&>span:last-child]:truncate [&>svg]:size-4.5 [&>svg]:shrink-0',
+  'peer/menu-button hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground group-has-data-[sidebar=menu-action]/menu-item:pr-8 data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm control-focus transition-[width,height,padding] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium [&>span:last-child]:truncate [&>svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -333,9 +333,10 @@ const sidebarMenuButtonVariants = cva(
           'bg-background hover:bg-sidebar-accent hover:text-sidebar-accent-foreground shadow-[0_0_0_1px_var(--sidebar-border)] hover:shadow-[0_0_0_1px_var(--sidebar-accent)]',
       },
       size: {
-        default: 'h-10 text-sm md:h-8',
-        sm: 'h-9 text-xs md:h-7',
-        lg: 'h-12 text-sm group-data-[collapsible=icon]:p-0!',
+        default:
+          "h-10 gap-3 px-2.5 text-sm md:h-[2.125rem] [&>svg:not([class*='size-'])]:size-4.5 [&>svg:not([class*='text-'])]:text-sidebar-foreground/55 data-[active=true]:[&>svg:not([class*='text-'])]:text-sidebar-primary",
+        sm: "h-9 text-xs md:h-7 [&>svg:not([class*='size-'])]:size-4.5",
+        lg: "h-12 text-sm group-data-[collapsible=icon]:p-0! [&>svg:not([class*='size-'])]:size-4.5",
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

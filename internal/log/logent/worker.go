@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/log"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func WorkerLoop(ctx context.Context, workerProcessID uuid.UUID) (context.Context, *log.Event) {
@@ -45,4 +45,11 @@ func RuntimeRenewalFailed(ctx context.Context, err error) {
 		fields["runtime_lock.renewal.error"] = err.Error()
 	}
 	log.Attach(ctx, fields)
+}
+
+func WorkerFileToolsUnavailable(ctx context.Context, err error) {
+	event := log.NewEvent(ctx, "worker.file_tools_unavailable")
+	event.Level(log.WarnLevel)
+	event.Error(err)
+	event.Done(ctx)
 }

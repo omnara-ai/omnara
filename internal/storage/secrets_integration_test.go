@@ -1861,11 +1861,9 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 			Name:     "shared-renamed",
 			Actor:    userPrincipal(admin.ID),
 		},
-	); !errors.Is(
-		err,
-		storeerr.ErrConflict,
-	) {
-		t.Fatalf("duplicate rename error = %v, want ErrConflict", err)
+	); !errors.Is(err, storeerr.ErrConflict) ||
+		err.Error() != `a secret named "shared-renamed" already exists; choose a different name` {
+		t.Fatalf("duplicate rename error = %v, want a named ErrConflict", err)
 	}
 	projectOwnedSameName, _, err := store.Secrets().CreateSecret(
 		ctx,

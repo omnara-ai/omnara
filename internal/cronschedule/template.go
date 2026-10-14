@@ -9,6 +9,8 @@ import (
 	"text/template"
 	"text/template/parse"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 )
 
 const (
@@ -163,6 +165,10 @@ func (l *limitedWriter) Write(p []byte) (int, error) {
 }
 
 func MessageData(name string, firedAt time.Time, lastFiredAt *time.Time) map[string]any {
+	return messageData(name, firedAt, lastFiredAt, firedAt.UTC().Format("2006-01-02"))
+}
+
+func messageData(name string, firedAt time.Time, lastFiredAt *time.Time, localDate string) map[string]any {
 	lastFired := ""
 	if lastFiredAt != nil {
 		lastFired = lastFiredAt.UTC().Format(time.RFC3339)
@@ -172,11 +178,29 @@ func MessageData(name string, firedAt time.Time, lastFiredAt *time.Time) map[str
 			"name":          name,
 			"fired_at":      firedAt.UTC().Format(time.RFC3339),
 			"last_fired_at": lastFired,
+			"local_date":    localDate,
 		},
 	}
 }
 
+func OccurrenceMessageData(
+	name string,
+	firedAt time.Time,
+	lastFiredAt *time.Time,
+	dueAt time.Time,
+	timezone string,
+) (map[string]any, error) {
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, err
+	}
+	return messageData(name, firedAt, lastFiredAt, dueAt.In(location).Format("2006-01-02")), nil
+}
+
 func ValidateMessageTemplate(messageTemplate string) error {
+	if err := dbsafe.Text(messageTemplate); err != nil {
+		return fmt.Errorf("invalid message template: %w", err)
+	}
 	_, err := RenderMessage(messageTemplate, MessageData("sample", time.Time{}, nil))
 	return err
 }
@@ -217,7 +241,11 @@ func RenderMessage(messageTemplate string, data map[string]any) (string, error) 
 	case <-timer.C:
 		return "", errors.New("invalid message template: rendering timed out")
 	}
-	return rendered.String(), nil
+	message := rendered.String()
+	if err := dbsafe.Text(message); err != nil {
+		return "", fmt.Errorf("invalid message template: rendered message %w", err)
+	}
+	return message, nil
 }
 
 // containsTemplateInvocation rejects {{template}} and {{block}} execution.

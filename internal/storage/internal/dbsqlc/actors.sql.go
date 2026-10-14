@@ -13,46 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const actorMatchesIntegrationTarget = `-- name: ActorMatchesIntegrationTarget :one
-SELECT EXISTS (
-  SELECT 1
-  FROM actors actor
-  JOIN integration_targets target
-    ON target.project_id = $1
-   AND target.agent_id = $2
-   AND target.id = $3
-   AND target.deleted_at IS NULL
-  JOIN integration_installs install
-    ON install.project_id = target.project_id
-   AND install.id = target.integration_install_id
-   AND install.state = 'active'
-   AND install.deleted_at IS NULL
-  WHERE actor.id = $4
-    AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
-) AS matches
-`
-
-type ActorMatchesIntegrationTargetParams struct {
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	ActorID             uuid.UUID
-}
-
-func (q *Queries) ActorMatchesIntegrationTarget(ctx context.Context, arg ActorMatchesIntegrationTargetParams) (bool, error) {
-	row := q.db.QueryRow(ctx, actorMatchesIntegrationTarget,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.IntegrationTargetID,
-		arg.ActorID,
-	)
-	var matches bool
-	err := row.Scan(&matches)
-	return matches, err
-}
-
 const getActor = `-- name: GetActor :one
 SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 FROM actors
@@ -157,6 +117,44 @@ func (q *Queries) ListActorDisplayNames(ctx context.Context, arg ListActorDispla
 	for rows.Next() {
 		var i ListActorDisplayNamesRow
 		if err := rows.Scan(&i.ProviderUserID, &i.DisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActorIdentitiesByIDs = `-- name: ListActorIdentitiesByIDs :many
+SELECT id, provider, provider_user_id
+FROM actors
+WHERE project_id = $1
+  AND id = ANY($2::uuid[])
+`
+
+type ListActorIdentitiesByIDsParams struct {
+	ProjectID uuid.UUID
+	Ids       []uuid.UUID
+}
+
+type ListActorIdentitiesByIDsRow struct {
+	ID             uuid.UUID
+	Provider       string
+	ProviderUserID string
+}
+
+func (q *Queries) ListActorIdentitiesByIDs(ctx context.Context, arg ListActorIdentitiesByIDsParams) ([]ListActorIdentitiesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listActorIdentitiesByIDs, arg.ProjectID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActorIdentitiesByIDsRow{}
+	for rows.Next() {
+		var i ListActorIdentitiesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Provider, &i.ProviderUserID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -315,16 +313,18 @@ func (q *Queries) UpdateActorDisplayName(ctx context.Context, arg UpdateActorDis
 }
 
 const upsertActorIdentity = `-- name: UpsertActorIdentity :one
-INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
+INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at)
 VALUES (
   $1, $2, $3,
   $4, NULLIF($5::text, ''),
-  transaction_timestamp(), transaction_timestamp()
+  $6::jsonb, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id) DO UPDATE
 SET display_name = coalesce(excluded.display_name, actors.display_name),
+    metadata = actors.metadata || excluded.metadata,
     updated_at = excluded.updated_at
 WHERE coalesce(excluded.display_name, actors.display_name) IS DISTINCT FROM actors.display_name
+   OR actors.metadata || excluded.metadata IS DISTINCT FROM actors.metadata
 RETURNING id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 `
 
@@ -334,6 +334,7 @@ type UpsertActorIdentityParams struct {
 	ProviderTenantID *string
 	ProviderUserID   string
 	DisplayName      string
+	Metadata         json.RawMessage
 }
 
 func (q *Queries) UpsertActorIdentity(ctx context.Context, arg UpsertActorIdentityParams) (Actor, error) {
@@ -343,6 +344,7 @@ func (q *Queries) UpsertActorIdentity(ctx context.Context, arg UpsertActorIdenti
 		arg.ProviderTenantID,
 		arg.ProviderUserID,
 		arg.DisplayName,
+		arg.Metadata,
 	)
 	var i Actor
 	err := row.Scan(

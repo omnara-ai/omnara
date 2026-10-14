@@ -60,6 +60,10 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -67,6 +71,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -274,6 +279,11 @@ func (p *provider) InspectMachine(
 		return "", false, err
 	}
 	return target.ID, true, nil
+}
+
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	_, err := p.api.ListVMs(ctx, installationMarkerKey, 1, 0)
+	return err
 }
 
 func (p *provider) DeleteMachine(

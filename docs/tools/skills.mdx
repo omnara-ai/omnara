@@ -58,7 +58,7 @@ Write the description as a trigger—“Use when…”—because it helps the mo
   For a project- or user-owned skill, set the owner accordingly: `--owner-kind project --owner-project-id proj_…` or `--owner-kind user` with the CLI, or `{"kind": "project", "project_id": "proj_…"}` / `{"kind": "user"}` as the `owner`.
 </Tab>
 <Tab title="Dashboard">
-  1. Open **Skills** and pick the **User** or **Organization** tab, or open a project's **Project Skills** page. The page determines who owns the skill.
+  1. With **All projects** selected in the project switcher, open **Skills** and pick the **User** or **Organization** tab, or open **Skills** inside a project and stay on its **Project** tab. The page determines who owns the skill.
   2. Click **Create skill**.
   3. Drop files or a folder onto the dialog, or use **Choose files** / **Choose a folder**. You can also switch to the **SKILL.md** tab and write the skill in the editor.
 
@@ -92,7 +92,7 @@ Each update creates the next revision; the skill's name cannot change.
   The CLI has no update command. Running `omnara skills create` again with the same owner and skill name uploads the next revision.
 </Tab>
 <Tab title="Dashboard">
-  Open the skill's row menu and click **Edit**. The **SKILL.md** tab edits the instructions in place and keeps the other files; **Upload archive** replaces every file. Frontmatter errors are marked in the editor, and **Save** stays disabled until they are fixed.
+  Click the skill's name to open its page. Edit `SKILL.md` in place and click **Save**; the other files are kept. Frontmatter errors are marked in the editor, and **Save** stays disabled until they are fixed. To replace every file, click **Upload new version** and choose a new archive; the `SKILL.md` name must stay the same.
 </Tab>
 </Tabs>
 
@@ -119,7 +119,7 @@ A project can use a skill only if it owns it or holds a grant — org- and user-
   Each result reports whether the project owns the skill (`direct`) or receives it through a `grant`.
 </Tab>
 <Tab title="Dashboard">
-  On the skill's row, click **Grant to project** and pick the target. Incoming grants appear on the project's **Grants** page, **Skills** tab — **Remove skill grant** revokes one.
+  On the skill's row, click **Share with project** and pick the target. Shared skills appear on the project's **Skills** page, **Shared** tab — **Stop sharing skill** revokes one. Anyone who can view the project can open a shared skill to read it; only its owner can edit it.
 </Tab>
 </Tabs>
 
@@ -135,6 +135,8 @@ skills:
 In the dashboard's agent builder, click **+** in the **Skills** section and search for a skill to attach it. The search list includes **Create skill**, first when nothing matches the search and after the matching skills otherwise. It opens the same upload dialog, creates the skills in the project, and attaches them. A created skill replaces an attached skill with the same name.
 
 Attaching a skill automatically enables the built-in `skill` tool. The model sees each skill's name and description; when it calls the tool, Omnara returns the `SKILL.md` instructions and attempts to install the supporting files on each attached machine. The instructions still work when no machine is attached or an installation fails.
+
+For a complete example you can deploy, which uploads Remotion's skill folder and attaches it to a video agent, see the [video generation agent](/examples/video-generation-agent).
 
 <Info>
 Full schema and playground: [Create skill](/api-reference/endpoints/skills/create-skill) · [Update skill](/api-reference/endpoints/skills/update-skill-by-uploading-a-new-revision) · [List skills](/api-reference/endpoints/skills/list-skills-visible-through-ownership-authority) · [Skill grants](/api-reference/endpoints/skills/create-skill-grant) · [Project skills](/api-reference/endpoints/skills/list-skills-available-to-project).

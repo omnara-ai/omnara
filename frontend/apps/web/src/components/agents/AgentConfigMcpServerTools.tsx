@@ -9,6 +9,11 @@ import {
 } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
+import {
+  mcpToolNameAddable,
+  type UnexposableMcpTool,
+  unexposableMcpTools,
+} from '@/components/agents/agentConfigMcp'
 import { AgentConfigMcpToolOverrideList } from '@/components/agents/AgentConfigMcpToolOverrideList'
 import { mcpServerAvailability } from '@/components/agents/mcpAvailability'
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
@@ -16,9 +21,6 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpToolNameAddable,
-  type UnexposableMcpTool,
-  unexposableMcpTools,
 } from '@/components/agents/useAgentBuilderForm'
 import { SearchIcon, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
