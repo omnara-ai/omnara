@@ -14,13 +14,33 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (e AgentExecutor) compactionRunner(resolver model.Resolver) compaction.Runner {
-	return compaction.Runner{
+func (e AgentExecutor) executeCompaction(
+	ctx context.Context,
+	input ModelWorkExecution,
+	resolver model.Resolver,
+	plan compaction.Plan,
+	claim executionstore.ModelCallClaim,
+) error {
+	runner := compaction.Runner{
 		Store:           e.Store.Execution(),
 		Resolver:        resolver,
 		Now:             e.Now,
 		ModelRetryDelay: e.ModelRetryDelay,
 	}
+	result, err := runner.RunClaimed(ctx, compaction.RunInput{
+		Plan:                 plan,
+		TurnID:               input.TurnID,
+		OpeningInputIDs:      input.InputIDs,
+		OpeningEventSequence: input.OpeningEventSequence,
+		RuntimeLockID:        input.RuntimeLockID,
+	}, claim)
+	if err != nil {
+		return err
+	}
+	if result.State == compaction.RunTerminal {
+		e.notifyModelFailure(ctx, input)
+	}
+	return nil
 }
 
 func (e AgentExecutor) resumeCompactionContext(
@@ -53,25 +73,20 @@ func (e AgentExecutor) resumeCompactionContext(
 	if found {
 		sourceStart = checkpoint.SummarizedThroughEventSequence + 1
 	}
-	_, err = e.compactionRunner(resolver).RunClaimed(
+	return e.executeCompaction(
 		ctx,
-		compaction.RunInput{
-			Plan: compaction.Plan{
-				ProjectID:            contextRow.ProjectID,
-				AgentID:              contextRow.AgentID,
-				InputEventSequence:   contextRow.InputEventSequence,
-				EventSequenceStart:   sourceStart,
-				EventSequenceEnd:     *contextRow.SourceEventSequenceEnd,
-				ReplacesCheckpointID: contextRow.ReplacesCheckpointID,
-			},
-			TurnID:               input.TurnID,
-			OpeningInputIDs:      input.InputIDs,
-			OpeningEventSequence: input.OpeningEventSequence,
-			RuntimeLockID:        input.RuntimeLockID,
+		input,
+		resolver,
+		compaction.Plan{
+			ProjectID:            contextRow.ProjectID,
+			AgentID:              contextRow.AgentID,
+			InputEventSequence:   contextRow.InputEventSequence,
+			EventSequenceStart:   sourceStart,
+			EventSequenceEnd:     *contextRow.SourceEventSequenceEnd,
+			ReplacesCheckpointID: contextRow.ReplacesCheckpointID,
 		},
 		claim,
 	)
-	return err
 }
 
 func (e AgentExecutor) planCompactionForContext(

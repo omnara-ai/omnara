@@ -320,7 +320,7 @@ func (r Runner) replaceCompactionProjection(
 	}
 	if replacement.BoundaryPreempted {
 		return RunResult{
-			State:              RunTerminal,
+			State:              RunPreempted,
 			ModelCallContextID: claim.Context.ID,
 		}, nil
 	}

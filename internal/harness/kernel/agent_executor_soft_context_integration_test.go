@@ -71,7 +71,13 @@ func TestAgentExecutorFailedOptionalThenRealOverflowClaimsRequiredCompaction(t *
 	work := fixture.admitContentInputTurn(
 		t, ctx, agentID, userID, "Continue the current task.", fixture.Now.Add(time.Second),
 	)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	executor := AgentExecutor{
+		Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+			t.Error("recoverable compaction must not notify failure")
+			return nil
+		},
+	}
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
 	require.Equal(t, 1, client.respondedCount())
 	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))

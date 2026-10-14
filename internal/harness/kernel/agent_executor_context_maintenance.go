@@ -271,13 +271,7 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
 	if !handoff.BoundaryPreempted {
-		_, err = e.compactionRunner(e.ModelResolver).RunClaimed(ctx, compaction.RunInput{
-			Plan:                 plan,
-			TurnID:               input.TurnID,
-			OpeningInputIDs:      input.InputIDs,
-			OpeningEventSequence: input.OpeningEventSequence,
-			RuntimeLockID:        input.RuntimeLockID,
-		}, handoff.CompactionCall)
+		err = e.executeCompaction(ctx, input, e.ModelResolver, plan, handoff.CompactionCall)
 		if err != nil {
 			return modelStep{}, err
 		}

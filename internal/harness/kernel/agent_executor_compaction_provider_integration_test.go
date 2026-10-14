@@ -798,8 +798,18 @@ func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
 		ctx,
 		"resp_managed_context_window",
 	)
+	notices := 0
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
+			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
+		notices++
+		return nil
+	}
 	if err := journey.executor.ExecuteModelWork(ctx, journey.turn); err != nil {
 		t.Fatalf("execute managed context-window attempt: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications = %d, want 1", notices)
 	}
 	if journey.model.respondedCount() != 1 {
 		t.Fatalf(
@@ -807,15 +817,6 @@ func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
 			journey.model.respondedCount(),
 		)
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		journey.fixture,
-		journey.agentID,
-		journey.turn.TurnID,
-		string(modelprotocol.ErrorKindRuntime),
-		storeerr.ManagedWorkAdmissionDeniedCode,
-	)
 	var compactableParents, deniedCompactions, checkpoints int
 	if err := journey.fixture.Pool.QueryRow(ctx, `
 SELECT count(*) FILTER (
@@ -858,6 +859,13 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing.T) {
 	ctx := context.Background()
 	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
+	notices := 0
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
+			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
+		notices++
+		return nil
+	}
 	journey.model.errs = []error{nil, model.ProviderError{
 		Kind:    model.ErrorKindTransient,
 		Source:  "test-provider",
@@ -869,6 +877,9 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 	}
 	if journey.model.respondedCount() != 2 {
 		t.Fatalf("provider requests through retryable compaction = %d, want 2", journey.model.respondedCount())
+	}
+	if notices != 0 {
+		t.Fatalf("retryable failure notifications = %d, want 0", notices)
 	}
 
 	journey.fixture.setManagedWorkAdmission(t, ctx, false)
@@ -883,19 +894,15 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 	if err := journey.executor.ExecuteModelWork(ctx, retry); err != nil {
 		t.Fatalf("deny managed compaction retry: %v", err)
 	}
+	if err := journey.executor.ExecuteModelWork(ctx, retry); err != nil {
+		t.Fatalf("replay denied compaction retry: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications after replay = %d, want 1", notices)
+	}
 	if journey.model.respondedCount() != 2 {
 		t.Fatalf("provider requests after denied compaction retry = %d, want 2", journey.model.respondedCount())
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		journey.fixture,
-		journey.agentID,
-		journey.turn.TurnID,
-		string(modelprotocol.ErrorKindRuntime),
-		storeerr.ManagedWorkAdmissionDeniedCode,
-	)
-
 	var retryable, denied int
 	if err := journey.fixture.Pool.QueryRow(ctx, `
 SELECT count(*) FILTER (WHERE recovery_kind = 'retry'),
@@ -1556,11 +1563,18 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		"trigger context window after revoke",
 		fixture.Now.Add(3*time.Second),
 	)
+	notices := 0
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, retryModel),
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
+		OnModelFailure: func(ctx context.Context, _, _, _ uuid.UUID) error {
+			assertDurableModelErrorForKernelTest(t, ctx, fixture, agentID, retryTurn.TurnID,
+				string(modelprotocol.ErrorKindAuth), "model_grant_unavailable")
+			notices++
+			return nil
+		},
 	}
 	err = executor.ExecuteModelWork(ctx, retryTurn)
 	if revokeErr != nil {
@@ -1568,6 +1582,9 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	}
 	if err != nil {
 		t.Fatalf("execute turn after grant unavailable before compaction: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications = %d, want 1", notices)
 	}
 	if retryModel.respondedCount() != 1 {
 		t.Fatalf(
@@ -1580,33 +1597,6 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	retryModel.mu.Unlock()
 	if len(remainingResponses) != 1 || remainingResponses[0].ID != "resp_compaction_should_not_send" {
 		t.Fatalf("compaction provider response was consumed after grant revoke; remaining=%+v", remainingResponses)
-	}
-	var errorOutputs int
-	if err := fixture.Pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM model_outputs output
-		JOIN agent_events event
-		  ON event.agent_id = output.agent_id
-		 AND event.model_output_id = output.id
-		JOIN model_call_contexts context
-		  ON context.agent_id = output.agent_id
-		 AND context.id = output.model_call_context_id
-		WHERE context.project_id = $1
-		  AND output.agent_id = $2
-		  AND event.turn_id = $3
-		  AND output.stop_reason = 'error'
-		  AND context.state = 'failed'
-		  AND context.recovery_kind IS NULL
-		  AND context.error_kind = 'auth'
-		  AND context.error_code = 'model_grant_unavailable'`,
-		kernelTestProjectID,
-		agentID,
-		retryTurn.TurnID,
-	).Scan(&errorOutputs); err != nil {
-		t.Fatalf("count grant-unavailable error outputs: %v", err)
-	}
-	if errorOutputs != 1 {
-		t.Fatalf("grant-unavailable error outputs = %d, want 1", errorOutputs)
 	}
 	var providerRequestID, providerResponseID string
 	if err := fixture.Pool.QueryRow(ctx, `

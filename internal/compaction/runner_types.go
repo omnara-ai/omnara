@@ -79,6 +79,7 @@ const (
 	RunCompleted      RunState = "completed"
 	RunRetryScheduled RunState = "retry_scheduled"
 	RunResumeNormal   RunState = "resume_normal"
+	RunPreempted      RunState = "preempted"
 	RunTerminal       RunState = "terminal"
 )
 

@@ -43,3 +43,32 @@ func TestAgentExecutorFailedPersistenceDoesNotNotify(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentExecutorFailedCompactionPersistenceDoesNotNotify(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f, agentID, userID := seedSoftContextHistory(t, ctx)
+	input := f.admitContentInputTurn(t, ctx, agentID, userID, "continue", f.Now.Add(time.Second))
+	client := &sequenceKernelModel{
+		providerModelSlug:          "soft-context",
+		preparedInputTokenEstimate: 500,
+		errs: []error{
+			model.ProviderError{Kind: model.ErrorKindContextWindow, Source: "fixture", Message: "input too large"},
+			model.ProviderError{Kind: model.ErrorKindAuth, Source: "fixture", Message: "summary denied"},
+		},
+	}
+	client.afterPrepare = func() {
+		if isCompactionRequestBundle(client.prepared[len(client.prepared)-1].Bundle) {
+			f.Pool.Close()
+		}
+	}
+	executor := AgentExecutor{
+		Store: f.Store, ModelResolver: liveTestModelResolver(f.Store, client),
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+			t.Error("an uncommitted compaction failure must not notify")
+			return nil
+		},
+	}
+	require.Error(t, executor.ExecuteModelWork(ctx, input))
+	require.Equal(t, 2, client.respondedCount())
+}
