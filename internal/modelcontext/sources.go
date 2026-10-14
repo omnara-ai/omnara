@@ -153,10 +153,9 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
 		message := Message{
-			RequestInputIdentity:    event.RequestInputIdentity,
-			Usage:                   event.Usage,
-			ServedProviderModelSlug: event.ServedProviderModelSlug,
-			ID:                      event.ID.String(), AgentInputID: event.AgentInputID.String(),
+			RequestInputIdentity: event.RequestInputIdentity,
+			Usage:                event.Usage,
+			ID:                   event.ID.String(), AgentInputID: event.AgentInputID.String(),
 			ModelCallContextID: modelCallContextID,
 			Role:               role, Sequence: event.Sequence, Content: event.ContentParts,
 			ProviderReplay: event.ProviderReplay,

@@ -224,16 +224,11 @@ func priorCompactionCheckpointTx(
 			MaxEventSequence: contextRow.InputEventSequence,
 		},
 	)
-	if errors.Is(err, pgx.ErrNoRows) && contextRow.ReplacesCheckpointID == uuid.Nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, nil
 	}
 	if err != nil {
 		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, fmt.Errorf("load prior compaction checkpoint: %w", err)
-	}
-	if contextRow.ReplacesCheckpointID != uuid.Nil &&
-		(checkpoint.ID != contextRow.ReplacesCheckpointID || contextRow.SourceEventSequenceEnd == nil ||
-			checkpoint.SummarizedThroughEventSequence != *contextRow.SourceEventSequenceEnd) {
-		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, storeerr.ErrStateTransitionConflict
 	}
 	return checkpoint, nil
 }

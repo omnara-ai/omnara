@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -328,7 +327,6 @@ func claimCompactionContextTx(
 	}
 	sourceEnd := input.SourceEventSequenceEnd
 	identity := dbsqlc.GetCompactionModelCallContextByIdentityParams{
-		ReplacesCheckpointID:           storeutil.IDFromNil(input.ReplacesCheckpointID),
 		ParentNormalModelCallContextID: &input.ParentContextID,
 		SourceExcerptBytes:             int32FromIntPtr(input.SourceExcerptBytes),
 		ProjectID:                      input.ProjectID,
@@ -363,7 +361,6 @@ func claimCompactionContextTx(
 	id, err = q.InsertTriggeredCompactionModelCallContext(
 		ctx,
 		dbsqlc.InsertTriggeredCompactionModelCallContextParams{
-			ReplacesCheckpointID:      storeutil.IDFromNil(input.ReplacesCheckpointID),
 			SourceExcerptBytes:        int32FromIntPtr(input.SourceExcerptBytes),
 			SourceEventSequenceEnd:    &sourceEnd,
 			ProjectID:                 input.ProjectID,
@@ -576,7 +573,6 @@ func loadLatestModelCallContextForOperation(
 		id, err = q.GetCompactionModelCallContextByIdentity(
 			ctx,
 			dbsqlc.GetCompactionModelCallContextByIdentityParams{
-				ReplacesCheckpointID:           storeutil.IDFromNil(contextRow.ReplacesCheckpointID),
 				ParentNormalModelCallContextID: &contextRow.ParentNormalModelCallContextID,
 				SourceExcerptBytes:             int32FromIntPtr(contextRow.SourceExcerptBytes),
 				ProjectID:                      contextRow.ProjectID,

@@ -39,6 +39,11 @@ SELECT org_id, project_id, agent_id, 'normal', 1, agent_config_id,
 FROM model_call_contexts WHERE id=$1 RETURNING id`,
 			prior.ProducerModelCallContextID, prior.CheckpointEventSequence,
 		).Scan(&parentID))
+		state, err := fixture.Store.Execution().GetModelCallRecoveryState(
+			ctx, testProjectID, fixture.AgentID, parentID,
+		)
+		require.NoError(t, err)
+		require.Equal(t, prior.ID != first.ID, state.CheckpointRecompressionAttempted)
 		input := executionstore.RecordModelCallFailureAndClaimCompactionInput{
 			ParentContextID: parentID, ReplacesCheckpointID: prior.ID,
 			SourceEventSequenceEnd: prior.SummarizedThroughEventSequence,
@@ -75,9 +80,6 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`,
 	require.NoError(t, err)
 	require.True(t, claim.Claimed)
 	require.Equal(t, first.ID, claim.Context.ReplacesCheckpointID)
-	_, err = fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts SET replaces_checkpoint_id=NULL WHERE id=$1`,
-		claim.Context.ID)
-	require.ErrorContains(t, err, "immutable")
 	bytes := 64
 	updated, err := fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -116,4 +118,18 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`,
 	require.True(t, found)
 	require.False(t, storedFirst.HasOmittedHistory)
 	require.Equal(t, first.Summary, storedFirst.Summary)
+	for _, lineage := range []struct {
+		contextID, replacesID uuid.UUID
+	}{
+		{first.ProducerModelCallContextID, uuid.Nil},
+		{second.ProducerModelCallContextID, first.ID},
+		{third.ProducerModelCallContextID, second.ID},
+	} {
+		reloaded, found, err := fixture.Store.Execution().GetModelCallContext(
+			ctx, testProjectID, fixture.AgentID, lineage.contextID,
+		)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, lineage.replacesID, reloaded.ReplacesCheckpointID)
+	}
 }

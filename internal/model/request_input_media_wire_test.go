@@ -65,8 +65,9 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
 				ID: "read-image-output", ModelCallContextID: contextID, Role: modelprotocol.RoleAssistant, Sequence: 2,
 				Content:              json.RawMessage(`[{"type":"tool_call","tool_call_id":"` + callID + `"}]`),
-				RequestInputIdentity: first.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-				Usage: modelenvelope.Usage{InputTokens: measured, OutputTokens: 30}, StopReason: modelenvelope.StopReasonToolUse,
+				RequestInputIdentity: first.RequestInputIdentity,
+				Usage:                modelenvelope.Usage{InputTokens: measured, OutputTokens: 30},
+				StopReason:           modelenvelope.StopReasonToolUse,
 			})
 			input.Context.ToolResults = []modelcontext.ToolResultRef{{
 				ToolCallID: callID, ModelCallContextID: contextID, ProviderCallID: callID, Name: "read_file",
@@ -150,8 +151,9 @@ func TestAnthropicBodyLimitInvalidatesMeasuredPrefixAndIdentifiesFinalProjection
 		modelcontext.Message{
 			ID: "first-answer", Role: modelprotocol.RoleAssistant, Sequence: 2,
 			Content:              json.RawMessage(`[{"type":"text","text":"first answer"}]`),
-			RequestInputIdentity: first.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-			Usage: modelenvelope.Usage{InputTokens: 1000, OutputTokens: 10}, StopReason: modelenvelope.StopReasonEndTurn,
+			RequestInputIdentity: first.RequestInputIdentity,
+			Usage:                modelenvelope.Usage{InputTokens: 1000, OutputTokens: 10},
+			StopReason:           modelenvelope.StopReasonEndTurn,
 		},
 		modelcontext.Message{
 			ID: "current-image", AgentInputID: currentInputID.String(), Role: modelprotocol.RoleUser,
@@ -182,8 +184,9 @@ func TestAnthropicBodyLimitInvalidatesMeasuredPrefixAndIdentifiesFinalProjection
 		modelcontext.Message{
 			ID: "second-answer", Role: modelprotocol.RoleAssistant, Sequence: 4,
 			Content:              json.RawMessage(`[{"type":"text","text":"second answer"}]`),
-			RequestInputIdentity: changed.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-			Usage: modelenvelope.Usage{InputTokens: 6000, OutputTokens: 10}, StopReason: modelenvelope.StopReasonEndTurn,
+			RequestInputIdentity: changed.RequestInputIdentity,
+			Usage:                modelenvelope.Usage{InputTokens: 6000, OutputTokens: 10},
+			StopReason:           modelenvelope.StopReasonEndTurn,
 		},
 		modelcontext.Message{
 			ID: "next-question", AgentInputID: nextInputID.String(), Role: modelprotocol.RoleUser, Sequence: 5,

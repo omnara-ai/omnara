@@ -36,7 +36,6 @@ func applyRequestInputMeasurement(prepared *PreparedRequest, client Client, bund
 		}
 	}
 	if source == nil || source.RequestInputIdentity == nil ||
-		source.ServedProviderModelSlug == "" || source.ServedProviderModelSlug != client.RequestedProviderModelSlug() ||
 		!projection.matches(*source.RequestInputIdentity, prepared.InputRouteFingerprint) {
 		return
 	}

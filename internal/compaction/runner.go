@@ -196,6 +196,13 @@ func (r Runner) RunClaimed(
 	}
 	prepared := preparedRequest.prepared
 	sourceText := preparedRequest.sourceText
+	if claim.Context.SourceExcerptBytes != nil {
+		original, err := renderCompactionSource(input, prior, boundaryWindow.sourceEvents, nil)
+		if err != nil {
+			return RunResult{}, err
+		}
+		sourceText = original.sourceText
+	}
 
 	response, err := summaryClient.Respond(
 		ctx,
@@ -325,15 +332,6 @@ func (r Runner) recordPreSendFailure(
 ) (RunResult, error) {
 	if errors.Is(cause, storeerr.ErrStateTransitionConflict) {
 		return RunResult{}, cause
-	}
-	if failure.Code == compactionErrorCodeLoadSourceFailed {
-		recovery, err := r.Store.GetModelCallRecoveryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
-		if err != nil {
-			return RunResult{}, errors.Join(cause, err)
-		}
-		if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
-			return RunResult{}, cause
-		}
 	}
 	return r.recordFailure(
 		ctx,

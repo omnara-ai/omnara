@@ -3,7 +3,6 @@ package kernel
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -16,7 +15,7 @@ func TestOptionalCompactionRearmRequiresObservedHeadroomAtOrBelowThreeQuarters(t
 		want    bool
 	}{{0, false}, {749, true}, {750, true}, {751, false}} {
 		recovery := executionstore.ModelCallRecoveryState{
-			LastOptionalContextID: uuid.New(), LastOptionalInputTargetTokens: 1000,
+			LastOptionalInputTargetTokens:       1000,
 			LastOptionalCompactionNeedsHeadroom: true, LatestObservedNormalInputTokens: 1000,
 			MinimumObservedNormalInputTokens: test.minimum,
 		}

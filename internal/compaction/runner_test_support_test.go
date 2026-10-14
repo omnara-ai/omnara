@@ -19,6 +19,7 @@ import (
 type fakeStore struct {
 	events               []executionstore.CompactionSourceEventRecord
 	atomicGroups         []executionstore.CompactionAtomicGroupRecord
+	atomicGroupsErr      error
 	priorCheckpoint      *executionstore.ContextCheckpointRecord
 	agentConfig          executionstore.AgentConfigRecord
 	compactionRetryCount int
@@ -60,7 +61,7 @@ func (s *fakeStore) ListCompactionAtomicGroups(
 	_, _ uuid.UUID,
 	_, _ int64,
 ) ([]executionstore.CompactionAtomicGroupRecord, error) {
-	return append([]executionstore.CompactionAtomicGroupRecord(nil), s.atomicGroups...), nil
+	return append([]executionstore.CompactionAtomicGroupRecord(nil), s.atomicGroups...), s.atomicGroupsErr
 }
 
 func (s *fakeStore) CaptureAgentConfigForEventWatermark(

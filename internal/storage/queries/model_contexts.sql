@@ -148,7 +148,7 @@ INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
   source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
-  replaces_checkpoint_id, runtime_lock_id, state, created_at
+  runtime_lock_id, state, created_at
 )
 SELECT active_agent.org_id,
        active_agent.project_id,
@@ -161,7 +161,6 @@ SELECT active_agent.org_id,
        sqlc.arg(source_event_sequence_end),
        blocked.id,
        sqlc.narg(source_excerpt_bytes)::integer,
-       sqlc.narg(replaces_checkpoint_id)::uuid,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -189,7 +188,6 @@ WHERE context.project_id = sqlc.arg(project_id)
   AND context.operation_kind = 'compaction'
   AND context.parent_normal_model_call_context_id = sqlc.arg(parent_normal_model_call_context_id)
   AND context.source_excerpt_bytes IS NOT DISTINCT FROM sqlc.narg(source_excerpt_bytes)::integer
-  AND context.replaces_checkpoint_id IS NOT DISTINCT FROM sqlc.narg(replaces_checkpoint_id)::uuid
   AND context.input_event_sequence = sqlc.arg(input_event_sequence)
   AND context.source_event_sequence_end = sqlc.arg(source_event_sequence_end)
 ORDER BY context.attempt_number DESC
@@ -200,7 +198,7 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end, context.parent_normal_model_call_context_id,
-  context.source_excerpt_bytes, context.replaces_checkpoint_id,
+  context.source_excerpt_bytes, prior_checkpoint.id AS replaces_checkpoint_id,
   context.recovery_checkpoint_retained_bytes,
   context.optional_input_target_tokens,
   context.optional_compaction_outcome,
@@ -217,6 +215,15 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
   context.provider_metadata
 FROM model_call_contexts context
+LEFT JOIN context_checkpoints prior_checkpoint ON context.operation_kind = 'compaction'
+  AND prior_checkpoint.agent_id = context.agent_id
+  AND prior_checkpoint.summarized_through_event_sequence = context.source_event_sequence_end
+  AND prior_checkpoint.id = (
+    SELECT event.context_checkpoint_id FROM agent_events event
+    WHERE event.agent_id = context.agent_id AND event.event_kind = 'context_checkpoint'
+      AND event.sequence <= context.input_event_sequence
+    ORDER BY event.sequence DESC LIMIT 1
+  )
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
   AND context.id = sqlc.arg(id);
@@ -291,7 +298,7 @@ predecessor AS MATERIALIZED (
          context.operation_kind, context.attempt_number,
          context.agent_config_id, context.input_event_sequence,
          context.source_event_sequence_end, context.parent_normal_model_call_context_id,
-         context.source_excerpt_bytes, context.replaces_checkpoint_id
+         context.source_excerpt_bytes
   FROM model_call_contexts context
   JOIN agent_scope agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
@@ -342,7 +349,7 @@ INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
   source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
-  replaces_checkpoint_id, runtime_lock_id, state, created_at
+  runtime_lock_id, state, created_at
 )
 SELECT predecessor.org_id,
        predecessor.project_id,
@@ -355,7 +362,6 @@ SELECT predecessor.org_id,
        predecessor.source_event_sequence_end,
        predecessor.parent_normal_model_call_context_id,
        predecessor.source_excerpt_bytes,
-       predecessor.replaces_checkpoint_id,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -585,14 +591,20 @@ SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
        checkpoint_projection.recovery_checkpoint_retained_bytes,
        EXISTS (
          SELECT 1 FROM model_call_contexts prior
-         JOIN context_checkpoints replaced ON replaced.id = prior.replaces_checkpoint_id
-           AND replaced.agent_id = prior.agent_id
-         JOIN latest_checkpoint ON latest_checkpoint.summarized_through_event_sequence = replaced.summarized_through_event_sequence
-         WHERE prior.agent_id = current.agent_id AND prior.agent_config_id = current.agent_config_id
+         JOIN latest_checkpoint ON latest_checkpoint.summarized_through_event_sequence = prior.source_event_sequence_end
+         JOIN context_checkpoints replaced ON replaced.agent_id = prior.agent_id
+           AND replaced.summarized_through_event_sequence = prior.source_event_sequence_end
+           AND replaced.id = (
+             SELECT event.context_checkpoint_id FROM agent_events event
+             WHERE event.agent_id = prior.agent_id AND event.event_kind = 'context_checkpoint'
+               AND event.sequence <= prior.input_event_sequence
+             ORDER BY event.sequence DESC LIMIT 1
+           )
+         WHERE prior.agent_id = current.agent_id AND prior.operation_kind = 'compaction'
+           AND prior.agent_config_id = current.agent_config_id
            AND prior.configured_model_revision_id = current.configured_model_revision_id
            AND prior.created_at < current.created_at
        )::boolean AS checkpoint_recompression_attempted,
-       latest_optional.id AS last_optional_context_id,
        coalesce(latest_optional.optional_input_target_tokens, 0)::integer AS last_optional_input_target_tokens,
        coalesce(latest_optional_child.state = 'succeeded'
          OR latest_optional_child.optional_compaction_outcome = 'ineffective',

@@ -16,7 +16,6 @@ type ModelCallRecoveryState struct {
 	CheckpointRecompressionAttempted      bool
 	RetryCount                            int
 	ParentRecoveryKind                    ModelCallRecoveryKind
-	LastOptionalContextID                 uuid.UUID
 	LastOptionalInputTargetTokens         int
 	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
@@ -53,7 +52,6 @@ func getModelCallRecoveryStateTx(
 		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
 		RetryCount:                            int(row.RetryCount),
 		ParentRecoveryKind:                    ModelCallRecoveryKind(row.ParentRecoveryKind),
-		LastOptionalContextID:                 storeutil.IDFromPtr(row.LastOptionalContextID),
 		LastOptionalInputTargetTokens:         int(row.LastOptionalInputTargetTokens),
 		LastOptionalCompactionNeedsHeadroom:   row.LastOptionalCompactionNeedsHeadroom,
 		OptionalCompactionAttemptedAtFrontier: row.OptionalCompactionAttemptedAtFrontier,

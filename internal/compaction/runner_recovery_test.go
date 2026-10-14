@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,59 @@ func TestRunnerOptionalFailureResumesNormalAfterOneProviderAttempt(t *testing.T)
 			require.Empty(t, store.retryFailures)
 			require.Empty(t, store.terminalFailures)
 			require.Empty(t, store.publishInputs)
+		})
+	}
+}
+
+func TestRunnerOptionalSourceLoadFailureResumesNormalWithOriginalCause(t *testing.T) {
+	store := &fakeStore{
+		parentRecoveryKind: executionstore.ModelCallRecoveryCompactOptional,
+		atomicGroupsErr:    errors.New("source database unavailable"),
+		events:             []executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed history")},
+	}
+	client := &summaryModel{}
+	input := runInput(testPlan(1, 1, 2))
+	result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
+	require.NoError(t, err)
+	require.Equal(t, RunResumeNormal, result.State)
+	require.Empty(t, client.requests)
+	require.Len(t, store.resumedFailures, 1)
+	require.Equal(t, executionstore.OptionalCompactionInterrupted, store.resumedFailures[0].Outcome)
+	require.Equal(t, compactionErrorCodeLoadSourceFailed, store.resumedFailures[0].ErrorCode)
+	require.Contains(t, string(store.resumedFailures[0].ErrorDetails), store.atomicGroupsErr.Error())
+}
+
+func TestRunnerExcerptRecoveryMeasuresReductionAgainstReplacedHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		acceptedExcerptBytes int
+		summary              string
+	}{
+		{"omission notice at excerpt floor", minimumSourceExcerptBytes, strings.Repeat("state ", 58)},
+		{"summary larger than excerpt", initialSourceExcerptBytes, strings.Repeat("Preserve verified context. ", 1800)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+				textCompactionEvent(1, strings.Repeat("old closed history ", 12000)),
+			}}
+			input := runInput(testPlan(1, 1, 2))
+			client := &summaryModel{
+				caps: model.Capabilities{ContextWindowTokens: 32768, MaxOutputTokens: new(16384), DefaultMaxOutputTokens: 16384},
+				respond: func(model.Request) (model.Response, error) {
+					claim := store.claims[len(store.claims)-1].Context
+					if claim.SourceExcerptBytes == nil || *claim.SourceExcerptBytes > tc.acceptedExcerptBytes {
+						return model.Response{}, model.ProviderError{Kind: model.ErrorKindContextWindow}
+					}
+					return completeSummaryResponse(tc.summary), nil
+				},
+			}
+			result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
+			require.NoError(t, err)
+			require.Equal(t, RunCompleted, result.State)
+			require.Greater(t, len(client.requests), 1)
+			require.Empty(t, store.terminalFailures)
+			require.Contains(t, result.Checkpoint.Summary, strings.TrimSpace(tc.summary))
+			require.Contains(t, result.Checkpoint.Summary, "details of old events 1..1 were omitted")
 		})
 	}
 }

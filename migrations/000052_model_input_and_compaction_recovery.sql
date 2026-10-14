@@ -2,7 +2,6 @@
 
 ALTER TABLE model_call_contexts
     ADD COLUMN parent_normal_model_call_context_id uuid,
-    ADD COLUMN replaces_checkpoint_id uuid,
     ADD COLUMN source_excerpt_bytes integer,
     ADD COLUMN recovery_checkpoint_retained_bytes integer,
     ADD COLUMN optional_input_target_tokens integer,
@@ -54,11 +53,6 @@ ALTER TABLE model_call_contexts
     ),
     ADD CONSTRAINT model_call_contexts_excerpt CHECK (
         source_excerpt_bytes IS NULL OR (operation_kind = 'compaction' AND source_excerpt_bytes > 0)
-    ),
-    ADD CONSTRAINT model_call_contexts_replaced_checkpoint FOREIGN KEY (agent_id, replaces_checkpoint_id)
-        REFERENCES context_checkpoints(agent_id, id),
-    ADD CONSTRAINT model_call_contexts_replaced_checkpoint_operation CHECK (
-        replaces_checkpoint_id IS NULL OR operation_kind = 'compaction'
     ),
     ADD CONSTRAINT model_call_contexts_recovery_checkpoint_projection CHECK (
         recovery_checkpoint_retained_bytes IS NULL OR (
@@ -204,10 +198,19 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     projection_checkpoint_sequence bigint;
+    prior_summarized_through bigint;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'model_call_contexts are immutable'
             USING ERRCODE = '25006';
+    END IF;
+    IF NEW.operation_kind = 'compaction' THEN
+        SELECT checkpoint.summarized_through_event_sequence INTO prior_summarized_through
+        FROM context_checkpoints checkpoint
+        JOIN agent_events event ON event.agent_id = checkpoint.agent_id
+          AND event.context_checkpoint_id = checkpoint.id AND event.event_kind = 'context_checkpoint'
+        WHERE event.agent_id = NEW.agent_id AND event.sequence <= NEW.input_event_sequence
+        ORDER BY event.sequence DESC LIMIT 1;
     END IF;
     IF TG_OP = 'INSERT' THEN
         IF NEW.state <> 'started' THEN
@@ -225,18 +228,8 @@ BEGIN
         ) THEN
             RAISE EXCEPTION 'compaction requires its blocked normal parent' USING ERRCODE = '23514';
         END IF;
-        IF NEW.replaces_checkpoint_id IS NOT NULL AND NOT EXISTS (
-            SELECT 1 FROM context_checkpoints prior
-            WHERE prior.agent_id = NEW.agent_id AND prior.id = NEW.replaces_checkpoint_id
-              AND prior.summarized_through_event_sequence = NEW.source_event_sequence_end
-              AND prior.id = (
-                  SELECT event.context_checkpoint_id FROM agent_events event
-                  WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
-                    AND event.sequence <= NEW.input_event_sequence
-                  ORDER BY event.sequence DESC LIMIT 1
-              )
-        ) THEN
-            RAISE EXCEPTION 'compaction must replace its latest applicable checkpoint at the same coverage'
+        IF NEW.source_event_sequence_end < prior_summarized_through THEN
+            RAISE EXCEPTION 'compaction cannot move behind its latest applicable checkpoint'
                 USING ERRCODE = '23514';
         END IF;
         RETURN NEW;
@@ -254,7 +247,6 @@ BEGIN
        OR OLD.source_event_sequence_end IS DISTINCT FROM NEW.source_event_sequence_end
        OR OLD.parent_normal_model_call_context_id IS DISTINCT FROM NEW.parent_normal_model_call_context_id
        OR OLD.source_excerpt_bytes IS DISTINCT FROM NEW.source_excerpt_bytes
-       OR OLD.replaces_checkpoint_id IS DISTINCT FROM NEW.replaces_checkpoint_id
        OR OLD.runtime_lock_id IS DISTINCT FROM NEW.runtime_lock_id
        OR OLD.created_at IS DISTINCT FROM NEW.created_at THEN
         RAISE EXCEPTION 'model_call_context identity and runtime ownership are immutable'
@@ -274,7 +266,8 @@ BEGIN
     IF NEW.recovery_kind = 'resume_normal' AND NOT EXISTS (
         SELECT 1 FROM model_call_contexts parent
         WHERE parent.id = NEW.parent_normal_model_call_context_id
-          AND (parent.recovery_kind = 'compact_optional' OR NEW.replaces_checkpoint_id IS NOT NULL)
+          AND (parent.recovery_kind = 'compact_optional'
+            OR NEW.source_event_sequence_end = prior_summarized_through)
     ) THEN
         RAISE EXCEPTION 'only optional or checkpoint replacement compaction can resume its normal parent'
             USING ERRCODE = '23514';
@@ -601,18 +594,16 @@ DECLARE
     producer_input_event_sequence bigint;
     checkpoint_event_sequence bigint;
     prior_summarized_through bigint;
-    prior_checkpoint_id uuid;
     prior_summary_bytes bigint;
-    producer_replaces_checkpoint_id uuid;
 BEGIN
     SELECT context.operation_kind,
            context.state,
            context.source_event_sequence_end,
-           context.input_event_sequence, context.replaces_checkpoint_id
+           context.input_event_sequence
     INTO producer_operation_kind,
          producer_state,
          producer_source_end,
-         producer_input_event_sequence, producer_replaces_checkpoint_id
+         producer_input_event_sequence
     FROM model_call_contexts context
     WHERE context.agent_id = NEW.agent_id
       AND context.id = NEW.producer_model_call_context_id;
@@ -639,8 +630,8 @@ BEGIN
             USING ERRCODE = '23514';
     END IF;
 
-    SELECT prior.summarized_through_event_sequence, prior.id, octet_length(prior.summary)::bigint
-    INTO prior_summarized_through, prior_checkpoint_id, prior_summary_bytes
+    SELECT prior.summarized_through_event_sequence, octet_length(prior.summary)::bigint
+    INTO prior_summarized_through, prior_summary_bytes
     FROM context_checkpoints prior
     JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
       AND prior_event.context_checkpoint_id = prior.id
@@ -649,10 +640,8 @@ BEGIN
       AND prior_event.sequence <= producer_input_event_sequence
     ORDER BY prior_event.sequence DESC LIMIT 1;
 
-    IF producer_replaces_checkpoint_id IS NOT NULL THEN
-        IF producer_replaces_checkpoint_id IS DISTINCT FROM prior_checkpoint_id
-           OR NEW.summarized_through_event_sequence IS DISTINCT FROM prior_summarized_through
-           OR octet_length(NEW.summary)::bigint * 10 > prior_summary_bytes * 9 THEN
+    IF NEW.summarized_through_event_sequence = prior_summarized_through THEN
+        IF octet_length(NEW.summary)::bigint * 10 > prior_summary_bytes * 9 THEN
             RAISE EXCEPTION 'replacement checkpoint must reduce its latest applicable summary by at least ten percent'
                 USING ERRCODE = '23514';
         END IF;

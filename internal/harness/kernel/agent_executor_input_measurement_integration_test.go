@@ -34,7 +34,7 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 				return nil, err
 			}
 			requests = append(requests, append(json.RawMessage(nil), body...))
-			response := fmt.Sprintf(`{"id":"response_%d","object":"chat.completion","model":"measured-input",
+			response := fmt.Sprintf(`{"id":"response_%d","object":"chat.completion","model":"measured-input-2026-10-01",
 				"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],
 				"usage":{"prompt_tokens":1000,"completion_tokens":4000,
 				"completion_tokens_details":{"reasoning_tokens":3990}}}`, len(requests))
@@ -64,11 +64,15 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 	`, agentID).Scan(&firstID))
 	var identityFingerprint string
 	var measuredTokens int
+	var servedModel string
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
-		SELECT request_input_fingerprint,input_tokens_total FROM model_call_contexts WHERE id=$1
-	`, firstID).Scan(&identityFingerprint, &measuredTokens))
+		SELECT context.request_input_fingerprint,context.input_tokens_total,output.served_provider_model_slug
+		FROM model_call_contexts context JOIN model_outputs output ON output.model_call_context_id=context.id
+		WHERE context.id=$1
+	`, firstID).Scan(&identityFingerprint, &measuredTokens, &servedModel))
 	require.Len(t, identityFingerprint, 64)
 	require.Equal(t, 1000, measuredTokens)
+	require.Equal(t, "measured-input-2026-10-01", servedModel)
 	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, kernelTestProjectID, agentID, first.RuntimeLockID,
 	))

@@ -101,7 +101,7 @@ func TestOpaqueReasoningUsesMeasuredCompleteReplayOnlyWithinToolContinuation(t *
 			body := json.RawMessage(`{"model":"prepare-test","` + key + `":[` +
 				`{"role":"user","content":"question"},` + assistant + `,` + result + `]}`)
 			source := modelcontext.Message{
-				Role: modelprotocol.RoleAssistant, RequestInputIdentity: &identity, ServedProviderModelSlug: "prepare-test",
+				Role: modelprotocol.RoleAssistant, RequestInputIdentity: &identity,
 				Usage:      modelenvelope.Usage{InputTokens: 2000, OutputTokens: 5000, ReasoningTokens: 4900},
 				StopReason: modelenvelope.StopReasonToolUse, ProviderReplay: json.RawMessage(replay),
 			}

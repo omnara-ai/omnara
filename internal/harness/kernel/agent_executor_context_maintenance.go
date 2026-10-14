@@ -299,8 +299,7 @@ func shouldAttemptOptionalCompaction(
 		recovery.CheckpointNeedsNormalAttempt || recovery.HasPriorNormalAttempt {
 		return false
 	}
-	if recovery.LastOptionalContextID == uuid.Nil ||
-		recovery.LastOptionalInputTargetTokens != workingInputTarget {
+	if recovery.LastOptionalInputTargetTokens != workingInputTarget {
 		return true
 	}
 	hasMeasuredPressure := prepared.HasMeasuredInputPrefix && prepared.RequestInputIdentity != nil

@@ -121,8 +121,8 @@ func TestAgentExecutorRecompressesOversizedCheckpointWithoutConsumingCurrentRequ
 	require.True(t, found)
 	require.Equal(t, original, stored.Summary)
 	var replacementCount int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
-		WHERE agent_id=$1 AND replaces_checkpoint_id=$2 AND state='succeeded'`,
-		work.AgentID, prior.ID).Scan(&replacementCount))
+	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints
+		WHERE agent_id=$1 AND summarized_through_event_sequence=$2 AND id<>$3`,
+		work.AgentID, prior.SummarizedThroughEventSequence, prior.ID).Scan(&replacementCount))
 	require.Equal(t, 1, replacementCount)
 }

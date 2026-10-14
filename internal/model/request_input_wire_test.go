@@ -35,9 +35,9 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
 				ID: "answer", Role: modelprotocol.RoleAssistant, Sequence: 2,
 				Content:              json.RawMessage(`[{"type":"text","text":"answer"}]`),
-				RequestInputIdentity: first.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-				Usage:      modelenvelope.Usage{InputTokens: 1000, OutputTokens: 8000, ReasoningTokens: 7990},
-				StopReason: modelenvelope.StopReasonEndTurn,
+				RequestInputIdentity: first.RequestInputIdentity,
+				Usage:                modelenvelope.Usage{InputTokens: 1000, OutputTokens: 8000, ReasoningTokens: 7990},
+				StopReason:           modelenvelope.StopReasonEndTurn,
 			}, modelcontext.Message{
 				ID: "next", Role: modelprotocol.RoleUser, Sequence: 3,
 				Content: json.RawMessage(`[{"type":"text","text":"next"}]`),
@@ -79,8 +79,8 @@ func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
 				modelcontext.Message{
 					ID: "success", Role: modelprotocol.RoleAssistant, Sequence: 2,
 					Content:              json.RawMessage(`[{"type":"text","text":"success"}]`),
-					RequestInputIdentity: first.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-					Usage: modelenvelope.Usage{InputTokens: 1000},
+					RequestInputIdentity: first.RequestInputIdentity,
+					Usage:                modelenvelope.Usage{InputTokens: 1000},
 				},
 				modelcontext.Message{
 					ID: "failure", Role: modelprotocol.RoleAssistant, Sequence: 3,

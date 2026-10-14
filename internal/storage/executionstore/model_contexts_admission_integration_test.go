@@ -142,7 +142,6 @@ func TestNormalCompletionPersistsRequestIdentityAndChecksReplay(t *testing.T) {
 				require.NotNil(t, measured)
 				require.Equal(t, identity, measured.RequestInputIdentity)
 				require.Equal(t, record.Usage, measured.Usage)
-				require.Equal(t, slug, measured.ServedProviderModelSlug)
 				if !withUsage {
 					require.Equal(t, modelenvelope.Usage{}, measured.Usage)
 				}
@@ -587,7 +586,7 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`, next.Context.ID).Scan(&later
 			require.NoError(t, err)
 			require.Equal(t, usage.InputTokens, state.LatestObservedNormalInputTokens)
 			require.Equal(t, usage.InputTokens, state.MinimumObservedNormalInputTokens)
-			require.Equal(t, parent.Context.ID, state.LastOptionalContextID)
+			require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
 			_, err = fixture.Store.pool.Exec(
 				ctx,
 				`UPDATE model_call_contexts
@@ -608,7 +607,7 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`, laterOptional).Scan(&afterOp
 			)
 			require.NoError(t, err)
 			require.Zero(t, state.MinimumObservedNormalInputTokens)
-			require.Equal(t, laterOptional, state.LastOptionalContextID)
+			require.Equal(t, 16000, state.LastOptionalInputTargetTokens)
 			_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 				executionstore.RecordRecoverableModelCallFailureInput{
 					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -639,7 +638,7 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`,
 				ctx, testProjectID, fixture.AgentID, changedRevisionCall,
 			)
 			require.NoError(t, err)
-			require.Equal(t, uuid.Nil, state.LastOptionalContextID)
+			require.Zero(t, state.LastOptionalInputTargetTokens)
 			require.Zero(t, state.LatestObservedNormalInputTokens)
 			require.Zero(t, state.MinimumObservedNormalInputTokens)
 			require.True(t, state.OptionalCompactionAttemptedAtFrontier)
@@ -753,7 +752,7 @@ configured_model_revision_id,input_event_sequence,runtime_lock_id,'started',stat
 FROM model_call_contexts WHERE id=$1 RETURNING id`, parent.Context.ID).Scan(&currentID))
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, currentID)
 	require.NoError(t, err)
-	require.Equal(t, parent.Context.ID, state.LastOptionalContextID)
+	require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
 	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 }
@@ -816,7 +815,7 @@ FROM model_call_contexts context WHERE id=$1 RETURNING id`, claim.Context.ID).Sc
 		if pinnedContextID == uuid.Nil {
 			pinnedContextID = nextID
 		}
-		require.Equal(t, parent.Context.ID, state.LastOptionalContextID)
+		require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
 		contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
 			ctx, testProjectID, fixture.AgentID, nextID,
 		)

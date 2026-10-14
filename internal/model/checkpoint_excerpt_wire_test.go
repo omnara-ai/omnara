@@ -44,8 +44,8 @@ func TestCheckpointExcerptChangesWireInputAndInvalidatesPriorMeasurement(t *test
 				ID: "answer", Role: modelprotocol.RoleAssistant, Sequence: 7,
 				Content:              json.RawMessage(`[{"type":"text","text":"prior answer"}]`),
 				Usage:                modelenvelope.Usage{InputTokens: 8000, OutputTokens: 20},
-				RequestInputIdentity: first.RequestInputIdentity, ServedProviderModelSlug: "test-model",
-				StopReason: modelenvelope.StopReasonEndTurn,
+				RequestInputIdentity: first.RequestInputIdentity,
+				StopReason:           modelenvelope.StopReasonEndTurn,
 			}, modelcontext.Message{
 				ID: "current", Role: modelprotocol.RoleUser, Sequence: 8,
 				Content: json.RawMessage(`[{"type":"text","text":"CURRENT_REQUEST_UNCHANGED"}]`),
