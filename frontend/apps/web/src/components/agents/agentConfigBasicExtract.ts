@@ -175,7 +175,8 @@ const basicDocument = z.looseObject({
     .optional(),
   subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
-  max_depth: definitionFields.max_depth,
+  // Out-of-range depths still load so the form can flag them; maxDepthValid enforces the limit.
+  max_depth: positiveCount,
 })
 
 export function parseBasicConfigSource(source: string) {
