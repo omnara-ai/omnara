@@ -25,16 +25,15 @@ type fakeStore struct {
 	compactionRetryCount int
 	parentRecoveryKind   executionstore.ModelCallRecoveryKind
 
-	claims               []executionstore.ModelCallClaim
-	retryFailures        []executionstore.RecordRecoverableModelCallFailureInput
-	terminalFailures     []executionstore.RecordTerminalCompactionFailureInput
-	resumedFailures      []executionstore.RecordCompactionFailureAndResumeNormalInput
-	replacements         []executionstore.ReplaceCompactionSourceInput
-	replacementPreempted bool
-	publishInputs        []executionstore.PublishContextCheckpointInput
-	publishErrs          []error
-	published            *executionstore.ContextCheckpointRecord
-	clock                func() time.Time
+	claims           []executionstore.ModelCallClaim
+	retryFailures    []executionstore.RecordRecoverableModelCallFailureInput
+	terminalFailures []executionstore.RecordTerminalCompactionFailureInput
+	resumedFailures  []executionstore.RecordCompactionFailureAndResumeNormalInput
+	replacements     []executionstore.ReplaceCompactionSourceInput
+	publishInputs    []executionstore.PublishContextCheckpointInput
+	publishErrs      []error
+	published        *executionstore.ContextCheckpointRecord
+	clock            func() time.Time
 }
 
 func (s *fakeStore) ListCompactionSourceEvents(
@@ -185,9 +184,6 @@ func (s *fakeStore) ReplaceCompactionSource(
 	input executionstore.ReplaceCompactionSourceInput,
 ) (executionstore.ReplaceCompactionSourceResult, error) {
 	s.replacements = append(s.replacements, input)
-	if s.replacementPreempted {
-		return executionstore.ReplaceCompactionSourceResult{BoundaryPreempted: true}, nil
-	}
 	end := input.NextSourceEventSequenceEnd
 	previous, _ := s.contextByID(input.ModelCallContextID)
 	claim := executionstore.ModelCallClaim{
@@ -247,10 +243,6 @@ func (s *fakeStore) PublishContextCheckpoint(
 		CheckpointEventSequence:        claim.InputEventSequence + 1,
 		Summary:                        input.Summary,
 		CreatedAt:                      s.now(),
-		HasOmittedHistory:              claim.SourceExcerptBytes != nil,
-	}
-	if s.priorCheckpoint != nil && s.priorCheckpoint.HasOmittedHistory {
-		record.HasOmittedHistory = true
 	}
 	s.published = &record
 	return record, nil
@@ -278,7 +270,6 @@ type summaryResult struct {
 }
 
 type summaryModel struct {
-	providerModelSlug string
 	caps              model.Capabilities
 	preparedBundles   []modelcontext.Bundle
 	preparedPolicies  []model.RequestPolicy
@@ -291,9 +282,6 @@ type summaryModel struct {
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
-	if m.providerModelSlug != "" {
-		return m.providerModelSlug
-	}
 	return "summary"
 }
 

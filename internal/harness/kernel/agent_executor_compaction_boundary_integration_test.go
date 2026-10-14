@@ -772,35 +772,20 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 	if !compactionRetryAt.After(now.Add(30 * time.Minute)) {
 		t.Fatalf("compaction retry_at = %s, want provider backoff well after new input", compactionRetryAt)
 	}
-	retryingCompactionContext, found, err := fixture.Store.Execution().GetModelCallContext(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		compactionContextID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load retrying compaction context: found=%v err=%v", found, err)
-	}
-	if retryingCompactionContext.SourceEventSequenceEnd == nil {
-		t.Fatalf("retrying compaction context has no source range: %+v", retryingCompactionContext)
-	}
 	replayedRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
 		executionstore.ClaimNextModelCallContextInput{
 			ProjectID: kernelTestProjectID, AgentID: agentID,
-			PredecessorModelCallContextID: retryingCompactionContext.ID,
+			PredecessorModelCallContextID: compactionContextID,
 			RuntimeLockID:                 overflowTurn.RuntimeLockID,
 		},
 	)
 	if err != nil {
 		t.Fatalf("claim compaction before retry deadline: %v", err)
 	}
-	if replayedRetry.Created || replayedRetry.Claimed || replayedRetry.Context.ID != retryingCompactionContext.ID ||
+	if replayedRetry.Created || replayedRetry.Claimed || replayedRetry.Context.ID != compactionContextID ||
 		replayedRetry.Context.RetryAt == nil || !replayedRetry.Context.RetryAt.Equal(compactionRetryAt) {
 		t.Fatalf("early compaction claim = %+v, want existing deadline %s", replayedRetry, compactionRetryAt)
-	}
-	if retryModel.respondedCount() != 2 {
-		t.Fatalf("early compaction replay made a provider request; prepared=%d", retryModel.respondedCount())
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,

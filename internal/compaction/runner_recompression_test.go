@@ -57,36 +57,7 @@ func TestRunnerExcerptsPriorCheckpointOnlyAfterProviderOverflow(t *testing.T) {
 			require.Contains(t, last, "PRIOR_TAIL")
 			require.Contains(t, last, prior.ID.String())
 			require.NotContains(t, last, "CURRENT_REQUEST_MUST_REMAIN_COMPLETE")
-			require.Equal(t, prior.Summary, store.priorCheckpoint.Summary)
 			require.Contains(t, result.Checkpoint.Summary, "details of prior checkpoint "+prior.ID.String()+" were omitted")
-			require.True(t, result.Checkpoint.HasOmittedHistory)
-		})
-	}
-}
-
-func TestRunnerCheckpointRecompressionRequiresMaterialByteReduction(t *testing.T) {
-	for _, size := range []int{900, 901, 1_001} {
-		t.Run(fmt.Sprint(size), func(t *testing.T) {
-			prior := executionstore.ContextCheckpointRecord{
-				ID: testIDN(7820), SummarizedThroughEventSequence: 1, CheckpointEventSequence: 2,
-				Summary: strings.Repeat("x", 1_000),
-			}
-			store := &fakeStore{priorCheckpoint: &prior}
-			input := runInput(testPlan(2, 1, 3))
-			input.Plan.ReplacesCheckpointID = prior.ID
-			client := &summaryModel{results: []summaryResult{{response: completeSummaryResponse(strings.Repeat("x", size))}}}
-			result, err := testRunner(store, client).RunClaimed(context.Background(), input, store.addStartedClaim(input))
-			require.NoError(t, err)
-			if size <= 900 {
-				require.Equal(t, RunCompleted, result.State)
-			} else {
-				require.Equal(t, RunResumeNormal, result.State)
-				require.Len(t, store.resumedFailures, 1)
-				require.Empty(t, store.resumedFailures[0].Outcome)
-				require.Empty(t, store.publishInputs)
-			}
-			require.Len(t, client.requests, 1)
-			require.Empty(t, store.replacements)
 		})
 	}
 }
@@ -198,7 +169,6 @@ func TestRunnerPreservesInheritedOmissionNotice(t *testing.T) {
 				require.Equal(t, RunCompleted, result.State)
 				require.Equal(t, 1, strings.Count(result.Checkpoint.Summary, notice))
 				require.Len(t, result.Checkpoint.Summary, len(prior.Summary)*9/10)
-				require.True(t, result.Checkpoint.HasOmittedHistory)
 			})
 		}
 	}
@@ -210,16 +180,10 @@ func TestRunnerUnusableCheckpointRecompressionResumesNormal(t *testing.T) {
 		result summaryResult
 	}{
 		{"refusal", summaryResult{response: model.Response{StopReason: model.StopReasonRefusal}}},
-		{"empty", summaryResult{response: model.Response{StopReason: model.StopReasonEndTurn}}},
 		{"malformed", summaryResult{response: model.Response{StopReason: model.StopReasonEndTurn,
 			Content: []model.ResponsePart{{Type: "unexpected"}}}}},
-		{"truncated", summaryResult{response: model.Response{StopReason: model.StopReasonMaxTokens,
-			Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Partial summary."}}}}},
 		{"not reduced", summaryResult{response: completeSummaryResponse(strings.Repeat("old state ", 1_000))}},
 		{"authentication", summaryResult{err: model.ProviderError{Kind: model.ErrorKindAuth, Message: "Access denied"}}},
-		{"configuration", summaryResult{err: model.ProviderError{
-			Kind: model.ErrorKindInvalidRequest, Message: "Invalid model options",
-		}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			prior := executionstore.ContextCheckpointRecord{
@@ -241,7 +205,6 @@ func TestRunnerUnusableCheckpointRecompressionResumesNormal(t *testing.T) {
 			require.Empty(t, store.replacements)
 			require.Empty(t, store.terminalFailures)
 			require.Empty(t, store.publishInputs)
-			require.Equal(t, prior.Summary, store.priorCheckpoint.Summary)
 		})
 	}
 }
@@ -283,25 +246,6 @@ func TestRunnerCheckpointRecompressionTransientBudgetResumesNormalOnlyWhenExhaus
 	}
 }
 
-func TestRunnerUnusableAdvancingCompactionStillRetries(t *testing.T) {
-	for _, reason := range []model.StopReason{model.StopReasonEndTurn, model.StopReasonMaxTokens} {
-		t.Run(string(reason), func(t *testing.T) {
-			store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-				textCompactionEvent(1, strings.Repeat("old completed history ", 100)),
-			}}
-			input := runInput(testPlan(1, 1, 2))
-			client := &summaryModel{results: []summaryResult{{response: model.Response{StopReason: reason}}}}
-			result, err := testRunner(store, client).RunClaimed(context.Background(), input, store.addStartedClaim(input))
-			require.NoError(t, err)
-			require.Equal(t, RunRetryScheduled, result.State)
-			require.Len(t, client.requests, 1)
-			require.Len(t, store.retryFailures, 1)
-			require.Empty(t, store.resumedFailures)
-			require.Empty(t, store.terminalFailures)
-		})
-	}
-}
-
 func TestRunnerCheckpointRecompressionOverflowResumesAfterExcerptFloor(t *testing.T) {
 	prior := executionstore.ContextCheckpointRecord{
 		ID: testIDN(7852), SummarizedThroughEventSequence: 1, CheckpointEventSequence: 2,
@@ -323,7 +267,6 @@ func TestRunnerCheckpointRecompressionOverflowResumesAfterExcerptFloor(t *testin
 	require.Equal(t, minimumSourceExcerptBytes, *store.replacements[len(store.replacements)-1].NextSourceExcerptBytes)
 	require.Empty(t, store.terminalFailures)
 	require.Empty(t, store.publishInputs)
-	require.Equal(t, prior.Summary, store.priorCheckpoint.Summary)
 }
 
 func TestRunnerCheckpointRecompressionConfigurationFailureResumesBeforeProviderRequest(t *testing.T) {

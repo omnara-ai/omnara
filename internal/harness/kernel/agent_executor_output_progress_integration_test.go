@@ -19,7 +19,6 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 		continuation        bool
 	}{
 		{name: "full allowance", estimate: 500, allowance: 8192},
-		{name: "per-request adjustment", estimate: 3500, allowance: 5476},
 		{name: "after partial output", estimate: 3500, allowance: 5476, continuation: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

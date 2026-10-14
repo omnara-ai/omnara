@@ -334,10 +334,15 @@ func TestCheckpointProjectionGuardsRejectInvalidOrCurrentHistory(t *testing.T) {
 	} {
 		_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
 SET state='failed',recovery_kind='retry',retry_at=statement_timestamp(),
-error_kind=$3,error_message='projection guard',api_format=$4,api_variant='default',
+error_kind=$3,error_message='projection guard',api_format=$4,
+api_variant=CASE WHEN $4='' THEN '' ELSE 'default' END,
 recovery_checkpoint_retained_bytes=$2,completed_at=statement_timestamp()
 WHERE id=$1`, current.ID, tc.retained, tc.kind, tc.format)
-		require.Error(t, err)
+		if *tc.retained == len(checkpoint.Summary) {
+			assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
+		} else {
+			assertPgConstraint(t, err, "23514", "model_call_contexts_recovery_checkpoint_projection")
+		}
 	}
 	_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		checkpointProjectionFailure(fixture, current, 128))

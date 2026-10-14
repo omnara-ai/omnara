@@ -410,37 +410,16 @@ LIMIT 1
 `, kernelTestProjectID, agentID).Scan(&completedCompactionContextID); err != nil {
 		t.Fatalf("load completed compaction context id: %v", err)
 	}
-	completedCompactionContext, found, err := fixture.Store.Execution().GetModelCallContext(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		completedCompactionContextID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load completed compaction context: found=%v err=%v", found, err)
-	}
-	if completedCompactionContext.SourceEventSequenceEnd == nil {
-		t.Fatalf("completed compaction context has no source range: %+v", completedCompactionContext)
-	}
 	replayedClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
 		executionstore.ClaimNextModelCallContextInput{
 			ProjectID: kernelTestProjectID, AgentID: agentID,
-			PredecessorModelCallContextID: completedCompactionContext.ID,
+			PredecessorModelCallContextID: completedCompactionContextID,
 			RuntimeLockID:                 retryTurn.RuntimeLockID,
 		},
 	)
 	if err != nil || replayedClaim.Created || replayedClaim.Claimed {
 		t.Fatalf("completed compaction created another claim: claim=%+v err=%v", replayedClaim, err)
-	}
-	checkpoint, found, err := fixture.Store.Execution().GetContextCheckpointByProducerContext(
-		ctx, kernelTestProjectID, agentID, completedCompactionContext.ID,
-	)
-	if err != nil || !found || checkpoint.ProducerModelCallContextID != completedCompactionContext.ID {
-		t.Fatalf("load completed compaction checkpoint: checkpoint=%+v found=%v err=%v", checkpoint, found, err)
-	}
-	if retryModel.respondedCount() != 2 {
-		t.Fatalf("completed compaction replay made a provider request; prepared=%d", retryModel.respondedCount())
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,

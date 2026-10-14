@@ -207,25 +207,27 @@ func TestRunnerRejectsClaimWithoutParent(t *testing.T) {
 }
 
 func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
-	input := runInput(testPlan(2, 2, 2))
-	claim := newCompactionClaim(input, 0, time.Time{})
-	claim.Claimed = false
-	claim.Context.State = executionstore.ModelCallContextFailed
-	claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
-
-	store := &fakeStore{}
-	client := &summaryModel{}
-	result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
-	if err != nil {
-		t.Fatalf("return supplied terminal compaction claim: %v", err)
-	}
-	if result.State != RunTerminal || result.ModelCallContextID != claim.Context.ID ||
-		len(client.requests) != 0 {
-		t.Fatalf(
-			"terminal result=%+v requests=%d",
-			result,
-			len(client.requests),
-		)
+	for _, resume := range []bool{false, true} {
+		t.Run(fmt.Sprint(resume), func(t *testing.T) {
+			input := runInput(testPlan(2, 2, 2))
+			claim := newCompactionClaim(input, 0, time.Time{})
+			claim.Claimed = false
+			claim.Context.State = executionstore.ModelCallContextFailed
+			claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
+			want := RunTerminal
+			if resume {
+				claim.Context.RecoveryKind = executionstore.ModelCallRecoveryResumeNormal
+				want = RunResumeNormal
+			}
+			store := &fakeStore{}
+			client := &summaryModel{}
+			result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+			require.NoError(t, err)
+			require.Equal(t, want, result.State)
+			require.Equal(t, claim.Context.ID, result.ModelCallContextID)
+			require.Empty(t, client.requests)
+			require.Empty(t, store.resumedFailures)
+		})
 	}
 }
 
@@ -628,6 +630,9 @@ func TestRunnerSchedulesExplicitRateLimitFailureDurably(t *testing.T) {
 		store.retryFailures[0].ProviderRequestID != "req_rate" {
 		t.Fatalf("durable retry evidence = %+v", store.retryFailures)
 	}
+	require.Len(t, client.requests, 1)
+	require.Empty(t, store.replacements)
+	require.Empty(t, store.publishInputs)
 }
 
 func TestRunnerRecordsAmbiguousPostSendFailureInEvidence(t *testing.T) {
@@ -933,10 +938,10 @@ func TestRunnerNeverPublishesSmallestTruncatedSummary(t *testing.T) {
 
 func TestRunnerStopsSmallestNonReducingSummaryWithoutRepeatingRequest(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, "short closed unit"),
+		textCompactionEvent(1, strings.Repeat("short closed unit ", 2_000)),
 	}}
 	client := &summaryModel{results: []summaryResult{{
-		response: completeSummaryResponse(strings.Repeat("larger summary ", 20)),
+		response: completeSummaryResponse(strings.Repeat("larger summary ", 4_000)),
 	}}}
 	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := testRunner(store, client).
@@ -944,6 +949,7 @@ func TestRunnerStopsSmallestNonReducingSummaryWithoutRepeatingRequest(t *testing
 	if err != nil {
 		t.Fatalf("run non-reducing compaction: %v", err)
 	}
+	require.Empty(t, store.replacements)
 	if result.State != RunTerminal || len(store.retryFailures) != 0 || len(store.publishInputs) != 0 ||
 		len(store.terminalFailures) != 1 ||
 		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||

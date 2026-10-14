@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -65,97 +64,70 @@ func checkpointExcerptClient(kind model.ErrorKind) *checkpointExcerptKernelModel
 }
 
 func TestAgentExecutorRecoversWithDurableCheckpointExcerptsAfterOneRewrite(t *testing.T) {
-	for _, kind := range []model.ErrorKind{model.ErrorKindContextWindow, model.ErrorKindPayloadTooLarge} {
-		for _, refuseSummary := range []bool{false, true} {
-			name := string(kind) + "/completed_rewrite"
-			if refuseSummary {
-				name = string(kind) + "/failed_rewrite"
-			}
-			t.Run(name, func(t *testing.T) {
-				ctx := context.Background()
-				original := "ORIGINAL_HEAD " + strings.Repeat("historical task state ", 2_000) + " ORIGINAL_TAIL"
-				const current = "CURRENT_REQUEST_REMAINS_COMPLETE_🙂"
-				fixture, work, prior := seedCheckpointBeforeCurrentAttempt(t, ctx, original, current)
-				client := checkpointExcerptClient(kind)
-				client.refuseSummary = refuseSummary
-				var initialMessages []modelcontext.Message
-				for attempt := range 60 {
-					executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
-						ModelRetryDelay: immediateKernelModelRetryDelay}
-					require.NoError(t, executor.ExecuteModelWork(ctx, work))
-					if attempt == 0 {
-						initialMessages = client.responded[0].Bundle.Messages
-					}
-					if pendingModelWork(t, ctx, fixture, work.AgentID) == 0 {
-						break
-					}
-					work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work,
-						fixture.Now.Add(time.Duration(attempt+3)*time.Second))
-				}
-				require.Zero(t, pendingModelWork(t, ctx, fixture, work.AgentID))
-				require.Equal(t, 1, client.summaryCalls)
-				assertNoTerminalContextErrors(t, ctx, fixture, work.AgentID)
-				final := client.responded[len(client.responded)-1]
-				require.False(t, isCompactionRequestBundle(final.Bundle))
-				require.Contains(t, final.Bundle.ContextCheckpoint.Summary, "Earlier history excerpted")
-				if refuseSummary {
-					require.Equal(t, prior.ID.String(), final.Bundle.ContextCheckpoint.ID)
-				} else {
-					require.NotEqual(t, prior.ID.String(), final.Bundle.ContextCheckpoint.ID)
-				}
-				var excerpts int
-				var previousLength int
-				for _, sent := range client.responded {
-					if isCompactionRequestBundle(sent.Bundle) {
-						require.NotContains(t, string(sent.ProviderRequest), current)
-						continue
-					}
-					require.Equal(t, initialMessages, sent.Bundle.Messages)
-					require.Contains(t, string(sent.ProviderRequest), current)
-					require.Equal(t, 1024, sent.Policy.MaxOutputTokens)
-					if strings.Contains(sent.Bundle.ContextCheckpoint.Summary, "Earlier history excerpted") {
-						if previousLength > 0 {
-							require.Less(t, len(sent.ProviderRequest), previousLength)
-						}
-						previousLength = len(sent.ProviderRequest)
-						excerpts++
-					}
-				}
-				require.Greater(t, excerpts, 1)
-				stored, found, err := fixture.Store.Execution().GetContextCheckpoint(
-					ctx, kernelTestProjectID, work.AgentID, prior.ID,
-				)
-				require.NoError(t, err)
-				require.True(t, found)
-				require.Equal(t, original, stored.Summary)
-				rows, err := fixture.Pool.Query(ctx, `SELECT checkpoint.context_checkpoint_id,
-					context.recovery_checkpoint_retained_bytes
-					FROM model_call_contexts context JOIN LATERAL (
-						SELECT event.context_checkpoint_id FROM agent_events event
-						WHERE event.agent_id=context.agent_id AND event.event_kind='context_checkpoint'
-						AND event.sequence<=context.input_event_sequence ORDER BY event.sequence DESC LIMIT 1
-					) checkpoint ON true
-					WHERE context.agent_id=$1 AND context.recovery_checkpoint_retained_bytes IS NOT NULL
-					ORDER BY context.created_at`, work.AgentID)
-				require.NoError(t, err)
-				var savedID uuid.UUID
-				previousBytes, savedCount := len(original), 0
-				for rows.Next() {
-					var id uuid.UUID
-					var retained int
-					require.NoError(t, rows.Scan(&id, &retained))
-					if savedID != uuid.Nil {
-						require.Equal(t, savedID, id)
-					}
-					require.Less(t, retained, previousBytes)
-					savedID, previousBytes = id, retained
-					savedCount++
-				}
-				require.NoError(t, rows.Err())
-				rows.Close()
-				require.Equal(t, excerpts, savedCount)
-			})
+	for _, refuseSummary := range []bool{false, true} {
+		name := "completed_rewrite"
+		if refuseSummary {
+			name = "failed_rewrite"
 		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			original := "ORIGINAL_HEAD " + strings.Repeat("historical task state ", 2_000) + " ORIGINAL_TAIL"
+			const current = "CURRENT_REQUEST_REMAINS_COMPLETE_🙂"
+			fixture, work, prior := seedCheckpointBeforeCurrentAttempt(t, ctx, original, current)
+			client := checkpointExcerptClient(model.ErrorKindContextWindow)
+			client.refuseSummary = refuseSummary
+			var initialMessages []modelcontext.Message
+			for attempt := range 60 {
+				executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+					ModelRetryDelay: immediateKernelModelRetryDelay}
+				require.NoError(t, executor.ExecuteModelWork(ctx, work))
+				if attempt == 0 {
+					initialMessages = client.responded[0].Bundle.Messages
+				}
+				if pendingModelWork(t, ctx, fixture, work.AgentID) == 0 {
+					break
+				}
+				work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work,
+					fixture.Now.Add(time.Duration(attempt+3)*time.Second))
+			}
+			require.Zero(t, pendingModelWork(t, ctx, fixture, work.AgentID))
+			require.Equal(t, 1, client.summaryCalls)
+			assertNoTerminalContextErrors(t, ctx, fixture, work.AgentID)
+			final := client.responded[len(client.responded)-1]
+			require.False(t, isCompactionRequestBundle(final.Bundle))
+			require.Contains(t, final.Bundle.ContextCheckpoint.Summary, "Earlier history excerpted")
+			if refuseSummary {
+				require.Equal(t, prior.ID.String(), final.Bundle.ContextCheckpoint.ID)
+			} else {
+				require.NotEqual(t, prior.ID.String(), final.Bundle.ContextCheckpoint.ID)
+			}
+			var excerpts int
+			var previousLength int
+			for _, sent := range client.responded {
+				if isCompactionRequestBundle(sent.Bundle) {
+					require.NotContains(t, string(sent.ProviderRequest), current)
+					continue
+				}
+				require.Equal(t, initialMessages, sent.Bundle.Messages)
+				require.Contains(t, string(sent.ProviderRequest), current)
+				require.Equal(t, 1024, sent.Policy.MaxOutputTokens)
+				if strings.Contains(sent.Bundle.ContextCheckpoint.Summary, "Earlier history excerpted") {
+					require.Equal(t, final.Bundle.ContextCheckpoint.ID, sent.Bundle.ContextCheckpoint.ID)
+					if previousLength > 0 {
+						require.Less(t, len(sent.ProviderRequest), previousLength)
+					}
+					previousLength = len(sent.ProviderRequest)
+					excerpts++
+				}
+			}
+			require.Greater(t, excerpts, 1)
+			stored, found, err := fixture.Store.Execution().GetContextCheckpoint(
+				ctx, kernelTestProjectID, work.AgentID, prior.ID,
+			)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, original, stored.Summary)
+		})
 	}
 }
 

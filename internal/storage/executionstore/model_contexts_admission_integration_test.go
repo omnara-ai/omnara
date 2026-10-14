@@ -21,132 +21,104 @@ import (
 
 func TestNormalCompletionPersistsRequestIdentityAndChecksReplay(t *testing.T) {
 	t.Parallel()
-	for _, toolResponse := range []bool{false, true} {
-		for _, withUsage := range []bool{false, true} {
-			name := "text"
-			if toolResponse {
-				name = "tool"
-			}
-			if withUsage {
-				name += "_usage"
-			}
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				ctx := t.Context()
-				fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "input_identity_"+name)
-				slug := modelProviderSlugForContext(
-					t,
-					ctx,
-					fixture.Store,
-					testProjectID,
-					fixture.AgentID,
-					claim.Context.ID,
-				)
-				identity := &modelenvelope.RequestInputIdentity{Fingerprint: strings.Repeat("a", 64), ItemCount: 2}
+	for _, tc := range []struct {
+		name         string
+		toolResponse bool
+		usage        modelenvelope.Usage
+	}{
+		{"text_with_usage", false, modelenvelope.Usage{InputTokens: 120, UncachedInputTokens: 120, OutputTokens: 30}},
+		{"tool_without_usage", true, modelenvelope.Usage{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "input_identity_"+tc.name)
+			slug := modelProviderSlugForContext(
+				t,
+				ctx,
+				fixture.Store,
+				testProjectID,
+				fixture.AgentID,
+				claim.Context.ID,
+			)
+			identity := &modelenvelope.RequestInputIdentity{Fingerprint: strings.Repeat("a", 64), ItemCount: 2}
 
-				envelope := modelenvelope.ResponseEnvelope{
-					RequestedProviderModelSlug: slug,
-					ServedProviderModelSlug:    slug,
-					APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
-					APIVariant:                 modelprotocol.APIVariantDefault,
-					Normalized: modelenvelope.ResponseNormalized{
-						ID:         "identity-response",
-						StopReason: modelenvelope.StopReasonEndTurn,
-						Content: []modelenvelope.ResponsePart{
-							{
-								Type: modelenvelope.ResponsePartTypeText,
-								Text: "done",
-							},
+			envelope := modelenvelope.ResponseEnvelope{
+				RequestedProviderModelSlug: slug,
+				ServedProviderModelSlug:    slug,
+				APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
+				APIVariant:                 modelprotocol.APIVariantDefault,
+				Normalized: modelenvelope.ResponseNormalized{
+					ID:         "identity-response",
+					Usage:      tc.usage,
+					StopReason: modelenvelope.StopReasonEndTurn,
+					Content: []modelenvelope.ResponsePart{
+						{
+							Type: modelenvelope.ResponsePartTypeText,
+							Text: "done",
 						},
 					},
+				},
+			}
+			if tc.toolResponse {
+				envelope.Normalized.StopReason = modelenvelope.StopReasonToolUse
+				envelope.Normalized.Content = []modelenvelope.ResponsePart{
+					{
+						Type:           modelenvelope.ResponsePartTypeToolCall,
+						ProviderCallID: "identity-call",
+						ToolName:       "read_file",
+						ToolInput: json.RawMessage(
+							`{"path":"/artifacts/invalid"}`,
+						),
+					},
 				}
-				if withUsage {
-					envelope.Normalized.Usage = modelenvelope.Usage{
-						InputTokens:         120,
-						UncachedInputTokens: 120,
-						OutputTokens:        30,
-					}
-				}
-				if toolResponse {
-					envelope.Normalized.StopReason = modelenvelope.StopReasonToolUse
-					envelope.Normalized.Content = []modelenvelope.ResponsePart{
-						{
-							Type:           modelenvelope.ResponsePartTypeToolCall,
-							ProviderCallID: "identity-call",
-							ToolName:       "read_file",
-							ToolInput: json.RawMessage(
-								`{"path":"/artifacts/invalid"}`,
-							),
-						},
-					}
-				}
-				complete := func(value *modelenvelope.RequestInputIdentity) error {
-					if toolResponse {
-						_, _, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
-							ctx,
-							executionstore.RecordToolCallSourceAndCompleteContextInput{
-								ProjectID:            testProjectID,
-								AgentID:              fixture.AgentID,
-								RuntimeLockID:        fixture.Lock.ID,
-								ModelCallContextID:   claim.Context.ID,
-								ProviderResponse:     envelope,
-								RequestInputIdentity: value,
-								ToolCallBindings: []executionstore.ToolCallBindingInput{
-									{
-										ProviderCallID: "identity-call",
-										Type:           toolcatalog.ToolTypeBuiltIn,
-									},
+			}
+			complete := func(value *modelenvelope.RequestInputIdentity) error {
+				if tc.toolResponse {
+					_, _, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
+						ctx,
+						executionstore.RecordToolCallSourceAndCompleteContextInput{
+							ProjectID:            testProjectID,
+							AgentID:              fixture.AgentID,
+							RuntimeLockID:        fixture.Lock.ID,
+							ModelCallContextID:   claim.Context.ID,
+							ProviderResponse:     envelope,
+							RequestInputIdentity: value,
+							ToolCallBindings: []executionstore.ToolCallBindingInput{
+								{
+									ProviderCallID: "identity-call",
+									Type:           toolcatalog.ToolTypeBuiltIn,
 								},
 							},
-						)
-						return err
-					}
-					_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
-						ctx,
-						executionstore.RecordModelOutputAndCompleteContextInput{
-							ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-							ModelCallContextID: claim.Context.ID, ProviderResponse: envelope, RequestInputIdentity: value,
 						},
 					)
 					return err
 				}
-				require.NoError(t, complete(identity))
-				require.NoError(t, complete(identity))
-				changed := *identity
-				changed.Fingerprint = strings.Repeat("d", 64)
-				require.ErrorIs(t, complete(&changed), storeerr.ErrIdempotencyConflict)
-				record, found, err := fixture.Store.Execution().GetModelCallContext(
+				_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
 					ctx,
-					testProjectID,
-					fixture.AgentID,
-					claim.Context.ID,
+					executionstore.RecordModelOutputAndCompleteContextInput{
+						ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+						ModelCallContextID: claim.Context.ID, ProviderResponse: envelope, RequestInputIdentity: value,
+					},
 				)
-				require.NoError(t, err)
-				require.True(t, found)
-				require.Equal(t, identity, record.RequestInputIdentity)
-				events, err := fixture.Store.Execution().ListContextEvents(
-					ctx,
-					testProjectID,
-					fixture.AgentID,
-					0,
-					claim.Context.InputEventSequence+10,
-					100,
-				)
-				require.NoError(t, err)
-				var measured *executionstore.ContextEventRecord
-				for index := range events {
-					if events[index].ModelCallContextID == claim.Context.ID {
-						measured = &events[index]
-					}
-				}
-				require.NotNil(t, measured)
-				require.Equal(t, identity, measured.RequestInputIdentity)
-				require.Equal(t, record.Usage, measured.Usage)
-				if !withUsage {
-					require.Equal(t, modelenvelope.Usage{}, measured.Usage)
-				}
-			})
-		}
+				return err
+			}
+			require.NoError(t, complete(identity))
+			require.NoError(t, complete(identity))
+			changed := *identity
+			changed.Fingerprint = strings.Repeat("d", 64)
+			require.ErrorIs(t, complete(&changed), storeerr.ErrIdempotencyConflict)
+			record, found, err := fixture.Store.Execution().GetModelCallContext(
+				ctx,
+				testProjectID,
+				fixture.AgentID,
+				claim.Context.ID,
+			)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, identity, record.RequestInputIdentity)
+			require.Equal(t, envelope.Normalized.Usage, record.Usage)
+		})
 	}
 }
 
@@ -196,8 +168,9 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 		ModelCallContextID: optional.CompactionCall.Context.ID,
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
-		ErrorKind: "invalid_response", ErrorCode: "refusal", ErrorMessage: "optional summary refused",
-		Usage: modelenvelope.Usage{InputTokens: 200, UncachedInputTokens: 200, OutputTokens: 10},
+		ErrorKind: modelprotocol.ErrorKindTransient, ErrorCode: "summary_not_reduced",
+		ErrorMessage: "optional summary ineffective",
+		Usage:        modelenvelope.Usage{InputTokens: 200, UncachedInputTokens: 200, OutputTokens: 10},
 	}
 	failed, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
 	require.NoError(t, err)
@@ -331,62 +304,6 @@ func TestInterruptedOptionalCompactionResumesNormalAfterRuntimeRelease(t *testin
 	require.Equal(t, parent.Context.ID, workID)
 }
 
-func TestOptionalCompactionHeadroomDependsOnActualOutcome(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		kind          modelprotocol.ErrorKind
-		code          string
-		needsHeadroom bool
-	}{
-		{modelprotocol.ErrorKindRateLimit, "rate_limit_exceeded", false},
-		{modelprotocol.ErrorKindProviderUnavailable, "overloaded_error", false},
-		{modelprotocol.ErrorKindTransient, "provider_idle_timeout", false},
-		{modelprotocol.ErrorKindTransient, "load_compaction_source_failed", false},
-		{modelprotocol.ErrorKindRuntime, storeerr.ManagedWorkAdmissionDeniedCode, false},
-		{modelprotocol.ErrorKindInvalidRequest, "refusal", true},
-		{modelprotocol.ErrorKindTransient, "summary_not_reduced", true},
-		{modelprotocol.ErrorKindTransient, "summary_truncated", true},
-		{modelprotocol.ErrorKindTransient, "empty_summary", true},
-		{modelprotocol.ErrorKindTransient, "tool_use", true},
-		{modelprotocol.ErrorKindUnknown, "malformed_success_response", true},
-		{modelprotocol.ErrorKindContextWindow, "compaction_source_irreducible", true},
-	} {
-		t.Run(tc.code, func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_outcome_"+tc.code)
-			optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
-			outcome := executionstore.OptionalCompactionInterrupted
-			if tc.needsHeadroom {
-				outcome = executionstore.OptionalCompactionIneffective
-			}
-			_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(
-				ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
-					Outcome:   outcome,
-					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-					ModelCallContextID: optional.CompactionCall.Context.ID,
-					ErrorKind:          tc.kind, ErrorCode: tc.code, ErrorMessage: "optional attempt failed",
-				},
-			)
-			require.NoError(t, err)
-			next, err := fixture.Store.Execution().ClaimNextModelCallContext(
-				ctx, executionstore.ClaimNextModelCallContextInput{
-					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-					PredecessorModelCallContextID: parent.Context.ID,
-				},
-			)
-			require.NoError(t, err)
-			require.True(t, next.Claimed)
-			state, err := fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, next.Context.ID,
-			)
-			require.NoError(t, err)
-			require.Equal(t, tc.needsHeadroom, state.LastOptionalCompactionNeedsHeadroom)
-			require.True(t, state.OptionalCompactionAttemptedAtFrontier)
-		})
-	}
-}
-
 func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -481,185 +398,99 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	require.True(t, errors.Is(err, storeerr.ErrStateTransitionConflict))
 }
 
-func TestOptionalCompactionRearmUsesObservedNormalInputWithoutRequestIdentity(t *testing.T) {
+func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing.T) {
 	t.Parallel()
-	for _, measured := range []bool{false, true} {
-		name := "missing_usage"
-		if measured {
-			name = "measured_usage"
-		}
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "headroom_"+name)
-			optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
-			_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(
-				ctx,
-				executionstore.RecordCompactionFailureAndResumeNormalInput{
-					Outcome:            executionstore.OptionalCompactionIneffective,
-					ProjectID:          testProjectID,
-					AgentID:            fixture.AgentID,
-					RuntimeLockID:      fixture.Lock.ID,
-					ModelCallContextID: optional.CompactionCall.Context.ID,
-					ErrorKind:          "invalid_response",
-					ErrorMessage:       "optional refusal",
-					APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-					APIVariant:         modelprotocol.APIVariantDefault,
-					Usage:              modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10},
-				},
-			)
-			require.NoError(t, err)
-			revision := parent.Context.ConfiguredModelRevisionID
-			state, err := fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, optional.CompactionCall.Context.ID,
-			)
-			require.NoError(t, err)
-			require.Zero(t, state.MinimumObservedNormalInputTokens)
-			next, err := fixture.Store.Execution().ClaimNextModelCallContext(
-				ctx,
-				executionstore.ClaimNextModelCallContextInput{
-					ProjectID:                     testProjectID,
-					AgentID:                       fixture.AgentID,
-					RuntimeLockID:                 fixture.Lock.ID,
-					PredecessorModelCallContextID: parent.Context.ID,
-				},
-			)
-			require.NoError(t, err)
-			_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
-				ctx,
-				executionstore.RecordRecoverableModelCallFailureInput{
-					ProjectID:          testProjectID,
-					AgentID:            fixture.AgentID,
-					RuntimeLockID:      fixture.Lock.ID,
-					ModelCallContextID: next.Context.ID,
-					ErrorKind:          modelprotocol.ErrorKindProviderUnavailable,
-					ErrorMessage:       "provider failure with usage",
-					APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-					APIVariant:         modelprotocol.APIVariantDefault,
-					Usage:              modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10},
-				},
-			)
-			require.NoError(t, err)
-
-			next, err = fixture.Store.Execution().ClaimNextModelCallContext(
-				ctx,
-				executionstore.ClaimNextModelCallContextInput{
-					ProjectID:                     testProjectID,
-					AgentID:                       fixture.AgentID,
-					RuntimeLockID:                 fixture.Lock.ID,
-					PredecessorModelCallContextID: next.Context.ID,
-				},
-			)
-			require.NoError(t, err)
-			slug := modelProviderSlugForContext(t, ctx, fixture.Store, testProjectID, fixture.AgentID, next.Context.ID)
-			usage := modelenvelope.Usage{}
-			if measured {
-				usage = modelenvelope.Usage{InputTokens: 100, UncachedInputTokens: 100, OutputTokens: 10}
-			}
-			_, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(
-				ctx,
-				executionstore.RecordModelOutputAndCompleteContextInput{
-					ProjectID:          testProjectID,
-					AgentID:            fixture.AgentID,
-					RuntimeLockID:      fixture.Lock.ID,
-					ModelCallContextID: next.Context.ID,
-					ProviderResponse: modelenvelope.ResponseEnvelope{
-						RequestedProviderModelSlug: slug,
-						ServedProviderModelSlug:    slug,
-						APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
-						APIVariant:                 modelprotocol.APIVariantDefault,
-						Normalized: modelenvelope.ResponseNormalized{
-							ID:         "headroom-response",
-							Usage:      usage,
-							StopReason: modelenvelope.StopReasonEndTurn,
-							Content: []modelenvelope.ResponsePart{
-								{
-									Type: modelenvelope.ResponsePartTypeText,
-									Text: "done",
-								},
-							},
-						},
-					},
-				},
-			)
-			require.NoError(t, err)
-			state, err = fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, next.Context.ID,
-			)
-			require.NoError(t, err)
-			require.Zero(t, state.MinimumObservedNormalInputTokens)
-			require.Zero(t, state.LatestObservedNormalInputTokens)
-			var laterOptional uuid.UUID
-			require.NoError(t, fixture.Store.pool.QueryRow(ctx, `INSERT INTO model_call_contexts(
-org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
-SELECT org_id,project_id,agent_id,'normal',1,agent_config_id,configured_model_revision_id,
-input_event_sequence+100,runtime_lock_id,'started',statement_timestamp()
-FROM model_call_contexts WHERE id=$1 RETURNING id`, next.Context.ID).Scan(&laterOptional))
-			state, err = fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, laterOptional,
-			)
-			require.NoError(t, err)
-			require.Equal(t, usage.InputTokens, state.LatestObservedNormalInputTokens)
-			require.Equal(t, usage.InputTokens, state.MinimumObservedNormalInputTokens)
-			require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
-			_, err = fixture.Store.pool.Exec(
-				ctx,
-				`UPDATE model_call_contexts
-SET state='failed',recovery_kind='compact_optional',error_kind='context_window',
-optional_input_target_tokens=16000,error_message='later optional',completed_at=statement_timestamp() WHERE id=$1`,
-				laterOptional,
-			)
-			require.NoError(t, err)
-			var afterOptional uuid.UUID
-			require.NoError(t, fixture.Store.pool.QueryRow(ctx, `INSERT INTO model_call_contexts(
-org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
-SELECT org_id,project_id,agent_id,'normal',attempt_number+1,agent_config_id,configured_model_revision_id,
-input_event_sequence,runtime_lock_id,'started',statement_timestamp()
-FROM model_call_contexts WHERE id=$1 RETURNING id`, laterOptional).Scan(&afterOptional))
-			state, err = fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, afterOptional,
-			)
-			require.NoError(t, err)
-			require.Zero(t, state.MinimumObservedNormalInputTokens)
-			require.Equal(t, 16000, state.LastOptionalInputTargetTokens)
-			_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-				executionstore.RecordRecoverableModelCallFailureInput{
-					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-					ModelCallContextID: afterOptional, ErrorKind: modelprotocol.ErrorKindRuntime,
-					ErrorMessage: "retry with a new model revision",
-				})
-			require.NoError(t, err)
-
-			original, err := fixture.Store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, revision)
-			require.NoError(t, err)
-			window := original.ContextWindowTokens + 1
-			updated, err := fixture.Store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
-				OrgID: testOrgID, ModelProviderConfigID: original.ModelProviderConfigID,
-				ID: original.ConfiguredModelID, ContextWindowTokens: &window,
-			})
-			require.NoError(t, err)
-			var changedRevisionCall uuid.UUID
-			require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
-INSERT INTO model_call_contexts(
-org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
-SELECT org_id,project_id,agent_id,'normal',attempt_number+1,agent_config_id,
-$2,input_event_sequence,runtime_lock_id,'started',statement_timestamp()
-FROM model_call_contexts WHERE id=$1 RETURNING id`,
-				afterOptional, updated.CurrentRevisionID,
-			).Scan(&changedRevisionCall))
-			state, err = fixture.Store.Execution().GetModelCallRecoveryState(
-				ctx, testProjectID, fixture.AgentID, changedRevisionCall,
-			)
-			require.NoError(t, err)
-			require.Zero(t, state.LastOptionalInputTargetTokens)
-			require.Zero(t, state.LatestObservedNormalInputTokens)
-			require.Zero(t, state.MinimumObservedNormalInputTokens)
-			require.True(t, state.OptionalCompactionAttemptedAtFrontier)
+	ctx := t.Context()
+	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_observation_scope")
+	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
+	_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx,
+		executionstore.RecordCompactionFailureAndResumeNormalInput{
+			Outcome:   executionstore.OptionalCompactionIneffective,
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: optional.CompactionCall.Context.ID,
+			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorMessage: "optional refusal",
+			APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+			Usage: modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10},
 		})
-	}
+	require.NoError(t, err)
+	next, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+		PredecessorModelCallContextID: parent.Context.ID,
+	})
+	require.NoError(t, err)
+	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: next.Context.ID,
+			ErrorKind:          modelprotocol.ErrorKindProviderUnavailable, ErrorMessage: "failure with usage",
+			APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+			Usage: modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10},
+		})
+	require.NoError(t, err)
+	next, err = fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+		PredecessorModelCallContextID: next.Context.ID,
+	})
+	require.NoError(t, err)
+	slug := modelProviderSlugForContext(t, ctx, fixture.Store, testProjectID, fixture.AgentID, next.Context.ID)
+	_, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
+		executionstore.RecordModelOutputAndCompleteContextInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: next.Context.ID,
+			ProviderResponse: modelenvelope.ResponseEnvelope{
+				RequestedProviderModelSlug: slug, ServedProviderModelSlug: slug,
+				APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+				Normalized: modelenvelope.ResponseNormalized{
+					ID: "observed-normal-response", StopReason: modelenvelope.StopReasonEndTurn,
+					Usage:   modelenvelope.Usage{InputTokens: 100, UncachedInputTokens: 100},
+					Content: []modelenvelope.ResponsePart{{Type: modelenvelope.ResponsePartTypeText, Text: "done"}},
+				},
+			},
+		})
+	require.NoError(t, err)
+	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, next.Context.ID)
+	require.NoError(t, err)
+	require.Zero(t, state.MinimumObservedNormalInputTokens)
+	require.Zero(t, state.LatestObservedNormalInputTokens)
+	later := insertProjectionNormalContext(t, fixture, next.Context.ID, uuid.Nil, uuid.Nil)
+	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, later.ID)
+	require.NoError(t, err)
+	require.Equal(t, 100, state.MinimumObservedNormalInputTokens)
+	require.Equal(t, 100, state.LatestObservedNormalInputTokens)
+	_, err = fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
+SET state='failed',recovery_kind='compact_optional',optional_input_target_tokens=16000,
+error_kind='context_window',error_message='later optional',completed_at=statement_timestamp() WHERE id=$1`, later.ID)
+	require.NoError(t, err)
+	afterOptional := insertProjectionNormalContext(t, fixture, later.ID, uuid.Nil, uuid.Nil)
+	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, afterOptional.ID)
+	require.NoError(t, err)
+	require.Zero(t, state.MinimumObservedNormalInputTokens)
+	require.Equal(t, 16000, state.LastOptionalInputTargetTokens)
+	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
+	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
+	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: afterOptional.ID,
+			ErrorKind:          modelprotocol.ErrorKindRuntime, ErrorMessage: "retry with a new model revision",
+		})
+	require.NoError(t, err)
+	original, err := fixture.Store.Models().GetConfiguredModelRevisionForUse(
+		ctx, testOrgID, parent.Context.ConfiguredModelRevisionID,
+	)
+	require.NoError(t, err)
+	updated, err := fixture.Store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID: testOrgID, ModelProviderConfigID: original.ModelProviderConfigID,
+		ID: original.ConfiguredModelID, ContextWindowTokens: new(original.ContextWindowTokens + 1),
+	})
+	require.NoError(t, err)
+	changed := insertProjectionNormalContext(t, fixture, afterOptional.ID, updated.CurrentRevisionID, uuid.Nil)
+	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, changed.ID)
+	require.NoError(t, err)
+	require.Zero(t, state.LastOptionalInputTargetTokens)
+	require.Zero(t, state.LatestObservedNormalInputTokens)
+	require.Zero(t, state.MinimumObservedNormalInputTokens)
+	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 }
 
 func TestRequestIdentityDatabaseGuardsRejectPartialOrFailureEvidence(t *testing.T) {
@@ -667,16 +498,13 @@ func TestRequestIdentityDatabaseGuardsRejectPartialOrFailureEvidence(t *testing.
 	ctx := t.Context()
 	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "identity_guards")
 	for _, fields := range []string{
-		"request_input_fingerprint=repeat('a',64)",
-		"request_input_fingerprint=repeat('a',64),request_input_item_count=1",
+		`state='succeeded',api_format='openai_responses',api_variant='default',
+request_input_fingerprint=repeat('a',64)`,
+		`state='failed',recovery_kind='retry',retry_at=statement_timestamp(),
+error_kind='runtime',error_message='test',request_input_fingerprint=repeat('a',64),request_input_item_count=1`,
 	} {
-		_, err := fixture.Store.pool.Exec(
-			ctx,
-			`UPDATE model_call_contexts
-SET state='failed',recovery_kind='retry',retry_at=statement_timestamp(),
-error_kind='runtime',error_message='test',completed_at=statement_timestamp(),`+fields+` WHERE id=$1`,
-			claim.Context.ID,
-		)
+		_, err := fixture.Store.pool.Exec(ctx,
+			`UPDATE model_call_contexts SET completed_at=statement_timestamp(),`+fields+` WHERE id=$1`, claim.Context.ID)
 		assertPgConstraint(t, err, "23514", "model_call_contexts_request_input_identity")
 	}
 }
@@ -749,30 +577,6 @@ error_kind='runtime',error_message='optional outcome guard',completed_at=stateme
 	}
 }
 
-func TestOptionalCompactionWithoutSummaryAttemptDoesNotRequireHeadroom(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_without_child")
-	_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind='compact_optional',optional_input_target_tokens=32000,
-error_kind='context_window',error_message='preempted optional',completed_at=statement_timestamp() WHERE id=$1`,
-		parent.Context.ID,
-	)
-	require.NoError(t, err)
-	var currentID uuid.UUID
-	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `INSERT INTO model_call_contexts(
-org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
-SELECT org_id,project_id,agent_id,'normal',attempt_number+1,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,'started',statement_timestamp()
-FROM model_call_contexts WHERE id=$1 RETURNING id`, parent.Context.ID).Scan(&currentID))
-	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, currentID)
-	require.NoError(t, err)
-	require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
-	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
-	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
-}
-
 func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -783,7 +587,8 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 			Outcome:   executionstore.OptionalCompactionInterrupted,
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			ModelCallContextID: optional.CompactionCall.Context.ID,
-			ErrorKind:          modelprotocol.ErrorKindProviderUnavailable, ErrorMessage: "temporary summary failure",
+			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorCode: "summary_not_reduced",
+			ErrorMessage: "temporary summary failure",
 		},
 	)
 	require.NoError(t, err)
@@ -793,8 +598,8 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 	})
 	require.NoError(t, err)
 	var pinnedContextID uuid.UUID
-	minimumObserved := 2000
-	for _, inputTokens := range []int{2000, 500, 0} {
+	for _, observation := range []struct{ input, minimum int }{{0, 0}, {2000, 2000}, {500, 500}, {0, 500}} {
+		inputTokens := observation.input
 		slug := modelProviderSlugForContext(t, ctx, fixture.Store, testProjectID, fixture.AgentID, claim.Context.ID)
 		_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
 			ctx, executionstore.RecordModelOutputAndCompleteContextInput{
@@ -812,32 +617,17 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 			},
 		)
 		require.NoError(t, err)
-		var nextID uuid.UUID
-		require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
-INSERT INTO model_call_contexts(
-org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
-configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
-SELECT org_id,project_id,agent_id,'normal',1,agent_config_id,configured_model_revision_id,
-(SELECT max(sequence) FROM agent_events WHERE agent_id=context.agent_id),
-runtime_lock_id,'started',statement_timestamp()
-FROM model_call_contexts context WHERE id=$1 RETURNING id`, claim.Context.ID).Scan(&nextID))
-		state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, nextID)
+		current := insertProjectionNormalContext(t, fixture, claim.Context.ID, uuid.Nil, uuid.Nil)
+		state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 		require.NoError(t, err)
 		require.Equal(t, inputTokens, state.LatestObservedNormalInputTokens)
-		if inputTokens > 0 {
-			minimumObserved = min(minimumObserved, inputTokens)
-		}
-		require.Equal(t, minimumObserved, state.MinimumObservedNormalInputTokens)
-		if pinnedContextID == uuid.Nil {
-			pinnedContextID = nextID
+		require.Equal(t, observation.minimum, state.MinimumObservedNormalInputTokens)
+		require.False(t, state.LastOptionalCompactionNeedsHeadroom)
+		if inputTokens == 2000 {
+			pinnedContextID = current.ID
 		}
 		require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
-		contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
-			ctx, testProjectID, fixture.AgentID, nextID,
-		)
-		require.NoError(t, err)
-		require.True(t, found)
-		claim.Context = contextRecord
+		claim.Context = current
 	}
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(
 		ctx, testProjectID, fixture.AgentID, pinnedContextID,

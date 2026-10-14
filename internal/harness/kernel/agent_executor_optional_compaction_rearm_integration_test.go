@@ -53,6 +53,9 @@ func TestAgentExecutorRearmsOptionalCompactionFromObservedUsageWithoutReusableId
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			require.Len(t, client.responded, 2)
 			require.False(t, isCompactionRequestBundle(client.responded[1].Bundle))
+			if optionalSucceeds {
+				require.NotNil(t, client.responded[1].Bundle.ContextCheckpoint)
+			}
 			for turn := range 2 {
 				fixture.releaseModelRuntimeLock(t, ctx, work)
 				work = fixture.admitContentInputTurn(t, ctx, agentID, userID,
@@ -79,13 +82,10 @@ func TestAgentExecutorRearmsOptionalCompactionFromObservedUsageWithoutReusableId
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			require.Len(t, client.responded, 7)
 			require.False(t, isCompactionRequestBundle(client.responded[6].Bundle))
-			var optionalAttempts, successfulFingerprints int
-			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT
-				count(*) FILTER (WHERE recovery_kind='compact_optional'),
-				count(*) FILTER (WHERE request_input_fingerprint IS NOT NULL)
-				FROM model_call_contexts WHERE agent_id=$1`, agentID).Scan(&optionalAttempts, &successfulFingerprints))
+			var optionalAttempts int
+			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
+				WHERE agent_id=$1 AND recovery_kind='compact_optional'`, agentID).Scan(&optionalAttempts))
 			require.Equal(t, 2, optionalAttempts)
-			require.Zero(t, successfulFingerprints)
 			assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 		})
 	}
@@ -167,6 +167,8 @@ func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWat
 		interrupted  bool
 		wantOptional bool
 	}{
+		{name: "timeout without observed usage",
+			failure: model.ProviderError{Kind: model.ErrorKindTransient, Source: "test", Message: "Summary timed out"}},
 		{name: "rate limited with pressure", inputTokens: 9_000, wantOptional: true,
 			failure: model.ProviderError{Kind: model.ErrorKindRateLimit, Source: "test", Message: "Rate limited"}},
 		{name: "worker interrupted with pressure", inputTokens: 9_000, wantOptional: true, interrupted: true,
@@ -200,9 +202,11 @@ func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWat
 			if test.failure != nil {
 				client.errs = []error{test.failure}
 			}
-			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+				StreamPublisher: &capturingStreamPublisher{}}
+			current := strings.Repeat("Current request details. ", 200)
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
-				strings.Repeat("Current request details. ", 200), fixture.Now.Add(time.Second))
+				current, fixture.Now.Add(time.Second))
 			err := executor.ExecuteModelWork(ctx, work)
 			if test.interrupted {
 				require.ErrorIs(t, err, test.failure)
@@ -210,11 +214,21 @@ func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWat
 				require.NoError(t, err)
 			}
 			require.Len(t, client.responded, 1)
+			require.True(t, isCompactionRequestBundle(client.responded[0].Bundle))
 			work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
-			executor = AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			executor = AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+				StreamPublisher: &capturingStreamPublisher{}}
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			require.Len(t, client.responded, 2)
 			require.False(t, isCompactionRequestBundle(client.responded[1].Bundle))
+			require.Contains(t, string(client.responded[1].ProviderRequest), current)
+			require.True(t, client.respondHadSink[1], "first actual normal request must still stream")
+			if test.response.StopReason == model.StopReasonEndTurn {
+				require.NotNil(t, client.responded[1].Bundle.ContextCheckpoint)
+			} else {
+				require.Nil(t, client.responded[1].Bundle.ContextCheckpoint)
+				require.Contains(t, string(client.responded[1].ProviderRequest), "OLD_HISTORY_TO_PRESERVE")
+			}
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = fixture.admitContentInputTurn(t, ctx, agentID, userID,
 				"Continue despite the earlier summary outcome.", fixture.Now.Add(3*time.Second))

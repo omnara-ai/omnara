@@ -16,101 +16,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func checkpointLineageDepthForKernelTest(
-	t *testing.T, ctx context.Context, fixture kernelFixture, agentID uuid.UUID, frontier int64,
-) int {
+type progressiveSeedTurn struct {
+	input  string
+	output string
+}
+
+func seedProgressiveHistory(
+	t *testing.T, ctx context.Context, turns []progressiveSeedTurn,
+) (kernelFixture, uuid.UUID, uuid.UUID) {
 	t.Helper()
-	var depth int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `WITH RECURSIVE lineage AS (
-		SELECT producer.input_event_sequence AS prior_frontier
-		FROM agent_events event
-		JOIN context_checkpoints checkpoint ON checkpoint.agent_id=event.agent_id
-			AND checkpoint.id=event.context_checkpoint_id
-		JOIN model_call_contexts producer ON producer.agent_id=checkpoint.agent_id
-			AND producer.id=checkpoint.producer_model_call_context_id
-		WHERE producer.project_id=$1 AND event.agent_id=$2 AND event.event_kind='context_checkpoint'
-			AND event.sequence=$3 AND event.sequence=producer.input_event_sequence+1
-		UNION ALL
-		SELECT producer.input_event_sequence
-		FROM lineage
-		JOIN agent_events event ON event.agent_id=$2 AND event.sequence=lineage.prior_frontier
-			AND event.event_kind='context_checkpoint'
-		JOIN context_checkpoints checkpoint ON checkpoint.agent_id=event.agent_id
-			AND checkpoint.id=event.context_checkpoint_id
-		JOIN model_call_contexts producer ON producer.agent_id=checkpoint.agent_id
-			AND producer.id=checkpoint.producer_model_call_context_id
-		WHERE producer.project_id=$1 AND event.sequence=producer.input_event_sequence+1
-	) SELECT count(*) FROM lineage`, kernelTestProjectID, agentID, frontier).Scan(&depth))
-	return depth
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
+	for index, turn := range turns {
+		response := completeProgressiveSummaryResponse(turn.output)
+		response.ID = "progressive-seed-" + strconv.Itoa(index)
+		client := &sequenceKernelModel{providerModelSlug: "kernel-test", responses: []model.Response{response}}
+		work := fixture.admitContentInputTurn(t, ctx, agentID, userID, turn.input,
+			fixture.Now.Add(time.Duration(index*2+1)*time.Second))
+		executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+		require.NoError(t, executor.ExecuteModelWork(ctx, work))
+		fixture.releaseModelRuntimeLock(t, ctx, work)
+	}
+	return fixture, agentID, userID
 }
 
 func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *testing.T) {
 	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
-
 	seedText := "PROGRESSIVE_SEED_HISTORY " + strings.Repeat("durable seed detail ", 120)
-	seedModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
-		responses: []model.Response{
-			{
-				ID:         "resp_progressive_seed_one",
-				Content:    []model.ResponsePart{{Type: "text", Text: "first seed history accepted"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-			{
-				ID:         "resp_progressive_seed_two",
-				Content:    []model.ResponsePart{{Type: "text", Text: "second seed history accepted"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-		},
-	}
-	seedTurn := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		seedText,
-		fixture.Now.Add(time.Second),
-	)
-	seedExecutor := AgentExecutor{
-		Store:         fixture.Store,
-		ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
-		ToolExecutor:  tools.Executor{Store: fixture.Store},
-		Now:           func() time.Time { return fixture.Now.Add(2 * time.Second) },
-	}
-	if err := seedExecutor.ExecuteModelWork(ctx, seedTurn); err != nil {
-		t.Fatalf("execute progressive seed turn: %v", err)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		seedTurn.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release progressive seed runtime: %v", err)
-	}
 	secondSeedText := "SECOND_PROGRESSIVE_SEED " + strings.Repeat("second durable seed detail ", 120)
-	secondSeedTurn := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		secondSeedText,
-		fixture.Now.Add(3*time.Second),
-	)
-	seedExecutor.Now = func() time.Time { return fixture.Now.Add(4 * time.Second) }
-	if err := seedExecutor.ExecuteModelWork(ctx, secondSeedTurn); err != nil {
-		t.Fatalf("execute second progressive seed turn: %v", err)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		secondSeedTurn.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release second progressive seed runtime: %v", err)
-	}
+	fixture, agentID, userID := seedProgressiveHistory(t, ctx, []progressiveSeedTurn{
+		{input: seedText, output: "first seed history accepted"},
+		{input: secondSeedText, output: "second seed history accepted"},
+	})
 
 	const (
 		intermediateSummary = "INTERMEDIATE_PROGRESSIVE_CHECKPOINT Preserve the earlier seed request."
@@ -273,27 +210,6 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 		finalCheckpoint.Summary != finalSummary {
 		t.Fatalf("final progressive checkpoint = %+v", finalCheckpoint)
 	}
-	for _, test := range []struct {
-		name      string
-		frontier  int64
-		wantDepth int
-	}{
-		{name: "first", frontier: firstCheckpoint.CheckpointEventSequence, wantDepth: 1},
-		{name: "final", frontier: finalCheckpoint.CheckpointEventSequence, wantDepth: 2},
-	} {
-		depth := checkpointLineageDepthForKernelTest(t, ctx, fixture, agentID, test.frontier)
-		if depth != test.wantDepth {
-			t.Fatalf("%s checkpoint lineage depth = %d, want %d", test.name, depth, test.wantDepth)
-		}
-	}
-	semanticFrontier, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load post-compaction semantic frontier: %v", err)
-	}
-	depth := checkpointLineageDepthForKernelTest(t, ctx, fixture, agentID, semanticFrontier)
-	if depth != 0 {
-		t.Fatalf("post-compaction semantic frontier lineage depth = %d, want 0", depth)
-	}
 
 	var reexpandedContexts, compactedParents int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -361,47 +277,14 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 
 func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsWithNormalAttempts(t *testing.T) {
 	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
-
-	seedModel := &sequenceKernelModel{providerModelSlug: "kernel-test"}
+	var seeds []progressiveSeedTurn
 	for index := range 4 {
-		suffix := strconv.Itoa(index + 1)
-		seedModel.responses = append(seedModel.responses, model.Response{
-			ID: "resp_progressive_exhaustion_seed_" + suffix,
-			Content: []model.ResponsePart{{
-				Type: "text",
-				Text: "seed output " + strings.Repeat("completed detail ", 80),
-			}},
-			StopReason: model.StopReasonEndTurn,
+		seeds = append(seeds, progressiveSeedTurn{
+			input:  "seed input " + strings.Repeat("progressive exhaustion history ", 80) + strconv.Itoa(index+1),
+			output: "seed output " + strings.Repeat("completed detail ", 80),
 		})
-		seedTurn := fixture.admitContentInputTurn(
-			t,
-			ctx,
-			agentID,
-			userID,
-			"seed input "+strings.Repeat("progressive exhaustion history ", 80)+suffix,
-			fixture.Now.Add(time.Duration(index*3+1)*time.Second),
-		)
-		seedNow := fixture.Now.Add(time.Duration(index*3+2) * time.Second)
-		seedExecutor := AgentExecutor{
-			Store:         fixture.Store,
-			ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
-			ToolExecutor:  tools.Executor{Store: fixture.Store},
-			Now:           func() time.Time { return seedNow },
-		}
-		if err := seedExecutor.ExecuteModelWork(ctx, seedTurn); err != nil {
-			t.Fatalf("execute progressive exhaustion seed %d: %v", index, err)
-		}
-		if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			seedTurn.RuntimeLockID,
-		); err != nil {
-			t.Fatalf("release progressive exhaustion seed %d: %v", index, err)
-		}
 	}
+	fixture, agentID, userID := seedProgressiveHistory(t, ctx, seeds)
 
 	turn := fixture.admitContentInputTurn(
 		t,

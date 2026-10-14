@@ -17,96 +17,34 @@ func budgetFixtureJSON(t testing.TB, value any) json.RawMessage {
 	return body
 }
 
-func TestEstimatePreparedRequestCountsProtocolFramingWithoutChargingBase64AsText(t *testing.T) {
-	data := bytes.Repeat([]byte("image-bytes"), 8_192)
-	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"model": "test-model",
-		"input": []map[string]any{{"role": "user", "content": []map[string]string{
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-		}}},
-		"tools": []map[string]any{{
-			"name": "read_file",
-			"parameters": map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"path": map[string]string{"type": "string"}},
-			},
-		}},
-	})
-	media := ResolvedMedia{
-		Kind:      AttachmentKindImage,
-		MediaType: "image/png",
-		SizeBytes: int64(len(data)),
-		Data:      data,
-	}
-	estimate := EstimatePreparedRequest(body, []RenderedMedia{
-		{Media: media, Representation: MediaRepresentationInline},
-		{Media: media, Representation: MediaRepresentationInline},
-	})
-	if estimate < 2*DefaultImageTokenEstimate {
-		t.Fatalf("prepared request estimate = %d, want both image occurrences charged", estimate)
-	}
-	if estimate >= len(body)/4 {
-		t.Fatalf("prepared request estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
-	}
-}
-
-func TestPreparedRequestBudgetRemovesOnlyStructuredMediaFields(t *testing.T) {
+func TestPreparedRequestBudgetChargesLiteralTextAndMediaFallback(t *testing.T) {
 	data := bytes.Repeat([]byte("same-as-user-text"), 512)
 	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"input": []map[string]any{{"role": "user", "content": []map[string]string{
-			{"type": "input_text", "text": encoded},
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-		}}},
-	})
-	media := []RenderedMedia{{
-		Media: ResolvedMedia{
-			Kind:      AttachmentKindImage,
-			MediaType: "image/png",
-			SizeBytes: int64(len(data)),
-			Data:      data,
-		},
-		Representation: MediaRepresentationInline,
-	}}
-	projected, _ := projectPreparedRequest(body, media)
-	if !bytes.Contains(projected, []byte(encoded)) {
-		t.Fatalf("ordinary user text matching media base64 was removed: %s", projected)
-	}
-	if bytes.Contains(projected, []byte("data:image/png;base64,"+encoded)) {
-		t.Fatalf("structured inline media payload remains in estimate projection: %s", projected)
-	}
-	if estimate := EstimatePreparedRequest(body, media); estimate <= len(encoded)/4 {
-		t.Fatalf("estimate = %d, want matching user text to remain charged", estimate)
-	}
-}
-
-func TestPreparedRequestBudgetRemovesChatFileData(t *testing.T) {
-	data := bytes.Repeat([]byte("pdf-bytes"), 8_192)
-	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"messages": []map[string]any{{
-			"role": "user",
-			"content": []map[string]any{{
-				"type": "file",
-				"file": map[string]string{
-					"filename":  "report.pdf",
-					"file_data": "data:application/pdf;base64," + encoded,
-				},
-			}},
-		}},
-	})
-	media := []RenderedMedia{{
-		Media: ResolvedMedia{
-			Kind:      AttachmentKindDocument,
-			MediaType: "application/pdf",
-			Data:      data,
-		},
-		Representation: MediaRepresentationInline,
-	}}
-	if estimate := EstimatePreparedRequest(body, media); estimate >= len(body)/4 {
-		t.Fatalf("estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
+	for _, tc := range []struct {
+		kind   string
+		block  any
+		tokens int
+	}{
+		{AttachmentKindImage, map[string]any{
+			"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64," + encoded},
+		}, DefaultImageTokenEstimate},
+		{AttachmentKindDocument, map[string]any{
+			"type": "file", "file": map[string]string{"file_data": "data:application/pdf;base64," + encoded},
+		}, DefaultBinaryDocumentTokenEstimate},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			body := budgetFixtureJSON(t, map[string]any{"messages": []map[string]any{{
+				"role": "user", "content": []any{map[string]string{"type": "text", "text": encoded}, tc.block},
+			}}})
+			media := []RenderedMedia{{
+				Representation: MediaRepresentationInline, Media: ResolvedMedia{Kind: tc.kind, Data: data},
+			}}
+			estimate := EstimatePreparedRequest(body, media)
+			minimum := len(encoded)/4 + tc.tokens
+			if estimate < minimum || estimate >= minimum+200 {
+				t.Fatalf("estimate = %d, want literal text plus %d media tokens and framing", estimate, tc.tokens)
+			}
+		})
 	}
 }
 

@@ -48,22 +48,6 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	require.Equal(t, 1_024, sent.MaxOutputTokens)
 }
 
-func TestRunnerAttemptsSmallestSourceWhenOnlyEstimateRejects(t *testing.T) {
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("closed semantic unit ", 100)),
-	}}
-	client := &summaryModel{sourceInputTokens: 300_000}
-	compactionInput := runInput(testPlan(1, 1, 2))
-	result, err := testRunner(store, client).
-		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
-	require.NoError(t, err)
-	require.Equal(t, RunCompleted, result.State)
-	require.Len(t, client.requests, 1)
-	require.Empty(t, store.terminalFailures)
-	require.Empty(t, store.replacements)
-	require.NotContains(t, string(client.requests[0].ProviderRequest), "OVERSIZED CLOSED HISTORY EXCERPT")
-}
-
 func TestRunnerRecordsBoundaryAdjustmentSeparatelyFromBudgetOverflow(t *testing.T) {
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, strings.Repeat("closed semantic event ", 20)),

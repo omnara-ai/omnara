@@ -57,19 +57,14 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 	require.NoError(t, executor.ExecuteModelWork(ctx, first))
 	require.Len(t, requests, 1)
 	require.Contains(t, string(requests[0]), largeInput, "uncertain first input must reach the provider intact")
-	var firstID string
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `
-		SELECT id FROM model_call_contexts
-		WHERE agent_id=$1 AND state='succeeded' AND operation_kind='normal'
-	`, agentID).Scan(&firstID))
 	var identityFingerprint string
 	var measuredTokens int
 	var servedModel string
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
 		SELECT context.request_input_fingerprint,context.input_tokens_total,output.served_provider_model_slug
 		FROM model_call_contexts context JOIN model_outputs output ON output.model_call_context_id=context.id
-		WHERE context.id=$1
-	`, firstID).Scan(&identityFingerprint, &measuredTokens, &servedModel))
+		WHERE context.agent_id=$1 AND context.state='succeeded' AND context.operation_kind='normal'
+	`, agentID).Scan(&identityFingerprint, &measuredTokens, &servedModel))
 	require.Len(t, identityFingerprint, 64)
 	require.Equal(t, 1000, measuredTokens)
 	require.Equal(t, "measured-input-2026-10-01", servedModel)

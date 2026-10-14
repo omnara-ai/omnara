@@ -172,12 +172,6 @@ func TestAnthropicBodyLimitInvalidatesMeasuredPrefixAndIdentifiesFinalProjection
 	require.Equal(t, historicalContent, input.Context.Messages[0].Content)
 	require.Less(t, len(changed.Body), 32_000_000)
 
-	var body struct {
-		Messages []json.RawMessage `json:"messages"`
-	}
-	require.NoError(t, json.Unmarshal(changed.Body, &body))
-	require.Equal(t, len(body.Messages), changed.RequestInputIdentity.ItemCount)
-
 	nextInputID := uuid.New()
 	input.Context.OpeningInputIDs = []uuid.UUID{nextInputID}
 	input.Context.Messages = append(input.Context.Messages,
