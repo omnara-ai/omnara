@@ -2,6 +2,15 @@
   "name": "@omnara/sdk",
   "version": "0.0.0",
   "description": "TypeScript SDK for the Omnara API, with browser, TanStack Query, and Zod entry points",
+  "keywords": [
+    "ai-agents",
+    "managed-agents",
+    "durable-agents",
+    "agent-platform",
+    "llm",
+    "api-client",
+    "sdk"
+  ],
   "license": "Apache-2.0",
   "homepage": "https://omnara.com",
   "repository": {

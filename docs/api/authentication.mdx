@@ -117,7 +117,21 @@ A denied or expired flow returns `400` with `"access_denied"` or `"expired_token
 
 The Omnara API is also exposed as an MCP server at `https://app.omnara.com/mcp`. MCP clients that support the [MCP authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) discover the OAuth endpoints themselves and sign you in through the browser, so no token needs to be pasted into the client.
 
-Add the server to your client's `mcp.json`:
+In Claude, add Omnara from the [connectors directory](https://claude.ai/directory/app-omnara-com). In Claude Code or Codex, add it from the terminal:
+
+<CodeGroup>
+```bash Claude Code
+claude mcp add --transport http omnara https://app.omnara.com/mcp
+```
+
+```bash Codex
+codex mcp add omnara --url https://app.omnara.com/mcp
+```
+</CodeGroup>
+
+Then sign in with `/mcp` in Claude Code or `codex mcp login omnara` in Codex.
+
+For other clients, add the server to your client's `mcp.json`:
 
 ```json
 {
@@ -132,7 +146,7 @@ Add the server to your client's `mcp.json`:
 
 On first use the client opens the dashboard's **Authorize access to Omnara** page. Approve it and the client stores its own short-lived tokens, refreshing them in the background.
 
-Clients without OAuth support can pass a personal access token or org API key instead:
+A client you sign in this way acts as you, with your roles in every organization you belong to. To limit a client to specific projects, use a member-role [org API key](#org-api-keys-for-services) with roles on only those projects. Clients without OAuth support can also use a personal access token. Either one goes in the `Authorization` header:
 
 ```json
 {
