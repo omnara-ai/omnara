@@ -51,7 +51,14 @@ func processOwner(
 }
 
 func TestExecutionDurableProcessCustody(t *testing.T) {
-	for _, mode := range []string{"started", "terminal", "release", "reap", "cancel", "archive", "revoke"} {
+	for _, mode := range []string{"started",
+		"terminal",
+		"terminal-null",
+		"release",
+		"reap",
+		"cancel",
+		"archive",
+		"revoke"} {
 		t.Run(mode, func(t *testing.T) {
 			f, a, lease := commandFixture(t)
 			u, h := f.handle(t, a)
@@ -59,7 +66,7 @@ func TestExecutionDurableProcessCustody(t *testing.T) {
 			_, err := h.AuthorizeTool(t.Context(), ref)
 			require.NoError(t, err)
 			state := "queued"
-			if mode == "started" || mode == "terminal" {
+			if mode == "started" || (mode == "terminal" || mode == "terminal-null") {
 				state = "running"
 			}
 			process := processOwner(t, f, u, a, lease, ref.ID, state)
@@ -94,7 +101,7 @@ func TestExecutionDurableProcessCustody(t *testing.T) {
 				require.NoError(t, err)
 				require.False(t, late.Matches)
 				require.True(t, late.Published)
-			case "terminal":
+			case "terminal", "terminal-null":
 				work, err := h.Advance(t.Context(), lease, true, true)
 				require.NoError(t, err)
 				require.True(t, work.Released)
@@ -103,7 +110,11 @@ func TestExecutionDurableProcessCustody(t *testing.T) {
 						`UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),exit_code=0 WHERE id=$1`,
 						process)
 				require.NoError(t, err)
-				published, err := h.CompleteProcess(t.Context(), agentexecution.ProcessResult{ID: process})
+				var observed json.RawMessage
+				if mode == "terminal-null" {
+					observed = json.RawMessage(`null`)
+				}
+				published, err := h.CompleteProcess(t.Context(), agentexecution.ProcessResult{ID: process, Observed: observed})
 				require.NoError(t, err)
 				require.True(t, published.Matches)
 			case "release":
@@ -136,16 +147,8 @@ func TestExecutionDurableProcessCustody(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, archived)
 			case "revoke":
-				route, err := h.Route()
+				_, err := h.InterruptProcess(t.Context(), process, "machine_deleted")
 				require.NoError(t, err)
-				require.NoError(
-					t,
-					u.InterruptProcesses(
-						t.Context(),
-						map[agentexecution.AgentRoute][]uuid.UUID{route: {process}},
-						"grant_revoked",
-					),
-				)
 			}
 			assertCommandState(t, u, h)
 			require.NoError(t, u.Commit(t.Context(), "process custody"))

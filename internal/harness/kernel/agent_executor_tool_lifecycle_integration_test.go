@@ -300,6 +300,7 @@ WHERE call.project_id = $1
 		t.Fatalf("next claim=%+v, want same tool frontier under a new runtime", claim)
 	}
 	nextWork := ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,

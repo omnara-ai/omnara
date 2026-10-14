@@ -97,17 +97,25 @@ func TestWorkerOwnedContinuationBudget(t *testing.T) {
 	model, tool := executionstore.AgentWorkModel, executionstore.AgentWorkTool
 	for _, test := range []struct {
 		name    string
-		options *ContinuationOptions
+		options ContinuationOptions
 		want    []executionstore.AgentWorkKind
 	}{
-		{"default", nil, []executionstore.AgentWorkKind{model, tool, model, tool, model, tool}},
+		{"configured",
+			ContinuationOptions{MaxModelStarts: 2,
+				MaxDuration: 30 * time.Second},
+			[]executionstore.AgentWorkKind{model,
+				tool,
+				model,
+				tool,
+				model,
+				tool}},
 		{
-			"one additional model", &ContinuationOptions{MaxModelStarts: 1},
+			"one additional model", ContinuationOptions{MaxModelStarts: 1, MaxDuration: 30 * time.Second},
 			[]executionstore.AgentWorkKind{model, tool, model, tool},
 		},
-		{"disabled", &ContinuationOptions{}, []executionstore.AgentWorkKind{model}},
+		{"disabled", ContinuationOptions{}, []executionstore.AgentWorkKind{model}},
 		{
-			"elapsed", &ContinuationOptions{MaxModelStarts: 5, MaxDuration: time.Nanosecond},
+			"elapsed", ContinuationOptions{MaxModelStarts: 5, MaxDuration: time.Nanosecond},
 			[]executionstore.AgentWorkKind{model},
 		},
 	} {
@@ -153,7 +161,10 @@ func TestWorkerOwnedContinuationFailureReleasesOriginalRuntime(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := newContinuationStore()
 			store.advanceError, store.advancePanic = test.err, test.panic
-			worker := NewWorker(store, &continuationExecutor{}, Options{})
+			worker := NewWorker(store,
+				&continuationExecutor{},
+				Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+					MaxDuration: 30 * time.Second}})
 			worked, err := worker.RunOnce(t.Context())
 			if !worked || err == nil {
 				t.Fatalf("worked=%v err=%v", worked, err)
@@ -174,7 +185,10 @@ func TestWorkerOwnedContinuationFailureReleasesOriginalRuntime(t *testing.T) {
 func TestWorkerOwnedContinuationCancellationBetweenSteps(t *testing.T) {
 	store := newContinuationStore(executionstore.AgentWorkTool)
 	executor := &continuationExecutor{}
-	worker := NewWorker(store, executor, Options{})
+	worker := NewWorker(store,
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second}})
 	executor.afterStep = func(context.Context) error {
 		worker.activeMu.Lock()
 		active := worker.active[store.claim.RuntimeLock.ID]
@@ -208,7 +222,11 @@ func TestWorkerOwnedContinuationKeepsRenewalRunning(t *testing.T) {
 		}
 		return nil
 	}
-	worker := NewWorker(store, executor, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond})
+	worker := NewWorker(store,
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second},
+			RuntimeLockLeaseDuration: 150 * time.Millisecond})
 	worked, err := worker.RunOnce(t.Context())
 	if err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
@@ -223,7 +241,7 @@ func TestWorkerOwnedContinuationExecutesWorkAfterSoftDeadline(t *testing.T) {
 	store.advanceDelay = 110 * time.Millisecond
 	executor := &continuationExecutor{}
 	worker := NewWorker(store, executor, Options{
-		Continuation: &ContinuationOptions{MaxModelStarts: 2, MaxDuration: 100 * time.Millisecond},
+		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: 100 * time.Millisecond},
 	})
 	worked, err := worker.RunOnce(t.Context())
 	if err != nil || !worked {
@@ -245,7 +263,11 @@ func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := newContinuationStore()
 			store.claim.LocalLeaseBudgetStartedAt = time.Now().Add(-test.age)
-			worker := NewWorker(store, &fusedContinuationTestExecutor{}, Options{RuntimeLockLeaseDuration: time.Minute})
+			worker := NewWorker(store,
+				&fusedContinuationTestExecutor{},
+				Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+					MaxDuration: 30 * time.Second},
+					RuntimeLockLeaseDuration: time.Minute})
 			worked, err := worker.RunOnce(t.Context())
 			if err != nil || !worked {
 				t.Fatalf("worked=%v err=%v", worked, err)
@@ -262,5 +284,13 @@ type fusedContinuationTestExecutor struct{ continuationExecutor }
 func (e *fusedContinuationTestExecutor) ExecuteModelWorkAndAdvance(
 	ctx context.Context, input kernel.ModelWorkExecution, _ kernel.ModelWorkAdvanceOptions,
 ) (executionstore.OwnedAgentWorkTransition, bool, error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+
+func (e *continuationExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
 	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
 }

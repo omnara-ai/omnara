@@ -102,7 +102,10 @@ func TestWorkerOwnedContinuationRunsKernelAndYieldsAtModelBudget(t *testing.T) {
 	inputID := createWorkerInput(t, ctx, store, agentID, userID, "keep going", time.Now())
 	executor := newObservedContinuationExecutor(store,
 		continuationToolResponse(1), continuationToolResponse(2), continuationToolResponse(3), continuationFinalResponse(4))
-	worker := NewWorker(store.Execution(), executor, Options{})
+	worker := NewWorker(store.Execution(),
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second}})
 	requireWorkerClaim(t, ctx, worker, "run owned chain")
 	require.Len(t, executor.models, 3)
 	require.Len(t, executor.tools, 3)
@@ -146,7 +149,10 @@ func TestWorkerOwnedContinuationAdmitsInputsBetweenSteps(t *testing.T) {
 		}
 		return nil
 	}
-	worker := NewWorker(store.Execution(), executor, Options{})
+	worker := NewWorker(store.Execution(),
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second}})
 	requireWorkerClaim(t, ctx, worker, "admit arriving inputs")
 	require.Len(t, executor.models, 3)
 	require.Len(t, executor.tools, 1)
@@ -172,7 +178,10 @@ func TestWorkerOwnedContinuationHonorsDurableCancellationBetweenSteps(t *testing
 		})
 		return err
 	}
-	worker := NewWorker(store.Execution(), executor, Options{})
+	worker := NewWorker(store.Execution(),
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second}})
 	worked, err := worker.RunOnce(ctx)
 	require.True(t, worked)
 	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
@@ -190,7 +199,11 @@ func TestWorkerOwnedContinuationTransfersLeaseToAsyncRetention(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "async", time.Now())
 	executor := newObservedContinuationExecutor(store, continuationToolResponse(1), continuationFinalResponse(2))
 	executor.asyncGate = make(chan struct{})
-	worker := NewWorker(store.Execution(), executor, Options{AsyncToolCapacity: 1})
+	worker := NewWorker(store.Execution(),
+		executor,
+		Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+			MaxDuration: 30 * time.Second},
+			AsyncToolCapacity: 1})
 	requireWorkerClaim(t, ctx, worker, "retain async continuation")
 	require.Len(t, executor.models, 1)
 	require.Len(t, executor.tools, 1)

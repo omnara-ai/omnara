@@ -176,10 +176,10 @@ func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractio
 			if row.State != "resolved" || !equalJSON(row.Resolution, resolution) {
 				return Interaction{}, storeerr.ErrIdempotencyConflict
 			}
-			response, err := q.FindExecutionInput(
+			response, err := q.ReadExecutionInput(
 				ctx,
 				h.unit.DB(),
-				executiondb.FindExecutionInputParams{
+				executiondb.ReadExecutionInputParams{
 					AgentID: h.route.AgentID,
 					ID:      valueOrZero(row.ResolvedByInputID),
 				},
@@ -337,9 +337,9 @@ func (h *Handle) applyInteraction(
 func (h *Handle) SupersedeInteractions(ctx context.Context, inputID uuid.UUID) ([]uuid.UUID, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) ([]uuid.UUID, error) {
 		row, err := executiondb.New().
-			FindExecutionInput(ctx,
+			ReadExecutionInput(ctx,
 				h.unit.DB(),
-				executiondb.FindExecutionInputParams{AgentID: h.route.AgentID,
+				executiondb.ReadExecutionInputParams{AgentID: h.route.AgentID,
 					ID: inputID})
 		if err != nil {
 			return nil, err

@@ -1,3 +1,5 @@
+//go:build integration
+
 package executionstore
 
 import (
@@ -22,6 +24,13 @@ type CreateModelOutputAuthorityInput struct {
 	ProviderReplay          json.RawMessage
 	Usage                   modelenvelope.Usage
 }
+type ContentBlockOwnerKind = string
+
+const (
+	ContentBlockOwnerAgentInput     ContentBlockOwnerKind = "agent_input"
+	ContentBlockOwnerModelOutput    ContentBlockOwnerKind = "model_output"
+	ContentBlockOwnerToolCallResult ContentBlockOwnerKind = "tool_call_result"
+)
 
 type ModelOutputAuthorityRecord struct {
 	ID                      uuid.UUID
@@ -58,4 +67,26 @@ func (s *Store) GetModelOutputForContext(
 		return ModelOutputAuthorityRecord{}, false, fmt.Errorf("get model output for context: %w", err)
 	}
 	return modelOutputAuthorityFromGetSQLC(row), true, nil
+}
+func modelOutputAuthorityFromGetSQLC(row dbsqlc.GetModelOutputByModelContextRow) ModelOutputAuthorityRecord {
+	return ModelOutputAuthorityRecord{
+		ID:                      row.ID,
+		ProjectID:               row.ProjectID,
+		AgentID:                 row.AgentID,
+		TurnID:                  row.TurnID,
+		ModelCallContextID:      row.ModelCallContextID,
+		ServedProviderModelSlug: row.ServedProviderModelSlug,
+		StopReason:              modelenvelope.StopReason(row.StopReason),
+		ProviderResponseID:      row.ProviderResponseID,
+		ProviderReplay:          rawMessageFromSQLCPtr(row.ProviderReplay),
+		Usage: modelUsageFromSQLC(
+			row.InputTokensTotal,
+			row.UncachedInputTokens,
+			row.CacheReadInputTokens,
+			row.CacheWriteInputTokens,
+			row.OutputTokensTotal,
+			row.ReasoningOutputTokens,
+		),
+		CreatedAt: row.CreatedAt,
+	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorKeepsPromptPrefixStableAcrossTurns(t *testing.T) {
@@ -150,8 +151,11 @@ skills:
 		bundles = append(bundles, snapshot.Bundle)
 	}
 	last := bundles[len(bundles)-1]
-	dispatchSpecs, err := executor.modelContextToolRuntime(ctx, kernelTestProjectID, agentID,
-		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID}, now)
+	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	require.NoError(t, err)
+	require.True(t, found)
+	dispatchSpecs, err := executor.toolRuntimeFromConfig(ctx, kernelTestProjectID, agentID,
+		config, now)
 	if err != nil {
 		t.Fatalf("reload tool runtime: %v", err)
 	}

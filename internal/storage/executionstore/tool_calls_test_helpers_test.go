@@ -76,6 +76,16 @@ func createReadyToolCallsForTest(
 			Type:           toolcatalog.ToolTypeBuiltIn,
 		})
 	}
+	response := toolCallProviderResponseForTest(label,
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIVariantDefault,
+		specs)
+	response.RequestedProviderModelSlug = modelProviderSlugForContext(t,
+		ctx,
+		store,
+		testProjectID,
+		agentID,
+		claim.Context.ID)
 	event, records, err := store.Execution().RecordToolCallSourceAndCompleteContext(
 		ctx,
 		executionstore.RecordToolCallSourceAndCompleteContextInput{
@@ -83,13 +93,8 @@ func createReadyToolCallsForTest(
 			AgentID:            agentID,
 			RuntimeLockID:      lock.ID,
 			ModelCallContextID: claim.Context.ID,
-			ProviderResponse: toolCallProviderResponseForTest(
-				label,
-				modelprotocol.APIFormatOpenAIResponses,
-				modelprotocol.APIVariantDefault,
-				specs,
-			),
-			ToolCallBindings: bindings,
+			ProviderResponse:   response,
+			ToolCallBindings:   bindings,
 		},
 	)
 	if err != nil {

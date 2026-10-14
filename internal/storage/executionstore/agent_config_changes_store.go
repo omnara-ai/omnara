@@ -7,12 +7,14 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -80,6 +82,18 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
+	stored, replay, err := loadAgentInputByIdempotencyMaybeTx(ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		"agent_config_change",
+		input.IdempotencyKey)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	if replay {
+		return replayAgentConfigChangeTx(ctx, unit, qtx, input, stored)
+	}
 	if err := lockConfigChangeIntegrationsTx(ctx, tx, qtx, input); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
@@ -101,13 +115,7 @@ func (s *Store) changeAgentConfigOnce(
 			errors.New("subagent configurations are read-only"),
 		)
 	}
-	replay, err := configChangeReplayExistsTx(ctx, qtx, input)
-	if err != nil {
-		return ChangeAgentConfigResult{}, err
-	}
-	if replay {
-		return replayAgentConfigChangeTx(ctx, unit, qtx, input)
-	}
+
 	if AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
 	}
@@ -253,15 +261,18 @@ func replayAgentConfigChangeTx(
 	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input ChangeAgentConfigInput,
+	stored AgentInputRecord,
 ) (ChangeAgentConfigResult, error) {
-	row, err := qtx.GetAgentInputByIdempotency(ctx, dbsqlc.GetAgentInputByIdempotencyParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID,
-		IdempotencyScope: "agent_config_change", InputIdempotencyKey: input.IdempotencyKey,
-	})
-	if err != nil {
-		return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", err)
+	if err := authorizeAgentConfigChangeTx(ctx,
+		qtx,
+		ActivateAgentConfigInput{ProjectID: input.ProjectID,
+			AgentID:       input.AgentID,
+			AgentConfigID: stored.AgentConfigID,
+			ActorType:     input.ActorType,
+			ActorID:       input.ActorID}); err != nil {
+		return ChangeAgentConfigResult{}, err
 	}
-	stored := agentInputRecordFromIdempotencySQLC(row)
+
 	if stored.State != "resolved" {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
 	}
@@ -433,6 +444,11 @@ func activateLockedAuthorizedAgentConfigTx(
 	result, err := h.ActivateConfig(ctx, agentexecution.ActivateConfigInput{
 		ConfigID: input.AgentConfigID, ActorID: actorID, IdempotencyKey: input.IdempotencyKey, Metadata: metadata})
 	if err != nil {
+		var constraint *pgconn.PgError
+		if errors.As(err, &constraint) && constraint.Code == "23505" &&
+			constraint.ConstraintName == "agent_inputs_idempotency_idx" {
+			return AgentConfigChangeRecord{}, storeutil.ErrRetryTransaction
+		}
 		return AgentConfigChangeRecord{}, err
 	}
 	row, err := qtx.GetAgentInput(

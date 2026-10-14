@@ -99,7 +99,7 @@ func TestWorkerContinuationDurationNeverAbandonsPreparedContext(t *testing.T) {
 				}
 				worker := NewWorker(workerStore,
 					workerExecutor,
-					Options{Continuation: &ContinuationOptions{MaxModelStarts: 2,
+					Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
 						MaxDuration: time.Second}})
 				requireWorkerClaim(t, ctx, worker, "duration boundary")
 				var contexts, outputs, failed int
@@ -165,7 +165,10 @@ func TestWorkerAcceptsResponseWhenSuccessorPreparationFails(t *testing.T) {
 			var transition executionstore.OwnedAgentWorkTransition
 			observed := delayedFusedExecutor{AgentExecutor: executor.AgentExecutor,
 				observe: func(result executionstore.OwnedAgentWorkTransition) { transition = result }}
-			worker := NewWorker(store.Execution(), observed, Options{})
+			worker := NewWorker(store.Execution(),
+				observed,
+				Options{Continuation: ContinuationOptions{MaxModelStarts: 2,
+					MaxDuration: 30 * time.Second}})
 			worked, runErr := worker.RunOnce(ctx)
 			require.True(t, worked)
 			var outputs, failed int

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -39,7 +40,7 @@ func (s *Store) AcquireAgentRuntimeLock(
 	projectID, agentID, workerID uuid.UUID,
 	lease time.Duration,
 ) (AgentRuntimeLockRecord, error) {
-	if err := validateAgentRuntimeLockLeaseDuration(lease); err != nil {
+	if err := executionpolicy.ValidateLeaseDuration(lease); err != nil {
 		return AgentRuntimeLockRecord{}, err
 	}
 	return agentexecution.Retry(ctx,
@@ -193,11 +194,6 @@ func (s *Store) ListCompletedToolCallsForTurn(
 	return filtered, nil
 }
 
-type IntegrationAdmitAgentInputAndOpenTurnInput struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
 type IntegrationCreateAgentContentInputTxResult struct {
 	AgentInput             AgentInputRecord
 	ContentBlocks          json.RawMessage
@@ -271,7 +267,7 @@ func IntegrationCreateAgentContentInputTx(
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (IntegrationCreateAgentContentInputTxResult, error) {
-	result, err := createAgentContentInputTx(ctx, unit, qtx, input, contentBlocks)
+	result, err := admitAgentContentInputTx(ctx, unit, qtx, input, contentBlocks)
 	return IntegrationCreateAgentContentInputTxResult{
 		AgentInput:             result.agentInput,
 		ContentBlocks:          result.contentBlocks,

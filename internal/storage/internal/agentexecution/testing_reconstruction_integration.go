@@ -1,3 +1,5 @@
+//go:build integration
+
 package agentexecution
 
 import (
@@ -18,7 +20,7 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 	valid, err := l.q.ValidateExecutionLineage(
 		ctx,
 		l.db,
-		executiondb.ValidateExecutionLineageParams{AgentID: l.route.AgentID},
+		ValidateExecutionLineageParams{AgentID: l.route.AgentID},
 	)
 	if err != nil {
 		return ExecutionSnapshot{}, err
@@ -26,7 +28,7 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 	if !valid {
 		return ExecutionSnapshot{}, fmt.Errorf("%w: agent %s immutable lineage", ErrInvalidState, l.route.AgentID)
 	}
-	boundaries, err := l.q.LoadExecutionBoundaries(ctx, l.db, executiondb.LoadExecutionBoundariesParams{
+	boundaries, err := l.q.LoadExecutionBoundaries(ctx, l.db, LoadExecutionBoundariesParams{
 		ProjectID: l.route.ProjectID, AgentID: l.route.AgentID})
 	if err != nil {
 		return ExecutionSnapshot{}, err
@@ -39,7 +41,7 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 	contexts, err := l.q.ReconstructExecutionContexts(
 		ctx,
 		l.db,
-		executiondb.ReconstructExecutionContextsParams{AgentID: head.AgentID},
+		ReconstructExecutionContextsParams{AgentID: head.AgentID},
 	)
 	if err != nil {
 		return ExecutionSnapshot{}, err
@@ -91,7 +93,7 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 	head.PendingConfigInputID, err = l.q.ReconstructExecutionConfig(
 		ctx,
 		l.db,
-		executiondb.ReconstructExecutionConfigParams{
+		ReconstructExecutionConfigParams{
 			AgentID: head.AgentID, TurnID: head.CurrentTurnID, NormalWatermark: head.MaxNormalInputSequence,
 			StopSequence: head.StopSequence, FirstContentSequence: turn.FirstContentSequence},
 	)
@@ -101,14 +103,14 @@ func (h *Handle) ReconstructExecution(ctx context.Context) (ExecutionSnapshot, e
 	head.PendingCheckpointID, err = l.q.ReconstructExecutionCheckpoint(
 		ctx,
 		l.db,
-		executiondb.ReconstructExecutionCheckpointParams{
+		ReconstructExecutionCheckpointParams{
 			AgentID: head.AgentID, TurnID: head.CurrentTurnID,
 			NormalWatermark: head.MaxNormalInputSequence, StopSequence: head.StopSequence},
 	)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ExecutionSnapshot{}, err
 	}
-	outputs, err := l.q.ReconstructExecutionOutputs(ctx, l.db, executiondb.ReconstructExecutionOutputsParams{
+	outputs, err := l.q.ReconstructExecutionOutputs(ctx, l.db, ReconstructExecutionOutputsParams{
 		AgentID: head.AgentID, TurnID: head.CurrentTurnID, StopSequence: head.StopSequence})
 	if err != nil {
 		return ExecutionSnapshot{}, err
@@ -212,4 +214,135 @@ func validateGoverningContexts(head ExecutionHead, records map[uuid.UUID]ModelCo
 		}
 	}
 	return nil
+}
+
+func (h *Handle) Repair(ctx context.Context) (ExecutionSnapshot, error) {
+	snapshot, err := h.ReconstructExecution(ctx)
+	if err != nil {
+		h.unit.aborted = true
+		return ExecutionSnapshot{}, err
+	}
+	h.mutation = &executionMutation{head: snapshot.Head, loaded: &snapshot, dirty: true, insertHead: true}
+	return snapshot, nil
+}
+
+type executionLoader struct {
+	q     *reconstructionQueries
+	db    executiondb.DBTX
+	route AgentRoute
+}
+
+func (h *Handle) executionLoader(ctx context.Context) (*executionLoader, error) {
+	route, err := h.Route()
+	if err != nil {
+		return nil, err
+	}
+	l := &executionLoader{q: &reconstructionQueries{Queries: executiondb.New()}, db: h.unit.DB(), route: route}
+	scope, err := l.q.LoadExecutionScope(
+		ctx,
+		l.db,
+		executiondb.LoadExecutionScopeParams{ProjectID: route.ProjectID, ID: route.AgentID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load execution scope: %w", err)
+	}
+	if scope != route.RootAgentID {
+		return nil, fmt.Errorf("%w: agent %s root", ErrInvalidState, route.AgentID)
+	}
+	return l, nil
+}
+
+func (l *executionLoader) load(ctx context.Context, head ExecutionHead) (ExecutionSnapshot, error) {
+	return loadExecution(ctx, l.db, l.route, &head)
+}
+
+func contextRecord(row ReconstructExecutionContextsRow) ModelContext {
+	return ModelContext{
+		ID:                     row.ID,
+		AgentID:                row.AgentID,
+		TurnID:                 row.TurnID,
+		Operation:              Operation(row.OperationKind),
+		Attempt:                row.AttemptNumber,
+		InputEventSequence:     row.InputEventSequence,
+		SourceEventSequenceEnd: valueOrZero(row.SourceEventSequenceEnd),
+		State:                  ContextState(row.State),
+		Recovery:               RecoveryKind(valueOrZero(row.RecoveryKind)),
+		RetryAt:                row.RetryAt,
+		Opening: Opening{
+			InputIDs:      row.OpeningInputIds,
+			EventSequence: row.OpeningEventSequence,
+		},
+	}
+}
+
+func (l *executionLoader) turn(ctx context.Context, head ExecutionHead) (*Turn, error) {
+	row, err := l.q.LoadExecutionTurn(
+		ctx,
+		l.db,
+		LoadExecutionTurnParams{AgentID: head.AgentID, ID: head.CurrentTurnID},
+	)
+	if err != nil {
+		return nil, err
+	}
+	turn := &Turn{
+		ID:                   row.ID,
+		FirstOpeningSequence: row.FirstOpeningSequence,
+		LastOpeningSequence:  row.LastOpeningSequence,
+		FirstContentSequence: row.FirstContentSequence,
+		LatestSemantic:       EventBoundary{Sequence: row.SemanticSequence, Time: row.SemanticTime},
+	}
+	if head.MaxContextInputSequence >= turn.FirstOpeningSequence ||
+		head.StopSequence > turn.FirstOpeningSequence {
+		return turn, nil
+	}
+	opening, err := l.q.CaptureExecutionOpening(ctx, l.db, executiondb.CaptureExecutionOpeningParams{
+		ProjectID: l.route.ProjectID, AgentID: head.AgentID, TurnID: turn.ID,
+		Watermark: turn.LastOpeningSequence, StopSequence: head.StopSequence})
+	if err != nil {
+		return nil, err
+	}
+	for i, input := range opening {
+		turn.InitialOpening.InputIDs = append(turn.InitialOpening.InputIDs, input.ID)
+		if i == 0 {
+			turn.InitialOpening.EventSequence = input.Sequence
+			turn.InitialReadyAt = input.CreatedAt
+		}
+		if input.CreatedAt.Before(turn.InitialReadyAt) {
+			turn.InitialReadyAt = input.CreatedAt
+		}
+	}
+	return turn, nil
+}
+
+func (l *executionLoader) batch(ctx context.Context, output ModelOutput) (*ToolBatch, error) {
+	row, err := l.q.LoadExecutionBatch(
+		ctx,
+		l.db,
+		LoadExecutionBatchParams{AgentID: l.route.AgentID, ModelOutputID: output.ID},
+	)
+	if err != nil || !row.HasTools {
+		return nil, err
+	}
+	batch := &ToolBatch{Output: output, HasIncomplete: row.Incomplete, HasRunnable: row.Runnable}
+	if row.Incomplete {
+		return batch, nil
+	}
+	completion, err := l.q.LoadExecutionBatchCompletion(
+		ctx,
+		l.db,
+		LoadExecutionBatchCompletionParams{
+			AgentID: l.route.AgentID, ModelOutputID: output.ID},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if completion.Calls == 0 || completion.Calls != completion.Results ||
+		completion.Calls != completion.Events {
+		return nil, fmt.Errorf("%w: output %s incomplete result authority", ErrInvalidState, output.ID)
+	}
+	batch.Completion = &BatchCompletion{
+		LastResultSequence: completion.LastResultSequence,
+		ReadyAt:            completion.ReadyAt,
+	}
+	return batch, nil
 }

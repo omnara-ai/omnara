@@ -294,3 +294,13 @@ func (u *Unit) PlanAgentFamily(
 	}
 	return MutationPlan{unit: u, agents: routes, authority: authority}, nil
 }
+
+func (u *Unit) PlanSubagentLaunch(ctx context.Context, projectID, parentID uuid.UUID) (MutationPlan, error) {
+	plan, err := u.PlanAgents(ctx, []lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: parentID}}, nil)
+	if err != nil {
+		return MutationPlan{}, err
+	}
+	root := plan.agents[0].RootAgentID
+	plan.agents = append(plan.agents, AgentRoute{ProjectID: projectID, AgentID: root, RootAgentID: root})
+	return plan, nil
+}

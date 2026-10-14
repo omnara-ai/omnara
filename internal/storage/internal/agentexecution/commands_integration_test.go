@@ -67,13 +67,13 @@ func receiveCommand(
 	mode, text string,
 ) agentexecution.ReceivedContent {
 	t.Helper()
+	require.NoError(t, h.CheckContentCapacity(t.Context()))
 	row, err := h.ReceiveContent(
 		t.Context(),
-		agentexecution.ReceiveContentInput{ID: uuid.New(), DeliveryMode: mode,
+		agentexecution.ReceiveContentInput{DeliveryMode: mode,
 			Content: []agentexecution.Content{{Kind: "text", Text: text}}},
 	)
 	require.NoError(t, err)
-	require.True(t, row.Created)
 	return row
 }
 
@@ -107,12 +107,11 @@ func commandResponse(reason modelenvelope.StopReason) modelenvelope.ResponseEnve
 func TestExecutionSemanticCommands(t *testing.T) {
 	f, a, lease := commandFixture(t)
 	u, h := f.handle(t, a)
-	config, err := h.ActivateConfig(
+	_, err := h.ActivateConfig(
 		t.Context(),
-		agentexecution.ActivateConfigInput{ID: uuid.New(), ConfigID: f.config, IdempotencyKey: "initial"},
+		agentexecution.ActivateConfigInput{ConfigID: f.config, IdempotencyKey: "initial"},
 	)
 	require.NoError(t, err)
-	require.True(t, config.Created)
 	assertCommandState(t, u, h)
 	first := receiveCommand(t, h, "queued", "first")
 	second := receiveCommand(t, h, "queued", "second")
@@ -203,11 +202,10 @@ func TestExecutionSemanticCommands(t *testing.T) {
 	require.NoError(t, u.Commit(t.Context(), "semantic completion"))
 }
 
-func TestExecutionCommandRollbackAndReplay(t *testing.T) {
+func TestExecutionCommandRollback(t *testing.T) {
 	f, a, _ := commandFixture(t)
 	u, h := f.handle(t, a)
 	input := agentexecution.ReceiveContentInput{
-		ID:               uuid.New(),
 		DeliveryMode:     "queued",
 		IdempotencyScope: "test",
 		IdempotencyKey:   "one",
@@ -227,20 +225,7 @@ func TestExecutionCommandRollbackAndReplay(t *testing.T) {
 	got := assertCommandState(t, u, h)
 	require.Equal(t, expected.Head.CurrentTurnID, got.Head.CurrentTurnID)
 	require.Equal(t, agentexecution.AdmitOneQueued, got.Selection.Admission)
-	replay, err := h.ReceiveContent(t.Context(), input)
-	require.NoError(t, err)
-	require.False(t, replay.Created)
-	require.Equal(t, first.ID, replay.ID)
-	require.NoError(t, u.Commit(t.Context(), "before changed replay"))
-	u, h = f.handle(t, a)
-	input.ID = uuid.New()
-	input.Content[0].Text = "different"
-	input.DeliveryMode = "steering"
-	replay, err = h.ReceiveContent(t.Context(), input)
-	require.NoError(t, err)
-	require.False(t, replay.Created)
-	require.Equal(t, first.ID, replay.ID)
-	require.NoError(t, u.Commit(t.Context(), "changed replay"))
+	require.NoError(t, u.Commit(t.Context(), "rollback verified"))
 	var count int
 	var text string
 	require.NoError(t, f.pool.QueryRow(t.Context(),
@@ -249,12 +234,7 @@ func TestExecutionCommandRollbackAndReplay(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(),
 		`SELECT text_content FROM content_blocks WHERE owner_agent_input_id=$1`, first.ID).Scan(&text))
 	require.Equal(t, "one", text)
-	u, h = f.handle(t, a)
-	input.Content[0].Text = "one"
-	replay, err = h.ReceiveContent(t.Context(), input)
-	require.NoError(t, err)
-	require.False(t, replay.Created)
-	require.NoError(t, u.Commit(t.Context(), "unchanged replay"))
+
 }
 
 func TestExecutionCompactionCommands(t *testing.T) {
@@ -483,9 +463,6 @@ func TestExecutionConfigAndCheckpointBoundaries(t *testing.T) {
 				_, err = h.ActivateConfig(t.Context(), cfg)
 				require.NoError(t, err)
 				assertCommandState(t, u, h)
-				replay, err := h.ActivateConfig(t.Context(), cfg)
-				require.NoError(t, err)
-				require.False(t, replay.Created)
 				require.NoError(t, u.Commit(t.Context(), "before rejected command"))
 				u, h = f.handle(t, a)
 				_, err = h.PrepareModel(
@@ -956,7 +933,6 @@ func TestExecutionContentRejectsDatabaseUnsafeValues(t *testing.T) {
 			_, err := h.ReceiveContent(
 				t.Context(),
 				agentexecution.ReceiveContentInput{
-					ID:           uuid.New(),
 					DeliveryMode: "queued",
 					Content:      []agentexecution.Content{content},
 				},

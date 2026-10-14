@@ -88,9 +88,7 @@ WHERE agent_id=$1 AND id IN ($2,$3)`, agent, first, second)
 				trace, err := agentexecution.TraceExecutionCommand(u, func() error {
 					switch command {
 					case "reject_full":
-						_, err := h.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
-							DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "new"}},
-						})
+						err := h.CheckContentCapacity(t.Context())
 						require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 						return nil
 					case "admit":

@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	AgentBacklogFullCode    = "agent_backlog_full"
-	AgentBacklogFullMessage = "This agent already has 50 pending messages. " +
+	MaxPendingAgentContentInputs = 50
+	AgentBacklogFullCode         = "agent_backlog_full"
+	AgentBacklogFullMessage      = "This agent already has 50 pending messages. " +
 		"Wait for messages to be processed or cancel a pending message, then try again."
 	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
 	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
@@ -16,7 +17,7 @@ const (
 
 var (
 	ErrCommitOutcomeUnknown          = errors.New("transaction commit outcome is unknown")
-	ErrAgentBacklogFull              = errors.New(AgentBacklogFullCode)
+	ErrAgentBacklogFull              = agentBacklogFullError{}
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
@@ -118,3 +119,7 @@ func IsNotFound(err error) bool {
 }
 
 var ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")
+
+type agentBacklogFullError struct{}
+
+func (agentBacklogFullError) Error() string { return AgentBacklogFullMessage }

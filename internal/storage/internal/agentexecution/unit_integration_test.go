@@ -5,7 +5,6 @@ package agentexecution
 import (
 	"context"
 	"errors"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"io"
 	"strconv"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
@@ -385,4 +385,27 @@ func TestUnitCommitErrorClassification(t *testing.T) {
 			require.Equal(t, scenario.unknown, errors.Is(err, storeerr.ErrCommitOutcomeUnknown))
 		})
 	}
+}
+
+func TestReplanTestDoesNotRetryDatabaseErrors(t *testing.T) {
+	for _, code := range []string{"40P01", "40001"} {
+		t.Run(code, func(t *testing.T) {
+			calls := 0
+			_, err := ReplanTest(t.Context(), func(ctx context.Context) (int, error) {
+				return Retry(ctx, "nested", func(context.Context) (int, error) { calls++; return 0, &pgconn.PgError{Code: code} })
+			})
+			require.Error(t, err)
+			require.Equal(t, 1, calls)
+		})
+	}
+	calls := 0
+	_, err := ReplanTest(t.Context(), func(context.Context) (int, error) {
+		calls++
+		if calls == 1 {
+			return 0, &LockPlanError{Agents: []lifecyclelock.AgentRef{{ProjectID: uuid.New(), AgentID: uuid.New()}}}
+		}
+		return 1, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
 }

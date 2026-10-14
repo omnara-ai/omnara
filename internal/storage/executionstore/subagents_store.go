@@ -23,12 +23,6 @@ import (
 const (
 	subagentMessageIdempotencyScope = "subagent_message"
 
-	SubagentMessageKindResult          = "result"
-	SubagentMessageKindRefused         = "refused"
-	SubagentMessageKindContentFiltered = "content_filtered"
-	SubagentMessageKindFailed          = "failed"
-	SubagentMessageKindQuestion        = "question"
-
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
 	SubagentStateWaitingOnInteraction = "waiting_on_interaction"
@@ -157,15 +151,14 @@ func admitSubagentLaunchTx(
 	launch SubagentLaunch,
 ) error {
 	tx := unit.DB()
-	if err := unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{
-		ProjectID: projectID,
-		AgentID:   launch.ParentAgentID,
-	}}, nil); err != nil {
-		if errors.Is(err, storeerr.ErrNotFound) {
-			return fmt.Errorf("parent agent: %w", storeerr.ErrNotFound)
-		}
+	plan, err := unit.PlanSubagentLaunch(ctx, projectID, launch.ParentAgentID)
+	if err != nil {
 		return err
 	}
+	if err := unit.LockAgents(ctx, plan); err != nil {
+		return err
+	}
+
 	parent, err := loadAgentInProjectTx(ctx, tx, projectID, launch.ParentAgentID)
 	if err != nil {
 		return err
@@ -478,7 +471,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	if err != nil {
 		return fmt.Errorf("marshal parent message metadata: %w", err)
 	}
-	if _, err := createAgentContentInputTx(ctx, t.unit, t.q, CreateAgentContentInputInput{
+	if _, err := admitAgentContentInputTx(ctx, t.unit, t.q, CreateAgentContentInputInput{
 		ProjectID:              child.ProjectID,
 		AgentID:                child.ID,
 		Actor:                  actor,

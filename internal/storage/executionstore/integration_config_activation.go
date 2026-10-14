@@ -3,10 +3,8 @@ package executionstore
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -45,32 +43,12 @@ func launchIntegrationIDsTx(
 	return refs, nil
 }
 
-func configChangeReplayExistsTx(ctx context.Context, q *dbsqlc.Queries, input ChangeAgentConfigInput) (bool, error) {
-	if input.IdempotencyKey == "" {
-		return false, nil
-	}
-	_, err := q.GetAgentInputByIdempotency(ctx, dbsqlc.GetAgentInputByIdempotencyParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID,
-		IdempotencyScope: "agent_config_change", InputIdempotencyKey: input.IdempotencyKey,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("load idempotent config change: %w", err)
-	}
-	return true, nil
-}
-
 func lockConfigChangeIntegrationsTx(
 	ctx context.Context,
 	tx dbsqlc.DBTX,
 	q *dbsqlc.Queries,
 	input ChangeAgentConfigInput,
 ) error {
-	if replay, err := configChangeReplayExistsTx(ctx, q, input); err != nil || replay {
-		return err
-	}
 	_, next, err := validateLiveAgentConfigChangeTx(
 		ctx,
 		q,
@@ -81,11 +59,5 @@ func lockConfigChangeIntegrationsTx(
 	if err != nil {
 		return err
 	}
-	if err := integrationstore.LockIntegrationsTx(ctx, tx, input.ProjectID, next.ReferencedIntegrationIDs()); err != nil {
-		if replay, replayErr := configChangeReplayExistsTx(ctx, q, input); replayErr == nil && replay {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return integrationstore.LockIntegrationsTx(ctx, tx, input.ProjectID, next.ReferencedIntegrationIDs())
 }

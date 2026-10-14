@@ -98,16 +98,6 @@ func (h *Handle) SetInteractionTarget(
 	return n > 0, err
 }
 
-func (h *Handle) Repair(ctx context.Context) (ExecutionSnapshot, error) {
-	snapshot, err := h.ReconstructExecution(ctx)
-	if err != nil {
-		h.unit.aborted = true
-		return ExecutionSnapshot{}, err
-	}
-	h.mutation = &executionMutation{head: snapshot.Head, loaded: &snapshot, dirty: true, insertHead: true}
-	return snapshot, nil
-}
-
 func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, interactionID uuid.UUID) error {
 	if h.route.RootAgentID == h.route.AgentID {
 		return nil
@@ -131,6 +121,17 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	}
 	if snapshot.View.State == AgentArchived {
 		return nil
+	}
+	_, err = executiondb.New().FindExecutionInput(ctx,
+		h.unit.DB(),
+		executiondb.FindExecutionInputParams{AgentID: parent.route.AgentID,
+			Scope: optionalText("subagent_message"),
+			Key:   optionalText(key)})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
 	}
 	principal, err := publicid.Encode(publicid.KindAgent, h.route.AgentID)
 	if err != nil {
@@ -198,7 +199,7 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	body := agentmessage.Render(name, child.SubagentKey, principal, kind, text)
 	_, err = parent.ReceiveContent(
 		ctx,
-		ReceiveContentInput{allowBacklogOverflow: true,
+		ReceiveContentInput{
 			ActorID:          actorID,
 			DeliveryMode:     "steering",
 			IdempotencyScope: "subagent_message",

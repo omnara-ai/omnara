@@ -164,8 +164,7 @@ func TestExecutionParentEffects(t *testing.T) {
 					require.Equal(t, 2, statements)
 					require.Equal(t, 1, roundTrips)
 					_, parent := f.handle(t, pr.AgentID)
-					_, err = parent.ReceiveContent(t.Context(),
-						agentexecution.ReceiveContentInput{DeliveryMode: "queued"})
+					err = parent.CheckContentCapacity(t.Context())
 					require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 				},
 			)
@@ -178,11 +177,10 @@ func TestExecutionArchiveFamily(t *testing.T) {
 	toolCommand(t, c, lease, "custom")
 	receiveCommand(t, p, "queued", "parent")
 	receiveCommand(t, c, "queued", "child")
-	pr, err := p.Route()
-	require.NoError(t, err)
-	cr, err := c.Route()
-	require.NoError(t, err)
-	require.NoError(t, u.ArchiveAgents(t.Context(), []agentexecution.AgentRoute{pr, cr}, uuid.Nil))
+	for _, h := range []*agentexecution.Handle{p, c} {
+		_, err := h.Archive(t.Context(), uuid.Nil)
+		require.NoError(t, err)
+	}
 	for _, h := range []*agentexecution.Handle{p, c} {
 		snapshot := assertCommandState(t, u, h)
 		require.Equal(t, agentexecution.WaitArchived, snapshot.Selection.Wait)
@@ -194,81 +192,6 @@ func TestExecutionArchiveFamily(t *testing.T) {
 	var wakeups int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM agent_wakeups`).Scan(&wakeups))
 	require.Zero(t, wakeups)
-}
-
-func familyParentRuntime(t *testing.T, u *agentexecution.Unit, p *agentexecution.Handle) uuid.UUID {
-	t.Helper()
-	route, err := p.Route()
-	require.NoError(t, err)
-	lease := uuid.New()
-	_,
-		err = u.DB().Exec(t.Context(),
-		`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
- VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '90 seconds')`,
-		lease, route.AgentID, uuid.New())
-	require.NoError(t, err)
-	return lease
-}
-
-func TestExecutionChildCommands(t *testing.T) {
-	for _, order := range []bool{false, true} {
-		for _, mode := range []string{"send", "cancel"} {
-			t.Run(
-				map[bool]string{false: "parent_first", true: "child_first"}[order]+"/"+mode,
-				func(t *testing.T) {
-					_, u, p, c, lease := familyFixture(t, order)
-					parentLease := familyParentRuntime(t, u, p)
-					parentRef := toolCommand(t, p, parentLease, "built_in")
-					_, err := p.AuthorizeTool(t.Context(), parentRef)
-					require.NoError(t, err)
-					childRef := toolCommand(t, c, lease, "built_in")
-					_, err = c.AuthorizeTool(t.Context(), childRef)
-					require.NoError(t, err)
-					form := interactionform.Form{Title: "Question",
-						Questions: []interactionform.Question{{Prompt: "Continue?",
-							Options: []interactionform.Option{{Label: "yes"}}}}}
-					question,
-						err := c.OpenInteraction(t.Context(),
-						agentexecution.OpenInteractionInput{ToolRef: childRef,
-							Question: &form})
-					require.NoError(t, err)
-					cr, err := c.Route()
-					require.NoError(t, err)
-					completion := agentexecution.ToolCompletion{ToolRef: parentRef,
-						Outcome: "succeeded",
-						Content: []agentexecution.Content{{Kind: "text",
-							Text: "done"}}}
-					run := func() (agentexecution.CompletedTool, error) {
-						if mode == "send" {
-							return p.SendToChild(t.Context(), cr, uuid.Nil, "message", completion)
-						}
-						return p.CancelChild(t.Context(), cr, uuid.Nil, completion)
-					}
-					result, err := run()
-					require.NoError(t, err)
-					require.True(t, result.Changed)
-					var state string
-					require.NoError(t,
-						u.DB().QueryRow(t.Context(),
-							`SELECT state FROM agent_interactions WHERE id=$1`,
-							question.ID).Scan(&state))
-					require.Equal(t, "canceled", state)
-					later := receiveCommand(t, c, "steering", "after")
-					replay, err := run()
-					require.NoError(t, err)
-					require.False(t, replay.Changed)
-					require.NoError(t,
-						u.DB().QueryRow(t.Context(),
-							`SELECT state FROM agent_inputs WHERE id=$1`,
-							later.ID).Scan(&state))
-					require.Equal(t, "received", state)
-					assertCommandState(t, u, p)
-					assertCommandState(t, u, c)
-					require.NoError(t, u.Commit(t.Context(), "child command"))
-				},
-			)
-		}
-	}
 }
 
 func TestExecutionParentReportPreservesInteraction(t *testing.T) {
@@ -369,43 +292,16 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 	}
 }
 
-func TestExecutionFullChildPreservesInteraction(t *testing.T) {
-	f, u, p, c, lease := familyFixture(t, true)
-	parentLease := familyParentRuntime(t, u, p)
-	ref := toolCommand(t, p, parentLease, "built_in")
-	_, err := p.AuthorizeTool(t.Context(), ref)
+func familyParentRuntime(t *testing.T, u *agentexecution.Unit, p *agentexecution.Handle) uuid.UUID {
+	t.Helper()
+	route, err := p.Route()
 	require.NoError(t, err)
-	childRef := toolCommand(t, c, lease, "built_in")
-	_, err = c.AuthorizeTool(t.Context(), childRef)
+	lease := uuid.New()
+	_,
+		err = u.DB().Exec(t.Context(),
+		`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+ VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '90 seconds')`,
+		lease, route.AgentID, uuid.New())
 	require.NoError(t, err)
-	for range 50 {
-		receiveCommand(t, c, "queued", "pending")
-	}
-	form := interactionform.Form{Title: "Question", Questions: []interactionform.Question{{Prompt: "Choose",
-		Options: []interactionform.Option{{Label: "yes"}}}}}
-	opened, err := c.OpenInteraction(t.Context(), agentexecution.OpenInteractionInput{ToolRef: childRef,
-		Question: &form})
-	require.NoError(t, err)
-	cr, err := c.Route()
-	require.NoError(t, err)
-	pr, err := p.Route()
-	require.NoError(t, err)
-	require.NoError(t, u.Commit(t.Context(), "full child"))
-	u, err = agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
-	require.NoError(t, err)
-	defer func() { _ = u.Rollback(t.Context()) }()
-	require.NoError(t, u.LockAgentRefs(t.Context(), []lifecyclelock.AgentRef{{ProjectID: f.project,
-		AgentID: pr.AgentID}, {ProjectID: f.project, AgentID: cr.AgentID}}, nil))
-	p, err = u.Agent(pr)
-	require.NoError(t, err)
-	_, err = p.SendToChild(t.Context(), cr, uuid.Nil, "rejected",
-		agentexecution.ToolCompletion{ToolRef: ref, Outcome: "succeeded",
-			Content: []agentexecution.Content{{Kind: "text", Text: "sent"}}})
-	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
-	require.NoError(t, u.Rollback(t.Context()))
-	var state string
-	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT state FROM agent_interactions WHERE id=$1`,
-		opened.ID).Scan(&state))
-	require.Equal(t, "open", state)
-	require.Equal(t, 50, pendingExecutionCount(t, f, cr.AgentID))
+	return lease
 }

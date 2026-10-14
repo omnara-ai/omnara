@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -260,43 +259,4 @@ func (h *Handle) Archive(ctx context.Context, actorID uuid.UUID) (bool, error) {
 		m.changed()
 		return true, nil
 	})
-}
-
-func (u *Unit) ArchiveAgents(ctx context.Context, routes []AgentRoute, actorID uuid.UUID) error {
-	for _, route := range routes {
-		if _, err := u.Agent(route); err != nil {
-			return err
-		}
-	}
-	for _, route := range routes {
-		h := u.handles[route.AgentID]
-		if _, err := h.Archive(ctx, actorID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (u *Unit) InterruptProcesses(
-	ctx context.Context,
-	agents map[AgentRoute][]uuid.UUID,
-	reason string,
-) error {
-	for route := range agents {
-		if _, err := u.Agent(route); err != nil {
-			return err
-		}
-	}
-	for _, h := range u.orderedHandles() {
-		for _, id := range agents[h.route] {
-			_, err := h.InterruptProcess(ctx, id, reason)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return storeerr.ErrNotFound
-			}
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

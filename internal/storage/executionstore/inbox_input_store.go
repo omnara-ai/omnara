@@ -72,14 +72,6 @@ func (s *Store) admitInboxInputRecipientOnce(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if outcome, err := resolveInboxInputOutcome(
-		ctx, s.q, recipient,
-	); err != nil || outcome.Outcome != InboxRecipientPending {
-		if err != nil {
-			return InboxInputResult{}, err
-		}
-		return replayInboxInput(ctx, s.q, recipient, outcome)
-	}
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return InboxInputResult{}, err

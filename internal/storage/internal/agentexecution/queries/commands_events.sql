@@ -39,7 +39,3 @@ SELECT ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,
 FROM content_blocks WHERE agent_id=sqlc.arg(agent_id) AND
  (owner_agent_input_id=sqlc.narg(input_id) OR owner_model_output_id=sqlc.narg(output_id)
  OR owner_tool_call_result_id=sqlc.narg(result_id)) ORDER BY ordinal;
-
--- name: FindExecutionInputEvent :one
-SELECT e.id,e.turn_id,e.sequence,e.created_at FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)
- AND e.agent_input_id=sqlc.arg(input_id);

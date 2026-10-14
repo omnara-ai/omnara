@@ -1,6 +1,7 @@
 package processresult
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -188,7 +189,7 @@ func Started(process Process, observed json.RawMessage) (json.RawMessage, error)
 		"command":     commandLabel,
 		"next_action": "use write_process for stdin or read_process for retained output",
 	}
-	if len(observed) != 0 && string(observed) != "null" && string(observed) != "{}" {
+	if observed = NormalizeObservation(observed); len(observed) != 0 {
 		var observedObject map[string]any
 		if err := json.Unmarshal(observed, &observedObject); err != nil {
 			return nil, fmt.Errorf("decode process started result: %w", err)
@@ -296,4 +297,11 @@ func ObservationNextCursor(
 		)
 	}
 	return *observed.NextCursor, true, nil
+}
+
+func NormalizeObservation(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+	return raw
 }

@@ -241,7 +241,7 @@ func main() {
 		StreamLog:       log,
 	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
-		Continuation: &workerpkg.ContinuationOptions{
+		Continuation: workerpkg.ContinuationOptions{
 			MaxModelStarts: cfg.WorkerContinuationMaxModelStarts,
 			MaxDuration:    cfg.WorkerContinuationMaxDuration,
 		},

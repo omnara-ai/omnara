@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	MaxModelCallRetriesPerOperation = 8
-
 	ModelCallOperationNormal     ModelCallOperation = "normal"
 	ModelCallOperationCompaction ModelCallOperation = "compaction"
 
@@ -20,9 +18,8 @@ const (
 	ModelCallContextFailed    ModelCallState = "failed"
 	ModelCallContextCanceled  ModelCallState = "canceled"
 
-	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
-	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
-	ModelCallRecoveryReduceCompactionSource ModelCallRecoveryKind = "reduce_compaction_source"
+	ModelCallRecoveryRetry   ModelCallRecoveryKind = "retry"
+	ModelCallRecoveryCompact ModelCallRecoveryKind = "compact"
 )
 
 type ModelCallOperation string

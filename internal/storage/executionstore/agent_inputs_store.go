@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -109,7 +110,7 @@ func (s *Store) ClaimNextAgentWork(
 			if input.WorkerProcessID == uuid.Nil {
 				return executionResult{ClaimedAgentWork{}, false}, errors.New("worker process id is required")
 			}
-			if err := validateAgentRuntimeLockLeaseDuration(input.LeaseDuration); err != nil {
+			if err := executionpolicy.ValidateLeaseDuration(input.LeaseDuration); err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
 			unit, err := s.cell.Begin(ctx)

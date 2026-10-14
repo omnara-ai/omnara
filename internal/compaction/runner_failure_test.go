@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
@@ -364,7 +365,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 	exhaustedClaim := store.claims[0]
 	exhaustedClaim.Created = false
 	exhaustedClaim.Context.ID = testIDN(299)
-	exhaustedClaim.Context.AttemptNumber = executionstore.MaxModelCallRetriesPerOperation + 1
+	exhaustedClaim.Context.AttemptNumber = executionpolicy.MaxModelCallRetriesPerOperation + 1
 	exhaustedClaim.Context.State = executionstore.ModelCallContextStarted
 	store.claimResults = []executionstore.ModelCallClaim{exhaustedClaim}
 	client.results = []summaryResult{{response: model.Response{
@@ -531,7 +532,7 @@ func TestRunnerStopsAfterEighthRetryableResolverFailure(t *testing.T) {
 	exhaustedClaim := store.claims[0]
 	exhaustedClaim.Created = false
 	exhaustedClaim.Context.ID = testIDN(299)
-	exhaustedClaim.Context.AttemptNumber = executionstore.MaxModelCallRetriesPerOperation + 1
+	exhaustedClaim.Context.AttemptNumber = executionpolicy.MaxModelCallRetriesPerOperation + 1
 	exhaustedClaim.Context.State = executionstore.ModelCallContextStarted
 	exhaustedClaim.Context.RetryAt = nil
 	store.claimResults = []executionstore.ModelCallClaim{exhaustedClaim}

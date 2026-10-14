@@ -37,7 +37,9 @@ func TestWorkerModelToolChainPoolAcquisitions(t *testing.T) {
 			continuationToolResponse(1), continuationToolResponse(2), continuationFinalResponse(3),
 		}},
 	}
-	worker := NewWorker(store.Execution(), executor.AgentExecutor, Options{})
+	worker := NewWorker(store.Execution(), executor.AgentExecutor, Options{
+		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: 30 * time.Second},
+	})
 	before := pool.Stat().AcquireCount()
 	commitsBefore := trace.commits.Load()
 	requireWorkerClaim(t, ctx, worker, "model/tool chain")
@@ -89,7 +91,9 @@ func TestWorkerFusedContinuationYieldsBeforePreparingOverBudgetModel(t *testing.
 		continuationToolResponse(1), continuationToolResponse(2), continuationToolResponse(3), continuationFinalResponse(4),
 	}}
 	executor.ModelResolver = liveWorkerTestModelResolver(store, client)
-	worker := NewWorker(store.Execution(), executor.AgentExecutor, Options{})
+	worker := NewWorker(store.Execution(), executor.AgentExecutor, Options{
+		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: 30 * time.Second},
+	})
 	requireWorkerClaim(t, ctx, worker, "bounded fused chain")
 	require.Equal(t, 3, client.calls)
 	assertCompletedToolCallCount(t, ctx, pool, agentID, "list_agents", "completed", 3)

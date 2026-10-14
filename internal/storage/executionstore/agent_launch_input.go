@@ -141,22 +141,14 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		content.IdempotencyScope = integrationstore.IdempotencyScope(integration)
 	}
 	if admission != nil {
-		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(
-			ctx,
-			tx,
-			agent.ProjectID,
-			agent.ID,
-			admission.Artifacts,
-		)
-		if err != nil {
-			return err
-		}
+		content.PreparedArtifacts = admission.Artifacts
 	}
-	created, err := createAgentContentInputTx(ctx, unit, q, content, blocks)
+	created, err := admitAgentContentInputTx(ctx, unit, q, content, blocks)
 	if err != nil {
 		return err
 	}
 	result.AgentInput, result.InputContentBlocks = created.agentInput, created.contentBlocks
+	result.Artifacts = created.artifacts
 	return nil
 }
 

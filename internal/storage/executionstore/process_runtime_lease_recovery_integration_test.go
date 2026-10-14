@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -929,7 +930,7 @@ func TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion(t *testing.T) {
 		t.Fatalf("load reaped runtime tool call: %v", err)
 	}
 	wantResult := json.RawMessage(`[{"type":"structured_data","value":{"error_code":"runtime_lock_stale",` +
-		`"message":"` + executionstore.RuntimeToolInterruptedMessage + `"}}]`)
+		`"message":"` + executionpolicy.InterruptedToolMessage + `"}}]`)
 	if record.State != "completed" || !sameJSON(record.ResultContentParts, wantResult) {
 		t.Fatalf("reaped runtime tool call = %+v", record)
 	}

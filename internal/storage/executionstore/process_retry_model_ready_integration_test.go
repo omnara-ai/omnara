@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -214,7 +215,7 @@ func TestExhaustedNormalContextCanHandOffAndTerminalizeCompaction(t *testing.T) 
 		ctx,
 		"exhausted_normal_context_compaction_handoff",
 	)
-	if claim.Context.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+	if claim.Context.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		claim.Context.State != executionstore.ModelCallContextStarted {
 		t.Fatalf("exhausted normal context = %+v", claim.Context)
 	}
@@ -241,7 +242,7 @@ func TestExhaustedNormalContextCanHandOffAndTerminalizeCompaction(t *testing.T) 
 		t.Fatalf("handoff exhausted normal context to compaction: %v", err)
 	}
 	if handoff.BoundaryPreempted ||
-		handoff.ParentContext.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+		handoff.ParentContext.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		handoff.ParentContext.RecoveryKind != executionstore.ModelCallRecoveryCompact {
 		t.Fatalf("parent handoff = %+v", handoff)
 	}

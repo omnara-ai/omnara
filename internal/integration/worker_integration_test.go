@@ -546,7 +546,7 @@ func TestIntegrationInboxRetriesFullBacklog(t *testing.T) {
 	pending, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxQueued, pending.State)
-	require.Contains(t, pending.LastError, storeerr.AgentBacklogFullCode)
+	require.Contains(t, pending.LastError, storeerr.ErrAgentBacklogFull.Error())
 	require.True(t, pending.NextAttemptAt.After(time.Now()))
 	outcomes, err := store.Execution().GetIntegrationInboxOutcomes(ctx, pending)
 	require.NoError(t, err)

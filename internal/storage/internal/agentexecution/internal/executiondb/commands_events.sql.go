@@ -94,35 +94,6 @@ func (q *Queries) AppendExecutionEvent(ctx context.Context, db DBTX, arg AppendE
 	return i, err
 }
 
-const findExecutionInputEvent = `-- name: FindExecutionInputEvent :one
-SELECT e.id,e.turn_id,e.sequence,e.created_at FROM agent_events e WHERE e.agent_id=$1
- AND e.agent_input_id=$2
-`
-
-type FindExecutionInputEventParams struct {
-	AgentID uuid.UUID
-	InputID *uuid.UUID
-}
-
-type FindExecutionInputEventRow struct {
-	ID        uuid.UUID
-	TurnID    uuid.UUID
-	Sequence  int64
-	CreatedAt time.Time
-}
-
-func (q *Queries) FindExecutionInputEvent(ctx context.Context, db DBTX, arg FindExecutionInputEventParams) (FindExecutionInputEventRow, error) {
-	row := db.QueryRow(ctx, findExecutionInputEvent, arg.AgentID, arg.InputID)
-	var i FindExecutionInputEventRow
-	err := row.Scan(
-		&i.ID,
-		&i.TurnID,
-		&i.Sequence,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const insertExecutionContent = `-- name: InsertExecutionContent :exec
 WITH payload AS MATERIALIZED (
  SELECT agent_payload_created_at($14,$1,$2,

@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -24,7 +23,7 @@ type TypedAgentEventRecord struct {
 type CreateContentBlockInput struct {
 	ProjectID               uuid.UUID
 	AgentID                 uuid.UUID
-	OwnerKind               ContentBlockOwnerKind
+	OwnerKind               string
 	OwnerAgentInputID       uuid.UUID
 	OwnerModelOutputID      uuid.UUID
 	OwnerToolCallResultID   uuid.UUID
@@ -36,29 +35,6 @@ type CreateContentBlockInput struct {
 	ToolCallID              uuid.UUID
 	ExcludeFromModelContext bool
 	Metadata                resourcemeta.Metadata
-}
-
-func modelOutputAuthorityFromGetSQLC(row dbsqlc.GetModelOutputByModelContextRow) ModelOutputAuthorityRecord {
-	return ModelOutputAuthorityRecord{
-		ID:                      row.ID,
-		ProjectID:               row.ProjectID,
-		AgentID:                 row.AgentID,
-		TurnID:                  row.TurnID,
-		ModelCallContextID:      row.ModelCallContextID,
-		ServedProviderModelSlug: row.ServedProviderModelSlug,
-		StopReason:              modelenvelope.StopReason(row.StopReason),
-		ProviderResponseID:      row.ProviderResponseID,
-		ProviderReplay:          rawMessageFromSQLCPtr(row.ProviderReplay),
-		Usage: modelUsageFromSQLC(
-			row.InputTokensTotal,
-			row.UncachedInputTokens,
-			row.CacheReadInputTokens,
-			row.CacheWriteInputTokens,
-			row.OutputTokensTotal,
-			row.ReasoningOutputTokens,
-		),
-		CreatedAt: row.CreatedAt,
-	}
 }
 
 func typedAgentEventFromModelOutputSQLC(

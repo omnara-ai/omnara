@@ -1,8 +1,12 @@
--- name: FindExecutionInput :one
-SELECT id,state,input_kind,delivery_mode,actor_id,integration_target_id,agent_config_id,
- metadata,queued_at,admitted_event_id,input_rank
+-- name: ReadExecutionInput :one
+SELECT state,input_kind,delivery_mode,actor_id
 FROM agent_inputs WHERE agent_id=sqlc.arg(agent_id) AND
- (id=sqlc.arg(id) OR (idempotency_scope=sqlc.narg(scope) AND input_idempotency_key=sqlc.narg(key)));
+ id=sqlc.arg(id);
+
+-- name: FindExecutionInput :one
+SELECT id
+FROM agent_inputs WHERE agent_id=sqlc.arg(agent_id) AND
+ idempotency_scope=sqlc.narg(scope) AND input_idempotency_key=sqlc.narg(key);
 
 -- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
@@ -97,5 +101,5 @@ FROM agent_configs c WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(pro
 SELECT count(*) FROM (
     SELECT 1 FROM agent_inputs
     WHERE agent_id=$1 AND state='received' AND input_kind='content'
-    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT 50
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT sqlc.arg(capacity)::bigint
 ) pending;

@@ -10,21 +10,8 @@ import (
 )
 
 type ContinuationOptions struct {
-	// MaxModelStarts counts additional model work steps after the initial claim.
-	// Zero disables continuation when these options are supplied explicitly.
 	MaxModelStarts int
 	MaxDuration    time.Duration
-}
-
-func continuationOptions(options *ContinuationOptions) ContinuationOptions {
-	if options == nil {
-		return ContinuationOptions{MaxModelStarts: 2, MaxDuration: 30 * time.Second}
-	}
-	result := *options
-	if result.MaxDuration <= 0 {
-		result.MaxDuration = 30 * time.Second
-	}
-	return result
 }
 
 func (options ContinuationOptions) canAdvance(elapsed time.Duration) bool {

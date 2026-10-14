@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -95,16 +94,6 @@ func (s *Store) admitOriginContentTx(
 	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
 	tx := unit.DB()
-	if err := unit.LockAgentRefs(
-		ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
-		nil,
-	); err != nil {
-		return InboxInputResult{}, err
-	}
-	if result, found, err := s.originContentReplayTx(ctx, tx, input); err != nil || found {
-		return result, err
-	}
 	input, integration, err := s.resolveInputOriginTx(ctx, tx, input)
 	if err != nil {
 		return InboxInputResult{}, err
@@ -120,10 +109,7 @@ func (s *Store) admitOriginContentTx(
 		return InboxInputResult{}, err
 	}
 	input.IntegrationTargetID = target.ID
-	files, err := artifactstore.InsertPreparedArtifactsTx(ctx, tx, input.ProjectID, input.AgentID, artifacts)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
+	input.PreparedArtifacts = artifacts
 	created, err := createAgentContentInputTx(ctx, unit, dbsqlc.New(tx), input, blocks)
 	if err != nil {
 		return InboxInputResult{}, err
@@ -132,41 +118,8 @@ func (s *Store) admitOriginContentTx(
 		AgentInput:             created.agentInput,
 		ContentBlocks:          created.contentBlocks,
 		IntegrationTarget:      target,
-		Artifacts:              files,
+		Artifacts:              created.artifacts,
 		Created:                created.created,
 		CanceledInteractionIDs: created.canceledInteractionIDs,
 	}, nil
-}
-
-func (s *Store) originContentReplayTx(
-	ctx context.Context,
-	tx dbsqlc.DBTX,
-	input CreateAgentContentInputInput,
-) (InboxInputResult, bool, error) {
-	q := dbsqlc.New(tx)
-	existing, found, err := loadAgentInputByIdempotencyMaybeTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.IdempotencyScope,
-		input.IdempotencyKey,
-	)
-	if err != nil || !found {
-		return InboxInputResult{}, false, err
-	}
-	target, err := s.integrations.GetIntegrationTargetTx(ctx, tx, input.ProjectID, existing.IntegrationTargetID)
-	if err != nil {
-		return InboxInputResult{}, false, err
-	}
-	if target.AgentID != input.AgentID || target.IntegrationID != input.Origin.IntegrationID ||
-		target.ScopeKind != input.Origin.Address.Kind || target.ScopeRef != input.Origin.Address.Ref {
-		return InboxInputResult{}, false, storeerr.ErrIdempotencyConflict
-	}
-	content, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []uuid.UUID{existing.ID})
-	return InboxInputResult{
-		AgentInput:        existing,
-		ContentBlocks:     content[existing.ID],
-		IntegrationTarget: target,
-	}, err == nil, err
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -440,7 +441,7 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 		},
 		released:                       make(chan uuid.UUID, 1),
 		renewed:                        make(chan struct{}),
-		firstLocalLeaseBudgetStartedAt: time.Now().Add(-executionstore.MinimumAgentRuntimeLockLeaseDuration),
+		firstLocalLeaseBudgetStartedAt: time.Now().Add(-executionpolicy.MinimumLeaseDuration),
 	}
 	turnErr := errors.New("turn failed after starting async execution")
 	executor := &erroredAsyncExecutor{
@@ -449,7 +450,7 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 		err:     turnErr,
 	}
 	worker := NewWorker(store, executor, Options{
-		RuntimeLockLeaseDuration: executionstore.MinimumAgentRuntimeLockLeaseDuration,
+		RuntimeLockLeaseDuration: executionpolicy.MinimumLeaseDuration,
 		Capacity:                 1,
 		AsyncToolCapacity:        1,
 	})
@@ -642,11 +643,11 @@ func TestWorkerReturnsUnavailableModelGrantError(t *testing.T) {
 
 func TestNewWorkerUsesFixedRuntimeLockLeaseDuration(t *testing.T) {
 	worker := NewWorker(nil, nil, Options{Capacity: 1})
-	if worker.runtimeLockLeaseDuration != executionstore.AgentRuntimeLockLeaseDuration {
+	if worker.runtimeLockLeaseDuration != executionpolicy.DefaultLeaseDuration {
 		t.Fatalf(
 			"runtime-lock lease duration = %s, want %s",
 			worker.runtimeLockLeaseDuration,
-			executionstore.AgentRuntimeLockLeaseDuration,
+			executionpolicy.DefaultLeaseDuration,
 		)
 	}
 }
@@ -980,4 +981,47 @@ func (s *renewalDeadlineStore) AdvanceOwnedAgentWork(
 ) (executionstore.ClaimedAgentWork, bool, error) {
 	err := s.ReleaseAgentRuntimeLock(ctx, input.ProjectID, input.AgentID, input.RuntimeLockID)
 	return executionstore.ClaimedAgentWork{}, false, err
+}
+
+func (e toolWorkOnlyExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e fixedModelErrorExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e *recordingModelWorkExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e *failingThenBlockTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e *holdingModelExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (modelWorkOnlyExecutor) ExecuteModelWorkAndAdvance(context.Context,
+	kernel.ModelWorkExecution,
+	kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	panic("unexpected advancement")
 }

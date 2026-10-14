@@ -218,3 +218,14 @@ func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
 	require.NoError(t, blocker.Commit(t.Context()))
 	require.NoError(t, <-result)
 }
+
+func TestExecutionClaimInvalidLease(t *testing.T) {
+	for _, duration := range []time.Duration{time.Second, time.Hour} {
+		t.Run(duration.String(), func(t *testing.T) {
+			f, a, _ := commandFixture(t)
+			_, h := f.handle(t, a)
+			_, err := h.Claim(t.Context(), uuid.New(), duration)
+			require.ErrorContains(t, err, "runtime lease duration must be between 15s and 30m0s")
+		})
+	}
+}

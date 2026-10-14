@@ -88,7 +88,7 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 				ProjectID:  trigger.ProjectID,
 				TriggerID:  trigger.TriggerID,
 				ClaimToken: trigger.ClaimToken,
-				Message:    cronFailureMessage(err),
+				Message:    err.Error(),
 				WillRetry:  retry,
 			}); recordErr != nil {
 				s.logger.Error(
@@ -228,11 +228,4 @@ func permanentFireError(err error) bool {
 func fireIdempotencyKey(trigger executionstore.ClaimedCronTrigger) string {
 	return "cron_trigger:" + trigger.TriggerID.String() + ":" +
 		trigger.DueAt.UTC().Format(fireIdempotencyTimestampSpec)
-}
-
-func cronFailureMessage(err error) string {
-	if errors.Is(err, storeerr.ErrAgentBacklogFull) {
-		return storeerr.AgentBacklogFullCode + ": " + storeerr.AgentBacklogFullMessage
-	}
-	return err.Error()
 }

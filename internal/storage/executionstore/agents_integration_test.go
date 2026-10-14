@@ -1087,6 +1087,21 @@ model:
 		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='config_change'`,
 		launch.Agent.ID).Scan(&count))
 	require.Equal(t, 3, count)
+	_,
+		err = pool.Exec(ctx,
+		`UPDATE project_memberships SET role='operator' WHERE project_id=$1 AND org_membership_id IN (SELECT id FROM org_memberships WHERE user_id=$2)`,
+		testProjectID,
+		user.ID)
+	require.NoError(t, err)
+	_,
+		err = store.Execution().ChangeAgentConfig(ctx,
+		executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{ProjectID: testProjectID},
+			AgentID:                launch.Agent.ID,
+			ActorType:              identitystore.PrincipalTypeUser,
+			ActorID:                user.ID,
+			IdempotencyKey:         "idem-config-change"})
+	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 }
 
 func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {

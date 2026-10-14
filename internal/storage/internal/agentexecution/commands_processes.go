@@ -77,6 +77,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			if !processresult.TerminalState(row.State) {
 				return ExternalCompletion{}, storeerr.ErrStateTransitionConflict
 			}
+			input.Observed = processresult.NormalizeObservation(input.Observed)
 			outcome, result, err = processresult.Terminal(processFacts(row))
 			if err == nil && len(input.Observed) > 0 {
 				var body map[string]any

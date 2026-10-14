@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -27,8 +27,11 @@ func (h *Handle) Claim(
 	leaseDuration time.Duration,
 ) (OwnedWork, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (OwnedWork, error) {
-		if workerID == uuid.Nil || leaseDuration < 15*time.Second || leaseDuration > 30*time.Minute {
+		if workerID == uuid.Nil {
 			return OwnedWork{}, errors.New("worker identity is required")
+		}
+		if err := executionpolicy.ValidateLeaseDuration(leaseDuration); err != nil {
+			return OwnedWork{}, err
 		}
 		q := executiondb.New()
 		_, err := q.ReadExecutionRuntime(
@@ -240,8 +243,8 @@ func (u *Unit) RenewRuntime(
 		id == uuid.Nil {
 		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
 	}
-	if leaseDuration < 15*time.Second || leaseDuration > 30*time.Minute {
-		return RuntimeRenewal{}, errors.New("runtime lease must be between 15 seconds and 30 minutes")
+	if err := executionpolicy.ValidateLeaseDuration(leaseDuration); err != nil {
+		return RuntimeRenewal{}, err
 	}
 	q := executiondb.New()
 	_, err := q.LockExecutionRuntime(
@@ -321,7 +324,7 @@ func (h *Handle) releaseRuntime(
 			ErrorMessage: message,
 			ErrorDetails: details,
 		}
-		if row.AttemptNumber <= 8 {
+		if row.AttemptNumber <= executionpolicy.MaxModelCallRetriesPerOperation {
 			delay := max(0, h.unit.cell.retryBackoff(int(row.AttemptNumber), c.ID.String()).Microseconds())
 			args.RetryMicroseconds = &delay
 			args.Recovery = optionalText("retry")
@@ -370,7 +373,7 @@ func (h *Handle) releaseRuntime(
 	body, err := json.Marshal(
 		map[string]string{
 			"error_code": reason,
-			"message":    "Tool call was interrupted; its external outcome is unknown.",
+			"message":    executionpolicy.InterruptedToolMessage,
 		},
 	)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -148,7 +149,7 @@ func (h *Handle) PrepareModel(ctx context.Context, input PrepareModelInput) (Pre
 		candidate := snapshot.Selection.Model
 		if candidate == nil || !sameDecision(*candidate, input.Selected) || boundary.Started ||
 			(input.Selected.Kind == ModelResume && (candidate.ReadyAt.After(boundary.DatabaseNow) ||
-				desired.Context.Attempt > 9)) {
+				desired.Context.Attempt > executionpolicy.MaxModelCallRetriesPerOperation+1)) {
 			return PreparedModel{}, storeerr.ErrAgentNotAdvanceable
 		}
 		return h.createAttempt(ctx, m, desired, snapshot)
@@ -337,7 +338,9 @@ func (h *Handle) ResumeModel(ctx context.Context, runtimeID, predecessorID uuid.
 		if err != nil {
 			return PreparedModel{}, err
 		}
-		if boundary.Started || selected.ReadyAt.After(boundary.DatabaseNow) || predecessor.AttemptNumber >= 9 {
+		if boundary.Started ||
+			selected.ReadyAt.After(boundary.DatabaseNow) ||
+			predecessor.AttemptNumber >= executionpolicy.MaxModelCallRetriesPerOperation+1 {
 			return attemptRecord(latest), nil
 		}
 		return h.PrepareModel(ctx, PrepareModelInput{RuntimeLockID: runtimeID, Selected: *selected})

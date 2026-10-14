@@ -17,7 +17,7 @@ func (s *Store) DeleteIntegrationOnceForIntegration(
 	if err != nil {
 		return err
 	}
-	_, err = agentexecution.Retry(ctx, "test integration deletion", func(ctx context.Context) (struct{}, error) {
+	_, err = agentexecution.ReplanTest(ctx, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, s.deleteIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
 	})
 	return err

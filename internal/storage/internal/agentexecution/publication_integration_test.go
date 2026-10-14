@@ -115,7 +115,12 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 					RootAgentID: root,
 				}
 			}
-			require.NoError(t, u.ArchiveAgents(t.Context(), routes, uuid.Nil))
+			for _, route := range routes {
+				h, err := u.Agent(route)
+				require.NoError(t, err)
+				_, err = h.Archive(t.Context(), uuid.Nil)
+				require.NoError(t, err)
+			}
 			statements, roundTrips, err = agentexecution.CountCommit(t.Context(), u)
 			require.NoError(t, err)
 			require.Equal(t, 2*size, statements)

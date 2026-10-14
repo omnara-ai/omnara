@@ -175,7 +175,6 @@ func failSubagentTransactionForStorageError(code string, cause error) (transacti
 	message := cause.Error()
 	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
 		code = storeerr.AgentBacklogFullCode
-		message = storeerr.AgentBacklogFullMessage
 	}
 	content, err := toolFailureContent(code, message, false)
 	if err != nil {

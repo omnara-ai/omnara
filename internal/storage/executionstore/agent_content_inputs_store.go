@@ -77,7 +77,7 @@ func (s *Store) CreateAgentContentInput(
 			tx := unit.DB()
 
 			qtx := dbsqlc.New(tx)
-			result, err := createAgentContentInputTx(
+			result, err := admitAgentContentInputTx(
 				ctx,
 				unit,
 				qtx,
@@ -122,9 +122,10 @@ type createAgentContentInputTxResult struct {
 	contentBlocks          json.RawMessage
 	created                bool
 	canceledInteractionIDs []uuid.UUID
+	artifacts              []artifactstore.ArtifactRecord
 }
 
-func createAgentContentInputTx(
+func admitAgentContentInputTx(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
@@ -177,6 +178,16 @@ func createAgentContentInputTx(
 	if AgentState(agent.State) == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
+	return createAgentContentInputTx(ctx, unit, qtx, input, contentBlocks)
+}
+
+func createAgentContentInputTx(
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	qtx *dbsqlc.Queries,
+	input CreateAgentContentInputInput,
+	contentBlocks []CreateContentBlockInput,
+) (createAgentContentInputTxResult, error) {
 	if input.IntegrationTargetID != uuid.Nil {
 		target, err := qtx.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.IntegrationTargetID,
@@ -201,6 +212,17 @@ func createAgentContentInputTx(
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
+	if err := h.CheckContentCapacity(ctx); err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
+	artifacts, err := artifactstore.InsertPreparedArtifactsTx(ctx,
+		unit.DB(),
+		input.ProjectID,
+		input.AgentID,
+		input.PreparedArtifacts)
+	if err != nil {
+		return createAgentContentInputTxResult{}, err
+	}
 	parts, err := executionContent(contentBlocks)
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -209,7 +231,6 @@ func createAgentContentInputTx(
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
 		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
-		PreparedArtifacts: input.PreparedArtifacts,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -222,8 +243,8 @@ func createAgentContentInputTx(
 		return createAgentContentInputTxResult{}, err
 	}
 	result := createAgentContentInputTxResult{agentInput: agentInputRecordFromGetSQLC(row),
-		contentBlocks: input.ContentBlocks, created: received.Created}
-	if received.Created && input.CancelOpenInteractions {
+		contentBlocks: input.ContentBlocks, created: true, artifacts: artifacts}
+	if input.CancelOpenInteractions {
 		result.canceledInteractionIDs, err = h.SupersedeInteractions(ctx, received.ID)
 	}
 	return result, err

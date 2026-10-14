@@ -910,6 +910,25 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 		t.Fatalf("parent notification kind = %q", kind)
 	}
 
+	var pending executionstore.AgentInputRecord
+	for range 50 {
+		pending, _, _, err = store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{ProjectID: testProjectID, AgentID: child.Agent.ID, ContentBlocks: json.RawMessage(`[{"type":"text","text":"pending"}]`)})
+		require.NoError(t, err)
+	}
+	_, err = store.Execution().IntegrationExecuteToolCallOnce(ctx, executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: parent.ID, ToolCallID: parentToolCallIDs["send"], RuntimeLockID: parentLock.ID}, executionstore.SendSubagentMessageForToolCall(executionstore.SendSubagentMessageInput{TargetAgentID: child.Agent.ID, Message: "rejected"}, executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: json.RawMessage(`[{"type":"text","text":"sent"}]`)}))
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	var openCount int
+	require.NoError(t,
+		pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_interactions WHERE agent_id=$1 AND state='open'`,
+			child.Agent.ID).Scan(&openCount))
+	require.Equal(t, 1, openCount)
+	require.NoError(t,
+		store.Execution().CancelQueuedBacklogInput(ctx,
+			executionstore.CancelQueuedBacklogInputInput{ProjectID: testProjectID,
+				AgentID: child.Agent.ID,
+				InputID: pending.ID}))
+
 	if _, err := store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{

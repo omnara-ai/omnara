@@ -180,7 +180,7 @@ AND claim_token IS NULL AND last_fired_at IS NULL FROM cron_triggers WHERE id=$1
 	require.True(t, enabled)
 	require.False(t, retry)
 	require.True(t, next)
-	require.Equal(t, storeerr.AgentBacklogFullCode+": "+storeerr.AgentBacklogFullMessage, reason)
+	require.Equal(t, "send cron trigger input: "+storeerr.ErrAgentBacklogFull.Error(), reason)
 	stats, err = service.FireDueTriggers(f.ctx)
 	require.NoError(t, err)
 	require.Zero(t, stats.Claimed)

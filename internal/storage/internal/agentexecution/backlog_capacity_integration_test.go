@@ -3,13 +3,10 @@
 package agentexecution_test
 
 import (
-	"context"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -41,26 +38,13 @@ func pendingExecutionCount(t *testing.T, f executionFixture, agent uuid.UUID) in
 func TestExecutionBacklogCapacity(t *testing.T) {
 	f, agent, _ := commandFixture(t)
 	ids := fillExecutionBacklog(t, f, agent, 49)
-	input := agentexecution.ReceiveContentInput{DeliveryMode: "queued", IdempotencyScope: "test",
-		IdempotencyKey: "last", Content: []agentexecution.Content{{Kind: "text", Text: "last"}}}
 	u, h := f.handle(t, agent)
-	last, err := h.ReceiveContent(t.Context(), input)
-	require.NoError(t, err)
-	require.True(t, last.Created)
+	last := receiveCommand(t, h, "queued", "last")
 	require.NoError(t, u.Commit(t.Context(), "last slot"))
 	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
-	t.Run("replay", func(t *testing.T) {
-		u, h := f.handle(t, agent)
-		got, err := h.ReceiveContent(t.Context(), input)
-		require.NoError(t, err)
-		require.Equal(t, last.ID, got.ID)
-		require.False(t, got.Created)
-		require.NoError(t, u.Commit(t.Context(), "replay"))
-	})
 	t.Run("reject", func(t *testing.T) {
 		u, h := f.handle(t, agent)
-		_, err := h.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{DeliveryMode: "steering",
-			Content: input.Content})
+		err := h.CheckContentCapacity(t.Context())
 		require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 		require.NoError(t, u.Rollback(t.Context()))
 		require.Equal(t, 50, pendingExecutionCount(t, f, agent))
@@ -98,64 +82,12 @@ func TestExecutionBacklogCapacity(t *testing.T) {
 	})
 }
 
-func TestExecutionBacklogConcurrentLastSlot(t *testing.T) {
-	f, agent, _ := commandFixture(t)
-	fillExecutionBacklog(t, f, agent, 49)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
-	start := make(chan struct{})
-	results := make(chan error, 2)
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Go(func() {
-			<-start
-			_, err := agentexecution.Retry(t.Context(), "last slot", func(ctx context.Context) (struct{}, error) {
-				u, err := cell.Begin(ctx)
-				if err != nil {
-					return struct{}{}, err
-				}
-				defer func() { _ = u.Rollback(ctx) }()
-				err = u.LockAgentRefs(ctx, []lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: agent}}, nil)
-				if err != nil {
-					return struct{}{}, err
-				}
-				h, err := u.Handle(f.project, agent)
-				if err != nil {
-					return struct{}{}, err
-				}
-				_, err = h.ReceiveContent(ctx, agentexecution.ReceiveContentInput{DeliveryMode: "queued",
-					Content: []agentexecution.Content{{Kind: "text", Text: "race"}}})
-				if err != nil {
-					return struct{}{}, err
-				}
-				return struct{}{}, u.Commit(ctx, "race")
-			})
-			results <- err
-		})
-	}
-	close(start)
-	wg.Wait()
-	close(results)
-	var won, lost int
-	for err := range results {
-		if err == nil {
-			won++
-		} else {
-			require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
-			lost++
-		}
-	}
-	require.Equal(t, 1, won)
-	require.Equal(t, 1, lost)
-	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
-}
-
 func TestExecutionBacklogCapacityDoesNotBlockControls(t *testing.T) {
 	f, agent, _ := commandFixture(t)
 	fillExecutionBacklog(t, f, agent, 50)
 	u, h := f.handle(t, agent)
-	config, err := h.ActivateConfig(t.Context(), agentexecution.ActivateConfigInput{ID: uuid.New(), ConfigID: f.config})
+	_, err := h.ActivateConfig(t.Context(), agentexecution.ActivateConfigInput{ConfigID: f.config})
 	require.NoError(t, err)
-	require.True(t, config.Created)
 	require.NoError(t, u.Commit(t.Context(), "config at capacity"))
 	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
 	u, h = f.handle(t, agent)

@@ -17,8 +17,6 @@ type AdvanceOwnedAgentWorkInput struct {
 	PrepareModel   bool
 }
 
-// AdvanceOwnedAgentWork returns continued work or releases the runtime atomically.
-// On error, the caller must still release the runtime through the recovery path.
 func (s *Store) AdvanceOwnedAgentWork(
 	ctx context.Context,
 	input AdvanceOwnedAgentWorkInput,

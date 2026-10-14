@@ -5,5 +5,12 @@ package agentexecution
 import "context"
 
 func BeginTestUnit(ctx context.Context, cell *AgentCell) (*Unit, error) {
-	return Retry(ctx, "test unit", cell.Begin)
+	return ReplanTest(ctx, cell.Begin)
+}
+
+func ReplanTest[T any](ctx context.Context, run func(context.Context) (T, error)) (T, error) {
+	if _, nested := ctx.Value(lockPlanKey{}).(retryPlan); nested {
+		return run(ctx)
+	}
+	return replan(ctx, run)
 }

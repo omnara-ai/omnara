@@ -202,11 +202,11 @@ model:
 		t.Fatalf("launch agent: %v", err)
 	}
 	require.NotEqual(t, uuid.Nil, launch.IntegrationTarget.ID)
-	specs, err := (AgentExecutor{Store: fixture.Store}).modelContextToolRuntime(
+	specs, err := (AgentExecutor{Store: fixture.Store}).toolRuntimeFromConfig(
 		ctx,
 		kernelTestProjectID,
 		launch.Agent.ID,
-		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID},
+		launch.AgentConfig,
 		now,
 	)
 	if err != nil {

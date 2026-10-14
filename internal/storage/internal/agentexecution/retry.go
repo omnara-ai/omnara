@@ -32,22 +32,7 @@ func Retry[T any](ctx context.Context, operation string, run func(context.Contex
 		return run(ctx)
 	}
 	return storeutil.RetryTransaction(ctx, operation, func() (T, error) {
-		plan := retryPlan{}
-		for attempt := 0; ; attempt++ {
-			result, err := run(context.WithValue(ctx, lockPlanKey{}, plan))
-			var missing *LockPlanError
-			if !errors.As(err, &missing) || attempt == 7 || ctx.Err() != nil {
-				return result, err
-			}
-			previous := len(plan.agents)
-			plan.agents = mergeAgentRefs(plan.agents, missing.Agents)
-			if len(plan.agents) == previous {
-				return result, err
-			}
-			if missing.claimed != uuid.Nil {
-				plan.claimed = missing.claimed
-			}
-		}
+		return replan(ctx, run)
 	})
 }
 
@@ -81,4 +66,23 @@ func mergeAgentRefs(a, b []lifecyclelock.AgentRef) []lifecyclelock.AgentRef {
 				AgentID: b.AgentID})
 	})
 	return result
+}
+
+func replan[T any](ctx context.Context, run func(context.Context) (T, error)) (T, error) {
+	plan := retryPlan{}
+	for attempt := 0; ; attempt++ {
+		result, err := run(context.WithValue(ctx, lockPlanKey{}, plan))
+		var missing *LockPlanError
+		if !errors.As(err, &missing) || attempt == 7 || ctx.Err() != nil {
+			return result, err
+		}
+		previous := len(plan.agents)
+		plan.agents = mergeAgentRefs(plan.agents, missing.Agents)
+		if len(plan.agents) == previous {
+			return result, err
+		}
+		if missing.claimed != uuid.Nil {
+			plan.claimed = missing.claimed
+		}
+	}
 }

@@ -4,11 +4,13 @@ package executionstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -318,4 +320,51 @@ func TestSubagentLaunchReplansAfterMachineTeardown(t *testing.T) {
 	require.NoError(t, f.Store.pool.QueryRow(ctx,
 		`SELECT count(*) FROM agents WHERE parent_agent_id=$1`, parent.ID).Scan(&children))
 	require.Equal(t, 1, children)
+}
+
+func TestNestedLaunchAndRootMessageLockOrder(t *testing.T) {
+	for _, rootFirst := range []bool{true, false} {
+		t.Run(fmt.Sprint(rootFirst), func(t *testing.T) {
+			f, root, parent := executionLockOrderAgents(t, rootFirst)
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			parentRecord, err := f.Store.Execution().GetAgentInProject(ctx, testProjectID, parent)
+			require.NoError(t, err)
+			runtime,
+				err := f.Store.Execution().AcquireAgentRuntimeLock(ctx,
+				testProjectID,
+				root,
+				testWorkerProcessID,
+				time.Minute)
+			require.NoError(t, err)
+			calls := createReadyToolCallsForTest(t, ctx, f.Store, root, f.UserID, parentRecord.CurrentConfigID, runtime, "nested-launch-message", []toolCallSpecForTest{{Label: "send", Name: "send_agent_message", Input: json.RawMessage(`{}`)}})
+			first, second := root, parent
+			if !rootFirst {
+				first, second = parent, root
+			}
+			blocker := integrationdb.BeginTx(t, ctx, f.Store.pool)
+			_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, first)
+			require.NoError(t, err)
+			launch := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+				return f.Store.Execution().IntegrationLaunchAgentOnce(ctx,
+					executionstore.LaunchAgentInput{ProjectID: testProjectID,
+						AgentConfigID:  parentRecord.CurrentConfigID,
+						LaunchedBy:     systemPrincipalForTest(parent),
+						IdempotencyKey: "nested-launch",
+						Subagent: &executionstore.SubagentLaunch{ParentAgentID: parent,
+							Key:      "fork",
+							MaxDepth: agentconfig.MaxSubagentDepth}})
+			})
+			integrationdb.WaitForLockWaiters(t, ctx, f.Store.pool, "", 1)
+			_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE NOWAIT`, second)
+			require.NoError(t, err)
+			message := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+				return f.Store.Execution().IntegrationExecuteToolCallOnce(ctx, executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: root, ToolCallID: calls["send"], RuntimeLockID: runtime.ID}, executionstore.SendSubagentMessageForToolCall(executionstore.SendSubagentMessageInput{TargetAgentID: parent, Message: "continue"}, executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: json.RawMessage(`[{"type":"text","text":"sent"}]`)}))
+			})
+			integrationdb.WaitForLockWaiters(t, ctx, f.Store.pool, "", 2)
+			require.NoError(t, blocker.Commit(ctx))
+			require.NoError(t, integrationdb.Await(t, launch, "nested launch").Err)
+			require.NoError(t, integrationdb.Await(t, message, "root message").Err)
+		})
+	}
 }

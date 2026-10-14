@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -282,7 +283,7 @@ func claimExhaustedCompactionModelContext(
 		t.Fatalf("record compaction-triggering failure: %v", err)
 	}
 	compactionClaim := handoff.CompactionCall
-	for attempt := 1; attempt <= executionstore.MaxModelCallRetriesPerOperation; attempt++ {
+	for attempt := 1; attempt <= executionpolicy.MaxModelCallRetriesPerOperation; attempt++ {
 		if compactionClaim.Context.AttemptNumber != attempt {
 			t.Fatalf("compaction attempt = %d, want %d", compactionClaim.Context.AttemptNumber, attempt)
 		}
@@ -348,7 +349,7 @@ func assertExhaustedCompactionContextTerminalized(
 		compactionClaim.Context.ID,
 	)
 	if err != nil || !found ||
-		terminalContext.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+		terminalContext.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		terminalContext.State != executionstore.ModelCallContextFailed ||
 		terminalContext.RecoveryKind != "" ||
 		terminalContext.ErrorKind != "runtime" ||
@@ -380,7 +381,7 @@ func assertExhaustedCompactionContextTerminalized(
 		ctx,
 		fixture,
 		compactionClaim.Context,
-		executionstore.MaxModelCallRetriesPerOperation+1,
+		executionpolicy.MaxModelCallRetriesPerOperation+1,
 	)
 }
 
@@ -416,7 +417,7 @@ func claimExhaustedNormalModelContext(
 		t.Fatalf("initial work = %+v found=%v err=%v", work, found, err)
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, work, time.Now().UTC())
-	for attempt := 1; attempt <= executionstore.MaxModelCallRetriesPerOperation; attempt++ {
+	for attempt := 1; attempt <= executionpolicy.MaxModelCallRetriesPerOperation; attempt++ {
 		if modelClaim.Context.AttemptNumber != attempt {
 			t.Fatalf("model call attempt = %d, want %d", modelClaim.Context.AttemptNumber, attempt)
 		}
@@ -484,7 +485,7 @@ func assertExhaustedNormalModelContextTerminalized(
 	if err != nil || !found {
 		t.Fatalf("load exhausted context: found=%v err=%v", found, err)
 	}
-	if contextRecord.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+	if contextRecord.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		contextRecord.State != executionstore.ModelCallContextFailed ||
 		contextRecord.RecoveryKind != "" ||
 		contextRecord.ErrorKind != "runtime" ||
@@ -509,7 +510,7 @@ func assertExhaustedNormalModelContextTerminalized(
 		ctx,
 		fixture,
 		modelClaim.Context,
-		executionstore.MaxModelCallRetriesPerOperation+1,
+		executionpolicy.MaxModelCallRetriesPerOperation+1,
 	)
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
 		t.Fatalf("exhausted context wakeups = %d, want 0", wakeups)

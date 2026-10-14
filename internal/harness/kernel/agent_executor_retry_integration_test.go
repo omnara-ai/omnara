@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -718,7 +719,7 @@ func TestAgentExecutorPreservesRetryAfterEvidenceWhenAttemptsAreExhausted(t *tes
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	openingEventSequence := turn.OpeningEventSequence
 	retryAfterSeconds := int64(3_000_000_000)
-	maxAttempts := executionstore.MaxModelCallRetriesPerOperation + 1
+	maxAttempts := executionpolicy.MaxModelCallRetriesPerOperation + 1
 	errs := make([]error, maxAttempts)
 	for i := range errs {
 		errs[i] = model.ProviderError{

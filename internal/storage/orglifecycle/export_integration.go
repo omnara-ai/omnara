@@ -15,8 +15,7 @@ func (s *Service) DeleteProjectOnceForIntegration(
 	orgID, projectID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
-	return agentexecution.Retry(ctx,
-		"test project deletion",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) ([]executionstore.MachineRecord, error) {
 			return s.deleteProjectOnce(ctx, orgID, projectID, actor)
 		})
@@ -27,8 +26,7 @@ func (s *Service) DeleteOrganizationOnceForIntegration(
 	orgID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
-	return agentexecution.Retry(ctx,
-		"test organization deletion",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) ([]executionstore.MachineRecord, error) {
 			return s.deleteOrganizationOnce(ctx, orgID, actor)
 		})

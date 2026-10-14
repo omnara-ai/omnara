@@ -68,71 +68,39 @@ const countPendingExecutionContent = `-- name: CountPendingExecutionContent :one
 SELECT count(*) FROM (
     SELECT 1 FROM agent_inputs
     WHERE agent_id=$1 AND state='received' AND input_kind='content'
-    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT 50
+    ORDER BY delivery_mode,input_rank,queued_at,id LIMIT $2::bigint
 ) pending
 `
 
 type CountPendingExecutionContentParams struct {
-	AgentID uuid.UUID
+	AgentID  uuid.UUID
+	Capacity int64
 }
 
 func (q *Queries) CountPendingExecutionContent(ctx context.Context, db DBTX, arg CountPendingExecutionContentParams) (int64, error) {
-	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID)
+	row := db.QueryRow(ctx, countPendingExecutionContent, arg.AgentID, arg.Capacity)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const findExecutionInput = `-- name: FindExecutionInput :one
-SELECT id,state,input_kind,delivery_mode,actor_id,integration_target_id,agent_config_id,
- metadata,queued_at,admitted_event_id,input_rank
+SELECT id
 FROM agent_inputs WHERE agent_id=$1 AND
- (id=$2 OR (idempotency_scope=$3 AND input_idempotency_key=$4))
+ idempotency_scope=$2 AND input_idempotency_key=$3
 `
 
 type FindExecutionInputParams struct {
 	AgentID uuid.UUID
-	ID      uuid.UUID
 	Scope   *string
 	Key     *string
 }
 
-type FindExecutionInputRow struct {
-	ID                  uuid.UUID
-	State               string
-	InputKind           string
-	DeliveryMode        string
-	ActorID             *uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	AgentConfigID       *uuid.UUID
-	Metadata            json.RawMessage
-	QueuedAt            time.Time
-	AdmittedEventID     *uuid.UUID
-	InputRank           int64
-}
-
-func (q *Queries) FindExecutionInput(ctx context.Context, db DBTX, arg FindExecutionInputParams) (FindExecutionInputRow, error) {
-	row := db.QueryRow(ctx, findExecutionInput,
-		arg.AgentID,
-		arg.ID,
-		arg.Scope,
-		arg.Key,
-	)
-	var i FindExecutionInputRow
-	err := row.Scan(
-		&i.ID,
-		&i.State,
-		&i.InputKind,
-		&i.DeliveryMode,
-		&i.ActorID,
-		&i.IntegrationTargetID,
-		&i.AgentConfigID,
-		&i.Metadata,
-		&i.QueuedAt,
-		&i.AdmittedEventID,
-		&i.InputRank,
-	)
-	return i, err
+func (q *Queries) FindExecutionInput(ctx context.Context, db DBTX, arg FindExecutionInputParams) (uuid.UUID, error) {
+	row := db.QueryRow(ctx, findExecutionInput, arg.AgentID, arg.Scope, arg.Key)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const firstExecutionBacklogRank = `-- name: FirstExecutionBacklogRank :one
@@ -283,6 +251,36 @@ func (q *Queries) PreviousExecutionBacklogRank(ctx context.Context, db DBTX, arg
 	var input_rank int64
 	err := row.Scan(&input_rank)
 	return input_rank, err
+}
+
+const readExecutionInput = `-- name: ReadExecutionInput :one
+SELECT state,input_kind,delivery_mode,actor_id
+FROM agent_inputs WHERE agent_id=$1 AND
+ id=$2
+`
+
+type ReadExecutionInputParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+type ReadExecutionInputRow struct {
+	State        string
+	InputKind    string
+	DeliveryMode string
+	ActorID      *uuid.UUID
+}
+
+func (q *Queries) ReadExecutionInput(ctx context.Context, db DBTX, arg ReadExecutionInputParams) (ReadExecutionInputRow, error) {
+	row := db.QueryRow(ctx, readExecutionInput, arg.AgentID, arg.ID)
+	var i ReadExecutionInputRow
+	err := row.Scan(
+		&i.State,
+		&i.InputKind,
+		&i.DeliveryMode,
+		&i.ActorID,
+	)
+	return i, err
 }
 
 const rebalanceExecutionBacklog = `-- name: RebalanceExecutionBacklog :execrows

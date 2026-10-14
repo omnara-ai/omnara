@@ -25,8 +25,7 @@ func (s *Store) IntegrationLaunchAgentOnce(
 	ctx context.Context,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationLaunchAgentOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (LaunchAgentResult, error) {
 			return s.launchAgentOnce(ctx, input)
 		})
@@ -37,8 +36,7 @@ func (s *Store) IntegrationExecuteToolCallOnce(
 	input ExecuteToolCallInput,
 	command ToolCallCommand,
 ) (ExecuteToolCallResult, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationExecuteToolCallOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (ExecuteToolCallResult, error) {
 			return s.executeToolCallOnce(
 				ctx,
@@ -52,8 +50,7 @@ func (s *Store) IntegrationChangeAgentConfigOnce(
 	ctx context.Context,
 	input ChangeAgentConfigInput,
 ) (ChangeAgentConfigResult, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationChangeAgentConfigOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (ChangeAgentConfigResult, error) {
 			return s.changeAgentConfigOnce(ctx, input)
 		})
@@ -68,10 +65,8 @@ func (s *Store) IntegrationArchiveAgentOnce(
 		agent    AgentRecord
 		machines []MachineRecord
 	}
-	retried, retryErr := agentexecution.Retry(ctx,
-		"IntegrationArchiveAgentOnce",
+	retried, retryErr := agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (transactionResult, error) {
-			_ = orgID
 			agent, machines, returnErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
 			return transactionResult{agent, machines}, returnErr
 		})
@@ -82,8 +77,7 @@ func (s *Store) IntegrationDeleteMachineOnce(
 	ctx context.Context,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationDeleteMachineOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (MachineRecord, error) {
 			return s.deleteMachineOnce(ctx, input)
 		})
@@ -93,8 +87,7 @@ func (s *Store) IntegrationDeleteMachinePoolOnce(
 	ctx context.Context,
 	orgID, poolID uuid.UUID,
 ) ([]MachineRecord, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationDeleteMachinePoolOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) ([]MachineRecord, error) {
 			return s.deleteMachinePoolOnce(ctx, orgID, poolID)
 		})
@@ -104,8 +97,7 @@ func (s *Store) IntegrationDeleteProjectMachineGrantOnce(
 	ctx context.Context,
 	orgID, projectID, grantID uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationDeleteProjectMachineGrantOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (ProjectMachineGrantRecord, error) {
 			return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
 		})
@@ -115,8 +107,7 @@ func (s *Store) IntegrationDeleteProjectMachinePoolGrantOnce(
 	ctx context.Context,
 	orgID, projectID, grantID uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationDeleteProjectMachinePoolGrantOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (DeleteProjectMachinePoolGrantResult, error) {
 			return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, grantID)
 		})
@@ -129,8 +120,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if input.CurrentConfigID == uuid.Nil {
 		return AgentRecord{}, errors.New("current config id is required")
 	}
-	return agentexecution.Retry(ctx,
-		"CreateAgentFixture",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (AgentRecord, error) {
 			unit, err := s.cell.Begin(ctx)
 			if err != nil {
@@ -188,8 +178,7 @@ func (s *Store) IntegrationBeginMachineWakeOnce(
 	orgID, machineID, machinePoolID uuid.UUID,
 	wakeTimeout time.Duration,
 ) (MachineWakeDisposition, error) {
-	return agentexecution.Retry(ctx,
-		"IntegrationBeginMachineWakeOnce",
+	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) (MachineWakeDisposition, error) {
 			return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
 		})

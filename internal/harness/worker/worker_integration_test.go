@@ -174,7 +174,7 @@ func TestWorkerRunOnceAdmitsOneQueuedInputAndLeavesBacklogRunnable(t *testing.T)
 
 	executor := newCaptureTurnExecutor(false)
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -228,7 +228,7 @@ func TestWorkerRunOnceBatchesSteeringInputsAndReleasesRuntime(t *testing.T) {
 
 	executor := newCaptureTurnExecutor(false)
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -274,7 +274,7 @@ func TestWorkerRunOnceClaimsWakeupFromAnyProject(t *testing.T) {
 
 	executor := newCaptureTurnExecutor(false)
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -305,7 +305,7 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 	firstExecutor := newCaptureTurnExecutor(true)
 	firstWorker := NewWorker(
 		store.Execution(), firstExecutor, Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 30 * time.Second,
 			Capacity:                 1,
 		},
@@ -335,7 +335,7 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 	secondExecutor := newCaptureTurnExecutor(false)
 	secondWorker := NewWorker(
 		store.Execution(), secondExecutor, Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 30 * time.Second,
 			Capacity:                 1,
 		},
@@ -395,7 +395,7 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	worker := NewWorker(
 		store.Execution(), executor,
 		Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 30 * time.Second,
 			Capacity:                 1,
 			ControlSubscriber:        bus,
@@ -477,7 +477,7 @@ func TestWorkerCancelBeforeInitialRenewalCompletesCleanly(t *testing.T) {
 
 	executor := newCaptureTurnExecutor(false)
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 30 * time.Second,
 		Capacity:                 1,
 	})
@@ -513,6 +513,7 @@ func TestWorkerCancelBeforeInitialRenewalCompletesCleanly(t *testing.T) {
 		t.Fatal("cancel should report affected")
 	}
 
+	claim.LocalLeaseBudgetStartedAt = time.Now().Add(-worker.runtimeLockLeaseDuration)
 	if err := worker.executeClaimedWork(ctx, claim, now.Add(2*time.Second)); err != nil {
 		t.Fatalf("execute canceled claim: %v", err)
 	}
@@ -567,7 +568,7 @@ func TestWorkerConcurrentRuntimesShareRouteAndCancelIndependently(t *testing.T) 
 	)
 
 	executor := newConcurrentTurnExecutor(2)
-	worker := NewWorker(store.Execution(), executor, Options{Continuation: &ContinuationOptions{},
+	worker := NewWorker(store.Execution(), executor, Options{Continuation: ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 2,
 		ControlSubscriber:        bus,
@@ -697,7 +698,7 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 	worker := NewWorker(
 		store.Execution(), executor,
 		Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 30 * time.Second,
 			Capacity:                 1,
 			ControlSubscriber:        bus,
@@ -744,7 +745,7 @@ func TestWorkerCancelFallsBackToRenewalWithoutControlDelivery(t *testing.T) {
 
 	executor := newCaptureTurnExecutor(true)
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -826,7 +827,7 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	runningWorker := NewWorker(
 		store.Execution(), blockingExecutor,
 		Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 30 * time.Second,
 			Capacity:                 1,
 			ControlSubscriber:        bus,
@@ -882,7 +883,7 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	nextExecutor := newCaptureTurnExecutor(false)
 	nextWorker := NewWorker(
 		store.Execution(), nextExecutor, Options{
-			Continuation:             &ContinuationOptions{},
+			Continuation:             ContinuationOptions{},
 			RuntimeLockLeaseDuration: 15 * time.Second,
 			Capacity:                 1,
 		},
@@ -935,7 +936,7 @@ func TestWorkerRunOnceUsesRealKernelExecutor(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -994,7 +995,7 @@ func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) 
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1082,7 +1083,7 @@ func TestWorkerKernelStructuredQuestionUsesCatalogAllowPolicy(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1166,7 +1167,7 @@ func TestWorkerKernelPermissionApprovalUnlocksStructuredQuestionTool(t *testing.
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1266,7 +1267,7 @@ func TestWorkerKernelPermissionDenialCompletesToolResult(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1331,7 +1332,7 @@ func TestWorkerKernelMachineToolWithoutBindingFailsBeforeApproval(t *testing.T) 
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1382,7 +1383,7 @@ func TestWorkerKernelDeniedMachineToolDoesNotRequireBinding(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1439,7 +1440,7 @@ func TestWorkerKernelPermissionApprovalStartsMachineRunCommand(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1512,7 +1513,7 @@ func TestWorkerKernelStructuredInteractionFormResolvesAtomically(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -1594,7 +1595,7 @@ func TestWorkerKernelMultipleToolCallsWaitForAllInteractions(t *testing.T) {
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{
-		Continuation:             &ContinuationOptions{},
+		Continuation:             ContinuationOptions{},
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
 	})
@@ -2883,4 +2884,26 @@ func assertNoOpenInteractions(t *testing.T, ctx context.Context, store *storage.
 	if len(page.Interactions) != 0 {
 		t.Fatalf("expected no open interactions, got %+v", page.Interactions)
 	}
+}
+
+func (e *captureTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e *cancelOnceTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
+}
+func (e *concurrentTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
+	input kernel.ModelWorkExecution,
+	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
+	bool,
+	error) {
+	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
 }

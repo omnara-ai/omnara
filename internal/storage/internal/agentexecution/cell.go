@@ -5,10 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -46,19 +45,4 @@ func (c *AgentCell) Begin(ctx context.Context) (*Unit, error) {
 	u := newUnit(c, tx)
 	u.expanded = plan
 	return u, nil
-}
-
-func (c *AgentCell) Transact(ctx context.Context, run func(*Unit) error) error {
-	_, err := Retry(ctx, "agent execution", func(ctx context.Context) (struct{}, error) {
-		u, err := c.Begin(ctx)
-		if err != nil {
-			return struct{}{}, err
-		}
-		defer func() { _ = u.Rollback(context.WithoutCancel(ctx)) }()
-		if err = run(u); err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, u.Commit(ctx, "agent execution")
-	})
-	return err
 }

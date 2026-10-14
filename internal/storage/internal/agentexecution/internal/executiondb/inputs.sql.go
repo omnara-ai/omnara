@@ -76,32 +76,3 @@ func (q *Queries) CaptureExecutionOpening(ctx context.Context, db DBTX, arg Capt
 	}
 	return items, nil
 }
-
-const reconstructExecutionConfig = `-- name: ReconstructExecutionConfig :one
-SELECT i.id FROM agent_inputs i JOIN agent_events e ON e.agent_id=i.agent_id AND e.id=i.admitted_event_id
-WHERE i.agent_id=$1 AND e.turn_id=$2 AND i.input_kind='config_change' AND i.state='resolved'
-  AND e.sequence>$3 AND e.sequence>=$4
-  AND e.sequence>=$5 AND $5::bigint>0
-ORDER BY e.sequence DESC LIMIT 1
-`
-
-type ReconstructExecutionConfigParams struct {
-	AgentID              uuid.UUID
-	TurnID               uuid.UUID
-	NormalWatermark      int64
-	StopSequence         int64
-	FirstContentSequence int64
-}
-
-func (q *Queries) ReconstructExecutionConfig(ctx context.Context, db DBTX, arg ReconstructExecutionConfigParams) (uuid.UUID, error) {
-	row := db.QueryRow(ctx, reconstructExecutionConfig,
-		arg.AgentID,
-		arg.TurnID,
-		arg.NormalWatermark,
-		arg.StopSequence,
-		arg.FirstContentSequence,
-	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}

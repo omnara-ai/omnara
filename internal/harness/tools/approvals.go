@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -14,19 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
-
-func (e Executor) PrepareToolCallPermission(
-	ctx context.Context,
-	turn Turn,
-	call model.ToolCall,
-) error {
-	proposal, err := e.recordedToolCall(ctx, turn, call)
-	if err != nil {
-		return err
-	}
-	_, err = e.PrepareRecordedToolCallPermission(ctx, turn, proposal)
-	return err
-}
 
 func (e Executor) PrepareRecordedToolCallPermission(
 	ctx context.Context, turn Turn, proposal executionstore.ToolCallRecord,
@@ -353,7 +341,7 @@ func (e Executor) completeAsyncToolFailure(
 	// Provider failures may carry a confirmed receipt or delivery uncertainty.
 	// Preserve that evidence even when the underlying cause is a timeout.
 	if !content.isSet && (errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded)) {
-		errorMessage = executionstore.RuntimeToolInterruptedMessage
+		errorMessage = executionpolicy.InterruptedToolMessage
 		var err error
 		content, err = structuredToolResultContent(map[string]any{
 			"error_code": "async_tool_interrupted",

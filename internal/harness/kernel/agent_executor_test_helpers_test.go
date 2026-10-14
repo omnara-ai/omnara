@@ -17,8 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stretchr/testify/require"
-
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
@@ -39,6 +37,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -689,6 +688,7 @@ func nextToolWorkExecution(
 		executionstore.AgentWorkTool,
 	)
 	return ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,

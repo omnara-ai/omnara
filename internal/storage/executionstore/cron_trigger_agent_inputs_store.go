@@ -63,7 +63,7 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 			tx := unit.DB()
 
 			qtx := dbsqlc.New(tx)
-			if _, err := createAgentContentInputTx(ctx, unit, qtx, contentInput, contentBlocks); err != nil {
+			if _, err := admitAgentContentInputTx(ctx, unit, qtx, contentInput, contentBlocks); err != nil {
 				return struct{}{}, err
 			}
 			if err := completeCronTriggerFiringTx(ctx, qtx, CompleteCronTriggerFiringInput{

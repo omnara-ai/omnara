@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -317,7 +318,7 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newRuntimeLockLeaseFixture(t, ctx)
-	lock := fixture.acquire(t, ctx, testWorkerProcessID, executionstore.MaximumAgentRuntimeLockLeaseDuration)
+	lock := fixture.acquire(t, ctx, testWorkerProcessID, executionpolicy.MaximumLeaseDuration)
 
 	reaped, err := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
 	if err != nil {

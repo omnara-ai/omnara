@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/errutil"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -25,9 +26,6 @@ import (
 type AgentWorkExecutor interface {
 	ExecuteModelWork(context.Context, kernel.ModelWorkExecution) error
 	ExecuteToolWork(context.Context, kernel.ToolWorkExecution) error
-}
-
-type modelWorkAdvancer interface {
 	ExecuteModelWorkAndAdvance(
 		context.Context, kernel.ModelWorkExecution, kernel.ModelWorkAdvanceOptions,
 	) (executionstore.OwnedAgentWorkTransition, bool, error)
@@ -76,7 +74,7 @@ type Options struct {
 	ClaimConcurrency         int
 	AsyncToolCapacity        int
 	ControlSubscriber        notifications.WorkerControlSubscriber
-	Continuation             *ContinuationOptions
+	Continuation             ContinuationOptions
 }
 
 type activeRuntime struct {
@@ -103,7 +101,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		log = slog.Default()
 	}
 	if opts.RuntimeLockLeaseDuration <= 0 {
-		opts.RuntimeLockLeaseDuration = executionstore.AgentRuntimeLockLeaseDuration
+		opts.RuntimeLockLeaseDuration = executionpolicy.DefaultLeaseDuration
 	}
 	if opts.Capacity <= 0 {
 		opts.Capacity = 4
@@ -115,7 +113,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		opts.AsyncToolCapacity = defaultAsyncToolCapacity
 	}
 	return &Worker{
-		continuation:             continuationOptions(opts.Continuation),
+		continuation:             opts.Continuation,
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -237,18 +235,6 @@ func (w *Worker) throttleAfterExecution(ctx context.Context, err error) {
 	}
 }
 
-func (w *Worker) RunOnce(ctx context.Context) (worked bool, err error) {
-	now := time.Now().UTC()
-	claim, handled, err := w.claimNext(ctx)
-	if err != nil || !handled {
-		return false, err
-	}
-	if claim.Kind == executionstore.AgentWorkNone {
-		return true, nil
-	}
-	return true, w.executeClaimedWorkRecovering(ctx, claim, now)
-}
-
 func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAgentWork, handled bool, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -294,9 +280,6 @@ func (w *Worker) executeClaimedWork(
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
 	logent.RuntimeLock(ctx, runtime)
 	leaseBudgetStartedAt := claim.LocalLeaseBudgetStartedAt
-	if _, fenced := w.executor.(modelWorkAdvancer); !fenced {
-		leaseBudgetStartedAt = time.Time{}
-	}
 	turnCtx, active, stopRenewal, err := w.startRuntimeRenewal(
 		ctx,
 		projectID,
@@ -362,11 +345,10 @@ func (w *Worker) executeClaimedWork(
 				break
 			}
 			var continued bool
-			_, prepare := w.executor.(modelWorkAdvancer)
 			claim, continued, err = w.advanceOwnedWork(turnCtx, executionstore.AdvanceOwnedAgentWorkInput{
 				ProjectID: projectID, AgentID: agentID, RuntimeLockID: runtime.ID,
 				AllowModelWork: additionalModelStarts < w.continuation.MaxModelStarts,
-				PrepareModel:   prepare,
+				PrepareModel:   true,
 			})
 			if err != nil {
 				break
@@ -433,15 +415,6 @@ func (w *Worker) retainRuntimeUntilAsyncCompletion(
 	}()
 }
 
-func (w *Worker) executeWork(
-	ctx context.Context,
-	claim executionstore.ClaimedAgentWork,
-	now time.Time,
-) (err error) {
-	_, _, err = w.executeWorkWithAdvance(ctx, claim, now, nil)
-	return err
-}
-
 func (w *Worker) executeWorkWithAdvance(
 	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time, advance *kernel.ModelWorkAdvanceOptions,
 ) (transition executionstore.OwnedAgentWorkTransition, advanced bool, err error) {
@@ -467,8 +440,8 @@ func (w *Worker) executeWorkWithAdvance(
 			RuntimeLockID:            claim.RuntimeLock.ID,
 			Now:                      now,
 		}
-		if executor, ok := w.executor.(modelWorkAdvancer); ok && advance != nil {
-			return executor.ExecuteModelWorkAndAdvance(ctx, input, *advance)
+		if advance != nil {
+			return w.executor.ExecuteModelWorkAndAdvance(ctx, input, *advance)
 		}
 		return transition, false, w.executor.ExecuteModelWork(ctx, input)
 	case executionstore.AgentWorkTool:

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -1363,7 +1364,7 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		t.Fatalf("clear malformed compaction parent wakeup: %v", err)
 	}
 
-	maxAttempts := executionstore.MaxModelCallRetriesPerOperation + 1
+	maxAttempts := executionpolicy.MaxModelCallRetriesPerOperation + 1
 	malformedResponses := make([]model.Response, maxAttempts)
 	for index := range malformedResponses {
 		malformedResponses[index] = model.Response{

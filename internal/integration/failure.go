@@ -56,7 +56,7 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(
 		message = launchUnavailableMessage
 	}
 	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
-		message = storeerr.AgentBacklogFullMessage
+		message = storeerr.ErrAgentBacklogFull.Error()
 	}
 	if unfinished {
 		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

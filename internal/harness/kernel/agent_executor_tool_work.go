@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -19,12 +18,7 @@ func (e AgentExecutor) ExecuteToolWork(ctx context.Context, input ToolWorkExecut
 }
 
 type toolWorkExecutor interface {
-	PrepareToolCallPermission(context.Context, tools.Turn, model.ToolCall) error
-	Dispatch(context.Context, tools.Turn, model.ToolCall) (tools.Result, error)
 	FailRunnableToolCall(context.Context, tools.Turn, model.ToolCall, error) error
-}
-
-type recordedToolWorkExecutor interface {
 	PrepareRecordedToolCallPermission(
 		context.Context, tools.Turn, executionstore.ToolCallRecord,
 	) (executionstore.ToolCallRecord, error)
@@ -48,58 +42,19 @@ func (e AgentExecutor) executeToolWork(
 	if input.Now.IsZero() {
 		input.Now = e.now()
 	}
-	var contextRecord executionstore.ModelCallContextRecord
-	var specs []modelcontext.ToolSpec
-	var first *executionstore.ToolCallRecord
-	var err error
-	if input.Prepared != nil {
-		contextRecord = input.Prepared.Context
-		if contextRecord.ID != input.ModelCallContextID || contextRecord.AgentID != input.AgentID ||
-			contextRecord.ProjectID != input.ProjectID || contextRecord.AgentConfigID != input.Prepared.Config.ID {
-			return storeerr.ErrStateTransitionConflict
-		}
-		specs, err = e.toolRuntimeFromConfig(ctx, input.ProjectID, input.AgentID, input.Prepared.Config, input.Now)
-		first = input.Prepared.FirstCall
-	} else {
-		var found bool
-		contextRecord, found, err = e.Store.Execution().GetModelCallContext(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-			input.ModelCallContextID,
-		)
-		if err != nil {
-			return fmt.Errorf("load tool work model context: %w", err)
-		}
-		if !found {
-			return fmt.Errorf("tool work model context %s not found", input.ModelCallContextID)
-		}
-		output, found, outputErr := e.Store.Execution().GetModelOutputForContext(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-			input.ModelCallContextID,
-		)
-		if outputErr != nil {
-			return fmt.Errorf("load tool work model output: %w", outputErr)
-		}
-		if contextRecord.State != executionstore.ModelCallContextSucceeded ||
-			!found ||
-			output.ID != input.ModelOutputID {
-			return fmt.Errorf(
-				"tool work does not match accepted model output for context %s: %w",
-				input.ModelCallContextID,
-				storeerr.ErrStateTransitionConflict,
-			)
-		}
-		specs, err = e.modelContextToolRuntime(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-			contextRecord,
-			input.Now,
-		)
+	if input.Prepared == nil {
+		return errors.New("prepared tool work is required")
 	}
+	contextRecord := input.Prepared.Context
+	if contextRecord.ID != input.ModelCallContextID ||
+		contextRecord.AgentID != input.AgentID ||
+		contextRecord.ProjectID != input.ProjectID ||
+		contextRecord.AgentConfigID != input.Prepared.Config.ID {
+		return storeerr.ErrStateTransitionConflict
+	}
+	specs, err := e.toolRuntimeFromConfig(ctx, input.ProjectID, input.AgentID, input.Prepared.Config, input.Now)
+	first := input.Prepared.FirstCall
+
 	if err != nil {
 		return fmt.Errorf("load tool work runtime contract: %w", err)
 	}
@@ -136,90 +91,39 @@ func (e AgentExecutor) executeToolWork(
 			)
 		}
 		call := modelToolCallFromRecord(record)
-		if recorded, ok := executor.(recordedToolWorkExecutor); ok {
-			if record.State == executionstore.ToolCallStateAwaitingAuthorization {
-				prepared, err := recorded.PrepareRecordedToolCallPermission(ctx, turn, record)
-				if err != nil {
-					return fmt.Errorf("prepare permission for tool %q: %w", call.ID, err)
-				}
-				if prepared.ID == uuid.Nil {
-					prepared, err = e.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, record.ID)
-					if err != nil {
-						return err
-					}
-				}
-				if prepared.State == record.State {
-					if err := executor.FailRunnableToolCall(ctx, turn, call,
-						fmt.Errorf("tool coordinator returned without moving tool call out of %s", record.State)); err != nil {
-						return err
-					}
-					continue
-				}
-				record = prepared
-			}
-			if record.State != executionstore.ToolCallStateReady || !toolcatalog.IsPlatformManagedToolType(record.Type) {
-				continue
-			}
-			result, err := recorded.DispatchRecordedToolCall(ctx, turn, record)
+		if record.State == executionstore.ToolCallStateAwaitingAuthorization {
+			prepared, err := executor.PrepareRecordedToolCallPermission(ctx, turn, record)
 			if err != nil {
-				return fmt.Errorf("dispatch tool %q: %w", call.ID, err)
-			}
-			switch result.Disposition {
-			case tools.DispatchDeferred:
-				deferredToolCallIDs = append(deferredToolCallIDs, record.ID)
-			case tools.DispatchCompleted:
-			default:
-				return fmt.Errorf("dispatch tool %q returned invalid disposition %d", call.ID, result.Disposition)
-			}
-			continue
-		}
-		switch record.State {
-		case executionstore.ToolCallStateAwaitingAuthorization:
-			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 				return fmt.Errorf("prepare permission for tool %q: %w", call.ID, err)
 			}
-		case executionstore.ToolCallStateReady:
-			result, err := executor.Dispatch(ctx, turn, call)
-			if err != nil {
-				return fmt.Errorf("dispatch tool %q: %w", call.ID, err)
+			if prepared.ID == uuid.Nil {
+				prepared, err = e.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, record.ID)
+				if err != nil {
+					return err
+				}
 			}
-			switch result.Disposition {
-			case tools.DispatchDeferred:
-				deferredToolCallIDs = append(deferredToolCallIDs, record.ID)
+			if prepared.State == record.State {
+				if err := executor.FailRunnableToolCall(ctx, turn, call,
+					fmt.Errorf("tool coordinator returned without moving tool call out of %s", record.State)); err != nil {
+					return err
+				}
 				continue
-			case tools.DispatchCompleted:
-			default:
-				return fmt.Errorf(
-					"dispatch tool %q returned invalid disposition %d",
-					call.ID,
-					result.Disposition,
-				)
 			}
-		default:
-			return fmt.Errorf(
-				"tool work selected non-runnable state %q: %w",
-				record.State,
-				storeerr.ErrStateTransitionConflict,
-			)
+			record = prepared
 		}
-		current, err := e.Store.Execution().GetToolCall(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-			record.ID,
-		)
-		if err != nil {
-			return fmt.Errorf("reload tool %q after work: %w", call.ID, err)
-		}
-		if current.State != record.State {
+		if record.State != executionstore.ToolCallStateReady || !toolcatalog.IsPlatformManagedToolType(record.Type) {
 			continue
 		}
-		cause := fmt.Errorf(
-			"tool coordinator returned without moving tool call out of %s",
-			record.State,
-		)
-		if err := executor.FailRunnableToolCall(ctx, turn, call, cause); err != nil {
-			return fmt.Errorf("fail stalled tool %q: %w", call.ID, err)
+		result, err := executor.DispatchRecordedToolCall(ctx, turn, record)
+		if err != nil {
+			return fmt.Errorf("dispatch tool %q: %w", call.ID, err)
+		}
+		switch result.Disposition {
+		case tools.DispatchDeferred:
+			deferredToolCallIDs = append(deferredToolCallIDs, record.ID)
+		case tools.DispatchCompleted:
+		default:
+			return fmt.Errorf("dispatch tool %q returned invalid disposition %d", call.ID, result.Disposition)
 		}
 	}
 }

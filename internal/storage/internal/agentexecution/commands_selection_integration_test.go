@@ -35,7 +35,7 @@ func TestExecutionBatchConsumption(t *testing.T) {
 		require.NoError(t, err)
 		var config agentexecution.ActivatedConfig
 		if cycle == 1 {
-			config, err = h.ActivateConfig(t.Context(), agentexecution.ActivateConfigInput{ID: uuid.New(), ConfigID: f.config})
+			config, err = h.ActivateConfig(t.Context(), agentexecution.ActivateConfigInput{ConfigID: f.config})
 			require.NoError(t, err)
 		}
 		for _, tool := range output.Tools {

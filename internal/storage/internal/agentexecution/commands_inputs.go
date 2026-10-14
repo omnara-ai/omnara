@@ -6,28 +6,22 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ReceiveContentInput struct {
-	PreparedArtifacts    []artifactstore.PreparedArtifact
-	ID                   uuid.UUID
-	ActorID              uuid.UUID
-	IntegrationTargetID  uuid.UUID
-	DeliveryMode         string
-	IdempotencyScope     string
-	IdempotencyKey       string
-	Metadata             json.RawMessage
-	Content              []Content
-	allowBacklogOverflow bool
+	ActorID             uuid.UUID
+	IntegrationTargetID uuid.UUID
+	DeliveryMode        string
+	IdempotencyScope    string
+	IdempotencyKey      string
+	Metadata            json.RawMessage
+	Content             []Content
 }
 
 type ReceivedContent struct {
-	ID      uuid.UUID
-	Created bool
+	ID uuid.UUID
 }
 
 type AdmittedContent struct {
@@ -60,37 +54,8 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			return ReceivedContent{}, err
 		}
 		q := executiondb.New()
-		existing, err := q.FindExecutionInput(
-			ctx,
-			h.unit.DB(),
-			executiondb.FindExecutionInputParams{AgentID: h.route.AgentID,
-				ID: input.ID, Scope: optionalText(input.IdempotencyScope), Key: optionalText(input.IdempotencyKey)},
-		)
-		if err == nil {
-			return ReceivedContent{ID: existing.ID}, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return ReceivedContent{}, err
-		}
-		if !input.allowBacklogOverflow {
-			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(),
-				executiondb.CountPendingExecutionContentParams{AgentID: h.route.AgentID})
-			if err != nil {
-				return ReceivedContent{}, err
-			}
-			if pending == 50 {
-				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
-			}
-		}
-		if _, err := artifactstore.InsertPreparedArtifactsTx(ctx, h.unit.DB(), h.route.ProjectID, h.route.AgentID,
-			input.PreparedArtifacts); err != nil {
-			return ReceivedContent{}, err
-		}
-		if input.ID == uuid.Nil {
-			input.ID = uuid.New()
-		}
 		row, err := q.ReceiveExecutionInput(ctx, h.unit.DB(), executiondb.ReceiveExecutionInputParams{
-			ID: input.ID, AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, ActorID: nullableID(input.ActorID),
+			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, ActorID: nullableID(input.ActorID),
 			TargetID: nullableID(
 				input.IntegrationTargetID,
 			), Mode: input.DeliveryMode, Kind: "content", Metadata: metadata,
@@ -114,20 +79,7 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		} else {
 			m.changed()
 		}
-		return ReceivedContent{ID: row.ID, Created: true}, nil
-	})
-}
-
-func (h *Handle) AdmitInputs(ctx context.Context) (InputAdmission, error) {
-	return executeCommand(ctx, h, func(m *executionMutation) (InputAdmission, error) {
-		snapshot, err := h.LoadExecution(ctx)
-		if err != nil {
-			return InputAdmission{}, err
-		}
-		if snapshot.Selection.Work != WorkInput {
-			return InputAdmission{}, nil
-		}
-		return h.admitInputs(ctx, m, snapshot.Selection.Admission)
+		return ReceivedContent{ID: row.ID}, nil
 	})
 }
 
@@ -212,4 +164,18 @@ func (h *Handle) admitInputs(
 		return InputAdmission{}, err
 	}
 	return result, nil
+}
+
+func (h *Handle) CheckContentCapacity(ctx context.Context) error {
+	pending, err := executiondb.New().CountPendingExecutionContent(ctx, h.unit.DB(),
+		executiondb.CountPendingExecutionContentParams{
+			AgentID: h.route.AgentID, Capacity: storeerr.MaxPendingAgentContentInputs,
+		})
+	if err != nil {
+		return err
+	}
+	if pending >= storeerr.MaxPendingAgentContentInputs {
+		return storeerr.ErrAgentBacklogFull
+	}
+	return nil
 }

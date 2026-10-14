@@ -6,13 +6,11 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ActivateConfigInput struct {
-	ID             uuid.UUID
 	ConfigID       uuid.UUID
 	ActorID        uuid.UUID
 	IdempotencyKey string
@@ -22,7 +20,6 @@ type ActivateConfigInput struct {
 type ActivatedConfig struct {
 	InputID uuid.UUID
 	Event   ExecutionEvent
-	Created bool
 }
 
 func (h *Handle) captureOpening(ctx context.Context, turn uuid.UUID, watermark, stop int64) (Opening, error) {
@@ -51,36 +48,12 @@ func (h *Handle) ActivateConfig(ctx context.Context, input ActivateConfigInput) 
 			return ActivatedConfig{}, err
 		}
 		q := executiondb.New()
-		existing, err := q.FindExecutionInput(
-			ctx,
-			h.unit.DB(),
-			executiondb.FindExecutionInputParams{AgentID: h.route.AgentID,
-				ID: input.ID, Scope: optionalText("agent_config_change"), Key: optionalText(input.IdempotencyKey)},
-		)
-		if err == nil {
-			if existing.State != "resolved" {
-				return ActivatedConfig{}, storeerr.ErrStateTransitionConflict
-			}
-			event, err := q.FindExecutionInputEvent(
-				ctx,
-				h.unit.DB(),
-				executiondb.FindExecutionInputEventParams{AgentID: h.route.AgentID, InputID: &existing.ID},
-			)
-			return ActivatedConfig{InputID: existing.ID, Event: ExecutionEvent{ID: event.ID, TurnID: event.TurnID,
-				EventBoundary: EventBoundary{Sequence: event.Sequence, Time: event.CreatedAt}}}, err
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return ActivatedConfig{}, err
-		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
 			return ActivatedConfig{}, err
 		}
-		if input.ID == uuid.Nil {
-			input.ID = uuid.New()
-		}
 		row, err := q.ReceiveExecutionInput(ctx, h.unit.DB(), executiondb.ReceiveExecutionInputParams{
-			ID: input.ID, AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, Kind: "config_change", Mode: "immediate",
+			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, Kind: "config_change", Mode: "immediate",
 			ConfigID: &input.ConfigID, ActorID: nullableID(input.ActorID), Scope: optionalText("agent_config_change"),
 			Key: optionalText(input.IdempotencyKey), Metadata: metadata})
 		if err != nil {
@@ -134,6 +107,6 @@ func (h *Handle) ActivateConfig(ctx context.Context, input ActivateConfigInput) 
 			}
 		}
 		m.changed()
-		return ActivatedConfig{InputID: row.ID, Event: event, Created: true}, nil
+		return ActivatedConfig{InputID: row.ID, Event: event}, nil
 	})
 }

@@ -3,19 +3,12 @@ package executionstore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-)
-
-const (
-	AgentRuntimeLockLeaseDuration        = 90 * time.Second
-	MinimumAgentRuntimeLockLeaseDuration = 15 * time.Second
-	MaximumAgentRuntimeLockLeaseDuration = 30 * time.Minute
 )
 
 type AgentRuntimeLockRecord struct {
@@ -31,18 +24,6 @@ type AgentRuntimeLockRecord struct {
 type AgentRuntimeLockRenewal struct {
 	RuntimeLock               AgentRuntimeLockRecord
 	LocalLeaseBudgetStartedAt time.Time
-}
-
-func validateAgentRuntimeLockLeaseDuration(leaseDuration time.Duration) error {
-	if leaseDuration < MinimumAgentRuntimeLockLeaseDuration ||
-		leaseDuration > MaximumAgentRuntimeLockLeaseDuration {
-		return fmt.Errorf(
-			"agent runtime lock lease duration must be between %s and %s",
-			MinimumAgentRuntimeLockLeaseDuration,
-			MaximumAgentRuntimeLockLeaseDuration,
-		)
-	}
-	return nil
 }
 
 func (s *Store) EnsureRuntimeLockActive(
@@ -69,8 +50,6 @@ func (s *Store) EnsureRuntimeLockActive(
 		})
 	return err
 }
-
-const RuntimeToolInterruptedMessage = "Tool call was interrupted; its external outcome is unknown."
 
 func (s *Store) RenewAgentRuntimeLock(
 	ctx context.Context,
