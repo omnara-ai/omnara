@@ -238,11 +238,15 @@ export function machinePoolConnectionCheckRequest(
   savedProviderConfig?: MachinePool['provider_config'],
 ): CheckMachinePoolConnectionRequest {
   const request = machinePoolCreateRequest(values)
+  const location = machinePoolProviderDefinitions[values.provider].location?.key
   return {
     provider: request.provider,
     provider_auth_secret_id: request.provider_auth_secret_id,
     provider_config: { ...savedProviderConfig, ...request.provider_config },
-    default_machine_provider_options: request.default_machine_provider_options,
+    default_machine_provider_options:
+      location === undefined
+        ? {}
+        : { [location]: request.default_machine_provider_options[location] },
   }
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -702,5 +703,14 @@ func TestProviderCheckConnectionReadsQuotas(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
+	err = (&provider{api: client}).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{
+			ProviderOptions: map[string]json.RawMessage{"metro": json.RawMessage(`"bad metro"`)},
+		},
+	)
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("check connection error = %v, want an invalid request", err)
 	}
 }

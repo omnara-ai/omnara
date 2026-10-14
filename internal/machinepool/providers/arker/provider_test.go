@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestArkerProviderProvisionForksByAllocationName(t *testing.T) {
@@ -363,5 +364,11 @@ func TestArkerProviderCheckConnectionListsOneVM(t *testing.T) {
 	err := newTestProvider(server.URL).CheckConnection(context.Background(), testProvisioning(testOptions()))
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
+	options := testOptions()
+	options["region"] = json.RawMessage(`"bad region"`)
+	err = newTestProvider(server.URL).CheckConnection(context.Background(), testProvisioning(options))
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("check connection error = %v, want an invalid request", err)
 	}
 }

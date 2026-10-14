@@ -26,7 +26,6 @@ export function CredentialSecretField({
   defaultSecretName = '',
   secretValuePlaceholder = 'sk-…',
   kind = 'generic',
-  action,
   status,
 }: {
   orgId: string
@@ -39,7 +38,6 @@ export function CredentialSecretField({
   defaultSecretName?: string
   secretValuePlaceholder?: string
   kind?: 'generic' | 'aws_credentials'
-  action?: ReactNode
   status?: ReactNode
 }) {
   const [creating, setCreating] = useState(false)
@@ -60,7 +58,6 @@ export function CredentialSecretField({
         onCreateSecret={() => {
           setCreating(true)
         }}
-        action={action}
         status={status}
       />
     )

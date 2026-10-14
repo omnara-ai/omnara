@@ -97,11 +97,14 @@ function poolApi() {
       method: 'POST',
       path: checkConnectionPath,
       respond: () =>
-        jsonResponse({
-          status: 'failed',
-          error: 'The provider rejected this API key.',
-          details: 'blaxel API returned HTTP 401',
-        }),
+        jsonResponse(
+          {
+            code: 'unprocessable',
+            error: 'The provider rejected this API key.',
+            details: 'blaxel API returned HTTP 401',
+          },
+          422,
+        ),
     },
     {
       method: 'POST',
@@ -120,6 +123,14 @@ async function interact(action: () => void) {
     action()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+async function waitForConnectionCheck() {
+  for (const delay of [1000, 0]) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    })
+  }
 }
 
 async function render(api: FakeApi, onOpenChange: (open: boolean) => void) {
@@ -278,32 +289,47 @@ it('blocks the capacity step on an invalid max machine memory and shows why', as
   expect(button('Advanced').getAttribute('aria-expanded')).toBe('false')
 })
 
-it('tests the connection with the provider step settings', async () => {
+it('checks the connection once the credential and workspace are set', async () => {
   const api = poolApi()
   await render(api, vi.fn())
-  expect(button('Test connection').disabled).toBe(true)
   await type('#mpool-name', 'default')
   await chooseSecret('BLAXEL_TOKEN')
-  expect(button('Test connection').disabled).toBe(true)
+  await waitForConnectionCheck()
+  expect(api.requestsTo('POST', checkConnectionPath)).toEqual([])
   await type('#mpool-provider-scope', 'acme')
-  await click('Test connection')
+  await waitForConnectionCheck()
 
   expect(api.requestsTo('POST', checkConnectionPath).map((request) => request.body)).toEqual([
     {
       provider: 'blaxel',
       provider_auth_secret_id: secret.id,
       provider_config: { workspace: 'acme' },
-      default_machine_provider_options: { image: '', region: 'us-pdx-1' },
+      default_machine_provider_options: { region: 'us-pdx-1' },
     },
   ])
   expect(text()).toContain('The provider rejected this API key.')
   expect(document.querySelector('details')?.textContent).toBe('Detailsblaxel API returned HTTP 401')
   await type('#mpool-provider-scope', 'acme-2')
+  expect(text()).toContain('Checking connection…')
   expect(text()).not.toContain('The provider rejected this API key')
   expect(document.querySelector('details')).toBeNull()
 })
 
-it('asks for the optional Modal app with the image, after the connection check', async () => {
+it('keeps checking the connection after leaving the provider step', async () => {
+  const api = poolApi()
+  await render(api, vi.fn())
+  await type('#mpool-name', 'default')
+  await type('#mpool-provider-scope', 'acme')
+  await chooseSecret('BLAXEL_TOKEN')
+  await click('Continue')
+  expect(text()).toContain('BLAXEL_TOKEN · acme · Checking connection…')
+  await waitForConnectionCheck()
+
+  expect(api.requestsTo('POST', checkConnectionPath)).toHaveLength(1)
+  expect(text()).toContain('BLAXEL_TOKEN · acme · Connection failed')
+})
+
+it('asks for the optional Modal app with the image', async () => {
   await render(poolApi(), vi.fn())
   await choose('Provider', 'Modal')
   expect(document.querySelector('#mpool-provider-scope')).toBeNull()

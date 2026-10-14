@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -262,7 +263,7 @@ func (p *provider) CheckConnection(
 ) error {
 	metro, ok := existingMachineMetro(machineProvisioning)
 	if !ok {
-		return errors.New("unikraft machine config requires a valid metro")
+		return storeerr.InvalidRequest(errors.New("unikraft machine config requires a valid metro"))
 	}
 	return p.apiForMetro(metro).CheckConnection(ctx)
 }

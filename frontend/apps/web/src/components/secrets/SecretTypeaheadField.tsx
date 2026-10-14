@@ -158,7 +158,6 @@ export function SecretTypeaheadField({
   onCreateSecret,
   knownSecret,
   kind = 'generic',
-  action,
   status,
 }: {
   orgId: string
@@ -171,35 +170,24 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
   kind?: SecretKind
-  action?: ReactNode
   status?: ReactNode
 }) {
   const inputId = useId()
-  const select = (
-    <SecretSelect
-      inputId={inputId}
-      orgId={orgId}
-      enabled={enabled}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      onCreateSecret={onCreateSecret}
-      knownSecret={knownSecret}
-      emptyDescription={emptyDescription}
-      kind={kind}
-    />
-  )
   return (
     <Field>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      {action === undefined ? (
-        select
-      ) : (
-        <div className="flex items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2">{select}</div>
-          {action}
-        </div>
-      )}
+      <SecretSelect
+        inputId={inputId}
+        orgId={orgId}
+        enabled={enabled}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        onCreateSecret={onCreateSecret}
+        knownSecret={knownSecret}
+        emptyDescription={emptyDescription}
+        kind={kind}
+      />
       {status}
     </Field>
   )

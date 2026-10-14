@@ -32,6 +32,10 @@ import {
 import { MachinePoolFieldGroupFields } from './MachinePoolFields'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
 import { machinePoolFormValid } from './machinePoolValidation'
+import {
+  type MachinePoolConnectionState,
+  useMachinePoolConnectionState,
+} from './useMachinePoolConnectionState'
 
 const stepTitles: Record<MachinePoolCreateStepId, string> = {
   provider: 'Provider',
@@ -164,7 +168,8 @@ export function CreateMachinePoolDialog({
     onOpenChange(nextOpen)
   }
 
-  const summaries = stepSummaries(values, secret.data?.name)
+  const connection = useMachinePoolConnectionState(orgId, open, 'create', values)
+  const summaries = stepSummaries(values, secret.data?.name, connection)
 
   const primaryLabel =
     phase.kind === 'retry-grants' ? 'Retry sharing' : isLast ? 'Create pool' : 'Continue'
@@ -210,6 +215,7 @@ export function CreateMachinePoolDialog({
                   mode="create"
                   values={values}
                   setValue={setValue}
+                  connection={connection}
                 />
               </MachinePoolCreateStep>
             ))}
@@ -258,10 +264,34 @@ export function CreateMachinePoolDialog({
   )
 }
 
+function connectionSummary(connection: MachinePoolConnectionState) {
+  switch (connection.state) {
+    case 'idle':
+      return null
+    case 'checking':
+      return ' · Checking connection…'
+    case 'connected':
+      return (
+        <>
+          {' · '}
+          <span className="text-success">Connected</span>
+        </>
+      )
+    case 'failed':
+      return (
+        <>
+          {' · '}
+          <span className="text-destructive">Connection failed</span>
+        </>
+      )
+  }
+}
+
 /** The one-line summary each step shows once it's folded away. */
 function stepSummaries(
   values: MachinePoolFormValues,
   secretName: string | undefined,
+  connection: MachinePoolConnectionState,
 ): Record<MachinePoolCreateStepId, ReactNode> {
   const scope = values.providerScope.trim() && ` · ${values.providerScope.trim()}`
   const scopeRequired = machinePoolProviderDefinitions[values.provider].scope?.required
@@ -276,6 +306,7 @@ function stepSummaries(
           </>
         )}
         {scopeRequired && scope}
+        {connectionSummary(connection)}
       </>
     ),
     image: (

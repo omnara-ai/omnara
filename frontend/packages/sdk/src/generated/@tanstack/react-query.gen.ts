@@ -3755,7 +3755,7 @@ export const createMachinePoolMutation = (options?: Partial<Options<CreateMachin
 /**
  * Check machine pool connection
  *
- * Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider. Nothing is stored. When the check fails, the response has status `failed`, the reason in `error`, and the provider's original error in `details` when there is one.
+ * Checks a tenant-managed pool's provider credential and provider config by making read-only requests to the provider. Nothing is stored. When the provider rejects the credential or config, or the config is invalid, the API responds 422. When the provider fails or does not respond, the API responds 424; retrying may succeed. Both carry a plain-language `error` and, when the provider call failed, the provider's original error in `details`.
  */
 export const checkMachinePoolConnectionMutation = (options?: Partial<Options<CheckMachinePoolConnectionData>>): UseMutationOptions<CheckMachinePoolConnectionResponse, CheckMachinePoolConnectionError, Options<CheckMachinePoolConnectionData>> => {
     const mutationOptions: UseMutationOptions<CheckMachinePoolConnectionResponse, CheckMachinePoolConnectionError, Options<CheckMachinePoolConnectionData>> = {

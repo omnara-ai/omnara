@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -251,7 +252,7 @@ func (p *provider) CheckConnection(
 ) error {
 	region, err := existingMachineRegion(machineProvisioning)
 	if err != nil {
-		return err
+		return storeerr.InvalidRequest(err)
 	}
 	return p.apiFor(p.regionBaseURL(region)).CheckConnection(ctx)
 }

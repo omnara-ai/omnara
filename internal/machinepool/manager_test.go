@@ -607,7 +607,7 @@ func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	}
 }
 
-func TestConnectionCheckMessage(t *testing.T) {
+func TestConnectionCheckFailure(t *testing.T) {
 	const (
 		rejected    = "The provider rejected this API key."
 		forbidden   = "This API key doesn't have access to the configured workspace or resources."
@@ -628,42 +628,58 @@ func TestConnectionCheckMessage(t *testing.T) {
 		)
 	}
 	for _, test := range []struct {
-		name string
-		err  error
-		want string
+		name         string
+		err          error
+		want         string
+		wantUpstream bool
 	}{
-		{"http 401", httpStatus(401), rejected},
-		{"http 403", httpStatus(403), forbidden},
-		{"http 404", httpStatus(404), notFound},
-		{"http 429", httpStatus(429), rateLimited},
-		{"http 502", httpStatus(502), unreachable},
-		{"http 418", httpStatus(418), "The provider returned an unexpected error (HTTP 418)."},
+		{"http 401", httpStatus(401), rejected, false},
+		{"http 403", httpStatus(403), forbidden, false},
+		{"http 404", httpStatus(404), notFound, false},
+		{"http 429", httpStatus(429), rateLimited, true},
+		{"http 502", httpStatus(502), unreachable, true},
+		{"http 418", httpStatus(418), "The provider returned an unexpected error (HTTP 418).", false},
 		{
 			"grpc unauthenticated",
 			fmt.Errorf("failed to get auth token: %w", status.Error(codes.Unauthenticated, "Token not found")),
 			rejected,
+			false,
 		},
-		{"grpc permission denied", status.Error(codes.PermissionDenied, "denied"), forbidden},
-		{"grpc not found", status.Error(codes.NotFound, "No such environment 'staging'"), notFound},
-		{"grpc resource exhausted", status.Error(codes.ResourceExhausted, "slow down"), rateLimited},
-		{"grpc unavailable", status.Error(codes.Unavailable, "down"), unreachable},
-		{"blocked address", request(fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress)), "This API address isn't allowed."},
+		{"grpc permission denied", status.Error(codes.PermissionDenied, "denied"), forbidden, false},
+		{"grpc not found", status.Error(codes.NotFound, "No such environment 'staging'"), notFound, false},
+		{"grpc resource exhausted", status.Error(codes.ResourceExhausted, "slow down"), rateLimited, true},
+		{"grpc unavailable", status.Error(codes.Unavailable, "down"), unreachable, true},
+		{
+			"blocked address",
+			request(fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress)),
+			"This API address isn't allowed.",
+			false,
+		},
 		{
 			"unknown host",
 			request(&net.DNSError{Err: "no such host", Name: "api.example", IsNotFound: true}),
 			"Couldn't find the provider's API. Check the region or API URL.",
+			false,
 		},
-		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable},
-		{"connection refused", request(errors.New("connection refused")), unreachable},
+		{
+			"dns timeout",
+			request(&net.DNSError{Err: "i/o timeout", Name: "api.example", IsTimeout: true}),
+			unreachable,
+			true,
+		},
+		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable, true},
+		{"connection refused", request(errors.New("connection refused")), unreachable, true},
 		{
 			"unknown",
 			errors.New("decode provider response: unexpected end of JSON input"),
 			"The provider returned an unexpected error.",
+			true,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := connectionCheckMessage(test.err); got != test.want {
-				t.Fatalf("message = %q, want %q", got, test.want)
+			message, upstream := connectionCheckFailure(test.err)
+			if message != test.want || upstream != test.wantUpstream {
+				t.Fatalf("failure = (%q, %t), want (%q, %t)", message, upstream, test.want, test.wantUpstream)
 			}
 		})
 	}

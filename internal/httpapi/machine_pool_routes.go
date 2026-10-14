@@ -189,32 +189,42 @@ func (s strictOpenAPIServer) CheckMachinePoolConnection(
 		machinePoolConnectionChecksPerMinute,
 		time.Minute,
 	); errors.Is(err, httpauth.ErrRateLimited) {
-		return nil, apierror.FromCode(openapi.ErrorCodeRateLimited, "too many connection tests; try again in a minute")
+		return nil, apierror.FromCode(openapi.ErrorCodeRateLimited, "too many connection checks; try again in a few seconds")
 	} else if err != nil {
 		return nil, err
 	}
-	response := openapi.CheckMachinePoolConnection200JSONResponse{
-		Status: openapi.MachinePoolConnectionCheckStatusOk,
-	}
-	if err := s.server.machinePoolManager.CheckPoolConnection(ctx, machinepool.PoolConnectionCheck{
+	err = s.server.machinePoolManager.CheckPoolConnection(ctx, machinepool.PoolConnectionCheck{
 		OrgID:                         org.ID,
 		Provider:                      request.Body.Provider,
 		ProviderConfig:                providerConfig,
 		ProviderAuthSecretID:          providerAuthSecretID,
 		DefaultMachineProviderOptions: defaultMachineProviderOptions,
-	}); err != nil {
-		message := err.Error()
-		response.Status = openapi.MachinePoolConnectionCheckStatusFailed
-		response.Error = &message
-		logged := message
-		var checkErr machinepool.ConnectionCheckError
-		if errors.As(err, &checkErr) {
-			response.Details = &checkErr.Details
-			logged = checkErr.Details
-		}
-		logent.MachinePoolConnectionCheckFailed(ctx, request.Body.Provider, logged)
+	})
+	if err == nil {
+		return openapi.CheckMachinePoolConnection204Response{}, nil
 	}
-	return response, nil
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeUnprocessable,
+			"machine pool connection check was canceled",
+		).WithCause(err)
+	}
+	response := openapi.MachinePoolConnectionCheckError{
+		Error: err.Error(),
+		Code:  openapi.MachinePoolConnectionCheckErrorCodeUnprocessable,
+	}
+	logged := response.Error
+	var checkErr machinepool.ConnectionCheckError
+	if errors.As(err, &checkErr) {
+		response.Details = &checkErr.Details
+		logged = checkErr.Details
+	}
+	logent.MachinePoolConnectionCheckFailed(ctx, request.Body.Provider, logged)
+	if checkErr.Upstream {
+		response.Code = openapi.MachinePoolConnectionCheckErrorCodeUpstreamUnavailable
+		return openapi.CheckMachinePoolConnection424JSONResponse(response), nil
+	}
+	return openapi.CheckMachinePoolConnection422JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) createMachinePool(

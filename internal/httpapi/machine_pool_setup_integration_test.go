@@ -1440,12 +1440,12 @@ func TestPublicMachinePoolConnectionCheckReportsFailures(t *testing.T) {
 		"/api/v1/orgs/"+project.OrgID+"/machine-pools/check-connection",
 		`{"provider":"blaxel","provider_auth_secret_id":"`+missingSecretID+`","provider_config":{"workspace":"omnara"}}`,
 		"",
-		http.StatusOK,
+		http.StatusUnprocessableEntity,
 		authHeaders(project.AdminToken),
 	)
-	if result["status"] != "failed" || result["error"] != "could not read the credential secret" ||
+	if result["code"] != "unprocessable" || result["error"] != "could not read the credential secret" ||
 		result["details"] != nil {
-		t.Fatalf("connection test = %+v, want a failed secret read without provider details", result)
+		t.Fatalf("connection test = %+v, want an unreadable secret without provider details", result)
 	}
 	limited := requestJSONWithHeaders(
 		t,

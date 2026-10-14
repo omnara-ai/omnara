@@ -114,10 +114,10 @@ export {
   type MachinePoolListFilters,
   type MachinePoolListOptions,
   type MachinePoolListSort,
-  useCheckMachinePoolConnection,
   useCreateMachinePool,
   useDeleteMachinePool,
   useMachinePool,
+  useMachinePoolConnectionCheck,
   useMachinePools,
   useUpdateMachinePool,
 } from './domains/machine-pools'

@@ -748,21 +748,26 @@ func (m Manager) CheckPoolConnection(ctx context.Context, input PoolConnectionCh
 	ctx, cancel := context.WithTimeout(ctx, providerConnectionCheckTimeout)
 	defer cancel()
 	if err := provider.CheckConnection(ctx, machineProvisioning); err != nil {
-		return ConnectionCheckError{Message: connectionCheckMessage(err), Details: err.Error()}
+		if errors.Is(err, storeerr.ErrInvalidRequest) {
+			return err
+		}
+		message, upstream := connectionCheckFailure(err)
+		return ConnectionCheckError{Message: message, Details: err.Error(), Upstream: upstream}
 	}
 	return nil
 }
 
 type ConnectionCheckError struct {
-	Message string
-	Details string
+	Message  string
+	Details  string
+	Upstream bool
 }
 
 func (e ConnectionCheckError) Error() string {
 	return e.Message
 }
 
-func connectionCheckMessage(err error) string {
+func connectionCheckFailure(err error) (message string, upstream bool) {
 	const (
 		rejected    = "The provider rejected this API key."
 		forbidden   = "This API key doesn't have access to the configured workspace or resources."
@@ -773,41 +778,41 @@ func connectionCheckMessage(err error) string {
 	if code, ok := providers.HTTPStatus(err); ok {
 		switch {
 		case code == 401:
-			return rejected
+			return rejected, false
 		case code == 403:
-			return forbidden
+			return forbidden, false
 		case code == 404:
-			return notFound
+			return notFound, false
 		case code == 429:
-			return rateLimited
+			return rateLimited, true
 		case code >= 500:
-			return unreachable
+			return unreachable, true
 		}
-		return fmt.Sprintf("The provider returned an unexpected error (HTTP %d).", code)
+		return fmt.Sprintf("The provider returned an unexpected error (HTTP %d).", code), false
 	}
 	var dnsErr *net.DNSError
 	var urlErr *url.Error
 	switch {
 	case errors.Is(err, ssrf.ErrBlockedAddress):
-		return "This API address isn't allowed."
-	case errors.As(err, &dnsErr):
-		return "Couldn't find the provider's API. Check the region or API URL."
+		return "This API address isn't allowed.", false
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		return "Couldn't find the provider's API. Check the region or API URL.", false
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &urlErr):
-		return unreachable
+		return unreachable, true
 	}
 	switch status.Code(err) {
 	case codes.Unauthenticated:
-		return rejected
+		return rejected, false
 	case codes.PermissionDenied:
-		return forbidden
+		return forbidden, false
 	case codes.NotFound:
-		return notFound
+		return notFound, false
 	case codes.ResourceExhausted:
-		return rateLimited
+		return rateLimited, true
 	case codes.Unavailable, codes.DeadlineExceeded:
-		return unreachable
+		return unreachable, true
 	default:
-		return "The provider returned an unexpected error."
+		return "The provider returned an unexpected error.", true
 	}
 }
 

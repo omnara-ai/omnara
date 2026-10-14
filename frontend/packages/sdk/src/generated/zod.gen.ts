@@ -2167,9 +2167,9 @@ export const zCheckMachinePoolConnectionRequest = z.object({
     default_machine_provider_options: z.record(z.string(), z.unknown()).optional()
 });
 
-export const zMachinePoolConnectionCheck = z.object({
-    status: z.enum(['ok', 'failed']),
-    error: z.string().optional(),
+export const zMachinePoolConnectionCheckError = z.object({
+    error: z.string(),
+    code: z.enum(['unprocessable', 'upstream_unavailable']),
     details: z.string().optional()
 });
 
@@ -5374,9 +5374,9 @@ export const zCheckMachinePoolConnectionPath = z.object({
 });
 
 /**
- * Connection check result.
+ * The provider accepted the credential and config.
  */
-export const zCheckMachinePoolConnectionResponse = zMachinePoolConnectionCheck;
+export const zCheckMachinePoolConnectionResponse = z.void();
 
 export const zDeleteMachinePoolPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

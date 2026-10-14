@@ -1,18 +1,12 @@
-import { useCheckMachinePoolConnection } from '@omnara/react'
-import type { MachinePool } from '@omnara/sdk'
-
 import { CircleCheck } from '@/components/icons'
 import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
-import { Button } from '@/components/ui/button'
 import { FieldDescription, FieldError } from '@/components/ui/field'
-import { errorMessage } from '@/lib/submit-status'
 
 import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import { MachinePoolCapacityFields } from './MachinePoolCapacityFields'
 import {
-  machinePoolConnectionCheckRequest,
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
   type MachinePoolFormSetValue,
@@ -28,6 +22,7 @@ import {
   type MachinePoolFieldGroup,
   machinePoolFieldGroups,
 } from './machinePoolValidation'
+import type { MachinePoolConnectionState } from './useMachinePoolConnectionState'
 
 interface MachinePoolFieldProps {
   values: MachinePoolFormValues
@@ -41,7 +36,7 @@ interface MachinePoolFieldsProps {
   mode: MachinePoolFormMode
   values: MachinePoolFormValues
   setValue: MachinePoolFormSetValue
-  savedProviderConfig?: MachinePool['provider_config']
+  connection: MachinePoolConnectionState
 }
 
 /**
@@ -55,7 +50,7 @@ export function MachinePoolFieldGroupFields({
   mode,
   values,
   setValue,
-  savedProviderConfig,
+  connection,
 }: MachinePoolFieldsProps & { group: MachinePoolFieldGroup }) {
   const errors = machinePoolFieldErrors(values, mode)
   const fieldProps = { values, setValue, errors }
@@ -75,7 +70,7 @@ export function MachinePoolFieldGroupFields({
           <MachinePoolCredentialField
             orgId={orgId}
             enabled={enabled}
-            savedProviderConfig={savedProviderConfig}
+            connection={connection}
             {...fieldProps}
           />
         </>
@@ -249,18 +244,14 @@ function MachinePoolCredentialField({
   enabled,
   values,
   setValue,
-  savedProviderConfig,
+  connection,
 }: MachinePoolFieldProps & {
   orgId: string
   enabled: boolean
-  savedProviderConfig?: MachinePool['provider_config']
+  connection: MachinePoolConnectionState
 }) {
-  const { credential, scope } = machinePoolProviderDefinitions[values.provider]
+  const credential = machinePoolProviderDefinitions[values.provider].credential
   const providerLabel = machinePoolProviderLabel(values.provider)
-  const connectionCheck = useCheckMachinePoolConnection(orgId)
-  const request = machinePoolConnectionCheckRequest(values, savedProviderConfig)
-  const current = JSON.stringify(connectionCheck.variables) === JSON.stringify(request)
-  const missingScope = scope?.required === true && values.providerScope.trim() === ''
   return (
     <CredentialSecretField
       key={values.provider}
@@ -278,59 +269,37 @@ function MachinePoolCredentialField({
       }
       defaultSecretName={credential?.defaultSecretName ?? `${values.provider}-api-token`}
       secretValuePlaceholder={credential?.secretValuePlaceholder ?? 'Provider API token'}
-      action={
-        <Button
-          type="button"
-          variant="outline"
-          aria-label="Test connection"
-          disabled={values.secretId === '' || missingScope || connectionCheck.isPending}
-          loading={connectionCheck.isPending}
-          onClick={() => {
-            connectionCheck.mutate(request)
-          }}
-        >
-          Test
-        </Button>
-      }
-      status={current && <MachinePoolConnectionStatus connectionCheck={connectionCheck} />}
+      status={<MachinePoolConnectionStatus connection={connection} />}
     />
   )
 }
 
-function MachinePoolConnectionStatus({
-  connectionCheck,
-}: {
-  connectionCheck: ReturnType<typeof useCheckMachinePoolConnection>
-}) {
-  if (connectionCheck.data?.status === 'ok') {
-    return (
-      <FieldDescription className="text-success flex items-center gap-1.5">
-        <CircleCheck className="size-4" />
-        Connected
-      </FieldDescription>
-    )
+function MachinePoolConnectionStatus({ connection }: { connection: MachinePoolConnectionState }) {
+  switch (connection.state) {
+    case 'idle':
+      return null
+    case 'checking':
+      return <FieldDescription>Checking connection…</FieldDescription>
+    case 'connected':
+      return (
+        <FieldDescription className="text-success flex items-center gap-1.5">
+          <CircleCheck className="size-4" />
+          Connected
+        </FieldDescription>
+      )
+    case 'failed':
+      return (
+        <>
+          <FieldError>{connection.message}</FieldError>
+          {connection.details && (
+            <details className="text-muted-foreground text-sm">
+              <summary>Details</summary>
+              <p className="break-words font-mono text-xs">{connection.details}</p>
+            </details>
+          )}
+        </>
+      )
   }
-  if (connectionCheck.data?.status === 'failed') {
-    return (
-      <>
-        <FieldError>{connectionCheck.data.error}</FieldError>
-        {connectionCheck.data.details && (
-          <details className="text-muted-foreground text-sm">
-            <summary>Details</summary>
-            <p className="break-words font-mono text-xs">{connectionCheck.data.details}</p>
-          </details>
-        )}
-      </>
-    )
-  }
-  if (connectionCheck.isError) {
-    return (
-      <FieldError>
-        {errorMessage(connectionCheck.error, 'Could not test the connection')}
-      </FieldError>
-    )
-  }
-  return null
 }
 
 /** What every machine starts with: working directory and environment variables. */

@@ -1,4 +1,9 @@
-import { type ListMachinePoolsData, sdk, type UpdateMachinePoolRequest } from '@omnara/sdk'
+import {
+  type CheckMachinePoolConnectionRequest,
+  type ListMachinePoolsData,
+  sdk,
+  type UpdateMachinePoolRequest,
+} from '@omnara/sdk'
 import {
   getMachinePoolOptions,
   listMachinePoolsInfiniteOptions,
@@ -59,8 +64,22 @@ export function useCreateMachinePool(orgID: string) {
   )
 }
 
-export function useCheckMachinePoolConnection(orgID: string) {
-  return useScopedMutation(sdk.checkMachinePoolConnection, { orgID })
+export function useMachinePoolConnectionCheck(
+  orgID: string,
+  request: CheckMachinePoolConnectionRequest | null,
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    queryKey: ['machine-pool-connection-check', orgID, request],
+    queryFn: async ({ signal }) => {
+      if (request == null) throw new Error('machine pool connection check request is required')
+      await sdk.checkMachinePoolConnection({ path: { orgID }, body: request, client, signal })
+      return null
+    },
+    enabled: request != null && orgID !== '',
+    staleTime: 60 * 1000,
+    retry: false,
+  })
 }
 
 export function useUpdateMachinePool(orgID: string) {

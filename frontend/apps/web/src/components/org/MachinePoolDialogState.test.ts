@@ -693,6 +693,13 @@ describe('machine pool connection checks', () => {
       machinePoolConnectionCheckRequest(arker, { api_base_url: 'https://arker.example/api' })
         .provider_config,
     ).toEqual({ api_base_url: 'https://arker.example/api' })
+    expect(
+      machinePoolConnectionCheckRequest({
+        ...arker,
+        image: 'ubuntu-base',
+        startupScript: 'apt-get update',
+      }).default_machine_provider_options,
+    ).toEqual({ region: 'aws-us-west-2' })
   })
 })
 

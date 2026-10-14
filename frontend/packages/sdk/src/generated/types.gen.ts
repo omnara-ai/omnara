@@ -3095,12 +3095,12 @@ export type CheckMachinePoolConnectionRequest = {
     };
 };
 
-export type MachinePoolConnectionCheck = {
-    status: 'ok' | 'failed';
+export type MachinePoolConnectionCheckError = {
     /**
-     * Why the check failed, in plain language. Present when status is failed.
+     * Why the check failed, in plain language. Do not match on it programmatically.
      */
-    error?: string;
+    error: string;
+    code: 'unprocessable' | 'upstream_unavailable';
     /**
      * The provider's original error, for troubleshooting. Present when the provider call failed.
      */
@@ -14819,6 +14819,14 @@ export type CheckMachinePoolConnectionErrors = {
      */
     404: Error;
     /**
+     * The provider rejected the credential or config, or the config is invalid.
+     */
+    422: MachinePoolConnectionCheckError;
+    /**
+     * The provider failed or did not respond. Retrying may succeed.
+     */
+    424: MachinePoolConnectionCheckError;
+    /**
      * The service dependency required to satisfy the request is unavailable.
      */
     503: Error;
@@ -14848,9 +14856,9 @@ export type CheckMachinePoolConnectionError = CheckMachinePoolConnectionErrors[k
 
 export type CheckMachinePoolConnectionResponses = {
     /**
-     * Connection check result.
+     * The provider accepted the credential and config.
      */
-    200: MachinePoolConnectionCheck;
+    204: void;
 };
 
 export type CheckMachinePoolConnectionResponse = CheckMachinePoolConnectionResponses[keyof CheckMachinePoolConnectionResponses];
