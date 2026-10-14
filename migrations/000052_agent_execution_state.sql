@@ -334,7 +334,6 @@ BEGIN
     SELECT a.id INTO invalid_agent FROM agents a LEFT JOIN agent_execution_state h ON h.agent_id=a.id
     WHERE h.agent_id IS NULL LIMIT 1;
     IF FOUND THEN RAISE EXCEPTION 'missing execution state: %', invalid_agent; END IF;
-
 END;
 $$;
 -- +goose StatementEnd

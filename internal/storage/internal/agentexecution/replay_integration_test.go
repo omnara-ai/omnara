@@ -3,6 +3,7 @@
 package agentexecution_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -108,6 +109,17 @@ func TestInternalModelReplayIdentityAndFence(t *testing.T) {
 				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 			}
 			require.NoError(t, u.Rollback(t.Context()))
+			if kind != "output" {
+				u, h = f.handle(t, agent)
+				failure.RuntimeLockID = lease
+				failure.Recovery = map[string]agentexecution.RecoveryKind{
+					"retry": agentexecution.RecoveryNone, "terminal": agentexecution.RecoveryRetry,
+					"compaction": agentexecution.RecoveryRetry,
+				}[kind]
+				_, err = h.FailModel(t.Context(), failure)
+				require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+				require.NoError(t, u.Rollback(t.Context()))
+			}
 		})
 	}
 }
@@ -173,6 +185,7 @@ func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 			ToolRef: ref, Outcome: "succeeded", Content: []agentexecution.Content{{Kind: "text", Text: "done"}},
 		})
 		require.NoError(t, err)
+		assertCommandState(t, u, h)
 		prepared := prepareCommand(t, h, lease)
 		_, err = h.AcceptOutput(t.Context(), agentexecution.AcceptOutputInput{
 			RuntimeLockID: lease, ContextID: prepared.Context.ID,
@@ -189,4 +202,32 @@ func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 		require.False(t, snapshot.Head.TurnContinuable, "turn %d", turn)
 		require.NoError(t, u.Rollback(t.Context()))
 	}
+}
+
+func TestOutputReplayRejectsDifferentToolID(t *testing.T) {
+	f, agent, lease := commandFixture(t)
+	u, h := f.handle(t, agent)
+	receiveCommand(t, h, "queued", "work")
+	_, err := h.AdmitInputs(t.Context())
+	require.NoError(t, err)
+	prepared := prepareCommand(t, h, lease)
+	response := commandResponse(modelenvelope.StopReasonToolUse)
+	response.Normalized.Content = []modelenvelope.ResponsePart{
+		{Type: "tool_call", ProviderCallID: "call", ToolName: "tool", ToolInput: json.RawMessage(`{}`)},
+	}
+	input := agentexecution.AcceptOutputInput{
+		RuntimeLockID: lease, ContextID: prepared.Context.ID, Response: response,
+		Tools: []agentexecution.ToolProposal{{ID: uuid.New(), ProviderCallID: "call", Type: "built_in"}},
+	}
+	accepted, err := h.AcceptOutput(t.Context(), input)
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "accept tool output"))
+	u, h = f.handle(t, agent)
+	replay, err := h.AcceptOutput(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, accepted.Tools, replay.Tools)
+	input.Tools[0].ID = uuid.New()
+	_, err = h.AcceptOutput(t.Context(), input)
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	require.NoError(t, u.Rollback(t.Context()))
 }

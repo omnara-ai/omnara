@@ -210,8 +210,7 @@ func (h *Handle) CompleteCustomTool(
 		if err != nil {
 			return CompletedTool{}, err
 		}
-		if row.Type != "custom" || (row.State != "ready" && row.State != "completed") ||
-			(outcome != "succeeded" && outcome != "failed") {
+		if row.Type != "custom" || row.State != "ready" || (outcome != "succeeded" && outcome != "failed") {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
 		return h.completeTool(ctx, m, row, outcome, content, uuid.Nil, nil)

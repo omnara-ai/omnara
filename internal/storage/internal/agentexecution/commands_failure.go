@@ -109,7 +109,7 @@ func (h *Handle) finishAttempt(
 		return false, storeerr.ErrRuntimeLockInactive
 	}
 	if row.State != "started" {
-		if row.State != string(state) {
+		if row.State != string(state) || storeutil.ValueOrZero(row.RecoveryKind) != string(failure.Recovery) {
 			return false, storeerr.ErrIdempotencyConflict
 		}
 		return false, nil

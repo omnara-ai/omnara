@@ -84,7 +84,6 @@ func (s *Store) ReplaceCompactionSource(
 				input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
 				executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
 					input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
-
 			result, err := h.BeginCompaction(
 				ctx,
 				agentexecution.BeginCompactionInput{Failure: failure, SourceEnd: input.NextSourceEventSequenceEnd},

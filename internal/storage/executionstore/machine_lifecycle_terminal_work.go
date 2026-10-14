@@ -426,6 +426,7 @@ func settleTerminalProcess(ctx context.Context, unit *agentexecution.Unit, recor
 	_, err = h.CompleteProcess(ctx, agentexecution.ProcessResult{ID: record.ID})
 	return err
 }
+
 func settleInterruptedActions(ctx context.Context, unit *agentexecution.Unit, rows []dbsqlc.ProcessAction) error {
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)

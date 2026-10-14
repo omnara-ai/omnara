@@ -92,6 +92,14 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.True(t, result.Changed)
 			snapshot := assertCommandState(t, u, h)
 			require.Equal(t, agentexecution.WorkModel, snapshot.Selection.Work)
+			if kind == "custom" {
+				require.NoError(t, u.Commit(t.Context(), "complete custom tool"))
+				u, h = f.handle(t, a)
+				_, err = complete()
+				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+				require.NoError(t, u.Rollback(t.Context()))
+				return
+			}
 			replay, err := complete()
 			require.NoError(t, err)
 			require.False(t, replay.Changed)
@@ -104,23 +112,16 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.Equal(t, result.ResultID, replay.ResultID)
 			require.NoError(t, u.Commit(t.Context(), "replay tool"))
 			u, h = f.handle(t, a)
-			if kind == "custom" {
-				_, err = h.CompleteCustomTool(t.Context(), ref.ID, "failed", content)
-			} else {
-				_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
-					ToolRef: ref, Outcome: "failed", Content: content,
-				})
-			}
+			_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
+				ToolRef: ref, Outcome: "failed", Content: content,
+			})
 			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 			require.NoError(t, u.Rollback(t.Context()))
-			if kind != "custom" {
-				u, h = f.handle(t, a)
-				ref.RuntimeLockID = uuid.New()
-				_, err = complete()
-				require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
-				require.NoError(t, u.Rollback(t.Context()))
-			}
-
+			u, h = f.handle(t, a)
+			ref.RuntimeLockID = uuid.New()
+			_, err = complete()
+			require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+			require.NoError(t, u.Rollback(t.Context()))
 		})
 	}
 }

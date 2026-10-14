@@ -200,9 +200,6 @@ func (h *Handle) PublishCheckpoint(
 			if err != nil {
 				return PublishedCheckpoint{}, err
 			}
-			if row.Summary != input.Summary {
-				return PublishedCheckpoint{}, storeerr.ErrIdempotencyConflict
-			}
 			return PublishedCheckpoint{ID: row.ID, Event: ExecutionEvent{ID: row.EventID, TurnID: row.TurnID,
 				EventBoundary: EventBoundary{Sequence: row.Sequence, Time: row.CreatedAt}}}, nil
 		}

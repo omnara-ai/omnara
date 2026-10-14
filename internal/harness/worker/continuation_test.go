@@ -238,7 +238,6 @@ func TestWorkerOwnedContinuationKeepsRenewalRunning(t *testing.T) {
 
 func TestWorkerOwnedContinuationExecutesWorkAfterSoftDeadline(t *testing.T) {
 	store := newContinuationStore(executionstore.AgentWorkModel)
-
 	executor := &continuationExecutor{}
 	worker := NewWorker(store, executor, Options{
 		Continuation: ContinuationOptions{MaxModelStarts: 2, MaxDuration: time.Hour},

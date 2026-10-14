@@ -237,17 +237,8 @@ func (s *Store) expireQueuedProcessToolCall(
 			if err != nil {
 				return false, fmt.Errorf("mark queued process failed: %w", err)
 			}
-			record := processRecordFromSQLC(row)
-			h, err := unit.Handle(record.ProjectID, record.AgentID)
-			if err != nil {
+			if err := settleTerminalProcess(ctx, unit, processRecordFromSQLC(row)); err != nil {
 				return false, err
-			}
-			if record.ToolCallID != uuid.Nil {
-				if _, err := h.CompleteProcess(ctx,
-					agentexecution.ProcessResult{ID: record.ID,
-						Observed: nil}); err != nil {
-					return false, err
-				}
 			}
 			if err := unit.Commit(ctx, "queued process expiry"); err != nil {
 				return false, err
@@ -335,17 +326,8 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 			if err != nil {
 				return 0, fmt.Errorf("mark machine-unreachable queued actions failed: %w", err)
 			}
-			for _, row := range rows {
-				record := processActionRecordFromSQLC(row)
-				h, err := unit.Handle(record.ProjectID, record.AgentID)
-				if err != nil {
-					return 0, err
-				}
-				if record.ToolCallID != uuid.Nil {
-					if _, err := h.SettleInterruptedAction(ctx, record.ID); err != nil {
-						return 0, err
-					}
-				}
+			if err := settleInterruptedActions(ctx, unit, rows); err != nil {
+				return 0, err
 			}
 			if err := unit.Commit(ctx, "machine-unreachable queued action expiry"); err != nil {
 				return 0, err

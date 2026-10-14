@@ -512,17 +512,8 @@ func completeProcessFailedWithoutExecutionTx(
 		}
 		return fmt.Errorf("resolve process that never executed: %w", err)
 	}
-	failed := processRecordFromCompleteSQLC(row)
-	h, err := unit.Handle(failed.ProjectID, failed.AgentID)
-	if err != nil {
+	if err := settleTerminalProcess(ctx, unit, processRecordFromCompleteSQLC(row)); err != nil {
 		return err
-	}
-	if failed.ToolCallID != uuid.Nil {
-		if _, err := h.CompleteProcess(ctx,
-			agentexecution.ProcessResult{ID: failed.ID,
-				Observed: nil}); err != nil {
-			return err
-		}
 	}
 	if err := completeQueuedProcessActionsFailedTx(
 		ctx,

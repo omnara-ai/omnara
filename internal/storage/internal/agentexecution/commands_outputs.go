@@ -123,7 +123,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		if source.State == "succeeded" {
-			return h.replayOutput(ctx, source.ID)
+			return h.replayOutput(ctx, source.ID, input.Tools)
 		}
 		if err := input.Response.Validate(); err != nil {
 			return AcceptedOutput{}, err
@@ -224,7 +224,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 	})
 }
 
-func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID) (AcceptedOutput, error) {
+func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID, tools []ToolProposal) (AcceptedOutput, error) {
 	q := executiondb.New()
 	output, err := q.FindExecutionOutput(ctx, h.unit.DB(), executiondb.FindExecutionOutputParams{
 		AgentID: h.route.AgentID, ContextID: contextID,
@@ -240,6 +240,11 @@ func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID) (Accepte
 	}
 	bindings := make([]ToolProposal, len(stored))
 	for i, call := range stored {
+		for _, tool := range tools {
+			if tool.ProviderCallID == call.ProviderCallID && tool.ID != uuid.Nil && tool.ID != call.ID {
+				return AcceptedOutput{}, storeerr.ErrIdempotencyConflict
+			}
+		}
 		bindings[i] = ToolProposal{ID: call.ID, ProviderCallID: call.ProviderCallID, Type: call.Type}
 	}
 	return AcceptedOutput{ID: output.ID, Event: ExecutionEvent{ID: output.EventID, TurnID: output.TurnID,
