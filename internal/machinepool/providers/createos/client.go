@@ -186,7 +186,7 @@ func (c *restClient) do(ctx context.Context, method, path string, body, out any)
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return providers.WithRetryAfter(apiError{StatusCode: response.StatusCode}, response.Header)
+		return providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
 	}
 	if out == nil || len(response.Body) == 0 {
 		return nil

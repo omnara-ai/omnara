@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestBoxdProviderProvisionCreatesMachineAndStartsDaemon(t *testing.T) {
@@ -559,5 +560,15 @@ func TestBoxdProviderInspectAndDelete(t *testing.T) {
 	}
 	if err := provider.DeleteMachine(context.Background(), installationID, machineID, provisioning, ""); err == nil {
 		t.Fatal("expected empty resource id to be rejected")
+	}
+}
+
+func TestProviderCheckConnectionReadsOrgDefaults(t *testing.T) {
+	api := newFakeAPI()
+	api.orgDefaultsErr = errors.New("token exchange returned HTTP 401")
+
+	err := newTestProvider(api).CheckConnection(context.Background(), executionstore.MachineProvisioningConfig{})
+	if !errors.Is(err, api.orgDefaultsErr) {
+		t.Fatalf("check connection error = %v, want %v", err, api.orgDefaultsErr)
 	}
 }

@@ -601,3 +601,20 @@ func TestCreateOSAllocationNameIsStableScopedAndShort(t *testing.T) {
 		t.Fatal("allocation name is not scoped to the installation and machine")
 	}
 }
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/sandboxes" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	err := newTestProvider(client).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
+}

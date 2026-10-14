@@ -272,7 +272,7 @@ func existingMachineRegion(machineProvisioning executionstore.MachineProvisionin
 	var region string
 	if err := json.Unmarshal(machineProvisioning.ProviderOptions["region"], &region); err != nil ||
 		providers.ValidateDNSLabel(strings.TrimSpace(region)) != nil {
-		return "", errors.New("arker stored machine config requires a valid region")
+		return "", errors.New("arker machine config requires a valid region")
 	}
 	return strings.TrimSpace(region), nil
 }

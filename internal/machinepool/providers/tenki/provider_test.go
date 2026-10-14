@@ -1,14 +1,17 @@
 package tenki
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -175,4 +178,26 @@ func TestDeleteVerifiesOwnershipAndSkipsTerminatedSessions(t *testing.T) {
 		p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "running"),
 		"permission denied",
 	)
+}
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request listRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if r.URL.Path != servicePath+"ListWorkspaceSandboxes" || request.PageSize != 1 {
+			t.Errorf("request = %s %+v", r.URL.Path, request)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := testProvider(newRESTClient(server.URL, "tk_test", server.Client())).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
+	}
 }

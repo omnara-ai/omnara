@@ -21,10 +21,6 @@ func newSleepPlatform(name string) (sleepPlatform, error) {
 	switch name {
 	case "":
 		return noopSleepPlatform{}, nil
-	case daemonprotocol.SleepPlatformUnikraft:
-		return controlFileSleepPlatform{
-			controlPath: daemonprotocol.UnikraftScaleToZeroControlFilePath,
-		}, nil
 	case daemonprotocol.SleepPlatformArker:
 		return controlFileSleepPlatform{
 			controlPath: daemonprotocol.ArkerAwakeControlFilePath,
@@ -35,6 +31,10 @@ func newSleepPlatform(name string) (sleepPlatform, error) {
 		return createOSSleepPlatform{
 			pauseURL:   daemonprotocol.CreateOSSelfPauseURL,
 			httpClient: &http.Client{Timeout: createOSSelfPauseTimeout},
+		}, nil
+	case daemonprotocol.SleepPlatformUnikraft:
+		return controlFileSleepPlatform{
+			controlPath: daemonprotocol.UnikraftScaleToZeroControlFilePath,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported daemon sleep platform %q", name)

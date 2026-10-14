@@ -152,7 +152,7 @@ func (s *Store) createSecretTx(
 	})
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
-			return SecretRecord{}, SecretVersionRecord{}, storeerr.ErrConflict
+			return SecretRecord{}, SecretVersionRecord{}, duplicateSecretNameError(input.Name)
 		}
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("insert secret: %w", err)
 	}
@@ -305,7 +305,7 @@ func (s *Store) UpdateSecretMetadata(
 	)
 	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
-			return SecretRecord{}, storeerr.ErrConflict
+			return SecretRecord{}, duplicateSecretNameError(input.Name)
 		}
 		return SecretRecord{}, fmt.Errorf("update secret metadata: %w", err)
 	}
@@ -604,4 +604,11 @@ func newSecretUUID() (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("generate uuidv7: %w", err)
 	}
 	return id, nil
+}
+
+func duplicateSecretNameError(name string) error {
+	return storeerr.Tag(storeerr.ErrSecretNameExists, storeerr.Tag(
+		storeerr.ErrConflict,
+		fmt.Errorf("a secret named %q already exists; choose a different name", name),
+	))
 }

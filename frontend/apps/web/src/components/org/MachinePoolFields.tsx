@@ -1,6 +1,8 @@
+import { CircleCheck } from '@/components/icons'
 import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
+import { FieldDescription, FieldError } from '@/components/ui/field'
 
 import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import { MachinePoolCapacityFields } from './MachinePoolCapacityFields'
@@ -20,6 +22,7 @@ import {
   type MachinePoolFieldGroup,
   machinePoolFieldGroups,
 } from './machinePoolValidation'
+import type { MachinePoolConnectionState } from './useMachinePoolConnectionState'
 
 interface MachinePoolFieldProps {
   values: MachinePoolFormValues
@@ -33,6 +36,7 @@ interface MachinePoolFieldsProps {
   mode: MachinePoolFormMode
   values: MachinePoolFormValues
   setValue: MachinePoolFormSetValue
+  connection: MachinePoolConnectionState
 }
 
 /**
@@ -46,10 +50,12 @@ export function MachinePoolFieldGroupFields({
   mode,
   values,
   setValue,
+  connection,
 }: MachinePoolFieldsProps & { group: MachinePoolFieldGroup }) {
   const errors = machinePoolFieldErrors(values, mode)
   const fieldProps = { values, setValue, errors }
   const clusterManaged = mode === 'cluster-edit'
+  const scopeRequired = machinePoolProviderDefinitions[values.provider].scope?.required
   switch (group) {
     case 'provider':
       if (clusterManaged) return null
@@ -60,7 +66,13 @@ export function MachinePoolFieldGroupFields({
             <MachinePoolProviderField {...fieldProps} disabled={mode !== 'create'} />
           </div>
           <MachinePoolDescriptionField {...fieldProps} />
-          <MachinePoolCredentialField orgId={orgId} enabled={enabled} {...fieldProps} />
+          {scopeRequired && <MachinePoolScopeField {...fieldProps} />}
+          <MachinePoolCredentialField
+            orgId={orgId}
+            enabled={enabled}
+            connection={connection}
+            {...fieldProps}
+          />
         </>
       )
     case 'image':
@@ -68,7 +80,7 @@ export function MachinePoolFieldGroupFields({
       return (
         <>
           <MachinePoolImageField {...fieldProps} />
-          <MachinePoolScopeField {...fieldProps} />
+          {!scopeRequired && <MachinePoolScopeField {...fieldProps} />}
         </>
       )
     case 'capacity':
@@ -232,7 +244,12 @@ function MachinePoolCredentialField({
   enabled,
   values,
   setValue,
-}: MachinePoolFieldProps & { orgId: string; enabled: boolean }) {
+  connection,
+}: MachinePoolFieldProps & {
+  orgId: string
+  enabled: boolean
+  connection: MachinePoolConnectionState
+}) {
   const credential = machinePoolProviderDefinitions[values.provider].credential
   const providerLabel = machinePoolProviderLabel(values.provider)
   return (
@@ -252,8 +269,37 @@ function MachinePoolCredentialField({
       }
       defaultSecretName={credential?.defaultSecretName ?? `${values.provider}-api-token`}
       secretValuePlaceholder={credential?.secretValuePlaceholder ?? 'Provider API token'}
+      status={<MachinePoolConnectionStatus connection={connection} />}
     />
   )
+}
+
+function MachinePoolConnectionStatus({ connection }: { connection: MachinePoolConnectionState }) {
+  switch (connection.state) {
+    case 'idle':
+      return null
+    case 'checking':
+      return <FieldDescription>Checking connection…</FieldDescription>
+    case 'connected':
+      return (
+        <FieldDescription className="text-success flex items-center gap-1.5">
+          <CircleCheck className="size-4" />
+          Connected
+        </FieldDescription>
+      )
+    case 'failed':
+      return (
+        <>
+          <FieldError>{connection.message}</FieldError>
+          {connection.details && (
+            <details className="text-muted-foreground text-sm">
+              <summary>Details</summary>
+              <p className="break-words font-mono text-xs">{connection.details}</p>
+            </details>
+          )}
+        </>
+      )
+  }
 }
 
 /** What every machine starts with: working directory and environment variables. */

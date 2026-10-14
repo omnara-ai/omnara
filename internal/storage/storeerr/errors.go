@@ -29,6 +29,7 @@ var (
 	ErrProcessStateUnknown           = errors.New("process state is unknown")
 	ErrInvalidSkillName              = errors.New("invalid skill name")
 	ErrInvalidSecretName             = errors.New("invalid secret name")
+	ErrSecretNameExists              = errors.New("secret name already exists")
 	ErrInvalidSecretRequest          = errors.New("invalid secret request")
 	ErrInvalidActorRequest           = errors.New("invalid actor request")
 	ErrInvalidModelProviderConfig    = errors.New("invalid model provider config")

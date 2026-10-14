@@ -84,6 +84,7 @@ const (
 	operationSubmitToolCallResult          operationID = "SubmitToolCallResult"
 	operationCreateMachine                 operationID = "CreateMachine"
 	operationCreateMachinePool             operationID = "CreateMachinePool"
+	operationCheckMachinePoolConnection    operationID = "CheckMachinePoolConnection"
 	operationCreateModelProviderConfig     operationID = "CreateModelProviderConfig"
 	operationCreateOrgAPIKey               operationID = "CreateOrgAPIKey"
 	operationCreateOrgInvitation           operationID = "CreateOrgInvitation"
@@ -319,6 +320,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCheckMachinePoolConnection: userPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),

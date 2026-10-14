@@ -117,6 +117,7 @@ export {
   useCreateMachinePool,
   useDeleteMachinePool,
   useMachinePool,
+  useMachinePoolConnectionCheck,
   useMachinePools,
   useUpdateMachinePool,
 } from './domains/machine-pools'

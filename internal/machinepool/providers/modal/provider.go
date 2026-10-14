@@ -160,6 +160,23 @@ func (p *provider) InspectMachine(
 	return p.inspectMachine(ctx, client, installationID, machineID, providerResourceID)
 }
 
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	client, err := p.newClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	sandboxes, err := client.Sandboxes.List(ctx, nil)
+	if err != nil {
+		return err
+	}
+	sandboxes(func(_ *modalsdk.Sandbox, listErr error) bool {
+		err = listErr
+		return false
+	})
+	return err
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID uuid.UUID,

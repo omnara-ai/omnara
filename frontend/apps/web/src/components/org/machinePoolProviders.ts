@@ -112,6 +112,7 @@ const blaxel: MachinePoolProviderDefinition = {
     label: 'Workspace',
     placeholder: 'Workspace name',
     required: true,
+    description: 'The workspace name in your Blaxel console URL: app.blaxel.ai/{workspace}.',
   },
   resources: { cpu: 'unsupported', memoryMb: 'configured' },
 }

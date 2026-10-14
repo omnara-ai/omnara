@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -243,6 +244,17 @@ func (p *provider) inspectVM(
 		return vm{}, false, fmt.Errorf("arker vm %s is missing its id", lookup)
 	}
 	return target, true, nil
+}
+
+func (p *provider) CheckConnection(
+	ctx context.Context,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) error {
+	region, err := existingMachineRegion(machineProvisioning)
+	if err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	return p.apiFor(p.regionBaseURL(region)).CheckConnection(ctx)
 }
 
 func (p *provider) DeleteMachine(

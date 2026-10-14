@@ -51,3 +51,12 @@ func MachineFailureReport(ctx context.Context, input executionstore.MachineFailu
 		log.Level(ctx, log.WarnLevel)
 	}
 }
+
+func MachinePoolConnectionCheckFailed(ctx context.Context, provider, message string) {
+	log.Attach(ctx, log.Fields{
+		"machine_pool.connection_check.result":   "failed",
+		"machine_pool.connection_check.provider": provider,
+		"machine_pool.connection_check.error":    message,
+	})
+	log.Level(ctx, log.WarnLevel)
+}

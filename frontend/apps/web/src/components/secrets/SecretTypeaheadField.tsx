@@ -5,7 +5,7 @@ import {
   useSecrets,
 } from '@omnara/react'
 import type { Secret, SecretKind } from '@omnara/sdk'
-import { useId } from 'react'
+import { type ReactNode, useId } from 'react'
 
 import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -158,6 +158,7 @@ export function SecretTypeaheadField({
   onCreateSecret,
   knownSecret,
   kind = 'generic',
+  status,
 }: {
   orgId: string
   enabled: boolean
@@ -169,6 +170,7 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
   kind?: SecretKind
+  status?: ReactNode
 }) {
   const inputId = useId()
   return (
@@ -186,6 +188,7 @@ export function SecretTypeaheadField({
         emptyDescription={emptyDescription}
         kind={kind}
       />
+      {status}
     </Field>
   )
 }
