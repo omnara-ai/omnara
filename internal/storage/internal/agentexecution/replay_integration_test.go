@@ -174,6 +174,32 @@ func TestInteractionReplayStateAndFence(t *testing.T) {
 	}
 }
 
+func assertPersistedHeadMatchesReconstruction(t *testing.T, f executionFixture, agent uuid.UUID) {
+	t.Helper()
+	u, h := f.handle(t, agent)
+	defer func() { require.NoError(t, u.Rollback(t.Context())) }()
+	rebuilt, err := h.ReconstructExecution(t.Context())
+	require.NoError(t, err)
+	persisted := agentexecution.ExecutionHead{AgentID: agent}
+	none := "'00000000-0000-0000-0000-000000000000'::uuid"
+	require.NoError(t, u.DB().QueryRow(t.Context(), `SELECT coalesce(current_turn_id,`+none+`),stop_sequence,
+ max_normal_input_sequence,max_context_input_sequence,coalesce(normal_context_id,`+none+`),
+ coalesce(compaction_context_id,`+none+`),coalesce(pending_tool_output_id,`+none+`),
+ coalesce(pending_output_limit_id,`+none+`),coalesce(pending_config_input_id,`+none+`),
+ coalesce(pending_checkpoint_id,`+none+`),turn_continuable,incomplete_tools,logical_ready_at
+ FROM agent_execution_state WHERE agent_id=$1`, agent).Scan(
+		&persisted.CurrentTurnID, &persisted.StopSequence, &persisted.MaxNormalInputSequence,
+		&persisted.MaxContextInputSequence, &persisted.NormalContextID, &persisted.CompactionContextID,
+		&persisted.PendingToolOutputID, &persisted.PendingOutputLimitID, &persisted.PendingConfigInputID,
+		&persisted.PendingCheckpointID, &persisted.TurnContinuable, &persisted.IncompleteTools,
+		&persisted.LogicalReadyAt))
+	if persisted.LogicalReadyAt != nil && rebuilt.Head.LogicalReadyAt != nil {
+		require.WithinDuration(t, *rebuilt.Head.LogicalReadyAt, *persisted.LogicalReadyAt, 0)
+		persisted.LogicalReadyAt = rebuilt.Head.LogicalReadyAt
+	}
+	require.Equal(t, rebuilt.Head, persisted)
+}
+
 func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 	f, agent, lease := commandFixture(t)
 	for turn := range 3 {
@@ -185,7 +211,9 @@ func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 			ToolRef: ref, Outcome: "succeeded", Content: []agentexecution.Content{{Kind: "text", Text: "done"}},
 		})
 		require.NoError(t, err)
-		assertCommandState(t, u, h)
+		require.NoError(t, u.Commit(t.Context(), "complete tool"))
+		assertPersistedHeadMatchesReconstruction(t, f, agent)
+		u, h = f.handle(t, agent)
 		prepared := prepareCommand(t, h, lease)
 		_, err = h.AcceptOutput(t.Context(), agentexecution.AcceptOutputInput{
 			RuntimeLockID: lease, ContextID: prepared.Context.ID,
@@ -193,12 +221,9 @@ func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NoError(t, u.Commit(t.Context(), "complete turn"))
+		assertPersistedHeadMatchesReconstruction(t, f, agent)
 		u, h = f.handle(t, agent)
 		snapshot := assertCommandState(t, u, h)
-		var storedTurn uuid.UUID
-		require.NoError(t, u.DB().QueryRow(t.Context(),
-			`SELECT current_turn_id FROM agent_execution_state WHERE agent_id=$1`, agent).Scan(&storedTurn))
-		require.Equal(t, storedTurn, snapshot.Head.CurrentTurnID)
 		require.False(t, snapshot.Head.TurnContinuable, "turn %d", turn)
 		require.NoError(t, u.Rollback(t.Context()))
 	}

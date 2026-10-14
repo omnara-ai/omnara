@@ -14,6 +14,9 @@ import (
 const inboxDeliveryUnavailableMessage = "I couldn't deliver this request to the agent. " +
 	"Please contact the integration owner."
 
+const partialInboxDeliveryMessage = "I couldn't deliver this request to every agent. " +
+	"Some agents have already received it."
+
 func (c *IntegrationInboxConsumer) FinalizeFailure(
 	ctx context.Context, projectID, receiptID uuid.UUID, cause error,
 ) error {
@@ -44,7 +47,7 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(
 					unfinished = true
 					pendingSubscription = pendingSubscription || plan.Recipients[key].Subscription != nil
 				} else if outcome == executionstore.InboxRecipientDelivered {
-					message = "I couldn't deliver this request to every agent. Some agents have already received it."
+					message = partialInboxDeliveryMessage
 				}
 			}
 			if pendingSubscription && message == inboxFailureMessage {
@@ -55,7 +58,7 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(
 	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
 		message = launchUnavailableMessage
 	}
-	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
+	if errors.Is(cause, storeerr.ErrAgentBacklogFull) && message != partialInboxDeliveryMessage {
 		message = storeerr.ErrAgentBacklogFull.Error()
 	}
 	if unfinished {

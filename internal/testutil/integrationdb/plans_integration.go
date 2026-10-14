@@ -50,12 +50,14 @@ func ReadPlan(t testing.TB, raw []byte) PlanNode {
 	require.Len(t, plans, 1)
 	return plans[0].Plan
 }
+
 func (p PlanNode) Walk(visit func(PlanNode)) {
 	visit(p)
 	for _, child := range p.Plans {
 		child.Walk(visit)
 	}
 }
+
 func PlanBuffers(t testing.TB, raw []byte) int {
 	t.Helper()
 	plan := ReadPlan(t, raw)

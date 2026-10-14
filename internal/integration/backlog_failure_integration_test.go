@@ -42,7 +42,7 @@ func TestIntegrationInboxFullBacklogExhaustionNotice(t *testing.T) {
 			require.NoError(t, err)
 		} else {
 			require.Equal(t, integrationstore.IntegrationInboxFailed, current.State)
-			require.Equal(t, []string{storeerr.AgentBacklogFullMessage}, f.provider.notices)
+			require.Equal(t, []string{partialInboxDeliveryMessage}, f.provider.notices)
 		}
 	}
 }

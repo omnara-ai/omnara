@@ -18,18 +18,26 @@ func TestExecutionBulkAndLoopLinearity(t *testing.T) {
 	ctx := t.Context()
 	for _, mode := range []string{"bulk", "loop"} {
 		t.Run(mode, func(t *testing.T) {
+			perAgent := map[int]float64{}
 			for _, n := range []int{1000, 10000} {
 				t.Run(fmt.Sprint(n), func(t *testing.T) {
 					cell := agentexecution.NewCell(f.pool, nil, nil)
 					u, err := agentexecution.BeginTestUnit(ctx, cell)
 					require.NoError(t, err)
 					defer func() { _ = u.Rollback(ctx) }()
+					tuplesRead := func() int64 {
+						var total int64
+						require.NoError(t, u.DB().QueryRow(ctx, `SELECT
+ coalesce(sum(coalesce(seq_tup_read,0)+coalesce(idx_tup_fetch,0)),0) FROM pg_stat_xact_user_tables`).Scan(&total))
+						return total
+					}
+					before := tuplesRead()
 					started := time.Now()
 					ids := make([]uuid.UUID, n)
 					for i := range ids {
 						ids[i] = uuid.New()
 					}
-					trace, err := agentexecution.TraceExecutionCommand(u, func() error {
+					func() {
 						if mode == "bulk" {
 							_, err = u.DB().
 								Exec(ctx, `
@@ -53,14 +61,12 @@ INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) VA
 								require.NoError(t, err)
 							}
 						}
-						return nil
-					})
+					}()
+					_, err = u.DB().Exec(ctx, "SET CONSTRAINTS ALL IMMEDIATE")
 					require.NoError(t, err)
-					bound := 2
-					if mode == "loop" {
-						bound *= n
-					}
-					require.LessOrEqual(t, len(trace), bound)
+					touched := tuplesRead() - before
+					perAgent[n] = float64(touched) / float64(n)
+					t.Logf("%s %d agents: %d tuples read", mode, n, touched)
 					require.NoError(t, u.Commit(ctx, "linearity fixture"))
 					elapsed := time.Since(started)
 					t.Logf("%s %d agents: %s (%s/agent)", mode, n, elapsed, elapsed/time.Duration(n))
@@ -73,6 +79,7 @@ INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) VA
 					require.Equal(t, n, count)
 				})
 			}
+			require.LessOrEqual(t, perAgent[10000], perAgent[1000]+1, "tuples read per created agent")
 		})
 	}
 }

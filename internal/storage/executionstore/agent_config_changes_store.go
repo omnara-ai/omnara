@@ -85,17 +85,21 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	stored, replay, err := loadAgentInputByIdempotencyMaybeTx(ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		"agent_config_change",
-		input.IdempotencyKey)
-	if err != nil {
-		return ChangeAgentConfigResult{}, err
+	replay := func() (ChangeAgentConfigResult, bool, error) {
+		stored, found, err := loadAgentInputByIdempotencyMaybeTx(ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			"agent_config_change",
+			input.IdempotencyKey)
+		if err != nil || !found {
+			return ChangeAgentConfigResult{}, false, err
+		}
+		result, err := replayAgentConfigChangeTx(ctx, unit, qtx, input, stored)
+		return result, true, err
 	}
-	if replay {
-		return replayAgentConfigChangeTx(ctx, unit, qtx, input, stored)
+	if result, replayed, err := replay(); replayed || err != nil {
+		return result, err
 	}
 	if err := lockConfigChangeIntegrationsTx(ctx, tx, qtx, input); err != nil {
 		return ChangeAgentConfigResult{}, err
@@ -105,6 +109,9 @@ func (s *Store) changeAgentConfigOnce(
 		dbsqlc.LockAgentMachineSourcesParams{AgentID: input.AgentID},
 	); err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("lock agent machine sources for config change: %w", err)
+	}
+	if result, replayed, err := replay(); replayed || err != nil {
+		return result, err
 	}
 	agent, err := qtx.GetAgentInProject(
 		ctx,
