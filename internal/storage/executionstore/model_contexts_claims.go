@@ -290,75 +290,18 @@ func claimCompactionContextTx(
 	q *dbsqlc.Queries,
 	input claimCompactionContextInput,
 ) (modelCallContextClaimTx, error) {
-	parent, err := loadModelCallContextByID(
-		ctx,
-		q,
-		input.ProjectID,
-		input.AgentID,
-		input.ParentContextID,
-	)
-	if err != nil {
-		return modelCallContextClaimTx{}, fmt.Errorf("load parent model call context: %w", err)
-	}
-	if parent.OperationKind != ModelCallOperationNormal ||
-		parent.InputEventSequence != input.InputEventSequence ||
-		parent.State != ModelCallContextFailed ||
-		(parent.RecoveryKind != ModelCallRecoveryCompact && parent.RecoveryKind != ModelCallRecoveryCompactOptional) {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
-	summarizedThrough := int64(0)
-	checkpoint, checkpointErr := q.GetLatestApplicableContextCheckpoint(
-		ctx,
-		dbsqlc.GetLatestApplicableContextCheckpointParams{
-			ProjectID:        input.ProjectID,
-			AgentID:          input.AgentID,
-			MaxEventSequence: input.InputEventSequence,
-		},
-	)
-	if checkpointErr == nil {
-		summarizedThrough = checkpoint.SummarizedThroughEventSequence
-	} else if !errors.Is(checkpointErr, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("load prior compaction checkpoint: %w", checkpointErr)
-	}
-	if !compactionSourceMatchesCheckpoint(
-		input.SourceEventSequenceEnd, input.ReplacesCheckpointID, checkpoint.ID, summarizedThrough,
-	) {
-		return modelCallContextClaimTx{}, storeerr.ErrAgentNotAdvanceable
-	}
 	sourceEnd := input.SourceEventSequenceEnd
-	identity := dbsqlc.GetCompactionModelCallContextByIdentityParams{
-		ParentNormalModelCallContextID: &input.ParentContextID,
-		SourceExcerptBytes:             int32FromIntPtr(input.SourceExcerptBytes),
-		ProjectID:                      input.ProjectID,
-		AgentID:                        input.AgentID,
-		InputEventSequence:             input.InputEventSequence,
-		SourceEventSequenceEnd:         &sourceEnd,
-	}
-	id, err := q.GetCompactionModelCallContextByIdentity(ctx, identity)
-	if err == nil {
-		row, loadErr := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, id)
-		if loadErr == nil && row.AgentConfigID != parent.AgentConfigID {
-			return modelCallContextClaimTx{}, fmt.Errorf(
-				"agent config changed after compaction context creation: %w",
-				storeerr.ErrStateTransitionConflict,
-			)
-		}
-		return modelCallContextClaimTx{context: row}, loadErr
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return modelCallContextClaimTx{}, fmt.Errorf("load compaction model call context: %w", err)
-	}
 	modelRevision, err := getModelCallRevisionForClaim(
 		ctx,
 		q,
 		input.ProjectID,
-		parent.AgentConfigID,
+		input.AgentConfigID,
 	)
 	if err != nil {
 		return modelCallContextClaimTx{}, err
 	}
 
-	id, err = q.InsertTriggeredCompactionModelCallContext(
+	id, err := q.InsertTriggeredCompactionModelCallContext(
 		ctx,
 		dbsqlc.InsertTriggeredCompactionModelCallContextParams{
 			SourceExcerptBytes:        int32FromIntPtr(input.SourceExcerptBytes),
@@ -380,7 +323,7 @@ func claimCompactionContextTx(
 	if err != nil {
 		return modelCallContextClaimTx{}, fmt.Errorf("load compaction model call context: %w", err)
 	}
-	if row.AgentConfigID != parent.AgentConfigID {
+	if row.AgentConfigID != input.AgentConfigID {
 		return modelCallContextClaimTx{}, fmt.Errorf(
 			"agent config changed before compaction context creation: %w",
 			storeerr.ErrStateTransitionConflict,
@@ -570,15 +513,12 @@ func loadLatestModelCallContextForOperation(
 			},
 		)
 	case ModelCallOperationCompaction:
-		id, err = q.GetCompactionModelCallContextByIdentity(
+		id, err = q.GetLatestCompactionModelCallContext(
 			ctx,
-			dbsqlc.GetCompactionModelCallContextByIdentityParams{
+			dbsqlc.GetLatestCompactionModelCallContextParams{
 				ParentNormalModelCallContextID: &contextRow.ParentNormalModelCallContextID,
-				SourceExcerptBytes:             int32FromIntPtr(contextRow.SourceExcerptBytes),
 				ProjectID:                      contextRow.ProjectID,
 				AgentID:                        contextRow.AgentID,
-				InputEventSequence:             contextRow.InputEventSequence,
-				SourceEventSequenceEnd:         contextRow.SourceEventSequenceEnd,
 			},
 		)
 	default:

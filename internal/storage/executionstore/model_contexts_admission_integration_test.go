@@ -252,7 +252,9 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 	require.Equal(t, 32000, state.LastOptionalInputTargetTokens)
 	require.True(t, state.LastOptionalCompactionNeedsHeadroom)
-	require.Zero(t, state.RetryCount)
+	retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, next.Context.ID)
+	require.NoError(t, err)
+	require.Zero(t, retry.RetryCount)
 	require.False(t, state.HasPriorNormalAttempt)
 	var continuable int
 	require.NoError(
@@ -432,7 +434,21 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, replacement.CompactionCall.Claimed)
 	require.Equal(t, &budget, replacement.CompactionCall.Context.SourceExcerptBytes)
-	state, err := fixture.Store.Execution().GetModelCallRecoveryState(
+	require.Equal(t, claim.Context.AttemptNumber+1, replacement.CompactionCall.Context.AttemptNumber)
+	stale, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+		PredecessorModelCallContextID: claim.Context.ID,
+	})
+	require.NoError(t, err)
+	require.False(t, stale.Created)
+	require.False(t, stale.Claimed)
+	require.Equal(t, replacement.CompactionCall.Context.ID, stale.Context.ID)
+	var continuableID uuid.UUID
+	require.NoError(t, fixture.Store.pool.QueryRow(ctx,
+		`SELECT model_call_context_id FROM agent_continuable_model_contexts($1,$2)`,
+		testProjectID, fixture.AgentID).Scan(&continuableID))
+	require.Equal(t, replacement.CompactionCall.Context.ID, continuableID)
+	state, err := fixture.Store.Execution().GetModelCallRetryState(
 		ctx,
 		testProjectID,
 		fixture.AgentID,

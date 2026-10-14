@@ -82,7 +82,7 @@ func (r Runner) recordFailure(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
-	recovery, err := r.Store.GetModelCallRecoveryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
+	recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
 	if err != nil {
 		return RunResult{}, errors.Join(cause, err)
 	}
@@ -268,7 +268,7 @@ func (r Runner) replaceCompactionSource(
 	nextEnd int64,
 ) (RunResult, error) {
 	if providerAttempt.ProviderRequestStarted {
-		recovery, err := r.Store.GetModelCallRecoveryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
+		recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
 		if err != nil {
 			return RunResult{}, errors.Join(cause, err)
 		}

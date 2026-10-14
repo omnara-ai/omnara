@@ -74,7 +74,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("load retryable model call context: %w", err)
 	}
-	recovery, err := getModelCallRecoveryStateTx(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
+	recovery, err := getModelCallRetryStateTx(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}

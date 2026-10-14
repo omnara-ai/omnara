@@ -32,10 +32,10 @@ type ExecutionStore interface {
 		projectID, agentID uuid.UUID,
 		maxEventSequence int64,
 	) (executionstore.ContextCheckpointRecord, bool, error)
-	GetModelCallRecoveryState(
+	GetModelCallRetryState(
 		ctx context.Context,
 		projectID, agentID, modelCallContextID uuid.UUID,
-	) (executionstore.ModelCallRecoveryState, error)
+	) (executionstore.ModelCallRetryState, error)
 	RecordRetryableModelCallFailure(
 		ctx context.Context,
 		input executionstore.RecordRecoverableModelCallFailureInput,

@@ -125,12 +125,11 @@ type ClaimNormalModelCallInput struct {
 }
 
 type claimCompactionContextInput struct {
-	ReplacesCheckpointID   uuid.UUID
+	AgentConfigID          uuid.UUID
 	SourceExcerptBytes     *int
 	ProjectID              uuid.UUID
 	AgentID                uuid.UUID
 	RuntimeLockID          uuid.UUID
-	InputEventSequence     int64
 	SourceEventSequenceEnd int64
 	ParentContextID        uuid.UUID
 }

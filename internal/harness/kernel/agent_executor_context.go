@@ -495,7 +495,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			response,
 		)
 	}
-	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
+	recovery, err := e.Store.Execution().GetModelCallRetryState(
 		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
 	)
 	if err != nil {

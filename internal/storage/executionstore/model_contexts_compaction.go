@@ -156,23 +156,17 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		}, nil
 	}
 	compactionClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
-		ReplacesCheckpointID:   input.ReplacesCheckpointID,
+		AgentConfigID:          parent.AgentConfigID,
 		ProjectID:              failure.ProjectID,
 		AgentID:                failure.AgentID,
 		RuntimeLockID:          failure.RuntimeLockID,
-		InputEventSequence:     parent.InputEventSequence,
 		SourceEventSequenceEnd: input.SourceEventSequenceEnd,
 		ParentContextID:        parent.ID,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
-	if !compactionClaimTx.created {
-		return TriggeredCompactionHandoff{}, fmt.Errorf(
-			"triggered compaction context already exists: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
+
 	compactionClaim, err := applyModelCallAdmissionTx(
 		ctx,
 		txNotifications,
@@ -330,11 +324,10 @@ func (s *Store) ReplaceCompactionSource(
 	}
 
 	nextClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
-		ReplacesCheckpointID:   contextRow.ReplacesCheckpointID,
+		AgentConfigID:          contextRow.AgentConfigID,
 		ProjectID:              contextRow.ProjectID,
 		AgentID:                contextRow.AgentID,
 		RuntimeLockID:          input.RuntimeLockID,
-		InputEventSequence:     contextRow.InputEventSequence,
 		SourceEventSequenceEnd: input.NextSourceEventSequenceEnd,
 		ParentContextID:        contextRow.ParentNormalModelCallContextID,
 		SourceExcerptBytes:     input.NextSourceExcerptBytes,
@@ -342,12 +335,7 @@ func (s *Store) ReplaceCompactionSource(
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	if !nextClaimTx.created {
-		return ReplaceCompactionSourceResult{}, fmt.Errorf(
-			"replacement compaction context already exists: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
+
 	nextClaim, err := applyModelCallAdmissionTx(
 		ctx,
 		txNotifications,

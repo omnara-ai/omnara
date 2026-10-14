@@ -57,7 +57,7 @@ func recoverRuntimeModelCallContextTx(
 	if err != nil {
 		return fmt.Errorf("marshal runtime recovery error: %w", err)
 	}
-	recovery, err := getModelCallRecoveryStateTx(ctx, qtx, projectID, agentID, contextRecord.ID)
+	recovery, err := getModelCallRetryStateTx(ctx, qtx, projectID, agentID, contextRecord.ID)
 	if err != nil {
 		return err
 	}

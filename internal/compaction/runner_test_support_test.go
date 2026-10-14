@@ -91,12 +91,12 @@ func (s *fakeStore) GetLatestApplicableContextCheckpoint(
 	return *s.priorCheckpoint, true, nil
 }
 
-func (s *fakeStore) GetModelCallRecoveryState(
+func (s *fakeStore) GetModelCallRetryState(
 	_ context.Context,
 	_, _ uuid.UUID,
 	_ uuid.UUID,
-) (executionstore.ModelCallRecoveryState, error) {
-	return executionstore.ModelCallRecoveryState{
+) (executionstore.ModelCallRetryState, error) {
+	return executionstore.ModelCallRetryState{
 		RetryCount:         max(s.compactionRetryCount, len(s.retryFailures)),
 		ParentRecoveryKind: s.parentRecoveryKind,
 	}, nil

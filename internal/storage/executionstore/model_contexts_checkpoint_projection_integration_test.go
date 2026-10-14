@@ -101,7 +101,9 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 		require.NoError(t, err)
 		require.Equal(t, checkpoint.ID, state.RecoveryCheckpointID)
 		require.Equal(t, failure.RecoveryCheckpointRetainedBytes, state.RecoveryCheckpointRetainedBytes)
-		require.Zero(t, state.RetryCount)
+		retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, current.ID)
+		require.NoError(t, err)
+		require.Zero(t, retry.RetryCount)
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 			checkpointProjectionFailure(fixture, current, *state.RecoveryCheckpointRetainedBytes))
 		assertPgErrorMessage(t, err, "23514", "recovery checkpoint retained bytes must decrease")
@@ -255,7 +257,9 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 					)
 					require.NoError(t, err)
 					require.True(t, state.CheckpointRecompressionAttempted)
-					require.Equal(t, retries, state.RetryCount)
+					retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, child.ID)
+					require.NoError(t, err)
+					require.Equal(t, retries, retry.RetryCount)
 					if retries < executionstore.MaxModelCallRetriesPerOperation {
 						_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
 							ctx, executionstore.RecordRecoverableModelCallFailureInput{

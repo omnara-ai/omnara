@@ -14,8 +14,6 @@ type ModelCallRecoveryState struct {
 	RecoveryCheckpointID                  uuid.UUID
 	RecoveryCheckpointRetainedBytes       *int
 	CheckpointRecompressionAttempted      bool
-	RetryCount                            int
-	ParentRecoveryKind                    ModelCallRecoveryKind
 	LastOptionalInputTargetTokens         int
 	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
@@ -29,18 +27,10 @@ func (s *Store) GetModelCallRecoveryState(
 	ctx context.Context,
 	projectID, agentID, contextID uuid.UUID,
 ) (ModelCallRecoveryState, error) {
-	return getModelCallRecoveryStateTx(ctx, s.q, projectID, agentID, contextID)
-}
-
-func getModelCallRecoveryStateTx(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID, contextID uuid.UUID,
-) (ModelCallRecoveryState, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil || contextID == uuid.Nil {
 		return ModelCallRecoveryState{}, errors.New("project, agent, and model context are required")
 	}
-	row, err := q.GetModelCallRecoveryState(ctx, dbsqlc.GetModelCallRecoveryStateParams{
+	row, err := s.q.GetModelCallRecoveryState(ctx, dbsqlc.GetModelCallRecoveryStateParams{
 		ProjectID: projectID, AgentID: agentID, ModelCallContextID: contextID,
 	})
 	if err != nil {
@@ -50,8 +40,6 @@ func getModelCallRecoveryStateTx(
 		RecoveryCheckpointID:                  storeutil.IDFromPtr(row.RecoveryCheckpointID),
 		RecoveryCheckpointRetainedBytes:       intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
 		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
-		RetryCount:                            int(row.RetryCount),
-		ParentRecoveryKind:                    ModelCallRecoveryKind(row.ParentRecoveryKind),
 		LastOptionalInputTargetTokens:         int(row.LastOptionalInputTargetTokens),
 		LastOptionalCompactionNeedsHeadroom:   row.LastOptionalCompactionNeedsHeadroom,
 		OptionalCompactionAttemptedAtFrontier: row.OptionalCompactionAttemptedAtFrontier,
@@ -59,5 +47,37 @@ func getModelCallRecoveryStateTx(
 		MinimumObservedNormalInputTokens:      int(row.MinimumObservedNormalInputTokens),
 		HasPriorNormalAttempt:                 row.HasPriorNormalAttempt,
 		CheckpointNeedsNormalAttempt:          row.CheckpointNeedsNormalAttempt,
+	}, nil
+}
+
+type ModelCallRetryState struct {
+	RetryCount         int
+	ParentRecoveryKind ModelCallRecoveryKind
+}
+
+func (s *Store) GetModelCallRetryState(
+	ctx context.Context,
+	projectID, agentID, contextID uuid.UUID,
+) (ModelCallRetryState, error) {
+	return getModelCallRetryStateTx(ctx, s.q, projectID, agentID, contextID)
+}
+
+func getModelCallRetryStateTx(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID, contextID uuid.UUID,
+) (ModelCallRetryState, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || contextID == uuid.Nil {
+		return ModelCallRetryState{}, errors.New("project, agent, and model context are required")
+	}
+	row, err := q.GetModelCallRetryState(ctx, dbsqlc.GetModelCallRetryStateParams{
+		ProjectID: projectID, AgentID: agentID, ModelCallContextID: contextID,
+	})
+	if err != nil {
+		return ModelCallRetryState{}, fmt.Errorf("load model call retry state: %w", err)
+	}
+	return ModelCallRetryState{
+		RetryCount:         int(row.RetryCount),
+		ParentRecoveryKind: ModelCallRecoveryKind(row.ParentRecoveryKind),
 	}, nil
 }

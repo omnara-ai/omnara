@@ -228,7 +228,7 @@ WHERE project_id = $1
   AND operation_kind = 'compaction'
   AND input_event_sequence = $3
   AND source_event_sequence_end = $4
-  AND attempt_number = 1
+  AND attempt_number = 3
   AND state = 'started'
 `, testProjectID, fixture.AgentID, retry.Context.InputEventSequence, replacementEnd).Scan(
 		&replacementCount,

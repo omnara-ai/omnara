@@ -97,7 +97,8 @@ live_runtime AS MATERIALIZED (
 ),
 latest_compaction AS MATERIALIZED (
   SELECT dependency.id, dependency.state, dependency.recovery_kind,
-         dependency.input_event_sequence, dependency.source_event_sequence_end, dependency.source_excerpt_bytes
+         dependency.input_event_sequence, dependency.source_event_sequence_end, dependency.source_excerpt_bytes,
+         dependency.attempt_number
   FROM model_call_contexts dependency
   JOIN model_call_contexts parent ON parent.project_id = dependency.project_id
     AND parent.agent_id = dependency.agent_id
@@ -106,13 +107,12 @@ latest_compaction AS MATERIALIZED (
     AND agent.id = parent.agent_id
   WHERE dependency.operation_kind = 'compaction'
     AND dependency.parent_normal_model_call_context_id = parent.id
-  ORDER BY dependency.source_event_sequence_end ASC,
-           dependency.source_excerpt_bytes ASC NULLS LAST, dependency.attempt_number DESC
+  ORDER BY dependency.attempt_number DESC
   LIMIT 1
 ),
 blocked AS MATERIALIZED (
   SELECT context.id, context.agent_config_id,
-         context.input_event_sequence
+         context.input_event_sequence, coalesce(latest.attempt_number, 0) + 1 AS attempt_number
   FROM model_call_contexts context
   JOIN active_agent agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
@@ -154,7 +154,7 @@ SELECT active_agent.org_id,
        active_agent.project_id,
        active_agent.id,
        'compaction',
-       1,
+       blocked.attempt_number,
        blocked.agent_config_id,
        selected_model.configured_model_revision_id,
        blocked.input_event_sequence,
@@ -180,16 +180,13 @@ WHERE context.project_id = sqlc.arg(project_id)
 ORDER BY context.attempt_number DESC
 LIMIT 1;
 
--- name: GetCompactionModelCallContextByIdentity :one
+-- name: GetLatestCompactionModelCallContext :one
 SELECT context.id
 FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
   AND context.operation_kind = 'compaction'
   AND context.parent_normal_model_call_context_id = sqlc.arg(parent_normal_model_call_context_id)
-  AND context.source_excerpt_bytes IS NOT DISTINCT FROM sqlc.narg(source_excerpt_bytes)::integer
-  AND context.input_event_sequence = sqlc.arg(input_event_sequence)
-  AND context.source_event_sequence_end = sqlc.arg(source_event_sequence_end)
 ORDER BY context.attempt_number DESC
 LIMIT 1;
 
@@ -537,18 +534,28 @@ FROM agent_model_call_opening_content_inputs(
 ) AS opening(input_id, event_sequence)
 ORDER BY opening.event_sequence;
 
+-- name: GetModelCallRetryState :one
+SELECT model_call_transient_retry_count(context.id)::bigint AS retry_count,
+       coalesce(parent.recovery_kind, '')::text AS parent_recovery_kind
+FROM model_call_contexts context
+LEFT JOIN model_call_contexts parent ON parent.project_id = context.project_id
+  AND parent.agent_id = context.agent_id AND parent.id = context.parent_normal_model_call_context_id
+WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(model_call_context_id);
+
 -- name: GetModelCallRecoveryState :one
 WITH current AS MATERIALIZED (
-  SELECT context.id, context.agent_id, context.operation_kind, context.input_event_sequence,
+  SELECT context.id, context.project_id, context.agent_id, context.operation_kind, context.input_event_sequence,
          context.parent_normal_model_call_context_id, context.configured_model_revision_id,
          context.agent_config_id, context.created_at
   FROM model_call_contexts context
   WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
     AND context.id = sqlc.arg(model_call_context_id)
 ), latest_optional AS MATERIALIZED (
-  SELECT prior.id, prior.optional_input_target_tokens, prior.completed_at
+  SELECT prior.id, prior.project_id, prior.agent_id, prior.optional_input_target_tokens, prior.completed_at
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
-  WHERE prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
+  WHERE prior.project_id = current.project_id
+    AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'compact_optional'
     AND prior.configured_model_revision_id = current.configured_model_revision_id
     AND prior.agent_config_id = current.agent_config_id
     AND prior.created_at < current.created_at
@@ -556,12 +563,14 @@ WITH current AS MATERIALIZED (
 ), latest_optional_child AS MATERIALIZED (
   SELECT child.state, child.optional_compaction_outcome
   FROM model_call_contexts child JOIN latest_optional ON child.parent_normal_model_call_context_id = latest_optional.id
-  ORDER BY child.created_at DESC, child.id DESC LIMIT 1
+    AND child.project_id = latest_optional.project_id AND child.agent_id = latest_optional.agent_id
+  WHERE child.operation_kind = 'compaction'
+  ORDER BY child.attempt_number DESC LIMIT 1
 ), latest_observed_normal AS MATERIALIZED (
   SELECT measured.input_tokens_total,
          min(nullif(measured.input_tokens_total, 0)) OVER () AS minimum_input_tokens
   FROM model_call_contexts measured
-  JOIN current ON measured.agent_id = current.agent_id
+  JOIN current ON measured.project_id = current.project_id AND measured.agent_id = current.agent_id
     AND measured.configured_model_revision_id = current.configured_model_revision_id
     AND measured.agent_config_id = current.agent_config_id
   JOIN latest_optional ON measured.created_at > latest_optional.completed_at
@@ -579,15 +588,14 @@ WITH current AS MATERIALIZED (
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
   JOIN latest_checkpoint ON prior.input_event_sequence >= latest_checkpoint.sequence
     AND prior.input_event_sequence <= current.input_event_sequence
-  WHERE prior.configured_model_revision_id = current.configured_model_revision_id
+  WHERE prior.project_id = current.project_id
+    AND prior.configured_model_revision_id = current.configured_model_revision_id
     AND prior.agent_config_id = current.agent_config_id
     AND prior.recovery_checkpoint_retained_bytes IS NOT NULL
     AND prior.created_at < current.created_at
   ORDER BY prior.recovery_checkpoint_retained_bytes LIMIT 1
 )
-SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
-       coalesce(parent.recovery_kind, '')::text AS parent_recovery_kind,
-       checkpoint_projection.recovery_checkpoint_id,
+SELECT checkpoint_projection.recovery_checkpoint_id,
        checkpoint_projection.recovery_checkpoint_retained_bytes,
        EXISTS (
          SELECT 1 FROM model_call_contexts prior
@@ -600,7 +608,7 @@ SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
                AND event.sequence <= prior.input_event_sequence
              ORDER BY event.sequence DESC LIMIT 1
            )
-         WHERE prior.agent_id = current.agent_id AND prior.operation_kind = 'compaction'
+         WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id AND prior.operation_kind = 'compaction'
            AND prior.agent_config_id = current.agent_config_id
            AND prior.configured_model_revision_id = current.configured_model_revision_id
            AND prior.created_at < current.created_at
@@ -610,22 +618,21 @@ SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
          OR latest_optional_child.optional_compaction_outcome = 'ineffective',
          false)::boolean AS last_optional_compaction_needs_headroom,
        EXISTS (
-         SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+         SELECT 1 FROM model_call_contexts prior WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id
            AND prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
            AND prior.input_event_sequence = current.input_event_sequence AND prior.created_at < current.created_at
        )::boolean AS optional_compaction_attempted_at_frontier,
        coalesce(latest_observed_normal.input_tokens_total, 0)::integer AS latest_observed_normal_input_tokens,
        coalesce(latest_observed_normal.minimum_input_tokens, 0)::integer AS minimum_observed_normal_input_tokens,
-       EXISTS (SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+       EXISTS (SELECT 1 FROM model_call_contexts prior WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id
           AND prior.operation_kind = 'normal' AND prior.input_event_sequence = current.input_event_sequence
           AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional')::boolean AS has_prior_normal_attempt,
        (latest_checkpoint.sequence IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+          SELECT 1 FROM model_call_contexts prior WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id
             AND prior.operation_kind = 'normal' AND prior.input_event_sequence >= latest_checkpoint.sequence
             AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional'
        ))::boolean AS checkpoint_needs_normal_attempt
 FROM current
-LEFT JOIN model_call_contexts parent ON parent.id = current.parent_normal_model_call_context_id
 LEFT JOIN latest_optional ON true
 LEFT JOIN latest_optional_child ON true
 LEFT JOIN latest_observed_normal ON true

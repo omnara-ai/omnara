@@ -12,6 +12,7 @@ ALTER TABLE model_call_contexts
 -- Existing compactions have exactly one blocked normal operation at their frontier.
 -- Backfill before strengthening the immutable identity and parent constraints.
 ALTER TABLE model_call_contexts DISABLE TRIGGER model_call_contexts_transition_guard;
+DROP INDEX model_call_contexts_compaction_identity_idx;
 UPDATE model_call_contexts child
 SET parent_normal_model_call_context_id = (
     SELECT parent.id FROM model_call_contexts parent
@@ -23,6 +24,16 @@ SET parent_normal_model_call_context_id = (
     ORDER BY parent.attempt_number DESC LIMIT 1
 )
 WHERE child.operation_kind = 'compaction';
+WITH numbered AS (
+    SELECT id, row_number() OVER (
+        PARTITION BY parent_normal_model_call_context_id
+        ORDER BY source_event_sequence_end DESC, attempt_number
+    )::integer AS attempt_number
+    FROM model_call_contexts WHERE operation_kind = 'compaction'
+)
+UPDATE model_call_contexts context
+SET attempt_number = numbered.attempt_number
+FROM numbered WHERE numbered.id = context.id;
 ALTER TABLE model_call_contexts ENABLE TRIGGER model_call_contexts_transition_guard;
 
 -- +goose StatementBegin
@@ -81,22 +92,12 @@ ALTER TABLE model_call_contexts
 ALTER TABLE context_checkpoints
     DROP CONSTRAINT context_checkpoints_agent_id_summarized_through_event_seque_key;
 
-DROP INDEX model_call_contexts_compaction_identity_idx;
-CREATE UNIQUE INDEX model_call_contexts_compaction_identity_idx ON model_call_contexts(
-    project_id, agent_id, parent_normal_model_call_context_id,
-    source_event_sequence_end, coalesce(source_excerpt_bytes, 0), attempt_number
-) WHERE operation_kind = 'compaction';
+CREATE INDEX agent_events_checkpoint_sequence_idx ON agent_events(agent_id, sequence)
+    WHERE event_kind = 'context_checkpoint';
 
-CREATE OR REPLACE VIEW model_call_context_turns AS
-SELECT context.project_id, context.agent_id, context.id AS model_call_context_id,
-       context.input_event_sequence, context.operation_kind, context.attempt_number,
-       context.source_event_sequence_end, context.state, context.recovery_kind,
-       context_turn.turn_id, context.parent_normal_model_call_context_id,
-       context.source_excerpt_bytes
-FROM model_call_contexts context
-JOIN LATERAL (
-    SELECT agent_turn_id_at_event_sequence(context.agent_id, context.input_event_sequence) AS turn_id
-) context_turn ON context_turn.turn_id IS NOT NULL;
+CREATE UNIQUE INDEX model_call_contexts_compaction_identity_idx ON model_call_contexts(
+    project_id, agent_id, parent_normal_model_call_context_id, attempt_number
+) WHERE operation_kind = 'compaction';
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION agent_continuable_model_contexts(p_project_id uuid, p_agent_id uuid)
@@ -109,76 +110,41 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 AS $$
-WITH latest_turn AS MATERIALIZED (
-    SELECT agent_latest_turn_id(p_project_id, p_agent_id) AS turn_id
+WITH latest_normal AS MATERIALIZED (
+    SELECT context.id
+    FROM model_call_contexts context
+    WHERE context.project_id = p_project_id AND context.agent_id = p_agent_id
+      AND context.operation_kind = 'normal'
+    ORDER BY context.input_event_sequence DESC, context.attempt_number DESC LIMIT 1
+), current_context AS (
+    SELECT coalesce((
+        SELECT child.id FROM model_call_contexts child
+        WHERE child.project_id = p_project_id AND child.agent_id = p_agent_id
+          AND child.operation_kind = 'compaction'
+          AND child.parent_normal_model_call_context_id = latest_normal.id
+        ORDER BY child.attempt_number DESC LIMIT 1
+    ), latest_normal.id) AS id
+    FROM latest_normal
 )
-SELECT context.turn_id,
-       context.model_call_context_id,
+SELECT context_turn.turn_id,
+       context.id,
        context.input_event_sequence,
        model_call_context_has_later_semantic_event(
            context.project_id,
            context.agent_id,
-           context.model_call_context_id
+           context.id
        )
-FROM model_call_context_turns context
-JOIN latest_turn ON latest_turn.turn_id = context.turn_id
-WHERE context.project_id = p_project_id
-  AND context.agent_id = p_agent_id
+FROM current_context
+JOIN model_call_contexts context ON context.id = current_context.id
+CROSS JOIN LATERAL (
+    SELECT agent_turn_id_at_event_sequence(context.agent_id, context.input_event_sequence) AS turn_id
+) context_turn
+WHERE context_turn.turn_id = agent_latest_turn_id(p_project_id, p_agent_id)
   AND (
       context.state = 'started'
       OR (
           context.state = 'failed'
           AND context.recovery_kind IS NOT NULL
-      )
-  )
-  AND NOT EXISTS (
-      SELECT 1
-      FROM model_call_contexts newer
-      WHERE newer.project_id = context.project_id
-        AND newer.agent_id = context.agent_id
-        AND newer.operation_kind = context.operation_kind
-        AND newer.input_event_sequence = context.input_event_sequence
-        AND newer.parent_normal_model_call_context_id IS NOT DISTINCT FROM context.parent_normal_model_call_context_id
-        AND (
-            (
-                newer.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
-                AND newer.source_excerpt_bytes IS NOT DISTINCT FROM context.source_excerpt_bytes
-                AND newer.attempt_number > context.attempt_number
-            )
-            OR (
-                context.operation_kind = 'compaction'
-                AND (newer.source_event_sequence_end < context.source_event_sequence_end
-                    OR (newer.source_event_sequence_end = context.source_event_sequence_end
-                        AND newer.source_excerpt_bytes IS NOT NULL
-                        AND (context.source_excerpt_bytes IS NULL OR newer.source_excerpt_bytes < context.source_excerpt_bytes)))
-            )
-        )
-  )
-  AND NOT EXISTS (
-      SELECT 1
-      FROM model_call_context_turns later_normal
-      WHERE later_normal.project_id = context.project_id
-        AND later_normal.agent_id = context.agent_id
-        AND later_normal.turn_id = context.turn_id
-        AND later_normal.operation_kind = 'normal'
-        AND (later_normal.input_event_sequence > context.input_event_sequence
-            OR (context.operation_kind = 'compaction'
-                AND later_normal.input_event_sequence = context.input_event_sequence
-                AND later_normal.attempt_number > (SELECT parent.attempt_number FROM model_call_contexts parent
-                    WHERE parent.id = context.parent_normal_model_call_context_id)))
-  )
-  AND (
-      context.operation_kind = 'compaction'
-      OR (
-          context.operation_kind = 'normal'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM model_call_contexts dependency
-              WHERE dependency.project_id = context.project_id
-                AND dependency.agent_id = context.agent_id
-                AND dependency.operation_kind = 'compaction'
-                AND dependency.parent_normal_model_call_context_id = context.model_call_context_id
-          )
       )
   )
   AND NOT EXISTS (
@@ -328,13 +294,15 @@ $$;
 CREATE FUNCTION model_call_transient_retry_count(p_context_id uuid)
 RETURNS bigint LANGUAGE sql STABLE AS $$
 SELECT count(*) FROM model_call_contexts current
-JOIN model_call_contexts failure ON failure.agent_id = current.agent_id
+JOIN model_call_contexts failure ON failure.project_id = current.project_id
+    AND failure.agent_id = current.agent_id
+    AND failure.input_event_sequence = current.input_event_sequence
     AND failure.operation_kind = current.operation_kind
 WHERE current.id = p_context_id
   AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
   AND failure.recovery_checkpoint_retained_bytes IS NULL
-  AND failure.created_at <= current.created_at
-  AND ((current.operation_kind = 'normal' AND failure.input_event_sequence = current.input_event_sequence)
+  AND failure.attempt_number <= current.attempt_number
+  AND (current.operation_kind = 'normal'
     OR (current.operation_kind = 'compaction'
         AND failure.parent_normal_model_call_context_id = current.parent_normal_model_call_context_id))
 $$;
