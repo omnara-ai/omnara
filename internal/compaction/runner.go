@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -234,8 +235,10 @@ func (r Runner) RunClaimed(
 	if err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
-	if preparedRequest.omissionNotice != "" {
-		summary += "\n\n" + preparedRequest.omissionNotice
+	for _, notice := range strings.Split(preparedRequest.omissionNotice, "\n") {
+		if notice != "" && !strings.Contains(summary, notice) {
+			summary += "\n\n" + notice
+		}
 	}
 	if err := validateCheckpointSummaryReduction(input.Plan, priorSummary, sourceText, summary); err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)

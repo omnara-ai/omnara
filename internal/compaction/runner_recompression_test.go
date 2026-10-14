@@ -169,20 +169,39 @@ func TestRunnerCheckpointRecompressionRejectsMismatchedSource(t *testing.T) {
 }
 
 func TestRunnerPreservesInheritedOmissionNotice(t *testing.T) {
+	const notice = "Some details of earlier history were omitted after provider overflow. " +
+		"Original events and checkpoints remain stored; this checkpoint does not contain their full content."
 	prior := executionstore.ContextCheckpointRecord{
 		ID: testIDN(7840), SummarizedThroughEventSequence: 1, CheckpointEventSequence: 2,
-		Summary: strings.Repeat("old state ", 100), HasOmittedHistory: true,
+		Summary: strings.Repeat("old state ", 100) + "\n\n" + notice, HasOmittedHistory: true,
 	}
-	store := &fakeStore{priorCheckpoint: &prior}
-	input := runInput(testPlan(2, 1, 3))
-	input.Plan.ReplacesCheckpointID = prior.ID
-	client := &summaryModel{results: []summaryResult{{response: completeSummaryResponse("Continue the task.")}}}
-	result, err := testRunner(store, client).RunClaimed(context.Background(), input, store.addStartedClaim(input))
-	require.NoError(t, err)
-	require.Equal(t, RunCompleted, result.State)
-	require.Empty(t, store.replacements)
-	require.Contains(t, result.Checkpoint.Summary, "details of earlier history were omitted")
-	require.True(t, result.Checkpoint.HasOmittedHistory)
+	for _, echoed := range []bool{false, true} {
+		for _, extraBytes := range []int{0, 1} {
+			t.Run(fmt.Sprintf("echoed=%t/extra_bytes=%d", echoed, extraBytes), func(t *testing.T) {
+				store := &fakeStore{priorCheckpoint: &prior}
+				input := runInput(testPlan(2, 1, 3))
+				input.Plan.ReplacesCheckpointID = prior.ID
+				summary := strings.Repeat("s", len(prior.Summary)*9/10-len(notice)-2+extraBytes)
+				if echoed {
+					summary += "\n\n" + notice
+				}
+				client := &summaryModel{results: []summaryResult{{response: completeSummaryResponse(summary)}}}
+				result, err := testRunner(store, client).RunClaimed(context.Background(), input, store.addStartedClaim(input))
+				require.NoError(t, err)
+				require.Len(t, client.requests, 1)
+				require.Empty(t, store.replacements)
+				if extraBytes > 0 {
+					require.Equal(t, RunResumeNormal, result.State)
+					require.Empty(t, store.publishInputs)
+					return
+				}
+				require.Equal(t, RunCompleted, result.State)
+				require.Equal(t, 1, strings.Count(result.Checkpoint.Summary, notice))
+				require.Len(t, result.Checkpoint.Summary, len(prior.Summary)*9/10)
+				require.True(t, result.Checkpoint.HasOmittedHistory)
+			})
+		}
+	}
 }
 
 func TestRunnerUnusableCheckpointRecompressionResumesNormal(t *testing.T) {
