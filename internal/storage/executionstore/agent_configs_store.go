@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -204,6 +205,13 @@ func insertAgentConfigTx(
 		}
 	} else if input.SourceFormat != "" || input.SourceHash != "" {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(errors.New("source metadata requires source"))
+	}
+	// Postgres rejects U+0000 and invalid UTF-8; report them as invalid configs.
+	if err := dbsafe.Text(input.Source); err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config source %w", err))
+	}
+	if err := dbsafe.JSONStrings(input.CompiledDefinition); err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config definition %w", err))
 	}
 	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")

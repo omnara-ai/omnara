@@ -9,24 +9,16 @@ npx omnara profiles create --name machine-assistant --file agent.yaml
 ```
 
 ```bash REST
-export CONFIG="$(
-  jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
-  curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
-    -H "Authorization: Bearer $OMNARA_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d @- |
-  jq -r '.id'
-)"
-
 export AGENT="$(
+  jq -n --rawfile src agent.yaml '{
+    config_source: {source: $src, source_format: "yaml"},
+    name: "Machine assistant",
+    message: "Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version."
+  }' |
   curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents" \
     -H "Authorization: Bearer $OMNARA_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{
-      "config": "'"$CONFIG"'",
-      "name": "Machine assistant",
-      "message": "Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version."
-    }' |
+    -d @- |
   jq -r '.agent.id'
 )"
 ```
@@ -36,17 +28,11 @@ import { readFile } from 'node:fs/promises'
 
 const source = await readFile('agent.yaml', 'utf8')
 
-const config = await sdk.createAgentConfig({
-  client,
-  path: { orgID, projectID },
-  body: { source, source_format: 'yaml' },
-})
-
 const launched = await sdk.createAgent({
   client,
   path: { orgID, projectID },
   body: {
-    config: config.data.id,
+    config_source: { source, source_format: 'yaml' },
     name: 'Machine assistant',
     message: 'Use your machine to report the operating system and the free disk space. Then find the latest stable Node.js release on the web and tell me the version.',
   },

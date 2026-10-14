@@ -1,4 +1,4 @@
-import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
+import { type AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isNode, type Node } from 'yaml'
 
@@ -87,7 +87,7 @@ export interface BasicConfig {
   reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
-  interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
+  interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentialsIntegration: string
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]

@@ -108,7 +108,7 @@ async function pushConfig(session: ConfigSession, profile: AgentProfileSource): 
   await sdk.updateAgentConfig({
     client: session.client,
     path: { orgID: session.orgId, projectID: session.projectId, agentID: session.agentId },
-    body: { source: JSON.stringify(profile), source_format: 'json' },
+    body: { source: profile, source_format: 'json' },
   })
   session.profile = profile
 }

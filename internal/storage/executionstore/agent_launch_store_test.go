@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,13 +34,15 @@ func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
 	}
 }
 
-func TestDerivedLaunchRequiresProfileBase(t *testing.T) {
+// A derived config may run under a profile without being one of its
+// versions; DerivedBaseConfigID is only checked against the profile when set.
+func TestDerivedLaunchAcceptsProfileWithOrWithoutBase(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name                            string
-		profile, base, subagent, reject bool
+		name                    string
+		profile, base, subagent bool
 	}{
-		{name: "missing profile base", profile: true, reject: true},
+		{name: "profile without base", profile: true},
 		{name: "pinned profile base", profile: true, base: true},
 		{name: "unprofiled derived config"},
 		{name: "subagent profile attribution", profile: true, subagent: true},
@@ -63,12 +64,7 @@ func TestDerivedLaunchRequiresProfileBase(t *testing.T) {
 				input.Subagent = &SubagentLaunch{}
 			}
 			_, err := validateLaunchAgentInput(input)
-			if test.reject {
-				require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-				require.ErrorContains(t, err, "requires a base config")
-			} else {
-				require.NoError(t, err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }

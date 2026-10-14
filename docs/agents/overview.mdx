@@ -17,7 +17,13 @@ export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
 
 ## Launch an agent
 
-Create an agent from a [config](/agents/configuration), or from a [profile](/agents/configuration#profiles) if you want the launch tied to a named template.
+Create an agent from a [config](/agents/configuration), or from a [profile](/agents/configuration#profiles) if you want the launch tied to a named template. Send at least one of `profile`, `config` (an existing config ID), or `config_source` (a config to compile and save during the launch, with the same `source` and `source_format` fields as creating a config), and not both `config` and `config_source`:
+
+- `profile` alone runs the profile's current config.
+- `config` or `config_source` alone runs that config.
+- `profile` with `config` or `config_source` attributes the agent to the profile but runs the given config, which need not be one of the profile's versions.
+
+The CLI takes `--profile`, and `--config`, `--file`, or `--source` for the config.
 
 <Tabs>
 <Tab title="API">
@@ -40,12 +46,11 @@ Create an agent from a [config](/agents/configuration), or from a [profile](/age
 ### Attach integrations and an initial input atomically
 
 The create-agent API accepts `tools` and `interaction_handlers`
-alongside the pinned `config`. They use the same names and capability selections as
-ordinary config authoring. Derivation adds missing entries and preserves existing
-entries as a whole, including explicit disabled tools. The base's pinned model
-and other identities are retained.
-When `profile` is supplied, the base `config` must be its current config or a
-historical version of that profile.
+alongside `profile`, `config`, or `config_source`. They extend the config the launch
+would otherwise run, and the result is saved as a new config. They use the same names
+and capability selections as ordinary config authoring. Derivation adds missing entries
+and preserves existing entries as a whole, including explicit disabled tools. The
+base's pinned model and other identities are retained.
 The separate `subscriptions` array attaches integration-owned conversations to the new
 agent, using `integration_id` and `conversation`. The integration determines which
 activity is forwarded. Subscriptions alone leave the pinned config unchanged. Ordinary API attachments do not establish

@@ -250,11 +250,13 @@ func compileOperation(
 			return nil, nil, err
 		}
 	}
+	var bodyConstraints map[string]any
 	if body := jsonRequestBody(source.operation); body != nil {
 		compiled.hasBody = true
 		bodySchema := body.Value
-		if isFlatObjectSchema(bodySchema) {
+		if constraints, flat := flatObjectConstraints(bodySchema); flat {
 			compiled.bodyFlattened = true
+			bodyConstraints = constraints
 			for name, property := range bodySchema.Properties {
 				schema, err := inlinedSchemaJSON(spec, property)
 				if err != nil {
@@ -277,7 +279,7 @@ func compileOperation(
 		}
 	}
 	slices.Sort(required)
-	inputSchema, err := assembleInputSchema(spec, properties, required)
+	inputSchema, err := assembleInputSchema(spec, properties, required, bodyConstraints)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -420,17 +422,64 @@ func jsonRequestBody(op *openapi3.Operation) *openapi3.SchemaRef {
 	return media.Schema
 }
 
-func isFlatObjectSchema(schema *openapi3.Schema) bool {
-	if schema == nil || len(schema.Properties) == 0 {
-		return false
+// flatObjectConstraints reports whether a body schema can be flattened into tool
+// arguments. Its anyOf, oneOf and not clauses may only require properties the body
+// declares; they are returned as required-only clauses for the tool input schema.
+func flatObjectConstraints(schema *openapi3.Schema) (map[string]any, bool) {
+	if schema == nil || len(schema.Properties) == 0 || len(schema.AllOf) > 0 {
+		return nil, false
 	}
-	return len(schema.AllOf) == 0 && len(schema.OneOf) == 0 && len(schema.AnyOf) == 0
+	requiredOnly := func(ref *openapi3.SchemaRef) (map[string]any, bool) {
+		if ref == nil || ref.Value == nil {
+			return nil, false
+		}
+		branch := ref.Value
+		if len(branch.Required) == 0 || len(branch.AllOf) > 0 || len(branch.AnyOf) > 0 ||
+			len(branch.OneOf) > 0 || branch.Not != nil {
+			return nil, false
+		}
+		for name := range branch.Properties {
+			if _, declared := schema.Properties[name]; !declared {
+				return nil, false
+			}
+		}
+		for _, name := range branch.Required {
+			if _, declared := schema.Properties[name]; !declared {
+				return nil, false
+			}
+		}
+		return map[string]any{"required": slices.Clone(branch.Required)}, true
+	}
+	constraints := map[string]any{}
+	for keyword, branches := range map[string]openapi3.SchemaRefs{"anyOf": schema.AnyOf, "oneOf": schema.OneOf} {
+		if len(branches) == 0 {
+			continue
+		}
+		clauses := make([]any, 0, len(branches))
+		for _, branch := range branches {
+			clause, ok := requiredOnly(branch)
+			if !ok {
+				return nil, false
+			}
+			clauses = append(clauses, clause)
+		}
+		constraints[keyword] = clauses
+	}
+	if schema.Not != nil {
+		clause, ok := requiredOnly(schema.Not)
+		if !ok {
+			return nil, false
+		}
+		constraints["not"] = clause
+	}
+	return constraints, true
 }
 
 func assembleInputSchema(
 	spec *openapi3.T,
 	properties map[string]json.RawMessage,
 	required []string,
+	constraints map[string]any,
 ) (map[string]any, error) {
 	encodedProperties, err := json.Marshal(properties)
 	if err != nil {
@@ -447,6 +496,9 @@ func assembleInputSchema(
 	}
 	if len(required) > 0 {
 		schema["required"] = required
+	}
+	for keyword, clause := range constraints {
+		schema[keyword] = clause
 	}
 	if len(definitions) > 0 {
 		schema[definitionsKey] = definitions
