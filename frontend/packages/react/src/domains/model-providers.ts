@@ -15,6 +15,8 @@ import {
 import {
   getModelCatalogOptions,
   getModelCatalogQueryKey,
+  getModelProviderConfigOptions,
+  getModelProviderConfigQueryKey,
   listConfiguredModelsInfiniteOptions,
   listModelProviderConfigsInfiniteOptions,
   listModelProviderConfigsQueryKey,
@@ -56,6 +58,14 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
       }),
     ),
     enabled: list.enabled,
+  })
+}
+
+export function useModelProvider(orgID: string, modelProviderConfigID: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getModelProviderConfigOptions({ path: { orgID, modelProviderConfigID }, client }),
+    enabled: modelProviderConfigID !== '',
   })
 }
 
@@ -138,14 +148,14 @@ export function useClusterModelPricing(orgID: string): ModelPricingLookup {
 export function useConfiguredModels(
   orgID: string,
   modelProviderConfigID: string,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; pageSize?: number },
 ) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
     ...cursorPaginated(
       listConfiguredModelsInfiniteOptions({
         path: { orgID, modelProviderConfigID },
-        query: { limit: DEFAULT_LIST_PAGE_SIZE },
+        query: { limit: options?.pageSize ?? DEFAULT_LIST_PAGE_SIZE },
         client,
       }),
     ),
@@ -296,6 +306,12 @@ export function useUpdateModelProvider(orgID: string) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listModelProviderConfigsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getModelProviderConfigQueryKey({
+            path: { orgID, modelProviderConfigID },
+            client,
+          }),
         }),
         queryClient.invalidateQueries({
           queryKey: getModelCatalogQueryKey({

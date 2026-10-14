@@ -23,7 +23,7 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
-import { ProjectSkillGrantsTable } from '@/components/projects/ProjectSkillGrantsTable'
+import { ProjectSharedSkills } from '@/components/projects/ProjectSharedSkills'
 import { ActiveOrgContext } from '@/lib/active-org-context'
 import { ProjectMachinesPage } from '@/routes/ProjectMachinesPage'
 import { ProjectModelsPage } from '@/routes/ProjectModelsPage'
@@ -320,11 +320,11 @@ it('requires org management to change machine grants', async () => {
 it('lets org admins with project access edit and stop sharing machine grants', async () => {
   await renderAt(`/projects/${projectId}/machines`, { access: adminAccess, role: 'admin' })
 
+  // BYO machines are shared from their own page, so only the pool has row actions here.
   await vi.waitFor(() => {
-    expect(buttonsLabelled('Row actions')).toHaveLength(2)
+    expect(buttonsLabelled('Row actions')).toHaveLength(1)
   })
   expect(hasButtonText('Share pool')).toBe(true)
-  expect(hasButtonText('Share machines')).toBe(true)
 })
 
 it.each([
@@ -337,7 +337,7 @@ it.each([
       access: readerAccess,
       role: 'member',
       content: (
-        <ProjectSkillGrantsTable
+        <ProjectSharedSkills
           orgId={orgId}
           projectId={projectId}
           projectName="Shared project"

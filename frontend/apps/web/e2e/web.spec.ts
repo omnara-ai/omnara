@@ -11,6 +11,7 @@ import {
   installIntegrationFailureTracking,
   integrationCreation,
   openIntegrationSetup,
+  openIntegrationTab,
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
@@ -596,12 +597,11 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
       await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
-      const advanced = page.getByRole('region', { name: 'Advanced', exact: true })
-      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
-      await expect(advanced).toContainText(
+      await openIntegrationTab(page, 'Advanced')
+      await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
         `/api/integrations/discord/${integration.provider_tenant_id}/interactions`,
       )
-      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
+      await openIntegrationTab(page, 'Mentions')
       await exerciseDiscordIntegrationSchedule(
         page,
         integration,
@@ -630,7 +630,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       .fill(profileName)
     await page.getByRole('option', { name: profileName, exact: true }).click()
     if (integrationKind === 'discord_thread') {
-      await launch.getByRole('heading').click()
+      await page.keyboard.press('Escape')
       await expect(
         page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
       ).toBeVisible()
@@ -694,7 +694,10 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
         '/api/integrations/github/events',
       )
-    } else await expect(launch).toContainText('without an Omnara account')
+    } else {
+      await openIntegrationTab(page, 'Mentions')
+      await expect(launch).toContainText('without an Omnara account')
+    }
 
     await page.goto(profilePath)
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
@@ -812,6 +815,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
+    // The Conversations tab stays selected through reconnecting; the profile lives on the launcher tab.
+    await openIntegrationTab(page, integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions')
     await expect(selectedProfile).toBeVisible()
     if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)
     const reconnected = await readIntegration(page, apiProjectPath, integration.id)
@@ -822,6 +827,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     })
     expect(reconnected.setup_revision).toBeGreaterThan(offline.setup_revision)
     page.once('dialog', (dialog) => void dialog.accept())
+    await openIntegrationTab(page, 'Advanced')
     await page.getByRole('button', { name: 'Delete integration', exact: true }).click()
     await expect(page).toHaveURL(`/projects/${projectID}/integrations`)
     await expect(page.locator(`a[href="${integrationPath}"]`)).toHaveCount(0)

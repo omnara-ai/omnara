@@ -2,10 +2,10 @@ import { type ProjectAvailableSkillListSort, useProjectAvailableSkills } from '@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
-import { DetailList } from '@/components/data-table/DetailList'
+import { AgentCardList } from '@/components/agents/AgentCardList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { SkillCard } from '@/components/skills/SkillCard'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -15,10 +15,9 @@ import {
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
-import { formatDateTime } from '@/lib/format'
-import { projectSkillOwnerLabel } from '@/lib/skills'
+import { skillOwnerLabel } from '@/lib/skills'
 
-export function ProjectSkillGrantsTable({
+export function ProjectSharedSkills({
   orgId,
   projectId,
   projectName,
@@ -59,32 +58,15 @@ export function ProjectSkillGrantsTable({
       >
         {actions}
       </SearchHeader>
-      <DataTable
-        columns={[
-          {
-            id: 'skill',
-            header: 'Skill',
-            cell: (access) => <span className="font-medium">{access.skill.name}</span>,
-          },
-          {
-            id: 'description',
-            header: 'Description',
-            cell: (access) => (
-              <span className="text-muted-foreground line-clamp-1">{access.skill.description}</span>
-            ),
-          },
-          {
-            id: 'owner',
-            header: 'Owner',
-            className: 'w-32',
-            cell: (access) => <span>{projectSkillOwnerLabel(access)}</span>,
-          },
-          {
-            id: 'actions',
-            header: '',
-            className: 'w-14',
-            isActions: true,
-            cell: (access) => (
+      <AgentCardList
+        items={paged.rows}
+        getId={(access) => access.skill.id}
+        renderCard={(access) => (
+          <SkillCard
+            skill={access.skill}
+            projectId={projectId}
+            source={`Shared from ${skillOwnerLabel(access.skill).toLowerCase()}`}
+            actions={
               <SkillRowActions
                 orgId={orgId}
                 skill={access.skill}
@@ -92,23 +74,11 @@ export function ProjectSkillGrantsTable({
                 projectName={projectName}
                 canDelete={canManage}
               />
-            ),
-          },
-        ]}
-        data={paged.rows}
-        isFiltered={list.isFiltering}
-        pagination={paged.pagination}
-        getRowId={(access) => access.skill.id}
-        rowExpanded={({ skill }) => (
-          <DetailList
-            items={[
-              { label: 'ID', value: skill.id, mono: true },
-              { label: 'Revision', value: skill.revision },
-              { label: 'Description', value: skill.description },
-              { label: 'Updated', value: formatDateTime(skill.updated_at) },
-            ]}
+            }
           />
         )}
+        pagination={paged.pagination}
+        isFiltered={list.isFiltering}
         isPending={query.isPending}
         isError={query.isError}
         onRetry={() => {

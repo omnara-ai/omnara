@@ -52,8 +52,10 @@ type ProjectMachinePoolGrantRecord struct {
 type ListProjectMachinePoolGrantsInput struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID
-	Limit     int
-	List      listing.Options
+	// MachinePoolID, when set, narrows the list to that pool's grant.
+	MachinePoolID uuid.UUID
+	Limit         int
+	List          listing.Options
 }
 
 type MachinePoolSummaryRecord struct {
@@ -724,6 +726,7 @@ func (s *Store) ListProjectMachinePoolGrants(
 		ProjectID: input.ProjectID,
 		RowLimit:  int64(input.Limit) + 1,
 		SortField: input.List.SortField, SortDesc: input.List.SortDesc, NamePattern: input.List.NamePattern,
+		MachinePoolID: storeutil.IDFromNil(input.MachinePoolID),
 	}
 	if input.List.After.Set {
 		params.CursorSet, params.CursorKey, params.CursorID = true, input.List.After.Key, input.List.After.ID

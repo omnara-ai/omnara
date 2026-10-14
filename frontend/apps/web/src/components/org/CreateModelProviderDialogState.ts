@@ -1,4 +1,4 @@
-import type { ModelApiFormat } from '@omnara/sdk'
+import type { ModelApiFormat, ModelProviderConfig } from '@omnara/sdk'
 
 import {
   type SecretRow,
@@ -48,6 +48,30 @@ export const modelProviderOptions = [
 }[]
 
 export type ModelProviderOption = (typeof modelProviderOptions)[number]['value']
+
+/** Which preset a stored provider config matches, judged by its API variant, auth, and host. */
+export function modelProviderKind(
+  provider: Pick<ModelProviderConfig, 'api_variant' | 'auth_kind' | 'base_url'>,
+): ModelProviderOption {
+  if (provider.api_variant === 'bedrock' || provider.auth_kind === 'sigv4') return 'bedrock'
+  if (provider.api_variant === 'openrouter') return 'openrouter'
+  let host: string
+  try {
+    host = new URL(provider.base_url).hostname.toLowerCase()
+  } catch {
+    return 'custom'
+  }
+  const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`)
+  if (matches('openrouter.ai')) return 'openrouter'
+  if (matches('anthropic.com')) return 'anthropic'
+  if (matches('openai.com')) return 'openai'
+  if (host.startsWith('bedrock') && host.endsWith('.api.aws')) return 'bedrock'
+  return 'custom'
+}
+
+export function modelProviderLabel(provider: ModelProviderOption) {
+  return modelProviderOptions.find((option) => option.value === provider)?.label ?? provider
+}
 
 export const apiFormatOptions = [
   { value: 'openai-chat-completions', label: 'OpenAI Chat Completions' },

@@ -20,7 +20,7 @@ export function IntegrationLaunch({
 }) {
   const chat = integration.integration_kind !== 'github_pr'
   return (
-    <IntegrationSection title={chat ? 'Mentions' : 'Pull requests'}>
+    <IntegrationSection title={chat ? 'Mentions' : 'Pull requests'} hideTitle>
       <IntegrationForm
         orgId={orgId}
         projectId={projectId}

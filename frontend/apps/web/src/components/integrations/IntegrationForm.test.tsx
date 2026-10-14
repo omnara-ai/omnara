@@ -2,6 +2,12 @@
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterContextProvider,
+} from '@tanstack/react-router'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -46,11 +52,14 @@ function render(api: FakeApi, node: ReactNode) {
     apiURL: 'https://omnara.test/api/v1',
     publicURL: 'https://omnara.test',
   })
+  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() })
   const rerender = (next: ReactNode) => {
     act(() => {
       root.render(
         <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>{next}</QueryClientProvider>
+          <QueryClientProvider client={cache}>
+            <RouterContextProvider router={router}>{next}</RouterContextProvider>
+          </QueryClientProvider>
         </OmnaraClientProvider>,
       )
     })

@@ -10,6 +10,8 @@ import {
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { openIntegrationTab } from './fixtures'
+
 async function request(
   page: Page,
   path: string,
@@ -86,6 +88,7 @@ export async function exerciseIntegrationConversations(
       : { thread_id: '555555555555555555' },
   )
   await page.goto(`/projects/${integration.project_id}/integrations/${integration.id}`)
+  await openIntegrationTab(page, 'Conversations')
   const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   await expect(section).toBeVisible()
   await expect(section.getByRole('listitem')).toHaveCount(2)
@@ -107,6 +110,7 @@ async function stopConversation(
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
+  await openIntegrationTab(page, 'Conversations')
   const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   let label: string
   if (integration.integration_kind === 'github_pr') {
@@ -142,6 +146,7 @@ export async function stopDisconnectedConversation(
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
+  await openIntegrationTab(page, 'Conversations')
   const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   await expect(section).toBeVisible()
   await expect(section).toContainText('Forwarding is paused')
@@ -155,6 +160,7 @@ async function auditConversationLayout(
   integrationKind: IntegrationKind,
   state: string,
 ) {
+  await openIntegrationTab(page, 'Conversations')
   const section = page.getByRole('region', { name: 'Connected conversations', exact: true })
   const viewport = page.viewportSize()
   if (!viewport) throw new Error('Browser audit requires a fixed viewport')

@@ -14,12 +14,15 @@ export function IntegrationSchedules({
   integration,
   canManage,
   hideWhenEmpty = false,
+  titled = true,
 }: {
   orgId: string
   projectId: string
   integration: Integration
   canManage: boolean
   hideWhenEmpty?: boolean
+  /** False where a tab already names the section. */
+  titled?: boolean
 }) {
   const [creating, setCreating] = useState(false)
   const schedule = integration.capabilities.schedule
@@ -33,9 +36,10 @@ export function IntegrationSchedules({
   return (
     <section aria-label="Schedules" className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium">Schedules</h2>
+        {titled && <h2 className="text-sm font-medium">Schedules</h2>}
         {canManage && (
           <Button
+            className="ml-auto"
             size="sm"
             variant="outline"
             disabled={integration.state !== 'active'}

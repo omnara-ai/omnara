@@ -605,6 +605,41 @@ func (q *Queries) ListProjectAvailableSkills(ctx context.Context, arg ListProjec
 	return items, nil
 }
 
+const listSkillGrantTargetProjectIDs = `-- name: ListSkillGrantTargetProjectIDs :many
+SELECT sg.target_project_id
+FROM skill_grants sg
+JOIN projects project ON project.org_id = sg.org_id
+  AND project.id = sg.target_project_id
+  AND project.deleted_at IS NULL
+WHERE sg.org_id = $1 AND sg.skill_id = $2
+ORDER BY sg.target_project_id
+`
+
+type ListSkillGrantTargetProjectIDsParams struct {
+	OrgID   uuid.UUID
+	SkillID uuid.UUID
+}
+
+func (q *Queries) ListSkillGrantTargetProjectIDs(ctx context.Context, arg ListSkillGrantTargetProjectIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listSkillGrantTargetProjectIDs, arg.OrgID, arg.SkillID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var target_project_id uuid.UUID
+		if err := rows.Scan(&target_project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, target_project_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillGrantsBySkill = `-- name: ListSkillGrantsBySkill :many
 WITH listed AS (
   SELECT grant_row.id, grant_row.org_id, grant_row.skill_id,

@@ -226,8 +226,18 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(container.querySelector('h1')?.textContent).toBe(integration.name)
     })
-    expect(container.querySelector('[aria-label="Pull requests"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Connected conversations"]')).not.toBeNull()
+    // Settings are tabbed: the launcher shows first and the other tabs stay mounted but hidden.
+    const conversations = () =>
+      container.querySelector('[aria-label="Connected conversations"]')?.closest('[hidden]')
+    expect(container.querySelector('[aria-label="Pull requests"]')?.closest('[hidden]')).toBeNull()
+    expect(conversations()).not.toBeNull()
+    act(() => {
+      button('Conversations').click()
+    })
+    expect(conversations()).toBeNull()
+    act(() => {
+      button('Pull requests').click()
+    })
     if (!canManage) {
       expect(container.querySelector('[aria-label="Integration actions"]')).toBeNull()
       expect(container.querySelector('[aria-label="Pull requests"] form')).not.toBeNull()
@@ -283,30 +293,33 @@ it.each([true, false])(
 )
 
 it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
-  'shows usable %s capability keys from the integration',
+  'links %s tools to their docs and names its interaction handler',
   (integrationKind) => {
     const integration = integrationFixture({
       integration_kind: integrationKind,
       name: 'customer-support',
     })
     render(fakeApi([]), <IntegrationAdvanced integration={integration} />)
-    expect(button('Advanced').getAttribute('aria-expanded')).toBe('false')
-    act(() => {
-      button('Advanced').click()
-    })
     const section = container.querySelector('[aria-label="Advanced"]')
     const keys = [...(section?.querySelectorAll('code') ?? [])].map((code) => code.textContent)
-    expect(keys).toContain('int__customer-support__read')
-    expect(section?.textContent).toContain('Conversation subscriptions')
-    expect(section?.textContent).toContain(
-      'The integration determines which activity is forwarded.',
+    // Tools aren't listed; the docs describe what the launched agents get.
+    expect(keys).not.toContain('int__customer-support__read')
+    const docs = section?.querySelector('a')
+    expect(docs?.textContent).toBe('Tools added to the agent profile')
+    expect(docs?.getAttribute('href')).toBe(
+      `https://docs.omnara.com/${
+        {
+          slack_thread: 'integrations/slack#thread-tools-and-subscriptions',
+          discord_thread: 'integrations/discord#thread-tools-and-subscriptions',
+          github_pr: 'integrations/github#select-pr-tools',
+        }[integrationKind]
+      }`,
     )
+    expect(section?.textContent).not.toContain('Conversation subscriptions')
     if (integrationKind === 'github_pr') {
       expect(keys).not.toContain('interaction_handlers')
-      expect(section?.textContent).not.toContain('its interaction handler')
     } else {
       expect(keys).toContain('interaction_handlers')
-      expect(section?.textContent).toContain('its interaction handler')
       expect(keys).toContain('customer-support')
     }
   },
@@ -316,14 +329,10 @@ it('shows tools without optional subscription or handler capabilities', () => {
   const integration = integrationFixture()
   integration.capabilities = { tools: integration.capabilities.tools }
   render(fakeApi([]), <IntegrationAdvanced integration={integration} />)
-  act(() => {
-    button('Advanced').click()
-  })
   const section = container.querySelector('[aria-label="Advanced"]')
-  expect(section?.textContent).toContain(`int__${integration.name}__read`)
+  expect(section?.textContent).toContain('Tools added to the agent profile')
   expect(section?.textContent).not.toContain('Conversation subscriptions')
   expect(section?.textContent).not.toContain('Interaction handler')
-  expect(section?.textContent).not.toContain('its interaction handler')
 })
 
 it.each(['active', 'disconnected'] as const)(

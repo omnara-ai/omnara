@@ -1,29 +1,50 @@
 import {
+  type ModelPricingLookup,
   type ModelProviderListSort,
-  useDeleteModelProvider,
+  useClusterModelPricing,
+  useConfiguredModels,
+  useModelProvider,
   useModelProviders,
 } from '@omnara/react'
-import { ApiError, type ModelProviderConfig } from '@omnara/sdk'
-import { useState } from 'react'
+import type { ModelProviderConfig } from '@omnara/sdk'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { type ReactNode, useId, useState } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
-import { DetailList } from '@/components/data-table/DetailList'
-import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { SearchHeader } from '@/components/layout/SearchHeader'
-import { CreateModelProviderDialog } from '@/components/org/CreateModelProviderDialog'
-import { EditModelProviderDialog } from '@/components/org/EditModelProviderDialog'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Button } from '@/components/ui/button'
-import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
-  resourceSortOptions,
-  useListToolbarVisibility,
-  useResourceList,
-} from '@/hooks/use-resource-list'
+  AgentCard,
+  AgentCardGlyph,
+  agentCardLinkClass,
+  AgentCardList,
+  agentCardMoreLinkClass,
+  AgentCardStat,
+  AgentCardStatToggle,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
+import { ManagedLogo, OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
+import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { Box } from '@/components/icons'
+import { SearchHeader } from '@/components/layout/SearchHeader'
+import {
+  modelProviderKind,
+  modelProviderLabel,
+} from '@/components/org/CreateModelProviderDialogState'
+import { ModelProviderLogo } from '@/components/org/ModelProviderLogo'
+import {
+  type ModelDialog,
+  ModelDialogs,
+  ProviderActions,
+} from '@/components/overview/ModelManagement'
+import { type ModelActions, ProviderModelList } from '@/components/overview/ProviderModelList'
+import { Button } from '@/components/ui/button'
+import { useModelActions } from '@/hooks/use-model-actions'
+import { usePagedQuery } from '@/hooks/use-paged-query'
+import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
-import { formatDateTime } from '@/lib/format'
+import { formatCount } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
+
+const previewLimit = 5
 
 export function ModelProvidersSection() {
   const { activeOrg } = useActiveOrg()
@@ -31,17 +52,31 @@ export function ModelProvidersSection() {
   const list = useResourceList<ModelProviderListSort>('-created_at')
   const query = useModelProviders(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
-  const deleteProvider = useDeleteModelProvider(activeOrg.id)
-  const [open, setOpen] = useState(false)
-  const [editProvider, setEditProvider] = useState<ModelProviderConfig | null>(null)
+  const pricing = useClusterModelPricing(activeOrg.id)
+  const [activeDialog, setActiveDialog] = useState<ModelDialog>(null)
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  // `?provider=` deep-links to adding a model; that provider may not be on the current page.
+  // Reading one provider is manage-only, so members skip the lookup.
+  const linkedProvider = useModelProvider(
+    activeOrg.id,
+    canManage ? (search.provider ?? '') : '',
+  ).data
+  const dialogProviders =
+    linkedProvider && !paged.rows.some((provider) => provider.id === linkedProvider.id)
+      ? [linkedProvider, ...paged.rows]
+      : paged.rows
+  const dialog: ModelDialog =
+    activeDialog ??
+    (linkedProvider ? { kind: 'create-model', providerId: linkedProvider.id } : null)
+  const modelActions = useModelActions(activeOrg.id, canManage, setActiveDialog)
 
   const newProviderButton = () =>
     canManage ? (
       <Button
         size="sm"
         onClick={() => {
-          setOpen(true)
+          setActiveDialog({ kind: 'create-provider' })
         }}
       >
         New provider
@@ -53,7 +88,7 @@ export function ModelProvidersSection() {
       <div id="model-providers" className="flex scroll-mt-6 flex-col gap-3">
         <SearchHeader
           title="Providers"
-          description="Set up external model providers"
+          description="Connect model providers and configure the models your agents use"
           guide={guides.modelProviders}
           toolbar={
             <ResourceListToolbar
@@ -61,94 +96,38 @@ export function ModelProvidersSection() {
               onSearchChange={list.setSearch}
               sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
               placeholder="Search providers by name…"
-              showSearch={showToolbar}
+              showSearch
             />
           }
         >
           {newProviderButton()}
         </SearchHeader>
-        <DataTable
-          columns={[
-            {
-              id: 'name',
-              header: 'Name',
-              cell: (provider) => (
-                <span className="inline-flex max-w-full items-center gap-2">
-                  <span className="truncate font-medium">{provider.name}</span>
-                  {provider.management_kind === 'cluster' && (
-                    <span className="text-muted-foreground">cluster</span>
-                  )}
-                </span>
-              ),
-            },
-            {
-              id: 'api-format',
-              header: 'API format',
-              className: 'w-36',
-              cell: (provider) => provider.api_format,
-            },
-            {
-              id: 'base-url',
-              header: 'Base URL',
-              cell: (provider) => (
-                <span className="text-muted-foreground">{provider.base_url}</span>
-              ),
-            },
-            {
-              id: 'actions',
-              header: '',
-              className: 'w-14',
-              isActions: true,
-              cell: (provider) =>
-                canManage && provider.management_kind === 'tenant' ? (
-                  <ResourceRowActions
+        <AgentCardList
+          items={paged.rows}
+          getId={(provider) => provider.id}
+          renderCard={(provider) => (
+            <ProviderCard
+              orgId={activeOrg.id}
+              provider={provider}
+              canManage={canManage}
+              pricing={pricing}
+              modelActions={modelActions}
+              defaultExpanded={search.provider === provider.id}
+              actions={
+                canManage && (
+                  <ProviderActions
+                    orgId={activeOrg.id}
+                    provider={provider}
                     onEdit={() => {
-                      setEditProvider(provider)
-                    }}
-                    onDelete={() => {
-                      if (!window.confirm(`Delete model provider ${provider.name}?`)) return
-                      deleteProvider.mutate(provider.id, {
-                        onError: (error) => {
-                          window.alert(
-                            error instanceof ApiError
-                              ? error.message
-                              : 'Could not delete model provider',
-                          )
-                        },
-                      })
+                      setActiveDialog({ kind: 'edit-provider', provider })
                     }}
                   />
-                ) : null,
-            },
-          ]}
-          data={paged.rows}
-          isFiltered={list.isFiltering}
-          pagination={paged.pagination}
-          getRowId={(provider) => provider.id}
-          rowExpanded={(provider) => (
-            <DetailList
-              items={[
-                { label: 'ID', value: provider.id, mono: true },
-                {
-                  label: 'Managed by',
-                  value: provider.management_kind === 'cluster' ? 'Cluster' : 'Organization',
-                },
-                { label: 'API variant', value: provider.api_variant },
-                { label: 'Endpoint path', value: provider.endpoint_path, mono: true },
-                { label: 'Auth', value: provider.auth_kind },
-                { label: 'Headers', value: formatHeaders(provider.headers), mono: true },
-                {
-                  label: 'Secret headers',
-                  value: formatHeaders(provider.secret_headers),
-                  mono: true,
-                },
-                { label: 'Total request timeout', value: `${provider.request_timeout_ms} ms` },
-                { label: 'Idle timeout', value: `${provider.idle_timeout_ms} ms` },
-                { label: 'Created', value: formatDateTime(provider.created_at) },
-                { label: 'Updated', value: formatDateTime(provider.updated_at) },
-              ]}
+                )
+              }
             />
           )}
+          isFiltered={list.isFiltering}
+          pagination={paged.pagination}
           isPending={query.isPending}
           isError={query.isError}
           onRetry={() => {
@@ -159,25 +138,174 @@ export function ModelProvidersSection() {
         />
       </div>
       {canManage && (
-        <CreateModelProviderDialog open={open} onOpenChange={setOpen} orgId={activeOrg.id} />
-      )}
-      {canManage && editProvider && (
-        <EditModelProviderDialog
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setEditProvider(null)
-          }}
+        <ModelDialogs
           orgId={activeOrg.id}
-          provider={editProvider}
+          providers={dialogProviders}
+          dialog={dialog}
+          onClose={() => {
+            setActiveDialog(null)
+            if (search.provider) void navigate({ to: '/models', search: {}, replace: true })
+          }}
         />
       )}
     </>
   )
 }
 
-function formatHeaders(headers: Record<string, string>) {
-  const lines = Object.entries(headers)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, value]) => `${name}: ${value}`)
-  return lines.length === 0 ? '' : <span className="whitespace-pre-wrap">{lines.join('\n')}</span>
+/** Brand tile, name, and subtitle shared by provider cards and the provider page header. */
+export function ProviderGlyph({ provider }: { provider: ModelProviderConfig }) {
+  return (
+    <AgentCardGlyph>
+      <ManagedLogo managed={provider.management_kind === 'cluster'}>
+        <ModelProviderLogo provider={modelProviderKind(provider)} />
+      </ManagedLogo>
+    </AgentCardGlyph>
+  )
+}
+
+export function ProviderSubtitle({ provider }: { provider: ModelProviderConfig }) {
+  return (
+    <>
+      <span className="shrink-0">{modelProviderLabel(modelProviderKind(provider))}</span>
+      <span aria-hidden="true">·</span>
+      <span className="truncate font-mono">{provider.base_url}</span>
+    </>
+  )
+}
+
+interface ProviderCardProps {
+  orgId: string
+  provider: ModelProviderConfig
+  /** Models and the provider page are manage-only, so members see just the provider itself. */
+  canManage: boolean
+  pricing: ModelPricingLookup
+  modelActions: ModelActions
+  defaultExpanded: boolean
+  actions: ReactNode
+}
+
+function ProviderCard({ canManage, ...props }: ProviderCardProps) {
+  if (canManage) return <ManagedProviderCard {...props} />
+  const { provider, actions } = props
+  return (
+    <AgentCard
+      icon={<ProviderGlyph provider={provider} />}
+      title={<ProviderTitle provider={provider} linked={false} />}
+      subtitle={<ProviderSubtitle provider={provider} />}
+      meta={
+        <>
+          <AgentCardTime label="Updated" value={provider.updated_at} />
+          {actions}
+        </>
+      }
+    />
+  )
+}
+
+function ProviderTitle({ provider, linked }: { provider: ModelProviderConfig; linked: boolean }) {
+  return (
+    <>
+      {linked ? (
+        <Link
+          to="/models/providers/$providerId"
+          params={{ providerId: provider.id }}
+          className={agentCardLinkClass}
+        >
+          {provider.name}
+        </Link>
+      ) : (
+        <span className="truncate font-medium">{provider.name}</span>
+      )}
+      {provider.management_kind === 'cluster' && <OmnaraManagedTag />}
+    </>
+  )
+}
+
+/** The first few models of a provider, plus whether more exist and how to label the count. */
+function useProviderPreview(orgId: string, providerId: string) {
+  // One small page: enough for the preview, and one extra row tells us whether there are more.
+  const query = useConfiguredModels(orgId, providerId, { pageSize: previewLimit + 1 })
+  const firstPage = query.data?.pages[0]?.data ?? []
+  const hasMore = firstPage.length > previewLimit
+  const models = firstPage.slice(0, previewLimit)
+  const loaded = !query.isPending && !query.isError
+  return {
+    query,
+    models,
+    hasMore,
+    countValue: loaded ? `${formatCount(models.length)}${hasMore ? '+' : ''}` : undefined,
+    countLabel: models.length === 1 && !hasMore ? 'model' : 'models',
+  }
+}
+
+function ManagedProviderCard({
+  orgId,
+  provider,
+  pricing,
+  modelActions,
+  defaultExpanded,
+  actions,
+}: Omit<ProviderCardProps, 'canManage'>) {
+  const { query, models, hasMore, countValue, countLabel } = useProviderPreview(orgId, provider.id)
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const expansionId = useId()
+  const expandable = models.length > 0 || modelActions.onCreate !== undefined || query.isError
+  const expansion = {
+    id: expansionId,
+    open: expanded && expandable,
+    content: (
+      <ProviderModelList
+        provider={provider}
+        models={models}
+        isPending={query.isPending}
+        isError={query.isError}
+        onRetry={() => {
+          void query.refetch()
+        }}
+        pricing={pricing}
+        actions={modelActions}
+        viewAll={
+          hasMore && (
+            <Link
+              to="/models/providers/$providerId"
+              params={{ providerId: provider.id }}
+              className={agentCardMoreLinkClass}
+            >
+              View all models →
+            </Link>
+          )
+        }
+      />
+    ),
+  }
+
+  return (
+    <AgentCard
+      icon={<ProviderGlyph provider={provider} />}
+      title={<ProviderTitle provider={provider} linked />}
+      subtitle={<ProviderSubtitle provider={provider} />}
+      meta={
+        <>
+          <AgentCardTime label="Updated" value={provider.updated_at} />
+          {actions}
+        </>
+      }
+      stats={
+        expandable ? (
+          <AgentCardStatToggle
+            icon={Box}
+            label={countLabel}
+            value={countValue}
+            expansion={expansion}
+            onToggle={() => {
+              setExpanded((open) => !open)
+            }}
+          />
+        ) : (
+          <AgentCardStat icon={Box} label={countLabel} value={countValue} />
+        )
+      }
+      expansion={expansion}
+    />
+  )
 }
