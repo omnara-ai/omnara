@@ -563,9 +563,8 @@ func readFileTool() (Entry, error) {
 					"~ expands to the machine user's home directory.",
 			},
 			"machine_id": map[string]any{
-				"type": "string",
-				"description": "Public machine_id (mch_...) returned by list_machines. " +
-					"Omit it when the target is unambiguous. When set, path is always read from that machine.",
+				"type":        "string",
+				"description": "Public machine_id (mch_...) returned by list_machines. Omit when reading artifacts or memory.",
 			},
 			"expected_digest": map[string]any{
 				"type":    "string",
