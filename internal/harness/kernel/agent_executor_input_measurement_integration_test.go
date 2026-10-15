@@ -98,7 +98,8 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	var skills []skillstore.SkillRecord
-	yaml := "instruction: Preserve the user's exact historical details.\nmodel:\n  provider_config: openai-prod\n  name: live-static-shrink\nskills:\n"
+	yaml := "instruction: Preserve the user's exact historical details.\n" +
+		"model:\n  provider_config: openai-prod\n  name: live-static-shrink\nskills:\n"
 	for i := range 24 {
 		skill, err := fixture.Store.Skills().CreateSkillRevision(ctx, skillstore.CreateSkillInput{
 			OrgID: kernelTestOrgID, OwnerKind: skillstore.SkillOwnerProject, OwnerProjectID: kernelTestProjectID,
@@ -113,7 +114,8 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 		require.NoError(t, err)
 		yaml += "  - " + id + "\n"
 	}
-	profile := fixture.createConfigAndProfileBookmarkWithModelOptions(t, ctx, "Live Static Shrink", "measurement-live-static-shrink", yaml,
+	profile := fixture.createConfigAndProfileBookmarkWithModelOptions(
+		t, ctx, "Live Static Shrink", "measurement-live-static-shrink", yaml,
 		kernelConfiguredModelOptions{ContextWindowTokens: new(10000), MaxOutputTokens: new(1024)})
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: kernelTestProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
@@ -128,7 +130,9 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 	client := openaichatcompletions.Client{
 		ProviderModelSlug: "live-static-shrink", APIVariant: modelprotocol.APIVariantOpenRouter,
 		BaseURL: "https://provider.test", EndpointPath: "/chat/completions",
-		ModelCapabilities: model.Capabilities{ContextWindowTokens: 10000, DefaultMaxOutputTokens: 1024, SupportsTools: new(true)},
+		ModelCapabilities: model.Capabilities{
+			ContextWindowTokens: 10000, DefaultMaxOutputTokens: 1024, SupportsTools: new(true),
+		},
 		HTTPClient: &http.Client{Transport: kernelSlackRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
@@ -137,39 +141,62 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 			requests = append(requests, append(json.RawMessage(nil), body...))
 			measured := modelcontext.EstimatePreparedRequest(body, nil)
 			observedInput = append(observedInput, measured)
-			response := fmt.Sprintf(`{"id":"measurement_response_%d","object":"chat.completion","model":"live-static-shrink","choices":[{"index":0,"message":{"role":"assistant","content":"Keep the earlier historical objective and the user's exact requirements."},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":16}}`, len(requests), measured)
-			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
+			response := fmt.Sprintf(
+				`{"id":"measurement_response_%d","object":"chat.completion","model":"live-static-shrink",`+
+					`"choices":[{"index":0,"message":{"role":"assistant",`+
+					`"content":"Keep the earlier historical objective and the user's exact requirements."},`+
+					`"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":16}}`,
+				len(requests), measured,
+			)
+			return &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader(response)),
+			}, nil
 		})},
 	}
 	now := fixture.Now.Add(2 * time.Second)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client), Now: func() time.Time { return now }}
+	executor := AgentExecutor{
+		Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+		Now: func() time.Time { return now },
+	}
 	history := "HISTORY_MUST_STAY_VERBATIM " + strings.Repeat("specific historical detail ", 100)
 	first := fixture.admitContentInputTurn(t, ctx, agentID, kernelTestUserID, history, fixture.Now.Add(time.Second))
 	require.NoError(t, executor.ExecuteModelWork(ctx, first))
 	require.Len(t, requests, 1)
-	target := model.UsableInputTokensForRequest(client.ModelCapabilities, model.RequestPolicyFromCapabilities(client.ModelCapabilities))
+	target := model.UsableInputTokensForRequest(
+		client.ModelCapabilities, model.RequestPolicyFromCapabilities(client.ModelCapabilities),
+	)
 	require.Greater(t, observedInput[0], target, "fixture needs measured input above the soft target")
 	require.LessOrEqual(t, observedInput[0]+1024, 10000, "first request fits even a strict total input/output window")
 	var persistedInput, firstCheckpoints int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT input_tokens_total FROM model_call_contexts WHERE agent_id=$1 AND operation_kind='normal' AND state='succeeded'`, agentID).Scan(&persistedInput))
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT input_tokens_total FROM model_call_contexts `+
+			`WHERE agent_id=$1 AND operation_kind='normal' AND state='succeeded'`,
+		agentID).Scan(&persistedInput))
 	require.Equal(t, observedInput[0], persistedInput)
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`, agentID).Scan(&firstCheckpoints))
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`, agentID).Scan(&firstCheckpoints))
 	require.Zero(t, firstCheckpoints)
 	fixture.releaseModelRuntimeLock(t, ctx, first)
 	for _, skill := range skills {
 		_, err := fixture.Store.Skills().CreateSkillRevisionForSkill(ctx, skillstore.CreateSkillRevisionForSkillInput{
-			OrgID: kernelTestOrgID, SkillID: skill.ID, BaseRevisionID: skill.RevisionID, Name: skill.Name, Description: "Brief guidance.",
-			SkillMd: "# Skill\nBrief instructions.", ArchiveBytes: []byte("updated archive " + skill.ID.String()), Actor: kernelTestUserPrincipal(kernelTestUserID),
+			OrgID: kernelTestOrgID, SkillID: skill.ID, BaseRevisionID: skill.RevisionID,
+			Name: skill.Name, Description: "Brief guidance.",
+			SkillMd: "# Skill\nBrief instructions.", ArchiveBytes: []byte("updated archive " + skill.ID.String()),
+			Actor: kernelTestUserPrincipal(kernelTestUserID),
 		})
 		require.NoError(t, err)
 	}
 	require.Equal(t, config.ID, fixture.currentAgentConfig(t, ctx, agentID).ID)
 	require.Equal(t, revisionID, currentRevisionIDForKernelConfig(t, ctx, fixture.Store, config))
-	second := fixture.admitContentInputTurn(t, ctx, agentID, kernelTestUserID, "Continue using the original details.", fixture.Now.Add(3*time.Second))
+	second := fixture.admitContentInputTurn(
+		t, ctx, agentID, kernelTestUserID, "Continue using the original details.", fixture.Now.Add(3*time.Second),
+	)
 	now = fixture.Now.Add(4 * time.Second)
 	bundle, err := executor.contextBuilder().Build(ctx, modelcontext.BuildInput{
 		ProjectID: kernelTestProjectID, AgentID: agentID, TurnID: second.TurnID, OpeningInputIDs: second.InputIDs, Now: now,
-		MediaProjector: model.MediaProjectorForClient(client), TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
+		MediaProjector:             model.MediaProjectorForClient(client),
+		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 	})
 	require.NoError(t, err)
 	bundle.ConfiguredModelRevisionID = revisionID

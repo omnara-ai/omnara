@@ -71,12 +71,30 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 			wantUsable:    46999,
 			wantOver:      true,
 		},
-		{name: "below normal target", window: 200000, allowance: 128000, input: 159039, wantAllowance: 32769, wantUsable: 159039},
-		{name: "at normal target", window: 200000, allowance: 128000, input: 159040, wantAllowance: 32768, wantUsable: 159040},
-		{name: "above normal target", window: 200000, allowance: 128000, input: 159041, wantAllowance: 32768, wantUsable: 159040, wantOver: true},
-		{name: "below thinking target", window: 100000, allowance: 64000, input: 46998, minimum: 48001, wantAllowance: 48002, wantUsable: 46998},
-		{name: "at thinking target", window: 100000, allowance: 64000, input: 46999, minimum: 48001, wantAllowance: 48001, wantUsable: 46999},
-		{name: "above thinking target", window: 100000, allowance: 64000, input: 47000, minimum: 48001, wantAllowance: 48001, wantUsable: 46999, wantOver: true},
+		{
+			name: "below normal target", window: 200000, allowance: 128000, input: 159039,
+			wantAllowance: 32769, wantUsable: 159039,
+		},
+		{
+			name: "at normal target", window: 200000, allowance: 128000, input: 159040,
+			wantAllowance: 32768, wantUsable: 159040,
+		},
+		{
+			name: "above normal target", window: 200000, allowance: 128000, input: 159041,
+			wantAllowance: 32768, wantUsable: 159040, wantOver: true,
+		},
+		{
+			name: "below thinking target", window: 100000, allowance: 64000, input: 46998, minimum: 48001,
+			wantAllowance: 48002, wantUsable: 46998,
+		},
+		{
+			name: "at thinking target", window: 100000, allowance: 64000, input: 46999, minimum: 48001,
+			wantAllowance: 48001, wantUsable: 46999,
+		},
+		{
+			name: "above thinking target", window: 100000, allowance: 64000, input: 47000, minimum: 48001,
+			wantAllowance: 48001, wantUsable: 46999, wantOver: true,
+		},
 		{
 			name:          "compaction reserves whole allowance",
 			window:        100000,

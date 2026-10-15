@@ -28,7 +28,8 @@ func applyRequestInputMeasurement(
 			break
 		}
 	}
-	if source == nil || source.InputEventSequence <= 0 || source.InputEventSequence >= source.Sequence || source.InputFingerprint == "" ||
+	if source == nil || source.InputEventSequence <= 0 || source.InputEventSequence >= source.Sequence ||
+		source.InputFingerprint == "" ||
 		bundle.AgentConfigID == uuid.Nil || source.AgentConfigID != bundle.AgentConfigID ||
 		bundle.ConfiguredModelRevisionID == uuid.Nil || source.ConfiguredModelRevisionID != bundle.ConfiguredModelRevisionID {
 		return
