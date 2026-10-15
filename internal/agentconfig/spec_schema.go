@@ -10,7 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Agent config sources are validated against these OpenAPI schemas.
 const (
 	OpenAPIDefinitionComponent      = "AgentConfigDefinition"
 	OpenAPIToolsDefinitionComponent = "AgentConfigToolsDefinition"
@@ -30,8 +29,6 @@ var specComponentSchemas = sync.OnceValues(func() (map[string]any, error) {
 	return spec.Components.Schemas, nil
 })
 
-// specJSONSchema returns an OpenAPI component as a standalone JSON Schema, with
-// referenced components under $defs and x- extensions dropped.
 func specJSONSchema(component string) ([]byte, error) {
 	schemas, err := specComponentSchemas()
 	if err != nil {

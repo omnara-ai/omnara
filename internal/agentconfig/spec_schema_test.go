@@ -12,8 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// TestSpecSchemaMatchesGoConstants pins the values the OpenAPI definition
-// schema shares with Go code, so changing either side alone fails here.
 func TestSpecSchemaMatchesGoConstants(t *testing.T) {
 	raw, err := specJSONSchema(OpenAPIDefinitionComponent)
 	if err != nil {

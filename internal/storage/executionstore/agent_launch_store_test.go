@@ -34,8 +34,6 @@ func TestExpandLaunchMachineBindingRequestsUsesCompiledIDs(t *testing.T) {
 	}
 }
 
-// A derived config may run under a profile without being one of its
-// versions; DerivedBaseConfigID is only checked against the profile when set.
 func TestDerivedLaunchAcceptsProfileWithOrWithoutBase(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

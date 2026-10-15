@@ -283,7 +283,6 @@ func TestPublicIntegrationLaunchDerivesFromAnyConfigUnderProfile(t *testing.T) {
 	otherID := testutil.RequireType[string](t, otherConfig["id"])
 	body := f.body()
 	body["config"] = otherID
-	// A profile may run any config; launch-time additions derive from the given one.
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		integrationHTTPJSON(t, body), "foreign-profile-config", http.StatusCreated, authHeaders(f.launchToken))
 	agent := testutil.RequireType[map[string]any](t, launched["agent"])

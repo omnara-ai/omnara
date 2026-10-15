@@ -903,8 +903,6 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	if _, ok := yamlOnly["agent_profile_id"]; ok {
 		t.Fatalf("config_source-only launch should not be attributed to a profile: %+v", yamlOnly)
 	}
-	// A retry replays the original launch without recompiling, even when the
-	// source's references no longer resolve.
 	replayed := testutil.RequireType[map[string]any](t, launch(
 		`{"config_source":{"source_format":"yaml","source":`+quotedJSONString(
 			"instruction: Inline YAML.\nmodel:\n  provider_config: deleted-provider\n  name: gpt-test\n",
@@ -926,8 +924,6 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	if _, ok := invalid["issues"]; !ok {
 		t.Fatalf("invalid config_source should report compiler issues: %+v", invalid)
 	}
-	// Postgres rejects U+0000 in TEXT and JSONB, so it must fail validation
-	// rather than the write.
 	for format, source := range map[string]string{
 		"json": `{"instruction":"Bad \u0000 byte.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`,
 		"yaml": `"instruction: \"Bad \\0 byte.\"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"`,

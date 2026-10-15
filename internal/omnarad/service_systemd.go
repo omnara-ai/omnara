@@ -468,15 +468,10 @@ func systemdServiceReady(state systemdServiceState, unitPath string) bool {
 		filepath.Clean(state.fragmentPath) == filepath.Clean(unitPath)
 }
 
-// systemdUnavailable reports whether a failed systemctl --user probe means no
-// systemd user service manager is reachable (as in containers that ship
-// systemctl without running systemd), rather than a genuine systemctl failure.
 func systemdUnavailable(result serviceCommandResult) bool {
 	text := strings.ToLower(result.stderr + "\n" + result.stdout)
 	for _, fragment := range []string{
-		// Older systemd: "Failed to connect to bus: ...".
 		"failed to connect to bus",
-		// Newer systemd: "Failed to connect to user scope bus via local transport: ...".
 		"failed to connect to user scope bus",
 		"$dbus_session_bus_address and $xdg_runtime_dir not defined",
 		"failed to get d-bus connection",

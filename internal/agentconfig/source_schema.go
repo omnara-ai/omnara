@@ -126,8 +126,6 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	return parsed, err
 }
 
-// CanonicalDefinitionJSON compacts JSON and sorts object keys. Invalid JSON is
-// returned unchanged for the compiler to report.
 func CanonicalDefinitionJSON(raw []byte) []byte {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -362,7 +360,6 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
-// SourceJSONSchema returns the OpenAPI agent config definition as a JSON Schema.
 func SourceJSONSchema() ([]byte, error) {
 	return specJSONSchema(OpenAPIDefinitionComponent)
 }

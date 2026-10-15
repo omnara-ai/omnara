@@ -422,9 +422,6 @@ func jsonRequestBody(op *openapi3.Operation) *openapi3.SchemaRef {
 	return media.Schema
 }
 
-// flatObjectConstraints reports whether a body schema can be flattened into tool
-// arguments. Its anyOf, oneOf and not clauses may only require properties the body
-// declares; they are returned as required-only clauses for the tool input schema.
 func flatObjectConstraints(schema *openapi3.Schema) (map[string]any, bool) {
 	if schema == nil || len(schema.Properties) == 0 || len(schema.AllOf) > 0 {
 		return nil, false

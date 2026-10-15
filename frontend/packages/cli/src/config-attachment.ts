@@ -45,7 +45,6 @@ function fileFormat(filePath: string): 'yaml' | 'json' {
   throw new CliInputError(`config file must end in .yaml, .yml, or .json: ${filePath}`)
 }
 
-// The server validates the full definition.
 const zDefinitionText = zJsonText.pipe(
   z.custom<AgentConfigDefinition>(
     (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
@@ -112,7 +111,6 @@ export async function resolveConfigId(
 const LAUNCH_HINT = 'pass --profile or one of --config, --file, or --source'
 const LAUNCH_CONFIG_HINT = 'pass at most one of --config, --file, or --source'
 
-// The launch shapes CreateAgentRequest accepts: a profile, a config, or both.
 type LaunchTarget =
   | { profile?: string; config: string }
   | { profile?: string; config_source: CreateAgentConfigRequest }

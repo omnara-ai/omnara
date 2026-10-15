@@ -119,8 +119,6 @@ func SetAppIcon(
 	if err != nil {
 		return err
 	}
-	// io.Copy rather than part.Write: CodeQL resolves a Write on an io.Writer to every
-	// implementation, including HTTP responses, and reports this upload to Slack as XSS.
 	if _, err := io.Copy(part, bytes.NewReader(icon.Content)); err != nil {
 		return err
 	}

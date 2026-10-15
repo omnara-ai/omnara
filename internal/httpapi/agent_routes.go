@@ -681,8 +681,6 @@ func (s strictOpenAPIServer) createAgent(
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	}
-	// Replay before compiling config_source or resolving integration references, which may have
-	// changed since launch. The kernel repeats this lookup under the launch key lock.
 	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
 		ctx, project.ID, idempotencyKey,
 	); err != nil {
@@ -695,7 +693,6 @@ func (s strictOpenAPIServer) createAgent(
 		return openapi.CreateAgent200JSONResponse(response), nil
 	}
 	if configSource != nil {
-		// config_source saves a new config, so it needs the same access as CreateAgentConfig.
 		if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
 			return nil, *err
 		}
@@ -1217,8 +1214,6 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-// agentConfigSourceInput resolves a request's source and source_format into compiler input.
-// JSON is canonicalized, so the same definition maps to the same saved config however it was sent.
 func agentConfigSourceInput(
 	sourceFormatRaw string,
 	source json.RawMessage,

@@ -279,9 +279,6 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		"AgentConfigDefinitionSubagentInstruction": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
 		"AgentConfigDefinitionMemoryStore":         reflect.TypeOf(MemoryStoreSource{}),
 	}
-	// Custom tool input_schema decodes into map[string]any, so its schema
-	// stays deliberately open. The rest are maps, arrays, and strings rather
-	// than struct-backed objects.
 	openDefs := map[string]bool{
 		"AgentConfigDefinitionToolInputSchema":     true,
 		"AgentConfigDefinitionMachineSources":      true,

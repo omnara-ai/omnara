@@ -17,13 +17,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type LaunchAgentInput struct {
-	ProjectID uuid.UUID
-	// ProfileID attributes the agent to a profile. Without AgentConfigID or
-	// DerivedConfig, the agent runs the profile's current config.
+	ProjectID     uuid.UUID
 	ProfileID     uuid.UUID
 	AgentConfigID uuid.UUID
 	LaunchedBy    identitystore.PrincipalRecord
@@ -35,14 +34,12 @@ type LaunchAgentInput struct {
 	MessageActor            *ActorParams
 	IdempotencyKey          string
 	ArchiveAfterIdleMinutes *int
-	// DerivedConfig is saved during the launch and used instead of AgentConfigID.
-	DerivedConfig *CreateAgentConfigInput
-	// DerivedBaseConfigID, when set, must be one of the profile's versions.
-	DerivedBaseConfigID uuid.UUID
-	Subagent            *SubagentLaunch
-	InitialInput        *LaunchInitialInput
-	Subscriptions       []integrationstore.IntegrationSubscriptionAttachment
-	admission           *launchAdmission
+	DerivedConfig           *CreateAgentConfigInput
+	DerivedBaseConfigID     uuid.UUID
+	Subagent                *SubagentLaunch
+	InitialInput            *LaunchInitialInput
+	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
+	admission               *launchAdmission
 }
 
 type LaunchAgentResult struct {
@@ -156,8 +153,6 @@ func (s *Store) launchAgentTx(
 	for _, subscription := range input.Subscriptions {
 		originIntegrations = append(originIntegrations, subscription.IntegrationID)
 	}
-	// Integration locks come before the profile lock, so read the profile's config now and
-	// recheck it once the profile is locked.
 	profileConfigID, err := launchProfileConfigIDTx(ctx, qtx, input)
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
@@ -245,7 +240,7 @@ func (s *Store) launchAgentTx(
 	case configID == uuid.Nil && profile != nil:
 		if profile.CurrentConfigID != profileConfigID {
 			return LaunchAgentResult{}, fmt.Errorf(
-				"agent profile %q changed its config during launch; retry: %w", profile.Name, storeerr.ErrConflict,
+				"agent profile %q changed its config during launch; retry: %w", profile.Name, storeutil.ErrRetryTransaction,
 			)
 		}
 		configID = profile.CurrentConfigID
@@ -492,7 +487,6 @@ func launchReplayMaybeTx(
 	return LaunchAgentResult{Agent: agent}, true, nil
 }
 
-// launchProfileConfigIDTx returns a profile-only launch's current profile config, or uuid.Nil.
 func launchProfileConfigIDTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -511,7 +505,6 @@ func launchProfileConfigIDTx(
 	return profile.CurrentConfigID, nil
 }
 
-// requireProfileConfigTx checks that configID is one of the profile's versions.
 func requireProfileConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
