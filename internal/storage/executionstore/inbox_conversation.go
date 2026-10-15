@@ -97,7 +97,7 @@ func (s *Store) CheckInboxConversationAuthority(
 		return err
 	}
 	if envelope.Launch != nil {
-		if _, err := lockAgentProfileTx(ctx, q, lease.ProjectID, launch.Launch.ProfileID); err != nil {
+		if _, err := lockAgentProfileForLaunchTx(ctx, q, lease.ProjectID, launch.Launch.ProfileID); err != nil {
 			return err
 		}
 		config, err := loadAgentConfigTx(ctx, q, lease.ProjectID, launch.Launch.AgentConfigID)

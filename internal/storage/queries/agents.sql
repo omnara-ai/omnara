@@ -309,6 +309,14 @@ WHERE profile.project_id = sqlc.arg(project_id)
   AND profile.deleted_at IS NULL
 FOR UPDATE;
 
+-- name: LockAgentProfileForLaunch :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = sqlc.arg(project_id)
+  AND profile.id = sqlc.arg(profile_id)
+  AND profile.deleted_at IS NULL
+FOR KEY SHARE;
+
 -- name: GetAgentProfileByIdempotencyKey :one
 SELECT profile.id, project.org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,

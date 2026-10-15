@@ -147,14 +147,11 @@ func admitSubagentLaunchTx(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
+	plan agentexecution.MutationPlan,
 	projectID uuid.UUID,
 	launch SubagentLaunch,
 ) error {
 	tx := unit.DB()
-	plan, err := unit.PlanSubagentLaunch(ctx, projectID, launch.ParentAgentID)
-	if err != nil {
-		return err
-	}
 	if err := unit.LockAgents(ctx, plan); err != nil {
 		return err
 	}

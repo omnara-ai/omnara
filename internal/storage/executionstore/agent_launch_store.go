@@ -203,7 +203,7 @@ func (s *Store) launchAgentTx(
 	}
 	var profile *AgentProfileRecord
 	if input.ProfileID != uuid.Nil {
-		record, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
+		record, err := lockAgentProfileForLaunchTx(ctx, qtx, input.ProjectID, input.ProfileID)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
@@ -267,6 +267,13 @@ func (s *Store) launchAgentTx(
 	if input.admission != nil {
 		insertInput.ID = input.admission.AgentID
 	}
+	var subagentPlan agentexecution.MutationPlan
+	if input.Subagent != nil {
+		subagentPlan, err = unit.PlanSubagentLaunch(ctx, input.ProjectID, input.Subagent.ParentAgentID)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+	}
 	if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -279,7 +286,7 @@ func (s *Store) launchAgentTx(
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		if err := admitSubagentLaunchTx(ctx, unit, qtx, input.ProjectID, *input.Subagent); err != nil {
+		if err := admitSubagentLaunchTx(ctx, unit, qtx, subagentPlan, input.ProjectID, *input.Subagent); err != nil {
 			return LaunchAgentResult{}, err
 		}
 		insertInput.ParentAgentID = input.Subagent.ParentAgentID
@@ -288,12 +295,9 @@ func (s *Store) launchAgentTx(
 	if err := s.resolveLaunchMachineSourcesTx(ctx, tx, qtx, project.OrgID, input.ProjectID, machineSources); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, unit, qtx, insertInput)
+	agent, err := insertAdmittedAgentTx(ctx, unit, qtx, insertInput)
 	if err != nil {
 		return LaunchAgentResult{}, err
-	}
-	if !inserted {
-		return LaunchAgentResult{Agent: agent}, nil
 	}
 	result := LaunchAgentResult{
 		Agent:       agent,

@@ -166,6 +166,12 @@ func main() {
 		defer close(memoryCleanupDone)
 		runMemoryCleanupLoop(ctx, logger, memoryCleanupInterval, store.Memories().CleanupFiles)
 	}()
+	executionHeadDone := make(chan struct{})
+	jobRecorder := metrics.NewJobRecorder(metricSet, metrics.SubsystemMaintenance)
+	go func() {
+		defer close(executionHeadDone)
+		runExecutionHeadLoop(ctx, logger, jobRecorder, store.Execution().SampleExecutionHeads)
+	}()
 	runtimeDiscoveryDone := make(chan struct{})
 	go func() {
 		defer close(runtimeDiscoveryDone)
@@ -241,6 +247,7 @@ func main() {
 	<-machineLoopDone
 	<-idleAgentArchiveLoopDone
 	<-memoryCleanupDone
+	<-executionHeadDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-discordRuntimeDone

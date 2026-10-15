@@ -1078,6 +1078,27 @@ func (q *Queries) LockAgentProfile(ctx context.Context, arg LockAgentProfilePara
 	return id, err
 }
 
+const lockAgentProfileForLaunch = `-- name: LockAgentProfileForLaunch :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = $1
+  AND profile.id = $2
+  AND profile.deleted_at IS NULL
+FOR KEY SHARE
+`
+
+type LockAgentProfileForLaunchParams struct {
+	ProjectID uuid.UUID
+	ProfileID uuid.UUID
+}
+
+func (q *Queries) LockAgentProfileForLaunch(ctx context.Context, arg LockAgentProfileForLaunchParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockAgentProfileForLaunch, arg.ProjectID, arg.ProfileID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const renameAgentProfile = `-- name: RenameAgentProfile :execrows
 UPDATE agent_profiles
 SET name = $1,

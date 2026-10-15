@@ -671,6 +671,24 @@ func lockAgentProfileTx(
 	return loadAgentProfileTx(ctx, qtx, projectID, id)
 }
 
+func lockAgentProfileForLaunchTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, id uuid.UUID,
+) (AgentProfileRecord, error) {
+	_, err := qtx.LockAgentProfileForLaunch(
+		ctx,
+		dbsqlc.LockAgentProfileForLaunchParams{ProjectID: projectID, ProfileID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentProfileRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("lock agent profile: %w", err)
+	}
+	return loadAgentProfileTx(ctx, qtx, projectID, id)
+}
+
 func loadAgentProfileByIdempotencyKeyTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

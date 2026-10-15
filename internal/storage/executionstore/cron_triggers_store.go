@@ -179,7 +179,7 @@ func (s *Store) CreateCronTrigger(
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgentProfile:
-		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
+		if _, err := lockAgentProfileForLaunchTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgent:

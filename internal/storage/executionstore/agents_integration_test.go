@@ -671,7 +671,7 @@ FOR UPDATE
 		})
 		launchDone <- launchErr
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentProfile", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentProfileForLaunch", 1)
 
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release profile-version blocker: %v", err)

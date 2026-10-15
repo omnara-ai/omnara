@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -79,16 +78,7 @@ type IntegrationTargetDisplay struct {
 }
 
 func insertAdmittedAgentTx(ctx context.Context, unit *agentexecution.Unit, qtx *dbsqlc.Queries,
-	input insertAgentInput) (AgentRecord, bool, error) {
-	if input.IdempotencyKey != "" {
-		record, err := loadAgentByIdempotencyKeyTx(ctx, unit.DB(), input.ProjectID, input.IdempotencyKey)
-		if err == nil {
-			return record, false, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return AgentRecord{}, false, err
-		}
-	}
+	input insertAgentInput) (AgentRecord, error) {
 	if input.ID == uuid.Nil {
 		input.ID = uuid.New()
 	}
@@ -97,42 +87,25 @@ func insertAdmittedAgentTx(ctx context.Context, unit *agentexecution.Unit, qtx *
 		Name: input.Name, SubagentKey: input.SubagentKey, IdempotencyKey: input.IdempotencyKey,
 		ArchiveAfterIdleMinutes: storeutil.Int32Ptr(input.ArchiveAfterIdleMinutes)})
 	if err != nil {
-		return AgentRecord{}, false, err
+		return AgentRecord{}, err
 	}
 	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
 	if err != nil {
-		return AgentRecord{}, false, err
+		return AgentRecord{}, err
 	}
 	count, err := qtx.CountActiveAgentsForProject(
 		ctx,
 		dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
 	)
 	if err != nil {
-		return AgentRecord{}, false, err
+		return AgentRecord{}, err
 	}
 	if count > limits.MaxActiveAgentsPerProject {
-		return AgentRecord{}, false, resourceLimitExceeded("active agents", limits.MaxActiveAgentsPerProject)
+		return AgentRecord{}, resourceLimitExceeded("active agents", limits.MaxActiveAgentsPerProject)
 	}
 	record, err := loadAgentInProjectTx(ctx, unit.DB(), input.ProjectID, input.ID)
 	record.Created = true
-	return record, err == nil, err
-}
-
-func loadAgentByIdempotencyKeyTx(
-	ctx context.Context,
-	tx dbsqlc.DBTX,
-	projectID uuid.UUID,
-	idempotencyKey string,
-) (AgentRecord, error) {
-	row, err := dbsqlc.New(tx).
-		GetAgentByIdempotencyKey(ctx, dbsqlc.GetAgentByIdempotencyKeyParams{
-			ProjectID:      projectID,
-			IdempotencyKey: idempotencyKey,
-		})
-	if err != nil {
-		return AgentRecord{}, fmt.Errorf("load idempotent agent: %w", err)
-	}
-	return agentRecordFromIdempotencySQLC(row), nil
+	return record, err
 }
 
 func loadAgentInProjectTx(ctx context.Context, tx dbsqlc.DBTX, projectID, id uuid.UUID) (AgentRecord, error) {
