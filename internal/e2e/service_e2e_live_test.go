@@ -861,6 +861,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t.Fatalf("query pre-bridge event sequence: %v", err)
 	}
 	project.createInput(t, ctx, agentID, secondPrompt)
+	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
 		if err := env.db.QueryRow(
@@ -890,6 +891,14 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		).
 			Scan(&failedBudgetContexts); err != nil {
 			return false, err.Error()
+		}
+		if checkpoints > maxCompactionRounds || failedBudgetContexts > maxCompactionRounds {
+			t.Fatalf(
+				"compaction kept repeating: checkpoints=%d failed_budget_contexts=%d max=%d",
+				checkpoints,
+				failedBudgetContexts,
+				maxCompactionRounds,
+			)
 		}
 		latestOutput, err := latestModelOutputTextAfterSequence(
 			ctx,
