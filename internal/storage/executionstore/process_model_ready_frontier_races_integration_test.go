@@ -118,6 +118,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "steering_ambiguous_compaction")
+
 	steering := createFrontierRaceInput(
 		t,
 		ctx,
@@ -157,7 +158,13 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 		t.Fatalf("steering work = %+v found=%v, want fresh admitted turn", work, found)
 	}
 	fresh := claimTestNormalModelCallForWork(t, ctx, fixture, work, time.Now().UTC())
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextFailed)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		compaction.Context.ID,
+		executionstore.ModelCallContextFailed,
+	)
 	assertFrontierRaceContextState(
 		t,
 		ctx,
@@ -175,6 +182,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "completed_compaction_wins")
+
 	steering := createFrontierRaceInput(
 		t,
 		ctx,
@@ -198,7 +206,13 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	if checkpoint.ID == uuid.Nil || checkpoint.CheckpointEventID == uuid.Nil {
 		t.Fatalf("published checkpoint = %+v, want durable checkpoint and event", checkpoint)
 	}
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextSucceeded)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		compaction.Context.ID,
+		executionstore.ModelCallContextSucceeded,
+	)
 	assertFrontierRaceContextState(
 		t,
 		ctx,

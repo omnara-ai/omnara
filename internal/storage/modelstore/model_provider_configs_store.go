@@ -60,7 +60,7 @@ func (s *Store) CreateModelProviderConfig(
 		)
 	}
 	if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
-		return ModelProviderConfigRecord{}, resourceLimitExceeded(
+		return ModelProviderConfigRecord{}, resourceguard.LimitExceeded(
 			"active model provider configs",
 			limits.MaxActiveTenantModelProviderConfigsPerOrg,
 		)

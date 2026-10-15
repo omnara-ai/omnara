@@ -61,7 +61,7 @@ func (s *Store) GetAgentIntegrationLaunchOwner(
 
 func (s *Store) GetIntegrationTargetTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, id uuid.UUID,
 ) (IntegrationTargetRecord, error) {
 	return getIntegrationTarget(ctx, dbsqlc.New(tx), projectID, id)

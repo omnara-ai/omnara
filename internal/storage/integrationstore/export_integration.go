@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 )
 
 func (s *Store) DeleteIntegrationOnceForIntegration(
@@ -16,5 +17,8 @@ func (s *Store) DeleteIntegrationOnceForIntegration(
 	if err != nil {
 		return err
 	}
-	return s.deleteIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
+	_, err = agentexecution.ReplanTest(ctx, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.deleteIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
+	})
+	return err
 }

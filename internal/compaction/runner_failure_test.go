@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
@@ -260,7 +261,7 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 			Text: "complete summary",
 		}},
 	}}}}
-	store.compactionRetryCount = executionstore.MaxModelCallRetriesPerOperation
+	store.compactionRetryCount = executionpolicy.MaxModelCallRetriesPerOperation
 	compactionInput := runInput(testPlan(1, 1, 1))
 	terminalResult, err := testRunner(store, client).RunClaimed(
 		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
@@ -402,7 +403,7 @@ func TestRunnerStopsAfterEighthRetryableResolverFailure(t *testing.T) {
 		Resolver: errorResolver{err: providerErr},
 	}
 	input := runInput(testPlan(1, 1, 1))
-	store.compactionRetryCount = executionstore.MaxModelCallRetriesPerOperation
+	store.compactionRetryCount = executionpolicy.MaxModelCallRetriesPerOperation
 	terminal, err := runner.RunClaimed(context.Background(), input, store.addStartedClaim(input))
 	if err != nil {
 		t.Fatalf("ninth pre-send compaction failure: %v", err)

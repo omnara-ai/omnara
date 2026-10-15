@@ -7,14 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -77,7 +76,7 @@ func (s *Service) CreateOrgForUser(
 			return identitystore.CreateOrgForUserRecord{}, err
 		}
 		if input.ProvisionDefaultModelProvider {
-			rows, err := s.q.WithTx(tx).EnqueueDefaultModelProviderProvisioning(
+			rows, err := dbsqlc.New(tx).EnqueueDefaultModelProviderProvisioning(
 				ctx,
 				dbsqlc.EnqueueDefaultModelProviderProvisioningParams{
 					OrganizationID: record.Org.ID,
@@ -190,15 +189,14 @@ func deleteProjectOwnedContentTx(
 
 func (s *Service) teardownProjectAgentsTx(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	projectID uuid.UUID,
 	agentIDs []uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
 	machines := make([]executionstore.MachineRecord, 0)
 	for _, agentID := range agentIDs {
-		agentMachines, err := s.execution.ArchiveAgentTx(ctx, tx, txNotifications, projectID, agentID, actor)
+		agentMachines, err := s.execution.ArchiveAgentInUnit(ctx, unit, projectID, agentID, actor)
 		if err != nil {
 			return nil, fmt.Errorf("archive project agent %s: %w", agentID, err)
 		}
@@ -215,10 +213,11 @@ type organizationMachineLifecyclePlan struct {
 
 func prelockProjectMachineLifecycleTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	q *dbsqlc.Queries,
 	orgID, projectID uuid.UUID,
 ) ([]uuid.UUID, error) {
+	tx := unit.DB()
 	agentIDs, err := q.ListActiveAgentIDsForProjectDeletion(
 		ctx,
 		dbsqlc.ListActiveAgentIDsForProjectDeletionParams{ProjectID: projectID},
@@ -276,7 +275,7 @@ func prelockProjectMachineLifecycleTx(
 	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
 		return nil, err
 	}
-	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return nil, err
 	}
 	return agentIDs, nil
@@ -284,10 +283,11 @@ func prelockProjectMachineLifecycleTx(
 
 func prelockOrganizationMachineLifecycleTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	q *dbsqlc.Queries,
 	orgID uuid.UUID,
 ) (organizationMachineLifecyclePlan, error) {
+	tx := unit.DB()
 	agentRows, err := q.ListActiveAgentRefsForOrganizationDeletion(
 		ctx,
 		dbsqlc.ListActiveAgentRefsForOrganizationDeletionParams{OrgID: orgID},
@@ -373,7 +373,31 @@ func prelockOrganizationMachineLifecycleTx(
 	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
-	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+	for _, poolID := range poolIDs {
+		rows,
+			err := q.ListMachinePoolAgentRefsForLifecycle(ctx,
+			dbsqlc.ListMachinePoolAgentRefsForLifecycleParams{OrgID: orgID,
+				MachinePoolID: poolID})
+		if err != nil {
+			return organizationMachineLifecyclePlan{}, err
+		}
+		for _, row := range rows {
+			agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		}
+	}
+	for _, machineID := range machineIDs {
+		rows,
+			err := q.ListMachineLifecycleTerminalAgentRefs(ctx,
+			dbsqlc.ListMachineLifecycleTerminalAgentRefsParams{OrgID: orgID,
+				MachineID: machineID})
+		if err != nil {
+			return organizationMachineLifecyclePlan{}, err
+		}
+		for _, row := range rows {
+			agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		}
+	}
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return organizationMachineLifecyclePlan{}, err
 	}
 	byoMachineIDs, err := q.ListActiveBYOMachineIDsForOrganizationDeletion(
@@ -420,7 +444,7 @@ func (s *Service) DeleteProject(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, "delete_project", func() ([]executionstore.MachineRecord, error) {
+	return agentexecution.Retry(ctx, "delete_project", func(ctx context.Context) ([]executionstore.MachineRecord, error) {
 		return s.deleteProjectOnce(ctx, orgID, projectID, actor)
 	})
 }
@@ -430,16 +454,15 @@ func (s *Service) deleteProjectOnce(
 	orgID, projectID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin delete project: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := lifecyclelock.OrganizationShared(ctx, tx, orgID); err != nil {
 		return nil, err
 	}
-	if err := lifecyclelock.ProjectExclusive(ctx, tx, projectID); err != nil {
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
+	q := dbsqlc.New(tx)
+	if err := unit.LockProjectDeletion(ctx, orgID, projectID); err != nil {
 		return nil, err
 	}
 	if _, err := q.GetProject(ctx, dbsqlc.GetProjectParams{OrgID: orgID, ID: projectID}); err != nil {
@@ -448,15 +471,13 @@ func (s *Service) deleteProjectOnce(
 		}
 		return nil, fmt.Errorf("load project for deletion: %w", err)
 	}
-	agentIDs, err := prelockProjectMachineLifecycleTx(ctx, tx, q, orgID, projectID)
+	agentIDs, err := prelockProjectMachineLifecycleTx(ctx, unit, q, orgID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	txNotifications := s.newTxNotifications()
 	machines, err := s.teardownProjectAgentsTx(
 		ctx,
-		tx,
-		txNotifications,
+		unit,
 		projectID,
 		agentIDs,
 		actor,
@@ -483,13 +504,7 @@ func (s *Service) deleteProjectOnce(
 	if rows == 0 {
 		return nil, storeerr.ErrNotFound
 	}
-	if err := storeutil.CommitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		s.postCommitPublisher,
-		"delete project",
-	); err != nil {
+	if err := unit.Commit(ctx, "delete project"); err != nil {
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
@@ -511,9 +526,12 @@ func (s *Service) DeleteOrganization(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, "delete_organization", func() ([]executionstore.MachineRecord, error) {
-		return s.deleteOrganizationOnce(ctx, orgID, actor)
-	})
+	return agentexecution.Retry(ctx,
+		"delete_organization",
+		func(ctx context.Context) ([]executionstore.MachineRecord,
+			error) {
+			return s.deleteOrganizationOnce(ctx, orgID, actor)
+		})
 }
 
 //nolint:lll // Keeping generated query parameters inline makes the transaction's cascade order auditable.
@@ -522,13 +540,15 @@ func (s *Service) deleteOrganizationOnce(
 	orgID uuid.UUID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin delete organization: %w", err)
+		return nil, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+
 	q := dbsqlc.New(tx)
-	if err := lifecyclelock.OrganizationExclusive(ctx, tx, orgID); err != nil {
+	if err := unit.LockOrganizationDeletion(ctx, orgID); err != nil {
 		return nil, err
 	}
 	active, err := q.OrgExistsActive(ctx, dbsqlc.OrgExistsActiveParams{ID: orgID})
@@ -545,11 +565,10 @@ func (s *Service) deleteOrganizationOnce(
 	if err != nil {
 		return nil, fmt.Errorf("list organization projects: %w", err)
 	}
-	plan, err := prelockOrganizationMachineLifecycleTx(ctx, tx, q, orgID)
+	plan, err := prelockOrganizationMachineLifecycleTx(ctx, unit, q, orgID)
 	if err != nil {
 		return nil, err
 	}
-	txNotifications := s.newTxNotifications()
 	rows, err := q.DeleteOrganization(ctx, dbsqlc.DeleteOrganizationParams{ID: orgID})
 	if err != nil {
 		return nil, fmt.Errorf("delete organization: %w", err)
@@ -561,8 +580,7 @@ func (s *Service) deleteOrganizationOnce(
 	for _, projectID := range orgProjectIDs {
 		projectMachines, err := s.teardownProjectAgentsTx(
 			ctx,
-			tx,
-			txNotifications,
+			unit,
 			projectID,
 			plan.agentIDsByProject[projectID],
 			actor,
@@ -573,14 +591,14 @@ func (s *Service) deleteOrganizationOnce(
 		machines = append(machines, projectMachines...)
 	}
 	for _, poolID := range plan.poolIDs {
-		poolMachines, err := s.execution.DeleteMachinePoolTx(ctx, tx, txNotifications, orgID, poolID)
+		poolMachines, err := s.execution.DeleteMachinePoolInUnit(ctx, unit, orgID, poolID)
 		if err != nil {
 			return nil, fmt.Errorf("delete organization machine pool %s: %w", poolID, err)
 		}
 		machines = append(machines, poolMachines...)
 	}
 	for _, machineID := range plan.byoMachineIDs {
-		_, err := s.execution.DeleteMachineTx(ctx, tx, txNotifications, executionstore.DeleteMachineInput{
+		_, err := s.execution.DeleteMachineInUnit(ctx, unit, executionstore.DeleteMachineInput{
 			OrgID: orgID, MachineID: machineID,
 		})
 		if err != nil {
@@ -652,13 +670,7 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization api keys: %w", err)
 	}
-	if err := storeutil.CommitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		s.postCommitPublisher,
-		"delete organization",
-	); err != nil {
+	if err := unit.Commit(ctx, "delete organization"); err != nil {
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)

@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -54,7 +53,7 @@ func (s *Store) IntegrationRoutingCandidatesForInbox(
 
 func (s *Store) IntegrationRoutingCandidatesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, integrationID uuid.UUID,
 	conversation ConversationAddress,
 	scopes []ConversationAddress,

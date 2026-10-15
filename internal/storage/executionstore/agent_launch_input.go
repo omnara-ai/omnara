@@ -7,10 +7,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -83,8 +82,7 @@ func prepareLaunchInitialInput(input LaunchAgentInput) (*LaunchInitialInput, []C
 
 func (s *Store) insertLaunchInitialContentInputTx(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	agent AgentRecord,
 	launch LaunchAgentInput,
 	initial LaunchInitialInput,
@@ -92,6 +90,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	admission *launchAdmission,
 	result *LaunchAgentResult,
 ) error {
+	tx := unit.DB()
 	q := dbsqlc.New(tx)
 	actor := initial.Actor
 	var err error
@@ -142,22 +141,14 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		content.IdempotencyScope = integrationstore.IdempotencyScope(integration)
 	}
 	if admission != nil {
-		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(
-			ctx,
-			tx,
-			agent.ProjectID,
-			agent.ID,
-			admission.Artifacts,
-		)
-		if err != nil {
-			return err
-		}
+		content.PreparedArtifacts = admission.Artifacts
 	}
-	created, err := createAgentContentInputTx(ctx, txNotifications, tx, q, content, blocks)
+	created, err := admitAgentContentInputTx(ctx, unit, q, content, blocks)
 	if err != nil {
 		return err
 	}
 	result.AgentInput, result.InputContentBlocks = created.agentInput, created.contentBlocks
+	result.Artifacts = created.artifacts
 	return nil
 }
 

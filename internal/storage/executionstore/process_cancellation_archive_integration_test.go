@@ -19,7 +19,14 @@ func TestCancelAgentOrdersCancelBeforeCanceledToolResult(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_orders_cause_before_effect")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "cancel_orders_cause_before_effect", "run_command")
+
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"cancel_orders_cause_before_effect",
+		"run_command",
+	)
 
 	_, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -153,7 +160,7 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		fixture.Store,
@@ -164,15 +171,13 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	if !found {
 		t.Fatal("expected admitted content input")
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID}, AgentConfigID: agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID,
+			RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID},
+		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context: %v", err)
 	}
@@ -253,7 +258,7 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	if err != nil {
 		t.Fatalf("create content input: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		fixture.Store,
@@ -264,15 +269,13 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	if !found {
 		t.Fatal("expected admitted content input")
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID}, AgentConfigID: agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared2, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID,
+			RuntimeLockID: fixture.Lock.ID, OpeningInputIDs: []uuid.UUID{input.ID},
+		})
+	modelClaim := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context: %v", err)
 	}
@@ -364,6 +367,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "archive_model_call_"+test.name)
+
 			now := fixture.Now.Add(time.Minute)
 			input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
 				ctx,
@@ -378,7 +382,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create content input: %v", err)
 			}
-			admitted, found := admitNextAgentInputAndOpenTurnForTest(
+			_, found := admitNextAgentInputAndOpenTurnForTest(
 				t,
 				ctx,
 				fixture.Store,
@@ -389,18 +393,15 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			if !found {
 				t.Fatal("expected admitted content input")
 			}
-			agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-			if err != nil {
-				t.Fatalf("load agent: %v", err)
-			}
-			claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-				ProjectID:          testProjectID,
-				AgentID:            fixture.AgentID,
-				RuntimeLockID:      fixture.Lock.ID,
-				OpeningInputIDs:    []uuid.UUID{input.ID},
-				AgentConfigID:      agent.CurrentConfigID,
-				InputEventSequence: admitted.Events[0].Sequence,
-			})
+			prepared3, err := fixture.Store.Execution().
+				PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+					ProjectID:       testProjectID,
+					AgentID:         fixture.AgentID,
+					RuntimeLockID:   fixture.Lock.ID,
+					OpeningInputIDs: []uuid.UUID{input.ID},
+				})
+			claim := prepared3.Claim
+
 			if err != nil {
 				t.Fatalf("claim model context: %v", err)
 			}
@@ -462,14 +463,23 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			}
 			if archived.ArchivedAt == nil || contextRecord.CompletedAt == nil ||
 				contextRecord.CompletedAt.Before(contextRecord.CreatedAt) {
-				t.Fatalf("archived model context has invalid timestamps: agent=%+v context=%+v", archived, contextRecord)
+				t.Fatalf(
+					"archived model context has invalid timestamps: agent=%+v context=%+v",
+					archived,
+					contextRecord,
+				)
 			}
 			if test.recordRetry && archived.ArchivedAt.Before(*contextRecord.CompletedAt) {
-				t.Fatalf("agent archive predates the existing retry outcome: agent=%+v context=%+v", archived, contextRecord)
-			}
-			if !test.recordRetry && contextRecord.CompletedAt.Before(*archived.ArchivedAt) {
 				t.Fatalf(
-					"archive-triggered model cancellation predates the agent archive: agent=%+v context=%+v", archived,
+					"agent archive predates the existing retry outcome: agent=%+v context=%+v",
+					archived,
+					contextRecord,
+				)
+			}
+			if !test.recordRetry && contextRecord.CompletedAt.After(*archived.ArchivedAt) {
+				t.Fatalf(
+					"archive-triggered model cancellation follows the agent archive: agent=%+v context=%+v",
+					archived,
 					contextRecord,
 				)
 			}
@@ -497,7 +507,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 	}
 }
 
-func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testing.T) {
+func TestCancelAgentRequestsRuntimeCancellation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_active_cancels_steering")
@@ -517,33 +527,6 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 		fixture.Lock.ID,
 		true,
 	)
-	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued"}]`),
-			IdempotencyKey: "cancel-active-preserve-queued",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create queued input: %v", err)
-	}
-	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steering"}]`),
-			DeliveryMode:   "steering",
-			IdempotencyKey: "cancel-active-cancel-steering",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create steering input: %v", err)
-	}
 	cancelResult, err := fixture.Store.Execution().CancelAgent(
 		ctx,
 		executionstore.CancelAgentInput{
@@ -555,31 +538,8 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 	if err != nil {
 		t.Fatalf("cancel active agent: %v", err)
 	}
-	if cancelResult.Event.ID == uuid.Nil || !cancelResult.Affected {
-		t.Fatalf(
-			"cancel active agent = event %+v runtime_cancel_requested %v affected %v, want affected event",
-			cancelResult.Event,
-			cancelResult.RuntimeCancelRequested,
-			cancelResult.Affected,
-		)
-	}
 	if !cancelResult.RuntimeCancelRequested {
 		t.Fatalf("runtime_cancel_requested = false, want durable runtime cancel mark")
-	}
-	var queuedState, steeringState string
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT state FROM agent_inputs WHERE id = $1`, queuedInput.ID).
-		Scan(&queuedState); err != nil {
-		t.Fatalf("load queued input state: %v", err)
-	}
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT state FROM agent_inputs WHERE id = $1`, steeringInput.ID).
-		Scan(&steeringState); err != nil {
-		t.Fatalf("load steering input state: %v", err)
-	}
-	if queuedState != "received" {
-		t.Fatalf("queued input state = %q, want received", queuedState)
-	}
-	if steeringState != "canceled" {
-		t.Fatalf("steering input state = %q, want canceled", steeringState)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -41,57 +42,57 @@ func (s *Store) endExpiredDaemonRuntime(
 	ctx context.Context,
 	candidate dbsqlc.ListExpiredDaemonRuntimeCandidatesRow,
 ) (DaemonRuntimeRecord, bool, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return DaemonRuntimeRecord{}, false, fmt.Errorf("begin end expired daemon runtime: %w", err)
+	type transactionResult struct {
+		runtime DaemonRuntimeRecord
+		ended   bool
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	retried, retryErr := agentexecution.Retry(ctx,
+		"end_expired_daemon_runtime",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			txNotifications := unit.Notifications()
 
-	txNotifications := s.newTxNotifications()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockMachineForLifecycle(
-		ctx,
-		dbsqlc.LockMachineForLifecycleParams{
-			OrgID: candidate.OrgID,
-			ID:    candidate.MachineID,
-		},
-	); err != nil {
-		return DaemonRuntimeRecord{}, false, fmt.Errorf(
-			"lock machine for expired daemon runtime: %w",
-			err,
-		)
-	}
-	row, err := qtx.EndExpiredDaemonRuntime(
-		ctx,
-		dbsqlc.EndExpiredDaemonRuntimeParams(candidate),
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped expired daemon runtime",
-		); err != nil {
-			return DaemonRuntimeRecord{}, false, err
-		}
-		return DaemonRuntimeRecord{}, false, nil
-	}
-	if err != nil {
-		return DaemonRuntimeRecord{}, false, fmt.Errorf("end expired daemon runtime: %w", err)
-	}
-	record := daemonRuntimeFromExpired(row)
-	txNotifications.AddDaemonRuntimeEnded(
-		record.ID,
-		record.MachineID,
-		notifications.DaemonRuntimeEndReconnect,
-	)
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"end expired daemon runtime",
-	); err != nil {
-		return DaemonRuntimeRecord{}, false, err
-	}
-	return record, true, nil
+			qtx := dbsqlc.New(tx)
+			if _, err := qtx.LockMachineForLifecycle(
+				ctx,
+				dbsqlc.LockMachineForLifecycleParams{
+					OrgID: candidate.OrgID,
+					ID:    candidate.MachineID,
+				},
+			); err != nil {
+				return transactionResult{}, fmt.Errorf(
+					"lock machine for expired daemon runtime: %w",
+					err,
+				)
+			}
+			row, err := qtx.EndExpiredDaemonRuntime(
+				ctx,
+				dbsqlc.EndExpiredDaemonRuntimeParams(candidate),
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				if err := unit.Commit(ctx, "skipped expired daemon runtime"); err != nil {
+					return transactionResult{}, err
+				}
+				return transactionResult{}, nil
+			}
+			if err != nil {
+				return transactionResult{}, fmt.Errorf("end expired daemon runtime: %w", err)
+			}
+			record := daemonRuntimeFromExpired(row)
+			txNotifications.AddDaemonRuntimeEnded(
+				record.ID,
+				record.MachineID,
+				notifications.DaemonRuntimeEndReconnect,
+			)
+			if err := unit.Commit(ctx, "end expired daemon runtime"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{record, true}, nil
+		})
+	return retried.runtime, retried.ended, retryErr
 }

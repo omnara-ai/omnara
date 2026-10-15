@@ -589,13 +589,14 @@ func TestAgentResourceLimitsPreserveReplays(t *testing.T) {
 		t.Fatalf("create first agent: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO agents(
-  id, org_id, project_id, state, current_config_id,
+WITH inserted AS (INSERT INTO agents(
+  id, root_agent_id, org_id, project_id, state, current_config_id,
   idempotency_key, created_at, updated_at
 )
-SELECT md5('resource-limit-agent-' || n)::uuid, $1, $2, 'active', $3,
+SELECT md5('resource-limit-agent-' || n)::uuid, md5('resource-limit-agent-' || n)::uuid, $1, $2, 'active', $3,
        'limit-seed-agent-' || n, $4, $4
-FROM generate_series(1, $5::integer) AS n
+FROM generate_series(1, $5::integer) AS n RETURNING id)
+INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FROM inserted
 `, testOrgID, testProjectID, configID, now, agentLimit-1); err != nil {
 		t.Fatalf("seed agents to limit: %v", err)
 	}

@@ -78,15 +78,15 @@ model:
 	if err != nil {
 		t.Fatalf("capture agent config: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().
-		ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      turn.RuntimeLockID,
-			OpeningInputIDs:    turn.InputIDs,
-			AgentConfigID:      snapshot.AgentConfig.ID,
-			InputEventSequence: turn.OpeningEventSequence,
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         launch.Agent.ID,
+			RuntimeLockID:   turn.RuntimeLockID,
+			OpeningInputIDs: turn.InputIDs,
 		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model call context: %v", err)
 	}
@@ -202,11 +202,11 @@ model:
 		t.Fatalf("launch agent: %v", err)
 	}
 	require.NotEqual(t, uuid.Nil, launch.IntegrationTarget.ID)
-	specs, err := (AgentExecutor{Store: fixture.Store}).modelContextToolRuntime(
+	specs, err := (AgentExecutor{Store: fixture.Store}).toolRuntimeFromConfig(
 		ctx,
 		kernelTestProjectID,
 		launch.Agent.ID,
-		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID},
+		launch.AgentConfig,
 		now,
 	)
 	if err != nil {

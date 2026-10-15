@@ -199,12 +199,3 @@ type ActiveProcessRecord struct {
 	UpdatedAt       time.Time                `json:"updated_at"`
 	ToolCallID      uuid.UUID                `json:"tool_call_id,omitempty"`
 }
-
-func isProcessTerminal(state ProcessState) bool {
-	switch state {
-	case ProcessStateExited, ProcessStateFailed, ProcessStateKilled, ProcessStateUnknown:
-		return true
-	default:
-		return false
-	}
-}

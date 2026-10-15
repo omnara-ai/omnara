@@ -67,7 +67,9 @@ Pass the returned cursor back on the next request; a `null` cursor means you've 
 
 ## Idempotency
 
-Create endpoints — orgs, projects, profiles, inputs, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
+Create endpoints — orgs, projects, profiles, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
+
+Agent input creation and config changes use the key alone: a retry returns the original stored result without comparing the request body.
 
 Organization creation also accepts this header but does not require it. A key determines the proposed organization ID, so a failed retry uses the same ID. Once the organization commits, reusing the key returns it without another hosted call.
 
@@ -84,7 +86,7 @@ Branch on `code` — it's a stable contract, enumerated in the OpenAPI spec, and
 Two rules worth internalizing:
 
 - **Resources you cannot read return `404`, not `403`.** The API doesn't confirm the existence of things outside your access. A `403` always means "the resource is visible to you, but your role doesn't permit this action."
-- **Retry `424`, `429` and `5xx` with backoff, reusing the same `Idempotency-Key`** so a retry can never act twice. `424` with code `upstream_unavailable` means a server you configured, such as an MCP server, did not respond or failed; retries succeed once that server recovers. A `409` from MCP tool discovery means another refresh of the same server or auth secret is in progress; retry it shortly. Other `4xx` errors won't change on retry — fix the request instead.
+- **Retry `424`, `429` and `5xx` with backoff, reusing the same `Idempotency-Key`** so a retry can never act twice. `424` with code `upstream_unavailable` means a server you configured, such as an MCP server, did not respond or failed; retries succeed once that server recovers. A `409` from MCP tool discovery means another refresh of the same server or auth secret is in progress; retry it shortly. A `409` with code `agent_backlog_full` means the agent has 50 pending messages; wait for processing or cancel a pending message before retrying. Other `4xx` errors won't change on retry — fix the request instead.
 
 ## Request size limits
 

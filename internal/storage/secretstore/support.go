@@ -2,7 +2,6 @@ package secretstore
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type Access interface {
@@ -42,7 +40,3 @@ type ProjectRecord struct {
 }
 
 const resourceSecrets = "secrets"
-
-func resourceLimitExceeded(resource string, limit int64) error {
-	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)
-}

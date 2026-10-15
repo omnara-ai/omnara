@@ -6,14 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func claimReplacementAfterReapedNormalModelCall(
@@ -280,7 +280,7 @@ func claimExhaustedCompactionModelContext(
 		t.Fatalf("record compaction-triggering failure: %v", err)
 	}
 	compactionClaim := handoff.CompactionCall
-	for attempt := 1; attempt <= executionstore.MaxModelCallRetriesPerOperation; attempt++ {
+	for attempt := 1; attempt <= executionpolicy.MaxModelCallRetriesPerOperation; attempt++ {
 		if compactionClaim.Context.AttemptNumber != attempt {
 			t.Fatalf("compaction attempt = %d, want %d", compactionClaim.Context.AttemptNumber, attempt)
 		}
@@ -346,7 +346,7 @@ func assertExhaustedCompactionContextTerminalized(
 		compactionClaim.Context.ID,
 	)
 	if err != nil || !found ||
-		terminalContext.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+		terminalContext.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		terminalContext.State != executionstore.ModelCallContextFailed ||
 		terminalContext.RecoveryKind != "" ||
 		terminalContext.ErrorKind != "runtime" ||
@@ -378,7 +378,7 @@ func assertExhaustedCompactionContextTerminalized(
 		ctx,
 		fixture,
 		compactionClaim.Context,
-		executionstore.MaxModelCallRetriesPerOperation+1,
+		executionpolicy.MaxModelCallRetriesPerOperation+1,
 	)
 }
 
@@ -413,7 +413,7 @@ func claimExhaustedNormalModelContext(
 		t.Fatalf("initial work = %+v found=%v err=%v", work, found, err)
 	}
 	modelClaim := claimTestNormalModelCallForWork(t, ctx, fixture, work, time.Now().UTC())
-	for attempt := 1; attempt <= executionstore.MaxModelCallRetriesPerOperation; attempt++ {
+	for attempt := 1; attempt <= executionpolicy.MaxModelCallRetriesPerOperation; attempt++ {
 		if modelClaim.Context.AttemptNumber != attempt {
 			t.Fatalf("model call attempt = %d, want %d", modelClaim.Context.AttemptNumber, attempt)
 		}
@@ -481,7 +481,7 @@ func assertExhaustedNormalModelContextTerminalized(
 	if err != nil || !found {
 		t.Fatalf("load exhausted context: found=%v err=%v", found, err)
 	}
-	if contextRecord.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+	if contextRecord.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		contextRecord.State != executionstore.ModelCallContextFailed ||
 		contextRecord.RecoveryKind != "" ||
 		contextRecord.ErrorKind != "runtime" ||
@@ -506,7 +506,7 @@ func assertExhaustedNormalModelContextTerminalized(
 		ctx,
 		fixture,
 		modelClaim.Context,
-		executionstore.MaxModelCallRetriesPerOperation+1,
+		executionpolicy.MaxModelCallRetriesPerOperation+1,
 	)
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
 		t.Fatalf("exhausted context wakeups = %d, want 0", wakeups)
@@ -655,10 +655,6 @@ func claimTestNormalModelCallForWork(
 	now time.Time,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for model context: %v", err)
-	}
 	var openingEventSequence int64
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
@@ -668,14 +664,15 @@ func claimTestNormalModelCallForWork(
 		Scan(&openingEventSequence); err != nil {
 		t.Fatalf("load opening event sequence: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      claim.RuntimeLock.ID,
-		OpeningInputIDs:    claim.Model.InputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: openingEventSequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   claim.RuntimeLock.ID,
+			OpeningInputIDs: claim.Model.InputIDs,
+		})
+	modelClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context: %v", err)
 	}
@@ -705,7 +702,8 @@ func requireAgentWakeupCoverage(
 	t.Helper()
 	var runnable, hasWakeup, hasRuntimeLock bool
 	if err := store.pool.QueryRow(ctx, `
-SELECT agent_next_wakeup_ready_at($1, $2) IS NOT NULL,
+SELECT EXISTS(SELECT 1 FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
+WHERE a.project_id=$1 AND a.id=$2 AND h.logical_ready_at IS NOT NULL),
        EXISTS (SELECT 1 FROM agent_wakeups WHERE agent_id = $2),
        EXISTS (SELECT 1 FROM agent_runtime_locks WHERE agent_id = $2)
 `, projectID, agentID).Scan(&runnable, &hasWakeup, &hasRuntimeLock); err != nil {
@@ -807,18 +805,15 @@ func retryBackoffWithQueuedInput(
 	if !found || len(admitted.Events) != 1 {
 		t.Fatalf("admit retry opening input found=%v turn=%+v", found, admitted)
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load retry agent: %v", err)
-	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{openingInput.ID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared2, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: []uuid.UUID{openingInput.ID},
+		})
+	claim := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim retry model call: %v", err)
 	}
@@ -856,6 +851,12 @@ func retryBackoffWithQueuedInput(
 	if err != nil {
 		t.Fatalf("create queued input during retry backoff: %v", err)
 	}
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(ctx,
+		testProjectID,
+		fixture.AgentID,
+		fixture.Lock.ID); err != nil {
+		t.Fatal(err)
+	}
 	if readyAt := agentWakeupReadyAt(t, ctx, fixture.Store, fixture.AgentID); !readyAt.Equal(retryAt) {
 		t.Fatalf("initial retry wakeup = %s, want %s", readyAt, retryAt)
 	}
@@ -889,15 +890,45 @@ func requestAgentRuntimeCancelForTest(
 	ctx context.Context,
 	store *Store,
 	projectID, agentID uuid.UUID,
-	now time.Time,
+	_ time.Time,
 ) (executionstore.AgentRuntimeLockRecord, error) {
-	row, err := dbsqlc.New(store.pool).
-		RequestAgentRuntimeCancel(ctx, dbsqlc.RequestAgentRuntimeCancelParams{ProjectID: projectID, AgentID: agentID})
+	var r executionstore.AgentRuntimeLockRecord
+	err := store.pool.QueryRow(ctx,
+		`UPDATE agent_runtime_locks r SET cancel_requested_at=coalesce(cancel_requested_at,statement_timestamp()) FROM agents a WHERE a.id=r.agent_id AND a.project_id=$1 AND a.id=$2 AND r.cancel_requested_at IS NULL RETURNING r.id,r.agent_id,r.worker_process_id,r.started_at,r.renewed_at,r.lease_expires_at,r.cancel_requested_at`,
+		projectID,
+		agentID).
+		Scan(&r.ID,
+			&r.AgentID,
+			&r.WorkerProcessID,
+			&r.StartedAt,
+			&r.RenewedAt,
+			&r.LeaseExpiresAt,
+			&r.CancelRequestedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return executionstore.AgentRuntimeLockRecord{}, nil
 	}
+	return r, err
+}
+
+func currentContinuableTurnForTest(
+	ctx context.Context,
+	store *Store,
+	projectID, agentID uuid.UUID,
+) (executionstore.AgentTurnRecord, error) {
+	snapshot, err := store.Execution().IntegrationLoadExecution(ctx, projectID, agentID)
 	if err != nil {
-		return executionstore.AgentRuntimeLockRecord{}, err
+		return executionstore.AgentTurnRecord{}, err
 	}
-	return executionstore.IntegrationAgentRuntimeLockRecordFromCancelSQLC(row), nil
+	if !snapshot.Selection.TurnContinuable {
+		return executionstore.AgentTurnRecord{}, pgx.ErrNoRows
+	}
+	var r executionstore.AgentTurnRecord
+	err = store.pool.QueryRow(ctx,
+		`SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id FROM agent_turns t JOIN agents a ON a.id=t.agent_id WHERE a.project_id=$1 AND t.agent_id=$2 AND t.id=$3`,
+		projectID,
+		agentID, snapshot.Head.CurrentTurnID).
+		Scan(&r.ID, &r.TurnSequence, &r.LatestEventID, &r.LatestSemanticEventID)
+	r.ProjectID = projectID
+	r.AgentID = agentID
+	return r, err
 }

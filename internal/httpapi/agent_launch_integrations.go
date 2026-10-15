@@ -77,7 +77,6 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	return input, nil
 }
 
-// publicLaunchBaseConfig returns the config that launch-time additions extend.
 func (s strictOpenAPIServer) publicLaunchBaseConfig(
 	ctx context.Context,
 	project identitystore.ProjectRecord,

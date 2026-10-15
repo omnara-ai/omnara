@@ -299,7 +299,6 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := store.Execution().IntegrationArchiveAgentOnce(
 			context.Background(),
-			testOrgID,
 			testProjectID,
 			agent.ID,
 			archiveActor,

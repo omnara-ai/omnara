@@ -43,7 +43,7 @@ func createReadyToolCallsForTest(
 	if err != nil {
 		t.Fatalf("create tool-call seed input: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -54,17 +54,17 @@ func createReadyToolCallsForTest(
 	if !found {
 		t.Fatal("expected tool-call seed input admission")
 	}
-	claim, err := store.Execution().ClaimNormalModelCall(
+	prepared1, err := store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            agentID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      configID,
-			InputEventSequence: admitted.Events[0].Sequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
 		},
 	)
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim tool-call seed model context: %v", err)
 	}
@@ -76,6 +76,16 @@ func createReadyToolCallsForTest(
 			Type:           toolcatalog.ToolTypeBuiltIn,
 		})
 	}
+	response := toolCallProviderResponseForTest(label,
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIVariantDefault,
+		specs)
+	response.RequestedProviderModelSlug = modelProviderSlugForContext(t,
+		ctx,
+		store,
+		testProjectID,
+		agentID,
+		claim.Context.ID)
 	event, records, err := store.Execution().RecordToolCallSourceAndCompleteContext(
 		ctx,
 		executionstore.RecordToolCallSourceAndCompleteContextInput{
@@ -83,13 +93,8 @@ func createReadyToolCallsForTest(
 			AgentID:            agentID,
 			RuntimeLockID:      lock.ID,
 			ModelCallContextID: claim.Context.ID,
-			ProviderResponse: toolCallProviderResponseForTest(
-				label,
-				modelprotocol.APIFormatOpenAIResponses,
-				modelprotocol.APIVariantDefault,
-				specs,
-			),
-			ToolCallBindings: bindings,
+			ProviderResponse:   response,
+			ToolCallBindings:   bindings,
 		},
 	)
 	if err != nil {

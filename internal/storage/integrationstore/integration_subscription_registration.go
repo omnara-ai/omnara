@@ -17,7 +17,7 @@ const maxIntegrationConversationAgents = 16
 
 func PrepareIntegrationSubscriptionTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID uuid.UUID,
 	attachment IntegrationSubscriptionAttachment,
 ) (RegisterIntegrationSubscriptionInput, error) {
@@ -43,7 +43,7 @@ func PrepareIntegrationSubscriptionTx(
 
 func RegisterIntegrationSubscriptionTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input RegisterIntegrationSubscriptionInput,
 ) (IntegrationSubscriptionRecord, error) {
 	rows, err := RegisterIntegrationSubscriptionsTx(ctx, tx, []RegisterIntegrationSubscriptionInput{input})
@@ -57,7 +57,7 @@ func RegisterIntegrationSubscriptionTx(
 // conversation locks before locking or creating the agent, and hold them through registration.
 func RegisterIntegrationSubscriptionsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	inputs []RegisterIntegrationSubscriptionInput,
 ) ([]IntegrationSubscriptionRecord, error) {
 	if len(inputs) == 0 {

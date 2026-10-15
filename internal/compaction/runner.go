@@ -246,7 +246,7 @@ func (r Runner) RunClaimed(
 		},
 	)
 	if err != nil {
-		if errors.Is(err, executionstore.ErrCheckpointBoundaryUnsafe) {
+		if errors.Is(err, storeerr.ErrCheckpointBoundaryUnsafe) {
 			nextEnd, adjustmentErr := r.nextSmallerSourceEnd(ctx, input.Plan)
 			if adjustmentErr != nil {
 				return RunResult{}, errors.Join(err, adjustmentErr)

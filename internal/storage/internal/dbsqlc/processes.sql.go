@@ -1152,48 +1152,51 @@ func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcess
 }
 
 const listDaemonProcessOffers = `-- name: ListDaemonProcessOffers :many
-WITH runtime AS MATERIALIZED (
-  SELECT runtime.org_id, runtime.machine_id
-  FROM online_daemon_runtimes runtime
-  WHERE runtime.id = $5::uuid
-    AND runtime.org_id = $1
-    AND runtime.machine_id = $2
-    AND runtime.daemon_token_id = $6::uuid
-)
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec,
-       coalesce((CASE WHEN process.execution_spec->>'kind' = 'shell'
-                     THEN config.compiled_definition->'git_credentials'->>'integration_id' END)::uuid,
-                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
+       coalesce((CASE WHEN process.execution_spec->>'kind' = 'shell' THEN (
+         SELECT config.compiled_definition->'git_credentials'->>'integration_id'
+         FROM tool_calls tool_call
+         JOIN model_outputs output ON output.agent_id = tool_call.agent_id
+           AND output.id = tool_call.model_output_id
+         JOIN model_call_contexts context ON context.agent_id = output.agent_id
+           AND context.id = output.model_call_context_id
+         JOIN agent_configs config ON config.project_id = context.project_id
+           AND config.id = context.agent_config_id
+         WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+       ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
 FROM processes process
-JOIN runtime ON runtime.org_id = process.org_id
-  AND runtime.machine_id = process.machine_id
-JOIN agent_machine_bindings binding ON binding.project_id = process.project_id
-  AND binding.agent_id = process.agent_id
-  AND binding.id = process.agent_machine_binding_id
-  AND binding.machine_id = process.machine_id
-  AND binding.state = 'attached'
-JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-  AND pmgrant.machine_id = binding.machine_id
-JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
-  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-JOIN model_call_contexts context ON context.project_id = process.project_id
-  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
-JOIN agent_configs config ON config.project_id = process.project_id AND config.id = context.agent_config_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
   AND process.state = 'queued'
   AND process.created_at > statement_timestamp() - ($3::int * interval '1 second')
+  AND EXISTS (
+    SELECT 1 FROM online_daemon_runtimes runtime
+    WHERE runtime.id = $4::uuid
+      AND runtime.org_id = process.org_id
+      AND runtime.machine_id = process.machine_id
+      AND runtime.daemon_token_id = $5::uuid
+  )
+  AND EXISTS (
+    SELECT 1 FROM agent_machine_bindings binding
+    JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
+      AND pmgrant.machine_id = binding.machine_id
+    WHERE binding.project_id = process.project_id
+      AND binding.agent_id = process.agent_id
+      AND binding.id = process.agent_machine_binding_id
+      AND binding.machine_id = process.machine_id
+      AND binding.state = 'attached'
+  )
 ORDER BY process.created_at, process.id
-LIMIT $4
+LIMIT $6
 `
 
 type ListDaemonProcessOffersParams struct {
 	OrgID               uuid.UUID
 	MachineID           uuid.UUID
 	QueueTimeoutSeconds int32
-	LimitCount          int32
 	DaemonRuntimeID     uuid.UUID
 	DaemonTokenID       uuid.UUID
+	LimitCount          int32
 }
 
 type ListDaemonProcessOffersRow struct {
@@ -1232,9 +1235,9 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 		arg.OrgID,
 		arg.MachineID,
 		arg.QueueTimeoutSeconds,
-		arg.LimitCount,
 		arg.DaemonRuntimeID,
 		arg.DaemonTokenID,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -1590,73 +1593,6 @@ func (q *Queries) ListProcessesForMachineReconciliation(ctx context.Context, arg
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const lockAgentsForExecutionRevoked = `-- name: LockAgentsForExecutionRevoked :many
-SELECT agent.id
-FROM agents agent
-WHERE agent.project_id = $1
-  AND (
-    ($2::uuid IS NOT NULL AND agent.id = $2::uuid)
-    OR (
-      $2::uuid IS NULL
-      AND ($3::uuid IS NOT NULL OR $4::uuid IS NOT NULL)
-      AND EXISTS (
-        SELECT 1
-        FROM agent_machine_bindings binding
-        JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-          AND pmgrant.machine_id = binding.machine_id
-        WHERE binding.project_id = agent.project_id
-          AND binding.agent_id = agent.id
-          AND binding.state = 'attached'
-          AND (
-            $3::uuid IS NULL
-            OR pmgrant.id = $3::uuid
-          )
-          AND (
-            $4::uuid IS NULL
-            OR (
-              pmgrant.source_kind = 'pool'
-              AND pmgrant.project_machine_pool_grant_id = $4::uuid
-            )
-          )
-      )
-    )
-  )
-ORDER BY agent.id
-FOR UPDATE
-`
-
-type LockAgentsForExecutionRevokedParams struct {
-	ProjectID                 uuid.UUID
-	AgentID                   *uuid.UUID
-	ProjectMachineGrantID     *uuid.UUID
-	ProjectMachinePoolGrantID *uuid.UUID
-}
-
-func (q *Queries) LockAgentsForExecutionRevoked(ctx context.Context, arg LockAgentsForExecutionRevokedParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockAgentsForExecutionRevoked,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.ProjectMachineGrantID,
-		arg.ProjectMachinePoolGrantID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

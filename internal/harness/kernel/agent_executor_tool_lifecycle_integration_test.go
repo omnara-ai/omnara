@@ -130,6 +130,12 @@ skills:
 	}
 }
 
+func (e *requeueingToolWorkExecutor) DispatchRecordedToolCall(
+	ctx context.Context, turn tools.Turn, record executionstore.ToolCallRecord,
+) (tools.Result, error) {
+	return e.Dispatch(ctx, turn, modelToolCallFromRecord(record))
+}
+
 func (e *requeueingToolWorkExecutor) Dispatch(
 	ctx context.Context,
 	turn tools.Turn,
@@ -294,6 +300,7 @@ WHERE call.project_id = $1
 		t.Fatalf("next claim=%+v, want same tool frontier under a new runtime", claim)
 	}
 	nextWork := ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,

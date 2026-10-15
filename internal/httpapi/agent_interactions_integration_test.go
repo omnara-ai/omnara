@@ -163,12 +163,10 @@ func TestPublicAgentInteractionResolveMarksWakeup(t *testing.T) {
 	).Scan(&wakeups); err != nil {
 		t.Fatalf("query wakeup: %v", err)
 	}
-	if wakeups != 1 {
-		t.Fatalf(
-			"interaction resolution should mark exactly one agent wakeup, got %d",
-			wakeups,
-		)
+	if wakeups != 0 {
+		t.Fatalf("owned interaction resolution published %d wakeups", wakeups)
 	}
+	assertResolvedInteractionReleasedWakeup(t, ctx, pool, store, project.ProjectUUID, agentID)
 	assertInteractionResponseAgentInput(t, ctx, pool, project.ProjectUUID, agentID, interactionID)
 	assertInteractionResponseLedgerEvent(t, ctx, pool, project.ProjectUUID, agentID, interactionID)
 
@@ -1540,12 +1538,10 @@ GROUP BY tool_call.state, result.outcome
 	).Scan(&wakeups); err != nil {
 		t.Fatalf("query denial wakeup: %v", err)
 	}
-	if wakeups != 1 {
-		t.Fatalf(
-			"permission denial should mark one wakeup after storage-owned tool-result admission, got %d",
-			wakeups,
-		)
+	if wakeups != 0 {
+		t.Fatalf("owned permission denial published %d wakeups", wakeups)
 	}
+	assertResolvedInteractionReleasedWakeup(t, ctx, pool, store, project.ProjectUUID, agentID)
 }
 
 func TestPublicAgentInteractionRejectsUnknownPermissionOption(
@@ -2462,4 +2458,34 @@ func createHTTPCustomToolCallForAgent(
 		t.Fatalf("mark custom tool call ready: %v", err)
 	}
 	return toolCall.ID
+}
+
+func assertResolvedInteractionReleasedWakeup(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, store *storage.Store, projectID, agentID uuid.UUID,
+) {
+	t.Helper()
+	var runtimeID uuid.UUID
+	var ready bool
+	if err := pool.QueryRow(ctx, `
+SELECT lock.id, head.logical_ready_at IS NOT NULL
+FROM agent_runtime_locks lock
+JOIN agent_execution_state head ON head.agent_id = lock.agent_id
+WHERE lock.agent_id = $1`, agentID).Scan(&runtimeID, &ready); err != nil {
+		t.Fatalf("read owned interaction execution: %v", err)
+	}
+	if !ready {
+		t.Fatal("resolved interaction has no scheduling obligation")
+	}
+	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, projectID, agentID, runtimeID); err != nil {
+		t.Fatalf("release interaction runtime: %v", err)
+	}
+	var wakeups int
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM agent_wakeups WHERE agent_id = $1`, agentID,
+	).Scan(&wakeups); err != nil {
+		t.Fatalf("read released interaction wakeup: %v", err)
+	}
+	if wakeups != 1 {
+		t.Fatalf("released interaction wakeups=%d, want 1", wakeups)
+	}
 }

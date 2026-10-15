@@ -45,12 +45,10 @@ type modelStep struct {
 }
 
 func (e AgentExecutor) executeModelStep(
-	ctx context.Context,
-	input ModelWorkExecution,
-	builder modelcontext.Builder,
-	resolver model.Resolver,
+	ctx context.Context, input ModelWorkExecution, builder modelcontext.Builder, resolver model.Resolver,
 ) (modelStep, error) {
 	var snapshot executionstore.AgentConfigSnapshotRecord
+	var contextData *executionstore.ModelContextData
 	var claim executionstore.ModelCallClaim
 	var err error
 	if input.Kind == executionstore.ModelWorkResume {
@@ -81,19 +79,16 @@ func (e AgentExecutor) executeModelStep(
 			}
 		}
 	} else {
-		snapshot, err = e.Store.Execution().CaptureAgentConfigForModelContext(ctx, input.ProjectID, input.AgentID)
-		if err == nil {
-			claim, err = e.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-				ProjectID:                input.ProjectID,
-				AgentID:                  input.AgentID,
-				RuntimeLockID:            input.RuntimeLockID,
-				OpeningInputIDs:          input.InputIDs,
-				AgentConfigID:            snapshot.AgentConfig.ID,
-				InputEventSequence:       snapshot.InputEventSequence,
-				SourceModelCallContextID: input.SourceModelCallContextID,
-				SourceModelOutputID:      input.SourceModelOutputID,
-			})
-		}
+		prepared, prepareErr := e.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:                input.ProjectID,
+			AgentID:                  input.AgentID,
+			RuntimeLockID:            input.RuntimeLockID,
+			OpeningInputIDs:          input.InputIDs,
+			SourceModelCallContextID: input.SourceModelCallContextID,
+			SourceModelOutputID:      input.SourceModelOutputID,
+		})
+		err = prepareErr
+		claim, snapshot, contextData = prepared.Claim, prepared.Snapshot, prepared.ContextData
 	}
 	if err != nil {
 		return modelStep{}, err
@@ -188,6 +183,7 @@ func (e AgentExecutor) executeModelStep(
 		AgentConfigSnapshot:        &snapshot,
 		MediaProjector:             model.MediaProjectorForClient(client),
 		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
+		ContextData:                contextData,
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -222,14 +218,21 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 
-	policy, err := modelretry.RequestPolicyForModelCall(
-		ctx,
-		e.Store.Execution(),
-		input.ProjectID,
-		input.AgentID,
-		claim.Context.ID,
-		model.RequestPolicyFromCapabilities(capabilities),
-	)
+	policy := model.RequestPolicyFromCapabilities(capabilities)
+	if contextData != nil {
+		policy.ProviderReplayCutoffEventSequence = max(policy.ProviderReplayCutoffEventSequence,
+			contextData.ProviderReplayCutoffEventSequence)
+	} else {
+		policy, err = modelretry.RequestPolicyForModelCall(
+			ctx,
+			e.Store.Execution(),
+			input.ProjectID,
+			input.AgentID,
+			claim.Context.ID,
+			model.RequestPolicyFromCapabilities(capabilities),
+		)
+	}
+
 	if err != nil {
 		return e.recordNormalPreSendFailure(
 			ctx, input, claim, resolved, err,

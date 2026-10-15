@@ -170,13 +170,6 @@ JOIN inserted_version version
  AND version.profile_id = profile.id
  AND version.id = profile.current_version_id;
 
--- name: UpdateAgentCurrentConfig :execrows
-UPDATE agents
-SET current_config_id = sqlc.arg(agent_config_id),
-    updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(agent_id);
-
 -- name: GetAgentProfile :one
 SELECT profile.id, project.org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -193,7 +186,6 @@ WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL
 
 -- name: GetAgentProfileName :one
 -- @sqlc-vet-disable agent-profiles-deleted-at
--- Generated config sources must still name subagent profiles after they are soft deleted.
 SELECT name
 FROM agent_profiles
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
@@ -322,6 +314,14 @@ WHERE profile.project_id = sqlc.arg(project_id)
   AND profile.id = sqlc.arg(profile_id)
   AND profile.deleted_at IS NULL
 FOR UPDATE;
+
+-- name: LockAgentProfileForLaunch :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = sqlc.arg(project_id)
+  AND profile.id = sqlc.arg(profile_id)
+  AND profile.deleted_at IS NULL
+FOR KEY SHARE;
 
 -- name: GetAgentProfileByIdempotencyKey :one
 SELECT profile.id, project.org_id, profile.project_id, profile.name,

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -189,7 +190,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := dbsqlc.New(tx)
 	projectID, err := qtx.LockPoolMachineGrant(
 		ctx,
 		dbsqlc.LockPoolMachineGrantParams{
@@ -647,49 +648,61 @@ func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 	if orgID == uuid.Nil || machineID == uuid.Nil {
 		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("begin claim expired idle pool machine deletion: %w", err)
+	type transactionResult struct {
+		claim   PoolMachineDeletionClaim
+		claimed bool
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockMachineForLifecycle(
-		ctx,
-		dbsqlc.LockMachineForLifecycleParams{OrgID: orgID, ID: machineID},
-	); errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	} else if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("lock expired idle pool machine deletion: %w", err)
-	}
-	row, err := qtx.ClaimExpiredIdlePoolMachineDeletion(
-		ctx,
-		dbsqlc.ClaimExpiredIdlePoolMachineDeletionParams{
-			OrgID:               orgID,
-			ID:                  machineID,
-			ClaimTimeoutSeconds: int64(poolMachineDeletionLeaseDuration / time.Second),
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("claim expired idle pool machine deletion: %w", err)
-	}
-	claim := expiredIdlePoolMachineDeletionClaimFromSQLC(row)
-	claim, err = s.finalizePoolMachineDeletionClaimTx(
-		ctx,
-		tx,
-		qtx,
-		txNotifications,
-		claim,
-		"claim expired idle pool machine deletion",
-		machineDeletingReason,
-	)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	return claim, true, nil
+	retried, retryErr := agentexecution.Retry(ctx,
+		"claim_expired_idle_pool_machine_deletion",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			txNotifications := unit.Notifications()
+			qtx := dbsqlc.New(tx)
+			if _, err := qtx.LockMachineForLifecycle(
+				ctx,
+				dbsqlc.LockMachineForLifecycleParams{OrgID: orgID, ID: machineID},
+			); errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			} else if err != nil {
+				return transactionResult{}, fmt.Errorf("lock expired idle pool machine deletion: %w", err)
+			}
+			row, err := qtx.ClaimExpiredIdlePoolMachineDeletion(
+				ctx,
+				dbsqlc.ClaimExpiredIdlePoolMachineDeletionParams{
+					OrgID:               orgID,
+					ID:                  machineID,
+					ClaimTimeoutSeconds: int64(poolMachineDeletionLeaseDuration / time.Second),
+				},
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			}
+			if err != nil {
+				return transactionResult{}, fmt.Errorf("claim expired idle pool machine deletion: %w", err)
+			}
+			claim := expiredIdlePoolMachineDeletionClaimFromSQLC(row)
+			claim, err = s.finalizePoolMachineDeletionClaimTx(
+				ctx,
+				unit,
+				qtx,
+				txNotifications,
+				claim,
+				machineDeletingReason,
+			)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if err := unit.Commit(ctx, "claim expired idle pool machine deletion"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{claim, true}, nil
+		})
+	return retried.claim, retried.claimed, retryErr
 }
 
 func (s *Store) ClaimPoolMachineDeletion(
@@ -705,61 +718,72 @@ func (s *Store) ClaimPoolMachineDeletion(
 	if input.ExpectedLifecycleVersion <= 0 {
 		return PoolMachineDeletionClaim{}, false, errors.New("expected lifecycle version is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("begin claim pool machine deletion: %w", err)
+	type transactionResult struct {
+		claim   PoolMachineDeletionClaim
+		claimed bool
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockMachineForLifecycle(
-		ctx,
-		dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
-	); errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	} else if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("lock pool machine for deletion claim: %w", err)
-	}
-	row, err := qtx.ClaimPoolMachineDeletion(ctx, dbsqlc.ClaimPoolMachineDeletionParams{
-		OrgID:                             input.OrgID,
-		ID:                                input.MachineID,
-		LifecycleReasonCode:               storeutil.TextFromEmpty(input.LifecycleReasonCode),
-		LifecycleReasonMessage:            input.LifecycleReasonMessage,
-		ExpectedLifecycleVersion:          input.ExpectedLifecycleVersion,
-		MaxProvisionAttempts:              DefaultPoolMachineProvisionFailureLimit,
-		StaleBootstrapAgeSeconds:          int64(StaleMachineBootstrapAge / time.Second),
-		ClaimTimeoutSeconds:               int64(poolMachineDeletionLeaseDuration / time.Second),
-		MissingResourceFinalityAgeSeconds: int64(missingProviderResourceFinalityAge / time.Second),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf("claim pool machine deletion: %w", err)
-	}
-	claim := poolMachineDeletionClaimFromSQLC(row)
-	claim, err = s.finalizePoolMachineDeletionClaimTx(
-		ctx,
-		tx,
-		qtx,
-		txNotifications,
-		claim,
-		"claim pool machine deletion",
-		machineDeletingReason,
-	)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	return claim, true, nil
+	retried, retryErr := agentexecution.Retry(ctx,
+		"claim_pool_machine_deletion",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			txNotifications := unit.Notifications()
+			qtx := dbsqlc.New(tx)
+			if _, err := qtx.LockMachineForLifecycle(
+				ctx,
+				dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
+			); errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			} else if err != nil {
+				return transactionResult{}, fmt.Errorf("lock pool machine for deletion claim: %w", err)
+			}
+			row, err := qtx.ClaimPoolMachineDeletion(ctx, dbsqlc.ClaimPoolMachineDeletionParams{
+				OrgID:                             input.OrgID,
+				ID:                                input.MachineID,
+				LifecycleReasonCode:               storeutil.TextFromEmpty(input.LifecycleReasonCode),
+				LifecycleReasonMessage:            input.LifecycleReasonMessage,
+				ExpectedLifecycleVersion:          input.ExpectedLifecycleVersion,
+				MaxProvisionAttempts:              DefaultPoolMachineProvisionFailureLimit,
+				StaleBootstrapAgeSeconds:          int64(StaleMachineBootstrapAge / time.Second),
+				ClaimTimeoutSeconds:               int64(poolMachineDeletionLeaseDuration / time.Second),
+				MissingResourceFinalityAgeSeconds: int64(missingProviderResourceFinalityAge / time.Second),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			}
+			if err != nil {
+				return transactionResult{}, fmt.Errorf("claim pool machine deletion: %w", err)
+			}
+			claim := poolMachineDeletionClaimFromSQLC(row)
+			claim, err = s.finalizePoolMachineDeletionClaimTx(
+				ctx,
+				unit,
+				qtx,
+				txNotifications,
+				claim,
+				machineDeletingReason,
+			)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if err := unit.Commit(ctx, "claim pool machine deletion"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{claim, true}, nil
+		})
+	return retried.claim, retried.claimed, retryErr
 }
 
 func (s *Store) finalizePoolMachineDeletionClaimTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	txNotifications *notifications.TxNotifications,
 	claim PoolMachineDeletionClaim,
-	operation string,
 	terminalWorkReason string,
 ) (PoolMachineDeletionClaim, error) {
 	machine := claim.Machine
@@ -790,8 +814,7 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 	}
 	if err := completeMachineLifecycleTerminalWorkTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		machine.OrgID,
 		machine.ID,
@@ -822,9 +845,6 @@ func (s *Store) finalizePoolMachineDeletionClaimTx(
 	)
 	if err != nil {
 		return PoolMachineDeletionClaim{}, fmt.Errorf("finalize pool machine deletion claim: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, operation); err != nil {
-		return PoolMachineDeletionClaim{}, err
 	}
 	claim.Machine.NextReconcileAfter = lease.NextReconcileAfter
 	claim.Machine.UpdatedAt = lease.UpdatedAt
@@ -959,130 +979,135 @@ func (s *Store) completePoolMachineDeletion(
 	if deleteAttempt <= 0 {
 		return errors.New("delete attempt is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin complete pool machine deletion: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	qtx := dbsqlc.New(tx)
-	poolID, err := qtx.GetPoolMachinePoolIDForLifecycle(
-		ctx,
-		dbsqlc.GetPoolMachinePoolIDForLifecycleParams{OrgID: orgID, ID: machineID},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrStateTransitionConflict
-	}
-	if err != nil {
-		return fmt.Errorf("load machine pool for deletion completion: %w", err)
-	}
-	if poolID == nil {
-		return errors.New("pool machine has no machine pool")
-	}
-	if err := lifecyclelock.Pools(
-		ctx,
-		tx,
-		[]lifecyclelock.PoolRef{{OrgID: orgID, PoolID: *poolID}},
-	); err != nil {
-		return err
-	}
-	lockedMachine, err := qtx.LockPoolMachineDeletionAttemptForLifecycle(
-		ctx,
-		dbsqlc.LockPoolMachineDeletionAttemptForLifecycleParams{
-			OrgID:         orgID,
-			ID:            machineID,
-			DeleteAttempt: deleteAttempt,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrStateTransitionConflict
-	}
-	if err != nil {
-		return fmt.Errorf("lock machine for deletion completion: %w", err)
-	}
-	if lockedMachine.MachinePoolID == nil || *lockedMachine.MachinePoolID != *poolID {
-		return errors.New("pool machine changed machine pool during deletion completion")
-	}
-	active, err := qtx.ListActiveDaemonRuntimesForUpdate(
-		ctx,
-		dbsqlc.ListActiveDaemonRuntimesForUpdateParams{OrgID: orgID, MachineID: machineID},
-	)
-	if err != nil {
-		return fmt.Errorf("list active runtimes for deletion completion: %w", err)
-	}
-	for _, runtime := range active {
-		if _, err := qtx.ForceEndDaemonRuntime(ctx, dbsqlc.ForceEndDaemonRuntimeParams{
-			OrgID:     orgID,
-			MachineID: machineID,
-			ID:        runtime.ID,
-			Reason:    storeutil.TextFromEmpty("machine_deleted"),
-			Message:   "",
-		}); err != nil &&
-			!errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("end runtime for deletion completion: %w", err)
-		}
-		txNotifications.AddDaemonRuntimeEnded(
-			runtime.ID,
-			runtime.MachineID,
-			notifications.DaemonRuntimeEndMachineDecommissioned,
-		)
-	}
-	if err := completeMachineLifecycleTerminalWorkTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		orgID,
-		machineID,
-		"machine_deleted",
-	); err != nil {
-		return err
-	}
-	if err := qtx.RevokeMachineDaemonTokensForMachine(ctx, dbsqlc.RevokeMachineDaemonTokensForMachineParams{
-		OrgID:     orgID,
-		MachineID: machineID,
-		Reason:    "machine_deleted",
-	}); err != nil {
-		return fmt.Errorf("revoke machine daemon tokens for deletion completion: %w", err)
-	}
-	if err := qtx.ReleaseAgentMachineBindingsForMachine(ctx, dbsqlc.ReleaseAgentMachineBindingsForMachineParams{
-		OrgID:     orgID,
-		MachineID: machineID,
-	}); err != nil {
-		return fmt.Errorf("release agent machine bindings for deletion completion: %w", err)
-	}
-	if err := qtx.DeletePoolProjectMachineGrantsForMachine(
-		ctx,
-		dbsqlc.DeletePoolProjectMachineGrantsForMachineParams{
-			OrgID:     orgID,
-			MachineID: machineID,
-		},
-	); err != nil {
-		return fmt.Errorf("delete pool project machine grants for deletion completion: %w", err)
-	}
-	if _, err := qtx.DeletePoolMachine(ctx, dbsqlc.DeletePoolMachineParams{
-		LifecycleReasonCode:    storeutil.TextFromEmpty(reasonCode),
-		LifecycleReasonMessage: reasonMessage,
-		OrgID:                  orgID,
-		ID:                     machineID,
-		DeleteAttempt:          deleteAttempt,
-	}); err != nil {
-		return fmt.Errorf("delete machine for deletion completion: %w", err)
-	}
-	if err := qtx.ReleaseMachinePoolCredentialIfIdle(ctx, dbsqlc.ReleaseMachinePoolCredentialIfIdleParams{
-		OrgID:         orgID,
-		MachinePoolID: *poolID,
-	}); err != nil {
-		return fmt.Errorf("release machine pool credential for deletion completion: %w", err)
-	}
-	if _, err := qtx.DestroyUnreferencedSecretVersionsForDeletedOrg(
-		ctx,
-		dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID},
-	); err != nil {
-		return fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete pool machine deletion"); err != nil {
-		return err
-	}
-	return nil
+	_, retryErr := agentexecution.Retry(ctx,
+		"complete_pool_machine_deletion",
+		func(ctx context.Context) (struct{}, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			txNotifications := unit.Notifications()
+			qtx := dbsqlc.New(tx)
+			poolID, err := qtx.GetPoolMachinePoolIDForLifecycle(
+				ctx,
+				dbsqlc.GetPoolMachinePoolIDForLifecycleParams{OrgID: orgID, ID: machineID},
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return struct{}{}, storeerr.ErrStateTransitionConflict
+			}
+			if err != nil {
+				return struct{}{}, fmt.Errorf("load machine pool for deletion completion: %w", err)
+			}
+			if poolID == nil {
+				return struct{}{}, errors.New("pool machine has no machine pool")
+			}
+			if err := lifecyclelock.Pools(
+				ctx,
+				tx,
+				[]lifecyclelock.PoolRef{{OrgID: orgID, PoolID: *poolID}},
+			); err != nil {
+				return struct{}{}, err
+			}
+			lockedMachine, err := qtx.LockPoolMachineDeletionAttemptForLifecycle(
+				ctx,
+				dbsqlc.LockPoolMachineDeletionAttemptForLifecycleParams{
+					OrgID:         orgID,
+					ID:            machineID,
+					DeleteAttempt: deleteAttempt,
+				},
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return struct{}{}, storeerr.ErrStateTransitionConflict
+			}
+			if err != nil {
+				return struct{}{}, fmt.Errorf("lock machine for deletion completion: %w", err)
+			}
+			if lockedMachine.MachinePoolID == nil || *lockedMachine.MachinePoolID != *poolID {
+				return struct{}{}, errors.New("pool machine changed machine pool during deletion completion")
+			}
+			active, err := qtx.ListActiveDaemonRuntimesForUpdate(
+				ctx,
+				dbsqlc.ListActiveDaemonRuntimesForUpdateParams{OrgID: orgID, MachineID: machineID},
+			)
+			if err != nil {
+				return struct{}{}, fmt.Errorf("list active runtimes for deletion completion: %w", err)
+			}
+			for _, runtime := range active {
+				if _, err := qtx.ForceEndDaemonRuntime(ctx, dbsqlc.ForceEndDaemonRuntimeParams{
+					OrgID:     orgID,
+					MachineID: machineID,
+					ID:        runtime.ID,
+					Reason:    storeutil.TextFromEmpty("machine_deleted"),
+					Message:   "",
+				}); err != nil &&
+					!errors.Is(err, pgx.ErrNoRows) {
+					return struct{}{}, fmt.Errorf("end runtime for deletion completion: %w", err)
+				}
+				txNotifications.AddDaemonRuntimeEnded(
+					runtime.ID,
+					runtime.MachineID,
+					notifications.DaemonRuntimeEndMachineDecommissioned,
+				)
+			}
+			if err := completeMachineLifecycleTerminalWorkTx(
+				ctx,
+				unit,
+				qtx,
+				orgID,
+				machineID,
+				"machine_deleted",
+			); err != nil {
+				return struct{}{}, err
+			}
+			if err := qtx.RevokeMachineDaemonTokensForMachine(ctx, dbsqlc.RevokeMachineDaemonTokensForMachineParams{
+				OrgID:     orgID,
+				MachineID: machineID,
+				Reason:    "machine_deleted",
+			}); err != nil {
+				return struct{}{}, fmt.Errorf("revoke machine daemon tokens for deletion completion: %w", err)
+			}
+			if err := qtx.ReleaseAgentMachineBindingsForMachine(ctx, dbsqlc.ReleaseAgentMachineBindingsForMachineParams{
+				OrgID:     orgID,
+				MachineID: machineID,
+			}); err != nil {
+				return struct{}{}, fmt.Errorf("release agent machine bindings for deletion completion: %w", err)
+			}
+			if err := qtx.DeletePoolProjectMachineGrantsForMachine(
+				ctx,
+				dbsqlc.DeletePoolProjectMachineGrantsForMachineParams{
+					OrgID:     orgID,
+					MachineID: machineID,
+				},
+			); err != nil {
+				return struct{}{}, fmt.Errorf("delete pool project machine grants for deletion completion: %w", err)
+			}
+			if _, err := qtx.DeletePoolMachine(ctx, dbsqlc.DeletePoolMachineParams{
+				LifecycleReasonCode:    storeutil.TextFromEmpty(reasonCode),
+				LifecycleReasonMessage: reasonMessage,
+				OrgID:                  orgID,
+				ID:                     machineID,
+				DeleteAttempt:          deleteAttempt,
+			}); err != nil {
+				return struct{}{}, fmt.Errorf("delete machine for deletion completion: %w", err)
+			}
+			if err := qtx.ReleaseMachinePoolCredentialIfIdle(ctx, dbsqlc.ReleaseMachinePoolCredentialIfIdleParams{
+				OrgID:         orgID,
+				MachinePoolID: *poolID,
+			}); err != nil {
+				return struct{}{}, fmt.Errorf("release machine pool credential for deletion completion: %w", err)
+			}
+			if _, err := qtx.DestroyUnreferencedSecretVersionsForDeletedOrg(
+				ctx,
+				dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID},
+			); err != nil {
+				return struct{}{}, fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
+			}
+			if err := unit.Commit(ctx, "complete pool machine deletion"); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, nil
+		})
+	return retryErr
 }

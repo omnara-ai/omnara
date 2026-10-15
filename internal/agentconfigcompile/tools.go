@@ -16,7 +16,7 @@ func ToolsFromSource(
 	sourceFormat agentconfig.SourceFormat,
 	source string,
 ) ([]agentconfig.ResolvedTool, error) {
-	return agentconfig.ToolsFromSourceWithOptions(
+	return agentconfig.ToolsFromSource(
 		sourceFormat, []byte(source), options(ctx, store, orgID, projectID, base),
 	)
 }

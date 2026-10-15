@@ -68,7 +68,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				entries, err := ToolsFromSource(SourceFormatYAML, []byte(result.Source))
+				entries, err := ToolsFromSource(SourceFormatYAML, []byte(result.Source), CompileOptions{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -80,7 +80,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
-					preview, err := ToolsFromSource(format, previewSource)
+					preview, err := ToolsFromSource(format, previewSource, CompileOptions{})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -111,7 +111,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 
 func TestToolPreviewDrafts(t *testing.T) {
 	raw := `{"instruction":"", "model":{}, "machine_sources":[{"machine_pool_name":"pool"}], "tools":{"run_command":{"enabled":false,"permission":{"mode":"always_ask"}}}}`
-	entries, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
+	entries, err := ToolsFromSource(SourceFormatJSON, []byte(raw), CompileOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		`{}`, `{"instruction":"", "model":{}, "mcp":{}}`,
 		`{"mcp":null, "tools":null, "subagents":null, "memory_stores":null, "skills":null, "machine_sources":null}`,
 	} {
-		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
+		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw), CompileOptions{})
 		if err != nil || len(tools) != 0 {
 			t.Fatalf("empty draft: %+v, %v", tools, err)
 		}
@@ -138,11 +138,13 @@ func TestToolPreviewDrafts(t *testing.T) {
 		`{"memory_stores":[{"name":"notes","access":"invalid"}]}`, `{"machine_sources":[{}]}`, `{"skills":["invalid"]}`, `{"tools":{"run_command":{"typo":true}}}`,
 		`{"subagents":{"worker":{"type":"profile"}}}`, `{"subagents":{"worker":{"type":"unknown"}}}`,
 	} {
-		if _, err := ToolsFromSource(SourceFormatJSON, []byte(raw)); err == nil {
+		if _, err := ToolsFromSource(SourceFormatJSON, []byte(raw), CompileOptions{}); err == nil {
 			t.Fatalf("accepted invalid tool source: %s", raw)
 		}
 	}
-	if _, err := ToolsFromSource(SourceFormatYAML, []byte("tools: {}\n---\ntools: {}")); err == nil {
+	if _, err := ToolsFromSource(
+		SourceFormatYAML, []byte("tools: {}\n---\ntools: {}"), CompileOptions{},
+	); err == nil {
 		t.Fatal("accepted multiple YAML documents")
 	}
 }

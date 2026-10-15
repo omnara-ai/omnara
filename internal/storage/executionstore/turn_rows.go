@@ -1,46 +1,8 @@
 package executionstore
 
 import (
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
-
-func agentTurnRecordFromInsertSQLC(row dbsqlc.InsertAgentTurnRow) AgentTurnRecord {
-	return agentTurnRecordFromFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.TurnSequence,
-		row.LatestEventID,
-		row.LatestSemanticEventID,
-	)
-}
-
-func agentTurnRecordFromCurrentContinuableSQLC(row dbsqlc.CurrentContinuableAgentTurnRow) AgentTurnRecord {
-	return agentTurnRecordFromFields(
-		row.ID,
-		row.ProjectID,
-		row.AgentID,
-		row.TurnSequence,
-		row.LatestEventID,
-		row.LatestSemanticEventID,
-	)
-}
-
-func agentTurnRecordFromFields(
-	id, projectID, agentID uuid.UUID,
-	sequence int64,
-	latestEventID, latestSemanticEventID uuid.UUID,
-) AgentTurnRecord {
-	return AgentTurnRecord{
-		ID:                    id,
-		ProjectID:             projectID,
-		AgentID:               agentID,
-		TurnSequence:          sequence,
-		LatestEventID:         latestEventID,
-		LatestSemanticEventID: latestSemanticEventID,
-	}
-}
 
 func agentRuntimeLockRecordFromSQLC(row dbsqlc.AgentRuntimeLock) AgentRuntimeLockRecord {
 	return AgentRuntimeLockRecord{

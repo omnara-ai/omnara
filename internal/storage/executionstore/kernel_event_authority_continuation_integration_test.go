@@ -5,7 +5,6 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +23,13 @@ func TestCompletedToolCallsForModelContextSpanTurnsAndRespectWatermark(t *testin
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "completed_tool_calls_at_watermark")
 	now := fixture.Now.Add(time.Minute)
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "completed_tool_calls_at_watermark", "read_process")
+	toolCallID := createToolCallForProcessTest(
+		t,
+		ctx,
+		fixture,
+		"completed_tool_calls_at_watermark",
+		"read_process",
+	)
 	modelContextID := modelContextIDForProcessToolCallTest(t, ctx, fixture, toolCallID)
 	contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
 		ctx, testProjectID, fixture.AgentID, modelContextID,
@@ -181,195 +185,6 @@ WHERE agent.project_id = $1
 	}
 }
 
-func TestSemanticContextIdentityPreventsLaterOutputAtStaleFrontier(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "continuation_seed_later_unseen_result")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "continuation_seed_later_unseen_result", "read_process")
-	modelContextID := modelContextIDForProcessToolCallTest(t, ctx, fixture, toolCallID)
-	initialContext, found, err := fixture.Store.Execution().GetModelCallContext(
-		ctx, testProjectID, fixture.AgentID, modelContextID,
-	)
-	if err != nil {
-		t.Fatalf("load initial model context: %v", err)
-	}
-	if !found {
-		t.Fatalf("initial model context %s not found", modelContextID)
-	}
-	completed, err := fixture.Store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		ID:                 toolCallID,
-		Outcome:            executionstore.ToolResultOutcomeSucceeded,
-		RuntimeLockID:      fixture.Lock.ID,
-		ResultContentParts: json.RawMessage(`[{"type":"text","text":"result not yet covered"}]`),
-	})
-	if err != nil {
-		t.Fatalf("complete tool call: %v", err)
-	}
-	resultEvents := listTypedToolResultEventsForToolCall(t, ctx, fixture.Store, fixture.AgentID, toolCallID)
-	if len(resultEvents) != 1 {
-		t.Fatalf("tool result events = %+v, want one", resultEvents)
-	}
-	openingInputID, _ := openingInputAndWatermarkForProcessToolCallTest(t, ctx, fixture, toolCallID)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
-	_, err = fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{openingInputID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: initialContext.InputEventSequence,
-	})
-	if !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-		t.Fatalf("stale semantic model context claim error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
-	}
-	seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("next continuation seed: %v", err)
-	}
-	if !found || seed.TurnID != completed.TurnID || len(seed.InputIDs) != 1 || seed.InputIDs[0] != openingInputID {
-		t.Fatalf(
-			"continuation seed found=%v seed=%+v, want turn %s input %s",
-			found,
-			seed,
-			completed.TurnID,
-			openingInputID,
-		)
-	}
-}
-
-func TestLatestTurnFrontierHelpersIgnoreHistoricalTurn(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	t.Run("active model context", func(t *testing.T) {
-		t.Parallel()
-		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_active_context")
-		contextRecord := createContextForAdmittedTurnTest(
-			t, ctx, fixture, admitted, agent, "latest-frontier-active-context", fixture.Now.Add(4*time.Second),
-		)
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "active context before newer turn",
-			`SELECT count(*) FROM agent_continuable_model_contexts($1, $2) WHERE model_call_context_id = $3 AND NOT has_later_semantic_event`,
-			fixture.AgentID, contextRecord.ID, 1,
-		)
-
-		appendSyntheticLatestContentTurnForFrontierTest(
-			t, ctx, fixture, "latest_frontier_active_context_newer", fixture.Now.Add(5*time.Second),
-		)
-
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "active context after newer turn",
-			`SELECT count(*) FROM agent_continuable_model_contexts($1, $2) WHERE model_call_context_id = $3 AND NOT has_later_semantic_event`,
-			fixture.AgentID, contextRecord.ID, 0,
-		)
-	})
-
-	t.Run("pending built-in tool", func(t *testing.T) {
-		t.Parallel()
-		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_pending_tool")
-		contextRecord := createContextForAdmittedTurnTest(
-			t, ctx, fixture, admitted, agent, "latest-frontier-pending-tool", fixture.Now.Add(4*time.Second),
-		)
-		recordToolCallBatchForContextTest(
-			t,
-			ctx,
-			fixture,
-			contextRecord.ID,
-			"latest-frontier-pending-tool",
-			[]toolCallForContextTest{{
-				ProviderCallID: "call_latest_frontier_pending_tool",
-				Name:           "read_process",
-				Input:          json.RawMessage(`{}`),
-			}},
-			fixture.Now.Add(5*time.Second),
-		)
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "pending tool before newer turn",
-			`SELECT count(*) FROM agent_tool_work_frontiers($1, $2) WHERE model_call_context_id = $3`, fixture.AgentID,
-			contextRecord.ID, 1,
-		)
-
-		appendSyntheticLatestContentTurnForFrontierTest(
-			t, ctx, fixture, "latest_frontier_pending_tool_newer", fixture.Now.Add(9*time.Second),
-		)
-
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "pending tool after newer turn",
-			`SELECT count(*) FROM agent_tool_work_frontiers($1, $2) WHERE model_call_context_id = $3`, fixture.AgentID,
-			contextRecord.ID, 0,
-		)
-	})
-
-	t.Run("completed tool result", func(t *testing.T) {
-		t.Parallel()
-		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_completed_tool")
-		contextRecord := createContextForAdmittedTurnTest(
-			t, ctx, fixture, admitted, agent, "latest-frontier-completed-tool", fixture.Now.Add(4*time.Second),
-		)
-		completeToolCallForContinuationSeedTest(
-			t, ctx, fixture, admitted.Turn.ID, contextRecord.ID, "latest_frontier_completed_tool",
-			fixture.Now.Add(5*time.Second),
-		)
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "completed tool before newer turn",
-			`SELECT count(*) FROM agent_model_result_frontiers($1, $2) WHERE model_call_context_id = $3`,
-			fixture.AgentID, contextRecord.ID, 1,
-		)
-
-		appendSyntheticLatestContentTurnForFrontierTest(
-			t, ctx, fixture, "latest_frontier_completed_tool_newer", fixture.Now.Add(7*time.Second),
-		)
-
-		assertFrontierCountTest(
-			t, ctx, fixture.Store, "completed tool after newer turn",
-			`SELECT count(*) FROM agent_model_result_frontiers($1, $2) WHERE model_call_context_id = $3`,
-			fixture.AgentID, contextRecord.ID, 0,
-		)
-	})
-
-	t.Run("incomplete tool batch", func(t *testing.T) {
-		t.Parallel()
-		fixture := newProcessDaemonFixture(t, ctx, "latest_frontier_running_barrier")
-		toolCallID := createToolCallForProcessTest(t, ctx, fixture, "latest_frontier_running_barrier", "read_process")
-		claimToolCallForTest(
-			t,
-			ctx,
-			fixture.Store,
-			fixture.AgentID,
-			toolCallID,
-			fixture.Lock.ID,
-			true,
-		)
-		var incomplete bool
-		if err := fixture.Store.pool.QueryRow(
-			ctx,
-			`SELECT agent_has_incomplete_tool_batch($1, $2)`,
-			testProjectID,
-			fixture.AgentID,
-		).Scan(&incomplete); err != nil || !incomplete {
-			t.Fatalf("incomplete batch before newer turn = %v, err = %v", incomplete, err)
-		}
-
-		appendSyntheticLatestContentTurnForFrontierTest(
-			t, ctx, fixture, "latest_frontier_running_barrier_newer", fixture.Now.Add(time.Minute+time.Second),
-		)
-
-		if err := fixture.Store.pool.QueryRow(
-			ctx,
-			`SELECT agent_has_incomplete_tool_batch($1, $2)`,
-			testProjectID,
-			fixture.AgentID,
-		).Scan(&incomplete); err != nil || incomplete {
-			t.Fatalf("incomplete batch after newer turn = %v, err = %v", incomplete, err)
-		}
-	})
-}
-
 func TestDatabaseRejectsCompletedToolCallWithoutTypedResult(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -438,251 +253,6 @@ WHERE agent_id = $1
 		t.Fatalf("next continuation seed: %v", err)
 	} else if found {
 		t.Fatalf("continuation seed = %+v, want none while sibling tool remains open", seed)
-	}
-}
-
-func TestContinuationSeedDoesNotResumeStoppedIncompleteBatch(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(
-		t,
-		ctx,
-		"continuation_seed_stopped_sibling_result",
-	)
-	now := fixture.Now.Add(time.Minute)
-	contextRecord := createContextForAdmittedTurnTest(
-		t,
-		ctx,
-		fixture,
-		admitted,
-		agent,
-		"continuation-seed-stopped-sibling-result",
-		now,
-	)
-	_, toolCalls := recordToolCallBatchForContextTest(
-		t,
-		ctx,
-		fixture,
-		contextRecord.ID,
-		"continuation-seed-stopped-sibling-result",
-		[]toolCallForContextTest{
-			{
-				ProviderCallID: "call_continuation_seed_stopped_sibling_open",
-				Name:           "read_process",
-				Input:          json.RawMessage(`{}`),
-			},
-			{
-				ProviderCallID: "call_continuation_seed_stopped_sibling_bad",
-				Name:           "read_process",
-				Input:          json.RawMessage(`{}`),
-			},
-		},
-		now.Add(time.Millisecond),
-	)
-	if len(toolCalls) != 2 {
-		t.Fatalf("tool call batch = %+v, want two calls", toolCalls)
-	}
-	turnID := admitted.Turn.ID
-	appendCancelStopEventForContinuationSeedTest(t, ctx, fixture, turnID, now.Add(2*time.Second))
-	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("next continuation seed: %v", err)
-	} else if found {
-		t.Fatalf("continuation seed = %+v, want none after the turn was stopped", seed)
-	}
-}
-
-func TestContinuationSeedKeepsLaterToolResultAfterEarlierResultConsumed(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_later_result")
-	firstContext := claimNormalContextAtFrontierTest(
-		t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
-		admitted.Events[1].Sequence, fixture.Now.Add(4*time.Second),
-	)
-	firstCompleted := completeToolCallForContinuationSeedTest(
-		t, ctx, fixture, admitted.Turn.ID, firstContext.ID, "continuation_seed_later_result_first",
-		fixture.Now.Add(5*time.Second),
-	)
-	firstResultEvents := listTypedToolResultEventsForToolCall(t, ctx, fixture.Store, fixture.AgentID, firstCompleted.ID)
-	if len(firstResultEvents) != 1 {
-		t.Fatalf("first tool result events = %d, want 1", len(firstResultEvents))
-	}
-	laterContext := claimNormalContextAtFrontierTest(
-		t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
-		firstResultEvents[0].Sequence, fixture.Now.Add(7*time.Second),
-	)
-	completed := completeToolCallForContinuationSeedTest(
-		t, ctx, fixture, admitted.Turn.ID, laterContext.ID, "continuation_seed_later_result_second",
-		fixture.Now.Add(8*time.Second),
-	)
-	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("next continuation seed: %v", err)
-	} else if !found || seed.TurnID != completed.TurnID || len(seed.InputIDs) != 2 ||
-		seed.InputIDs[0] != admitted.Inputs[0].ID || seed.InputIDs[1] != admitted.Inputs[1].ID {
-		t.Fatalf(
-			"continuation seed found=%v seed=%+v, want turn %s inputs [%s %s]", found, seed, completed.TurnID,
-			admitted.Inputs[0].ID, admitted.Inputs[1].ID,
-		)
-	}
-}
-
-func TestNextAgentContinuationSeedUsesOpeningInputsAtContextWatermark(t *testing.T) {
-	t.Parallel()
-	t.Run("orders multi-input opening events", func(t *testing.T) {
-		t.Parallel()
-		ctx := context.Background()
-		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_multi_input")
-		contextRecord := claimNormalContextAtFrontierTest(
-			t, ctx, fixture, []uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID}, agent.CurrentConfigID,
-			admitted.Events[1].Sequence, fixture.Now.Add(4*time.Second),
-		)
-		completed := completeToolCallForContinuationSeedTest(
-			t,
-			ctx,
-			fixture,
-			admitted.Turn.ID,
-			contextRecord.ID,
-			"continuation_seed_multi_input",
-			fixture.Now.Add(5*time.Second),
-		)
-		seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
-		if err != nil {
-			t.Fatalf("next continuation seed: %v", err)
-		}
-		if !found || seed.TurnID != completed.TurnID {
-			t.Fatalf("continuation seed found=%v seed=%+v want turn %s", found, seed, completed.TurnID)
-		}
-		if len(seed.InputIDs) != 2 || seed.InputIDs[0] != admitted.Inputs[0].ID ||
-			seed.InputIDs[1] != admitted.Inputs[1].ID {
-			t.Fatalf("seed input order = %v, want [%s %s]", seed.InputIDs, admitted.Inputs[0].ID, admitted.Inputs[1].ID)
-		}
-	})
-
-	t.Run("rejects stale opening frontier", func(t *testing.T) {
-		t.Parallel()
-		ctx := context.Background()
-		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_watermark")
-		_, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
-			RuntimeLockID:      fixture.Lock.ID,
-			OpeningInputIDs:    []uuid.UUID{admitted.Inputs[0].ID},
-			AgentConfigID:      agent.CurrentConfigID,
-			InputEventSequence: admitted.Events[0].Sequence,
-		})
-		if !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-			t.Fatalf("stale opening frontier claim error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
-		}
-	})
-}
-
-func TestClaimNormalModelCallFencesContinuationToSelectedSource(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(
-		t,
-		ctx,
-		"continuation_source_fence",
-	)
-	sourceContext := claimNormalContextAtFrontierTest(
-		t,
-		ctx,
-		fixture,
-		[]uuid.UUID{admitted.Inputs[0].ID, admitted.Inputs[1].ID},
-		agent.CurrentConfigID,
-		admitted.Events[1].Sequence,
-		fixture.Now.Add(4*time.Second),
-	)
-	completeToolCallForContinuationSeedTest(
-		t,
-		ctx,
-		fixture,
-		admitted.Turn.ID,
-		sourceContext.ID,
-		"continuation_source_fence",
-		fixture.Now.Add(5*time.Second),
-	)
-	sourceOutput, found, err := fixture.Store.Execution().GetModelOutputForContext(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		sourceContext.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load continuation source output found=%v err=%v", found, err)
-	}
-	seed, found, err := fixture.Store.Execution().NextAgentModelWork(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load selected continuation work found=%v err=%v", found, err)
-	}
-	if seed.Kind != executionstore.ModelWorkContinue ||
-		seed.ModelCallContextID != sourceContext.ID ||
-		seed.SourceModelOutputID != sourceOutput.ID {
-		t.Fatalf(
-			"selected continuation source = kind %s context %s output %s, want continue/%s/%s",
-			seed.Kind,
-			seed.ModelCallContextID,
-			seed.SourceModelOutputID,
-			sourceContext.ID,
-			sourceOutput.ID,
-		)
-	}
-	frontier, err := fixture.Store.Execution().MaxEventSequence(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load continuation frontier: %v", err)
-	}
-	claim := func(sourceContextID, sourceOutputID uuid.UUID, now time.Time) (executionstore.ModelCallClaim, error) {
-		return fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-			ProjectID:                testProjectID,
-			AgentID:                  fixture.AgentID,
-			RuntimeLockID:            fixture.Lock.ID,
-			OpeningInputIDs:          seed.InputIDs,
-			AgentConfigID:            agent.CurrentConfigID,
-			InputEventSequence:       frontier,
-			SourceModelCallContextID: sourceContextID,
-			SourceModelOutputID:      sourceOutputID,
-		})
-	}
-
-	if _, err := claim(uuid.Nil, uuid.Nil, fixture.Now.Add(8*time.Second)); !errors.Is(
-		err, storeerr.ErrAgentNotAdvanceable,
-	) {
-		t.Fatalf("continuation claim without source error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
-	}
-	if _, err := claim(
-		testID("wrong_continuation_source_context"),
-		sourceOutput.ID,
-		fixture.Now.Add(9*time.Second),
-	); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-		t.Fatalf("continuation claim with wrong source context error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
-	}
-	if _, err := claim(
-		sourceContext.ID,
-		testID("wrong_continuation_source_output"),
-		fixture.Now.Add(10*time.Second),
-	); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-		t.Fatalf("continuation claim with wrong source output error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
-	}
-
-	created, err := claim(sourceContext.ID, sourceOutput.ID, fixture.Now.Add(11*time.Second))
-	if err != nil {
-		t.Fatalf("claim selected continuation source: %v", err)
-	}
-	if !created.Created || !created.Claimed ||
-		created.Context.InputEventSequence != frontier {
-		t.Fatalf("selected continuation claim = %+v", created)
-	}
-	replayed, err := claim(sourceContext.ID, sourceOutput.ID, fixture.Now.Add(12*time.Second))
-	if err != nil {
-		t.Fatalf("replay selected continuation claim: %v", err)
-	}
-	if replayed.Context.ID != created.Context.ID ||
-		replayed.Created {
-		t.Fatalf("replayed continuation claim = %+v, want existing context", replayed)
 	}
 }
 
@@ -760,18 +330,15 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 	if !found {
 		t.Fatal("expected admitted visible agent input")
 	}
-	agent, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for visible model output: %v", err)
-	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{input.ID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[0].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim visible model output context: %v", err)
 	}

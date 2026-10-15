@@ -13,12 +13,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/errutil"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
@@ -43,6 +45,7 @@ type Store interface {
 }
 
 type Worker struct {
+	metrics                  *metrics.WorkerRecorder
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
@@ -50,6 +53,8 @@ type Worker struct {
 	controlSubscriber        notifications.WorkerControlSubscriber
 	runtimeLockLeaseDuration time.Duration
 	capacity                 int
+	claimConcurrency         int
+	executionFailures        atomic.Int64
 	asyncToolLimiter         *tools.AsyncExecutionLimiter
 	activeMu                 sync.Mutex
 	active                   map[uuid.UUID]*activeRuntime
@@ -57,9 +62,11 @@ type Worker struct {
 }
 
 type Options struct {
+	Metrics                  *metrics.WorkerRecorder
 	Log                      *slog.Logger
 	RuntimeLockLeaseDuration time.Duration
 	Capacity                 int
+	ClaimConcurrency         int
 	AsyncToolCapacity        int
 	ControlSubscriber        notifications.WorkerControlSubscriber
 }
@@ -73,6 +80,9 @@ type activeRuntime struct {
 
 const (
 	defaultAsyncToolCapacity = 32
+	defaultClaimConcurrency  = 4
+	minIdleClaimDelay        = 50 * time.Millisecond
+	maxIdleClaimDelay        = time.Second
 	initialRunLoopRetryDelay = 250 * time.Millisecond
 	maxRunLoopRetryDelay     = 30 * time.Second
 )
@@ -85,15 +95,19 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		log = slog.Default()
 	}
 	if opts.RuntimeLockLeaseDuration <= 0 {
-		opts.RuntimeLockLeaseDuration = executionstore.AgentRuntimeLockLeaseDuration
+		opts.RuntimeLockLeaseDuration = executionpolicy.DefaultLeaseDuration
 	}
 	if opts.Capacity <= 0 {
 		opts.Capacity = 4
+	}
+	if opts.ClaimConcurrency <= 0 {
+		opts.ClaimConcurrency = defaultClaimConcurrency
 	}
 	if opts.AsyncToolCapacity <= 0 {
 		opts.AsyncToolCapacity = defaultAsyncToolCapacity
 	}
 	return &Worker{
+		metrics:                  opts.Metrics,
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -101,6 +115,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		controlSubscriber:        opts.ControlSubscriber,
 		runtimeLockLeaseDuration: opts.RuntimeLockLeaseDuration,
 		capacity:                 opts.Capacity,
+		claimConcurrency:         min(opts.ClaimConcurrency, opts.Capacity),
 		asyncToolLimiter:         tools.NewAsyncExecutionLimiter(opts.AsyncToolCapacity),
 		active:                   make(map[uuid.UUID]*activeRuntime),
 	}
@@ -113,16 +128,18 @@ func (w *Worker) Run(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = controlSubscription.Unsubscribe() }()
-	var loops sync.WaitGroup
-	for range w.capacity {
-		loops.Add(1)
+	slots := make(chan struct{}, w.capacity)
+	var claimers, executions sync.WaitGroup
+	for range w.claimConcurrency {
+		claimers.Add(1)
 		go func() {
-			defer loops.Done()
-			w.runLoop(ctx)
+			defer claimers.Done()
+			w.claimLoop(ctx, slots, &executions)
 		}()
 	}
 	<-ctx.Done()
-	loops.Wait()
+	claimers.Wait()
+	executions.Wait()
 	w.retained.Wait()
 	return ctx.Err()
 }
@@ -134,86 +151,128 @@ func (w *Worker) subscribeWorkerControl(ctx context.Context) (notifications.Subs
 	return w.controlSubscriber.SubscribeWorkerControl(ctx, w.workerProcessID, w.handleWorkerControl)
 }
 
-func (w *Worker) runLoop(ctx context.Context) {
-	idleDelay := 50 * time.Millisecond
+func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions *sync.WaitGroup) {
+	idleDelay := minIdleClaimDelay
 	failures := 0
 	for {
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
 		loopCtx, event := logent.WorkerLoop(ctx, w.workerProcessID)
-		worked, err := w.RunOnce(loopCtx)
-		logent.WorkerLoopResult(loopCtx, worked, err)
-		recoverable := isRecoverableRunOnceError(err)
-		if recoverable {
-			logent.WorkerLoopRecoverableTurnRace(loopCtx, err)
+		now := time.Now().UTC()
+		claim, handled, err := w.claimNext(loopCtx)
+		if err == nil && handled && claim.Kind != executionstore.AgentWorkNone {
+			failures = 0
+			idleDelay = minIdleClaimDelay
+			executions.Add(1)
+			go func() {
+				defer executions.Done()
+				defer func() { <-slots }()
+				err := w.executeClaimedWorkRecovering(loopCtx, claim, now)
+				w.finishLoop(ctx, loopCtx, event, true, err)
+				w.throttleAfterExecution(ctx, err)
+			}()
+			continue
 		}
-		switch {
-		case err != nil && !recoverable &&
-			!(ctx.Err() != nil && errutil.OnlyMatches(err, context.Canceled)):
-			logpkg.Error(loopCtx, err)
-		}
-		event.Done(loopCtx)
+		<-slots
+		w.finishLoop(ctx, loopCtx, event, handled, err)
 		if ctx.Err() != nil {
 			return
 		}
-		if recoverable {
+		var delay time.Duration
+		var deferred *executionstore.ClaimDeferredError
+		switch {
+		case errors.As(err, &deferred):
 			failures = 0
-			idleDelay = 50 * time.Millisecond
-			if !waitForDelay(ctx, initialRunLoopRetryDelay) {
-				return
-			}
+			idleDelay = minIdleClaimDelay
 			continue
-		}
-		if err != nil {
-			delay := runLoopRetryDelay(failures)
+		case isRecoverableRunOnceError(err):
+			failures = 0
+			idleDelay = minIdleClaimDelay
+			delay = initialRunLoopRetryDelay
+		case err != nil:
+			delay = runLoopRetryDelay(failures)
 			failures++
-			if !waitForDelay(ctx, delay) {
-				return
-			}
+		case handled:
+			failures = 0
+			idleDelay = minIdleClaimDelay
 			continue
+		default:
+			failures = 0
+			delay = idleDelay
+			idleDelay = min(idleDelay*2, maxIdleClaimDelay)
 		}
-		failures = 0
-		if worked {
-			idleDelay = 50 * time.Millisecond
-			continue
-		}
-		if !waitForDelay(ctx, idleDelay) {
+		if !waitForDelay(ctx, delay) {
 			return
-		}
-		if idleDelay < time.Second {
-			idleDelay *= 2
-			if idleDelay > time.Second {
-				idleDelay = time.Second
-			}
 		}
 	}
 }
 
-func (w *Worker) RunOnce(ctx context.Context) (worked bool, err error) {
+func (w *Worker) finishLoop(ctx, loopCtx context.Context, event *logpkg.Event, worked bool, err error) {
+	logent.WorkerLoopResult(loopCtx, worked, err)
+	recoverable := isRecoverableRunOnceError(err)
+	if recoverable {
+		logent.WorkerLoopRecoverableTurnRace(loopCtx, err)
+	}
+	if err != nil && !recoverable && !(ctx.Err() != nil && errutil.OnlyMatches(err, context.Canceled)) {
+		logpkg.Error(loopCtx, err)
+	}
+	event.Done(loopCtx)
+}
+
+func (w *Worker) throttleAfterExecution(ctx context.Context, err error) {
+	switch {
+	case err == nil || ctx.Err() != nil:
+		w.executionFailures.Store(0)
+	case isRecoverableRunOnceError(err):
+		w.executionFailures.Store(0)
+		waitForDelay(ctx, initialRunLoopRetryDelay)
+	default:
+		waitForDelay(ctx, runLoopRetryDelay(int(w.executionFailures.Add(1)-1)))
+	}
+}
+
+func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAgentWork, handled bool, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = panicError("worker iteration", recovered)
+			claim, handled, err = executionstore.ClaimedAgentWork{}, false, panicError("worker claim", recovered)
 		}
 	}()
-	now := time.Now().UTC()
-	claim, handled, err := w.store.ClaimNextAgentWork(
+	claim, handled, err = w.store.ClaimNextAgentWork(
 		ctx,
 		executionstore.ClaimNextAgentWorkInput{
 			WorkerProcessID: w.workerProcessID,
 			LeaseDuration:   w.runtimeLockLeaseDuration,
 		},
 	)
+	var deferred *executionstore.ClaimDeferredError
+	if errors.As(err, &deferred) {
+		w.metrics.RecordClaimDeferral()
+		w.log.ErrorContext(ctx, "agent claim deferred", "project_id", deferred.ProjectID,
+			"agent_id", deferred.AgentID, "error", deferred.Cause)
+	}
 	if errors.Is(err, storeerr.ErrNoClaimableAgentWakeup) {
-		return false, nil
+		return executionstore.ClaimedAgentWork{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return executionstore.ClaimedAgentWork{}, false, err
 	}
-	if !handled {
-		return false, nil
-	}
-	if claim.Kind == executionstore.AgentWorkNone {
-		return true, nil
-	}
-	return true, w.executeClaimedWork(ctx, claim, now)
+	return claim, handled, nil
+}
+
+func (w *Worker) executeClaimedWorkRecovering(
+	ctx context.Context,
+	claim executionstore.ClaimedAgentWork,
+	now time.Time,
+) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = panicError("worker iteration", recovered)
+		}
+	}()
+	return w.executeClaimedWork(ctx, claim, now)
 }
 
 func (w *Worker) executeClaimedWork(
@@ -222,25 +281,24 @@ func (w *Worker) executeClaimedWork(
 	now time.Time,
 ) error {
 	runtime := claim.RuntimeLock
+	projectID, agentID := claim.ProjectID, claim.AgentID
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
 	logent.RuntimeLock(ctx, runtime)
-	if claim.Kind == executionstore.AgentWorkModel &&
-		claim.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
-		logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
-	}
+	leaseBudgetStartedAt := claim.LocalLeaseBudgetStartedAt
 	turnCtx, active, stopRenewal, err := w.startRuntimeRenewal(
 		ctx,
-		claim.ProjectID,
-		claim.AgentID,
+		projectID,
+		agentID,
 		runtime,
+		leaseBudgetStartedAt,
 	)
 	if err != nil {
 		finalizeCtx, cancelFinalize := w.finalizeContext(ctx)
 		defer cancelFinalize()
 		if releaseErr := w.store.ReleaseAgentRuntimeLock(
 			finalizeCtx,
-			claim.ProjectID,
-			claim.AgentID,
+			projectID,
+			agentID,
 			runtime.ID,
 		); releaseErr != nil && !errors.Is(releaseErr, storeerr.ErrRuntimeLockInactive) {
 			return releaseErr
@@ -250,38 +308,27 @@ func (w *Worker) executeClaimedWork(
 		}
 		return err
 	}
+	if claim.Kind == executionstore.AgentWorkModel && claim.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
+		logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
+	}
 	asyncScope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
-	turnCtx = tools.WithAsyncExecutionScope(turnCtx, asyncScope)
-	err = w.executeWork(turnCtx, claim, now)
+	err = w.executeWork(tools.WithAsyncExecutionScope(turnCtx, asyncScope), claim, now)
 	asyncScope.Seal()
 	if asyncScope.Started() {
-		if errors.Is(err, context.Canceled) && active.cancelRequested.Load() {
-			err = nil
-		} else if errors.Is(err, context.Canceled) && active.renewalFailed.Load() {
-			err = storeerr.ErrRuntimeLockInactive
-		}
-		w.retainRuntimeUntilAsyncCompletion(
-			ctx,
-			claim.ProjectID,
-			claim.AgentID,
-			runtime.ID,
-			asyncScope,
-			stopRenewal,
-		)
-		return err
+		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal)
+		return runtimeExecutionError(err, active)
+	}
+	if err == nil {
+		err = turnCtx.Err()
 	}
 	stopRenewal()
 	finalizeCtx, cancelFinalize := w.finalizeContext(ctx)
 	defer cancelFinalize()
-	if errors.Is(err, context.Canceled) && active.cancelRequested.Load() {
-		err = nil
-	} else if errors.Is(err, context.Canceled) && active.renewalFailed.Load() {
-		err = storeerr.ErrRuntimeLockInactive
-	}
+	err = runtimeExecutionError(err, active)
 	if releaseErr := w.store.ReleaseAgentRuntimeLock(
 		finalizeCtx,
-		claim.ProjectID,
-		claim.AgentID,
+		projectID,
+		agentID,
 		runtime.ID,
 	); releaseErr != nil &&
 		err == nil {
@@ -323,9 +370,7 @@ func (w *Worker) retainRuntimeUntilAsyncCompletion(
 }
 
 func (w *Worker) executeWork(
-	ctx context.Context,
-	claim executionstore.ClaimedAgentWork,
-	now time.Time,
+	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time,
 ) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -334,7 +379,7 @@ func (w *Worker) executeWork(
 	}()
 	switch claim.Kind {
 	case executionstore.AgentWorkModel:
-		return w.executor.ExecuteModelWork(ctx, kernel.ModelWorkExecution{
+		input := kernel.ModelWorkExecution{
 			Kind:                     claim.Model.Kind,
 			OrgID:                    claim.OrgID,
 			ProjectID:                claim.ProjectID,
@@ -347,9 +392,11 @@ func (w *Worker) executeWork(
 			OpeningEventSequence:     claim.Model.OpeningEventSequence,
 			RuntimeLockID:            claim.RuntimeLock.ID,
 			Now:                      now,
-		})
+		}
+		return w.executor.ExecuteModelWork(ctx, input)
 	case executionstore.AgentWorkTool:
 		return w.executor.ExecuteToolWork(ctx, kernel.ToolWorkExecution{
+			Prepared:           claim.Tool.Prepared,
 			ProjectID:          claim.ProjectID,
 			AgentID:            claim.AgentID,
 			TurnID:             claim.Tool.TurnID,
@@ -419,6 +466,7 @@ func (w *Worker) startRuntimeRenewal(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
 	runtime executionstore.AgentRuntimeLockRecord,
+	leaseBudgetStartedAt time.Time,
 ) (context.Context, *activeRuntime, func(), error) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	active, unregister := w.registerActiveRuntime(
@@ -426,21 +474,25 @@ func (w *Worker) startRuntimeRenewal(
 		runtime,
 		cancelTurn,
 	)
-	renewalCutoff, err := w.renewRuntimeUntil(
-		turnCtx,
-		projectID,
-		agentID,
-		runtime.ID,
-		runtimeRenewalCutoff(time.Now(), w.runtimeLockLeaseDuration),
-	)
-	if err != nil {
-		if errors.Is(err, errRuntimeCancelRequested) ||
-			(errors.Is(err, context.Canceled) && active.cancelRequested.Load()) {
-			err = errRuntimeCancelRequested
+	renewalCutoff := runtimeRenewalCutoff(leaseBudgetStartedAt, w.runtimeLockLeaseDuration)
+	if leaseBudgetStartedAt.IsZero() || !time.Now().Before(renewalCutoff) {
+		var err error
+		renewalCutoff, err = w.renewRuntimeUntil(
+			turnCtx,
+			projectID,
+			agentID,
+			runtime.ID,
+			runtimeRenewalCutoff(time.Now(), w.runtimeLockLeaseDuration),
+		)
+		if err != nil {
+			if errors.Is(err, errRuntimeCancelRequested) ||
+				(errors.Is(err, context.Canceled) && active.cancelRequested.Load()) {
+				err = errRuntimeCancelRequested
+			}
+			unregister()
+			cancelTurn()
+			return nil, nil, nil, err
 		}
-		unregister()
-		cancelTurn()
-		return nil, nil, nil, err
 	}
 	renewalCtx, cancelRenewal := context.WithCancel(turnCtx)
 	done := make(chan struct{})
@@ -659,8 +711,19 @@ func (w *Worker) recoverRuntimeRenewalPanic(
 }
 
 func isRecoverableRunOnceError(err error) bool {
-	return errors.Is(err, storeerr.ErrAgentNotAdvanceable) ||
+	var deferred *executionstore.ClaimDeferredError
+	return errors.As(err, &deferred) || errors.Is(err, storeerr.ErrAgentNotAdvanceable) ||
 		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
 		errors.Is(err, storeerr.ErrStateTransitionConflict)
+}
+
+func runtimeExecutionError(err error, active *activeRuntime) error {
+	if errors.Is(err, context.Canceled) && active.cancelRequested.Load() {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) && active.renewalFailed.Load() {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	return err
 }

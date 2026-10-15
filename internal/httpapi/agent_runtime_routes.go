@@ -379,12 +379,9 @@ func (s strictOpenAPIServer) createAgentInput(
 	if err != nil {
 		return nil, err
 	}
-	inputBlocks, err := s.server.extractInlineMedia(ctx, mediaIngestContext{
-		ProjectID:      project.ID,
-		AgentID:        agent.ID,
-		IdempotencyKey: idempotencyKey,
-	}, contentBlocks)
+	inputBlocks, artifacts, err := s.server.prepareInputMedia(ctx, agent.ID, contentBlocks)
 	if err != nil {
+		s.server.cleanupInputMedia(ctx, project.ID, agent.ID, artifacts, err)
 		return nil, mediaIngestAPIError(err)
 	}
 	agentInput, storedContentBlocks, created, err := s.server.store.Execution().CreateAgentContentInput(
@@ -394,11 +391,15 @@ func (s strictOpenAPIServer) createAgentInput(
 			AgentID:                agent.ID,
 			Actor:                  actor,
 			ContentBlocks:          inputBlocks,
+			PreparedArtifacts:      artifacts,
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
 		},
 	)
+	if err != nil || !created {
+		s.server.cleanupInputMedia(ctx, project.ID, agent.ID, artifacts, err)
+	}
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}

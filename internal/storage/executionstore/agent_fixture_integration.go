@@ -5,12 +5,12 @@ package executionstore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
@@ -24,7 +24,10 @@ func (s *Store) IntegrationLaunchAgentOnce(
 	ctx context.Context,
 	input LaunchAgentInput,
 ) (LaunchAgentResult, error) {
-	return s.launchAgentOnce(ctx, input)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (LaunchAgentResult, error) {
+			return s.launchAgentOnce(ctx, input)
+		})
 }
 
 func (s *Store) IntegrationExecuteToolCallOnce(
@@ -32,55 +35,81 @@ func (s *Store) IntegrationExecuteToolCallOnce(
 	input ExecuteToolCallInput,
 	command ToolCallCommand,
 ) (ExecuteToolCallResult, error) {
-	return s.executeToolCallOnce(
-		ctx,
-		input,
-		func(*ToolCallReader) (ToolCallCommand, error) { return command, nil },
-	)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (ExecuteToolCallResult, error) {
+			return s.executeToolCallOnce(
+				ctx,
+				input,
+				func(*ToolCallReader) (ToolCallCommand, error) { return command, nil },
+			)
+		})
 }
 
 func (s *Store) IntegrationChangeAgentConfigOnce(
 	ctx context.Context,
 	input ChangeAgentConfigInput,
 ) (ChangeAgentConfigResult, error) {
-	return s.changeAgentConfigOnce(ctx, input)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (ChangeAgentConfigResult, error) {
+			return s.changeAgentConfigOnce(ctx, input)
+		})
 }
 
 func (s *Store) IntegrationArchiveAgentOnce(
 	ctx context.Context,
-	orgID, projectID, agentID uuid.UUID,
+	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) (AgentRecord, []MachineRecord, error) {
-	_ = orgID
-	return s.archiveAgentOnce(ctx, projectID, agentID, actor)
+	type transactionResult struct {
+		agent    AgentRecord
+		machines []MachineRecord
+	}
+	retried, retryErr := agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (transactionResult, error) {
+			agent, machines, returnErr := s.archiveAgentOnce(ctx, projectID, agentID, actor)
+			return transactionResult{agent, machines}, returnErr
+		})
+	return retried.agent, retried.machines, retryErr
 }
 
 func (s *Store) IntegrationDeleteMachineOnce(
 	ctx context.Context,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	return s.deleteMachineOnce(ctx, input)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (MachineRecord, error) {
+			return s.deleteMachineOnce(ctx, input)
+		})
 }
 
 func (s *Store) IntegrationDeleteMachinePoolOnce(
 	ctx context.Context,
 	orgID, poolID uuid.UUID,
 ) ([]MachineRecord, error) {
-	return s.deleteMachinePoolOnce(ctx, orgID, poolID)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) ([]MachineRecord, error) {
+			return s.deleteMachinePoolOnce(ctx, orgID, poolID)
+		})
 }
 
 func (s *Store) IntegrationDeleteProjectMachineGrantOnce(
 	ctx context.Context,
 	orgID, projectID, grantID uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
-	return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (ProjectMachineGrantRecord, error) {
+			return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, grantID)
+		})
 }
 
 func (s *Store) IntegrationDeleteProjectMachinePoolGrantOnce(
 	ctx context.Context,
 	orgID, projectID, grantID uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
-	return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, grantID)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (DeleteProjectMachinePoolGrantResult, error) {
+			return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, grantID)
+		})
 }
 
 func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput) (AgentRecord, error) {
@@ -90,50 +119,53 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	if input.CurrentConfigID == uuid.Nil {
 		return AgentRecord{}, errors.New("current config id is required")
 	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AgentRecord{}, fmt.Errorf("begin create agent fixture: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
-	if err != nil {
-		return AgentRecord{}, err
-	}
-	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
-		return AgentRecord{}, err
-	}
-	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.CurrentConfigID)
-	if err != nil {
-		return AgentRecord{}, err
-	}
-	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
-		return AgentRecord{}, err
-	}
-	record, _, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
-		OrgID:           project.OrgID,
-		ProjectID:       input.ProjectID,
-		Name:            input.Name,
-		CurrentConfigID: input.CurrentConfigID,
-	})
-	if err != nil {
-		return AgentRecord{}, err
-	}
-	if _, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
-		ProjectID:      input.ProjectID,
-		AgentID:        record.ID,
-		AgentConfigID:  input.CurrentConfigID,
-		ActorType:      identitystore.PrincipalTypeSystem,
-		Reason:         "fixture",
-		IdempotencyKey: "fixture:" + record.ID.String(),
-	}); err != nil {
-		return AgentRecord{}, err
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "create agent fixture"); err != nil {
-		return AgentRecord{}, err
-	}
-	return record, nil
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (AgentRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+
+			qtx := dbsqlc.New(tx)
+			project, err := loadProjectTx(ctx, qtx, input.ProjectID)
+			if err != nil {
+				return AgentRecord{}, err
+			}
+			if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+				return AgentRecord{}, err
+			}
+			config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.CurrentConfigID)
+			if err != nil {
+				return AgentRecord{}, err
+			}
+			if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
+				return AgentRecord{}, err
+			}
+			record, err := insertAdmittedAgentTx(ctx, unit, insertAgentInput{
+				ProjectID:       input.ProjectID,
+				Name:            input.Name,
+				CurrentConfigID: input.CurrentConfigID,
+			})
+			if err != nil {
+				return AgentRecord{}, err
+			}
+			if _, err := activateNewAgentConfigTx(ctx, unit, qtx, ActivateAgentConfigInput{
+				ProjectID:      input.ProjectID,
+				AgentID:        record.ID,
+				AgentConfigID:  input.CurrentConfigID,
+				ActorType:      identitystore.PrincipalTypeSystem,
+				Reason:         "fixture",
+				IdempotencyKey: "fixture:" + record.ID.String(),
+			}); err != nil {
+				return AgentRecord{}, err
+			}
+			if err := unit.Commit(ctx, "create agent fixture"); err != nil {
+				return AgentRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) IntegrationBeginMachineWakeOnce(
@@ -141,5 +173,21 @@ func (s *Store) IntegrationBeginMachineWakeOnce(
 	orgID, machineID, machinePoolID uuid.UUID,
 	wakeTimeout time.Duration,
 ) (MachineWakeDisposition, error) {
-	return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
+	return agentexecution.ReplanTest(ctx,
+		func(ctx context.Context) (MachineWakeDisposition, error) {
+			return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
+		})
+}
+
+func (s *Store) IntegrationLoadExecution(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) (agentexecution.ExecutionSnapshot, error) {
+	return agentexecution.ReplanTest(ctx, func(ctx context.Context) (agentexecution.ExecutionSnapshot, error) {
+		unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
+		if err != nil {
+			return agentexecution.ExecutionSnapshot{}, err
+		}
+		defer func() { _ = unit.Rollback(ctx) }()
+		return h.LoadExecution(ctx)
+	})
 }

@@ -133,9 +133,7 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 			changed.ProviderResponse.Normalized.Content = slices.Clone(input.ProviderResponse.Normalized.Content)
 			changed.ProviderResponse.Normalized.Content[1].ToolCallError = "tool arguments must be an object"
 			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
-			if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-				t.Fatalf("changed rejection replay error = %v, want idempotency conflict", err)
-			}
+			require.NoError(t, err)
 			changed.ProviderResponse.Normalized.Content[1].ToolCallError = ""
 			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
 			require.NoError(t, err, "replay without transient rejection evidence")
@@ -470,16 +468,12 @@ func TestKernelTypedFrontierToolResultAuthority(t *testing.T) {
 		t.Fatalf("tool result domain content block count = %d, want 2", blockCount)
 	}
 
-	conflict := completion
-	conflict.ResultContentParts = json.RawMessage(
-		`[{"type":"structured_data","value":{"ok":false}}]`,
-	)
-	if _, err := fixture.Store.Execution().CompleteToolCall(ctx, conflict); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("conflicting tool result error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-	}
+	replay := completion
+	replay.ResultContentParts = json.RawMessage(`[{"type":"structured_data","value":{"ok":false}}]`)
+	replayedTool, err := fixture.Store.Execution().CompleteToolCall(ctx, replay)
+	require.NoError(t, err)
+	require.Equal(t, toolCall.ToolCallResultID, replayedTool.ToolCallResultID)
+	require.JSONEq(t, string(toolCall.ResultContentParts), string(replayedTool.ResultContentParts))
 
 	pendingToolCallID := createToolCallForProcessTestWithPermission(
 		t,
@@ -642,14 +636,15 @@ func TestKernelToolCallBlockLinkageConstraints(t *testing.T) {
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
 			OwnerModelOutputID: otherModelOutputID,
-			Ordinal:            1,
-			BlockKind:          executionstore.ContentBlockKindToolCall,
-			ToolCallID:         toolCallID,
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:  testProjectID,
+				AgentID:    fixture.AgentID,
+				Ordinal:    1,
+				BlockKind:  executionstore.ContentBlockKindToolCall,
+				ToolCallID: toolCallID},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("mismatched tool call block model output error = %v, want constraint violation", err)

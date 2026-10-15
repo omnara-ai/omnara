@@ -646,8 +646,8 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, leaf.Agent.ID, leafLock.ID); err != nil {
 		t.Fatalf("release leaf runtime lock: %v", err)
 	}
-	if err := store.Execution().MarkAgentWakeup(
-		ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`),
+	if err := store.Execution().RepairExecutionForTest(
+		ctx, testProjectID, leaf.Agent.ID,
 	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}
@@ -949,6 +949,25 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	if kind != "question" {
 		t.Fatalf("parent notification kind = %q", kind)
 	}
+
+	var pending executionstore.AgentInputRecord
+	for range 50 {
+		pending, _, _, err = store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{ProjectID: testProjectID, AgentID: child.Agent.ID, ContentBlocks: json.RawMessage(`[{"type":"text","text":"pending"}]`)})
+		require.NoError(t, err)
+	}
+	_, err = store.Execution().IntegrationExecuteToolCallOnce(ctx, executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: parent.ID, ToolCallID: parentToolCallIDs["send"], RuntimeLockID: parentLock.ID}, executionstore.SendSubagentMessageForToolCall(executionstore.SendSubagentMessageInput{TargetAgentID: child.Agent.ID, Message: "rejected"}, executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: json.RawMessage(`[{"type":"text","text":"sent"}]`)}))
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	var openCount int
+	require.NoError(t,
+		pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_interactions WHERE agent_id=$1 AND state='open'`,
+			child.Agent.ID).Scan(&openCount))
+	require.Equal(t, 1, openCount)
+	require.NoError(t,
+		store.Execution().CancelQueuedBacklogInput(ctx,
+			executionstore.CancelQueuedBacklogInputInput{ProjectID: testProjectID,
+				AgentID: child.Agent.ID,
+				InputID: pending.ID}))
 
 	if _, err := store.Execution().ExecuteToolCall(
 		ctx,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -15,25 +16,21 @@ import (
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-func (e Executor) PrepareToolCallPermission(
-	ctx context.Context,
-	turn Turn,
-	call model.ToolCall,
-) error {
-	if _, ok, err := e.completedToolResult(ctx, turn, call); err != nil || ok {
-		return err
+func (e Executor) PrepareRecordedToolCallPermission(
+	ctx context.Context, turn Turn, proposal executionstore.ToolCallRecord,
+) (executionstore.ToolCallRecord, error) {
+	if proposal.ProjectID != turn.ProjectID || proposal.AgentID != turn.AgentID ||
+		proposal.ModelCallContextID != turn.ModelCallContextID {
+		return executionstore.ToolCallRecord{}, storeerr.ErrIdempotencyConflict
 	}
-	proposal, err := e.recordedToolCall(ctx, turn, call)
-	if err != nil {
-		return err
-	}
+	call := model.ToolCall{ID: proposal.ProviderCallID, Name: proposal.Name, Input: proposal.Input}
 	if proposal.State != executionstore.ToolCallStateAwaitingAuthorization &&
 		proposal.State != executionstore.ToolCallStateAwaitingPermission {
-		return nil
+		return proposal, nil
 	}
 	spec, configured := turn.Tools[call.Name]
 	if !configured {
-		return e.completeInvalidToolCall(
+		return executionstore.ToolCallRecord{}, e.completeInvalidToolCall(
 			ctx,
 			turn,
 			proposal.ID,
@@ -45,7 +42,7 @@ func (e Executor) PrepareToolCallPermission(
 	toolType := spec.Type
 	implementation, implemented, err := toolImplementationFor(call.Name)
 	if err != nil {
-		return err
+		return executionstore.ToolCallRecord{}, err
 	}
 	modeHandler, modeDescriptor, supported, err := permissionModeForTool(
 		toolType,
@@ -54,7 +51,7 @@ func (e Executor) PrepareToolCallPermission(
 		implemented,
 	)
 	if err != nil {
-		return err
+		return executionstore.ToolCallRecord{}, err
 	}
 	var inputErr error
 	if implemented {
@@ -76,10 +73,10 @@ func (e Executor) PrepareToolCallPermission(
 			errorCode = "malformed"
 		}
 		cause := firstError(inputErr, unsupportedErr)
-		return e.completeInvalidToolCall(ctx, turn, proposal.ID, errorCode, cause)
+		return executionstore.ToolCallRecord{}, e.completeInvalidToolCall(ctx, turn, proposal.ID, errorCode, cause)
 	}
 	if !supported {
-		return fmt.Errorf(
+		return executionstore.ToolCallRecord{}, fmt.Errorf(
 			"tool %q does not support permission mode %q",
 			call.Name,
 			selection.Mode,
@@ -90,7 +87,7 @@ func (e Executor) PrepareToolCallPermission(
 		[]toolpermission.ModeDescriptor{modeDescriptor},
 	)
 	if err != nil {
-		return fmt.Errorf("tool %q runtime permission: %w", call.Name, err)
+		return executionstore.ToolCallRecord{}, fmt.Errorf("tool %q runtime permission: %w", call.Name, err)
 	}
 	if existing, found, err := e.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,
@@ -99,9 +96,9 @@ func (e Executor) PrepareToolCallPermission(
 		proposal.ID,
 		executionstore.AgentInteractionKindPermission,
 	); err != nil {
-		return err
+		return executionstore.ToolCallRecord{}, err
 	} else if found {
-		return e.evaluateExistingPermissionInteraction(
+		return executionstore.ToolCallRecord{}, e.evaluateExistingPermissionInteraction(
 			ctx,
 			turn,
 			call,
@@ -111,7 +108,7 @@ func (e Executor) PrepareToolCallPermission(
 		)
 	}
 	if proposal.State == executionstore.ToolCallStateAwaitingPermission {
-		return storeerr.ErrIdempotencyConflict
+		return executionstore.ToolCallRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	modeResult, err := modeHandler(
 		ctx,
@@ -125,7 +122,7 @@ func (e Executor) PrepareToolCallPermission(
 	)
 	var preparationErr *toolCallPreparationError
 	if errors.As(err, &preparationErr) {
-		return e.completeToolCallPreparationFailure(
+		return executionstore.ToolCallRecord{}, e.completeToolCallPreparationFailure(
 			ctx,
 			turn,
 			proposal.ID,
@@ -133,21 +130,15 @@ func (e Executor) PrepareToolCallPermission(
 		)
 	}
 	if err != nil {
-		return err
+		return executionstore.ToolCallRecord{}, err
 	}
 	switch modeResult.kind {
 	case permissionModeAllow:
-		if _, err := e.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
-			ProjectID:     turn.ProjectID,
-			AgentID:       turn.AgentID,
-			ID:            proposal.ID,
-			RuntimeLockID: turn.RuntimeLockID,
-		}); err != nil {
-			return err
-		}
-		return nil
+		return e.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
+			ProjectID: turn.ProjectID, AgentID: turn.AgentID, ID: proposal.ID, RuntimeLockID: turn.RuntimeLockID,
+		})
 	case permissionModeDeny:
-		return e.completeDeniedToolCall(
+		return executionstore.ToolCallRecord{}, e.completeDeniedToolCall(
 			ctx,
 			turn,
 			proposal.ID,
@@ -155,7 +146,7 @@ func (e Executor) PrepareToolCallPermission(
 		)
 	case permissionModeAsk:
 	default:
-		return fmt.Errorf("tool %q permission mode returned an invalid outcome", call.Name)
+		return executionstore.ToolCallRecord{}, fmt.Errorf("tool %q permission mode returned an invalid outcome", call.Name)
 	}
 	interaction, err := e.Store.Execution().CreatePermissionInteraction(
 		ctx,
@@ -168,10 +159,10 @@ func (e Executor) PrepareToolCallPermission(
 		},
 	)
 	if err != nil {
-		return err
+		return executionstore.ToolCallRecord{}, err
 	}
 	e.enqueueIntegrationPromptCopy(turn, interaction)
-	return nil
+	return executionstore.ToolCallRecord{}, nil
 }
 
 func (e Executor) evaluateExistingPermissionInteraction(
@@ -350,7 +341,7 @@ func (e Executor) completeAsyncToolFailure(
 	// Provider failures may carry a confirmed receipt or delivery uncertainty.
 	// Preserve that evidence even when the underlying cause is a timeout.
 	if !content.isSet && (errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded)) {
-		errorMessage = executionstore.RuntimeToolInterruptedMessage
+		errorMessage = executionpolicy.InterruptedToolMessage
 		var err error
 		content, err = structuredToolResultContent(map[string]any{
 			"error_code": "async_tool_interrupted",

@@ -11,8 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -74,7 +76,7 @@ func expandLaunchMachineBindingRequests(
 
 func (s *Store) resolveLaunchMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
@@ -90,7 +92,7 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 
 func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	orgID, projectID uuid.UUID,
 	sources []launchMachineSource,
@@ -151,7 +153,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 
 func lockLaunchMachineSourcesTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID uuid.UUID,
 	sources []launchMachineSource,
 	additionalMachineIDs []uuid.UUID,
@@ -343,11 +345,12 @@ func insertAgentMachineBindingTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("upsert launch agent machine binding: %w", err)
 	}
-	return agentMachineBindingRecordFromSQLC(dbsqlc.GetAgentMachineBindingByMachineRow(row)), nil
+	return agentMachineBindingRecordFromSQLC(row), nil
 }
 
 func allocateNewPoolMachineForAgentTx(
 	ctx context.Context,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	orgID, projectID, agentID uuid.UUID,
 	binding launchMachineBindingRequest,
@@ -371,7 +374,7 @@ func allocateNewPoolMachineForAgentTx(
 	if err != nil {
 		return AgentMachineBindingRecord{}, fmt.Errorf("prepare launch binding environment: %w", err)
 	}
-	machineRow, err := insertMachineWithResourceLimitTx(ctx, qtx, dbsqlc.InsertMachineParams{
+	machineRow, err := qtx.InsertMachine(ctx, dbsqlc.InsertMachineParams{
 		OrgID:                  orgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
@@ -394,6 +397,7 @@ func allocateNewPoolMachineForAgentTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("insert pool machine for launch: %w", err)
 	}
+	unit.TrackCreation(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: orgID})
 	grantRow, err := qtx.UpsertProjectMachineGrant(ctx, dbsqlc.UpsertProjectMachineGrantParams{
 		OrgID:                     orgID,
 		ProjectID:                 projectID,

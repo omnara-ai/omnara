@@ -112,7 +112,7 @@ func IdempotencyScope(integration IntegrationRecord) string {
 
 func validateIntegrationCredential(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input ConfigureIntegrationInput,
 ) error {
 	credential, err := lockAvailableIntegrationCredential(

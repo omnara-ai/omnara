@@ -14,10 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -360,7 +360,12 @@ model:
 			ContextWindowTokens: 16384,
 			MaxOutputTokens:     new(2048),
 		},
-		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+		{
+			Name:                "add-model",
+			ProviderModelSlug:   "example/add",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     new(1024),
+		},
 		{
 			Name:                "tenant-model",
 			ProviderModelSlug:   "example/cluster-collision",
@@ -375,7 +380,11 @@ model:
 	assertRetainedModelWarnings := func(label string, result orglifecycle.ReconcileDefaultsResult) {
 		t.Helper()
 		if len(result.Warnings) != 3 {
-			t.Fatalf("%s warnings = %v, want tenant collision and two retained-model warnings", label, result.Warnings)
+			t.Fatalf(
+				"%s warnings = %v, want tenant collision and two retained-model warnings",
+				label,
+				result.Warnings,
+			)
 		}
 		warnings := strings.Join(result.Warnings, "\n")
 		for _, modelName := range []string{activeAgentModel.Name, profileModel.Name} {
@@ -992,20 +1001,19 @@ INSERT INTO machines(
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
-		deleteTx, deleteErr := pool.Begin(ctx)
+		deleteTx, deleteErr := agentexecution.BeginTestUnit(ctx, agentexecution.NewCell(pool, nil, nil))
 		if deleteErr != nil {
 			return deleteErr
 		}
 		defer func() { _ = deleteTx.Rollback(ctx) }()
-		_, deleteErr = store.Execution().DeleteMachinePoolTx(
+		_, deleteErr = store.Execution().DeleteMachinePoolInUnit(
 			ctx,
 			deleteTx,
-			notifications.NewTxNotifications(),
 			created.Org.ID,
 			poolBRow.ID,
 		)
 		if deleteErr == nil {
-			deleteErr = deleteTx.Commit(ctx)
+			deleteErr = deleteTx.Commit(ctx, "delete pool")
 		}
 		return deleteErr
 	})

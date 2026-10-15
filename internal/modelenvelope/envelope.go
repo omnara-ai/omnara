@@ -192,20 +192,6 @@ const (
 	StopReasonUnknown       StopReason = "unknown"
 )
 
-func IsDurableModelOutputStopReason(reason StopReason) bool {
-	switch reason {
-	case StopReasonEndTurn,
-		StopReasonToolUse,
-		StopReasonMaxTokens,
-		StopReasonRefusal,
-		StopReasonContentFilter,
-		StopReasonError:
-		return true
-	default:
-		return false
-	}
-}
-
 func NormalizeStopReason(reason StopReason, hasToolCalls bool) StopReason {
 	if reason == "" {
 		if hasToolCalls {

@@ -22,13 +22,13 @@ type defaultMachinePoolReconciliation struct {
 
 func (s *Store) ReconcileDefaultMachinePoolsTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	orgID uuid.UUID,
 	templates []DefaultMachinePoolTemplate,
 	rows []dbsqlc.MachinePool,
 	apply bool,
 ) ([]string, error) {
-	qtx := s.q.WithTx(tx)
+	qtx := dbsqlc.New(tx)
 	targets := make([]defaultMachinePoolReconciliation, 0, len(rows))
 	for _, template := range templates {
 		name, err := resourcename.CanonicalizeRequired("machine pool name", template.Name)

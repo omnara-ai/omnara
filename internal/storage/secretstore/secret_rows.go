@@ -204,3 +204,21 @@ func secretGrantFromSQLC(row dbsqlc.SecretGrant) SecretGrantRecord {
 		CreatedAt:       row.CreatedAt,
 	}
 }
+
+func secretVersionFromCurrentPayloadSQLC(row dbsqlc.GetCurrentSecretPayloadRow) SecretVersionRecord {
+	return SecretVersionRecord{
+		ID:                row.ID,
+		OrgID:             row.OrgID,
+		SecretID:          row.SecretID,
+		VersionNumber:     row.VersionNumber,
+		PayloadKeys:       append([]string(nil), row.PayloadKeys...),
+		EncryptionScheme:  row.EncryptionScheme,
+		KeyID:             row.KeyID,
+		DEKWrappedBy:      row.DekWrappedBy,
+		EncryptedDEK:      append([]byte(nil), row.EncryptedDek...),
+		EncryptedDEKNonce: append([]byte(nil), row.EncryptedDekNonce...),
+		Nonce:             append([]byte(nil), row.Nonce...),
+		Ciphertext:        append([]byte(nil), row.Ciphertext...),
+		CreatedAt:         row.CreatedAt,
+	}
+}

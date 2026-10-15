@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -770,7 +770,7 @@ func TestMCPDispatchRecordsUnknownOutcomeWhenExecutionIsInterrupted(t *testing.T
 		t.Fatalf("load interrupted MCP tool call: %v", err)
 	}
 	if !strings.Contains(string(record.ResultContentParts), "async_tool_interrupted") ||
-		!strings.Contains(string(record.ResultContentParts), executionstore.RuntimeToolInterruptedMessage) {
+		!strings.Contains(string(record.ResultContentParts), executionpolicy.InterruptedToolMessage) {
 		t.Fatalf("interrupted MCP result = %s", record.ResultContentParts)
 	}
 }

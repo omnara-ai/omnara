@@ -148,7 +148,9 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 				require.Equal(t, outcomes, finalOutcomes)
 				_, err = f.store.Execution().GetAgentInProject(ctx, f.ids.ProjectID, launchID)
 				require.ErrorIs(t, err, pgx.ErrNoRows)
-				require.Equal(t, []string{"Request failed"}, f.provider.notices)
+				require.Equal(t,
+					[]string{"I couldn't deliver this request to every agent. Some agents have already received it."},
+					f.provider.notices)
 			}
 			duplicate, created, err := inbox.AcceptIntegrationReceipt(ctx, input)
 			require.NoError(t, err)

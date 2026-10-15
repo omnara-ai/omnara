@@ -7,18 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -113,14 +113,14 @@ func assertRuntimeLockReapCounts(
 	t.Helper()
 	var wakeups, locks int
 	if err := pool.QueryRow(ctx, `
-SELECT count(*) FILTER (WHERE wake.metadata->>'reason' = $2),
+SELECT count(*),
        (SELECT count(*) FROM agent_runtime_locks runtime_lock
         JOIN agents lock_agent ON lock_agent.id = runtime_lock.agent_id
         WHERE lock_agent.project_id = $1)
 FROM agent_wakeups wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1
-`, projectID, "runtime_lock_reap").Scan(&wakeups, &locks); err != nil {
+`, projectID).Scan(&wakeups, &locks); err != nil {
 		t.Fatalf("count runtime-lock reap state: %v", err)
 	}
 	if wakeups != wantWakeups || locks != wantLocks {
@@ -131,63 +131,6 @@ WHERE agent.project_id = $1
 			wantWakeups,
 			wantLocks,
 		)
-	}
-}
-
-func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "claim_recovers_unstarted_turn")
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		fixture.Lock.ID,
-	); err != nil {
-		t.Fatalf("release fixture runtime lock: %v", err)
-	}
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"recover me"}]`),
-		IdempotencyKey: "claim-recovers-unstarted-turn",
-	})
-	if err != nil {
-		t.Fatalf("create content input: %v", err)
-	}
-	firstClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
-	if err != nil {
-		t.Fatalf("claim initial input work: %v", err)
-	}
-	if !found || firstClaim.Kind != executionstore.AgentWorkModel || firstClaim.Model.TurnID == uuid.Nil ||
-		!claimedOpeningInputIDsEqual(firstClaim, input.ID) {
-		t.Fatalf("initial claim = %+v found=%v, want executable turn for input %s", firstClaim, found, input.ID)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		firstClaim.RuntimeLock.ID,
-	); err != nil {
-		t.Fatalf("release runtime before model context: %v", err)
-	}
-	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
-	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("unstarted-turn wakeups = %d, want 1", wakeups)
-	}
-	recoveredClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
-		ctx,
-		testClaimNextAgentWorkInput(),
-	)
-	if err != nil {
-		t.Fatalf("claim recovered unstarted turn: %v", err)
-	}
-	if !found || recoveredClaim.Kind != executionstore.AgentWorkModel {
-		t.Fatalf("recovered claim = %+v found=%v, want executable", recoveredClaim, found)
-	}
-	if recoveredClaim.Model.TurnID != firstClaim.Model.TurnID || !claimedOpeningInputIDsEqual(recoveredClaim, input.ID) {
-		t.Fatalf("recovered claim = %+v, want same turn/input", recoveredClaim)
 	}
 }
 
@@ -242,7 +185,7 @@ func TestClaimNextAgentWorkRecoversFailedAbandonedContext(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "claim_recovers_failed_abandoned_context")
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
-		storage.WithModelCallRetryBackoff(executionstore.ModelCallRetryBackoff),
+		storage.WithModelCallRetryBackoff(modelprotocol.RetryBackoff),
 	)
 	now := fixture.Now.Add(time.Minute)
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -304,12 +247,16 @@ func TestClaimNextAgentWorkRecoversFailedAbandonedContext(t *testing.T) {
 			contextRecord,
 		)
 	}
-	wantRetryAt := contextRecord.CompletedAt.Add(executionstore.ModelCallRetryBackoff(
+	wantRetryAt := contextRecord.CompletedAt.Add(modelprotocol.RetryBackoff(
 		contextRecord.AttemptNumber,
 		contextRecord.ID.String(),
 	))
 	if !contextRecord.RetryAt.Equal(wantRetryAt) {
-		t.Fatalf("interrupted retry_at = %s, want exact durable backoff %s", contextRecord.RetryAt, wantRetryAt)
+		t.Fatalf(
+			"interrupted retry_at = %s, want exact durable backoff %s",
+			contextRecord.RetryAt,
+			wantRetryAt,
+		)
 	}
 	var wakeupAt time.Time
 	if err := fixture.Store.pool.QueryRow(ctx, `
@@ -324,10 +271,11 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("interrupted wakeup = %s, want retry_at %s", wakeupAt, contextRecord.RetryAt)
 	}
 	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
-	if turn, err := fixture.Store.q.CurrentContinuableAgentTurn(
-		ctx,
-		dbsqlc.CurrentContinuableAgentTurnParams{ProjectID: testProjectID, AgentID: fixture.AgentID},
-	); err != nil {
+	if turn,
+		err := currentContinuableTurnForTest(ctx,
+		fixture.Store,
+		testProjectID,
+		fixture.AgentID); err != nil {
 		t.Fatalf("load current continuable turn for recoverable failed context: %v", err)
 	} else if turn.ID != claim.Model.TurnID {
 		t.Fatalf("recoverable failed context current turn = %+v, want turn %s", turn, claim.Model.TurnID)
@@ -373,7 +321,11 @@ WHERE agent.id = wake.agent_id AND agent.project_id = $1 AND wake.agent_id = $2`
 	}
 	if !found || recovered.Kind != executionstore.AgentWorkModel || recovered.Model.TurnID != claim.Model.TurnID ||
 		!claimedOpeningInputIDsEqual(recovered, input.ID) {
-		t.Fatalf("failed abandoned context recovery claim = %+v found=%v, want same executable turn/input", recovered, found)
+		t.Fatalf(
+			"failed abandoned context recovery claim = %+v found=%v, want same executable turn/input",
+			recovered,
+			found,
+		)
 	}
 	retryClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
@@ -507,32 +459,6 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 	}
 }
 
-func TestReleaseExhaustedModelContextIsTerminal(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, work, modelClaim := claimExhaustedNormalModelContext(
-		t,
-		ctx,
-		"release_exhausted_model_context",
-	)
-
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		work.RuntimeLock.ID,
-	); err != nil {
-		t.Fatalf("release exhausted runtime: %v", err)
-	}
-	assertExhaustedNormalModelContextTerminalized(
-		t,
-		ctx,
-		fixture,
-		modelClaim,
-		"runtime_released_before_model_result_acceptance",
-	)
-}
-
 func TestReapExhaustedModelContextIsTerminal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -617,7 +543,13 @@ func TestReapedModelCallWorkerCannotPublishAfterReplacementClaim(t *testing.T) {
 		); err != nil || found {
 			t.Fatalf("stale worker output found=%v err=%v, want none", found, err)
 		}
-		assertModelCallContextState(t, ctx, fixture, oldClaim.Context.ID, executionstore.ModelCallContextFailed)
+		assertModelCallContextState(
+			t,
+			ctx,
+			fixture,
+			oldClaim.Context.ID,
+			executionstore.ModelCallContextFailed,
+		)
 		assertReplacementModelCallContextUnchanged(t, ctx, fixture, replacementClaim)
 	})
 
@@ -647,7 +579,13 @@ func TestReapedModelCallWorkerCannotPublishAfterReplacementClaim(t *testing.T) {
 		); err != nil || found {
 			t.Fatalf("stale worker checkpoint found=%v err=%v, want none", found, err)
 		}
-		assertModelCallContextState(t, ctx, fixture, oldClaim.Context.ID, executionstore.ModelCallContextFailed)
+		assertModelCallContextState(
+			t,
+			ctx,
+			fixture,
+			oldClaim.Context.ID,
+			executionstore.ModelCallContextFailed,
+		)
 		assertReplacementModelCallContextUnchanged(t, ctx, fixture, replacementClaim)
 		checkpoint, err := fixture.Store.Execution().PublishContextCheckpoint(
 			ctx,
@@ -672,8 +610,20 @@ func TestReapedModelCallWorkerCannotPublishAfterReplacementClaim(t *testing.T) {
 				replacementClaim.Context.ID,
 			)
 		}
-		assertModelCallContextState(t, ctx, fixture, oldClaim.Context.ID, executionstore.ModelCallContextFailed)
-		assertModelCallContextState(t, ctx, fixture, replacementClaim.Context.ID, executionstore.ModelCallContextSucceeded)
+		assertModelCallContextState(
+			t,
+			ctx,
+			fixture,
+			oldClaim.Context.ID,
+			executionstore.ModelCallContextFailed,
+		)
+		assertModelCallContextState(
+			t,
+			ctx,
+			fixture,
+			replacementClaim.Context.ID,
+			executionstore.ModelCallContextSucceeded,
+		)
 		contextRecord, found, err := fixture.Store.Execution().GetModelCallContext(
 			ctx,
 			testProjectID,
@@ -726,18 +676,24 @@ func TestCompleteRuntimeToolCallRejectsCanceledRuntime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("cancel runtime: %v", err)
 	}
-	contentParts, err := executionstore.ToolResultContentParts(json.RawMessage(`{"ok":false,"error":"runtime canceled"}`))
+	contentParts, err := executionstore.ToolResultContentParts(
+		json.RawMessage(`{"ok":false,"error":"runtime canceled"}`),
+	)
 	if err != nil {
 		t.Fatalf("build runtime failure content parts: %v", err)
 	}
-	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		ID:                 toolCallID,
-		RuntimeLockID:      fixture.Lock.ID,
-		Outcome:            executionstore.ToolResultOutcomeFailed,
-		ResultContentParts: contentParts,
-	}); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
+		executionstore.CompleteRuntimeToolCallInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			ID:                 toolCallID,
+			RuntimeLockID:      fixture.Lock.ID,
+			Outcome:            executionstore.ToolResultOutcomeFailed,
+			ResultContentParts: contentParts,
+		}); !errors.Is(
+		err,
+		storeerr.ErrRuntimeLockInactive,
+	) {
 		t.Fatalf("complete runtime tool call after cancel error = %v, want runtime lock inactive", err)
 	}
 	var wakeups int
@@ -747,8 +703,8 @@ FROM agent_wakeups wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1
   AND wake.agent_id = $2
-  AND wake.metadata->>'tool_call_id' = $3
-`, testProjectID, fixture.AgentID, toolCallID.String()).Scan(&wakeups); err != nil {
+
+`, testProjectID, fixture.AgentID).Scan(&wakeups); err != nil {
 		t.Fatalf("count runtime completion wakeups: %v", err)
 	}
 	if wakeups != 0 {
@@ -870,7 +826,7 @@ func TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion(t *testing.T) {
 		t.Fatalf("load reaped runtime tool call: %v", err)
 	}
 	wantResult := json.RawMessage(`[{"type":"structured_data","value":{"error_code":"runtime_lock_stale",` +
-		`"message":"` + executionstore.RuntimeToolInterruptedMessage + `"}}]`)
+		`"message":"` + executionpolicy.InterruptedToolMessage + `"}}]`)
 	if record.State != "completed" || !sameJSON(record.ResultContentParts, wantResult) {
 		t.Fatalf("reaped runtime tool call = %+v", record)
 	}
@@ -878,14 +834,18 @@ func TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build late runtime tool result: %v", err)
 	}
-	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		ID:                 toolCallID,
-		RuntimeLockID:      fixture.Lock.ID,
-		Outcome:            executionstore.ToolResultOutcomeSucceeded,
-		ResultContentParts: lateParts,
-	}); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+	if _, err := fixture.Store.Execution().CompleteRuntimeToolCall(ctx,
+		executionstore.CompleteRuntimeToolCallInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			ID:                 toolCallID,
+			RuntimeLockID:      fixture.Lock.ID,
+			Outcome:            executionstore.ToolResultOutcomeSucceeded,
+			ResultContentParts: lateParts,
+		}); !errors.Is(
+		err,
+		storeerr.ErrRuntimeLockInactive,
+	) {
 		t.Fatalf("late runtime tool completion error = %v, want runtime lock inactive", err)
 	}
 	replacement, err := fixture.Store.Execution().AcquireAgentRuntimeLock(

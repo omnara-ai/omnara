@@ -44,6 +44,13 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		snapshot = captured
 	}
 	watermark := snapshot.InputEventSequence
+	if input.ContextData != nil && input.CheckpointOverride == nil {
+		data := input.ContextData
+		if data.ProjectID != input.ProjectID || data.AgentID != input.AgentID || data.InputEventSequence != watermark {
+			return Bundle{}, fmt.Errorf("prepared model context does not match the requested frontier")
+		}
+		b.Store = preparedContextStore{Store: b.Store, data: data}
+	}
 	afterSequence := int64(0)
 	var checkpointRef *CheckpointRef
 	if input.CheckpointOverride != nil {

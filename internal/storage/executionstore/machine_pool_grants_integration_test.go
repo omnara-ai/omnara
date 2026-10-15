@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -1137,6 +1138,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
 	}
+	var creations []resourceguard.Creation
 	binding, err := executionstore.IntegrationCreatePoolMachineBindingTx(
 		ctx,
 		store.q,
@@ -1149,9 +1151,13 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 			ResolvedMachine:  resolvedMachine,
 			CreateToolCallID: uuid.Nil,
 		},
+		func(c resourceguard.Creation) { creations = append(creations, c) },
 	)
 	if err != nil {
 		t.Fatalf("create pool machine binding: %v", err)
+	}
+	if len(creations) != 1 || creations[0] != (resourceguard.Creation{Kind: resourceguard.Machines, OrgID: testOrgID}) {
+		t.Fatalf("machine creation tracking: %+v", creations)
 	}
 	record, err := executionstore.IntegrationPoolMachineByIDTx(ctx, store.q, testProjectID, agentID, binding.MachineID)
 	if err != nil {

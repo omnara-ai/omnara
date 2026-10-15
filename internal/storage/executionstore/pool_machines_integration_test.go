@@ -12,16 +12,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -324,7 +326,10 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		result.Machine.Machine.ProviderOptions,
 		json.RawMessage(`{"image":"captured","startup_script":"current"}`),
 	) {
-		t.Fatalf("created machine provider options = %s, want current provisioning", result.Machine.Machine.ProviderOptions)
+		t.Fatalf(
+			"created machine provider options = %s, want current provisioning",
+			result.Machine.Machine.ProviderOptions,
+		)
 	}
 	staleTransaction := executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -362,8 +367,17 @@ func TestLaunchAndCreatePoolMachineAfterEnvironmentSecretDeletion(t *testing.T) 
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "deleted_machine_secret")
-	store := newIntegrationStore(fixture.Store.pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "deleted-machine-secret@example.com", "Secret Tester")
+	store := newIntegrationStore(
+		fixture.Store.pool,
+		storage.WithMachinePoolProviders(mergingMachinePoolProviders{}),
+	)
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"deleted-machine-secret@example.com",
+		"Secret Tester",
+	)
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:          testOrgID,
 		OwnerKind:      secretstore.SecretOwnerProject,
@@ -439,8 +453,17 @@ tools:
 	if err != nil {
 		t.Fatalf("acquire agent runtime: %v", err)
 	}
-	toolCalls := createPoolMachineToolCalls(t, ctx, store, launch.Agent.ID, user.ID, config.ID, lock,
-		"deleted_secret", []poolMachineToolCallSpec{{Label: "create", Name: "create_machine", Input: json.RawMessage(`{}`)}})
+	toolCalls := createPoolMachineToolCalls(
+		t,
+		ctx,
+		store,
+		launch.Agent.ID,
+		user.ID,
+		config.ID,
+		lock,
+		"deleted_secret",
+		[]poolMachineToolCallSpec{{Label: "create", Name: "create_machine", Input: json.RawMessage(`{}`)}},
+	)
 	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
 		ProjectID: testProjectID, AgentID: launch.Agent.ID, ToolCallID: toolCalls["create"], RuntimeLockID: lock.ID,
 	}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID})
@@ -498,9 +521,11 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 				MaxTotalMachines: 3,
 			},
 			defaultMachineFieldsForTest{
-				DefaultMachineCPU:             4,
-				DefaultMachineMemoryMB:        8192,
-				DefaultMachineEnv:             json.RawMessage(`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`),
+				DefaultMachineCPU:      4,
+				DefaultMachineMemoryMB: 8192,
+				DefaultMachineEnv: json.RawMessage(
+					`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`,
+				),
 				DefaultMachineProviderOptions: json.RawMessage(`{"image":"pool","pool_only":"pool"}`),
 			},
 		)),
@@ -577,17 +602,38 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 		t.Fatalf("machine pool sources = %+v, want one source", sources)
 	}
 
-	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
-		ProjectID:     testProjectID,
-		AgentID:       agent.ID,
-		ToolCallID:    toolCalls["create"],
-		RuntimeLockID: lock.ID,
-	}, executionstore.CreatePoolMachineInput{
-		MachinePoolID: machinePool.ID,
-	})
+	var statements []string
+	tracedConfig := pool.Config()
+	tracedConfig.ConnConfig.Tracer = &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		statements = append(statements, sql)
+	}}
+	traced, err := pgxpool.NewWithConfig(ctx, tracedConfig)
+	require.NoError(t, err)
+	defer traced.Close()
+	tracedStore := newIntegrationStore(traced, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	create := func() (executionstore.CreatePoolMachineResult, error) {
+		return createPoolMachineForTest(ctx, tracedStore, executionstore.ExecuteToolCallInput{
+			ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: toolCalls["create"], RuntimeLockID: lock.ID,
+		}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID})
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_live_machines_per_org) VALUES($1,0)`,
+		testOrgID)
+	require.NoError(t, err)
+	_, err = create()
+	require.EqualError(t, err, "live machines limit of 0 reached: resource conflict")
+	for _, table := range []string{"machines", "project_machine_grants", "agent_machine_bindings"} {
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
+	_, err = pool.Exec(ctx, "DELETE FROM org_resource_limit_overrides WHERE org_id=$1", testOrgID)
+	require.NoError(t, err)
+	statements = nil
+	created, err := create()
 	if err != nil {
 		t.Fatalf("create pool machine: %v", err)
 	}
+	assertMachineQuotaTail(t, statements)
 	if created.Machine.Binding.Cwd != "" {
 		t.Fatalf("created binding cwd = %q, want empty", created.Machine.Binding.Cwd)
 	}
@@ -613,7 +659,9 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	requireMachineEnvironmentForTest(
 		t,
 		machineEnvironmentFromRecordForTest(t, created.Machine.Machine),
-		executionstore.MachineEnvironment{Env: map[string]string{"POOL": "base", "GRANT": "one", "SHARED": "grant"}},
+		executionstore.MachineEnvironment{
+			Env: map[string]string{"POOL": "base", "GRANT": "one", "SHARED": "grant"},
+		},
 	)
 	cwd := "/mutated"
 	env := json.RawMessage(`{"MUTATED":"true"}`)
@@ -1333,7 +1381,10 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		)
 	}
 	if created.Machine.Binding.DeleteToolCallID != uuid.Nil {
-		t.Fatalf("created machine binding delete tool call = %s, want nil", created.Machine.Binding.DeleteToolCallID)
+		t.Fatalf(
+			"created machine binding delete tool call = %s, want nil",
+			created.Machine.Binding.DeleteToolCallID,
+		)
 	}
 	if created.Machine.Machine.IdempotencyKey != "" {
 		t.Fatalf("created machine idempotency key = %q, want empty", created.Machine.Machine.IdempotencyKey)
@@ -1517,7 +1568,10 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	if _, err := createPoolMachineForTest(
 		ctx, store, replacementTransaction, replacementInput,
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("replacement pool machine while delete_failed error = %v, want state transition conflict", err)
+		t.Fatalf(
+			"replacement pool machine while delete_failed error = %v, want state transition conflict",
+			err,
+		)
 	}
 }
 
@@ -1542,7 +1596,9 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 		store,
 		"Provisioning Delete Pool",
 		"test.provider",
-		defaultMachineFieldsForTest{DefaultMachineProviderOptions: json.RawMessage(`{"image":"provisioning-delete"}`)},
+		defaultMachineFieldsForTest{
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"provisioning-delete"}`),
+		},
 		3,
 		now,
 	)
@@ -2129,16 +2185,15 @@ func activateAgentConfigForPoolMachineTest(
 	idempotencyKey string,
 ) {
 	t.Helper()
-	tx, err := store.pool.Begin(ctx)
+	tx, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin activate pool machine config: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := executionstore.IntegrationActivateAgentConfigTx(
 		ctx,
-		notifications.NewTxNotifications(),
 		tx,
-		store.q.WithTx(tx),
+		dbsqlc.New(tx.DB()),
 		executionstore.ActivateAgentConfigInput{
 			ProjectID:      testProjectID,
 			AgentID:        agentID,
@@ -2150,7 +2205,7 @@ func activateAgentConfigForPoolMachineTest(
 	); err != nil {
 		t.Fatalf("activate pool machine config: %v", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(ctx, "config activation"); err != nil {
 		t.Fatalf("commit activate pool machine config: %v", err)
 	}
 }
@@ -2173,12 +2228,13 @@ func createPoolMachineToolCalls(
 			Actor:          mustOmnaraActorParams(t, userID),
 			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"seed machine tool calls"}]`),
 			IdempotencyKey: "pool-machine-tool-input-" + label,
+			DeliveryMode:   executionstore.DeliveryModeSteering,
 		},
 	)
 	if err != nil {
 		t.Fatalf("create tool-call seed input: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -2189,17 +2245,17 @@ func createPoolMachineToolCalls(
 	if !found {
 		t.Fatal("expected tool-call seed input admission")
 	}
-	claim, err := store.Execution().ClaimNormalModelCall(
+	prepared1, err := store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            agentID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      configID,
-			InputEventSequence: admitted.Events[0].Sequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
 		},
 	)
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim tool-call seed model context: %v", err)
 	}
@@ -2306,16 +2362,28 @@ func TestCreatePoolMachineSizing(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "sizing@example.com", "Sizing")
-	machinePool := createLaunchTestMachinePool(t, ctx, store, "Sizing Pool", "unikraft", defaultMachineFieldsForTest{
-		DefaultMachineCPU: 1, DefaultMachineMemoryMB: 1024,
-		DefaultMachineProviderOptions: json.RawMessage(`{"image":"test-image","metro":"sfo"}`),
-	}, 8, time.Now())
-	_, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
-		OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
-		DefaultMachineCPU: new(2), DefaultMachineMemoryMB: new(4096),
-		MinMachineCPU: new(2), MaxMachineCPU: new(4), MinMachineMemoryMB: new(2048), MaxMachineMemoryMB: new(8192),
-		MaxTotalCPU: new(12), MaxTotalMemoryMB: new(24576),
-	})
+	machinePool := createLaunchTestMachinePool(
+		t,
+		ctx,
+		store,
+		"Sizing Pool",
+		"unikraft",
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU: 1, DefaultMachineMemoryMB: 1024,
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test-image","metro":"sfo"}`),
+		},
+		8,
+		time.Now(),
+	)
+	_, err := store.Execution().
+		CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
+			DefaultMachineCPU: new(2), DefaultMachineMemoryMB: new(4096),
+			MinMachineCPU: new(
+				2,
+			), MaxMachineCPU: new(4), MinMachineMemoryMB: new(2048), MaxMachineMemoryMB: new(8192),
+			MaxTotalCPU: new(12), MaxTotalMemoryMB: new(24576),
+		})
 	require.NoError(t, err)
 	config := mustCreateAgentConfigFromYAML(
 		t, ctx, store,
@@ -2350,12 +2418,20 @@ func TestCreatePoolMachineSizing(t *testing.T) {
 		{name: "memory only", memory: new(8192), wantCPU: 3, wantMemory: 8192},
 		{name: "both", cpu: new(2), memory: new(6144), wantCPU: 2, wantMemory: 6144},
 		{name: "pool maximum", cpu: new(33), wantError: "machine pool per-machine cpu capacity exceeded"},
-		{name: "project cpu maximum", cpu: new(5), wantError: "project machine pool per-machine cpu capacity exceeded"},
+		{
+			name:      "project cpu maximum",
+			cpu:       new(5),
+			wantError: "project machine pool per-machine cpu capacity exceeded",
+		},
 		{
 			name: "project memory maximum", memory: new(16384),
 			wantError: "project machine pool per-machine memory capacity exceeded",
 		},
-		{name: "project cpu minimum", cpu: new(1), wantError: "project machine pool per-machine cpu minimum not met"},
+		{
+			name:      "project cpu minimum",
+			cpu:       new(1),
+			wantError: "project machine pool per-machine cpu minimum not met",
+		},
 		{
 			name: "project memory minimum", memory: new(1024),
 			wantError: "project machine pool per-machine memory minimum not met",
@@ -2364,7 +2440,10 @@ func TestCreatePoolMachineSizing(t *testing.T) {
 	}
 	specs := make([]poolMachineToolCallSpec, 0, len(tests))
 	for _, test := range tests {
-		specs = append(specs, poolMachineToolCallSpec{Label: test.name, Name: "create_machine", Input: json.RawMessage(`{}`)})
+		specs = append(
+			specs,
+			poolMachineToolCallSpec{Label: test.name, Name: "create_machine", Input: json.RawMessage(`{}`)},
+		)
 	}
 	calls := createPoolMachineToolCalls(t, ctx, store, agent.ID, user.ID, config.ID, lock, "sizing", specs)
 	for _, test := range tests {
@@ -2372,7 +2451,11 @@ func TestCreatePoolMachineSizing(t *testing.T) {
 			transaction := executionstore.ExecuteToolCallInput{
 				ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: calls[test.name], RuntimeLockID: lock.ID,
 			}
-			input := executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID, CPU: test.cpu, MemoryMB: test.memory}
+			input := executionstore.CreatePoolMachineInput{
+				MachinePoolID: machinePool.ID,
+				CPU:           test.cpu,
+				MemoryMB:      test.memory,
+			}
 			created, err := createPoolMachineForTest(ctx, store, transaction, input)
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
@@ -2414,12 +2497,19 @@ func TestCreatePoolMachineRejectsUnsupportedSizing(t *testing.T) {
 			user := mustCreateProjectDeveloperUser(t, ctx, store, "unsupported@example.com", "Sizing")
 			input := executionstore.CreateMachinePoolInput{
 				OrgID: testOrgID, Name: "Sizing Pool", Provider: provider, MaxTotalMachines: 4,
-				ProviderAuthSecretID:   createMachinePoolProviderAuthSecretForTest(t, ctx, store, "test-token"),
+				ProviderAuthSecretID: createMachinePoolProviderAuthSecretForTest(
+					t,
+					ctx,
+					store,
+					"test-token",
+				),
 				DefaultMachineMemoryMB: new(1024), MaxTotalMemoryMB: new(8192), MaxMachineMemoryMB: new(8192),
 			}
 			if provider == "blaxel" {
 				input.ProviderConfig = json.RawMessage(`{"workspace":"test"}`)
-				input.DefaultMachineProviderOptions = json.RawMessage(`{"image":"test-image","region":"us-pdx-1"}`)
+				input.DefaultMachineProviderOptions = json.RawMessage(
+					`{"image":"test-image","region":"us-pdx-1"}`,
+				)
 			} else {
 				input.DefaultMachineCPU = new(2)
 				input.MaxTotalCPU = new(8)
@@ -2432,7 +2522,12 @@ func TestCreatePoolMachineRejectsUnsupportedSizing(t *testing.T) {
 				OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
 			})
 			require.NoError(t, err)
-			config := mustCreateAgentConfigFromYAML(t, ctx, store, agentPoolMachineConfigYAML(machinePool.Name, 4))
+			config := mustCreateAgentConfigFromYAML(
+				t,
+				ctx,
+				store,
+				agentPoolMachineConfigYAML(machinePool.Name, 4),
+			)
 			agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 				ProjectID: testProjectID, CurrentConfigID: config.ID,
 			})

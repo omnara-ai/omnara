@@ -56,7 +56,6 @@ function serverEntry(url: string, secretId: string): AgentConfigDefinitionMcpSer
   return { url, auth: { type: 'oauth', secret_id: secretId } }
 }
 
-// The server validates the full definition.
 const zJsonRecord = z.record(z.string(), z.json())
 const zDefinitionText = zJsonText.pipe(
   z.custom<AgentConfigDefinition>((value) => zJsonRecord.safeParse(value).success),

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -47,8 +48,10 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 		responses: []model.Response{{
 			ID:                      "resp-transient-retry",
 			ProviderReportedCostUSD: "0.000003",
-			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done after retry"}},
-			StopReason:              model.StopReasonEndTurn,
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "done after retry"},
+			},
+			StopReason: model.StopReasonEndTurn,
 		}},
 		errorResponses: []model.Response{
 			{ID: "resp-transient-error-1", ProviderReportedCostUSD: "0.000001"},
@@ -88,8 +91,14 @@ func TestAgentExecutorRetriesTransientProviderResponse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("claim work for attempt %d: %v", attemptNumber, err)
 		}
-		if !found || claim.Kind != executionstore.AgentWorkModel || claim.Model.ModelCallContextID == uuid.Nil {
-			t.Fatalf("attempt %d claim = %+v found=%v, want a retry continuation", attemptNumber, claim, found)
+		if !found || claim.Kind != executionstore.AgentWorkModel ||
+			claim.Model.ModelCallContextID == uuid.Nil {
+			t.Fatalf(
+				"attempt %d claim = %+v found=%v, want a retry continuation",
+				attemptNumber,
+				claim,
+				found,
+			)
 		}
 		predecessor, found, err := fixture.Store.Execution().GetModelCallContext(
 			ctx,
@@ -369,21 +378,18 @@ func TestManagedModelRetryReplayReturnsExistingAttemptAfterAdmissionCloses(t *te
 		"create one retry attempt",
 		fixture.Now.Add(time.Millisecond),
 	)
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load managed retry replay agent: %v", err)
-	}
-	initial, err := fixture.Store.Execution().ClaimNormalModelCall(
+
+	prepared1, err := fixture.Store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			RuntimeLockID:      turn.RuntimeLockID,
-			OpeningInputIDs:    turn.InputIDs,
-			AgentConfigID:      agent.CurrentConfigID,
-			InputEventSequence: turn.OpeningEventSequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       kernelTestProjectID,
+			AgentID:         agentID,
+			RuntimeLockID:   turn.RuntimeLockID,
+			OpeningInputIDs: turn.InputIDs,
 		},
 	)
+	initial := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim initial managed replay attempt: %v", err)
 	}
@@ -443,8 +449,10 @@ func TestAgentExecutorRetriesWithoutProviderReplayAfterReplayRejection(t *testin
 			Message: "provider replay could not be decrypted",
 		}},
 		responses: []model.Response{{
-			ID:         "resp-after-replay-rejection",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued canonically"}},
+			ID: "resp-after-replay-rejection",
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "continued canonically"},
+			},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -702,7 +710,7 @@ func TestAgentExecutorPreservesRetryAfterEvidenceWhenAttemptsAreExhausted(t *tes
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	openingEventSequence := turn.OpeningEventSequence
 	retryAfterSeconds := int64(3_000_000_000)
-	maxAttempts := executionstore.MaxModelCallRetriesPerOperation + 1
+	maxAttempts := executionpolicy.MaxModelCallRetriesPerOperation + 1
 	errs := make([]error, maxAttempts)
 	for i := range errs {
 		errs[i] = model.ProviderError{
@@ -804,7 +812,14 @@ func TestAgentExecutorSteeringStartsFreshFrontierWithFreshRetryBudget(t *testing
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	agentID, userID := fixture.createAgent(t, ctx, "openai/steering-retry-model", now)
-	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "original request", now.Add(time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"original request",
+		now.Add(time.Millisecond),
+	)
 	retryAfterSeconds := int64(3600)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "steering-retry-model",
@@ -858,10 +873,12 @@ WHERE context.project_id = $1
 	steering, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
-			ProjectID:      kernelTestProjectID,
-			AgentID:        agentID,
-			Actor:          kernelTestOmnaraActorParams(t, userID),
-			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "steer to the new request"}}),
+			ProjectID: kernelTestProjectID,
+			AgentID:   agentID,
+			Actor:     kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks: mustKernelJSON(
+				[]map[string]string{{"type": "text", "text": "steer to the new request"}},
+			),
 			DeliveryMode:   executionstore.DeliveryModeSteering,
 			IdempotencyKey: "steering-supersedes-retry",
 		},
@@ -968,8 +985,10 @@ func TestAgentExecutorConfigChangeRebuildsRetryingContextAtNewFrontier(t *testin
 			},
 		}},
 		responses: []model.Response{{
-			ID:         "resp_after_config_change",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued with the new configuration"}},
+			ID: "resp_after_config_change",
+			Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeText, Text: "continued with the new configuration"},
+			},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -1008,10 +1027,12 @@ WHERE context.project_id = $1
 	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
-			ProjectID:      kernelTestProjectID,
-			AgentID:        agentID,
-			Actor:          kernelTestOmnaraActorParams(t, userID),
-			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "wait for the active turn"}}),
+			ProjectID: kernelTestProjectID,
+			AgentID:   agentID,
+			Actor:     kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks: mustKernelJSON(
+				[]map[string]string{{"type": "text", "text": "wait for the active turn"}},
+			),
 			DeliveryMode:   executionstore.DeliveryModeQueued,
 			IdempotencyKey: "queued-behind-config-change-retry",
 		},
@@ -1074,7 +1095,11 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if !found || freshWork.Kind != executionstore.AgentWorkModel || freshWork.Model.ModelCallContextID != uuid.Nil ||
 		freshWork.Model.TurnID != turn.TurnID || len(freshWork.Model.InputIDs) != 1 ||
 		freshWork.Model.InputIDs[0] != turn.InputIDs[0] {
-		t.Fatalf("config-change work = %+v found=%v, want a fresh context for the active turn", freshWork, found)
+		t.Fatalf(
+			"config-change work = %+v found=%v, want a fresh context for the active turn",
+			freshWork,
+			found,
+		)
 	}
 
 	oldRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(
@@ -1098,7 +1123,10 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("execute config-change continuation: %v", err)
 	}
 	if modelClient.preparedCount() != 2 {
-		t.Fatalf("prepared requests = %d, want failed old context and successful fresh context", modelClient.preparedCount())
+		t.Fatalf(
+			"prepared requests = %d, want failed old context and successful fresh context",
+			modelClient.preparedCount(),
+		)
 	}
 
 	var oldState, newState executionstore.ModelCallState
@@ -1156,15 +1184,11 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 		)
 	}
 
-	var oldContinuableContexts int
-	if err := fixture.Pool.QueryRow(ctx, `
-SELECT count(*)
-FROM agent_continuable_model_contexts($1, $2)
-WHERE model_call_context_id = $3
-`, kernelTestProjectID, agentID, oldContextID).Scan(&oldContinuableContexts); err != nil {
+	snapshot, err := fixture.Store.Execution().IntegrationLoadExecution(ctx, kernelTestProjectID, agentID)
+	if err != nil {
 		t.Fatalf("check stale context continuation eligibility: %v", err)
 	}
-	if oldContinuableContexts != 0 {
+	if snapshot.Head.NormalContextID == oldContextID && snapshot.Selection.TurnContinuable {
 		t.Fatalf("stale context remains continuable after a later frontier succeeded")
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -1229,13 +1253,17 @@ func TestAgentExecutorQueuedInputWaitsForRetryingTurn(t *testing.T) {
 		}},
 		responses: []model.Response{
 			{
-				ID:         "resp_after_retry",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "finished the original request"}},
+				ID: "resp_after_retry",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "finished the original request"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_after_queued_input",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "handled the queued request"}},
+				ID: "resp_after_queued_input",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "handled the queued request"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -1366,7 +1394,10 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("execute queued input: %v", err)
 	}
 	if modelClient.preparedCount() != 3 {
-		t.Fatalf("prepared requests = %d, want initial attempt, retry, and queued turn", modelClient.preparedCount())
+		t.Fatalf(
+			"prepared requests = %d, want initial attempt, retry, and queued turn",
+			modelClient.preparedCount(),
+		)
 	}
 	var oldState, queuedContextState executionstore.ModelCallState
 	var oldContextCount, succeededRetryContexts int

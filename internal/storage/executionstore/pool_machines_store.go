@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -280,7 +281,7 @@ func (t *toolCallTransaction) createPoolMachine(
 		PoolGrant:        poolGrant,
 		ResolvedMachine:  resolvedMachine,
 		CreateToolCallID: toolCallID,
-	})
+	}, t.unit.TrackCreation)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
@@ -394,7 +395,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err != nil {
 		return PoolMachineRecord{}, fmt.Errorf("mark pool machine deleting: %w", err)
 	}
-	record.Binding = agentMachineBindingRecordFromSQLC(dbsqlc.GetAgentMachineBindingByMachineRow(binding))
+	record.Binding = agentMachineBindingRecordFromSQLC(binding)
 	record.Machine = machineRecordFromMarkPoolMachineDeletingSQLC(machineRow)
 	return record, nil
 }
@@ -740,6 +741,7 @@ func createPoolMachineBindingTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input poolMachineBindingInput,
+	track func(resourceguard.Creation),
 ) (AgentMachineBindingRecord, error) {
 	poolGrant := input.PoolGrant
 	if poolGrant.ID == uuid.Nil {
@@ -759,7 +761,7 @@ func createPoolMachineBindingTx(
 	if err != nil {
 		return AgentMachineBindingRecord{}, fmt.Errorf("prepare resolved binding environment: %w", err)
 	}
-	machineRow, err := insertMachineWithResourceLimitTx(ctx, qtx, dbsqlc.InsertMachineParams{
+	machineRow, err := qtx.InsertMachine(ctx, dbsqlc.InsertMachineParams{
 		OrgID:                  input.OrgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
@@ -782,6 +784,7 @@ func createPoolMachineBindingTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("insert pool machine: %w", err)
 	}
+	track(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: input.OrgID})
 	grantRow, err := qtx.UpsertProjectMachineGrant(ctx, dbsqlc.UpsertProjectMachineGrantParams{
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -243,7 +244,7 @@ func (s *Store) MarkProviderRuntimeMismatch(
 		return false, fmt.Errorf("begin provider runtime mismatch mark: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	qtx := dbsqlc.New(tx)
 
 	if err := lifecyclelock.Machines(
 		ctx,
@@ -348,64 +349,74 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 	if !providerRuntimeWakeAllowsDeletion(candidate) {
 		return PoolMachineDeletionClaim{}, false, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
-			"begin provider runtime mismatch deletion claim: %w",
-			err,
-		)
+	type transactionResult struct {
+		claim   PoolMachineDeletionClaim
+		claimed bool
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	txNotifications := s.newTxNotifications()
-	locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	if !locked {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	row, err := qtx.ClaimProviderRuntimeMismatchDeletion(
-		ctx,
-		dbsqlc.ClaimProviderRuntimeMismatchDeletionParams{
-			ClaimTimeoutSeconds:           int64(poolMachineDeletionLeaseDuration / time.Second),
-			OrgID:                         candidate.OrgID,
-			MachineID:                     candidate.MachineID,
-			MachinePoolID:                 candidate.MachinePoolID,
-			LifecycleVersion:              candidate.LifecycleVersion,
-			Provider:                      candidate.Provider,
-			ProviderResourceID:            storeutil.TextFromEmpty(candidate.ProviderResourceID),
-			MismatchSince:                 *candidate.ProviderRuntimeMismatchSince,
-			ConfirmationGraceMilliseconds: input.ConfirmationGrace.Milliseconds(),
-			WakeAttemptExpiresAt:          candidate.WakeAttemptExpiresAt,
-			DaemonRuntimeID:               candidate.CurrentDaemonRuntimeID,
-			InactiveSince:                 candidate.InactiveSince,
-			InactivityGraceMilliseconds:   input.InactivityGrace.Milliseconds(),
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
-			"claim provider runtime mismatch deletion: %w",
-			err,
-		)
-	}
-	claim := providerRuntimeMismatchDeletionClaimFromSQLC(row)
-	claim, err = s.finalizePoolMachineDeletionClaimTx(
-		ctx,
-		tx,
-		qtx,
-		txNotifications,
-		claim,
-		"claim provider runtime mismatch deletion",
-		ProcessToolReasonMachineUnreachable,
-	)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	return claim, true, nil
+	retried, retryErr := agentexecution.Retry(ctx,
+		"claim_provider_runtime_mismatch_deletion",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			txNotifications := unit.Notifications()
+			qtx := dbsqlc.New(tx)
+			locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if !locked {
+				return transactionResult{}, nil
+			}
+			row, err := qtx.ClaimProviderRuntimeMismatchDeletion(
+				ctx,
+				dbsqlc.ClaimProviderRuntimeMismatchDeletionParams{
+					ClaimTimeoutSeconds:           int64(poolMachineDeletionLeaseDuration / time.Second),
+					OrgID:                         candidate.OrgID,
+					MachineID:                     candidate.MachineID,
+					MachinePoolID:                 candidate.MachinePoolID,
+					LifecycleVersion:              candidate.LifecycleVersion,
+					Provider:                      candidate.Provider,
+					ProviderResourceID:            storeutil.TextFromEmpty(candidate.ProviderResourceID),
+					MismatchSince:                 *candidate.ProviderRuntimeMismatchSince,
+					ConfirmationGraceMilliseconds: input.ConfirmationGrace.Milliseconds(),
+					WakeAttemptExpiresAt:          candidate.WakeAttemptExpiresAt,
+					DaemonRuntimeID:               candidate.CurrentDaemonRuntimeID,
+					InactiveSince:                 candidate.InactiveSince,
+					InactivityGraceMilliseconds:   input.InactivityGrace.Milliseconds(),
+				},
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			}
+			if err != nil {
+				return transactionResult{}, fmt.Errorf(
+					"claim provider runtime mismatch deletion: %w",
+					err,
+				)
+			}
+			claim := providerRuntimeMismatchDeletionClaimFromSQLC(row)
+			claim, err = s.finalizePoolMachineDeletionClaimTx(
+				ctx,
+				unit,
+				qtx,
+				txNotifications,
+				claim,
+
+				ProcessToolReasonMachineUnreachable,
+			)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if err := unit.Commit(ctx, "claim provider runtime mismatch deletion"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{claim, true}, nil
+		})
+	return retried.claim, retried.claimed, retryErr
 }
 
 func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
@@ -420,61 +431,70 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 	if !providerRuntimeWakeAllowsDeletion(candidate) {
 		return PoolMachineDeletionClaim{}, false, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
-			"begin provider runtime terminated deletion claim: %w",
-			err,
-		)
+	type transactionResult struct {
+		claim   PoolMachineDeletionClaim
+		claimed bool
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	if !locked {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	row, err := qtx.ClaimProviderRuntimeTerminatedDeletion(
-		ctx,
-		dbsqlc.ClaimProviderRuntimeTerminatedDeletionParams{
-			ClaimTimeoutSeconds:  int64(poolMachineDeletionLeaseDuration / time.Second),
-			OrgID:                candidate.OrgID,
-			MachineID:            candidate.MachineID,
-			MachinePoolID:        candidate.MachinePoolID,
-			LifecycleVersion:     candidate.LifecycleVersion,
-			Provider:             candidate.Provider,
-			ProviderResourceID:   storeutil.TextFromEmpty(candidate.ProviderResourceID),
-			MismatchSince:        candidate.ProviderRuntimeMismatchSince,
-			WakeAttemptExpiresAt: candidate.WakeAttemptExpiresAt,
-			DaemonRuntimeID:      candidate.CurrentDaemonRuntimeID,
-			InactiveSince:        candidate.InactiveSince,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineDeletionClaim{}, false, nil
-	}
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
-			"claim provider runtime terminated deletion: %w",
-			err,
-		)
-	}
-	claim := providerRuntimeTerminatedDeletionClaimFromSQLC(row)
-	claim, err = s.finalizePoolMachineDeletionClaimTx(
-		ctx,
-		tx,
-		qtx,
-		s.newTxNotifications(),
-		claim,
-		"claim provider runtime terminated deletion",
-		ProcessToolReasonMachineUnreachable,
-	)
-	if err != nil {
-		return PoolMachineDeletionClaim{}, false, err
-	}
-	return claim, true, nil
+	retried, retryErr := agentexecution.Retry(ctx,
+		"claim_provider_runtime_terminated_deletion",
+		func(ctx context.Context) (transactionResult, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			qtx := dbsqlc.New(tx)
+			locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if !locked {
+				return transactionResult{}, nil
+			}
+			row, err := qtx.ClaimProviderRuntimeTerminatedDeletion(
+				ctx,
+				dbsqlc.ClaimProviderRuntimeTerminatedDeletionParams{
+					ClaimTimeoutSeconds:  int64(poolMachineDeletionLeaseDuration / time.Second),
+					OrgID:                candidate.OrgID,
+					MachineID:            candidate.MachineID,
+					MachinePoolID:        candidate.MachinePoolID,
+					LifecycleVersion:     candidate.LifecycleVersion,
+					Provider:             candidate.Provider,
+					ProviderResourceID:   storeutil.TextFromEmpty(candidate.ProviderResourceID),
+					MismatchSince:        candidate.ProviderRuntimeMismatchSince,
+					WakeAttemptExpiresAt: candidate.WakeAttemptExpiresAt,
+					DaemonRuntimeID:      candidate.CurrentDaemonRuntimeID,
+					InactiveSince:        candidate.InactiveSince,
+				},
+			)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return transactionResult{}, nil
+			}
+			if err != nil {
+				return transactionResult{}, fmt.Errorf(
+					"claim provider runtime terminated deletion: %w",
+					err,
+				)
+			}
+			claim := providerRuntimeTerminatedDeletionClaimFromSQLC(row)
+			claim, err = s.finalizePoolMachineDeletionClaimTx(
+				ctx,
+				unit,
+				qtx,
+				unit.Notifications(),
+				claim,
+				ProcessToolReasonMachineUnreachable,
+			)
+			if err != nil {
+				return transactionResult{}, err
+			}
+			if err := unit.Commit(ctx, "claim provider runtime terminated deletion"); err != nil {
+				return transactionResult{}, err
+			}
+			return transactionResult{claim, true}, nil
+		})
+	return retried.claim, retried.claimed, retryErr
 }
 
 func providerRuntimeDeletionCandidateValid(candidate ProviderRuntimeCandidate) bool {
@@ -489,7 +509,7 @@ func providerRuntimeWakeAllowsDeletion(candidate ProviderRuntimeCandidate) bool 
 
 func lockProviderRuntimeDeletionCandidate(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	candidate ProviderRuntimeCandidate,
 ) (bool, error) {

@@ -86,10 +86,17 @@ func TestListMachinesDispatchRejectsInvalidCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Disposition != DispatchCompleted ||
-		!strings.Contains(string(result.ContentParts), `"error_code":"malformed"`) {
+	if result.Disposition != DispatchCompleted {
 		t.Fatalf("invalid cursor result = %+v, want completed malformed-input result", result)
 	}
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "structured_data", parts[0].Type)
+	require.Equal(t, "malformed", parts[0].Value["error_code"])
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
 	)
@@ -171,7 +178,14 @@ func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {
 	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
 	require.NoError(t, err)
 	require.Equal(t, DispatchCompleted, result.Disposition)
-	require.Contains(t, string(result.ContentParts), `"error_code":"spawn_agent_failed"`)
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "structured_data", parts[0].Type)
+	require.Equal(t, "spawn_agent_failed", parts[0].Value["error_code"])
 	require.Contains(t, string(result.ContentParts), "does not support tools")
 	record, err := fixture.Store.Execution().GetToolCall(
 		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
@@ -1289,8 +1303,8 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			var bindingID uuid.UUID
 			err := fixture.Pool.QueryRow(ctx, `
 				INSERT INTO agent_machine_bindings(
-					org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)
+					org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)
 				RETURNING id`,
 				toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
 			).Scan(&bindingID)
@@ -1336,8 +1350,11 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			wakes := 0
 			executor := Executor{
 				Store: fixture.Store,
-
-				BackgroundRunner: backgroundRunnerFunc(func(string, func(context.Context) error) bool { wakes++; return true }),
+				BackgroundRunner: backgroundRunnerFunc(func(string,
+					func(context.Context) error) bool {
+					wakes++
+					return true
+				}),
 			}
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 				t.Fatal(err)
@@ -1454,8 +1471,8 @@ func TestFileToolsUnavailableMemoryStoreFailsDispatch(t *testing.T) {
 				machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, tool.name, fixture.Now)
 				_, err := fixture.Pool.Exec(ctx, `
 					INSERT INTO agent_machine_bindings(
-						org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
-					VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)`,
+						org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)`,
 					toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
 				)
 				require.NoError(t, err)
@@ -1516,4 +1533,93 @@ func TestRemovedArtifactToolsFailDispatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "full-child", toolFixtureOptions{withSubagents: true})
+	child, err := f.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: toolsTestProjectID, AgentConfigID: f.AgentConfig.ID, LaunchedBy: toolsTestUserPrincipal(f.User.ID),
+		Subagent: &executionstore.SubagentLaunch{ParentAgentID: f.Agent.ID, Key: "fork", MaxDepth: 4},
+	})
+	require.NoError(t, err)
+	for range 50 {
+		_, _, _, err = f.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: toolsTestProjectID, AgentID: child.Agent.ID,
+			ContentBlocks: []byte(`[{"type":"text","text":"pending"}]`),
+		})
+		require.NoError(t, err)
+	}
+	childID, err := publicid.Encode(publicid.KindAgent, child.Agent.ID)
+	require.NoError(t, err)
+	call := f.recordToolCall(t, ctx, "send_full", "send_agent_message",
+		`{"agent_id":"`+childID+`","message":"new"}`, f.Now.Add(20*time.Second))
+	turn := f.turn()
+	turn.Tools["send_agent_message"] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, call)
+	require.NoError(t, err)
+	require.Equal(t, DispatchCompleted, result.Disposition)
+	require.Contains(t, string(result.ContentParts), storeerr.AgentBacklogFullCode)
+	var content []struct {
+		Value struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		} `json:"value"`
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &content))
+	require.Len(t, content, 1)
+	require.Equal(t, storeerr.ErrAgentBacklogFull.Error(), content[0].Value.Error)
+	require.Equal(t, storeerr.ErrAgentBacklogFull.Error(), content[0].Value.Message)
+	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	var pending int
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,
+		child.Agent.ID).Scan(&pending))
+	require.Equal(t, 50, pending)
+	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID))
+	var next executionstore.ClaimedAgentWork
+	for range 2 {
+		var found bool
+		next, found, err = f.Store.Execution().ClaimNextAgentWork(ctx, executionstore.ClaimNextAgentWorkInput{
+			WorkerProcessID: uuid.New(), LeaseDuration: 90 * time.Second,
+		})
+		require.NoError(t, err)
+		require.True(t, found)
+		if next.AgentID == f.Agent.ID {
+			break
+		}
+	}
+	require.Equal(t, f.Agent.ID, next.AgentID)
+	require.Equal(t, executionstore.AgentWorkModel, next.Kind)
+}
+
+func TestSpawnAgentQuotaErrorMessage(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "spawn-quota", toolFixtureOptions{withSubagents: true})
+	_, err := fixture.Pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+ VALUES($1,1)`, toolsTestOrgID)
+	require.NoError(t, err)
+	call := fixture.recordToolCall(t, ctx, "call_spawn_quota", "spawn_agent",
+		`{"agent":"fork","task":"Investigate the build."}`, fixture.Now.Add(20*time.Second))
+	turn := fixture.turn()
+	turn.Tools["spawn_agent"] = ToolSpec{Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)}
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
+	require.NoError(t, err)
+	require.Equal(t, DispatchCompleted, result.Disposition)
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "spawn_agent_failed", parts[0].Value["error_code"])
+	require.Equal(t, "active agents limit of 1 reached: resource conflict", parts[0].Value["message"])
+	children, err := fixture.Store.Execution().ListSubagents(ctx, toolsTestProjectID, fixture.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, children)
 }

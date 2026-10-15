@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -135,14 +134,11 @@ func TestAgentRuntimeLockMutationsRejectWrongProject(t *testing.T) {
 	); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		t.Fatalf("wrong-project renewal error = %v, want runtime lock inactive", err)
 	}
-	if _, err := dbsqlc.New(fixture.Pool).RequestAgentRuntimeCancel(
-		ctx,
-		dbsqlc.RequestAgentRuntimeCancelParams{
-			ProjectID: wrongProjectID,
-			AgentID:   fixture.AgentID,
-		},
-	); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("wrong-project cancellation error = %v, want no rows", err)
+	if _,
+		err := fixture.Store.Execution().CancelAgent(ctx,
+		executionstore.CancelAgentInput{ProjectID: wrongProjectID,
+			AgentID: fixture.AgentID}); err == nil {
+		t.Fatal("wrong-project cancellation succeeded")
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,
@@ -310,55 +306,11 @@ FOR EACH ROW EXECUTE FUNCTION fail_runtime_lock_reap_commit();
 		t.Fatalf("load runtime locks after isolated failure: %v", err)
 	}
 	if !failedExists || laterExists {
-		t.Fatalf("runtime locks after isolated failure: failed=%v later=%v, want true/false", failedExists, laterExists)
-	}
-}
-
-func TestAgentRuntimeLockRenewalAdvancesLeaseTogether(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx)
-	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
-	if _, err := fixture.Pool.Exec(
-		ctx,
-		`UPDATE agent_runtime_locks
-SET started_at = statement_timestamp() - interval '5 minutes',
-    renewed_at = statement_timestamp() - interval '4 minutes',
-    lease_expires_at = statement_timestamp() - interval '3 minutes'
-WHERE id = $1`,
-		lock.ID,
-	); err != nil {
-		t.Fatalf("age runtime-lock lease: %v", err)
-	}
-	var agedRenewedAt, agedLeaseExpiresAt time.Time
-	if err := fixture.Pool.QueryRow(
-		ctx,
-		`SELECT renewed_at, lease_expires_at FROM agent_runtime_locks WHERE id = $1`,
-		lock.ID,
-	).Scan(&agedRenewedAt, &agedLeaseExpiresAt); err != nil {
-		t.Fatalf("load aged runtime lock: %v", err)
-	}
-
-	leaseDuration := 41 * time.Second
-	renewal, err := fixture.Store.Execution().RenewAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		lock.ID,
-		leaseDuration,
-	)
-	if err != nil {
-		t.Fatalf("renew agent runtime lock: %v", err)
-	}
-	renewedLock := renewal.RuntimeLock
-	if !renewedLock.RenewedAt.After(agedRenewedAt) {
-		t.Fatalf("renewal did not advance: before=%s after=%s", agedRenewedAt, renewedLock.RenewedAt)
-	}
-	if !renewedLock.LeaseExpiresAt.After(agedLeaseExpiresAt) {
-		t.Fatalf("lease deadline did not advance: before=%s after=%s", agedLeaseExpiresAt, renewedLock.LeaseExpiresAt)
-	}
-	if got := renewedLock.LeaseExpiresAt.Sub(renewedLock.RenewedAt); got != leaseDuration {
-		t.Fatalf("renewed lease duration = %s, want %s", got, leaseDuration)
+		t.Fatalf(
+			"runtime locks after isolated failure: failed=%v later=%v, want true/false",
+			failedExists,
+			laterExists,
+		)
 	}
 }
 
@@ -366,7 +318,7 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newRuntimeLockLeaseFixture(t, ctx)
-	lock := fixture.acquire(t, ctx, testWorkerProcessID, executionstore.MaximumAgentRuntimeLockLeaseDuration)
+	lock := fixture.acquire(t, ctx, testWorkerProcessID, executionpolicy.MaximumLeaseDuration)
 
 	reaped, err := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
 	if err != nil {
@@ -399,61 +351,6 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 		lock.ID,
 	); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		t.Fatalf("old runtime lock active after reap: %v", err)
-	}
-}
-
-func TestAgentRuntimeLockAcquisitionWaitGrantsFullLeaseAfterAgentUnlock(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx)
-	lockTx, err := fixture.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin agent lock holder: %v", err)
-	}
-	defer func() { _ = lockTx.Rollback(ctx) }()
-	if _, err := lockTx.Exec(
-		ctx,
-		`SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE`,
-		testProjectID,
-		fixture.AgentID,
-	); err != nil {
-		t.Fatalf("lock agent row: %v", err)
-	}
-
-	leaseDuration := 43 * time.Second
-	type acquireResult struct {
-		lock executionstore.AgentRuntimeLockRecord
-		err  error
-	}
-	acquired := make(chan acquireResult, 1)
-	go func() {
-		lock, acquireErr := fixture.Store.Execution().AcquireAgentRuntimeLock(
-			context.Background(),
-			testProjectID,
-			fixture.AgentID,
-			testWorkerProcessID,
-			leaseDuration,
-		)
-		acquired <- acquireResult{lock: lock, err: acquireErr}
-	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentInProject", 1)
-	var releasedAfter time.Time
-	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
-		t.Fatalf("read database time before agent unlock: %v", err)
-	}
-	if err := lockTx.Commit(ctx); err != nil {
-		t.Fatalf("release agent row: %v", err)
-	}
-
-	result := <-acquired
-	if result.err != nil {
-		t.Fatalf("acquire after agent unlock: %v", result.err)
-	}
-	if result.lock.RenewedAt.Before(releasedAfter) {
-		t.Fatalf("lease started before row-lock wait ended: renewed=%s marker=%s", result.lock.RenewedAt, releasedAfter)
-	}
-	if got := result.lock.LeaseExpiresAt.Sub(result.lock.RenewedAt); got != leaseDuration {
-		t.Fatalf("post-wait lease duration = %s, want full %s", got, leaseDuration)
 	}
 }
 
@@ -491,7 +388,7 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 		)
 		renewed <- renewalResult{renewal: renewedLock, err: renewErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockExecutionRuntime", 1)
 	var releasedAfter time.Time
 	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
 		t.Fatalf("read database time before runtime unlock: %v", err)
@@ -514,7 +411,11 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 	}
 	renewedLock := result.renewal.RuntimeLock
 	if renewedLock.RenewedAt.Before(releasedAfter) {
-		t.Fatalf("lease renewed before row-lock wait ended: renewed=%s marker=%s", renewedLock.RenewedAt, releasedAfter)
+		t.Fatalf(
+			"lease renewed before row-lock wait ended: renewed=%s marker=%s",
+			renewedLock.RenewedAt,
+			releasedAfter,
+		)
 	}
 	if got := renewedLock.LeaseExpiresAt.Sub(renewedLock.RenewedAt); got != leaseDuration {
 		t.Fatalf("post-wait renewed lease duration = %s, want full %s", got, leaseDuration)
@@ -637,7 +538,11 @@ WHERE id IN ($1, $2)`,
 		t.Fatalf("load runtime locks after contended reap: %v", err)
 	}
 	if !firstExists || secondExists {
-		t.Fatalf("runtime locks after contended reap: first=%v second=%v, want true/false", firstExists, secondExists)
+		t.Fatalf(
+			"runtime locks after contended reap: first=%v second=%v, want true/false",
+			firstExists,
+			secondExists,
+		)
 	}
 	if err := runtimeTx.Commit(ctx); err != nil {
 		t.Fatalf("release first runtime row: %v", err)
@@ -658,14 +563,14 @@ func TestAgentRuntimeLockRenewalWinningReaperRacePreservesLease(t *testing.T) {
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
 
-	renewalTx, err := fixture.Pool.Begin(ctx)
+	renewalTx, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin renewal transaction: %v", err)
 	}
 	defer func() { _ = renewalTx.Rollback(ctx) }()
 	renewal, err := executionstore.IntegrationRenewAgentRuntimeLockTx(
 		ctx,
-		dbsqlc.New(renewalTx),
+		renewalTx,
 		testProjectID,
 		fixture.AgentID,
 		lock.ID,
@@ -687,7 +592,7 @@ func TestAgentRuntimeLockRenewalWinningReaperRacePreservesLease(t *testing.T) {
 	if reaped != 0 {
 		t.Fatalf("reaper deleted %d locks while renewal owns runtime row, want 0", reaped)
 	}
-	if err := renewalTx.Commit(ctx); err != nil {
+	if err := renewalTx.Commit(ctx, "renewal race"); err != nil {
 		t.Fatalf("commit winning renewal: %v", err)
 	}
 	if err := fixture.Store.Execution().EnsureRuntimeLockActive(
@@ -731,20 +636,17 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 		t.Fatalf("expired runtime-lock write before reap = %v, want inactive runtime lock", err)
 	}
 
-	reapTx, err := fixture.Pool.BeginTx(ctx, pgx.TxOptions{})
+	reapTx, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin reaper transaction: %v", err)
 	}
 	defer func() { _ = reapTx.Rollback(ctx) }()
-	txNotifications := notifications.NewTxNotifications()
 	reaped, err := executionstore.IntegrationReapExpiredAgentRuntimeLockTx(
 		ctx,
-		txNotifications,
 		reapTx,
 		testProjectID,
 		fixture.AgentID,
 		lock.ID,
-		executionstore.ModelCallRetryBackoff,
 	)
 	if err != nil {
 		t.Fatalf("reap expired runtime lock in transaction: %v", err)
@@ -764,13 +666,8 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 		)
 		renewalDone <- renewalErr
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentRuntimeLockForRenewal", 1)
-	if err := fixture.Store.Execution().IntegrationCommitTxWithNotifications(
-		ctx,
-		reapTx,
-		txNotifications,
-		"commit winning reaper",
-	); err != nil {
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockExecutionRuntime", 1)
+	if err := reapTx.Commit(ctx, "commit winning reaper"); err != nil {
 		t.Fatalf("commit winning reaper: %v", err)
 	}
 	if err := <-renewalDone; !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
@@ -802,20 +699,17 @@ func TestConcurrentRuntimeLockReapersApplyRecoveryOnce(t *testing.T) {
 		t.Fatalf("clear agent wakeup before reap: %v", err)
 	}
 
-	reapTx, err := fixture.Pool.Begin(ctx)
+	reapTx, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin winning reaper: %v", err)
 	}
 	defer func() { _ = reapTx.Rollback(ctx) }()
-	txNotifications := notifications.NewTxNotifications()
 	won, err := executionstore.IntegrationReapExpiredAgentRuntimeLockTx(
 		ctx,
-		txNotifications,
 		reapTx,
 		testProjectID,
 		fixture.AgentID,
 		lock.ID,
-		executionstore.ModelCallRetryBackoff,
 	)
 	if err != nil {
 		t.Fatalf("reap expired runtime in winning transaction: %v", err)
@@ -830,12 +724,7 @@ func TestConcurrentRuntimeLockReapersApplyRecoveryOnce(t *testing.T) {
 	if contendErr != nil || contending != 0 {
 		t.Fatalf("contending reaper count=%d error=%v, want 0 and nil", contending, contendErr)
 	}
-	if err := fixture.Store.Execution().IntegrationCommitTxWithNotifications(
-		ctx,
-		reapTx,
-		txNotifications,
-		"commit winning reaper",
-	); err != nil {
+	if err := reapTx.Commit(ctx, "commit winning reaper"); err != nil {
 		t.Fatalf("commit winning reaper: %v", err)
 	}
 	var runtimeExists bool

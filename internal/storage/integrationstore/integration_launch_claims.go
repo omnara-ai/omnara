@@ -280,7 +280,7 @@ func inboxLaunchIdentities(
 	return identities, nil
 }
 
-func lockInboxLaunchConversations(ctx context.Context, tx pgx.Tx, projectID, integrationID uuid.UUID,
+func lockInboxLaunchConversations(ctx context.Context, tx dbsqlc.DBTX, projectID, integrationID uuid.UUID,
 	identities map[integrationLaunchIdentity]map[string]bool) error {
 	addresses := map[ConversationAddress]bool{}
 	for identity := range identities {

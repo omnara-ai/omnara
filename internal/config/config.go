@@ -67,6 +67,7 @@ type Config struct {
 	WorkerEventWebhookConcurrency     int
 	EventWebhookPerOrgConcurrency     int
 	WorkerCapacity                    int
+	WorkerClaimConcurrency            int
 	WorkerInboxCapacity               int
 	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
@@ -218,6 +219,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerClaimConcurrency, err := getenvInt("OMNARA_WORKER_CLAIM_CONCURRENCY", 16)
+	if err != nil {
+		return Config{}, err
+	}
 	workerInboxCapacity, err := getenvInt("OMNARA_WORKER_INBOX_CAPACITY", 4)
 	if err != nil {
 		return Config{}, err
@@ -267,6 +272,7 @@ func Load() (Config, error) {
 		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
 		EventWebhookPerOrgConcurrency:     eventWebhookPerOrgConcurrency,
 		WorkerCapacity:                    workerCapacity,
+		WorkerClaimConcurrency:            workerClaimConcurrency,
 		WorkerInboxCapacity:               workerInboxCapacity,
 		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
@@ -624,6 +630,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")
+	}
+	if cfg.WorkerClaimConcurrency <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_CLAIM_CONCURRENCY must be positive")
 	}
 	if cfg.WorkerInboxCapacity < 1 || cfg.WorkerInboxCapacity > 100 {
 		return fmt.Errorf("OMNARA_WORKER_INBOX_CAPACITY must be between 1 and 100")

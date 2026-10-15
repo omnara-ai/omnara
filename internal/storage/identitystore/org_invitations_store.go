@@ -118,7 +118,7 @@ func (s *Store) CreateOrgInvitation(
 		return OrgInvitationRecord{}, fmt.Errorf("count pending organization invitations: %w", err)
 	}
 	if invitationCount > limits.MaxPendingOrgInvitationsPerOrg {
-		return OrgInvitationRecord{}, resourceLimitExceeded(
+		return OrgInvitationRecord{}, resourceguard.LimitExceeded(
 			"pending organization invitations",
 			limits.MaxPendingOrgInvitationsPerOrg,
 		)

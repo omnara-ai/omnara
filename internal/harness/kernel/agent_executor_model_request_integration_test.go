@@ -1095,6 +1095,7 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.input_event_sequence = $3
+ AND context.operation_kind='normal'
 `, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(
 		&state,
 		&recoveryKind,
@@ -1256,6 +1257,7 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.input_event_sequence = $3
+  AND context.operation_kind = 'normal'
 `, kernelTestProjectID, agentID, secondTurn.OpeningEventSequence).Scan(
 		&state,
 		&recoveryKind,

@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -43,7 +44,7 @@ var (
 func toolsTestClaimInput() executionstore.ClaimNextAgentWorkInput {
 	return executionstore.ClaimNextAgentWorkInput{
 		WorkerProcessID: toolsTestWorkerID,
-		LeaseDuration:   executionstore.AgentRuntimeLockLeaseDuration,
+		LeaseDuration:   executionpolicy.DefaultLeaseDuration,
 	}
 }
 

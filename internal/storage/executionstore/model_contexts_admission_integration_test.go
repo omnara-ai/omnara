@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -72,9 +73,9 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 					},
 				}
 			}
-			complete := func() error {
+			complete := func() (uuid.UUID, []uuid.UUID, error) {
 				if tc.toolResponse {
-					_, _, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
+					event, calls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
 						ctx,
 						executionstore.RecordToolCallSourceAndCompleteContextInput{
 							ProjectID:          testProjectID,
@@ -90,40 +91,59 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 							},
 						},
 					)
-					return err
+					ids := make([]uuid.UUID, len(calls))
+					for i, call := range calls {
+						ids[i] = call.ID
+					}
+					return event.ID, ids, err
 				}
-				_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+				event, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
 					ctx,
 					executionstore.RecordModelOutputAndCompleteContextInput{
 						ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 						ModelCallContextID: claim.Context.ID, ProviderResponse: envelope,
 					},
 				)
-				return err
+				return event.ID, nil, err
 			}
 			if !tc.toolResponse {
 				envelope.InputFingerprint = "invalid"
-				assertPgConstraint(t, complete(), "23514", "model_call_contexts_input_fingerprint")
+				_, _, err := complete()
+				assertPgConstraint(t, err, "23514", "model_call_contexts_input_fingerprint")
 				envelope.InputFingerprint = strings.Repeat("a", 64)
 			}
-			require.NoError(t, complete())
-			require.NoError(t, complete())
-			record, found, err := fixture.Store.Execution().GetModelCallContext(
-				ctx,
-				testProjectID,
-				fixture.AgentID,
-				claim.Context.ID,
-			)
+			eventID, toolIDs, err := complete()
 			require.NoError(t, err)
-			require.True(t, found)
+			loadRecord := func() executionstore.ModelCallContextRecord {
+				record, found, err := fixture.Store.Execution().GetModelCallContext(
+					ctx,
+					testProjectID,
+					fixture.AgentID,
+					claim.Context.ID,
+				)
+				require.NoError(t, err)
+				require.True(t, found)
+				return record
+			}
+			record := loadRecord()
 			require.Equal(t, envelope.Normalized.Usage, record.Usage)
 			if tc.usage.InputTokens > 0 {
 				require.Equal(t, envelope.InputFingerprint, record.InputFingerprint)
-				envelope.InputFingerprint = strings.Repeat("b", 64)
-				require.ErrorIs(t, complete(), storeerr.ErrIdempotencyConflict)
 			} else {
 				require.Empty(t, record.InputFingerprint)
 			}
+			replayed := envelope
+			replayed.InputFingerprint = strings.Repeat("b", 64)
+			replayed.Normalized.Usage.InputTokens += 7
+			replayed.Normalized.Usage.UncachedInputTokens += 7
+			original := envelope
+			envelope = replayed
+			replayEventID, replayToolIDs, err := complete()
+			envelope = original
+			require.NoError(t, err)
+			require.Equal(t, eventID, replayEventID)
+			require.Equal(t, toolIDs, replayToolIDs)
+			require.Equal(t, record, loadRecord())
 			watermark, err := fixture.Store.Execution().MaxEventSequence(ctx, testProjectID, fixture.AgentID)
 			require.NoError(t, err)
 			events, err := fixture.Store.Execution().ListContextEvents(ctx, testProjectID, fixture.AgentID, 0, watermark, 100)
@@ -229,7 +249,7 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	ctx := t.Context()
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "excerpt_retry_budget")
 	claim := admissionHandoff(t, ctx, fixture, parent, parent.Context.InputEventSequence).CompactionCall
-	for range executionstore.MaxModelCallRetriesPerOperation {
+	for range executionpolicy.MaxModelCallRetriesPerOperation {
 		_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
 			ctx,
 			executionstore.RecordRecoverableModelCallFailureInput{
@@ -271,6 +291,16 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	require.True(t, replacement.CompactionCall.Claimed)
 	require.Equal(t, 1, replacement.CompactionCall.Context.SourceExcerptReductionCount)
 	require.Equal(t, claim.Context.AttemptNumber+1, replacement.CompactionCall.Context.AttemptNumber)
+	replay, err := fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+		ModelCallContextID: claim.Context.ID, ErrorKind: modelprotocol.ErrorKindContextWindow,
+		ErrorMessage: "source too large", APIFormat: modelprotocol.APIFormatOpenAIResponses,
+		APIVariant: modelprotocol.APIVariantDefault, NextSourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd,
+	})
+	require.NoError(t, err)
+	require.False(t, replay.CompactionCall.Created)
+	require.Equal(t, replacement.CompactionCall.Context.ID, replay.CompactionCall.Context.ID)
+
 	stale, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 		PredecessorModelCallContextID: claim.Context.ID,
@@ -279,11 +309,10 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	require.False(t, stale.Created)
 	require.False(t, stale.Claimed)
 	require.Equal(t, replacement.CompactionCall.Context.ID, stale.Context.ID)
-	var continuableID uuid.UUID
-	require.NoError(t, fixture.Store.pool.QueryRow(ctx,
-		`SELECT model_call_context_id FROM agent_continuable_model_contexts($1,$2)`,
-		testProjectID, fixture.AgentID).Scan(&continuableID))
-	require.Equal(t, replacement.CompactionCall.Context.ID, continuableID)
+	snapshot, err := fixture.Store.Execution().IntegrationLoadExecution(ctx, testProjectID, fixture.AgentID)
+	require.NoError(t, err)
+	require.True(t, snapshot.Selection.TurnContinuable)
+	require.Equal(t, replacement.CompactionCall.Context.ID, snapshot.Head.CompactionContextID)
 	retryCount, err := fixture.Store.Execution().CountModelCallRetries(
 		ctx,
 		testProjectID,
@@ -291,7 +320,7 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 		replacement.CompactionCall.Context.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.MaxModelCallRetriesPerOperation, retryCount)
+	require.Equal(t, executionpolicy.MaxModelCallRetriesPerOperation, retryCount)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
 		ctx,
 		executionstore.RecordRecoverableModelCallFailureInput{
@@ -321,8 +350,8 @@ func TestLegacyScheduledCompactionRetryCanRunAfterSharedBudgetIsExhausted(t *tes
 	ctx := t.Context()
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "legacy_compaction_retry")
 	claim := admissionHandoff(t, ctx, fixture, parent, parent.Context.InputEventSequence).CompactionCall
-	for retry := 0; retry <= executionstore.MaxModelCallRetriesPerOperation; retry++ {
-		if retry == executionstore.MaxModelCallRetriesPerOperation {
+	for retry := 0; retry <= executionpolicy.MaxModelCallRetriesPerOperation; retry++ {
+		if retry == executionpolicy.MaxModelCallRetriesPerOperation {
 			replacement, err := fixture.Store.Execution().ReplaceCompactionSource(ctx,
 				executionstore.ReplaceCompactionSourceInput{
 					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -333,6 +362,15 @@ func TestLegacyScheduledCompactionRetryCanRunAfterSharedBudgetIsExhausted(t *tes
 			require.NoError(t, err)
 			require.True(t, replacement.CompactionCall.Claimed)
 			require.Equal(t, 1, replacement.CompactionCall.Context.AttemptNumber)
+			stale, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx,
+				executionstore.ClaimNextModelCallContextInput{
+					ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+					PredecessorModelCallContextID: claim.Context.ID,
+				})
+			require.NoError(t, err)
+			require.False(t, stale.Created)
+			require.False(t, stale.Claimed)
+			require.Equal(t, replacement.CompactionCall.Context.ID, stale.Context.ID)
 			claim = replacement.CompactionCall
 		}
 		_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
@@ -340,6 +378,7 @@ SET state='failed', recovery_kind='retry', retry_at=statement_timestamp(),
     error_kind='provider_unavailable', error_message='legacy retry scheduled per source range',
     completed_at=statement_timestamp() WHERE id=$1`, claim.Context.ID)
 		require.NoError(t, err)
+		require.NoError(t, fixture.Store.Execution().RepairExecutionForTest(ctx, testProjectID, fixture.AgentID))
 		claim, err = fixture.Store.Execution().ClaimNextModelCallContext(ctx,
 			executionstore.ClaimNextModelCallContextInput{
 				ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -352,7 +391,7 @@ SET state='failed', recovery_kind='retry', retry_at=statement_timestamp(),
 		ctx, testProjectID, fixture.AgentID, claim.Context.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.MaxModelCallRetriesPerOperation+1, retryCount)
+	require.Equal(t, executionpolicy.MaxModelCallRetriesPerOperation+1, retryCount)
 	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
 	))

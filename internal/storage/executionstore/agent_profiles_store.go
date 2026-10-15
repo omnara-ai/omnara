@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -87,7 +88,7 @@ func (s *Store) CreateAgentProfile(
 		return AgentProfileRecord{}, fmt.Errorf("count active agent profiles: %w", err)
 	}
 	if profileCount > limits.MaxActiveAgentProfilesPerProject {
-		return AgentProfileRecord{}, resourceLimitExceeded(
+		return AgentProfileRecord{}, resourceguard.LimitExceeded(
 			"active agent profiles",
 			limits.MaxActiveAgentProfilesPerProject,
 		)
@@ -669,6 +670,24 @@ func lockAgentProfileTx(
 	_, err := qtx.LockAgentProfile(
 		ctx,
 		dbsqlc.LockAgentProfileParams{ProjectID: projectID, ProfileID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentProfileRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("lock agent profile: %w", err)
+	}
+	return loadAgentProfileTx(ctx, qtx, projectID, id)
+}
+
+func lockAgentProfileForLaunchTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, id uuid.UUID,
+) (AgentProfileRecord, error) {
+	_, err := qtx.LockAgentProfileForLaunch(
+		ctx,
+		dbsqlc.LockAgentProfileForLaunchParams{ProjectID: projectID, ProfileID: id},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AgentProfileRecord{}, storeerr.ErrNotFound

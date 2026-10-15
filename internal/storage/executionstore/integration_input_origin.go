@@ -7,12 +7,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -60,7 +58,7 @@ func prepareOriginContentInput(
 
 func (s *Store) resolveInputOriginTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input CreateAgentContentInputInput,
 ) (CreateAgentContentInputInput, integrationstore.IntegrationRecord, error) {
 	integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, input.Origin.IntegrationID)
@@ -90,22 +88,12 @@ func validateIntegrationInputActor(integration integrationstore.IntegrationRecor
 
 func (s *Store) admitOriginContentTx(
 	ctx context.Context,
-	tx pgx.Tx,
-	notifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	input CreateAgentContentInputInput,
 	blocks []CreateContentBlockInput,
 	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
-	if err := lifecyclelock.Agents(
-		ctx,
-		tx,
-		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
-	); err != nil {
-		return InboxInputResult{}, err
-	}
-	if result, found, err := s.originContentReplayTx(ctx, tx, input); err != nil || found {
-		return result, err
-	}
+	tx := unit.DB()
 	input, integration, err := s.resolveInputOriginTx(ctx, tx, input)
 	if err != nil {
 		return InboxInputResult{}, err
@@ -121,11 +109,8 @@ func (s *Store) admitOriginContentTx(
 		return InboxInputResult{}, err
 	}
 	input.IntegrationTargetID = target.ID
-	files, err := artifactstore.InsertPreparedArtifactsTx(ctx, tx, input.ProjectID, input.AgentID, artifacts)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
-	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), input, blocks)
+	input.PreparedArtifacts = artifacts
+	created, err := createAgentContentInputTx(ctx, unit, dbsqlc.New(tx), input, blocks)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
@@ -133,41 +118,8 @@ func (s *Store) admitOriginContentTx(
 		AgentInput:             created.agentInput,
 		ContentBlocks:          created.contentBlocks,
 		IntegrationTarget:      target,
-		Artifacts:              files,
+		Artifacts:              created.artifacts,
 		Created:                created.created,
 		CanceledInteractionIDs: created.canceledInteractionIDs,
 	}, nil
-}
-
-func (s *Store) originContentReplayTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	input CreateAgentContentInputInput,
-) (InboxInputResult, bool, error) {
-	q := dbsqlc.New(tx)
-	existing, found, err := loadAgentInputByIdempotencyMaybeTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.IdempotencyScope,
-		input.IdempotencyKey,
-	)
-	if err != nil || !found {
-		return InboxInputResult{}, false, err
-	}
-	target, err := s.integrations.GetIntegrationTargetTx(ctx, tx, input.ProjectID, existing.IntegrationTargetID)
-	if err != nil {
-		return InboxInputResult{}, false, err
-	}
-	if target.AgentID != input.AgentID || target.IntegrationID != input.Origin.IntegrationID ||
-		target.ScopeKind != input.Origin.Address.Kind || target.ScopeRef != input.Origin.Address.Ref {
-		return InboxInputResult{}, false, storeerr.ErrIdempotencyConflict
-	}
-	content, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []uuid.UUID{existing.ID})
-	return InboxInputResult{
-		AgentInput:        existing,
-		ContentBlocks:     content[existing.ID],
-		IntegrationTarget: target,
-	}, err == nil, err
 }

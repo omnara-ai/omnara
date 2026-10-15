@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 				require.Equal(t, executionstore.ModelWorkContinue, work.Kind)
 				productiveCutoffs = 1
 			}
-			attempts := executionstore.MaxModelCallRetriesPerOperation + 1
+			attempts := executionpolicy.MaxModelCallRetriesPerOperation + 1
 			for attempt := range attempts {
 				response := model.Response{StopReason: model.StopReasonMaxTokens}
 				if attempt%2 == 0 {
@@ -70,7 +71,7 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
 				WHERE agent_id=$1 AND recovery_kind='retry' AND error_code='model_output_no_progress'`,
 				agentID).Scan(&retries))
-			require.Equal(t, executionstore.MaxModelCallRetriesPerOperation, retries)
+			require.Equal(t, executionpolicy.MaxModelCallRetriesPerOperation, retries)
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE stop_reason='max_tokens'),
 				count(*) FILTER(WHERE stop_reason='error') FROM model_outputs WHERE agent_id=$1`,
 				agentID).Scan(&successfulCutoffs, &terminalOutputs))

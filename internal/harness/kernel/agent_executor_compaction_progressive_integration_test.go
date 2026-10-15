@@ -88,8 +88,10 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_after_progressive_compaction",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after progressive compaction"}},
+				ID: "resp_after_progressive_compaction",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "continued after progressive compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -264,7 +266,11 @@ func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsBeforeNormalWork(t *
 		t.Fatalf("load progressive exhaustion watermark: %v", err)
 	}
 	if watermark != turn.OpeningEventSequence || watermark != 10 {
-		t.Fatalf("progressive exhaustion watermark/opening = %d/%d, want 10", watermark, turn.OpeningEventSequence)
+		t.Fatalf(
+			"progressive exhaustion watermark/opening = %d/%d, want 10",
+			watermark,
+			turn.OpeningEventSequence,
+		)
 	}
 
 	client := &sequenceKernelModel{

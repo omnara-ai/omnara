@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -312,4 +313,11 @@ func TestWithIssuesWritesFieldLevelIssues(t *testing.T) {
 	if plain := Body(openapi.ErrorCodeInvalidRequest, "x"); plain.Issues != nil {
 		t.Fatalf("issue-less body should omit issues, got %+v", plain.Issues)
 	}
+}
+
+func TestAgentBacklogFullError(t *testing.T) {
+	got := FromError(fmt.Errorf("receive content: %w", storeerr.ErrAgentBacklogFull))
+	require.Equal(t, http.StatusConflict, got.Status)
+	require.Equal(t, openapi.ErrorCodeAgentBacklogFull, got.Code)
+	require.Equal(t, storeerr.AgentBacklogFullMessage, got.Message)
 }

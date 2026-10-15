@@ -160,7 +160,8 @@ func validateListAgentsInput(raw json.RawMessage) error {
 }
 
 func subagentStorageErrorIsToolFailure(cause error) bool {
-	return errors.Is(cause, storeerr.ErrInvalidRequest) ||
+	return errors.Is(cause, storeerr.ErrAgentBacklogFull) ||
+		errors.Is(cause, storeerr.ErrInvalidRequest) ||
 		errors.Is(cause, storeerr.ErrInvalidModelProviderConfig) ||
 		errors.Is(cause, storeerr.ErrNotFound) ||
 		errors.Is(cause, storeerr.ErrConflict) ||
@@ -171,7 +172,12 @@ func failSubagentTransactionForStorageError(code string, cause error) (transacti
 	if !subagentStorageErrorIsToolFailure(cause) {
 		return nil, cause
 	}
-	content, err := toolFailureContent(code, cause.Error(), false)
+	message := cause.Error()
+	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
+		code = storeerr.AgentBacklogFullCode
+		message = storeerr.ErrAgentBacklogFull.Error()
+	}
+	content, err := toolFailureContent(code, message, false)
 	if err != nil {
 		return nil, err
 	}

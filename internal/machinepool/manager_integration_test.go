@@ -2302,8 +2302,10 @@ VALUES ($1, $2, $3, $4,
 `, configID, orgID, projectID, configuredModelID, now)
 
 	exec("insert cleanup agent", `
-INSERT INTO agents(id, org_id, project_id, state, name, current_config_id, created_at, updated_at)
-VALUES ($1, $2, $3, 'active', 'Manager Cleanup Agent', $4, $5, $5)
+WITH inserted AS (INSERT INTO agents(id, root_agent_id, org_id, project_id, state, name,
+current_config_id, created_at, updated_at)
+VALUES ($1, $1, $2, $3, 'active', 'Manager Cleanup Agent', $4, $5, $5) RETURNING id)
+INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FROM inserted
 `, agentID, orgID, projectID, configID, now)
 
 	exec("insert cleanup pool grant", `

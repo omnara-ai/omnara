@@ -65,6 +65,16 @@ JOIN secret_versions v
  AND v.id = s.current_version_id
 WHERE s.org_id = sqlc.arg(org_id) AND s.id = sqlc.arg(id) AND s.deleted_at IS NULL;
 
+-- name: GetCurrentSecretPayload :one
+SELECT v.id, v.org_id, v.secret_id, v.version_number, v.payload_keys, v.encryption_scheme,
+       v.key_id, v.dek_wrapped_by, v.encrypted_dek, v.encrypted_dek_nonce, v.nonce, v.ciphertext, v.created_at,
+       (v.oauth_access_token_expires_at IS NOT NULL)::boolean AS oauth_access_token_expires,
+       coalesce(greatest(extract(epoch FROM v.oauth_access_token_expires_at - statement_timestamp()), 0), 0)::double precision AS oauth_access_token_remaining_seconds,
+       s.owner_kind, s.management_kind, s.kind
+FROM secrets s
+JOIN secret_versions v ON v.org_id = s.org_id AND v.secret_id = s.id AND v.id = s.current_version_id
+WHERE s.org_id = sqlc.arg(org_id) AND s.id = sqlc.arg(id) AND s.deleted_at IS NULL;
+
 -- name: GetSecretByOwnerName :one
 SELECT s.id, s.org_id, s.management_kind, s.owner_kind, s.owner_project_id, s.owner_user_id, s.name, s.kind, s.metadata, s.current_version_id, v.version_number AS current_version_number, v.payload_keys, s.created_at, s.updated_at
 FROM secrets s

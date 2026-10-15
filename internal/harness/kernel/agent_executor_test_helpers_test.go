@@ -18,8 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stretchr/testify/require"
-
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
@@ -40,6 +38,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -649,6 +648,7 @@ func nextToolWorkExecution(
 		executionstore.AgentWorkTool,
 	)
 	return ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,
@@ -813,7 +813,9 @@ func continueTurnOnNewLeaseForKernelTest(
 			prior.AgentID,
 		).Scan(&checkpoints)
 		_ = fixture.Pool.QueryRow(
-			ctx, `SELECT count(*) FROM agent_unconsumed_context_checkpoint_frontiers($1, $2)`, prior.ProjectID,
+			ctx,
+			`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.pending_checkpoint_id IS NOT NULL`,
+			prior.ProjectID,
 			prior.AgentID,
 		).Scan(&checkpointFrontiers)
 		_ = fixture.Pool.QueryRow(

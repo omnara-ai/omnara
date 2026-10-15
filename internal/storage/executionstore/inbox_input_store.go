@@ -6,13 +6,11 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -48,9 +46,11 @@ func (s *Store) AdmitInboxInputRecipient(
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || recipientKey == "" {
 		return InboxInputResult{}, storeerr.InvalidRequest(errors.New("inbox lease and recipient are required"))
 	}
-	return storeutil.RetryTransaction(ctx, "admit_inbox_input_recipient", func() (InboxInputResult, error) {
-		return s.admitInboxInputRecipientOnce(ctx, lease, recipientKey, artifacts)
-	})
+	return agentexecution.Retry(ctx,
+		"admit_inbox_input_recipient",
+		func(ctx context.Context) (InboxInputResult, error) {
+			return s.admitInboxInputRecipientOnce(ctx, lease, recipientKey, artifacts)
+		})
 }
 
 func (s *Store) admitInboxInputRecipientOnce(
@@ -71,22 +71,15 @@ func (s *Store) admitInboxInputRecipientOnce(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if outcome, err := resolveInboxInputOutcome(
-		ctx, s.q, recipient,
-	); err != nil || outcome.Outcome != InboxRecipientPending {
-		if err != nil {
-			return InboxInputResult{}, err
-		}
-		return replayInboxInput(ctx, s.q, recipient, outcome)
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease)
 	if err != nil {
-		_ = tx.Rollback(ctx)
+		_ = unit.Rollback(ctx)
 		if outcome, readErr := resolveInboxInputOutcome(
 			ctx, s.q, recipient,
 		); readErr == nil && outcome.Outcome != InboxRecipientPending {
@@ -108,9 +101,7 @@ func (s *Store) admitInboxInputRecipientOnce(
 	); err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
-		ProjectID: lease.ProjectID, AgentID: recipient.AgentID,
-	}}); err != nil {
+	if _, err := lockExecution(ctx, unit, lease.ProjectID, recipient.AgentID, false, uuid.Nil); err != nil {
 		return InboxInputResult{}, err
 	}
 	outcome, err := resolveInboxInputOutcome(ctx, q, recipient)
@@ -147,11 +138,10 @@ func (s *Store) admitInboxInputRecipientOnce(
 			return InboxInputResult{}, err
 		}
 	}
-	notifications := s.newTxNotifications()
+
 	result, err := s.admitOriginContentTx(
 		ctx,
-		tx,
-		notifications,
+		unit,
 		recipient.Input,
 		blocks,
 		artifacts,
@@ -162,7 +152,7 @@ func (s *Store) admitInboxInputRecipientOnce(
 	if err := work.CheckLease(ctx); err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, notifications, "admit inbox input recipient"); err != nil {
+	if err := unit.Commit(ctx, "admit inbox input recipient"); err != nil {
 		return InboxInputResult{}, err
 	}
 	return result, nil

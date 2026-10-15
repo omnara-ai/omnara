@@ -11,15 +11,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-
-	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type CreateDaemonMachineInput struct {
@@ -240,8 +241,14 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return MachineRecord{}, err
 	}
-	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata)
+	var creations []resourceguard.Creation
+	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata, func(c resourceguard.Creation) {
+		creations = append(creations, c)
+	})
 	if err == nil {
+		if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
+			return MachineRecord{}, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return MachineRecord{}, fmt.Errorf("commit create machine: %w", err)
 		}
@@ -311,14 +318,14 @@ func createDaemonMachineTx(
 	input CreateDaemonMachineInput,
 	environment MachineEnvironment,
 	metadata json.RawMessage,
+	track func(resourceguard.Creation),
 ) (MachineRecord, error) {
 	env, secretEnv, err := machineEnvironmentToColumns(environment)
 	if err != nil {
 		return MachineRecord{}, err
 	}
-	row, err := insertMachineWithResourceLimitTx(
+	row, err := qtx.InsertMachine(
 		ctx,
-		qtx,
 		dbsqlc.InsertMachineParams{
 			OrgID:                  input.OrgID,
 			MachinePoolID:          nil,
@@ -341,6 +348,7 @@ func createDaemonMachineTx(
 		}
 		return MachineRecord{}, fmt.Errorf("insert machine: %w", err)
 	}
+	track(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: input.OrgID})
 	if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, uuid.Nil, environment); err != nil {
 		return MachineRecord{}, err
 	}
@@ -544,38 +552,41 @@ func (s *Store) DeleteMachine(
 	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	return storeutil.RetryTransaction(ctx, "delete_machine", func() (MachineRecord, error) {
-		return s.deleteMachineOnce(ctx, input)
-	})
+	return agentexecution.Retry(ctx,
+		"delete_machine",
+		func(ctx context.Context) (MachineRecord, error) {
+			return s.deleteMachineOnce(ctx, input)
+		})
 }
 
 func (s *Store) deleteMachineOnce(
 	ctx context.Context,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return MachineRecord{}, fmt.Errorf("begin delete machine: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	machine, err := s.DeleteMachineTx(ctx, tx, txNotifications, input)
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return MachineRecord{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "delete machine"); err != nil {
+	defer func() { _ = unit.Rollback(ctx) }()
+
+	machine, err := s.DeleteMachineInUnit(ctx, unit, input)
+	if err != nil {
+		return MachineRecord{}, err
+	}
+	if err := unit.Commit(ctx, "delete machine"); err != nil {
 		return MachineRecord{}, err
 	}
 	return machine, nil
 }
 
-func (s *Store) DeleteMachineTx(
+func (s *Store) DeleteMachineInUnit(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	input DeleteMachineInput,
 ) (MachineRecord, error) {
-	qtx := s.q.WithTx(tx)
+	txNotifications := unit.Notifications()
+	tx := unit.DB()
+	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForLifecycle(
 		ctx,
 		dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
@@ -614,8 +625,7 @@ func (s *Store) DeleteMachineTx(
 	}
 	if err := completeMachineLifecycleTerminalWorkTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		input.OrgID,
 		input.MachineID,
@@ -999,24 +1009,25 @@ func (s *Store) DeleteProjectMachineGrant(
 	ctx context.Context,
 	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
-	return storeutil.RetryTransaction(ctx, "delete_project_machine_grant", func() (ProjectMachineGrantRecord, error) {
-		return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, id)
-	})
+	return agentexecution.Retry(ctx,
+		"delete_project_machine_grant",
+		func(ctx context.Context) (ProjectMachineGrantRecord,
+			error) {
+			return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, id)
+		})
 }
 
 func (s *Store) deleteProjectMachineGrantOnce(
 	ctx context.Context,
 	orgID, projectID, id uuid.UUID,
 ) (ProjectMachineGrantRecord, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ProjectMachineGrantRecord{}, fmt.Errorf(
-			"begin delete project machine grant: %w",
-			err,
-		)
+		return ProjectMachineGrantRecord{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
 		return ProjectMachineGrantRecord{}, err
@@ -1045,7 +1056,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 	if err := completeExecutionRevokedProcessesTx(
 		ctx,
 		txNotifications,
-		tx,
+		unit,
 		qtx,
 		executionRevokedProcessScope{
 			projectID:             projectID,
@@ -1067,7 +1078,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 		return ProjectMachineGrantRecord{}, fmt.Errorf("delete project machine grant: %w", err)
 	}
 	record := projectMachineGrantFromDelete(row)
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "delete project machine grant"); err != nil {
+	if err := unit.Commit(ctx, "delete project machine grant"); err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}
 	return record, nil

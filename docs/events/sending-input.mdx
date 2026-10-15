@@ -29,13 +29,15 @@ export AGENT="agt_v4qtrwz3jehcyd5n6a2bfgik7m"
 
 ## Send a message
 
+An agent accepts up to 50 pending messages across queued and steering inputs; further submissions return `409` with code `agent_backlog_full` until messages are processed or canceled, while child lifecycle reports are always delivered.
+
 <Tabs>
 <Tab title="API">
   The examples assume the client, `orgID`, and `projectID` setup from the [quickstart](/quickstart), with the `$AGENT` ID above available as `agentID` for the SDK. The CLI has no command for sending input — use the REST API or the SDK.
 
   <SendingInputSend />
 
-  `state: received` means Omnara accepted the input. When the agent processes it, the state becomes `resolved` and a matching event appears on the timeline. An input can instead become `canceled` or `rejected` if it is withdrawn or cannot be delivered.
+  `state: received` means Omnara accepted the input. When the agent processes it, the state becomes `resolved` and a matching event appears on the timeline. An input can instead become `canceled` if it is withdrawn before the agent processes it.
 
   If your system retries requests, send an `Idempotency-Key` to avoid delivering the same message twice.
 

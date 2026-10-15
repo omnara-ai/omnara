@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,7 +20,7 @@ import (
 func (s *Store) reconcileAgentMachineSourcesTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	projectID, agentID uuid.UUID,
 	currentContract, nextContract agentconfig.RuntimeContract,
@@ -68,7 +69,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 				if err := completeExecutionRevokedProcessesTx(
 					ctx,
 					txNotifications,
-					tx,
+					unit,
 					qtx,
 					executionRevokedProcessScope{
 						projectID:             projectID,

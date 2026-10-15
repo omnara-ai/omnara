@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 
 	"github.com/google/uuid"
@@ -14,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -36,85 +36,21 @@ func (s *Store) GetInteractionSelection(
 	return interactionSelectionFromRow(row), err
 }
 
-func resolveInteractionSelectionForOriginTx(
+func (s *Store) ReconcileInteractionSelectionInUnit(
 	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID, configID, originTargetID uuid.UUID,
-) (InteractionSelection, error) {
-	q := dbsqlc.New(tx)
-	selection := InteractionSelection{AutoSelect: true}
-	if originTargetID == uuid.Nil {
-		return selection, nil
-	}
-	contract, err := interactionContractForConfig(ctx, q, projectID, configID)
-	if err != nil {
-		return InteractionSelection{}, err
-	}
-	handlers, err := prepareInteractionHandlers(ctx, q, projectID, contract.InteractionHandlers)
-	if err != nil {
-		return InteractionSelection{}, err
-	}
-	if len(handlers) == 0 {
-		return selection, nil
-	}
-	target, err := q.GetInteractionDestinationTarget(
-		ctx,
-		dbsqlc.GetInteractionDestinationTargetParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			TargetID:  originTargetID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return selection, nil
-	}
-	if err != nil {
-		return InteractionSelection{}, err
-	}
-	matches := 0
-	for key, handler := range handlers {
-		if target.IntegrationState != string(integrationstore.IntegrationStateActive) ||
-			handler.prepared.IntegrationID != target.IntegrationID {
-			continue
-		}
-		destination, err := resolveInteractionHandlerDestination(ctx, tx, projectID, agentID, key, handler)
-		if err != nil {
-			return InteractionSelection{}, err
-		}
-		if destination == nil || destination.IntegrationTargetID != originTargetID {
-			continue
-		}
-
-		matches++
-		selection = InteractionSelection{
-			AutoSelect:          true,
-			IntegrationTargetID: originTargetID,
-			HandlerKey:          key,
-		}
-	}
-	if matches != 1 {
-		selection = InteractionSelection{AutoSelect: true}
-	}
-	return selection, nil
-}
-
-func (s *Store) ReconcileInteractionSelectionTx(
-	ctx context.Context,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	projectID, agentID uuid.UUID,
 ) (InteractionSelection, error) {
-	selection, destination, err := loadSelectedInteractionDestinationTx(ctx, tx, projectID, agentID)
+	h, err := lockExecution(ctx, unit, projectID, agentID, false, uuid.Nil)
+	if err != nil {
+		return InteractionSelection{}, err
+	}
+	selection, destination, err := loadSelectedInteractionDestinationTx(ctx, unit.DB(), projectID, agentID)
 	if err != nil || selection.HandlerKey == "" || destination != nil {
 		return selection, err
 	}
-	cleared := InteractionSelection{AutoSelect: selection.AutoSelect}
-	return cleared, writeInteractionSelection(
-		ctx,
-		dbsqlc.New(tx),
-		projectID,
-		agentID,
-		cleared,
-	)
+	_, err = h.SetInteractionTarget(ctx, uuid.Nil, "", selection.AutoSelect)
+	return InteractionSelection{AutoSelect: selection.AutoSelect}, err
 }
 
 func (r *ToolCallReader) ListInteractionHandlers(
@@ -128,7 +64,7 @@ func (r *ToolCallReader) ListInteractionHandlers(
 
 func listInteractionHandlers(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 	cursor string,
 	limit int,
@@ -308,13 +244,14 @@ func SetInteractionHandlerForToolCall(
 		if input.AutoSelect != nil {
 			selected.AutoSelect = *input.AutoSelect
 		}
-		if err := writeInteractionSelection(
-			ctx,
-			t.q,
-			t.input.ProjectID,
-			t.input.AgentID,
-			selected,
-		); err != nil {
+		h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = h.SetInteractionTarget(ctx,
+			selected.IntegrationTargetID,
+			selected.HandlerKey,
+			selected.AutoSelect); err != nil {
 			return nil, err
 		}
 		result, err := completion(selected)
@@ -425,7 +362,9 @@ func prepareInteractionHandlers(
 		if integration.DeletedAt != nil || integration.State != string(integrationstore.IntegrationStateActive) {
 			continue
 		}
-		definition, ok := integrationdefinition.Lookup(integrationdefinition.Kind(integration.IntegrationKind))
+		definition, ok := integrationdefinition.Lookup(
+			integrationdefinition.Kind(integration.IntegrationKind),
+		)
 		if !ok || definition.InteractionHandler == nil {
 			continue
 		}
@@ -449,31 +388,9 @@ func prepareInteractionHandlers(
 	return result, nil
 }
 
-func writeInteractionSelection(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
-	selection InteractionSelection,
-) error {
-	changed, err := q.SetInteractionSelection(ctx, dbsqlc.SetInteractionSelectionParams{
-		AutoSelect: selection.AutoSelect,
-		ProjectID:  projectID,
-		AgentID:    agentID,
-		TargetID:   storeutil.IDFromNil(selection.IntegrationTargetID),
-		HandlerKey: storeutil.TextFromEmpty(selection.HandlerKey),
-	})
-	if err != nil {
-		return err
-	}
-	if changed != 1 {
-		return storeerr.ErrStateTransitionConflict
-	}
-	return nil
-}
-
 func resolveInteractionHandlerDestination(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 	key string,
 	handler resolvedInteractionHandler,
@@ -504,7 +421,7 @@ func resolveInteractionHandlerDestination(
 }
 
 func selectedInteractionDestination(
-	ctx context.Context, tx pgx.Tx, projectID, agentID uuid.UUID,
+	ctx context.Context, tx dbsqlc.DBTX, projectID, agentID uuid.UUID,
 	selection InteractionSelection, contract agentconfig.RuntimeContract,
 ) (*InteractionDestination, error) {
 	capability, ok := contract.InteractionHandlers[selection.HandlerKey]
@@ -520,7 +437,14 @@ func selectedInteractionDestination(
 	if !ok {
 		return nil, nil //nolint:nilnil // Handler unavailable.
 	}
-	destination, err := resolveInteractionHandlerDestination(ctx, tx, projectID, agentID, selection.HandlerKey, handler)
+	destination, err := resolveInteractionHandlerDestination(
+		ctx,
+		tx,
+		projectID,
+		agentID,
+		selection.HandlerKey,
+		handler,
+	)
 	if err != nil || destination == nil {
 		return nil, err
 	}
@@ -532,7 +456,7 @@ func selectedInteractionDestination(
 
 func loadSelectedInteractionDestinationTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 ) (InteractionSelection, *InteractionDestination, error) {
 	q := dbsqlc.New(tx)
@@ -565,7 +489,7 @@ func loadSelectedInteractionDestinationTx(
 // presentation and callbacks recheck live authority afterward.
 func captureInteractionDestinationTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 ) (json.RawMessage, error) {
 	_, destination, err := loadSelectedInteractionDestinationTx(ctx, tx, projectID, agentID)
@@ -589,9 +513,12 @@ type ResolveAgentInteractionFromHandlerInput struct {
 
 func (s *Store) GetInteractionCallbackIntegrationID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	// Cross-project routing hint only; callers must verify the callback against the owning integration.
-	integrationID, err := s.q.GetInteractionCallbackIntegrationID(ctx, dbsqlc.GetInteractionCallbackIntegrationIDParams{
-		ID: id,
-	})
+	integrationID, err := s.q.GetInteractionCallbackIntegrationID(
+		ctx,
+		dbsqlc.GetInteractionCallbackIntegrationIDParams{
+			ID: id,
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, storeerr.ErrNotFound
 	}
@@ -620,75 +547,77 @@ func (s *Store) GetInteractionForHandlerCallback(
 func (s *Store) ResolveAgentInteractionFromHandler(
 	ctx context.Context, input ResolveAgentInteractionFromHandlerInput,
 ) (AgentInteractionRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	_, destination, err := lockAuthorizedInteractionDestination(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.ID,
-	)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, destination.IntegrationID)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if integration.ProjectID != input.ProjectID ||
-		(input.SourceSetupRevision != 0 && integration.SetupRevision != input.SourceSetupRevision) {
-		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
-	}
-	if destination.IntegrationID != input.IntegrationID ||
-		destination.IntegrationKind != input.IntegrationKind ||
-		destination.Address != input.Address ||
-		(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
-		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
-	}
-	if err := validateIntegrationInputActor(integration, input.Actor); err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	notifications := s.newTxNotifications()
-	record, err := resolveAgentInteractionTx(
-		ctx,
-		notifications,
-		tx,
-		dbsqlc.New(tx),
-		input.ResolveAgentInteractionInput,
-	)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		notifications,
-		"resolve interaction from handler",
-	); err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	return record, nil
+	return agentexecution.Retry(ctx,
+		"resolve_agent_interaction_from_handler",
+		func(ctx context.Context) (AgentInteractionRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			_, destination, err := lockAuthorizedInteractionDestination(
+				ctx,
+				unit,
+				input.ProjectID,
+				input.AgentID,
+				input.ID,
+			)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, destination.IntegrationID)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if integration.ProjectID != input.ProjectID ||
+				(input.SourceSetupRevision != 0 && integration.SetupRevision != input.SourceSetupRevision) {
+				return AgentInteractionRecord{}, storeerr.ErrUnauthorized
+			}
+			if destination.IntegrationID != input.IntegrationID ||
+				destination.IntegrationKind != input.IntegrationKind ||
+				destination.Address != input.Address ||
+				(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
+				return AgentInteractionRecord{}, storeerr.ErrUnauthorized
+			}
+			if err := validateIntegrationInputActor(integration, input.Actor); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			record, err := resolveExecutionInteraction(
+				ctx,
+				unit,
+				input.ResolveAgentInteractionInput,
+			)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if err := unit.Commit(ctx, "resolve interaction from handler"); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			return record, nil
+		})
 }
 
 func (s *Store) GetAgentInteractionForPresentation(
 	ctx context.Context, projectID, agentID, id uuid.UUID,
 ) (AgentInteractionRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	record, _, err := lockAuthorizedInteractionDestination(ctx, tx, projectID, agentID, id)
-	return record, err
+	return agentexecution.Retry(ctx,
+		"get_agent_interaction_for_presentation",
+		func(ctx context.Context) (AgentInteractionRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			record, _, err := lockAuthorizedInteractionDestination(ctx, unit, projectID, agentID, id)
+			return record, err
+		})
 }
 
 func lockAuthorizedInteractionDestination(
-	ctx context.Context, tx pgx.Tx, projectID, agentID, id uuid.UUID,
+	ctx context.Context, unit *agentexecution.Unit, projectID, agentID, id uuid.UUID,
 ) (AgentInteractionRecord, *InteractionDestination, error) {
+	tx := unit.DB()
 	q := dbsqlc.New(tx)
 	params := dbsqlc.GetAgentInteractionParams{ProjectID: projectID, AgentID: agentID, ID: id}
 	row, err := q.GetAgentInteraction(ctx, params)
@@ -722,9 +651,7 @@ func lockAuthorizedInteractionDestination(
 	); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
-	if _, err := q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: projectID, ID: agentID,
-	}); err != nil {
+	if _, err := lockExecution(ctx, unit, projectID, agentID, false, uuid.Nil); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
 	_, contract, err := loadInteractionContract(ctx, q, projectID, agentID)
@@ -761,66 +688,121 @@ func (s *Store) RecordInteractionPresentationReceipt(
 	if err := validateInteractionObject(input.Receipt, InteractionReceiptMaxBytes); err != nil {
 		return AgentInteractionRecord{}, storeerr.InvalidRequest(err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return agentexecution.Retry(ctx,
+		"record_interaction_presentation_receipt",
+		func(ctx context.Context) (AgentInteractionRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+			q := dbsqlc.New(tx)
+			if _, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			params := dbsqlc.GetAgentInteractionParams{
+				ProjectID: input.ProjectID,
+				AgentID:   input.AgentID,
+				ID:        input.ID,
+			}
+			row, err := q.GetAgentInteraction(ctx, params)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return AgentInteractionRecord{}, storeerr.ErrNotFound
+			}
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			record := agentInteractionRecordFromSQLC(row)
+			destination, err := record.CapturedDestination()
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if destination == nil || *destination != input.Destination {
+				return AgentInteractionRecord{}, storeerr.ErrUnauthorized
+			}
+			if len(record.PresentationReceipt) != 0 {
+				if !sameJSON(record.PresentationReceipt, input.Receipt) {
+					return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
+				}
+				return record, nil
+			}
+			h, err := unit.Handle(input.ProjectID, input.AgentID)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if _, err = h.RecordPresentation(ctx, input.ID, record.Destination, input.Receipt); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			row, err = q.GetAgentInteraction(ctx, params)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if err := unit.Commit(ctx, "RecordInteractionPresentationReceipt"); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			return agentInteractionRecordFromSQLC(row), nil
+		})
+}
+
+func interactionSelectionForOrigin(
+	ctx context.Context,
+	tx dbsqlc.DBTX,
+	projectID, agentID, configID, originTargetID uuid.UUID,
+) (InteractionSelection, error) {
 	q := dbsqlc.New(tx)
-	if _, err := q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
-		ProjectID: input.ProjectID, ID: input.AgentID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return AgentInteractionRecord{}, storeerr.ErrNotFound
-		}
-		return AgentInteractionRecord{}, err
+	selection := InteractionSelection{AutoSelect: true}
+	if originTargetID == uuid.Nil {
+		return selection, nil
 	}
-	params := dbsqlc.GetAgentInteractionParams{
-		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
-		ID:        input.ID,
+	contract, err := interactionContractForConfig(ctx, q, projectID, configID)
+	if err != nil {
+		return InteractionSelection{}, err
 	}
-	row, err := q.GetAgentInteraction(ctx, params)
+	handlers, err := prepareInteractionHandlers(ctx, q, projectID, contract.InteractionHandlers)
+	if err != nil {
+		return InteractionSelection{}, err
+	}
+	if len(handlers) == 0 {
+		return selection, nil
+	}
+	target, err := q.GetInteractionDestinationTarget(
+		ctx,
+		dbsqlc.GetInteractionDestinationTargetParams{
+			ProjectID: projectID,
+			AgentID:   agentID,
+			TargetID:  originTargetID,
+		},
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return AgentInteractionRecord{}, storeerr.ErrNotFound
+		return selection, nil
 	}
 	if err != nil {
-		return AgentInteractionRecord{}, err
+		return InteractionSelection{}, err
 	}
-	record := agentInteractionRecordFromSQLC(row)
-	destination, err := record.CapturedDestination()
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if destination == nil || *destination != input.Destination {
-		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
-	}
-	if len(record.PresentationReceipt) != 0 {
-		if !sameJSON(record.PresentationReceipt, input.Receipt) {
-			return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
+	matches := 0
+	for key, handler := range handlers {
+		if target.IntegrationState != string(integrationstore.IntegrationStateActive) ||
+			handler.prepared.IntegrationID != target.IntegrationID {
+			continue
 		}
-		return record, nil
+		destination, err := resolveInteractionHandlerDestination(ctx, tx, projectID, agentID, key, handler)
+		if err != nil {
+			return InteractionSelection{}, err
+		}
+		if destination == nil || destination.IntegrationTargetID != originTargetID {
+			continue
+		}
+
+		matches++
+		selection = InteractionSelection{
+			AutoSelect:          true,
+			IntegrationTargetID: originTargetID,
+			HandlerKey:          key,
+		}
 	}
-	receiptParams := dbsqlc.RecordAgentInteractionPresentationReceiptParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID, ID: input.ID,
-		Destination: record.Destination, Receipt: input.Receipt,
+	if matches != 1 {
+		selection = InteractionSelection{AutoSelect: true}
 	}
-	changed, err := q.RecordAgentInteractionPresentationReceipt(ctx, receiptParams)
-	if err != nil {
-		return AgentInteractionRecord{}, fmt.Errorf(
-			"record interaction presentation receipt: %w",
-			err,
-		)
-	}
-	if changed != 1 {
-		return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
-	}
-	row, err = q.GetAgentInteraction(ctx, params)
-	if err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentInteractionRecord{}, err
-	}
-	return agentInteractionRecordFromSQLC(row), nil
+	return selection, nil
 }

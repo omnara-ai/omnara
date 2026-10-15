@@ -3,12 +3,11 @@ package executionstore
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func validateInboxSubscriptionTx(ctx context.Context, tx pgx.Tx, recipient InboxInputRecipient) error {
+func validateInboxSubscriptionTx(ctx context.Context, tx dbsqlc.DBTX, recipient InboxInputRecipient) error {
 	q := dbsqlc.New(tx)
 	for _, address := range recipient.Subscription.Alternatives {
 		allowed, err := q.HasIntegrationSubscription(ctx, dbsqlc.HasIntegrationSubscriptionParams{

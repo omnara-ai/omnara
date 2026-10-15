@@ -1,48 +1,3 @@
--- name: InsertAgent :one
--- @sqlc-vet-disable configured-models-deleted-at model-provider-configs-deleted-at
--- Display-only model names must still resolve after the model or provider config is soft deleted.
-WITH inserted AS (
-    INSERT INTO agents(
-        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
-        idempotency_key, parent_agent_id, subagent_key,
-        archive_after_idle_minutes, created_at, updated_at
-    )
-    SELECT
-        coalesce(sqlc.narg(id)::uuid, uuidv7()), sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
-        sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
-        sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
-        sqlc.narg(archive_after_idle_minutes),
-        transaction_timestamp(), transaction_timestamp()
-    FROM projects project
-    JOIN orgs org ON org.id = project.org_id
-    WHERE project.org_id = sqlc.arg(org_id)
-      AND project.id = sqlc.arg(project_id)
-      AND project.deleted_at IS NULL
-      AND org.deleted_at IS NULL
-    ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
-    RETURNING id, org_id, project_id, state, name,
-              agent_profile_id, current_config_id, interaction_target_id,
-              idempotency_key, next_event_sequence, created_at, updated_at, archived_at,
-              parent_agent_id, subagent_key
-)
-SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
-       coalesce(agent.idempotency_key, '') AS idempotency_key,
-       agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
-       agent.parent_agent_id, agent.subagent_key,
-       coalesce(configured_model.name, '') AS model_name,
-       coalesce(model_provider_config.name, '') AS model_provider_config_name
-FROM inserted agent
-LEFT JOIN agent_configs agent_config
-  ON agent_config.project_id = agent.project_id
- AND agent_config.id = agent.current_config_id
-LEFT JOIN configured_models configured_model
-  ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
-LEFT JOIN model_provider_configs model_provider_config
-  ON model_provider_config.org_id = configured_model.org_id
- AND model_provider_config.id = configured_model.model_provider_config_id;
-
 -- name: LockAgentLaunchIdempotencyKey :exec
 SELECT pg_advisory_xact_lock(
   hashtextextended(
@@ -282,19 +237,6 @@ WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
 ORDER BY agent.updated_at DESC, agent.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: ArchiveAgent :execrows
--- Idempotent: archiving an already-archived agent matches the row and keeps
--- the original archived_at.
-UPDATE agents
-SET state = 'archived',
-    archived_at = coalesce(archived_at, statement_timestamp()),
-    updated_at = CASE
-      WHEN state = 'archived' THEN updated_at
-      ELSE statement_timestamp()
-    END
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(id);
-
 -- name: AgentExistsInProject :one
 SELECT EXISTS (
     SELECT 1
@@ -309,7 +251,7 @@ WHERE project_id = $1 AND id = $2
 FOR UPDATE;
 
 -- name: TryLockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE SKIP LOCKED;

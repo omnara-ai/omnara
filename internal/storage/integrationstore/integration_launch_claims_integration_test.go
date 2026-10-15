@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"github.com/stretchr/testify/require"
@@ -18,7 +17,7 @@ import (
 func TestIntegrationLaunchClaimFreezesEntireRecipientSet(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
+	store := integrationstore.New(f.pool, integrationstore.Config{})
 	var profileID uuid.UUID
 	require.NoError(
 		t,

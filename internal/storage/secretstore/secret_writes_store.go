@@ -79,7 +79,7 @@ func (s *Store) CreateSecret(
 		)
 	}
 	if secretCount > limits.MaxActiveTenantSecretsPerOwner {
-		return SecretRecord{}, SecretVersionRecord{}, resourceLimitExceeded(
+		return SecretRecord{}, SecretVersionRecord{}, resourceguard.LimitExceeded(
 			"active secrets",
 			limits.MaxActiveTenantSecretsPerOwner,
 		)

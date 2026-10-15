@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -18,8 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-
-	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
 type ProjectMachinePoolGrantRecord struct {
@@ -765,8 +765,8 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 	if orgID == uuid.Nil || projectID == uuid.Nil || id == uuid.Nil {
 		return DeleteProjectMachinePoolGrantResult{}, errors.New("pool grant org, project, and id are required")
 	}
-	return storeutil.RetryTransaction(ctx, "delete_project_machine_pool_grant",
-		func() (DeleteProjectMachinePoolGrantResult, error) {
+	return agentexecution.Retry(ctx, "delete_project_machine_pool_grant",
+		func(ctx context.Context) (DeleteProjectMachinePoolGrantResult, error) {
 			return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, id)
 		})
 }
@@ -775,12 +775,13 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 	ctx context.Context,
 	orgID, projectID, id uuid.UUID,
 ) (DeleteProjectMachinePoolGrantResult, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf("begin revoke project machine pool grant: %w", err)
+		return DeleteProjectMachinePoolGrantResult{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
 	qtx := dbsqlc.New(tx)
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, err
@@ -859,7 +860,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 			AgentID:   agentRow.AgentID,
 		})
 	}
-	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+	if err := unit.LockAgentRefs(ctx, agentRefs, nil); err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, err
 	}
 	machineRows, err := qtx.MarkPoolGrantMachinesDeleting(
@@ -878,7 +879,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 	if err := completeExecutionRevokedProcessesTx(
 		ctx,
 		txNotifications,
-		tx,
+		unit,
 		qtx,
 		executionRevokedProcessScope{
 			projectID:                 projectID,
@@ -898,7 +899,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 		}
 		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf("delete project machine pool grant: %w", err)
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "delete project machine pool grant"); err != nil {
+	if err := unit.Commit(ctx, "delete project machine pool grant"); err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, err
 	}
 	result := DeleteProjectMachinePoolGrantResult{

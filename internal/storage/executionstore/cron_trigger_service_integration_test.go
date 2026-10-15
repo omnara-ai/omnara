@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -143,4 +144,44 @@ func TestFireDueTriggersIntegrationHandoffRollbackAndRecovery(t *testing.T) {
 	stats, err = service.FireDueTriggers(f.ctx)
 	require.NoError(t, err)
 	require.Equal(t, crontrigger.FireStats{}, stats)
+}
+
+func TestCronTriggerSkipsFullBacklog(t *testing.T) {
+	f := newIntegrationInteractionFixture(t)
+	for range 50 {
+		_, _, _, err := f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: testProjectID, AgentID: f.process.AgentID,
+			ContentBlocks: []byte(`[{"type":"text","text":"pending"}]`),
+		})
+		require.NoError(t, err)
+	}
+	trigger, err := f.store.Execution().CreateCronTrigger(f.ctx, cronTriggerInput("full-backlog",
+		f.process.AgentID, true))
+	require.NoError(t, err)
+	_, err = f.store.pool.Exec(f.ctx, `UPDATE cron_triggers SET next_fire_after=now()-interval '1 minute' WHERE
+id=$1`, trigger.ID)
+	require.NoError(t, err)
+	service := crontrigger.NewService(f.store.Execution(), nil, slog.Default())
+	stats, err := service.FireDueTriggers(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Claimed)
+	require.Zero(t, stats.Inputs)
+	var pending int
+	require.NoError(t, f.store.pool.QueryRow(f.ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,
+		f.process.AgentID).Scan(&pending))
+	require.Equal(t, 50, pending)
+	var enabled, retry, next bool
+	var reason string
+	require.NoError(t, f.store.pool.QueryRow(f.ctx,
+		`SELECT enabled,(failure_report->>'will_retry')::boolean,failure_report->>'message',next_fire_after>now()
+AND claim_token IS NULL AND last_fired_at IS NULL FROM cron_triggers WHERE id=$1`, trigger.ID).Scan(&enabled,
+		&retry, &reason, &next))
+	require.True(t, enabled)
+	require.False(t, retry)
+	require.True(t, next)
+	require.Equal(t, "send cron trigger input: "+storeerr.ErrAgentBacklogFull.Error(), reason)
+	stats, err = service.FireDueTriggers(f.ctx)
+	require.NoError(t, err)
+	require.Zero(t, stats.Claimed)
 }

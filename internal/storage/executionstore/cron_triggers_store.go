@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -179,7 +180,7 @@ func (s *Store) CreateCronTrigger(
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgentProfile:
-		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
+		if _, err := lockAgentProfileForLaunchTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgent:
@@ -227,7 +228,7 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, fmt.Errorf("count active cron triggers: %w", err)
 	}
 	if triggerCount > limits.MaxActiveCronTriggersPerProject {
-		return CronTriggerRecord{}, resourceLimitExceeded(
+		return CronTriggerRecord{}, resourceguard.LimitExceeded(
 			"active cron triggers",
 			limits.MaxActiveCronTriggersPerProject,
 		)

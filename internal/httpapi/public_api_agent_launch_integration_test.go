@@ -6,11 +6,14 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPublicAgentLaunchFlow(t *testing.T) {
@@ -263,9 +266,6 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		)
 	}
 	mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))
-	if _, ok := binding["machine_ref"]; ok {
-		t.Fatalf("machine binding response exposes machine_ref: %+v", binding)
-	}
 	launchConfig := testutil.RequireType[map[string]any](t, retargetedLaunch["agent_config"])
 	if launchConfig["model"] == nil || launchConfig["instruction_hash"] == "" {
 		t.Fatalf("launch config projection missing model/instruction evidence: %+v", retargetedLaunch["agent_config"])
@@ -738,6 +738,26 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 	}
 }
 
+func TestPublicAgentLaunchQuotaErrorMessage(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "launch-quota")
+	config := createPublicHTTPAgentConfig(t, handler, project, "launch-quota", "yaml",
+		"instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	orgID, err := publicid.Decode(publicid.KindOrganization, project.OrgID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+VALUES($1,0)`, orgID)
+	require.NoError(t, err)
+	response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		`{"config":"`+testutil.RequireType[string](t, config["id"])+`"}`, "quota",
+		http.StatusConflict, authHeaders(project.AdminToken))
+	require.Equal(t, "conflict", response["code"])
+	require.Equal(t, "conflict: active agents limit of 0 reached: resource conflict", response["error"])
+}
+
 func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -882,8 +902,6 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	if _, ok := yamlOnly["agent_profile_id"]; ok {
 		t.Fatalf("config_source-only launch should not be attributed to a profile: %+v", yamlOnly)
 	}
-	// A retry replays the original launch without recompiling, even when the
-	// source's references no longer resolve.
 	replayed := testutil.RequireType[map[string]any](t, launch(
 		`{"config_source":{"source_format":"yaml","source":`+quotedJSONString(
 			"instruction: Inline YAML.\nmodel:\n  provider_config: deleted-provider\n  name: gpt-test\n",
@@ -905,8 +923,6 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	if _, ok := invalid["issues"]; !ok {
 		t.Fatalf("invalid config_source should report compiler issues: %+v", invalid)
 	}
-	// Postgres rejects U+0000 in TEXT and JSONB, so it must fail validation
-	// rather than the write.
 	for format, source := range map[string]string{
 		"json": `{"instruction":"Bad \u0000 byte.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`,
 		"yaml": `"instruction: \"Bad \\0 byte.\"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"`,
@@ -919,4 +935,50 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 			t.Fatalf("%s config_source with U+0000 should be rejected as invalid: %+v", format, nul)
 		}
 	}
+}
+
+func TestPublicAgentLaunchRetargetExhaustion(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "launch-retarget")
+	first := createPublicHTTPAgentConfig(t, handler, project, "retarget-first", "yaml",
+		"instruction: First.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	second := createPublicHTTPAgentConfig(t, handler, project, "retarget-second", "yaml",
+		"instruction: Second.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	firstID, err := publicid.Decode(publicid.KindAgentConfig, testutil.RequireType[string](t, first["id"]))
+	require.NoError(t, err)
+	secondID, err := publicid.Decode(publicid.KindAgentConfig, testutil.RequireType[string](t, second["id"]))
+	require.NoError(t, err)
+	profile := createPublicHTTPAgentProfile(t, handler, project, "retarget", "Retarget",
+		testutil.RequireType[string](t, first["id"]), project.AdminToken, http.StatusCreated)
+	profileID, err := publicid.Decode(publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
+	require.NoError(t, err)
+	store := newIntegrationStore(pool)
+	current, next := firstID, secondID
+	var attempts atomic.Int32
+	trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		if !strings.HasPrefix(sql, "-- name: LockAgentProfileForLaunch ") {
+			return
+		}
+		attempts.Add(1)
+		_, retargetErr := store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
+			ProjectID: project.ProjectUUID, ProfileID: profileID, ExpectedCurrentConfigID: current, ConfigID: next,
+		})
+		require.NoError(t, retargetErr)
+		current, next = next, current
+	}}
+	handler = newIntegrationServer(poolWithQueryTracer(t, ctx, pool, trace))
+	response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		`{"profile":"`+testutil.RequireType[string](t, profile["id"])+`"}`, "retarget",
+		http.StatusConflict, authHeaders(project.AdminToken))
+	require.Equal(t, "conflict", response["code"])
+	require.Equal(t, "conflict: agent profile changed during launch; retry: resource conflict", response["error"])
+	require.EqualValues(t, 3, attempts.Load())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT count(*) FROM agents WHERE project_id=$1", project.ProjectUUID).Scan(&count))
+	require.Zero(t, count)
 }

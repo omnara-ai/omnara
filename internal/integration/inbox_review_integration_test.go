@@ -361,7 +361,7 @@ func TestIntegrationInboxWorkerInvalidFrozenPlanIsTerminal(t *testing.T) {
 			require.Equal(t, 1, failed.AttemptCount)
 			require.NotNil(t, failed.CompletedAt)
 			require.Empty(t, failed.Plan)
-			require.Equal(t, []string{"Request failed"}, f.provider.notices)
+			require.Equal(t, []string{inboxFailureMessage}, f.provider.notices)
 			var count int
 			require.NoError(t, f.pool.QueryRow(ctx,
 				`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'`, f.ids.ProjectID).Scan(&count))

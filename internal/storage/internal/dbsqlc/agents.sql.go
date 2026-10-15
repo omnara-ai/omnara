@@ -514,7 +514,6 @@ type GetAgentProfileNameParams struct {
 }
 
 // @sqlc-vet-disable agent-profiles-deleted-at
-// Generated config sources must still name subagent profiles after they are soft deleted.
 func (q *Queries) GetAgentProfileName(ctx context.Context, arg GetAgentProfileNameParams) (string, error) {
 	row := q.db.QueryRow(ctx, getAgentProfileName, arg.ProjectID, arg.ID)
 	var name string
@@ -1098,6 +1097,27 @@ func (q *Queries) LockAgentProfile(ctx context.Context, arg LockAgentProfilePara
 	return id, err
 }
 
+const lockAgentProfileForLaunch = `-- name: LockAgentProfileForLaunch :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = $1
+  AND profile.id = $2
+  AND profile.deleted_at IS NULL
+FOR KEY SHARE
+`
+
+type LockAgentProfileForLaunchParams struct {
+	ProjectID uuid.UUID
+	ProfileID uuid.UUID
+}
+
+func (q *Queries) LockAgentProfileForLaunch(ctx context.Context, arg LockAgentProfileForLaunchParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockAgentProfileForLaunch, arg.ProjectID, arg.ProfileID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const renameAgentProfile = `-- name: RenameAgentProfile :execrows
 UPDATE agent_profiles
 SET name = $1,
@@ -1211,28 +1231,6 @@ func (q *Queries) RetargetAgentProfile(ctx context.Context, arg RetargetAgentPro
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const updateAgentCurrentConfig = `-- name: UpdateAgentCurrentConfig :execrows
-UPDATE agents
-SET current_config_id = $1,
-    updated_at = statement_timestamp()
-WHERE project_id = $2
-  AND id = $3
-`
-
-type UpdateAgentCurrentConfigParams struct {
-	AgentConfigID uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-}
-
-func (q *Queries) UpdateAgentCurrentConfig(ctx context.Context, arg UpdateAgentCurrentConfigParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateAgentCurrentConfig, arg.AgentConfigID, arg.ProjectID, arg.AgentID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const upsertAgentConfigByHash = `-- name: UpsertAgentConfigByHash :one

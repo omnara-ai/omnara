@@ -12,6 +12,7 @@ import (
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
 	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
@@ -57,6 +58,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.WorkerCapacity != 4 {
 		t.Fatalf("expected default worker capacity 4, got %d", cfg.WorkerCapacity)
+	}
+	if cfg.WorkerClaimConcurrency != 16 {
+		t.Fatalf("expected default claim concurrency 16, got %d", cfg.WorkerClaimConcurrency)
 	}
 	if cfg.WorkerAsyncToolCapacity != 32 {
 		t.Fatalf("expected default worker async tool capacity 32, got %d", cfg.WorkerAsyncToolCapacity)
@@ -1103,6 +1107,35 @@ func TestValidateWorkerLoadsExplicitWorkerCapacity(t *testing.T) {
 	}
 	if cfg.WorkerCapacity != 8 {
 		t.Fatalf("unexpected worker capacity: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerLoadsExplicitClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "2")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker: %v", err)
+	}
+	if cfg.WorkerClaimConcurrency != 2 {
+		t.Fatalf("unexpected claim concurrency: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerRejectsInvalidClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected invalid claim concurrency error")
 	}
 }
 

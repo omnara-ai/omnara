@@ -7,85 +7,10 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
-
-const acquireAgentRuntimeLock = `-- name: AcquireAgentRuntimeLock :one
-WITH lease_clock AS MATERIALIZED (
-  SELECT statement_timestamp() AS renewed_at
-)
-INSERT INTO agent_runtime_locks(agent_id, worker_process_id, started_at, renewed_at, lease_expires_at)
-SELECT agent.id,
-       $1::uuid,
-       lease_clock.renewed_at,
-       lease_clock.renewed_at,
-       lease_clock.renewed_at + ($2::bigint * interval '1 microsecond')
-FROM agents agent
-CROSS JOIN lease_clock
-WHERE agent.project_id = $3
-  AND agent.id = $4
-  AND agent.state <> 'archived'
-ON CONFLICT (agent_id) DO NOTHING
-RETURNING id, agent_id, worker_process_id, started_at, renewed_at,
-          lease_expires_at, cancel_requested_at
-`
-
-type AcquireAgentRuntimeLockParams struct {
-	WorkerProcessID           uuid.UUID
-	LeaseDurationMicroseconds int64
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-}
-
-func (q *Queries) AcquireAgentRuntimeLock(ctx context.Context, arg AcquireAgentRuntimeLockParams) (AgentRuntimeLock, error) {
-	row := q.db.QueryRow(ctx, acquireAgentRuntimeLock,
-		arg.WorkerProcessID,
-		arg.LeaseDurationMicroseconds,
-		arg.ProjectID,
-		arg.AgentID,
-	)
-	var i AgentRuntimeLock
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.WorkerProcessID,
-		&i.StartedAt,
-		&i.RenewedAt,
-		&i.LeaseExpiresAt,
-		&i.CancelRequestedAt,
-	)
-	return i, err
-}
-
-const agentRuntimeLockIsActive = `-- name: AgentRuntimeLockIsActive :one
-SELECT EXISTS (
-  SELECT 1
-  FROM agent_runtime_locks runtime_lock
-  JOIN agents agent ON agent.id = runtime_lock.agent_id
-    AND agent.state <> 'archived'
-  WHERE agent.project_id = $1
-    AND runtime_lock.agent_id = $2
-    AND runtime_lock.id = $3
-    AND runtime_lock.cancel_requested_at IS NULL
-    AND runtime_lock.lease_expires_at > statement_timestamp()
-) AS active
-`
-
-type AgentRuntimeLockIsActiveParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) AgentRuntimeLockIsActive(ctx context.Context, arg AgentRuntimeLockIsActiveParams) (bool, error) {
-	row := q.db.QueryRow(ctx, agentRuntimeLockIsActive, arg.ProjectID, arg.AgentID, arg.ID)
-	var active bool
-	err := row.Scan(&active)
-	return active, err
-}
 
 const dBNow = `-- name: DBNow :one
 SELECT transaction_timestamp()::timestamptz
@@ -96,29 +21,6 @@ func (q *Queries) DBNow(ctx context.Context) (time.Time, error) {
 	var column_1 time.Time
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const deleteAgentRuntimeLockForReap = `-- name: DeleteAgentRuntimeLockForReap :execrows
-DELETE FROM agent_runtime_locks
-USING agents agent
-WHERE agent.project_id = $1
-  AND agent.id = agent_runtime_locks.agent_id
-  AND agent_runtime_locks.agent_id = $2
-  AND agent_runtime_locks.id = $3
-`
-
-type DeleteAgentRuntimeLockForReapParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) DeleteAgentRuntimeLockForReap(ctx context.Context, arg DeleteAgentRuntimeLockForReapParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAgentRuntimeLockForReap, arg.ProjectID, arg.AgentID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const failQueuedProcessActionsForRuntimeEnd = `-- name: FailQueuedProcessActionsForRuntimeEnd :many
@@ -264,88 +166,6 @@ func (q *Queries) FailQueuedProcessesForRuntimeEnd(ctx context.Context, arg Fail
 	return items, nil
 }
 
-const failRuntimeToolCalls = `-- name: FailRuntimeToolCalls :many
-UPDATE tool_calls call
-SET state = 'completed',
-    runtime_lock_id = NULL
-FROM tool_call_read_projection projection
-WHERE call.agent_id = $1
-  AND call.runtime_lock_id = $2::uuid
-  AND call.state = 'running'
-  AND call.type IN ('built_in', 'mcp')
-  AND projection.project_id = $3
-  AND projection.agent_id = call.agent_id
-  AND projection.id = call.id
-RETURNING call.id, projection.project_id, call.agent_id,
-  projection.turn_id,
-  projection.source_event_id, projection.model_call_context_id, call.provider_call_id,
-  call.name, call.input,
-  call.type, call.state,
-  'failed'::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
-  call.created_at
-`
-
-type FailRuntimeToolCallsParams struct {
-	AgentID       uuid.UUID
-	RuntimeLockID uuid.UUID
-	ProjectID     uuid.UUID
-}
-
-type FailRuntimeToolCallsRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-}
-
-func (q *Queries) FailRuntimeToolCalls(ctx context.Context, arg FailRuntimeToolCallsParams) ([]FailRuntimeToolCallsRow, error) {
-	rows, err := q.db.Query(ctx, failRuntimeToolCalls, arg.AgentID, arg.RuntimeLockID, arg.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FailRuntimeToolCallsRow{}
-	for rows.Next() {
-		var i FailRuntimeToolCallsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.TurnID,
-			&i.SourceEventID,
-			&i.ModelCallContextID,
-			&i.ProviderCallID,
-			&i.Name,
-			&i.Input,
-			&i.Type,
-			&i.State,
-			&i.Outcome,
-			&i.RuntimeLockID,
-			&i.ResultContentParts,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getAgentRuntimeLockForRelease = `-- name: GetAgentRuntimeLockForRelease :one
 SELECT runtime_lock.id, runtime_lock.agent_id, runtime_lock.worker_process_id,
        runtime_lock.started_at, runtime_lock.renewed_at,
@@ -378,37 +198,6 @@ func (q *Queries) GetAgentRuntimeLockForRelease(ctx context.Context, arg GetAgen
 	return i, err
 }
 
-const getPendingAgentRuntimeCancel = `-- name: GetPendingAgentRuntimeCancel :one
-SELECT runtime_lock.id, runtime_lock.agent_id, runtime_lock.worker_process_id,
-       runtime_lock.started_at, runtime_lock.renewed_at,
-       runtime_lock.lease_expires_at, runtime_lock.cancel_requested_at
-FROM agent_runtime_locks runtime_lock
-JOIN agents agent ON agent.id = runtime_lock.agent_id
-WHERE agent.project_id = $1
-  AND runtime_lock.agent_id = $2
-  AND runtime_lock.cancel_requested_at IS NOT NULL
-`
-
-type GetPendingAgentRuntimeCancelParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) GetPendingAgentRuntimeCancel(ctx context.Context, arg GetPendingAgentRuntimeCancelParams) (AgentRuntimeLock, error) {
-	row := q.db.QueryRow(ctx, getPendingAgentRuntimeCancel, arg.ProjectID, arg.AgentID)
-	var i AgentRuntimeLock
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.WorkerProcessID,
-		&i.StartedAt,
-		&i.RenewedAt,
-		&i.LeaseExpiresAt,
-		&i.CancelRequestedAt,
-	)
-	return i, err
-}
-
 const listExpiredAgentRuntimeLockCandidates = `-- name: ListExpiredAgentRuntimeLockCandidates :many
 SELECT runtime_lock.id, agent.project_id, runtime_lock.agent_id
 FROM agent_runtime_locks runtime_lock
@@ -428,8 +217,6 @@ type ListExpiredAgentRuntimeLockCandidatesRow struct {
 	AgentID   uuid.UUID
 }
 
-// Candidate discovery intentionally does not lock runtime rows. Destructive
-// recovery must lock the canonical agent row before the runtime row.
 func (q *Queries) ListExpiredAgentRuntimeLockCandidates(ctx context.Context, arg ListExpiredAgentRuntimeLockCandidatesParams) ([]ListExpiredAgentRuntimeLockCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listExpiredAgentRuntimeLockCandidates, arg.BatchSize)
 	if err != nil {
@@ -471,159 +258,4 @@ func (q *Queries) LockAgentRuntimeLockForOwnedMutation(ctx context.Context, arg 
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
-}
-
-const lockAgentRuntimeLockForRenewal = `-- name: LockAgentRuntimeLockForRenewal :one
-SELECT runtime_lock.id
-FROM agent_runtime_locks runtime_lock
-JOIN agents agent ON agent.id = runtime_lock.agent_id
-WHERE agent.project_id = $1
-  AND runtime_lock.agent_id = $2
-  AND runtime_lock.id = $3
-FOR UPDATE OF runtime_lock
-`
-
-type LockAgentRuntimeLockForRenewalParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) LockAgentRuntimeLockForRenewal(ctx context.Context, arg LockAgentRuntimeLockForRenewalParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockAgentRuntimeLockForRenewal, arg.ProjectID, arg.AgentID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
-const lockExpiredAgentRuntimeLockForReap = `-- name: LockExpiredAgentRuntimeLockForReap :one
-SELECT runtime_lock.id, agent.project_id, runtime_lock.agent_id
-FROM agent_runtime_locks runtime_lock
-JOIN agents agent ON agent.id = runtime_lock.agent_id
-WHERE agent.project_id = $1
-  AND runtime_lock.agent_id = $2
-  AND runtime_lock.id = $3
-  AND runtime_lock.lease_expires_at <= statement_timestamp()
-FOR UPDATE OF runtime_lock SKIP LOCKED
-`
-
-type LockExpiredAgentRuntimeLockForReapParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-type LockExpiredAgentRuntimeLockForReapRow struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) LockExpiredAgentRuntimeLockForReap(ctx context.Context, arg LockExpiredAgentRuntimeLockForReapParams) (LockExpiredAgentRuntimeLockForReapRow, error) {
-	row := q.db.QueryRow(ctx, lockExpiredAgentRuntimeLockForReap, arg.ProjectID, arg.AgentID, arg.ID)
-	var i LockExpiredAgentRuntimeLockForReapRow
-	err := row.Scan(&i.ID, &i.ProjectID, &i.AgentID)
-	return i, err
-}
-
-const releaseAgentRuntimeLock = `-- name: ReleaseAgentRuntimeLock :execrows
-DELETE FROM agent_runtime_locks
-USING agents agent
-WHERE agent.project_id = $1
-  AND agent.id = agent_runtime_locks.agent_id
-  AND agent_runtime_locks.agent_id = $2
-  AND agent_runtime_locks.id = $3
-`
-
-type ReleaseAgentRuntimeLockParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) ReleaseAgentRuntimeLock(ctx context.Context, arg ReleaseAgentRuntimeLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseAgentRuntimeLock, arg.ProjectID, arg.AgentID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const renewAgentRuntimeLock = `-- name: RenewAgentRuntimeLock :one
-UPDATE agent_runtime_locks runtime_lock
-SET renewed_at = greatest(runtime_lock.renewed_at, lease_clock.statement_at),
-    lease_expires_at = greatest(
-      runtime_lock.lease_expires_at,
-      greatest(runtime_lock.renewed_at, lease_clock.statement_at) +
-        ($1::bigint * interval '1 microsecond')
-    )
-FROM (SELECT statement_timestamp() AS statement_at) AS lease_clock
-CROSS JOIN agents agent
-WHERE agent.project_id = $2
-  AND agent.id = runtime_lock.agent_id
-  AND runtime_lock.agent_id = $3
-  AND runtime_lock.id = $4
-RETURNING runtime_lock.id, runtime_lock.agent_id, runtime_lock.worker_process_id,
-          runtime_lock.started_at, runtime_lock.renewed_at,
-          runtime_lock.lease_expires_at, runtime_lock.cancel_requested_at
-`
-
-type RenewAgentRuntimeLockParams struct {
-	LeaseDurationMicroseconds int64
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-	ID                        uuid.UUID
-}
-
-func (q *Queries) RenewAgentRuntimeLock(ctx context.Context, arg RenewAgentRuntimeLockParams) (AgentRuntimeLock, error) {
-	row := q.db.QueryRow(ctx, renewAgentRuntimeLock,
-		arg.LeaseDurationMicroseconds,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.ID,
-	)
-	var i AgentRuntimeLock
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.WorkerProcessID,
-		&i.StartedAt,
-		&i.RenewedAt,
-		&i.LeaseExpiresAt,
-		&i.CancelRequestedAt,
-	)
-	return i, err
-}
-
-const requestAgentRuntimeCancel = `-- name: RequestAgentRuntimeCancel :one
-UPDATE agent_runtime_locks runtime_lock
-SET cancel_requested_at = coalesce(runtime_lock.cancel_requested_at, greatest(runtime_lock.started_at, statement_timestamp()))
-FROM agents agent
-WHERE agent.project_id = $1
-  AND agent.id = runtime_lock.agent_id
-  AND runtime_lock.agent_id = $2
-  AND runtime_lock.cancel_requested_at IS NULL
-RETURNING runtime_lock.id, runtime_lock.agent_id, runtime_lock.worker_process_id,
-          runtime_lock.started_at, runtime_lock.renewed_at,
-          runtime_lock.lease_expires_at, runtime_lock.cancel_requested_at
-`
-
-type RequestAgentRuntimeCancelParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) RequestAgentRuntimeCancel(ctx context.Context, arg RequestAgentRuntimeCancelParams) (AgentRuntimeLock, error) {
-	row := q.db.QueryRow(ctx, requestAgentRuntimeCancel, arg.ProjectID, arg.AgentID)
-	var i AgentRuntimeLock
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.WorkerProcessID,
-		&i.StartedAt,
-		&i.RenewedAt,
-		&i.LeaseExpiresAt,
-		&i.CancelRequestedAt,
-	)
-	return i, err
 }

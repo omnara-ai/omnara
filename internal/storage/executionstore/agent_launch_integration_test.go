@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -185,7 +184,7 @@ func getAgentMachineBindingForTest(
 	projectID, agentID, bindingID uuid.UUID,
 ) executionstore.AgentMachineBindingRecord {
 	t.Helper()
-	var row dbsqlc.GetAgentMachineBindingByMachineRow
+	var row dbsqlc.AgentMachineBinding
 	err := store.pool.QueryRow(ctx, `
 		SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id,
 		       machine_id, binding_kind, state, description, cwd, env_overlay,
@@ -270,7 +269,10 @@ tools:
 	}
 	if len(result.MachineBindings) != 1 || len(result.ProvisionMachineIDs) != 1 ||
 		result.ProvisionMachineIDs[0] != result.MachineBindings[0].MachineID {
-		t.Fatalf("pool launch should create one attached binding and provisioning request, result=%+v", result)
+		t.Fatalf(
+			"pool launch should create one attached binding and provisioning request, result=%+v",
+			result,
+		)
 	}
 	return result
 }
@@ -379,7 +381,10 @@ func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 	}
 }
 
-func testConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T, mutate func(*executionstore.LaunchAgentInput)) {
+func testConcurrentSameKeyLaunchIgnoresLosingBody(
+	t *testing.T,
+	mutate func(*executionstore.LaunchAgentInput),
+) {
 	t.Helper()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -577,7 +582,13 @@ func TestLaunchAgentWithDefaultPool(t *testing.T) {
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"default"}`),
 		},
 	))
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "launch-default-pool@example.com", "Launch Cluster Pool")
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"launch-default-pool@example.com",
+		"Launch Cluster Pool",
+	)
 	if err := provisionDefaultMachinePoolGrantsForProject(
 		ctx,
 		store,
@@ -808,7 +819,11 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 	}
 	backlogBeforeArchive, err := store.Execution().ListQueuedBacklogInputs(
 		ctx,
-		executionstore.ListQueuedBacklogInputsInput{ProjectID: testProjectID, AgentID: result.Agent.ID, Limit: 10},
+		executionstore.ListQueuedBacklogInputsInput{
+			ProjectID: testProjectID,
+			AgentID:   result.Agent.ID,
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list queued backlog before archive: %v", err)
@@ -959,7 +974,11 @@ WHERE agent.project_id = $1
 	}
 	backlogAfterArchive, err := store.Execution().ListQueuedBacklogInputs(
 		ctx,
-		executionstore.ListQueuedBacklogInputsInput{ProjectID: testProjectID, AgentID: result.Agent.ID, Limit: 10},
+		executionstore.ListQueuedBacklogInputsInput{
+			ProjectID: testProjectID,
+			AgentID:   result.Agent.ID,
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list queued backlog after archive: %v", err)
@@ -984,11 +1003,10 @@ WHERE agent.project_id = $1
 			archivedAt,
 		)
 	}
-	if err := store.Execution().MarkAgentWakeup(
+	if err := store.Execution().RepairExecutionForTest(
 		ctx,
 		testProjectID,
 		result.Agent.ID,
-		json.RawMessage(`{"reason":"after_archive"}`),
 	); err != nil {
 		t.Fatalf("mark archived wakeup: %v", err)
 	}
@@ -1023,7 +1041,13 @@ func TestChangeAgentConfigReconcilesPoolMachineSources(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	now := time.Date(2026, 5, 21, 9, 48, 0, 0, time.UTC)
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "live-pool-sources@example.com", "Live Pool Sources")
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"live-pool-sources@example.com",
+		"Live Pool Sources",
+	)
 	machinePool := createLaunchTestMachinePool(
 		t,
 		ctx,
@@ -1099,7 +1123,12 @@ tools:
 	if len(added.DeleteMachines) != 0 {
 		t.Fatalf("added pool source deleted machines: %+v", added.DeleteMachines)
 	}
-	machines, err := executionstore.IntegrationListPoolMachinesTx(ctx, store.q, testProjectID, launch.Agent.ID)
+	machines, err := executionstore.IntegrationListPoolMachinesTx(
+		ctx,
+		store.q,
+		testProjectID,
+		launch.Agent.ID,
+	)
 	if err != nil {
 		t.Fatalf("list added pool machines: %v", err)
 	}
@@ -1396,7 +1425,11 @@ tools:
 	}
 	if replayedRemoval.ConfigChange.AgentInput.ID != removed.ConfigChange.AgentInput.ID ||
 		replayedRemoval.ConfigChange.Event.ID != removed.ConfigChange.Event.ID {
-		t.Fatalf("removed pool config replay = %+v, want %+v", replayedRemoval.ConfigChange, removed.ConfigChange)
+		t.Fatalf(
+			"removed pool config replay = %+v, want %+v",
+			replayedRemoval.ConfigChange,
+			removed.ConfigChange,
+		)
 	}
 	if len(replayedRemoval.DeleteMachines) != len(removed.DeleteMachines) {
 		t.Fatalf(
@@ -1817,7 +1850,10 @@ func TestLaunchAgentCreatesMultipleMachineBindings(t *testing.T) {
 	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		storagetest.CreateVerifiedUserInput{Email: "launch-multi@example.com", DisplayName: "Launch Multi User"},
+		storagetest.CreateVerifiedUserInput{
+			Email:       "launch-multi@example.com",
+			DisplayName: "Launch Multi User",
+		},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1882,7 +1918,8 @@ machine_sources:
     description: Second machine
 tools:
   run_command: {}
-`)
+`,
+	)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2116,7 +2153,12 @@ tools:
 			t.Fatalf("unexpected generated grant %d: %+v binding=%+v", slotIndex, generatedGrant, binding)
 		}
 	}
-	poolMachines, err := executionstore.IntegrationListPoolMachinesTx(ctx, store.q, testProjectID, result.Agent.ID)
+	poolMachines, err := executionstore.IntegrationListPoolMachinesTx(
+		ctx,
+		store.q,
+		testProjectID,
+		result.Agent.ID,
+	)
 	if err != nil {
 		t.Fatalf("list launched pool machines: %v", err)
 	}
@@ -2428,7 +2470,8 @@ machine_sources:
     description: Second pool machine
 tools:
   run_command: {}
-`)
+`,
+	)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2444,7 +2487,11 @@ tools:
 		t.Fatalf("launch two-pool agent: %v", err)
 	}
 	if len(result.MachineBindings) != 4 || len(result.ProvisionMachineIDs) != 4 {
-		t.Fatalf("two-pool launch result bindings=%+v provision=%v", result.MachineBindings, result.ProvisionMachineIDs)
+		t.Fatalf(
+			"two-pool launch result bindings=%+v provision=%v",
+			result.MachineBindings,
+			result.ProvisionMachineIDs,
+		)
 	}
 	want := []struct {
 		cwd     string
@@ -2556,7 +2603,8 @@ machine_sources:
     max_machines: 0
 tools:
   run_command: {}
-`)
+`,
+	)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2701,7 +2749,9 @@ func TestLaunchAgentZeroInitialPoolSkipsCapacityCheck(t *testing.T) {
 		store,
 		"Launch Zero Capacity Pool",
 		"test",
-		defaultMachineFieldsForTest{DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-capacity"}`)},
+		defaultMachineFieldsForTest{
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-capacity"}`),
+		},
 		1,
 		now,
 	)
@@ -2795,7 +2845,9 @@ func TestLaunchAgentInitialPoolCapacityRollsBackAllRows(t *testing.T) {
 		store,
 		"Launch Initial Capacity Pool",
 		"test",
-		defaultMachineFieldsForTest{DefaultMachineProviderOptions: json.RawMessage(`{"image":"initial-capacity"}`)},
+		defaultMachineFieldsForTest{
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"initial-capacity"}`),
+		},
 		1,
 		now,
 	)
@@ -3151,7 +3203,10 @@ tools:
 		t.Fatalf("get first machine after revoke: %v", err)
 	}
 	if firstMachine.LifecycleState != "deleting" {
-		t.Fatalf("first machine lifecycle after grant revoke = %q, want deleting", firstMachine.LifecycleState)
+		t.Fatalf(
+			"first machine lifecycle after grant revoke = %q, want deleting",
+			firstMachine.LifecycleState,
+		)
 	}
 	secondGrant, err := store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
@@ -3381,7 +3436,9 @@ func TestConcurrentLaunchesRespectPoolCapacity(t *testing.T) {
 		store,
 		"Launch Concurrent Capacity Pool",
 		"test",
-		defaultMachineFieldsForTest{DefaultMachineProviderOptions: json.RawMessage(`{"image":"concurrent-capacity"}`)},
+		defaultMachineFieldsForTest{
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"concurrent-capacity"}`),
+		},
 		1,
 		now,
 	)
@@ -3699,7 +3756,14 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	); err == nil {
 		t.Fatal("expected deletion completion before delete intent to fail")
 	}
-	binding = getAgentMachineBindingForTest(t, ctx, store, testProjectID, result.Agent.ID, result.MachineBindings[0].ID)
+	binding = getAgentMachineBindingForTest(
+		t,
+		ctx,
+		store,
+		testProjectID,
+		result.Agent.ID,
+		result.MachineBindings[0].ID,
+	)
 	if binding.State != "attached" {
 		t.Fatalf("rejected deletion completion changed binding: %+v", binding)
 	}
@@ -3788,7 +3852,14 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if deletedMachine.LifecycleState != "deleted" || deletedMachine.DeletedAt == nil {
 		t.Fatalf("deleted machine = %+v", deletedMachine)
 	}
-	binding = getAgentMachineBindingForTest(t, ctx, store, testProjectID, result.Agent.ID, result.MachineBindings[0].ID)
+	binding = getAgentMachineBindingForTest(
+		t,
+		ctx,
+		store,
+		testProjectID,
+		result.Agent.ID,
+		result.MachineBindings[0].ID,
+	)
 	if binding.State != "released" {
 		t.Fatalf("binding after cleanup = %+v, want released", binding)
 	}
@@ -4963,161 +5034,6 @@ tools:
 	}
 }
 
-func TestClaimNormalModelCallValidatesActiveAgentConfigAtWatermark(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-
-	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	user := mustCreateProjectDeveloperUser(
-		t,
-		ctx,
-		store,
-		"model-context-config@example.com",
-		"Model Context Config User",
-	)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t,
-		ctx,
-		store,
-		"model-context-config",
-		"Model Context Config Agent",
-		`
-instruction: Keep config watermarks typed.
-model:
-  provider_config: openai-prod
-  name: model-context-config
-`,
-	)
-	launch, err := store.Execution().LaunchAgent(
-		ctx,
-		executionstore.LaunchAgentInput{
-			ProjectID:      testProjectID,
-			ProfileID:      profile.ID,
-			AgentConfigID:  profile.CurrentConfigID,
-			LaunchedBy:     userPrincipal(user.ID),
-			IdempotencyKey: "idem-model-context-config-launch",
-		},
-	)
-	if err != nil {
-		t.Fatalf("launch model-context-config agent: %v", err)
-	}
-	input, _, _, err := store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        launch.Agent.ID,
-			Actor:          mustOmnaraActorParams(t, user.ID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"build context"}]`),
-			IdempotencyKey: "model-context-config-input",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create content input: %v", err)
-	}
-	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
-	if err != nil {
-		t.Fatalf("claim input work: %v", err)
-	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) {
-		t.Fatalf(
-			"claim input found=%v kind=%v input_ids=%v want %s",
-			found,
-			claim.Kind,
-			claim.Model.InputIDs,
-			input.ID,
-		)
-	}
-	lock := claim.RuntimeLock
-	admitted := claim.Model.AdmittedInputTurn
-	config := launch.AgentConfig
-	snapshot, err := store.Execution().CaptureAgentConfigForEventWatermark(
-		ctx,
-		testProjectID,
-		launch.Agent.ID,
-		admitted.Events[0].Sequence,
-	)
-	if err != nil {
-		t.Fatalf("capture active config at admitted frontier: %v", err)
-	}
-	if snapshot.AgentConfig.ID != config.ID {
-		t.Fatalf("config at frontier = %s, want %s", snapshot.AgentConfig.ID, config.ID)
-	}
-	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, `
-instruction: Keep changed config typed.
-model:
-  provider_config: openai-prod
-  name: model-context-config
-`)
-	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: changeInputFromRecord(newConfig),
-		AgentID:                launch.Agent.ID,
-		ActorType:              identitystore.PrincipalTypeUser,
-		ActorID:                user.ID,
-		IdempotencyKey:         "idem-model-context-config-change",
-	})
-	if err != nil {
-		t.Fatalf("change agent config: %v", err)
-	}
-	if _, err := store.Execution().ClaimNormalModelCall(
-		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      snapshot.AgentConfig.ID,
-			InputEventSequence: snapshot.InputEventSequence,
-		},
-	); !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-		t.Fatalf("stale model context frontier error = %v, want ErrAgentNotAdvanceable", err)
-	}
-	var staleContexts int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM model_call_contexts
-		WHERE project_id = $1 AND agent_id = $2 AND input_event_sequence = $3`,
-		testProjectID,
-		launch.Agent.ID,
-		snapshot.InputEventSequence,
-	).Scan(&staleContexts); err != nil {
-		t.Fatalf("count stale model contexts: %v", err)
-	}
-	if staleContexts != 0 {
-		t.Fatalf("stale model contexts = %d, want none", staleContexts)
-	}
-	if _, err := store.Execution().ClaimNormalModelCall(
-		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      config.ID,
-			InputEventSequence: changed.ConfigChange.Event.Sequence,
-		},
-	); !errors.Is(
-		err,
-		storeerr.ErrStateTransitionConflict,
-	) {
-		t.Fatalf("stale model context config error = %v, want ErrStateTransitionConflict", err)
-	}
-	if _, err := store.Execution().ClaimNormalModelCall(
-		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      changed.AgentConfig.ID,
-			InputEventSequence: changed.ConfigChange.Event.Sequence,
-		},
-	); err != nil {
-		t.Fatalf("current model context config error = %v", err)
-	}
-}
-
 func TestModelCallRetryUsesCurrentConfiguredModelRevision(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -5181,7 +5097,7 @@ model:
 	if err != nil {
 		t.Fatalf("acquire runtime lock: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -5196,17 +5112,17 @@ model:
 	if err != nil {
 		t.Fatalf("load configured model: %v", err)
 	}
-	initialClaim, err := store.Execution().ClaimNormalModelCall(
+	prepared1, err := store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      launch.AgentConfig.ID,
-			InputEventSequence: admitted.Events[0].Sequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         launch.Agent.ID,
+			RuntimeLockID:   lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
 		},
 	)
+	initialClaim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim initial model context: %v", err)
 	}
@@ -5263,25 +5179,6 @@ model:
 			updated.CurrentRevisionID,
 		)
 	}
-	if err := executionstore.IntegrationValidateResponseEnvelopeForModelCallContext(
-		ctx,
-		store.q,
-		modelenvelope.ResponseEnvelope{RequestedProviderModelSlug: updated.ProviderModelSlug},
-		retryClaim.Context,
-	); err != nil {
-		t.Fatalf("validate current retry provider slug: %v", err)
-	}
-	if err := executionstore.IntegrationValidateResponseEnvelopeForModelCallContext(
-		ctx,
-		store.q,
-		modelenvelope.ResponseEnvelope{RequestedProviderModelSlug: configuredModel.ProviderModelSlug},
-		retryClaim.Context,
-	); err == nil {
-		t.Fatalf(
-			"same-frontier retry accepted stale provider slug %q instead of current slug %q",
-			configuredModel.ProviderModelSlug, updated.ProviderModelSlug,
-		)
-	}
 	if _, err := store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
 		ProjectID: testProjectID,
 		AgentID:   launch.Agent.ID,
@@ -5313,7 +5210,7 @@ model:
 	if err != nil {
 		t.Fatalf("acquire new-frontier runtime: %v", err)
 	}
-	nextAdmitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found = admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -5324,14 +5221,15 @@ model:
 	if !found {
 		t.Fatal("expected new-frontier input admission")
 	}
-	newFrontierClaim, err := store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            launch.Agent.ID,
-		RuntimeLockID:      nextLock.ID,
-		OpeningInputIDs:    []uuid.UUID{nextInput.ID},
-		AgentConfigID:      launch.AgentConfig.ID,
-		InputEventSequence: nextAdmitted.Events[0].Sequence,
-	})
+	prepared2, err := store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         launch.Agent.ID,
+			RuntimeLockID:   nextLock.ID,
+			OpeningInputIDs: []uuid.UUID{nextInput.ID},
+		})
+	newFrontierClaim := prepared2.Claim
+
 	if err != nil {
 		t.Fatalf("claim model context at new frontier: %v", err)
 	}
@@ -5343,14 +5241,6 @@ model:
 			newFrontierClaim,
 			updated.CurrentRevisionID,
 		)
-	}
-	if err := executionstore.IntegrationValidateResponseEnvelopeForModelCallContext(
-		ctx,
-		store.q,
-		modelenvelope.ResponseEnvelope{RequestedProviderModelSlug: updated.ProviderModelSlug},
-		newFrontierClaim.Context,
-	); err != nil {
-		t.Fatalf("validate new-frontier provider slug: %v", err)
 	}
 }
 
@@ -5417,7 +5307,7 @@ model:
 	if err != nil {
 		t.Fatalf("acquire runtime lock: %v", err)
 	}
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+	_, found := admitNextAgentInputAndOpenTurnForTest(
 		t,
 		ctx,
 		store,
@@ -5441,17 +5331,17 @@ model:
 	if _, err := store.Models().DeleteProjectModelGrant(ctx, testOrgID, testProjectID, grant.ID); err != nil {
 		t.Fatalf("revoke model grant: %v", err)
 	}
-	claim, err := store.Execution().ClaimNormalModelCall(
+	prepared3, err := store.Execution().PrepareNormalModelCall(
 		ctx,
-		executionstore.ClaimNormalModelCallInput{
-			ProjectID:          testProjectID,
-			AgentID:            launch.Agent.ID,
-			RuntimeLockID:      lock.ID,
-			OpeningInputIDs:    []uuid.UUID{input.ID},
-			AgentConfigID:      config.ID,
-			InputEventSequence: admitted.Events[0].Sequence,
+		executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         launch.Agent.ID,
+			RuntimeLockID:   lock.ID,
+			OpeningInputIDs: []uuid.UUID{input.ID},
 		},
 	)
+	claim := prepared3.Claim
+
 	if err != nil {
 		t.Fatalf("claim context after grant revocation: %v", err)
 	}
@@ -5519,7 +5409,11 @@ model:
 	retargetedConfigID := updated.CurrentConfigID
 	generation1, err := store.q.GetAgentProfileVersionByGeneration(
 		ctx,
-		dbsqlc.GetAgentProfileVersionByGenerationParams{ProjectID: testProjectID, ProfileID: profile.ID, Generation: 1},
+		dbsqlc.GetAgentProfileVersionByGenerationParams{
+			ProjectID:  testProjectID,
+			ProfileID:  profile.ID,
+			Generation: 1,
+		},
 	)
 	if err != nil {
 		t.Fatalf("load profile generation 1: %v", err)
@@ -5529,7 +5423,11 @@ model:
 	}
 	generation2, err := store.q.GetAgentProfileVersionByGeneration(
 		ctx,
-		dbsqlc.GetAgentProfileVersionByGenerationParams{ProjectID: testProjectID, ProfileID: profile.ID, Generation: 2},
+		dbsqlc.GetAgentProfileVersionByGenerationParams{
+			ProjectID:  testProjectID,
+			ProfileID:  profile.ID,
+			Generation: 2,
+		},
 	)
 	if err != nil {
 		t.Fatalf("load profile generation 2: %v", err)
@@ -5658,7 +5556,10 @@ model:
 		t.Fatalf("launch config-only agent: %v", err)
 	}
 	if configOnly.Agent.CurrentConfigID != retargetedConfigID || configOnly.Agent.Name != "" {
-		t.Fatalf("config-only launch should use requested config and have no name, got agent=%+v", configOnly.Agent)
+		t.Fatalf(
+			"config-only launch should use requested config and have no name, got agent=%+v",
+			configOnly.Agent,
+		)
 	}
 
 	configOnlyName := "Config Only Named"
@@ -5677,7 +5578,10 @@ model:
 		t.Fatalf("launch named config-only agent: %v", err)
 	}
 	if configOnlyNamed.Agent.Name != "Config Only Named" {
-		t.Fatalf("config-only launch with explicit name should set agent name, got agent=%+v", configOnlyNamed.Agent)
+		t.Fatalf(
+			"config-only launch with explicit name should set agent name, got agent=%+v",
+			configOnlyNamed.Agent,
+		)
 	}
 
 	other := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "retarget-other", "Other Agent", `

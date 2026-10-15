@@ -64,8 +64,6 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 	return kjsonschema.NewCompiler().Compile(raw)
 })
 
-// toolSourceFields is the set of top-level fields the tools definition schema
-// declares, which are the only fields that affect a config's effective tools.
 var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
 	schemas, err := specComponentSchemas()
 	if err != nil {
@@ -83,11 +81,7 @@ var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
 	return fields, nil
 })
 
-func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
-	return ToolsFromSourceWithOptions(format, raw, CompileOptions{})
-}
-
-func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
+func ToolsFromSource(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)

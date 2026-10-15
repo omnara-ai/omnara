@@ -151,14 +151,6 @@ func normalizedJSON(value json.RawMessage) json.RawMessage {
 	return value
 }
 
-func marshalJSON(value any) (json.RawMessage, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
-}
-
 func sameJSON(a, b json.RawMessage) bool {
 	return jsoncanonical.Equal(a, b)
 }

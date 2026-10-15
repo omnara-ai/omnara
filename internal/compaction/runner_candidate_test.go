@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,7 +79,7 @@ func TestRunnerReplansWhenPublishFindsUnsafeBoundary(t *testing.T) {
 			textCompactionEvent(1, strings.Repeat("first closed event ", 20)),
 			textCompactionEvent(2, strings.Repeat("second closed event ", 20)),
 		},
-		publishErrs: []error{executionstore.ErrCheckpointBoundaryUnsafe},
+		publishErrs: []error{storeerr.ErrCheckpointBoundaryUnsafe},
 	}
 	client := &summaryModel{results: []summaryResult{
 		{response: completeSummaryResponse("Concise first summary.")},
@@ -269,8 +270,10 @@ func TestSafeCompactionSourceEndsRequireModelVisibleSemantics(t *testing.T) {
 }
 
 func TestRenderEventSourceReducesProjectionWithoutMutatingCanonicalOutput(t *testing.T) {
-	original := json.RawMessage(`[{"type":"structured_data","value":{"stdout":"` + strings.Repeat("x", 40_960) +
-		`TAIL"}}]`)
+	original := json.RawMessage(
+		`[{"type":"structured_data","value":{"stdout":"` + strings.Repeat("x", 40_960) +
+			`TAIL"}}]`,
+	)
 	event := mustCompactionEvent(1, "tool_result", "completed", append(json.RawMessage(nil), original...))
 	event.ToolName = "run_command"
 	event.ProviderCallID = "call_1"
@@ -469,7 +472,10 @@ func (m summaryModelWithExplicitCapabilities) Capabilities() model.Capabilities 
 func TestCompactionRetainsOverflowLocator(t *testing.T) {
 	path := "/artifacts/art_overflow"
 	parts, err := json.Marshal([]map[string]any{
-		{"type": "structured_data", "value": map[string]any{"path": path, "preview": strings.Repeat("x", 8192)}},
+		{
+			"type":  "structured_data",
+			"value": map[string]any{"path": path, "preview": strings.Repeat("x", 8192)},
+		},
 		{"type": "text", "text": strings.Repeat("other content", 5000)},
 	})
 	if err != nil {

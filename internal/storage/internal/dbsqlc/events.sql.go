@@ -13,46 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const advanceEventSequence = `-- name: AdvanceEventSequence :exec
-UPDATE agents
-SET next_event_sequence = next_event_sequence + 1, updated_at = statement_timestamp()
-WHERE project_id = $1
-  AND id = $2
-`
-
-type AdvanceEventSequenceParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) AdvanceEventSequence(ctx context.Context, arg AdvanceEventSequenceParams) error {
-	_, err := q.db.Exec(ctx, advanceEventSequence, arg.ProjectID, arg.ID)
-	return err
-}
-
-const allocateEventSequence = `-- name: AllocateEventSequence :one
-SELECT project_id, next_event_sequence
-FROM agents AS agents
-WHERE id = $1
-FOR UPDATE
-`
-
-type AllocateEventSequenceParams struct {
-	ID uuid.UUID
-}
-
-type AllocateEventSequenceRow struct {
-	ProjectID         uuid.UUID
-	NextEventSequence int64
-}
-
-func (q *Queries) AllocateEventSequence(ctx context.Context, arg AllocateEventSequenceParams) (AllocateEventSequenceRow, error) {
-	row := q.db.QueryRow(ctx, allocateEventSequence, arg.ID)
-	var i AllocateEventSequenceRow
-	err := row.Scan(&i.ProjectID, &i.NextEventSequence)
-	return i, err
-}
-
 const getEventByProjectAgentIdempotencyKey = `-- name: GetEventByProjectAgentIdempotencyKey :one
 SELECT event.id, event.agent_id, event.turn_id, event.is_opening_event, event.sequence, event.event_kind, event.created_at, coalesce(event.idempotency_key, '') AS idempotency_key
 FROM agent_events event
@@ -80,47 +40,6 @@ type GetEventByProjectAgentIdempotencyKeyRow struct {
 func (q *Queries) GetEventByProjectAgentIdempotencyKey(ctx context.Context, arg GetEventByProjectAgentIdempotencyKeyParams) (GetEventByProjectAgentIdempotencyKeyRow, error) {
 	row := q.db.QueryRow(ctx, getEventByProjectAgentIdempotencyKey, arg.ProjectID, arg.AgentID, arg.IdempotencyKey)
 	var i GetEventByProjectAgentIdempotencyKeyRow
-	err := row.Scan(
-		&i.ID,
-		&i.AgentID,
-		&i.TurnID,
-		&i.IsOpeningEvent,
-		&i.Sequence,
-		&i.EventKind,
-		&i.CreatedAt,
-		&i.IdempotencyKey,
-	)
-	return i, err
-}
-
-const latestAgentEvent = `-- name: LatestAgentEvent :one
-SELECT event.id, event.agent_id, event.turn_id, event.is_opening_event, event.sequence, event.event_kind, event.created_at, coalesce(event.idempotency_key, '') AS idempotency_key
-FROM agent_events event
-JOIN agents agent ON agent.id = event.agent_id
-WHERE agent.project_id = $1 AND event.agent_id = $2
-ORDER BY sequence DESC
-LIMIT 1
-`
-
-type LatestAgentEventParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-type LatestAgentEventRow struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	TurnID         uuid.UUID
-	IsOpeningEvent bool
-	Sequence       int64
-	EventKind      string
-	CreatedAt      time.Time
-	IdempotencyKey string
-}
-
-func (q *Queries) LatestAgentEvent(ctx context.Context, arg LatestAgentEventParams) (LatestAgentEventRow, error) {
-	row := q.db.QueryRow(ctx, latestAgentEvent, arg.ProjectID, arg.AgentID)
-	var i LatestAgentEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,

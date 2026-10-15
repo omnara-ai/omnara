@@ -1,12 +1,9 @@
 package modelstore
 
 import (
-	"fmt"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -29,8 +26,4 @@ func stringFromSQLCText(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-func resourceLimitExceeded(resource string, limit int64) error {
-	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)
 }

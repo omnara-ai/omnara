@@ -288,7 +288,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.

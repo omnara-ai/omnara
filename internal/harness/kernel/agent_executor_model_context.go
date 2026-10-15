@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -63,19 +62,12 @@ func validateResolvedModelContext(
 	return nil
 }
 
-func (e AgentExecutor) modelContextToolRuntime(
+func (e AgentExecutor) toolRuntimeFromConfig(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
-	contextRow executionstore.ModelCallContextRecord,
+	config executionstore.AgentConfigRecord,
 	now time.Time,
 ) ([]modelcontext.ToolSpec, error) {
-	config, found, err := e.Store.Execution().GetAgentConfig(ctx, projectID, contextRow.AgentConfigID)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, errors.New("model context agent config is missing")
-	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
 		config.EffectiveDefinitionHash,

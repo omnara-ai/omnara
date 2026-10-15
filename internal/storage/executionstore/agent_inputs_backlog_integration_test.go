@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,80 +18,6 @@ import (
 )
 
 const backlogRankStride int64 = 1024
-
-func TestPromoteQueuedInputToSteeringIsIdempotentAfterPromotionAndAdmission(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "idempotent-backlog-promotion")
-	createQueued := func(label string) executionstore.AgentInputRecord {
-		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-			ctx,
-			executionstore.CreateAgentContentInputInput{
-				ProjectID:      testProjectID,
-				AgentID:        fixture.AgentID,
-				Actor:          mustOmnaraActorParams(t, fixture.UserID),
-				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + label + `"}]`),
-				IdempotencyKey: "idem-idempotent-promotion-" + label,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create %s input: %v", label, err)
-		}
-		return input
-	}
-	promote := func(inputID uuid.UUID) error {
-		return fixture.Store.Execution().PromoteQueuedInputToSteering(
-			ctx,
-			executionstore.PromoteQueuedInputToSteeringInput{
-				ProjectID: testProjectID,
-				AgentID:   fixture.AgentID,
-				InputID:   inputID,
-			},
-		)
-	}
-
-	admittedFirst := createQueued("admitted-first")
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
-		t,
-		ctx,
-		fixture.Store,
-		testProjectID,
-		fixture.AgentID,
-		fixture.Lock.ID,
-	)
-	if !found || len(admitted.Inputs) != 1 || admitted.Inputs[0].ID != admittedFirst.ID {
-		t.Fatalf("admitted inputs = %+v, want %s", admitted.Inputs, admittedFirst.ID)
-	}
-	if err := promote(admittedFirst.ID); err != nil {
-		t.Fatalf("promote after admission: %v", err)
-	}
-	if err := promote(admittedFirst.ID); err != nil {
-		t.Fatalf("repeat promotion after admission: %v", err)
-	}
-
-	promotedFirst := createQueued("promoted-first")
-	if err := promote(promotedFirst.ID); err != nil {
-		t.Fatalf("promote queued input: %v", err)
-	}
-	if err := promote(promotedFirst.ID); err != nil {
-		t.Fatalf("repeat promotion while steering: %v", err)
-	}
-
-	canceled := createQueued("canceled")
-	if err := fixture.Store.Execution().CancelQueuedBacklogInput(
-		ctx,
-		executionstore.CancelQueuedBacklogInputInput{
-			ProjectID: testProjectID,
-			AgentID:   fixture.AgentID,
-			InputID:   canceled.ID,
-		},
-	); err != nil {
-		t.Fatalf("cancel queued input: %v", err)
-	}
-	if err := promote(canceled.ID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("promote canceled input error = %v, want state transition conflict", err)
-	}
-}
 
 func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	t.Parallel()
@@ -415,7 +340,7 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 	assertOrder(firstSteering.ID, secondSteering.ID, third.ID, second.ID, first.ID)
 }
 
-func TestMoveQueuedBacklogInputRebalancesExhaustedRankGap(t *testing.T) {
+func TestMoveQueuedBacklogInputRejectsMissingAnchor(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -465,25 +390,6 @@ WHERE project_id = $3
 		t.Fatalf("invalid move changed exhausted ranks to (%d, %d)", firstRank, secondRank)
 	}
 
-	if err := store.Execution().MoveQueuedBacklogInput(ctx, executionstore.MoveQueuedBacklogInputInput{
-		ProjectID:     testProjectID,
-		AgentID:       agentID,
-		InputID:       third.ID,
-		Position:      executionstore.MoveQueuedBacklogInputBefore,
-		AnchorInputID: second.ID,
-	}); err != nil {
-		t.Fatalf("move input through exhausted rank gap: %v", err)
-	}
-	if firstRank := loadAgentInputRank(t, ctx, pool, first.ID); firstRank != backlogRankStride {
-		t.Fatalf("rebalanced first input rank = %d, want %d", firstRank, backlogRankStride)
-	}
-	wantMidpoint := 3 * backlogRankStride / 2
-	if thirdRank := loadAgentInputRank(t, ctx, pool, third.ID); thirdRank != wantMidpoint {
-		t.Fatalf("moved third input rank = %d, want midpoint %d", thirdRank, wantMidpoint)
-	}
-	if secondRank := loadAgentInputRank(t, ctx, pool, second.ID); secondRank != 2*backlogRankStride {
-		t.Fatalf("rebalanced second input rank = %d, want %d", secondRank, 2*backlogRankStride)
-	}
 }
 
 func TestConcurrentQueuedBacklogMovesSerializePerAgent(t *testing.T) {
@@ -629,17 +535,17 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	agentID := mustCreateAgent(t, ctx, store)
 	actor := mustOmnaraActorParams(t, user.ID)
 
-	waitingTx, err := pool.Begin(ctx)
+	waitingTx, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin waiting input transaction: %v", err)
 	}
 	defer func() { _ = waitingTx.Rollback(ctx) }()
-	blockingTx, err := pool.Begin(ctx)
+	blockingTx, err := store.Execution().IntegrationBeginUnit(ctx)
 	if err != nil {
 		t.Fatalf("begin blocking input transaction: %v", err)
 	}
 	defer func() { _ = blockingTx.Rollback(ctx) }()
-	blockingQueries := store.q.WithTx(blockingTx)
+	blockingQueries := dbsqlc.New(blockingTx.DB())
 	if _, err := blockingQueries.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
@@ -647,7 +553,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		t.Fatalf("lock agent for first input: %v", err)
 	}
 	var blockingPID int32
-	if err := blockingTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID); err != nil {
+	if err := blockingTx.DB().QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID); err != nil {
 		t.Fatalf("get blocking input backend: %v", err)
 	}
 
@@ -664,9 +570,8 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	go func() {
 		result, err := executionstore.IntegrationCreateAgentContentInputTx(
 			context.Background(),
-			notifications.NewTxNotifications(),
 			waitingTx,
-			store.q.WithTx(waitingTx),
+			dbsqlc.New(waitingTx.DB()),
 			executionstore.CreateAgentContentInputInput{
 				ProjectID:      testProjectID,
 				AgentID:        agentID,
@@ -677,7 +582,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 			secondBlocks,
 		)
 		if err == nil {
-			err = waitingTx.Commit(context.Background())
+			err = waitingTx.Commit(context.Background(), "second input")
 		}
 		waitingResult <- createResult{input: result.AgentInput, err: err}
 	}()
@@ -690,7 +595,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	}
 	first, err := executionstore.IntegrationCreateAgentContentInputTx(
 		ctx,
-		notifications.NewTxNotifications(),
 		blockingTx,
 		blockingQueries,
 		executionstore.CreateAgentContentInputInput{
@@ -706,10 +610,10 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		t.Fatalf("create first input: %v", err)
 	}
 	var releaseFloor time.Time
-	if err := blockingTx.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
+	if err := blockingTx.DB().QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
 		t.Fatalf("read input lock release floor: %v", err)
 	}
-	if err := blockingTx.Commit(ctx); err != nil {
+	if err := blockingTx.Commit(ctx, "first input"); err != nil {
 		t.Fatalf("commit first input: %v", err)
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -44,8 +45,14 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return AgentConfigRecord{}, err
 	}
-	record, err := insertAgentConfigTx(ctx, qtx, input)
+	var creations []resourceguard.Creation
+	record, err := insertAgentConfigTx(ctx, qtx, input, func(creation resourceguard.Creation) {
+		creations = append(creations, creation)
+	})
 	if err != nil {
+		return AgentConfigRecord{}, err
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 		return AgentConfigRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -116,6 +123,21 @@ func (s *Store) CaptureAgentConfigForModelContext(
 			err,
 		)
 	}
+	snapshot, err := captureAgentConfigForModelContextTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return AgentConfigSnapshotRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return AgentConfigSnapshotRecord{}, fmt.Errorf("commit capture agent config for model context: %w", err)
+	}
+	return snapshot, nil
+}
+
+func captureAgentConfigForModelContextTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) (AgentConfigSnapshotRecord, error) {
 	// The lock and the capture are deliberately separate statements. Under
 	// READ COMMITTED, the second statement gets a fresh snapshot after any
 	// transaction that previously held the agent lock has committed, so the
@@ -131,12 +153,6 @@ func (s *Store) CaptureAgentConfigForModelContext(
 	if err != nil {
 		return AgentConfigSnapshotRecord{}, fmt.Errorf(
 			"capture agent config for model context: %w",
-			err,
-		)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentConfigSnapshotRecord{}, fmt.Errorf(
-			"commit capture agent config for model context: %w",
 			err,
 		)
 	}
@@ -197,6 +213,7 @@ func insertAgentConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input CreateAgentConfigInput,
+	track func(resourceguard.Creation),
 ) (AgentConfigRecord, error) {
 	input = withDefaultAgentConfigCompilation(input)
 	if input.Source != "" {
@@ -206,7 +223,6 @@ func insertAgentConfigTx(
 	} else if input.SourceFormat != "" || input.SourceHash != "" {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(errors.New("source metadata requires source"))
 	}
-	// Postgres rejects U+0000 and invalid UTF-8; report them as invalid configs.
 	if err := dbsafe.Text(input.Source); err != nil {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config source %w", err))
 	}
@@ -272,26 +288,7 @@ func insertAgentConfigTx(
 		)
 	}
 	if record.Created {
-		if err := lockResourceCreation(ctx, qtx, resourceAgentConfigs, input.ProjectID.String()); err != nil {
-			return AgentConfigRecord{}, err
-		}
-		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return AgentConfigRecord{}, err
-		}
-		configCount, err := qtx.CountAgentConfigsForProject(
-			ctx,
-			dbsqlc.CountAgentConfigsForProjectParams{ProjectID: input.ProjectID},
-		)
-		if err != nil {
-			return AgentConfigRecord{}, fmt.Errorf("count agent configs: %w", err)
-		}
-		if configCount > limits.MaxAgentConfigsPerProject {
-			return AgentConfigRecord{}, resourceLimitExceeded(
-				"agent configs",
-				limits.MaxAgentConfigsPerProject,
-			)
-		}
+		track(resourceguard.Creation{Kind: resourceguard.AgentConfigs, OrgID: input.OrgID, ProjectID: input.ProjectID})
 	}
 	return record, nil
 }

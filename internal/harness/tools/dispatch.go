@@ -204,7 +204,10 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 				execution.CommandResult,
 			)
 		}
-		return toolDispatchCompleted{}, false, nil
+		if execution.Completed == nil {
+			return nil, false, errors.New("completed tool transaction did not return its result")
+		}
+		return toolDispatchCompleted{record: *execution.Completed}, false, nil
 	case executionstore.ToolCallDispositionRunning:
 	default:
 		return nil, false, fmt.Errorf(
@@ -651,7 +654,7 @@ type toolDispatchResult interface {
 }
 
 type toolDispatchAwaiting struct{}
-type toolDispatchCompleted struct{}
+type toolDispatchCompleted struct{ record executionstore.ToolCallRecord }
 
 type toolDispatchFailed struct {
 	content toolResultContent

@@ -173,7 +173,10 @@ func TestWorkerRunOnceAdmitsOneQueuedInputAndLeavesBacklogRunnable(t *testing.T)
 	secondID := createWorkerInput(t, ctx, store, agentID, userID, "second", now.Add(2*time.Second))
 
 	executor := newCaptureTurnExecutor(false)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	worked, err := worker.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("worker run once: %v", err)
@@ -223,7 +226,10 @@ func TestWorkerRunOnceBatchesSteeringInputsAndReleasesRuntime(t *testing.T) {
 	)
 
 	executor := newCaptureTurnExecutor(false)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	worked, err := worker.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("worker run once: %v", err)
@@ -265,7 +271,10 @@ func TestWorkerRunOnceClaimsWakeupFromAnyProject(t *testing.T) {
 	)
 
 	executor := newCaptureTurnExecutor(false)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	worked, err := worker.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("worker run once: %v", err)
@@ -292,7 +301,10 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 
 	firstExecutor := newCaptureTurnExecutor(true)
 	firstWorker := NewWorker(
-		store.Execution(), firstExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1},
+		store.Execution(), firstExecutor, Options{
+			RuntimeLockLeaseDuration: 30 * time.Second,
+			Capacity:                 1,
+		},
 	)
 	firstCtx, cancelFirst := context.WithCancel(context.Background())
 	defer cancelFirst()
@@ -318,7 +330,10 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 
 	secondExecutor := newCaptureTurnExecutor(false)
 	secondWorker := NewWorker(
-		store.Execution(), secondExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1},
+		store.Execution(), secondExecutor, Options{
+			RuntimeLockLeaseDuration: 30 * time.Second,
+			Capacity:                 1,
+		},
 	)
 	worked, err := secondWorker.RunOnce(ctx)
 	if err != nil {
@@ -374,7 +389,11 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	executor := newCaptureTurnExecutor(true)
 	worker := NewWorker(
 		store.Execution(), executor,
-		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+		Options{
+			RuntimeLockLeaseDuration: 30 * time.Second,
+			Capacity:                 1,
+			ControlSubscriber:        bus,
+		},
 	)
 	errs := make(chan error, 1)
 	go func() {
@@ -451,7 +470,10 @@ func TestWorkerCancelBeforeInitialRenewalCompletesCleanly(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "cancel before initial renewal", now.Add(time.Second))
 
 	executor := newCaptureTurnExecutor(false)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 30 * time.Second,
+		Capacity:                 1,
+	})
 	claim, worked, err := store.Execution().ClaimNextAgentWork(
 		ctx,
 		executionstore.ClaimNextAgentWorkInput{
@@ -484,6 +506,7 @@ func TestWorkerCancelBeforeInitialRenewalCompletesCleanly(t *testing.T) {
 		t.Fatal("cancel should report affected")
 	}
 
+	claim.LocalLeaseBudgetStartedAt = time.Now().Add(-worker.runtimeLockLeaseDuration)
 	if err := worker.executeClaimedWork(ctx, claim, now.Add(2*time.Second)); err != nil {
 		t.Fatalf("execute canceled claim: %v", err)
 	}
@@ -667,7 +690,11 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 	executor := &cancelOnceTurnExecutor{started: make(chan kernel.ModelWorkExecution, 2)}
 	worker := NewWorker(
 		store.Execution(), executor,
-		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+		Options{
+			RuntimeLockLeaseDuration: 30 * time.Second,
+			Capacity:                 1,
+			ControlSubscriber:        bus,
+		},
 	)
 	runDone := make(chan error, 1)
 	go func() { runDone <- worker.Run(ctx) }()
@@ -709,7 +736,10 @@ func TestWorkerCancelFallsBackToRenewalWithoutControlDelivery(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "cancel by renewal", now.Add(time.Second))
 
 	executor := newCaptureTurnExecutor(true)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	runDone := make(chan error, 1)
 	go func() {
 		worked, err := worker.RunOnce(ctx)
@@ -787,7 +817,11 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	blockingExecutor := newCaptureTurnExecutor(true)
 	runningWorker := NewWorker(
 		store.Execution(), blockingExecutor,
-		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+		Options{
+			RuntimeLockLeaseDuration: 30 * time.Second,
+			Capacity:                 1,
+			ControlSubscriber:        bus,
+		},
 	)
 	errs := make(chan error, 1)
 	go func() {
@@ -838,7 +872,10 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	)
 	nextExecutor := newCaptureTurnExecutor(false)
 	nextWorker := NewWorker(
-		store.Execution(), nextExecutor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1},
+		store.Execution(), nextExecutor, Options{
+			RuntimeLockLeaseDuration: 15 * time.Second,
+			Capacity:                 1,
+		},
 	)
 	worked, err := nextWorker.RunOnce(context.Background())
 	if err != nil {
@@ -887,7 +924,10 @@ func TestWorkerRunOnceUsesRealKernelExecutor(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	worked, err := worker.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("worker real kernel run once: %v", err)
@@ -942,7 +982,10 @@ func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) 
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist question tool output")
 	assertAgentInputAdmitted(t, ctx, pool, agentID, inputID)
 	assertNoOpenInteractions(t, ctx, store, agentID)
@@ -1026,7 +1069,10 @@ func TestWorkerKernelStructuredQuestionUsesCatalogAllowPolicy(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist catalog-allowed question output")
 	assertAgentInputAdmitted(t, ctx, pool, agentID, inputID)
 	requireWorkerClaim(t, ctx, worker, "dispatch catalog-allowed question")
@@ -1106,7 +1152,10 @@ func TestWorkerKernelPermissionApprovalUnlocksStructuredQuestionTool(t *testing.
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist permission-gated question output")
 	assertAgentInputAdmitted(t, ctx, pool, agentID, inputID)
 	requireWorkerClaim(t, ctx, worker, "prepare question permission")
@@ -1202,7 +1251,10 @@ func TestWorkerKernelPermissionDenialCompletesToolResult(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist permission-denied question output")
 	requireWorkerClaim(t, ctx, worker, "prepare denied question permission")
 	approval := assertOpenInteraction(t, ctx, store, agentID, "permission")
@@ -1263,7 +1315,10 @@ func TestWorkerKernelMachineToolWithoutBindingFailsBeforeApproval(t *testing.T) 
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist no-machine command output")
 	requireWorkerClaim(t, ctx, worker, "fail no-machine command")
 	requireWorkerClaim(t, ctx, worker, "continue after no-machine failure")
@@ -1310,7 +1365,10 @@ func TestWorkerKernelDeniedMachineToolDoesNotRequireBinding(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist denied command output")
 	requireWorkerClaim(t, ctx, worker, "deny command")
 	requireWorkerClaim(t, ctx, worker, "continue after command denial")
@@ -1363,7 +1421,10 @@ func TestWorkerKernelPermissionApprovalStartsMachineRunCommand(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist permission-gated command output")
 	requireWorkerClaim(t, ctx, worker, "prepare command permission")
 	approval := assertOpenInteraction(t, ctx, store, agentID, "permission")
@@ -1432,7 +1493,10 @@ func TestWorkerKernelStructuredInteractionFormResolvesAtomically(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist multi-question output")
 	requireWorkerClaim(t, ctx, worker, "dispatch multi-question tool")
 	question := assertOpenInteraction(t, ctx, store, agentID, "question")
@@ -1510,7 +1574,10 @@ func TestWorkerKernelMultipleToolCallsWaitForAllInteractions(t *testing.T) {
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	worker := NewWorker(store.Execution(), executor, Options{
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+	})
 	requireWorkerClaim(t, ctx, worker, "persist sibling question outputs")
 	requireWorkerClaim(t, ctx, worker, "dispatch sibling question tools")
 	questions := assertOpenInteractions(t, ctx, store, agentID, "question", 2)

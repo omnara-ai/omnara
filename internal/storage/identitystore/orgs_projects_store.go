@@ -300,7 +300,7 @@ func (s *Store) CreateProjectForPrincipal(
 			return ProjectRecord{}, fmt.Errorf("count active projects: %w", err)
 		}
 		if projectCount > limits.MaxActiveProjectsPerOrg {
-			return ProjectRecord{}, resourceLimitExceeded(
+			return ProjectRecord{}, resourceguard.LimitExceeded(
 				"active projects",
 				limits.MaxActiveProjectsPerOrg,
 			)

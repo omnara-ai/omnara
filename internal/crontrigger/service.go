@@ -214,7 +214,8 @@ func (s *Service) sendAgentInput(
 }
 
 func permanentFireError(err error) bool {
-	return errors.Is(err, storeerr.ErrNotFound) ||
+	return errors.Is(err, storeerr.ErrAgentBacklogFull) ||
+		errors.Is(err, storeerr.ErrNotFound) ||
 		errors.Is(err, storeerr.ErrInvalidRequest) ||
 		errors.Is(err, storeerr.ErrIdempotencyConflict)
 }

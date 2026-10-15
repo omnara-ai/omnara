@@ -58,7 +58,7 @@ func (s *Store) CreateConfiguredModel(
 		return ConfiguredModelRecord{}, fmt.Errorf("count active configured models: %w", err)
 	}
 	if modelCount > limits.MaxActiveConfiguredModelsPerProvider {
-		return ConfiguredModelRecord{}, resourceLimitExceeded(
+		return ConfiguredModelRecord{}, resourceguard.LimitExceeded(
 			"active configured models",
 			limits.MaxActiveConfiguredModelsPerProvider,
 		)

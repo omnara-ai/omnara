@@ -31,7 +31,7 @@ type AcceptScheduledIntegrationEventInput struct {
 
 func (s *Store) AcceptScheduledIntegrationEventTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input AcceptScheduledIntegrationEventInput,
 ) (IntegrationInboxRecord, bool, error) {
 	payload, err := json.Marshal(input.Event)

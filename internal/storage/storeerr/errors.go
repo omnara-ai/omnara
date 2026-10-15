@@ -2,16 +2,26 @@ package storeerr
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 )
 
 const (
+	AgentBacklogFullCode             = "agent_backlog_full"
 	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
 	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
 )
 
 var (
+	ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")
+	ErrCommitOutcomeUnknown     = errors.New("transaction commit outcome is unknown")
+	AgentBacklogFullMessage     = fmt.Sprintf(
+		"This agent already has %d pending messages. "+
+			"Wait for messages to be processed or cancel a pending message, then try again.",
+		executionpolicy.MaxPendingAgentContentInputs)
+	ErrAgentBacklogFull              = errors.New(AgentBacklogFullMessage)
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
@@ -47,16 +57,18 @@ var (
 	ErrMachineSleepPendingWork       = errors.New("machine has pending daemon work")
 	ErrMachineNotWakeCapable         = errors.New("machine is not wake capable")
 	ErrMachineWakeUnresolved         = errors.New("machine wake outcome is unresolved")
-	ErrProcessActionReportBlocked    = errors.New("process action report is blocked by earlier non-terminal action")
-	ErrStateTransitionConflict       = errors.New("state transition conflict")
-	ErrMachineProviderUnavailable    = errors.New("machine provider unavailable")
-	ErrPermanentEnvironment          = errors.New("permanent environment resolution error")
-	ErrModelGrantUnavailable         = errors.New("model grant unavailable")
-	ErrUnauthorized                  = errors.New("unauthorized")
-	ErrOAuthScopeExceedsGrant        = errors.New("requested scope exceeds the granted scope")
-	ErrNotFound                      = errors.New("not found")
-	ErrMCPOAuthFlowConsumed          = errors.New("mcp oauth flow already consumed")
-	ErrIntegrationOAuthFlowConsumed  = errors.New("integration oauth flow already consumed")
+	ErrProcessActionReportBlocked    = errors.New(
+		"process action report is blocked by earlier non-terminal action",
+	)
+	ErrStateTransitionConflict      = errors.New("state transition conflict")
+	ErrMachineProviderUnavailable   = errors.New("machine provider unavailable")
+	ErrPermanentEnvironment         = errors.New("permanent environment resolution error")
+	ErrModelGrantUnavailable        = errors.New("model grant unavailable")
+	ErrUnauthorized                 = errors.New("unauthorized")
+	ErrOAuthScopeExceedsGrant       = errors.New("requested scope exceeds the granted scope")
+	ErrNotFound                     = errors.New("not found")
+	ErrMCPOAuthFlowConsumed         = errors.New("mcp oauth flow already consumed")
+	ErrIntegrationOAuthFlowConsumed = errors.New("integration oauth flow already consumed")
 )
 
 type FileContentConflictError struct {

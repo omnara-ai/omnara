@@ -64,7 +64,7 @@ sql:
   - engine: "postgresql"
     schema: "migrations"
     queries: "internal/storage/queries"
-    rules:
+    rules: &postgres_rules
       - users-deleted-at
       - orgs-deleted-at
       - projects-deleted-at
@@ -91,7 +91,7 @@ sql:
         query_parameter_limit: 0
         output_db_file_name: "db_gen.go"
         output_models_file_name: "models_gen.go"
-        overrides:
+        overrides: &postgres_overrides
           - column: "processes.execution_spec"
             go_type:
               import: "github.com/omnara-ai/omnara/internal/processcmd"
@@ -191,6 +191,24 @@ sql:
               import: "encoding/json"
               type: "RawMessage"
               pointer: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/storage/internal/agentexecution/queries"
+    rules: *postgres_rules
+    gen:
+      go:
+        package: "executiondb"
+        emit_methods_with_db_argument: true
+        out: "internal/storage/internal/agentexecution/internal/executiondb"
+        sql_package: "pgx/v5"
+        emit_empty_slices: true
+        emit_json_tags: false
+        emit_interface: false
+        omit_unused_structs: true
+        query_parameter_limit: 0
+        output_db_file_name: "db_gen.go"
+        output_models_file_name: "models_gen.go"
+        overrides: *postgres_overrides
   - engine: "sqlite"
     schema: "internal/machinedaemon/statedb/migrations"
     queries: "internal/machinedaemon/statedb/queries"

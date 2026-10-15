@@ -38,9 +38,16 @@ func TestProviderReplaySuppressionCutoffUsesCompatiblePriorFailures(t *testing.T
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  runtime_lock_id, state, created_at
+  runtime_lock_id, state, created_at,turn_id,opening_input_ids,opening_event_sequence
 )
-VALUES ($1, $2, $3, 'normal', 1, $4, $5, $6, $7, 'started', statement_timestamp())
+VALUES ($1, $2, $3, 'normal', 1, $4, $5, $6, $7, 'started', statement_timestamp(),
+(SELECT current_turn_id FROM agent_execution_state WHERE agent_id=$3), (SELECT
+array_agg(i.id ORDER BY e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'),
+(SELECT min(e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'))
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
 			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {
@@ -62,9 +69,16 @@ WHERE id = $1`, parentID); err != nil {
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, runtime_lock_id, state, created_at,turn_id,opening_input_ids,opening_event_sequence
 )
-VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp())
+VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp(),
+(SELECT current_turn_id FROM agent_execution_state WHERE agent_id=$3), (SELECT
+array_agg(i.id ORDER BY e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'),
+(SELECT min(e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'))
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
 			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {

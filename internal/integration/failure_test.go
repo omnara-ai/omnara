@@ -162,6 +162,14 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 			}
 			require.Equal(t, wantChecked, artifacts.checked, "notice outcome must not skip durable-reference checks")
 			require.Equal(t, receipt, store.receipt)
+			if scenario.wantNotice {
+				require.Error(t, consumer.FinalizeFailure(t.Context(), project, receiptID, storeerr.ErrAgentBacklogFull))
+				want := storeerr.ErrAgentBacklogFull.Error()
+				if scenario.wantPartial {
+					want = partialInboxDeliveryMessage
+				}
+				require.Equal(t, want, provider.message)
+			}
 			store.receipt.State = integrationstore.IntegrationInboxQueued
 			require.ErrorIs(t, consumer.FinalizeFailure(t.Context(), project, receiptID, nil),
 				storeerr.ErrStateTransitionConflict)

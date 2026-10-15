@@ -94,12 +94,6 @@ type Server struct {
 	timer                               clock.Clock
 }
 
-func WithTimer(timer clock.Clock) Option {
-	return func(s *Server) {
-		s.timer = timer
-	}
-}
-
 type daemonNotificationConfig struct {
 	subscriber notifications.DaemonWakeupSubscriber
 	presence   notifications.DaemonPresenceStore
@@ -444,13 +438,19 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		ClientMetadataHTTPClient: server.oauthClientMetadataHTTPClient,
 	})
 	if server.agentEventWakeupSubscriber == nil {
-		return nil, fmt.Errorf("agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber")
+		return nil, fmt.Errorf(
+			"agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber",
+		)
 	}
 	if server.agentToolCallUpdateSubscriber == nil {
-		return nil, fmt.Errorf("agent tool call update subscriber is required; wire via WithAgentToolCallUpdateSubscriber")
+		return nil, fmt.Errorf(
+			"agent tool call update subscriber is required; wire via WithAgentToolCallUpdateSubscriber",
+		)
 	}
 	if server.agentStreamDeltaSubscriber == nil {
-		return nil, fmt.Errorf("agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber")
+		return nil, fmt.Errorf(
+			"agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber",
+		)
 	}
 	if store != nil {
 		server.agentEventStreamReconciler = newAgentEventStreamReconciler(

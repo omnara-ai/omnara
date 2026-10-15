@@ -49,18 +49,15 @@ func TestReplaceCompactionSourceRejectsLargerRange(t *testing.T) {
 	if !found || len(admitted.Events) != 2 {
 		t.Fatalf("admitted opening events = %+v found=%v, want two", admitted.Events, found)
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
-	parent, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []uuid.UUID{inputs[0].ID, inputs[1].ID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[1].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: []uuid.UUID{inputs[0].ID, inputs[1].ID},
+		})
+	parent := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim blocked normal context: %v", err)
 	}

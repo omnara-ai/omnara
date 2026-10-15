@@ -287,7 +287,10 @@ WHERE project_id = $1
 	var runnable int
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT count(*)
-FROM agent_tool_work_frontiers($1, $2)
+FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
+WHERE a.project_id=$1 AND h.agent_id=$2 AND EXISTS(SELECT 1 FROM tool_calls t
+ WHERE t.agent_id=h.agent_id AND t.model_output_id=h.pending_tool_output_id
+ AND (t.state='awaiting_authorization' OR t.state='ready' AND t.type IN ('built_in','mcp')))
 `, kernelTestProjectID, agentID).Scan(&runnable); err != nil {
 		t.Fatalf("count runnable tool work: %v", err)
 	}

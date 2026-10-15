@@ -178,3 +178,30 @@ func resolutionTestForm(t *testing.T) Form {
 	}
 	return value
 }
+
+func TestQuestionToolResultKeepsPositionalIdentityForDuplicateLabels(t *testing.T) {
+	result := RenderAnswers(
+		Form{Questions: []Question{{
+			Prompt:   "Choose",
+			Multiple: true,
+			Options: []Option{
+				{Label: "Other"},
+				{Label: "Other", AllowsText: true},
+			},
+		}}},
+		Resolution{Answers: []Answer{{
+			OptionIndices: []int{0, 1},
+		}}},
+	)
+	if len(result.Answers) != 1 || result.Answers[0].QuestionIndex != 0 {
+		t.Fatalf("question result = %+v", result)
+	}
+	selected := result.Answers[0].SelectedOptions
+	if len(selected) != 2 ||
+		selected[0].OptionIndex != 0 ||
+		selected[1].OptionIndex != 1 ||
+		selected[0].Label != "Other" ||
+		selected[1].Label != "Other" {
+		t.Fatalf("selected options = %+v", selected)
+	}
+}
