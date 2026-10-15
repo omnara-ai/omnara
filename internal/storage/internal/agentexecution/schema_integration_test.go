@@ -157,7 +157,7 @@ func TestExecutionReconstructionIgnoresCorruptHead(t *testing.T) {
 	require.NoError(t, err)
 	_, err = u.DB().
 		Exec(t.Context(), `UPDATE agent_execution_state SET normal_context_id=NULL,pending_output_limit_id=NULL,
- max_normal_input_sequence=0,max_context_input_sequence=0,turn_continuable=false,logical_ready_at=NULL WHERE
+ max_normal_input_sequence=0,max_context_input_sequence=0,logical_ready_at=NULL WHERE
 agent_id=$1
 `, agent)
 	require.NoError(t, err)

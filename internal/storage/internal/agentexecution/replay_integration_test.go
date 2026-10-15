@@ -179,12 +179,12 @@ func assertPersistedHeadMatchesReconstruction(t *testing.T, f executionFixture, 
  max_normal_input_sequence,max_context_input_sequence,coalesce(normal_context_id,`+none+`),
  coalesce(compaction_context_id,`+none+`),coalesce(pending_tool_output_id,`+none+`),
  coalesce(pending_output_limit_id,`+none+`),coalesce(pending_config_input_id,`+none+`),
- coalesce(pending_checkpoint_id,`+none+`),turn_continuable,incomplete_tools,logical_ready_at
+ coalesce(pending_checkpoint_id,`+none+`),incomplete_tools,logical_ready_at
  FROM agent_execution_state WHERE agent_id=$1`, agent).Scan(
 		&persisted.CurrentTurnID, &persisted.StopSequence, &persisted.MaxNormalInputSequence,
 		&persisted.MaxContextInputSequence, &persisted.NormalContextID, &persisted.CompactionContextID,
 		&persisted.PendingToolOutputID, &persisted.PendingOutputLimitID, &persisted.PendingConfigInputID,
-		&persisted.PendingCheckpointID, &persisted.TurnContinuable, &persisted.IncompleteTools,
+		&persisted.PendingCheckpointID, &persisted.IncompleteTools,
 		&persisted.LogicalReadyAt))
 	if persisted.LogicalReadyAt != nil && rebuilt.Head.LogicalReadyAt != nil {
 		require.WithinDuration(t, *rebuilt.Head.LogicalReadyAt, *persisted.LogicalReadyAt, 0)
@@ -217,7 +217,7 @@ func TestStoredExecutionHeadMatchesMultiTurnReconstruction(t *testing.T) {
 		assertPersistedHeadMatchesReconstruction(t, f, agent)
 		u, h = f.handle(t, agent)
 		snapshot := assertCommandState(t, u, h)
-		require.False(t, snapshot.Head.TurnContinuable, "turn %d", turn)
+		require.False(t, snapshot.Selection.TurnContinuable, "turn %d", turn)
 		require.NoError(t, u.Rollback(t.Context()))
 	}
 }

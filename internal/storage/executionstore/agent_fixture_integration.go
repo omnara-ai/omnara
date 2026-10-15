@@ -178,3 +178,16 @@ func (s *Store) IntegrationBeginMachineWakeOnce(
 			return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
 		})
 }
+
+func (s *Store) IntegrationLoadExecution(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) (agentexecution.ExecutionSnapshot, error) {
+	return agentexecution.ReplanTest(ctx, func(ctx context.Context) (agentexecution.ExecutionSnapshot, error) {
+		unit, h, err := beginExecution(ctx, s, projectID, agentID, false, uuid.Nil)
+		if err != nil {
+			return agentexecution.ExecutionSnapshot{}, err
+		}
+		defer func() { _ = unit.Rollback(ctx) }()
+		return h.LoadExecution(ctx)
+	})
+}

@@ -29,7 +29,7 @@ SELECT coalesce(h.agent_id,a.id)::uuid AS agent_id,h.current_turn_id,
        coalesce(h.max_normal_input_sequence,0)::bigint AS max_normal_input_sequence,
        coalesce(h.max_context_input_sequence,0)::bigint AS max_context_input_sequence,
        h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,
-       h.pending_config_input_id,h.pending_checkpoint_id,coalesce(h.turn_continuable,false)::boolean AS turn_continuable,
+       h.pending_config_input_id,h.pending_checkpoint_id,
        coalesce(h.incomplete_tools,false)::boolean AS incomplete_tools,h.logical_ready_at,
        (h.agent_id IS NOT NULL)::boolean AS head_exists,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now
 FROM agents a LEFT JOIN agent_execution_state h ON h.agent_id=a.id
@@ -53,7 +53,6 @@ type LoadExecutionBaseRow struct {
 	PendingOutputLimitID    *uuid.UUID
 	PendingConfigInputID    *uuid.UUID
 	PendingCheckpointID     *uuid.UUID
-	TurnContinuable         bool
 	IncompleteTools         bool
 	LogicalReadyAt          *time.Time
 	HeadExists              bool
@@ -77,7 +76,6 @@ func (q *Queries) LoadExecutionBase(ctx context.Context, db DBTX, arg LoadExecut
 		&i.PendingOutputLimitID,
 		&i.PendingConfigInputID,
 		&i.PendingCheckpointID,
-		&i.TurnContinuable,
 		&i.IncompleteTools,
 		&i.LogicalReadyAt,
 		&i.HeadExists,

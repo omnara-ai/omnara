@@ -1184,15 +1184,11 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 		)
 	}
 
-	var oldContinuableContexts int
-	if err := fixture.Pool.QueryRow(ctx, `
-SELECT count(*)
-FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
-WHERE a.project_id=$1 AND h.agent_id=$2 AND h.normal_context_id=$3 AND h.turn_continuable
-`, kernelTestProjectID, agentID, oldContextID).Scan(&oldContinuableContexts); err != nil {
+	snapshot, err := fixture.Store.Execution().IntegrationLoadExecution(ctx, kernelTestProjectID, agentID)
+	if err != nil {
 		t.Fatalf("check stale context continuation eligibility: %v", err)
 	}
-	if oldContinuableContexts != 0 {
+	if snapshot.Head.NormalContextID == oldContextID && snapshot.Selection.TurnContinuable {
 		t.Fatalf("stale context remains continuable after a later frontier succeeded")
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(

@@ -596,7 +596,7 @@ WITH inserted AS (INSERT INTO agents(
 SELECT md5('resource-limit-agent-' || n)::uuid, md5('resource-limit-agent-' || n)::uuid, $1, $2, 'active', $3,
        'limit-seed-agent-' || n, $4, $4
 FROM generate_series(1, $5::integer) AS n RETURNING id)
-INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) SELECT id,false,false FROM inserted
+INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FROM inserted
 `, testOrgID, testProjectID, configID, now, agentLimit-1); err != nil {
 		t.Fatalf("seed agents to limit: %v", err)
 	}

@@ -141,7 +141,6 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 	if err != nil {
 		return ExecutionSnapshot{}, err
 	}
-	head.TurnContinuable = selected.TurnContinuable
 	head.IncompleteTools = selected.IncompleteTools
 	head.LogicalReadyAt = selected.LogicalReadyAt
 	return ExecutionSnapshot{Head: head, View: view, Selection: selected, databaseNow: now}, nil

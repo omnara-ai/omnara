@@ -153,8 +153,8 @@ id,root_agent_id,org_id,project_id,current_config_id,state,created_at,updated_at
  CASE WHEN n%2=0 THEN NULL ELSE now() END
  FROM (SELECT n,uuidv7() AS id FROM generate_series(1,10000) n) seeds`, f.org, f.project, f.config)
 	require.NoError(t, err)
-	_, err = f.pool.Exec(t.Context(), `INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools)
-SELECT id,false,false FROM agents; ANALYZE agents; ANALYZE agent_execution_state`)
+	_, err = f.pool.Exec(t.Context(), `INSERT INTO agent_execution_state(agent_id,incomplete_tools)
+SELECT id,false FROM agents; ANALYZE agents; ANALYZE agent_execution_state`)
 	require.NoError(t, err)
 	query := integrationdb.GeneratedQuery(t, "internal/executiondb/sampling.sql.go", "ExecutionSampleCandidates")
 	tx, err := f.pool.Begin(t.Context())
@@ -304,8 +304,8 @@ SELECT id,id,$1,$2,$3,now(),now(),CASE WHEN n%100=0 AND $5>0 THEN 'active' ELSE 
 CASE WHEN n%100=0 AND $5>0 THEN NULL ELSE now() END
 FROM unnest($4::uuid[]) WITH ORDINALITY AS seeds(id,n)`, f.org, f.project, f.config, ids, active)
 			require.NoError(t, err)
-			_, err = f.pool.Exec(t.Context(), `INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools)
-SELECT id,false,false FROM agents WHERE state='active'`)
+			_, err = f.pool.Exec(t.Context(), `INSERT INTO agent_execution_state(agent_id,incomplete_tools)
+SELECT id,false FROM agents WHERE state='active'`)
 			require.NoError(t, err)
 			var expected []uuid.UUID
 			for i := range active {

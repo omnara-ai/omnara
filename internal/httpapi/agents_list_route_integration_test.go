@@ -513,8 +513,8 @@ WITH inserted AS (
     VALUES ($7, $7, $1, $2, 'active', $3, $4, $5, $6, $6)
     RETURNING id
 )
-INSERT INTO agent_execution_state (agent_id, turn_continuable, incomplete_tools)
-SELECT id, false, false FROM inserted
+INSERT INTO agent_execution_state (agent_id, incomplete_tools)
+SELECT id, false FROM inserted
 RETURNING agent_id
 `, project.OrgUUID, project.ProjectUUID, name, configID, idempotencyKey, createdAt, id).Scan(&id); err != nil {
 		t.Fatalf("seed agent at creation time: %v", err)

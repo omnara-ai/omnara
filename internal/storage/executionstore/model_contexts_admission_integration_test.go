@@ -309,11 +309,10 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	require.False(t, stale.Created)
 	require.False(t, stale.Claimed)
 	require.Equal(t, replacement.CompactionCall.Context.ID, stale.Context.ID)
-	var continuableID uuid.UUID
-	require.NoError(t, fixture.Store.pool.QueryRow(ctx,
-		`SELECT h.compaction_context_id FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.turn_continuable`,
-		testProjectID, fixture.AgentID).Scan(&continuableID))
-	require.Equal(t, replacement.CompactionCall.Context.ID, continuableID)
+	snapshot, err := fixture.Store.Execution().IntegrationLoadExecution(ctx, testProjectID, fixture.AgentID)
+	require.NoError(t, err)
+	require.True(t, snapshot.Selection.TurnContinuable)
+	require.Equal(t, replacement.CompactionCall.Context.ID, snapshot.Head.CompactionContextID)
 	retryCount, err := fixture.Store.Execution().CountModelCallRetries(
 		ctx,
 		testProjectID,

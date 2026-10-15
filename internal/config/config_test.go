@@ -12,6 +12,7 @@ import (
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
 	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
@@ -57,6 +58,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.WorkerCapacity != 4 {
 		t.Fatalf("expected default worker capacity 4, got %d", cfg.WorkerCapacity)
+	}
+	if cfg.WorkerClaimConcurrency != 16 {
+		t.Fatalf("expected default claim concurrency 16, got %d", cfg.WorkerClaimConcurrency)
 	}
 	if cfg.WorkerAsyncToolCapacity != 32 {
 		t.Fatalf("expected default worker async tool capacity 32, got %d", cfg.WorkerAsyncToolCapacity)

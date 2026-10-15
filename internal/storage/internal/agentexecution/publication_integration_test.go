@@ -121,7 +121,7 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			require.LessOrEqual(t, statements, 2*size)
 			require.LessOrEqual(t, roundTrips, 2)
 			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM agent_execution_state
-WHERE logical_ready_at IS NOT NULL OR turn_continuable OR incomplete_tools`).Scan(&heads))
+WHERE logical_ready_at IS NOT NULL OR incomplete_tools`).Scan(&heads))
 			require.Zero(t, heads)
 			require.NoError(
 				t,

@@ -55,7 +55,6 @@ func (m *executionMutation) publicationParams(route AgentRoute) executiondb.Publ
 		PendingOutputLimitID:    storeutil.IDFromNil(h.PendingOutputLimitID),
 		PendingConfigInputID:    storeutil.IDFromNil(h.PendingConfigInputID),
 		PendingCheckpointID:     storeutil.IDFromNil(h.PendingCheckpointID),
-		TurnContinuable:         h.TurnContinuable,
 		IncompleteTools:         h.IncompleteTools,
 		LogicalReadyAt:          h.LogicalReadyAt,
 	}
@@ -144,7 +143,6 @@ func (m *executionMutation) selectLoaded() error {
 		return err
 	}
 	snapshot.Selection = selected
-	m.head.TurnContinuable = snapshot.Selection.TurnContinuable
 	m.head.IncompleteTools = snapshot.Selection.IncompleteTools
 	m.head.LogicalReadyAt = copyPointer(snapshot.Selection.LogicalReadyAt)
 	snapshot.Head = m.head

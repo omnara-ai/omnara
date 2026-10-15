@@ -49,7 +49,7 @@ INSERT INTO agents(id,root_agent_id,org_id,project_id,state,name,current_config_
 SELECT identity.id,identity.id,agent.org_id,agent.project_id,'active','unrelated',
 agent.current_config_id,statement_timestamp(),statement_timestamp()
 FROM identities identity CROSS JOIN agents agent WHERE agent.id=$1 RETURNING id)
-INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools) SELECT id,false,false FROM inserted`,
+INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FROM inserted`,
 		current.ID,
 	)
 	cell := agentexecution.NewCell(f.pool, nil, nil)

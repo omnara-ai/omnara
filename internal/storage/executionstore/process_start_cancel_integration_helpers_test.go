@@ -915,11 +915,18 @@ func currentContinuableTurnForTest(
 	store *Store,
 	projectID, agentID uuid.UUID,
 ) (executionstore.AgentTurnRecord, error) {
+	snapshot, err := store.Execution().IntegrationLoadExecution(ctx, projectID, agentID)
+	if err != nil {
+		return executionstore.AgentTurnRecord{}, err
+	}
+	if !snapshot.Selection.TurnContinuable {
+		return executionstore.AgentTurnRecord{}, pgx.ErrNoRows
+	}
 	var r executionstore.AgentTurnRecord
-	err := store.pool.QueryRow(ctx,
-		`SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id JOIN agent_turns t ON t.agent_id=h.agent_id AND t.id=h.current_turn_id WHERE a.project_id=$1 AND a.id=$2 AND h.turn_continuable`,
+	err = store.pool.QueryRow(ctx,
+		`SELECT t.id,t.turn_sequence,t.latest_event_id,t.latest_semantic_event_id FROM agent_turns t JOIN agents a ON a.id=t.agent_id WHERE a.project_id=$1 AND t.agent_id=$2 AND t.id=$3`,
 		projectID,
-		agentID).
+		agentID, snapshot.Head.CurrentTurnID).
 		Scan(&r.ID, &r.TurnSequence, &r.LatestEventID, &r.LatestSemanticEventID)
 	r.ProjectID = projectID
 	r.AgentID = agentID

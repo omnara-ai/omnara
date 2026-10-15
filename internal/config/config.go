@@ -219,7 +219,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	workerClaimConcurrency, err := getenvInt("OMNARA_WORKER_CLAIM_CONCURRENCY", 4)
+	workerClaimConcurrency, err := getenvInt("OMNARA_WORKER_CLAIM_CONCURRENCY", 16)
 	if err != nil {
 		return Config{}, err
 	}

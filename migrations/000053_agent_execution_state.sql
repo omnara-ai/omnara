@@ -27,7 +27,6 @@ CREATE TABLE agent_execution_state (
     pending_output_limit_id uuid,
     pending_config_input_id uuid,
     pending_checkpoint_id uuid,
-    turn_continuable boolean NOT NULL,
     incomplete_tools boolean NOT NULL,
     logical_ready_at timestamptz,
     FOREIGN KEY (agent_id, current_turn_id) REFERENCES agent_turns(agent_id, id),
@@ -39,7 +38,6 @@ CREATE TABLE agent_execution_state (
     FOREIGN KEY (agent_id, pending_checkpoint_id) REFERENCES context_checkpoints(agent_id, id),
     CHECK (compaction_context_id IS NULL OR normal_context_id IS NOT NULL),
     CHECK (pending_tool_output_id IS NULL OR pending_output_limit_id IS NULL),
-    CHECK (NOT incomplete_tools OR turn_continuable),
     CHECK (current_turn_id IS NOT NULL OR
         (normal_context_id IS NULL AND compaction_context_id IS NULL AND pending_tool_output_id IS NULL
          AND pending_output_limit_id IS NULL AND pending_config_input_id IS NULL AND pending_checkpoint_id IS NULL))
@@ -204,12 +202,9 @@ CREATE TRIGGER agent_inputs_opening_members BEFORE INSERT OR UPDATE OF state,ope
 
 INSERT INTO agent_execution_state (
     agent_id,current_turn_id,stop_sequence,max_normal_input_sequence,max_context_input_sequence,
-    normal_context_id,compaction_context_id,turn_continuable,incomplete_tools,logical_ready_at)
+    normal_context_id,compaction_context_id,incomplete_tools,logical_ready_at)
 SELECT a.id, t.id, coalesce(s.sequence,0),
        coalesce(w.normal_sequence,0), coalesce(w.context_sequence,0), n.id,c.id,
-       a.state='active' AND (agent_has_incomplete_tool_batch(a.project_id,a.id)
-          OR EXISTS(SELECT 1 FROM agent_next_model_work(a.project_id,a.id))
-          OR EXISTS(SELECT 1 FROM agent_continuable_model_contexts(a.project_id,a.id))),
        a.state='active' AND agent_has_incomplete_tool_batch(a.project_id,a.id),
        CASE WHEN a.state='active' THEN agent_next_wakeup_ready_at(a.project_id,a.id) END
 FROM agents a

@@ -21,7 +21,6 @@ type ExecutionHead struct {
 	PendingOutputLimitID    uuid.UUID
 	PendingConfigInputID    uuid.UUID
 	PendingCheckpointID     uuid.UUID
-	TurnContinuable         bool
 	IncompleteTools         bool
 	LogicalReadyAt          *time.Time
 }
@@ -82,7 +81,7 @@ func executionHead(row executiondb.LoadExecutionBaseRow) ExecutionHead {
 		PendingOutputLimitID: storeutil.ValueOrZero(
 			row.PendingOutputLimitID,
 		), PendingConfigInputID: storeutil.ValueOrZero(row.PendingConfigInputID),
-		PendingCheckpointID: storeutil.ValueOrZero(row.PendingCheckpointID), TurnContinuable: row.TurnContinuable,
-		IncompleteTools: row.IncompleteTools, LogicalReadyAt: row.LogicalReadyAt,
+		PendingCheckpointID: storeutil.ValueOrZero(row.PendingCheckpointID),
+		IncompleteTools:     row.IncompleteTools, LogicalReadyAt: row.LogicalReadyAt,
 	}
 }

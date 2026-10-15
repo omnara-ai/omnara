@@ -1482,12 +1482,17 @@ GROUP BY context.state, output.stop_reason`,
 		Scan(&producingState, &outputStopReason, &outputCount, &blockCount, &blockKind, &blockText); err != nil {
 		t.Fatalf("load terminal compaction error output: %v", err)
 	}
+	snapshot, err := fixture.Store.Execution().IntegrationLoadExecution(ctx, kernelTestProjectID, agentID)
+	if err != nil {
+		t.Fatalf("load terminal compaction selection: %v", err)
+	}
+	if snapshot.Head.NormalContextID == result.ModelCallContextID && snapshot.Selection.TurnContinuable {
+		resumable = 1
+	}
 	if err := fixture.Pool.QueryRow(ctx, `
-SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE
-    agent.project_id = $1 AND wake.agent_id = $2),
-       (SELECT count(*)::integer FROM agent_execution_state h
-        WHERE h.agent_id=$2 AND h.normal_context_id=$3 AND h.turn_continuable)`,
-		kernelTestProjectID, agentID, result.ModelCallContextID).Scan(&wakeups, &resumable); err != nil {
+SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE
+    agent.project_id = $1 AND wake.agent_id = $2`,
+		kernelTestProjectID, agentID).Scan(&wakeups); err != nil {
 		t.Fatalf("load terminal compaction continuation state: %v", err)
 	}
 	if compactionState != executionstore.ModelCallContextFailed ||

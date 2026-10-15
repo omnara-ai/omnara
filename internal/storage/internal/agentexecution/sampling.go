@@ -86,7 +86,6 @@ func compareHeads(stored, rebuilt ExecutionHead) []HeadDifference {
 		{"pending_output_limit_id", stored.PendingOutputLimitID, rebuilt.PendingOutputLimitID},
 		{"pending_config_input_id", stored.PendingConfigInputID, rebuilt.PendingConfigInputID},
 		{"pending_checkpoint_id", stored.PendingCheckpointID, rebuilt.PendingCheckpointID},
-		{"turn_continuable", stored.TurnContinuable, rebuilt.TurnContinuable},
 		{"incomplete_tools", stored.IncompleteTools, rebuilt.IncompleteTools},
 		{"logical_ready_at", headTime(stored.LogicalReadyAt), headTime(rebuilt.LogicalReadyAt)},
 	}
