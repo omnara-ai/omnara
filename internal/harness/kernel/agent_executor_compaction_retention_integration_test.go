@@ -17,9 +17,9 @@ import (
 
 func TestAgentExecutorPreservesCheckpointAcrossTerminalOverflowAndLaterTurn(t *testing.T) {
 	ctx := t.Context()
-	fixture, agentID, userID := seedSoftContextHistory(t, ctx)
+	fixture, agentID, userID := seedCompactionHistory(t, ctx)
 	summary := "CHECKPOINT_HEAD " + strings.Repeat("Preserve the complete saved context. ", 40) + " CHECKPOINT_TAIL"
-	client := uncertainSoftContextClient(
+	client := compactionRecoveryClient(
 		completeProgressiveSummaryResponse(summary),
 		completeProgressiveSummaryResponse("The later turn completed."),
 	)

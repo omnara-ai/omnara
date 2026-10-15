@@ -18,7 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
-func TestAgentExecutorRecoversActualOverflowWhenReplacementGrantShrinksWindow(t *testing.T) {
+func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	const originalWindow = 10_000
@@ -105,9 +105,6 @@ func TestAgentExecutorRecoversActualOverflowWhenReplacementGrantShrinksWindow(t 
 			Source:  "test-provider",
 			Code:    "rate_limited_before_grant_shrink",
 			Message: "retry after the live grant changes",
-		}, model.ProviderError{
-			Kind: model.ErrorKindContextWindow, Source: "test-provider",
-			Code: "context_window_after_grant_shrink", Message: "The provider rejected the retried input.",
 		}},
 		responses: []model.Response{
 			{
@@ -209,14 +206,14 @@ func TestAgentExecutorRecoversActualOverflowWhenReplacementGrantShrinksWindow(t 
 	if err := executor.ExecuteModelWork(ctx, shrunkRetry); err != nil {
 		t.Fatalf("execute retry under narrower replacement grant: %v", err)
 	}
-	if retryModel.respondedCount() != 3 {
+	if retryModel.respondedCount() != 2 {
 		t.Fatalf(
-			"provider sends after narrower retry = %d, want original send, rejected retry, and compaction",
+			"provider sends after narrower retry = %d, want original send plus compaction only",
 			retryModel.respondedCount(),
 		)
 	}
 	if summaryRequest := string(
-		retryModel.responded[2].ProviderRequest,
+		retryModel.responded[1].ProviderRequest,
 	); !strings.Contains(summaryRequest, historyMarker) {
 		t.Fatalf("compaction request omitted prior durable history: %s", summaryRequest)
 	}
@@ -264,7 +261,7 @@ func TestAgentExecutorRecoversActualOverflowWhenReplacementGrantShrinksWindow(t 
 	}
 	if secondState != executionstore.ModelCallContextFailed ||
 		secondRecoveryKind != executionstore.ModelCallRecoveryCompact ||
-		secondErrorCode != "context_window_after_grant_shrink" {
+		secondErrorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
 			"replacement retry = state=%s recovery=%s code=%s",
 			secondState,
@@ -300,14 +297,14 @@ func TestAgentExecutorRecoversActualOverflowWhenReplacementGrantShrinksWindow(t 
 	if err := executor.ExecuteModelWork(ctx, finalTurn); err != nil {
 		t.Fatalf("execute normal retry after replacement-grant compaction: %v", err)
 	}
-	if retryModel.respondedCount() != 4 {
-		t.Fatalf("provider sends after compaction = %d, want 4", retryModel.respondedCount())
+	if retryModel.respondedCount() != 3 {
+		t.Fatalf("provider sends after compaction = %d, want 3", retryModel.respondedCount())
 	}
 	if len(retryResolver.resolutions) != 4 ||
 		retryResolver.resolutions[3].ContextWindowTokens != shrunkWindow {
 		t.Fatalf("final live policy resolution = %+v", retryResolver.resolutions)
 	}
-	finalRequest := string(retryModel.responded[3].ProviderRequest)
+	finalRequest := string(retryModel.responded[2].ProviderRequest)
 	if !strings.Contains(finalRequest, "The earlier durable context was summarized after the model window shrank.") ||
 		strings.Contains(finalRequest, historyNeedle) {
 		t.Fatalf("final request did not replace raw history with checkpoint summary: %s", finalRequest)

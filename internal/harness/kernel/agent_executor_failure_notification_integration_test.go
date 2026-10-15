@@ -47,10 +47,10 @@ func TestAgentExecutorFailedPersistenceDoesNotNotify(t *testing.T) {
 func TestAgentExecutorFailedCompactionPersistenceDoesNotNotify(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f, agentID, userID := seedSoftContextHistory(t, ctx)
+	f, agentID, userID := seedCompactionHistory(t, ctx)
 	input := f.admitContentInputTurn(t, ctx, agentID, userID, "continue", f.Now.Add(time.Second))
 	client := &sequenceKernelModel{
-		providerModelSlug:          "soft-context",
+		providerModelSlug:          "compaction-recovery",
 		preparedInputTokenEstimate: 500,
 		errs: []error{
 			model.ProviderError{Kind: model.ErrorKindContextWindow, Source: "fixture", Message: "input too large"},

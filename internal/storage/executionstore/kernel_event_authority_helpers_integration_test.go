@@ -880,3 +880,16 @@ func isPgReadOnlySQLTransaction(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "25006"
 }
+
+func blockedNormalContextIDForRangeTest(
+	t *testing.T, ctx context.Context, fixture processDaemonFixture, compaction executionstore.ModelCallContextRecord,
+) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := fixture.Store.pool.QueryRow(ctx, `SELECT id FROM model_call_contexts
+		WHERE agent_id=$1 AND input_event_sequence=$2 AND operation_kind='normal' AND recovery_kind='compact'`,
+		compaction.AgentID, compaction.InputEventSequence).Scan(&id); err != nil {
+		t.Fatalf("load blocked normal context: %v", err)
+	}
+	return id
+}

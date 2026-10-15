@@ -365,7 +365,7 @@
           ]
         },
         "context_window_tokens": {
-          "description": "Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.",
+          "description": "Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.",
           "maximum": 2147483647,
           "minimum": 2,
           "type": "integer"
@@ -505,7 +505,7 @@
           ]
         },
         "context_window_tokens": {
-          "description": "Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.",
+          "description": "Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.",
           "maximum": 2147483647,
           "minimum": 2,
           "type": "integer"

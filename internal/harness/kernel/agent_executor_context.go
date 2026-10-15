@@ -240,19 +240,7 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
-		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
-	)
-	if err != nil {
-		return modelStep{}, err
-	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
-	workingInputTarget, err := model.WorkingInputTargetTokens(client, policy, modelErrorSourceForClient(client))
-	if err != nil {
-		return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
-			Code: preSendErrorCodePrepareModelRequestFailed, Message: "Omnara could not determine the model input target.",
-		})
-	}
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
@@ -271,7 +259,7 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	if shouldAttemptOptionalCompaction(prepared, workingInputTarget, recovery) {
+	if prepared.InputBudget.OverBudget() {
 		trigger, triggerErr := localInputBudgetTrigger(
 			prepared.InputBudget,
 			modelErrorSourceForClient(client),
@@ -279,20 +267,13 @@ func (e AgentExecutor) executeModelStep(
 		if triggerErr != nil {
 			return modelStep{}, triggerErr
 		}
-		plan, ok, planErr := e.planCompactionForContext(ctx, claim.Context, client, input)
-		if planErr != nil {
-			return modelStep{}, planErr
-		}
-		if ok {
-			trigger.Optional = true
-			return e.enterPlannedContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{}, plan)
-		}
+		return e.enterContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{})
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
 	}
 	var streamSink *harnessStreamSink
-	if !recovery.HasPriorNormalAttempt {
+	if claim.Context.AttemptNumber == 1 {
 		if streamSink = e.streamSinkForCall(
 			context.WithoutCancel(ctx),
 			input.AgentID,
@@ -476,13 +457,6 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			response,
 		)
 	}
-	recovery, err := e.Store.Execution().GetModelCallRetryState(
-		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
-	)
-	if err != nil {
-		return modelStep{}, err
-	}
-	attempt.Number = recovery.RetryCount + 1
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,
@@ -526,7 +500,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 		}
 		return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, nil
 	}
-	_, err = e.Store.Execution().RecordModelCallErrorAndCompleteContext(
+	_, err := e.Store.Execution().RecordModelCallErrorAndCompleteContext(
 		ctx,
 		executionstore.RecordModelCallErrorAndCompleteContextInput{
 			ProjectID:               input.ProjectID,

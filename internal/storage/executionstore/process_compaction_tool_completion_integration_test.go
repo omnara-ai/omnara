@@ -141,13 +141,14 @@ func TestSucceededCompactionCannotStartAnotherBranch(t *testing.T) {
 		t.Fatalf("publish successful checkpoint: %v", err)
 	}
 
+	parentID := blockedNormalContextIDForRangeTest(t, ctx, fixture, claim.Context)
 	_, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
-			ParentContextID:        claim.Context.ParentNormalModelCallContextID,
+			ParentContextID:        parentID,
 			SourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd - 1,
 			Failure: executionstore.RecordRecoverableModelCallFailureInput{
 				ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-				ModelCallContextID: claim.Context.ParentNormalModelCallContextID,
+				ModelCallContextID: parentID,
 				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
 				ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "second compaction branch",
 			},
@@ -228,7 +229,7 @@ WHERE project_id = $1
   AND operation_kind = 'compaction'
   AND input_event_sequence = $3
   AND source_event_sequence_end = $4
-  AND attempt_number = 3
+  AND attempt_number = 1
   AND state = 'started'
 `, testProjectID, fixture.AgentID, retry.Context.InputEventSequence, replacementEnd).Scan(
 		&replacementCount,
@@ -237,5 +238,11 @@ WHERE project_id = $1
 	}
 	if replacementCount != 1 {
 		t.Fatalf("replacement compaction contexts = %d, want 1", replacementCount)
+	}
+	retries, err := fixture.Store.Execution().CountModelCallRetries(
+		ctx, testProjectID, fixture.AgentID, replacement.CompactionCall.Context.ID,
+	)
+	if err != nil || retries != 1 {
+		t.Fatalf("replacement retry budget = %+v, err=%v; want one prior retry", retries, err)
 	}
 }

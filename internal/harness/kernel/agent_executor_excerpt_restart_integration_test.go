@@ -36,9 +36,9 @@ func TestAgentExecutorReconstructsExcerptAfterTransientFailureOnNewLease(t *test
 	ctx := context.Background()
 	const current = "CURRENT_REQUEST_RETAINED_DURING_RESTART"
 	original := "OLD_HEAD " + strings.Repeat("closed history remains stored ", 2_000) + " OLD_TAIL"
-	fixture, agentID, userID := seedSoftContextHistoryWithText(t, ctx, original)
+	fixture, agentID, userID := seedCompactionHistoryWithText(t, ctx, original)
 	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, current, fixture.Now.Add(time.Second))
-	base := oversizedClosedHistoryKernelModel{uncertainSoftContextClient()}
+	base := oversizedClosedHistoryKernelModel{compactionRecoveryClient()}
 	client := &transientExcerptKernelModel{sequenceKernelModel: base.sequenceKernelModel, respond: base.Respond}
 	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
 		ModelRetryDelay: immediateKernelModelRetryDelay}

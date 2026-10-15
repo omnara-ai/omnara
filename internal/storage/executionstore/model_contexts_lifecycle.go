@@ -74,11 +74,11 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("load retryable model call context: %w", err)
 	}
-	recovery, err := getModelCallRetryStateTx(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
+	retryCount, err := countModelCallRetriesTx(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if currentContext.State != ModelCallContextStarted || recovery.RetryCount >= MaxModelCallRetriesPerOperation {
+	if currentContext.State != ModelCallContextStarted || retryCount >= MaxModelCallRetriesPerOperation {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -127,8 +127,7 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 		return errors.New("model call retry delay cannot be negative")
 	}
 	if input.RecoveryKind != ModelCallRecoveryRetry &&
-		input.RecoveryKind != ModelCallRecoveryCompact &&
-		input.RecoveryKind != ModelCallRecoveryCompactOptional {
+		input.RecoveryKind != ModelCallRecoveryCompact {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
 	}
 

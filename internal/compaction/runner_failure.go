@@ -82,14 +82,7 @@ func (r Runner) recordFailure(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
-	recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
-	if err != nil {
-		return RunResult{}, errors.Join(cause, err)
-	}
 	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
-	if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
-	}
 	truncated := isTruncatedSummaryFailure(cause)
 	if shrinkableCompactionFailure(cause) || truncated {
 		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
@@ -112,7 +105,7 @@ func (r Runner) recordFailure(
 				return RunResult{}, errors.Join(cause, err)
 			}
 			if excerptBytes > 0 {
-				return r.replaceCompactionProjection(
+				return r.replaceCompactionSource(
 					ctx, input, claim, cause, providerAttempt, input.Plan.EventSequenceEnd,
 				)
 			}
@@ -121,10 +114,14 @@ func (r Runner) recordFailure(
 			cause = irreducibleCompactionError(irreducibleCompactionFailureDetail(cause))
 		}
 	}
+	retryCount, err := r.Store.CountModelCallRetries(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
+	if err != nil {
+		return RunResult{}, errors.Join(cause, err)
+	}
 	now := r.now()
 	evidence, decision := modelretry.Decide(
 		cause,
-		modelretry.Attempt{Number: recovery.RetryCount + 1},
+		modelretry.Attempt{Number: retryCount + 1},
 		claim.Context.ID.String(),
 		now,
 	)
@@ -201,61 +198,7 @@ func (r Runner) recordFailure(
 	}, nil
 }
 
-func (r Runner) recordFailureAndResumeNormal(
-	ctx context.Context,
-	input RunInput,
-	claim executionstore.ModelCallClaim,
-	cause error,
-	providerAttempt providerAttemptEvidence,
-) (RunResult, error) {
-	evidence := modelretry.EvidenceFor(cause)
-	failed, err := r.Store.RecordOptionalCompactionFailure(
-		ctx, executionstore.RecordOptionalCompactionFailureInput{
-			ProjectID:               input.Plan.ProjectID,
-			AgentID:                 input.Plan.AgentID,
-			RuntimeLockID:           input.RuntimeLockID,
-			ModelCallContextID:      claim.Context.ID,
-			APIFormat:               providerAttempt.APIFormat,
-			APIVariant:              providerAttempt.APIVariant,
-			ProviderRequestID:       providerRequestIDAfter(providerAttempt, evidence.RequestID),
-			ProviderResponseID:      providerResponseIDAfter(providerAttempt),
-			ErrorKind:               evidence.Kind,
-			ErrorCode:               evidence.Code,
-			ErrorMessage:            evidence.Message,
-			ErrorDetails:            evidence.Details,
-			Usage:                   usageAfter(providerAttempt),
-			ProviderReportedCostUSD: providerReportedCostUSDAfter(providerAttempt),
-			ProviderMetadata:        providerMetadataAfter(providerAttempt),
-		})
-	if err != nil {
-		return RunResult{}, errors.Join(cause, err)
-	}
-	return RunResult{State: RunResumeNormal, ModelCallContextID: failed.ID}, nil
-}
-
 func (r Runner) replaceCompactionSource(
-	ctx context.Context,
-	input RunInput,
-	claim executionstore.ModelCallClaim,
-	cause error,
-	providerAttempt providerAttemptEvidence,
-	nextEnd int64,
-) (RunResult, error) {
-	if providerAttempt.ProviderRequestStarted {
-		recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
-		if err != nil {
-			return RunResult{}, errors.Join(cause, err)
-		}
-		if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
-			return r.recordFailure(ctx, input, claim, cause, providerAttempt)
-		}
-	}
-	return r.replaceCompactionProjection(
-		ctx, input, claim, cause, providerAttempt, nextEnd,
-	)
-}
-
-func (r Runner) replaceCompactionProjection(
 	ctx context.Context,
 	input RunInput,
 	claim executionstore.ModelCallClaim,

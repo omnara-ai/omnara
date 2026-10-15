@@ -64,11 +64,11 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 		Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
 		Now: func() time.Time { return now },
 	}
-	largeInput := strings.Repeat("closed historical detail ", 2400)
+	largeInput := strings.Repeat("closed historical detail ", 500)
 	first := fixture.admitContentInputTurn(t, ctx, agentID, userID, largeInput, fixture.Now.Add(time.Second))
 	require.NoError(t, executor.ExecuteModelWork(ctx, first))
 	require.Len(t, requests, 1)
-	require.Contains(t, string(requests[0]), largeInput, "uncertain first input must reach the provider intact")
+	require.Contains(t, string(requests[0]), largeInput, "first input must reach the provider intact")
 	var measuredTokens int
 	var servedModel string
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
@@ -82,7 +82,8 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 		ctx, kernelTestProjectID, agentID, first.RuntimeLockID,
 	))
 
-	second := fixture.admitContentInputTurn(t, ctx, agentID, userID, "continue", fixture.Now.Add(3*time.Second))
+	second := fixture.admitContentInputTurn(t, ctx, agentID, userID,
+		"continue "+strings.Repeat("new task detail ", 400), fixture.Now.Add(3*time.Second))
 	now = fixture.Now.Add(4 * time.Second)
 	executor = AgentExecutor{
 		Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
@@ -90,6 +91,10 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 	}
 	require.NoError(t, executor.ExecuteModelWork(ctx, second))
 	require.Len(t, requests, 2, "measured request should go directly to normal generation")
+	freshEstimate := modelcontext.EstimatePreparedRequest(requests[1], nil)
+	require.Greater(t, freshEstimate, model.UsableInputTokensForRequest(
+		client.ModelCapabilities, model.RequestPolicyFromCapabilities(client.ModelCapabilities)),
+		"fixture must need the stored measurement to avoid unnecessary compaction")
 	var compactions, successfulNormal int
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE operation_kind='compaction'),
@@ -111,7 +116,7 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 	for i := range 24 {
 		skill, err := fixture.Store.Skills().CreateSkillRevision(ctx, skillstore.CreateSkillInput{
 			OrgID: kernelTestOrgID, OwnerKind: skillstore.SkillOwnerProject, OwnerProjectID: kernelTestProjectID,
-			Name: fmt.Sprintf("measurement-skill-%02d", i), Description: strings.Repeat("Detailed guidance. ", 50),
+			Name: fmt.Sprintf("measurement-skill-%02d", i), Description: strings.Repeat("Detailed guidance. ", 40),
 			SkillMd: "# Skill\nDetailed instructions.", ArchiveBytes: []byte(fmt.Sprintf("initial archive %d", i)),
 			Actor: kernelTestUserPrincipal(kernelTestUserID),
 		})
@@ -147,7 +152,7 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 				return nil, err
 			}
 			requests = append(requests, append(json.RawMessage(nil), body...))
-			measured := modelcontext.EstimatePreparedRequest(body, nil)
+			measured := modelcontext.EstimatePreparedRequest(body, nil) + 1000
 			observedInput = append(observedInput, measured)
 			response := fmt.Sprintf(
 				`{"id":"measurement_response_%d","object":"chat.completion","model":"live-static-shrink",`+
@@ -174,7 +179,7 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 	target := model.UsableInputTokensForRequest(
 		client.ModelCapabilities, model.RequestPolicyFromCapabilities(client.ModelCapabilities),
 	)
-	require.Greater(t, observedInput[0], target, "fixture needs measured input above the soft target")
+	require.Greater(t, observedInput[0], target, "provider usage can exceed the local estimate and trigger stale pressure")
 	require.LessOrEqual(t, observedInput[0]+1024, 10000, "first request fits even a strict total input/output window")
 	var persistedInput, firstCheckpoints int
 	require.NoError(t, fixture.Pool.QueryRow(ctx,

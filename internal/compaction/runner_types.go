@@ -32,10 +32,10 @@ type ExecutionStore interface {
 		projectID, agentID uuid.UUID,
 		maxEventSequence int64,
 	) (executionstore.ContextCheckpointRecord, bool, error)
-	GetModelCallRetryState(
+	CountModelCallRetries(
 		ctx context.Context,
 		projectID, agentID, modelCallContextID uuid.UUID,
-	) (executionstore.ModelCallRetryState, error)
+	) (int, error)
 	RecordRetryableModelCallFailure(
 		ctx context.Context,
 		input executionstore.RecordRecoverableModelCallFailureInput,
@@ -44,10 +44,6 @@ type ExecutionStore interface {
 		ctx context.Context,
 		input executionstore.RecordTerminalCompactionFailureInput,
 	) error
-	RecordOptionalCompactionFailure(
-		ctx context.Context,
-		input executionstore.RecordOptionalCompactionFailureInput,
-	) (executionstore.ModelCallContextRecord, error)
 	ReplaceCompactionSource(
 		ctx context.Context,
 		input executionstore.ReplaceCompactionSourceInput,
@@ -78,7 +74,6 @@ type RunState string
 const (
 	RunCompleted      RunState = "completed"
 	RunRetryScheduled RunState = "retry_scheduled"
-	RunResumeNormal   RunState = "resume_normal"
 	RunPreempted      RunState = "preempted"
 	RunTerminal       RunState = "terminal"
 )

@@ -48,7 +48,7 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 			window:        1000,
 			allowance:     900,
 			input:         500,
-			wantAllowance: 500,
+			wantAllowance: 900,
 			wantUsable:    450,
 			wantOver:      true,
 		},
@@ -67,7 +67,7 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 			allowance:     64000,
 			input:         50000,
 			minimum:       48001,
-			wantAllowance: 48001,
+			wantAllowance: 64000,
 			wantUsable:    46999,
 			wantOver:      true,
 		},
@@ -81,7 +81,7 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 		},
 		{
 			name: "above normal target", window: 200000, allowance: 128000, input: 159041,
-			wantAllowance: 32768, wantUsable: 159040, wantOver: true,
+			wantAllowance: 128000, wantUsable: 159040, wantOver: true,
 		},
 		{
 			name: "below thinking target", window: 100000, allowance: 64000, input: 46998, minimum: 48001,
@@ -93,7 +93,7 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 		},
 		{
 			name: "above thinking target", window: 100000, allowance: 64000, input: 47000, minimum: 48001,
-			wantAllowance: 48001, wantUsable: 46999, wantOver: true,
+			wantAllowance: 64000, wantUsable: 46999, wantOver: true,
 		},
 		{
 			name:          "compaction reserves whole allowance",

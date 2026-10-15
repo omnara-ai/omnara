@@ -27,7 +27,6 @@ const (
 
 	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
 	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
-	ModelCallRecoveryCompactOptional        ModelCallRecoveryKind = "compact_optional"
 	ModelCallRecoveryReduceCompactionSource ModelCallRecoveryKind = "reduce_compaction_source"
 )
 
@@ -38,8 +37,6 @@ type ModelCallState string
 type ModelCallRecoveryKind string
 
 type ModelCallContextRecord struct {
-	ParentNormalModelCallContextID uuid.UUID `json:"parent_normal_model_call_context_id,omitempty"`
-
 	SourceExcerptReductionCount int `json:"source_excerpt_reduction_count,omitempty"`
 
 	ID                        uuid.UUID                             `json:"id"`

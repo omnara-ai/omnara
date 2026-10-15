@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -193,42 +192,19 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 	}
 }
 
-func TestRunnerRejectsClaimWithoutParent(t *testing.T) {
-	input := runInput(testPlan(1, 1, 2))
-	claim := newCompactionClaim(input, 1, time.Time{})
-	claim.Context.ParentNormalModelCallContextID = uuid.Nil
+func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
+	input := runInput(testPlan(2, 2, 2))
+	claim := newCompactionClaim(input, 0, time.Time{})
+	claim.Claimed = false
+	claim.Context.State = executionstore.ModelCallContextFailed
+	claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
 	store := &fakeStore{}
 	client := &summaryModel{}
-
-	_, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
-	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+	require.NoError(t, err)
+	require.Equal(t, RunTerminal, result.State)
+	require.Equal(t, claim.Context.ID, result.ModelCallContextID)
 	require.Empty(t, client.requests)
-	require.Empty(t, store.publishInputs)
-}
-
-func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
-	for _, resume := range []bool{false, true} {
-		t.Run(fmt.Sprint(resume), func(t *testing.T) {
-			input := runInput(testPlan(2, 2, 2))
-			claim := newCompactionClaim(input, 0, time.Time{})
-			claim.Claimed = false
-			claim.Context.State = executionstore.ModelCallContextFailed
-			claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
-			want := RunTerminal
-			store := &fakeStore{}
-			if resume {
-				store.parentRecoveryKind = executionstore.ModelCallRecoveryCompactOptional
-				want = RunResumeNormal
-			}
-			client := &summaryModel{}
-			result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
-			require.NoError(t, err)
-			require.Equal(t, want, result.State)
-			require.Equal(t, claim.Context.ID, result.ModelCallContextID)
-			require.Empty(t, client.requests)
-			require.Empty(t, store.resumedFailures)
-		})
-	}
 }
 
 func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testing.T) {

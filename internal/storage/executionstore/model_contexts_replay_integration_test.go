@@ -62,12 +62,12 @@ WHERE id = $1`, parentID); err != nil {
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at, parent_normal_model_call_context_id
+  source_event_sequence_end, runtime_lock_id, state, created_at
 )
-VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp(), $8)
+VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp())
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
-			revisionID, frontier, fixture.Lock.ID, parentID).Scan(&contextID); err != nil {
+			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {
 			t.Fatalf("insert compaction call at frontier %d: %v", frontier, err)
 		}
 		return contextID

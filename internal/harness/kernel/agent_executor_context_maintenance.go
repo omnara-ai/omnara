@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -17,11 +16,9 @@ import (
 const (
 	contextMaintenanceErrorCodeInputBudgetExceeded = "configured_input_budget_exceeded"
 	contextMaintenanceErrorCodeCannotCompact       = "context_cannot_be_compacted"
-	optionalCompactionRearmHeadroomPercent         = 75
 )
 
 type contextMaintenanceTrigger struct {
-	Optional  bool
 	Kind      model.ErrorKind
 	Code      string
 	Message   string
@@ -124,41 +121,26 @@ func (e AgentExecutor) enterContextMaintenance(
 	if err != nil {
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
-	if ok {
-		return e.enterPlannedContextMaintenance(
-			ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
+	if !ok {
+		details, marshalErr := marshalJSON(map[string]any{
+			"source": modelErrorSourceForClient(resolved.Client),
+			"compaction_trigger": map[string]any{
+				"kind":    trigger.Kind,
+				"code":    trigger.Code,
+				"message": trigger.Message,
+				"details": trigger.Details,
+			},
+		})
+		if marshalErr != nil {
+			return modelStep{}, errors.Join(trigger.Cause, marshalErr)
+		}
+		trigger.Code = contextMaintenanceErrorCodeCannotCompact
+		trigger.Message = "The current model input remains too large after the available safe context reductions."
+		trigger.Details = details
+		return e.recordTerminalContextMaintenanceFailure(
+			ctx, input, claim, resolved, trigger, providerRequestStarted, response,
 		)
 	}
-	details, marshalErr := marshalJSON(map[string]any{
-		"source": modelErrorSourceForClient(resolved.Client),
-		"compaction_trigger": map[string]any{
-			"kind":    trigger.Kind,
-			"code":    trigger.Code,
-			"message": trigger.Message,
-			"details": trigger.Details,
-		},
-	})
-	if marshalErr != nil {
-		return modelStep{}, errors.Join(trigger.Cause, marshalErr)
-	}
-	trigger.Code = contextMaintenanceErrorCodeCannotCompact
-	trigger.Message = "The current model input remains too large after the available safe context reductions."
-	trigger.Details = details
-	return e.recordTerminalContextMaintenanceFailure(
-		ctx, input, claim, resolved, trigger, providerRequestStarted, response,
-	)
-}
-
-func (e AgentExecutor) enterPlannedContextMaintenance(
-	ctx context.Context,
-	input ModelWorkExecution,
-	claim executionstore.ModelCallClaim,
-	resolved model.ResolvedClient,
-	trigger contextMaintenanceTrigger,
-	providerRequestStarted bool,
-	response model.Response,
-	plan compaction.Plan,
-) (modelStep, error) {
 
 	evidence := collectNormalCallFailureEvidence(
 		resolved,
@@ -184,9 +166,6 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 		ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
 		ProviderMetadata:        evidence.ProviderMetadata,
 	}
-	if trigger.Optional {
-		failure.RecoveryKind = executionstore.ModelCallRecoveryCompactOptional
-	}
 	handoff, err := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
 		executionstore.RecordModelCallFailureAndClaimCompactionInput{
@@ -209,27 +188,6 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 		Context:  handoff.ParentContext,
 		Resolved: resolved,
 	}, nil
-}
-
-func shouldAttemptOptionalCompaction(
-	prepared model.PreparedRequest,
-	workingInputTarget int,
-	recovery executionstore.ModelCallRecoveryState,
-) bool {
-	if !prepared.InputBudget.OverBudget() || workingInputTarget <= 0 ||
-		recovery.OptionalCompactionAttemptedAtFrontier ||
-		recovery.CheckpointNeedsNormalAttempt || recovery.HasPriorNormalAttempt {
-		return false
-	}
-	if !recovery.HasPriorOptionalCompaction {
-		return true
-	}
-	hasMeasuredPressure := prepared.UsesProviderInputUsage
-	if !hasMeasuredPressure && recovery.LatestObservedNormalInputTokens < workingInputTarget {
-		return false
-	}
-	return recovery.MinimumObservedNormalInputTokens > 0 &&
-		recovery.MinimumObservedNormalInputTokens <= workingInputTarget*optionalCompactionRearmHeadroomPercent/100
 }
 
 func (e AgentExecutor) recordTerminalContextMaintenanceFailure(

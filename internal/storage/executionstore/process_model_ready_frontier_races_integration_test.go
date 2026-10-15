@@ -162,7 +162,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 		t,
 		ctx,
 		fixture,
-		compaction.Context.ParentNormalModelCallContextID,
+		blockedNormalContextIDForRangeTest(t, ctx, fixture, compaction.Context),
 		executionstore.ModelCallContextFailed,
 	)
 	if fresh.Context.AttemptNumber != 1 {
@@ -203,7 +203,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 		t,
 		ctx,
 		fixture,
-		compaction.Context.ParentNormalModelCallContextID,
+		blockedNormalContextIDForRangeTest(t, ctx, fixture, compaction.Context),
 		executionstore.ModelCallContextFailed,
 	)
 	assertAgentInputWaitingForFrontierRace(t, ctx, fixture, steering.ID)

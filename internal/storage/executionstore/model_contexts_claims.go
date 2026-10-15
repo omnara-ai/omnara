@@ -93,31 +93,6 @@ func applyModelCallAdmissionTx(
 			Claimed: true,
 		}, nil
 	}
-	if claim.context.OperationKind == ModelCallOperationCompaction {
-		parent, err := loadModelCallContextByID(
-			ctx, q, claim.context.ProjectID, claim.context.AgentID, claim.context.ParentNormalModelCallContextID,
-		)
-		if err != nil {
-			return ModelCallClaim{}, err
-		}
-		if parent.RecoveryKind == ModelCallRecoveryCompactOptional {
-			failure := managedWorkAdmissionModelFailure(claim.context)
-			record, err := recordOptionalCompactionFailureTx(ctx, q, RecordOptionalCompactionFailureInput{
-				ProjectID: failure.ProjectID, AgentID: failure.AgentID, RuntimeLockID: failure.RuntimeLockID,
-				ModelCallContextID: failure.ModelCallContextID, ErrorKind: failure.ErrorKind,
-				ErrorCode: failure.ErrorCode, ErrorMessage: failure.ErrorMessage,
-			}, modelCallContextRuntimeOwned)
-			if err != nil {
-				return ModelCallClaim{}, err
-			}
-			if err := q.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
-				ProjectID: record.ProjectID, AgentID: record.AgentID,
-			}); err != nil {
-				return ModelCallClaim{}, err
-			}
-			return ModelCallClaim{Context: record, Created: true}, nil
-		}
-	}
 	failure, err := recordTerminalModelCallFailureTx(
 		ctx,
 		txNotifications,
@@ -412,8 +387,7 @@ func claimNextModelCallContextTx(
 		return modelCallContextClaimTx{context: latest}, nil
 	}
 	if predecessor.State == ModelCallContextFailed &&
-		(predecessor.RecoveryKind == ModelCallRecoveryRetry ||
-			predecessor.RecoveryKind == ModelCallRecoveryCompactOptional) {
+		predecessor.RecoveryKind == ModelCallRecoveryRetry {
 		modelRevision, err := getModelCallRevisionForClaim(
 			ctx,
 			q,
@@ -427,7 +401,6 @@ func claimNextModelCallContextTx(
 			ProjectID:                     predecessor.ProjectID,
 			AgentID:                       predecessor.AgentID,
 			PredecessorModelCallContextID: predecessor.ID,
-			MaxRetries:                    MaxModelCallRetriesPerOperation,
 			ConfiguredModelRevisionID:     modelRevision.ID,
 			RuntimeLockID:                 runtimeLockID,
 		})
@@ -509,9 +482,9 @@ func loadLatestModelCallContextForOperation(
 		id, err = q.GetLatestCompactionModelCallContext(
 			ctx,
 			dbsqlc.GetLatestCompactionModelCallContextParams{
-				ParentNormalModelCallContextID: &contextRow.ParentNormalModelCallContextID,
-				ProjectID:                      contextRow.ProjectID,
-				AgentID:                        contextRow.AgentID,
+				InputEventSequence: contextRow.InputEventSequence,
+				ProjectID:          contextRow.ProjectID,
+				AgentID:            contextRow.AgentID,
 			},
 		)
 	default:

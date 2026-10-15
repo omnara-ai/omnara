@@ -94,7 +94,7 @@ SELECT checkpoint.id, agent.project_id,
         SELECT 1 FROM model_call_contexts reduction
         WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
           AND reduction.operation_kind = 'compaction'
-          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.input_event_sequence = producer.input_event_sequence
           AND reduction.source_event_sequence_end = producer.source_event_sequence_end
           AND reduction.attempt_number < producer.attempt_number
           AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
@@ -165,7 +165,7 @@ SELECT checkpoint.id, agent.project_id,
         SELECT 1 FROM model_call_contexts reduction
         WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
           AND reduction.operation_kind = 'compaction'
-          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.input_event_sequence = producer.input_event_sequence
           AND reduction.source_event_sequence_end = producer.source_event_sequence_end
           AND reduction.attempt_number < producer.attempt_number
           AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
@@ -236,7 +236,7 @@ SELECT checkpoint.id, agent.project_id,
         SELECT 1 FROM model_call_contexts reduction
         WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
           AND reduction.operation_kind = 'compaction'
-          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.input_event_sequence = producer.input_event_sequence
           AND reduction.source_event_sequence_end = producer.source_event_sequence_end
           AND reduction.attempt_number < producer.attempt_number
           AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'

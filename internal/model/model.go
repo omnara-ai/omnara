@@ -232,13 +232,10 @@ func PrepareForSend(
 	}
 	applyRequestInputMeasurement(ctx, &prepared, client, input)
 	usable := window.UsableInputTokens()
-	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 {
-		remaining := max(window.OutputReserveTokens,
-			capabilities.ContextWindowTokens-window.SafetyMarginTokens-prepared.InputTokenEstimate)
+	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
+		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
 		if remaining < input.Policy.MaxOutputTokens {
-			if prepared.InputTokenEstimate <= usable {
-				usable = prepared.InputTokenEstimate
-			}
+			usable = prepared.InputTokenEstimate
 			input.Policy.MaxOutputTokens = remaining
 			measured := prepared
 			prepared, err = prepareRequest(ctx, client, input)
@@ -436,17 +433,6 @@ func UsableInputTokensForRequest(capabilities Capabilities, policy RequestPolicy
 func TextAttachmentBudgetTokens(client Client) int {
 	capabilities := CapabilitiesForClient(client)
 	return UsableInputTokensForRequest(capabilities, RequestPolicyFromCapabilities(capabilities)) / 4
-}
-
-func WorkingInputTargetTokens(client Client, policy RequestPolicy, errorSource string) (int, error) {
-	limits, err := OutputTokenLimitsForClient(client, errorSource)
-	if err != nil {
-		return 0, err
-	}
-	if err := limits.Validate(policy.MaxOutputTokens, errorSource); err != nil {
-		return 0, err
-	}
-	return workingInputWindow(CapabilitiesForClient(client), policy, limits).UsableInputTokens(), nil
 }
 
 func workingInputWindow(

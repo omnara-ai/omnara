@@ -228,13 +228,13 @@ INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind,
   attempt_number,
   agent_config_id, configured_model_revision_id,
-  input_event_sequence, source_event_sequence_end, parent_normal_model_call_context_id,
+  input_event_sequence, source_event_sequence_end,
   runtime_lock_id, state, created_at
 )
 SELECT org_id, project_id, agent_id, operation_kind,
        attempt_number,
        agent_config_id, configured_model_revision_id,
-       input_event_sequence, source_event_sequence_end, parent_normal_model_call_context_id,
+       input_event_sequence, source_event_sequence_end,
        runtime_lock_id, 'started',
        created_at + interval '1 second'
 FROM model_call_contexts
@@ -242,13 +242,14 @@ WHERE id = $1`, compaction.Context.ID)
 	_ = duplicateTx.Rollback(ctx)
 	assertPgConstraint(t, err, "23505", "model_call_contexts_compaction_identity_idx")
 
+	parentID := blockedNormalContextIDForRangeTest(t, ctx, compactionFixture, compaction.Context)
 	_, err = compactionFixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
-			ParentContextID:        compaction.Context.ParentNormalModelCallContextID,
+			ParentContextID:        parentID,
 			SourceEventSequenceEnd: *compaction.Context.SourceEventSequenceEnd,
 			Failure: executionstore.RecordRecoverableModelCallFailureInput{
 				ProjectID: testProjectID, AgentID: compactionFixture.AgentID, RuntimeLockID: compactionFixture.Lock.ID,
-				ModelCallContextID: compaction.Context.ParentNormalModelCallContextID,
+				ModelCallContextID: parentID,
 				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
 				ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "duplicate handoff",
 			},

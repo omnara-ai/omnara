@@ -717,7 +717,7 @@ SELECT min(CASE WHEN event.event_kind = 'model_output' THEN event.sequence END),
 	}
 }
 
-func TestAgentExecutorTriesUnansweredOpeningAfterEstimatedOversizedContinuation(t *testing.T) {
+func TestAgentExecutorStopsWhenCompactionLeavesOversizedUnansweredOpening(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
@@ -795,7 +795,6 @@ func TestAgentExecutorTriesUnansweredOpeningAfterEstimatedOversizedContinuation(
 		},
 		responses: []model.Response{
 			completeProgressiveSummaryResponse("Earlier seed history remains relevant."),
-			completeProgressiveSummaryResponse("The current request was accepted."),
 		},
 	}
 	runNow := fixture.Now.Add(4 * time.Second)
@@ -818,14 +817,26 @@ func TestAgentExecutorTriesUnansweredOpeningAfterEstimatedOversizedContinuation(
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("execute normal request after checkpoint: %v", err)
 	}
-	if compactionModel.respondedCount() != 2 || isCompactionRequestBundle(compactionModel.responded[1].Bundle) {
-		t.Fatalf("expected an actual normal provider request after checkpoint")
+	if compactionModel.respondedCount() != 1 {
+		t.Fatal("oversized normal request must not bypass compaction")
+	}
+	var errorCode string
+	if err := fixture.Pool.QueryRow(ctx, `SELECT error_code FROM model_call_contexts
+		WHERE agent_id=$1 AND state='failed' AND recovery_kind IS NULL`, agentID).Scan(&errorCode); err != nil {
+		t.Fatal(err)
+	}
+	if errorCode != contextMaintenanceErrorCodeCannotCompact || pendingModelWork(t, ctx, fixture, agentID) != 0 {
+		t.Fatalf("expected bounded terminal overflow, got %q", errorCode)
 	}
 	currentInput := "current input " + strings.Repeat("must remain semantically represented ", 50)
-	if !strings.Contains(string(compactionModel.responded[1].ProviderRequest), currentInput) {
-		t.Fatal("normal request must preserve the complete unanswered opening")
+	var preserved int
+	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM content_blocks
+		WHERE agent_id=$1 AND text_content=$2`, agentID, currentInput).Scan(&preserved); err != nil {
+		t.Fatal(err)
 	}
-	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
+	if preserved != 1 {
+		t.Fatal("unanswered opening must remain stored verbatim")
+	}
 	var checkpoints int
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT count(*)

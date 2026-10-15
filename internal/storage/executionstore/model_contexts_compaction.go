@@ -24,7 +24,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			"parent model context and a valid compaction source range are required",
 		)
 	}
-	if failure.RecoveryKind != ModelCallRecoveryCompact && failure.RecoveryKind != ModelCallRecoveryCompactOptional {
+	if failure.RecoveryKind != ModelCallRecoveryCompact {
 		return TriggeredCompactionHandoff{}, errors.New("compaction recovery is required")
 	}
 	if err := validateRecoverableModelCallFailure(failure); err != nil {
@@ -317,13 +317,20 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{BoundaryPreempted: true}, nil
 	}
 
+	parentID, err := q.GetNormalModelCallContextByIdentity(ctx, dbsqlc.GetNormalModelCallContextByIdentityParams{
+		ProjectID: contextRow.ProjectID, AgentID: contextRow.AgentID, InputEventSequence: contextRow.InputEventSequence,
+	})
+	if err != nil {
+		return ReplaceCompactionSourceResult{}, fmt.Errorf("load blocked normal context for source replacement: %w", err)
+	}
+
 	nextClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
 		AgentConfigID:          contextRow.AgentConfigID,
 		ProjectID:              contextRow.ProjectID,
 		AgentID:                contextRow.AgentID,
 		RuntimeLockID:          input.RuntimeLockID,
 		SourceEventSequenceEnd: input.NextSourceEventSequenceEnd,
-		ParentContextID:        contextRow.ParentNormalModelCallContextID,
+		ParentContextID:        parentID,
 	})
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err

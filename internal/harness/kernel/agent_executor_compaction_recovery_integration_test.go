@@ -14,19 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func seedSoftContextHistory(t *testing.T, ctx context.Context) (kernelFixture, uuid.UUID, uuid.UUID) {
-	return seedSoftContextHistoryWithText(t, ctx, "OLD_HISTORY_TO_PRESERVE "+strings.Repeat("historical detail ", 800))
+func seedCompactionHistory(t *testing.T, ctx context.Context) (kernelFixture, uuid.UUID, uuid.UUID) {
+	return seedCompactionHistoryWithText(t, ctx, "OLD_HISTORY_TO_PRESERVE "+strings.Repeat("historical detail ", 800))
 }
 
-func seedSoftContextHistoryWithText(
+func seedCompactionHistoryWithText(
 	t *testing.T, ctx context.Context, text string,
 ) (kernelFixture, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/soft-context", fixture.Now,
+	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/compaction-recovery", fixture.Now,
 		kernelConfiguredModelOptions{ContextWindowTokens: new(10_000), MaxOutputTokens: new(1_024)})
 	client := &sequenceKernelModel{
-		providerModelSlug:          "soft-context",
+		providerModelSlug:          "compaction-recovery",
 		capabilities:               model.Capabilities{ContextWindowTokens: 10_000, MaxOutputTokens: new(1_024)},
 		preparedInputTokenEstimate: 500,
 		responses:                  []model.Response{completeProgressiveSummaryResponse("Old history received.")},
@@ -38,12 +38,12 @@ func seedSoftContextHistoryWithText(
 	return fixture, agentID, userID
 }
 
-func uncertainSoftContextClient(responses ...model.Response) *sequenceKernelModel {
+func compactionRecoveryClient(responses ...model.Response) *sequenceKernelModel {
 	return &sequenceKernelModel{
-		providerModelSlug: "soft-context",
+		providerModelSlug: "compaction-recovery",
 		capabilities:      model.Capabilities{ContextWindowTokens: 10_000, MaxOutputTokens: new(1_024)},
 		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {
-			if isCompactionRequestBundle(bundle) {
+			if isCompactionRequestBundle(bundle) || bundle.ContextCheckpoint != nil {
 				return 500
 			}
 			return 100_000
@@ -52,49 +52,60 @@ func uncertainSoftContextClient(responses ...model.Response) *sequenceKernelMode
 	}
 }
 
-func TestAgentExecutorFailedOptionalThenRealOverflowClaimsRequiredCompaction(t *testing.T) {
-	ctx := context.Background()
-	fixture, agentID, userID := seedSoftContextHistory(t, ctx)
-	client := uncertainSoftContextClient(
-		completeProgressiveSummaryResponse("Preserve the earlier user intent and continue the current work."),
-		completeProgressiveSummaryResponse("Recovered after confirmed overflow."),
-	)
-	client.errs = []error{
-		model.ProviderError{
-			Kind: model.ErrorKindTransient, Source: "test", Code: "timeout", Message: "Optional summary timed out",
-		},
-		model.ProviderError{
-			Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length",
-			Message: "Normal request is actually too large",
-		},
+func TestAgentExecutorCompactionTriggersShareRetryAndCompletionFlow(t *testing.T) {
+	for _, providerOverflow := range []bool{false, true} {
+		name := "local input budget"
+		if providerOverflow {
+			name = "provider overflow"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			fixture, agentID, userID := seedCompactionHistory(t, ctx)
+			client := compactionRecoveryClient(
+				completeProgressiveSummaryResponse("Preserve the earlier user intent and continue the current work."),
+				completeProgressiveSummaryResponse("Recovered after compaction."),
+			)
+			client.errs = []error{model.ProviderError{
+				Kind: model.ErrorKindTransient, Source: "test", Code: "timeout", Message: "Summary timed out",
+			}}
+			normalAttempts := 0
+			if providerOverflow {
+				normalAttempts = 1
+				client.preparedInputTokenEstimator = nil
+				client.preparedInputTokenEstimate = 500
+				client.errs = append([]error{model.ProviderError{
+					Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length",
+					Message: "Normal request is too large",
+				}}, client.errs...)
+			}
+			work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
+				"Continue the current task.", fixture.Now.Add(time.Second))
+			executor := AgentExecutor{
+				Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+				ModelRetryDelay: immediateKernelModelRetryDelay,
+				OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+					t.Error("retryable compaction must not notify failure")
+					return nil
+				},
+			}
+			require.NoError(t, executor.ExecuteModelWork(ctx, work))
+			require.Len(t, client.responded, normalAttempts+1)
+			work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
+			require.NoError(t, executor.ExecuteModelWork(ctx, work))
+			require.Len(t, client.responded, normalAttempts+2)
+			for _, request := range client.responded[normalAttempts:] {
+				require.True(t, isCompactionRequestBundle(request.Bundle), "failed summary must retry before normal work")
+			}
+			work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(3*time.Second))
+			require.NoError(t, executor.ExecuteModelWork(ctx, work))
+			require.Len(t, client.responded, normalAttempts+3)
+			final := client.responded[normalAttempts+2]
+			require.False(t, isCompactionRequestBundle(final.Bundle))
+			require.NotNil(t, final.Bundle.ContextCheckpoint)
+			assertNoTerminalContextErrors(t, ctx, fixture, agentID)
+			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+		})
 	}
-	work := fixture.admitContentInputTurn(
-		t, ctx, agentID, userID, "Continue the current task.", fixture.Now.Add(time.Second),
-	)
-	executor := AgentExecutor{
-		Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
-		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
-			t.Error("recoverable compaction must not notify failure")
-			return nil
-		},
-	}
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 1, client.respondedCount())
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 3, client.respondedCount())
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(3*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 4, client.respondedCount())
-	require.True(t, isCompactionRequestBundle(client.responded[0].Bundle))
-	require.False(t, isCompactionRequestBundle(client.responded[1].Bundle))
-	require.True(t, isCompactionRequestBundle(client.responded[2].Bundle))
-	require.False(t, isCompactionRequestBundle(client.responded[3].Bundle))
-	var parents int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(DISTINCT parent_normal_model_call_context_id)
-		FROM model_call_contexts WHERE agent_id=$1 AND operation_kind='compaction'`, agentID).Scan(&parents))
-	require.Equal(t, 2, parents, "required recovery must not reuse the failed optional operation")
-	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 }
 
 func TestAgentExecutorOverflowWithoutCompactableHistoryEndsAfterOneCall(t *testing.T) {

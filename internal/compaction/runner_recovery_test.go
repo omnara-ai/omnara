@@ -3,7 +3,6 @@ package compaction
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -13,59 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
-
-func TestRunnerOptionalFailureResumesNormalAfterOneProviderAttempt(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		result summaryResult
-	}{
-		{"overflow", summaryResult{err: model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "too_big"}}},
-		{"timeout", summaryResult{err: model.ProviderError{Kind: model.ErrorKindTransient, Code: "timeout"}}},
-		{"refusal", summaryResult{response: model.Response{StopReason: model.StopReasonRefusal}}},
-		{"invalid parsed response", summaryResult{response: model.Response{StopReason: model.StopReasonEndTurn,
-			Content: []model.ResponsePart{{Type: "unexpected"}}}}},
-		{"truncated", summaryResult{response: model.Response{StopReason: model.StopReasonMaxTokens,
-			Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}}}}},
-		{"not reduced", summaryResult{response: completeSummaryResponse(strings.Repeat("expanded summary ", 1_000))}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeStore{parentRecoveryKind: executionstore.ModelCallRecoveryCompactOptional,
-				events: []executionstore.CompactionSourceEventRecord{
-					textCompactionEvent(1, strings.Repeat("old first observation ", 60)),
-					textCompactionEvent(2, strings.Repeat("old second observation ", 60)),
-				}}
-			client := &summaryModel{results: []summaryResult{tc.result}}
-			compactionInput := runInput(testPlan(1, 2, 3))
-			result, err := testRunner(store, client).
-				RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
-			require.NoError(t, err)
-			require.Equal(t, RunResumeNormal, result.State)
-			require.Len(t, client.requests, 1)
-			require.Len(t, store.resumedFailures, 1)
-			require.Empty(t, store.replacements)
-			require.Empty(t, store.retryFailures)
-			require.Empty(t, store.terminalFailures)
-			require.Empty(t, store.publishInputs)
-		})
-	}
-}
-
-func TestRunnerOptionalSourceLoadFailureResumesNormalWithOriginalCause(t *testing.T) {
-	store := &fakeStore{
-		parentRecoveryKind: executionstore.ModelCallRecoveryCompactOptional,
-		atomicGroupsErr:    errors.New("source database unavailable"),
-		events:             []executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed history")},
-	}
-	client := &summaryModel{}
-	input := runInput(testPlan(1, 1, 2))
-	result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
-	require.NoError(t, err)
-	require.Equal(t, RunResumeNormal, result.State)
-	require.Empty(t, client.requests)
-	require.Len(t, store.resumedFailures, 1)
-	require.Equal(t, compactionErrorCodeLoadSourceFailed, store.resumedFailures[0].ErrorCode)
-	require.Contains(t, string(store.resumedFailures[0].ErrorDetails), store.atomicGroupsErr.Error())
-}
 
 func TestRunnerExcerptRecoveryMeasuresReductionAgainstReplacedHistory(t *testing.T) {
 	for _, tc := range []struct {
@@ -164,24 +110,6 @@ func TestRunnerNeverExcerptsCurrentRequest(t *testing.T) {
 	require.Equal(t, RunTerminal, result.State)
 	require.Len(t, client.requests, 1)
 	require.Empty(t, store.replacements)
-}
-
-func TestRunnerOptionalPublishConflictDoesNotSendAnotherSummary(t *testing.T) {
-	store := &fakeStore{parentRecoveryKind: executionstore.ModelCallRecoveryCompactOptional,
-		events: []executionstore.CompactionSourceEventRecord{
-			textCompactionEvent(1, strings.Repeat("first ", 100)),
-			textCompactionEvent(2, strings.Repeat("second ", 100)),
-		}, publishErrs: []error{executionstore.ErrCheckpointBoundaryUnsafe}}
-	client := &summaryModel{}
-	compactionInput := runInput(testPlan(1, 2, 3))
-	result, err := testRunner(store, client).
-		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
-	require.NoError(t, err)
-	require.Equal(t, RunResumeNormal, result.State)
-	require.Len(t, client.requests, 1)
-	require.Empty(t, store.replacements)
-	require.Nil(t, store.published)
-	require.Len(t, store.resumedFailures, 1)
 }
 
 func TestRunnerExcerptsStopAtFiniteFloor(t *testing.T) {

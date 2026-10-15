@@ -19,16 +19,13 @@ import (
 type fakeStore struct {
 	events               []executionstore.CompactionSourceEventRecord
 	atomicGroups         []executionstore.CompactionAtomicGroupRecord
-	atomicGroupsErr      error
 	priorCheckpoint      *executionstore.ContextCheckpointRecord
 	agentConfig          executionstore.AgentConfigRecord
 	compactionRetryCount int
-	parentRecoveryKind   executionstore.ModelCallRecoveryKind
 
 	claims           []executionstore.ModelCallClaim
 	retryFailures    []executionstore.RecordRecoverableModelCallFailureInput
 	terminalFailures []executionstore.RecordTerminalCompactionFailureInput
-	resumedFailures  []executionstore.RecordOptionalCompactionFailureInput
 	replacements     []executionstore.ReplaceCompactionSourceInput
 	publishInputs    []executionstore.PublishContextCheckpointInput
 	publishErrs      []error
@@ -60,7 +57,7 @@ func (s *fakeStore) ListCompactionAtomicGroups(
 	_, _ uuid.UUID,
 	_, _ int64,
 ) ([]executionstore.CompactionAtomicGroupRecord, error) {
-	return append([]executionstore.CompactionAtomicGroupRecord(nil), s.atomicGroups...), s.atomicGroupsErr
+	return append([]executionstore.CompactionAtomicGroupRecord(nil), s.atomicGroups...), nil
 }
 
 func (s *fakeStore) CaptureAgentConfigForEventWatermark(
@@ -90,15 +87,12 @@ func (s *fakeStore) GetLatestApplicableContextCheckpoint(
 	return *s.priorCheckpoint, true, nil
 }
 
-func (s *fakeStore) GetModelCallRetryState(
+func (s *fakeStore) CountModelCallRetries(
 	_ context.Context,
 	_, _ uuid.UUID,
 	_ uuid.UUID,
-) (executionstore.ModelCallRetryState, error) {
-	return executionstore.ModelCallRetryState{
-		RetryCount:         max(s.compactionRetryCount, len(s.retryFailures)),
-		ParentRecoveryKind: s.parentRecoveryKind,
-	}, nil
+) (int, error) {
+	return max(s.compactionRetryCount, len(s.retryFailures)), nil
 }
 
 func (s *fakeStore) addStartedClaim(input RunInput) executionstore.ModelCallClaim {
@@ -117,20 +111,19 @@ func newCompactionClaim(
 		Created: true,
 		Claimed: true,
 		Context: executionstore.ModelCallContextRecord{
-			ID:                             testIDN(100 + index),
-			OrgID:                          testIDN(500),
-			ProjectID:                      input.Plan.ProjectID,
-			AgentID:                        input.Plan.AgentID,
-			OperationKind:                  executionstore.ModelCallOperationCompaction,
-			ParentNormalModelCallContextID: testIDN(799),
-			AttemptNumber:                  1,
-			AgentConfigID:                  testIDN(501),
-			ConfiguredModelRevisionID:      testIDN(601),
-			InputEventSequence:             input.Plan.InputEventSequence,
-			SourceEventSequenceEnd:         &end,
-			RuntimeLockID:                  input.RuntimeLockID,
-			State:                          executionstore.ModelCallContextStarted,
-			CreatedAt:                      now,
+			ID:                        testIDN(100 + index),
+			OrgID:                     testIDN(500),
+			ProjectID:                 input.Plan.ProjectID,
+			AgentID:                   input.Plan.AgentID,
+			OperationKind:             executionstore.ModelCallOperationCompaction,
+			AttemptNumber:             1,
+			AgentConfigID:             testIDN(501),
+			ConfiguredModelRevisionID: testIDN(601),
+			InputEventSequence:        input.Plan.InputEventSequence,
+			SourceEventSequenceEnd:    &end,
+			RuntimeLockID:             input.RuntimeLockID,
+			State:                     executionstore.ModelCallContextStarted,
+			CreatedAt:                 now,
 		},
 	}
 }
@@ -167,17 +160,6 @@ func (s *fakeStore) RecordTerminalCompactionFailure(
 	return nil
 }
 
-func (s *fakeStore) RecordOptionalCompactionFailure(
-	_ context.Context,
-	input executionstore.RecordOptionalCompactionFailureInput,
-) (executionstore.ModelCallContextRecord, error) {
-	s.resumedFailures = append(s.resumedFailures, input)
-	record, _ := s.contextByID(input.ModelCallContextID)
-	record.State = executionstore.ModelCallContextFailed
-	record.RecoveryKind = ""
-	return record, nil
-}
-
 func (s *fakeStore) ReplaceCompactionSource(
 	_ context.Context,
 	input executionstore.ReplaceCompactionSourceInput,
@@ -186,26 +168,27 @@ func (s *fakeStore) ReplaceCompactionSource(
 	end := input.NextSourceEventSequenceEnd
 	previous, _ := s.contextByID(input.ModelCallContextID)
 	reductions := 0
+	attempt := 1
 	if previous.SourceEventSequenceEnd != nil && end == *previous.SourceEventSequenceEnd {
 		reductions = previous.SourceExcerptReductionCount + 1
+		attempt = previous.AttemptNumber + 1
 	}
 	claim := executionstore.ModelCallClaim{
 		Context: executionstore.ModelCallContextRecord{
-			ID:                             testIDN(700 + len(s.replacements)),
-			OrgID:                          testIDN(500),
-			ProjectID:                      input.ProjectID,
-			AgentID:                        input.AgentID,
-			OperationKind:                  executionstore.ModelCallOperationCompaction,
-			ParentNormalModelCallContextID: previous.ParentNormalModelCallContextID,
-			AttemptNumber:                  previous.AttemptNumber + 1,
-			AgentConfigID:                  testIDN(501),
-			ConfiguredModelRevisionID:      testIDN(601),
-			InputEventSequence:             s.claims[0].Context.InputEventSequence,
-			SourceEventSequenceEnd:         &end,
-			SourceExcerptReductionCount:    reductions,
-			RuntimeLockID:                  input.RuntimeLockID,
-			State:                          executionstore.ModelCallContextStarted,
-			CreatedAt:                      s.now(),
+			ID:                          testIDN(700 + len(s.replacements)),
+			OrgID:                       testIDN(500),
+			ProjectID:                   input.ProjectID,
+			AgentID:                     input.AgentID,
+			OperationKind:               executionstore.ModelCallOperationCompaction,
+			AttemptNumber:               attempt,
+			AgentConfigID:               testIDN(501),
+			ConfiguredModelRevisionID:   testIDN(601),
+			InputEventSequence:          s.claims[0].Context.InputEventSequence,
+			SourceEventSequenceEnd:      &end,
+			SourceExcerptReductionCount: reductions,
+			RuntimeLockID:               input.RuntimeLockID,
+			State:                       executionstore.ModelCallContextStarted,
+			CreatedAt:                   s.now(),
 		},
 		Created: true,
 		Claimed: true,

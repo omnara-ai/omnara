@@ -25,15 +25,7 @@ func (r Runner) RunClaimed(
 		return RunResult{}, err
 	}
 	if !claim.Claimed {
-		recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
-		if err != nil {
-			return RunResult{}, err
-		}
-		state := RunTerminal
-		if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
-			state = RunResumeNormal
-		}
-		return RunResult{State: state, ModelCallContextID: claim.Context.ID}, nil
+		return RunResult{State: RunTerminal, ModelCallContextID: claim.Context.ID}, nil
 	}
 	protectOpening, err := r.openingEventsRequireVerbatimRetention(ctx, input)
 	if err != nil {
@@ -303,7 +295,6 @@ func validateInitialCompactionClaim(input RunInput, claim executionstore.ModelCa
 		contextRow.AgentID == input.Plan.AgentID &&
 		contextRow.OperationKind == executionstore.ModelCallOperationCompaction &&
 		contextRow.InputEventSequence == input.Plan.InputEventSequence &&
-		contextRow.ParentNormalModelCallContextID != uuid.Nil &&
 		contextRow.SourceEventSequenceEnd != nil &&
 		*contextRow.SourceEventSequenceEnd == input.Plan.EventSequenceEnd &&
 		contextRow.RuntimeLockID == input.RuntimeLockID

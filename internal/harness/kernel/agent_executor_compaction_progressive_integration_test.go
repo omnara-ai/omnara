@@ -71,18 +71,7 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     new(256),
 		},
-		errs: []error{
-			nil,
-			model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "context_length"},
-			nil, nil,
-			model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "context_length"},
-		},
 		responses: []model.Response{
-			{
-				ID:         "resp_optional_summary_truncated",
-				Content:    []model.ResponsePart{{Type: "text", Text: "optional partial summary"}},
-				StopReason: model.StopReasonMaxTokens,
-			},
 			{
 				ID:         "resp_progressive_truncated",
 				Content:    []model.ResponsePart{{Type: "text", Text: "truncated summary"}},
@@ -119,42 +108,18 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(6 * time.Second) },
 	}
-	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
-		t.Fatalf("execute first progressive compaction lease: %v", err)
+	work := turn
+	for lease, expectedCalls := range []int{2, 3, 4} {
+		if lease > 0 {
+			work = continueTurnOnNewLeaseForKernelTest(
+				t, ctx, fixture, work, fixture.Now.Add(time.Duration(6+lease)*time.Second),
+			)
+		}
+		require.NoError(t, executor.ExecuteModelWork(ctx, work))
+		require.Equal(t, expectedCalls, progressiveModel.respondedCount(), "lease %d", lease)
 	}
-	if progressiveModel.respondedCount() != 1 {
-		t.Fatalf(
-			"first progressive lease prepared %d requests, want only the optional compaction call",
-			progressiveModel.respondedCount(),
-		)
-	}
-
-	secondLease := continueTurnOnNewLeaseForKernelTest(
-		t,
-		ctx,
-		fixture,
-		turn,
-		fixture.Now.Add(7*time.Second),
-	)
-	if err := executor.ExecuteModelWork(ctx, secondLease); err != nil {
-		t.Fatalf("execute second progressive compaction lease: %v", err)
-	}
-	if progressiveModel.respondedCount() != 4 {
-		t.Fatalf(
-			"second progressive lease prepared %d requests, want normal overflow and two required summary calls",
-			progressiveModel.respondedCount(),
-		)
-	}
-
-	thirdLease := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, secondLease, fixture.Now.Add(8*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, thirdLease))
-	require.Equal(t, 6, progressiveModel.respondedCount())
-	finalLease := continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, thirdLease, fixture.Now.Add(9*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, finalLease))
-	require.Equal(t, 7, progressiveModel.respondedCount())
-	for index, wantSummary := range []bool{true, false, true, true, false, true, false} {
-		require.Equal(t, wantSummary,
-			isCompactionRequestBundle(progressiveModel.responded[index].Bundle), "request %d", index)
+	for index, request := range progressiveModel.responded {
+		require.Equal(t, index < 3, isCompactionRequestBundle(request.Bundle), "request %d", index)
 	}
 
 	rows, err := fixture.Pool.Query(ctx, `
@@ -244,7 +209,7 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 			compactedParents,
 		)
 	}
-	finalRequest := string(progressiveModel.responded[6].ProviderRequest)
+	finalRequest := string(progressiveModel.responded[3].ProviderRequest)
 	if !strings.Contains(finalRequest, finalSummary) ||
 		!strings.Contains(finalRequest, "CURRENT_PROGRESSIVE_REQUEST") ||
 		!strings.Contains(finalRequest, secondSeedText) ||
@@ -275,7 +240,7 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 	}
 }
 
-func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsWithNormalAttempts(t *testing.T) {
+func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsBeforeNormalWork(t *testing.T) {
 	ctx := context.Background()
 	var seeds []progressiveSeedTurn
 	for index := range 4 {
@@ -308,15 +273,12 @@ func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsWithNormalAttempts(t
 			if isCompactionRequestBundle(bundle) && strings.Count(string(bundle.Messages[0].Content), "Event ") <= 2 {
 				return 500
 			}
+			if bundle.ContextCheckpoint != nil && bundle.ContextCheckpoint.Summary == "step four summary" {
+				return 500
+			}
 			return 200_000
 		},
 		capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(256)},
-		errs: []error{
-			nil,
-			model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "context_length"}, nil,
-			model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "context_length"}, nil,
-			model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "context_length"}, nil,
-		},
 		responses: []model.Response{
 			completeProgressiveSummaryResponse("step one summary"),
 			completeProgressiveSummaryResponse("step two summary"),
@@ -338,14 +300,10 @@ func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsWithNormalAttempts(t
 			)
 		}
 		require.NoError(t, executor.ExecuteModelWork(ctx, work))
-		expectedCalls := 1 + lease*2
-		if lease == 4 {
-			expectedCalls = 8
-		}
-		require.Equal(t, expectedCalls, client.respondedCount(), "lease %d", lease)
+		require.Equal(t, lease+1, client.respondedCount(), "lease %d", lease)
 	}
 	for index, request := range client.responded {
-		require.Equal(t, index%2 == 0, isCompactionRequestBundle(request.Bundle), "request %d", index)
+		require.Equal(t, index < 4, isCompactionRequestBundle(request.Bundle), "request %d", index)
 	}
 	rows, err := fixture.Pool.Query(ctx, `SELECT summarized_through_event_sequence
         FROM context_checkpoints WHERE agent_id=$1 ORDER BY summarized_through_event_sequence`, agentID)
@@ -359,8 +317,8 @@ func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsWithNormalAttempts(t
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []int64{3, 5, 7, 9}, ends)
-	require.Contains(t, string(client.responded[7].ProviderRequest), "current request after progressive exhaustion seeds")
-	require.Contains(t, string(client.responded[7].ProviderRequest), "step four summary")
+	require.Contains(t, string(client.responded[4].ProviderRequest), "current request after progressive exhaustion seeds")
+	require.Contains(t, string(client.responded[4].ProviderRequest), "step four summary")
 	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 }
