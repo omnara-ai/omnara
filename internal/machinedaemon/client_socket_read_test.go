@@ -443,3 +443,100 @@ func ackDirectReadReport(
 		AckStatus: daemonprotocol.AckStatusCommitted,
 	})
 }
+
+func TestDirectReadWaitYieldsToNewerAcceptedAction(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, transport, machine := newDirectReadTestTransport(t)
+	defer client.closeState()
+	defer transport.stopAndWait(cancel)
+
+	const (
+		processID            = "prc_wait_yield"
+		readActionID         = "act_wait_yield_read"
+		terminateActionID    = "act_wait_yield_terminate"
+		supervisorInstanceID = "supervisor-instance-wait_yield"
+	)
+	path, err := machine.OutputBufferPath(processID)
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
+	store, err := client.stateStore(ctx)
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
+		ctx,
+		statedb.Process{
+			ProcessID:            processID,
+			SupervisorInstanceID: supervisorInstanceID,
+			SupervisorToken:      "supervisor-token-wait_yield",
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
+	runner := &recordingProcessRunner{
+		applied: make(chan ProcessAction, 1),
+		done:    make(chan struct{}),
+	}
+	client.processMu.Lock()
+	client.processes[processID] = &processRuntime{processID: processID, runner: runner}
+	client.processMu.Unlock()
+
+	nextSent := func(wantType daemonprotocol.MessageType) daemonprotocol.Message {
+		t.Helper()
+		select {
+		case message := <-transport.send:
+			if message.Type != wantType {
+				t.Fatalf("sent %+v, want %s", message, wantType)
+			}
+			return message
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+			return daemonprotocol.Message{}
+		}
+	}
+	accept := func(actionID string, kind daemonprotocol.ProcessActionKind, seq int64, payload string) {
+		t.Helper()
+		transport.offerAction(daemonprotocol.ActionOffer{
+			ProcessID:       processID,
+			ProcessActionID: actionID,
+			ActionKind:      kind,
+			Seq:             seq,
+			Payload:         json.RawMessage(payload),
+		})
+		nextSent(daemonprotocol.MessageActionAccept)
+		transport.applyAcceptedAction(ctx, daemonprotocol.ActionGrant{
+			ProcessID:       processID,
+			ProcessActionID: actionID,
+			ProcessState:    daemonprotocol.ProcessStateRunning,
+		})
+	}
+
+	// The server cancelled this read's turn and has already offered a stop,
+	// which it does only once no earlier action is still accepted.
+	accept(readActionID, daemonprotocol.ProcessActionRead, 1, `{"wait_ms":300000}`)
+	select {
+	case message := <-transport.send:
+		t.Fatalf("read returned before a newer action arrived: %+v", message)
+	case <-time.After(75 * time.Millisecond):
+	}
+	accept(terminateActionID, daemonprotocol.ProcessActionTerminate, 2, `{}`)
+
+	message := nextSent(daemonprotocol.MessageReport)
+	if message.Event == nil || message.Event.ProcessActionID != readActionID {
+		t.Fatalf("yielded read report = %+v", message)
+	}
+	var observed struct {
+		Output string `json:"output"`
+	}
+	require.NoError(t, json.Unmarshal(message.Event.Result, &observed))
+	if observed.Output != "" {
+		t.Fatalf("yielded read observation = %+v", observed)
+	}
+	ackDirectReadReport(transport, message)
+	select {
+	case applied := <-runner.applied:
+		if applied.ID != terminateActionID {
+			t.Fatalf("applied %+v, want the terminate", applied)
+		}
+	case <-ctx.Done():
+		t.Fatal("terminate stayed queued behind the long read")
+	}
+}

@@ -1181,7 +1181,8 @@ func (t *daemonSocketTransport) runAcceptedRead(
 			return terminalErr
 		}
 		if output != "" || terminal || payload.WaitMS == 0 ||
-			!time.Now().Before(deadline) {
+			!time.Now().Before(deadline) ||
+			t.newerProcessActionOffered(accepted.processID, accepted.action.Seq) {
 			result, err := marshalJSON(processaction.ReadObservation{
 				ProcessID:  accepted.processID,
 				Output:     output,
@@ -1205,6 +1206,25 @@ func (t *daemonSocketTransport) runAcceptedRead(
 			return err
 		}
 	}
+}
+
+// newerProcessActionOffered reports whether the server has offered an action
+// after seq for the process. The server offers a process's next action only
+// once none before it is still accepted, so a newer offer means the server has
+// already settled the action at seq (for example, by cancelling the turn) and
+// a read still waiting on it would only hold up the newer action.
+func (t *daemonSocketTransport) newerProcessActionOffered(
+	processID string,
+	seq int64,
+) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, action := range t.pendingActions {
+		if action.processID == processID && action.action.Seq > seq {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *daemonSocketTransport) readProcessTerminal(
