@@ -281,11 +281,10 @@ func (t *toolCallTransaction) createPoolMachine(
 		PoolGrant:        poolGrant,
 		ResolvedMachine:  resolvedMachine,
 		CreateToolCallID: toolCallID,
-	})
+	}, t.unit.TrackCreation)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	t.unit.TrackCreation(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: agent.OrgID})
 	status, err := poolMachineByIDTx(ctx, t.q, projectID, agentID, binding.MachineID)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
@@ -742,6 +741,7 @@ func createPoolMachineBindingTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input poolMachineBindingInput,
+	track func(resourceguard.Creation),
 ) (AgentMachineBindingRecord, error) {
 	poolGrant := input.PoolGrant
 	if poolGrant.ID == uuid.Nil {
@@ -784,6 +784,7 @@ func createPoolMachineBindingTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("insert pool machine: %w", err)
 	}
+	track(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: input.OrgID})
 	grantRow, err := qtx.UpsertProjectMachineGrant(ctx, dbsqlc.UpsertProjectMachineGrantParams{
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,

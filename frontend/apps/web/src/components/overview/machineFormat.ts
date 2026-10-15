@@ -1,6 +1,7 @@
 import type { MachineSummary } from '@omnara/sdk'
 
 import type { DetailItem } from '@/components/data-table/DetailList'
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { formatDateTime } from '@/lib/format'
 
 /** Human-readable machine state: the lifecycle while it isn't active, else its connection. */
@@ -14,7 +15,7 @@ export function machineDetailItems(machine: MachineSummary): DetailItem[] {
   return [
     { label: 'ID', value: machine.id, mono: true },
     { label: 'Description', value: machine.description },
-    { label: 'Provider', value: machine.provider },
+    { label: 'Provider', value: machinePoolProviderLabel(machine.provider) },
     { label: 'State', value: machine.lifecycle_state.replace('_', ' ') },
     { label: 'Connection', value: machine.connection_state },
     { label: 'Last observed', value: formatDateTime(machine.last_observed_at) },

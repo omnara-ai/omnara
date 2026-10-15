@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -318,5 +320,23 @@ func TestDaytonaProviderInspectAndDelete(t *testing.T) {
 	}
 	if api.deleteCalls != 2 {
 		t.Fatalf("already absent machine caused %d delete calls", api.deleteCalls-2)
+	}
+}
+
+func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sandbox" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := newTestProvider(newRESTClient(server.URL, "test-token", server.Client())).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
 	}
 }

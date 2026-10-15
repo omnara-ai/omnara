@@ -241,11 +241,12 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return MachineRecord{}, err
 	}
-	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata)
+	var creations []resourceguard.Creation
+	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata, func(c resourceguard.Creation) {
+		creations = append(creations, c)
+	})
 	if err == nil {
-		if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{{
-			Kind: resourceguard.Machines, OrgID: input.OrgID,
-		}}); err != nil {
+		if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 			return MachineRecord{}, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -317,6 +318,7 @@ func createDaemonMachineTx(
 	input CreateDaemonMachineInput,
 	environment MachineEnvironment,
 	metadata json.RawMessage,
+	track func(resourceguard.Creation),
 ) (MachineRecord, error) {
 	env, secretEnv, err := machineEnvironmentToColumns(environment)
 	if err != nil {
@@ -346,6 +348,7 @@ func createDaemonMachineTx(
 		}
 		return MachineRecord{}, fmt.Errorf("insert machine: %w", err)
 	}
+	track(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: input.OrgID})
 	if err := validateMachineEnvironmentSecretsTx(ctx, qtx, input.OrgID, uuid.Nil, environment); err != nil {
 		return MachineRecord{}, err
 	}

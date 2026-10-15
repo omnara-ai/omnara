@@ -82,8 +82,9 @@ is why those agents never sleep. Archive agents when their work is done:
 kept machines count toward the pool's machine limit. A schedule sends every
 run to one standing agent, so it uses one machine that stays signed in.
 
-`sleep_after_ms` is a Blaxel, Unikraft Cloud, Freestyle, and Arker option. On
-a Daytona, Modal, or Tenki pool, delete that line; those machines don't sleep.
+`sleep_after_ms` is an Arker, Blaxel, boxd, CreateOS, Freestyle, and Unikraft
+Cloud option. On a Daytona, Modal, or Tenki pool, delete that line; those
+machines don't sleep.
 
 The startup script pins agent-browser to a tested version, so a new release
 can't change behavior mid-run. agent-browser runs Chrome under a background

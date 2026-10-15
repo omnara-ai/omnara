@@ -149,7 +149,7 @@ func TestToolSearchDefaultMatchesCompiledAndPreview(t *testing.T) {
 				require.Equal(t, test.wantOn, compiledSearch.Enabled)
 			}
 
-			preview, err := ToolsFromSource(SourceFormatYAML, []byte(source))
+			preview, err := ToolsFromSourceWithOptions(SourceFormatYAML, []byte(source), CompileOptions{})
 			require.NoError(t, err)
 			previewHas := false
 			for _, tool := range preview {

@@ -419,9 +419,9 @@ func (c *grpcClient) exchangeAPIKey(ctx context.Context) (string, time.Time, err
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
 			code = codes.Unavailable
 		}
-		return "", time.Time{}, providers.WithRetryAfter(
+		return "", time.Time{}, providers.WithResponse(
 			apiError{Code: code, Message: fmt.Sprintf("token exchange returned HTTP %d", response.StatusCode)},
-			response.Header,
+			response,
 		)
 	}
 	var body struct {

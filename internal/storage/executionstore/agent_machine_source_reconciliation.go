@@ -123,29 +123,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	for _, source := range nextSources {
 		if source.Contract.MachineID != uuid.Nil {
 			current, exists := currentMachines[source.Contract.MachineID]
-			if !exists {
-				envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
-					source.BindingConfig.EnvironmentOverlay,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("prepare added machine source environment: %w", err)
-				}
-				if _, err := insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
-					ProjectID:             projectID,
-					AgentID:               agentID,
-					ProjectMachineGrantID: source.GrantID,
-					BindingKind:           MachineBindingKindExplicit,
-					Description:           source.Contract.Description,
-					Cwd:                   source.BindingConfig.Cwd,
-					EnvOverlay:            envOverlay,
-					SecretEnvOverlay:      secretEnvOverlay,
-					Metadata:              json.RawMessage(`{}`),
-				}); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			if sameMachineBindingConfig(current.Contract, source.Contract) {
+			if exists && sameMachineBindingConfig(current.Contract, source.Contract) {
 				continue
 			}
 			binding, err := qtx.GetAgentMachineBindingByMachine(
@@ -157,13 +135,32 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 					BindingKind: string(MachineBindingKindExplicit),
 				},
 			)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, storeerr.ErrStateTransitionConflict
+			if err == nil {
+				if err := updateAgentMachineBindingConfigTx(ctx, qtx, projectID, agentID, binding.ID, source); err != nil {
+					return nil, err
+				}
+				continue
 			}
-			if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
 				return nil, fmt.Errorf("load explicit machine binding: %w", err)
 			}
-			if err := updateAgentMachineBindingConfigTx(ctx, qtx, projectID, agentID, binding.ID, source); err != nil {
+			envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
+				source.BindingConfig.EnvironmentOverlay,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("prepare added machine source environment: %w", err)
+			}
+			if _, err := insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
+				ProjectID:             projectID,
+				AgentID:               agentID,
+				ProjectMachineGrantID: source.GrantID,
+				BindingKind:           MachineBindingKindExplicit,
+				Description:           source.Contract.Description,
+				Cwd:                   source.BindingConfig.Cwd,
+				EnvOverlay:            envOverlay,
+				SecretEnvOverlay:      secretEnvOverlay,
+				Metadata:              json.RawMessage(`{}`),
+			}); err != nil {
 				return nil, err
 			}
 			continue

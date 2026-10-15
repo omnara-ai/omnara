@@ -357,7 +357,8 @@ func TestPublicSecretErrorsDoNotEchoPayloads(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+project.AdminToken)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), `a secret named \"duplicate\" already exists; choose a different name`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "private-value") {

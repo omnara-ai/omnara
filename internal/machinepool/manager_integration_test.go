@@ -1653,6 +1653,162 @@ func TestManagerFinalizesStaleMissingProviderResource(t *testing.T) {
 	}
 }
 
+func TestManagerAbandonsUnreachableTenantProviderResource(t *testing.T) {
+	ctx := context.Background()
+	pool := openManagerIntegrationDB(t, ctx)
+
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+	)
+	now := time.Date(2026, 6, 2, 11, 30, 0, 0, time.UTC)
+	orgID := seedManagerOrg(t, ctx, pool, "abandon-provider-resource", now)
+	providerAuthSecretID := createProviderAuthSecretForManagerTest(
+		t,
+		ctx,
+		pool,
+		store,
+		orgID,
+		"abandon-provider-auth",
+		"abandon-token",
+	)
+	maxCPU, maxMemoryMB := 100, 1024*1024
+	tenantPool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+		t,
+		executionstore.CreateMachinePoolInput{
+			OrgID:                orgID,
+			Name:                 "Tenant Pool",
+			Provider:             "capture",
+			ProviderConfig:       json.RawMessage(`{}`),
+			ProviderAuthSecretID: providerAuthSecretID,
+			MaxTotalMachines:     3,
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
+		},
+		1,
+		1024,
+		map[string]string{},
+		nil,
+		map[string]any{},
+	))
+	if err != nil {
+		t.Fatalf("create tenant machine pool: %v", err)
+	}
+	var clusterPoolID uuid.UUID
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO machine_pools (
+		   org_id, name, management_kind, provider, provider_auth_env_var,
+		   default_machine_cpu, default_machine_memory_mb, max_total_machines, created_at, updated_at
+		 )
+		 VALUES ($1, 'Cluster Pool', 'cluster', 'capture', 'OMNARA_TEST_CAPTURE_TOKEN', 1, 1024, 1, $2, $2)
+		 RETURNING id`,
+		orgID,
+		now,
+	).Scan(&clusterPoolID); err != nil {
+		t.Fatalf("insert cluster machine pool: %v", err)
+	}
+	clusterPool, err := store.Execution().GetMachinePool(ctx, orgID, clusterPoolID)
+	if err != nil {
+		t.Fatalf("get cluster machine pool: %v", err)
+	}
+	t.Setenv("OMNARA_TEST_CAPTURE_TOKEN", "cluster-token")
+
+	for _, test := range []struct {
+		name           string
+		machinePool    executionstore.MachinePoolRecord
+		deleteAttempts int
+		wantState      string
+		wantReasonCode string
+	}{
+		{
+			name:           "tenant pool after six attempts",
+			machinePool:    tenantPool,
+			deleteAttempts: 6,
+			wantState:      "deleted",
+			wantReasonCode: "provider_resource_abandoned",
+		},
+		{
+			name:           "tenant pool after five attempts",
+			machinePool:    tenantPool,
+			deleteAttempts: 5,
+			wantState:      "delete_failed",
+			wantReasonCode: "provider_inspect_error",
+		},
+		{
+			name:           "cluster pool",
+			machinePool:    clusterPool,
+			deleteAttempts: 6,
+			wantState:      "delete_failed",
+			wantReasonCode: "provider_inspect_error",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machineID := insertPoolMachineForManagerTest(t, ctx, pool, test.machinePool, "deleting", "", now)
+			if _, err := pool.Exec(
+				ctx,
+				`UPDATE machines
+				 SET lifecycle_state = 'delete_failed',
+				     lifecycle_reason_code = 'provider_inspect_error',
+				     lifecycle_reason_message = 'provider API returned HTTP 401',
+				     provision_attempts = 1,
+				     delete_attempts = $3,
+				     provider_provision_attempted_at = statement_timestamp(),
+				     next_reconcile_after = statement_timestamp() - interval '1 second',
+				     updated_at = statement_timestamp()
+				 WHERE org_id = $1 AND id = $2`,
+				orgID,
+				machineID,
+				test.deleteAttempts,
+			); err != nil {
+				t.Fatalf("mark machine delete failed: %v", err)
+			}
+			machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+			if err != nil {
+				t.Fatalf("get delete failed machine: %v", err)
+			}
+			manager := Manager{
+				Execution: store.Execution(),
+				Identity:  store.Identity(),
+				Catalog: testProviderCatalog(&testProviderDefinition{
+					provider: &captureProvider{inspectErr: errors.New("provider API returned HTTP 401")},
+				}),
+				PublicAPIURL: "https://api.omnara.test/v1",
+			}
+
+			if err := manager.DeleteMachine(
+				ctx,
+				executionstore.PoolMachineCleanupCandidate{
+					Machine:       machine,
+					ReasonCode:    machine.LifecycleReasonCode,
+					ReasonMessage: machine.LifecycleReasonMessage,
+				},
+			); err == nil {
+				t.Fatal("expected delete machine to report the provider error")
+			}
+			machine, err = store.Execution().GetMachine(ctx, orgID, machineID)
+			if err != nil {
+				t.Fatalf("get machine: %v", err)
+			}
+			if string(machine.LifecycleState) != test.wantState ||
+				machine.LifecycleReasonCode != test.wantReasonCode ||
+				machine.LifecycleReasonMessage != "provider API returned HTTP 401" {
+				t.Fatalf(
+					"lifecycle = %q %q %q, want %q %q with the provider error",
+					machine.LifecycleState,
+					machine.LifecycleReasonCode,
+					machine.LifecycleReasonMessage,
+					test.wantState,
+					test.wantReasonCode,
+				)
+			}
+		})
+	}
+}
+
 func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 	ctx := context.Background()
 	pool := openManagerIntegrationDB(t, ctx)
@@ -2356,6 +2512,10 @@ func (p *captureProvider) InspectMachine(
 	p.inspectInstallationID = installationID
 	p.inspectMachineID = machineID
 	return p.inspectResourceID, p.inspectFound, p.inspectErr
+}
+
+func (*captureProvider) CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error {
+	return nil
 }
 
 func (p *captureProvider) DeleteMachine(

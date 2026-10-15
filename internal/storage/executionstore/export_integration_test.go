@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -313,8 +314,9 @@ func IntegrationCreatePoolMachineBindingTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input IntegrationPoolMachineBindingInput,
+	track func(resourceguard.Creation),
 ) (AgentMachineBindingRecord, error) {
-	return createPoolMachineBindingTx(ctx, qtx, poolMachineBindingInput(input))
+	return createPoolMachineBindingTx(ctx, qtx, poolMachineBindingInput(input), track)
 }
 
 func (s *Store) IntegrationResolveLaunchMachineSourcesTx(

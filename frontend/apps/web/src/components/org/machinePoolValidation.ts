@@ -48,7 +48,7 @@ export const machinePoolFieldGroup: Record<MachinePoolFieldKey, MachinePoolField
   description: 'provider',
   secretId: 'provider',
   image: 'image',
-  providerScope: 'image',
+  providerScope: 'provider',
   location: 'capacity',
   cpu: 'capacity',
   memoryGb: 'capacity',

@@ -49,13 +49,14 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	); err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
-	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
+	var creations []resourceguard.Creation
+	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared, func(c resourceguard.Creation) {
+		creations = append(creations, c)
+	})
 	if err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
-	if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{{
-		Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: input.MachineID,
-	}}); err != nil {
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -102,6 +103,7 @@ func createBYOMachineDaemonTokenTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	prepared preparedBYOMachineDaemonTokenCreate,
+	track func(resourceguard.Creation),
 ) (MachineDaemonTokenRecord, error) {
 	input := prepared.input
 	row, err := qtx.CreateBYOMachineDaemonToken(
@@ -120,6 +122,9 @@ func createBYOMachineDaemonTokenTx(
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}
+	track(resourceguard.Creation{
+		Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: input.MachineID,
+	})
 	return machineDaemonTokenFromCreate(row), nil
 }
 

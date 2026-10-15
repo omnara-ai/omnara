@@ -93,56 +93,83 @@ func TestLaunchQuotaWaitDoesNotBlockOtherParent(t *testing.T) {
 }
 
 func TestConcurrentLaunchQuotaExactness(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
-	defer cancel()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	config := pool.Config()
-	config.MaxConns = 12
-	launchPool, err := pgxpool.NewWithConfig(ctx, config)
-	require.NoError(t, err)
-	defer launchPool.Close()
-	store := newIntegrationStore(pool)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "quota", "Quota", subagentParentYAML)
-	const launches = 8
-	for range launches - 1 {
-		_, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-			ProjectID: testProjectID, AgentConfigID: profile.CurrentConfigID, LaunchedBy: systemPrincipalForTest(testOrgID)})
-		require.NoError(t, err)
-	}
-	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
-VALUES($1,$2)`, testOrgID, launches)
-	require.NoError(t, err)
-	blocker := integrationdb.BeginTx(t, ctx, pool)
-	require.NoError(t, dbsqlc.New(blocker).LockResourceCreation(ctx, dbsqlc.LockResourceCreationParams{
-		ResourceKind: "agents", Scope: testProjectID.String(),
-	}))
-	outcomes := make(chan error, launches)
-	for i := range launches {
-		go func() {
-			_, err := newIntegrationStore(launchPool).Execution().IntegrationLaunchAgentOnce(
-				ctx, executionstore.LaunchAgentInput{
-					ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
-					LaunchedBy: systemPrincipalForTest(testOrgID), IdempotencyKey: fmt.Sprint(i)})
-			outcomes <- err
-		}()
-	}
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", launches)
-	require.NoError(t, blocker.Commit(ctx))
-	var succeeded int
-	for range launches {
-		err := integrationdb.Await(t, outcomes, "quota result")
-		if err == nil {
-			succeeded++
-		} else {
-			require.ErrorIs(t, err, storeerr.ErrConflict)
-		}
-	}
-	require.Equal(t, 1, succeeded)
-	for _, table := range []string{"agents", "agent_execution_state", "agent_inputs", "agent_events"} {
-		var count int
-		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
-		require.Equal(t, launches, count, table)
+	for _, configSource := range []bool{false, true} {
+		t.Run(fmt.Sprintf("config_source=%t", configSource), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			config := pool.Config()
+			config.MaxConns = 12
+			launchPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			defer launchPool.Close()
+			store := newIntegrationStore(pool)
+			profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "quota", "Quota", subagentParentYAML)
+			const launches = 8
+			for range launches - 1 {
+				_, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+					ProjectID: testProjectID, AgentConfigID: profile.CurrentConfigID, LaunchedBy: systemPrincipalForTest(testOrgID)})
+				require.NoError(t, err)
+			}
+			quotaKind := "agents"
+			if configSource {
+				quotaKind = "agent_configs"
+				_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project)
+		VALUES($1,2)`, testOrgID)
+			} else {
+				_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+		VALUES($1,$2)`, testOrgID, launches)
+			}
+			require.NoError(t, err)
+			blocker := integrationdb.BeginTx(t, ctx, pool)
+			require.NoError(t, dbsqlc.New(blocker).LockResourceCreation(ctx, dbsqlc.LockResourceCreationParams{
+				ResourceKind: quotaKind, Scope: testProjectID.String(),
+			}))
+			outcomes := make(chan error, launches)
+			for i := range launches {
+				input := executionstore.LaunchAgentInput{
+					ProjectID: testProjectID, ProfileID: profile.ID,
+					LaunchedBy: systemPrincipalForTest(testOrgID), IdempotencyKey: fmt.Sprint(i),
+				}
+				if configSource {
+					source := strings.Replace(subagentParentYAML, "Coordinate helpers.", fmt.Sprintf("Helper %d.", i), 1)
+					compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+					input.DerivedConfig = &executionstore.CreateAgentConfigInput{
+						ProjectID: testProjectID, Source: source, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+						CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: compiled.Hash,
+					}
+				}
+				go func() {
+					_, err := newIntegrationStore(launchPool).Execution().IntegrationLaunchAgentOnce(ctx, input)
+					outcomes <- err
+				}()
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", launches)
+			require.NoError(t, blocker.Commit(ctx))
+			var succeeded int
+			for range launches {
+				err := integrationdb.Await(t, outcomes, "quota result")
+				if err == nil {
+					succeeded++
+				} else {
+					require.ErrorIs(t, err, storeerr.ErrConflict)
+				}
+			}
+			require.Equal(t, 1, succeeded)
+			for _, table := range []string{"agents", "agent_execution_state", "agent_inputs", "agent_events"} {
+				var count int
+				require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+				require.Equal(t, launches, count, table)
+			}
+			var configs int
+			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM agent_configs").Scan(&configs))
+			if configSource {
+				require.Equal(t, 2, configs)
+			} else {
+				require.Equal(t, 1, configs)
+			}
+		})
 	}
 }
 
@@ -214,58 +241,65 @@ func TestSubagentSourcesSharedWithLaunchExclusiveWithConfig(t *testing.T) {
 }
 
 func TestDerivedLaunchQuotaChecks(t *testing.T) {
-	ctx := t.Context()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "derived-quota", "Derived quota", subagentParentYAML,
-	)
-	parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID: testProjectID, AgentConfigID: profile.CurrentConfigID, LaunchedBy: systemPrincipalForTest(testOrgID)})
-	require.NoError(t, err)
-	source := strings.Replace(subagentParentYAML, "Coordinate helpers.", "Coordinate different helpers.", 1)
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
-	derived := executionstore.CreateAgentConfigInput{ProjectID: testProjectID, Source: source,
-		ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
-		EffectiveDefinitionHash: compiled.Hash}
-	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project)
-VALUES($1,(SELECT count(*) FROM agent_configs WHERE project_id=$2))`, testOrgID, testProjectID)
-	require.NoError(t, err)
-	input := executionstore.LaunchAgentInput{ProjectID: testProjectID, DerivedConfig: &derived,
-		LaunchedBy: systemPrincipalForTest(parent.Agent.ID),
-		Subagent:   &executionstore.SubagentLaunch{ParentAgentID: parent.Agent.ID, Key: "child", MaxDepth: 3}}
-	_, err = store.Execution().LaunchAgent(ctx, input)
-	require.ErrorIs(t, err, storeerr.ErrConflict)
-	_, err = store.Execution().CreateAgentConfig(ctx, derived)
-	require.ErrorIs(t, err, storeerr.ErrConflict)
-	for _, table := range []string{"agents", "agent_configs", "agent_execution_state", "agent_inputs", "agent_events"} {
-		var count int
-		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
-		require.Equal(t, 1, count, table)
+	for _, subagent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("subagent=%t", subagent), func(t *testing.T) {
+			ctx := t.Context()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool)
+			profile := mustCreateConfigAndProfileBookmarkFromYAML(
+				t, ctx, store, "derived-quota", "Derived quota", subagentParentYAML,
+			)
+			parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+				ProjectID: testProjectID, AgentConfigID: profile.CurrentConfigID, LaunchedBy: systemPrincipalForTest(testOrgID)})
+			require.NoError(t, err)
+			source := strings.Replace(subagentParentYAML, "Coordinate helpers.", "Coordinate different helpers.", 1)
+			compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+			derived := executionstore.CreateAgentConfigInput{ProjectID: testProjectID, Source: source,
+				ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
+				EffectiveDefinitionHash: compiled.Hash}
+			_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project)
+		VALUES($1,(SELECT count(*) FROM agent_configs WHERE project_id=$2))`, testOrgID, testProjectID)
+			require.NoError(t, err)
+			input := executionstore.LaunchAgentInput{ProjectID: testProjectID, DerivedConfig: &derived,
+				ProfileID: profile.ID, LaunchedBy: systemPrincipalForTest(testOrgID)}
+			if subagent {
+				input.LaunchedBy = systemPrincipalForTest(parent.Agent.ID)
+				input.Subagent = &executionstore.SubagentLaunch{ParentAgentID: parent.Agent.ID, Key: "child", MaxDepth: 3}
+			}
+			_, err = store.Execution().LaunchAgent(ctx, input)
+			require.ErrorIs(t, err, storeerr.ErrConflict)
+			_, err = store.Execution().CreateAgentConfig(ctx, derived)
+			require.ErrorIs(t, err, storeerr.ErrConflict)
+			for _, table := range []string{"agents", "agent_configs", "agent_execution_state", "agent_inputs", "agent_events"} {
+				var count int
+				require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+				require.Equal(t, 1, count, table)
+			}
+			_, err = pool.Exec(ctx, `DELETE FROM org_resource_limit_overrides WHERE org_id=$1`, testOrgID)
+			require.NoError(t, err)
+			var tail []string
+			var quota bool
+			trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+				if strings.HasPrefix(sql, "-- name: LockResourceCreation ") {
+					quota = true
+				}
+				if quota {
+					tail = append(tail, strings.Split(sql, "\n")[0])
+				}
+			}}
+			config := pool.Config()
+			config.ConnConfig.Tracer = trace
+			traced, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			defer traced.Close()
+			_, err = newIntegrationStore(traced).Execution().LaunchAgent(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, []string{
+				"-- name: LockResourceCreation :exec", "-- name: LockResourceCreation :exec",
+				"-- name: GetEffectiveResourceLimits :one", "-- name: CountAgentConfigsForProject :one",
+				"-- name: CountActiveAgentsForProject :one", "commit",
+			}, tail)
+		})
 	}
-	_, err = pool.Exec(ctx, `DELETE FROM org_resource_limit_overrides WHERE org_id=$1`, testOrgID)
-	require.NoError(t, err)
-	var tail []string
-	var quota bool
-	trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
-		if strings.HasPrefix(sql, "-- name: LockResourceCreation ") {
-			quota = true
-		}
-		if quota {
-			tail = append(tail, strings.Split(sql, "\n")[0])
-		}
-	}}
-	config := pool.Config()
-	config.ConnConfig.Tracer = trace
-	traced, err := pgxpool.NewWithConfig(ctx, config)
-	require.NoError(t, err)
-	defer traced.Close()
-	_, err = newIntegrationStore(traced).Execution().LaunchAgent(ctx, input)
-	require.NoError(t, err)
-	require.Equal(t, []string{
-		"-- name: LockResourceCreation :exec", "-- name: LockResourceCreation :exec",
-		"-- name: GetEffectiveResourceLimits :one", "-- name: CountAgentConfigsForProject :one",
-		"-- name: CountActiveAgentsForProject :one", "commit",
-	}, tail)
 }

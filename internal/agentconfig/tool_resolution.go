@@ -57,23 +57,31 @@ func compileTools(
 }
 
 var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
-	schema := agentConfigSourceSchema()
-	schema.Required = nil
-	for name := range *schema.Properties {
-		if !toolSourceField(name) {
-			delete(*schema.Properties, name)
-		}
-	}
-	raw, err := json.Marshal(schema)
+	raw, err := specJSONSchema(OpenAPIToolsDefinitionComponent)
 	if err != nil {
 		return nil, err
 	}
 	return kjsonschema.NewCompiler().Compile(raw)
 })
 
-func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
-	return ToolsFromSourceWithOptions(format, raw, CompileOptions{})
-}
+// toolSourceFields is the set of top-level fields the tools definition schema
+// declares, which are the only fields that affect a config's effective tools.
+var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
+	schemas, err := specComponentSchemas()
+	if err != nil {
+		return nil, err
+	}
+	component, _ := schemas[OpenAPIToolsDefinitionComponent].(map[string]any)
+	properties, _ := component["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil, fmt.Errorf("openapi %s schema has no properties", OpenAPIToolsDefinitionComponent)
+	}
+	fields := make(map[string]bool, len(properties))
+	for name := range properties {
+		fields[name] = true
+	}
+	return fields, nil
+})
 
 func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
@@ -87,8 +95,12 @@ func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOpt
 	if fields == nil {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
+	keep, err := toolSourceFields()
+	if err != nil {
+		return nil, err
+	}
 	for name := range fields {
-		if !toolSourceField(name) {
+		if !keep[name] {
 			delete(fields, name)
 		}
 	}
@@ -122,14 +134,4 @@ func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOpt
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
-}
-
-func toolSourceField(name string) bool {
-	switch name {
-	case "tools", "machine_sources", "skills", "memory_stores", "subagents", "mcp",
-		"interaction_handlers", "git_credentials":
-		return true
-	default:
-		return false
-	}
 }

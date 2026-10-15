@@ -73,7 +73,9 @@ func (s *Store) ConnectBYOMachine(
 	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, input.ProjectIDs); err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata)
+	var creations []resourceguard.Creation
+	track := func(c resourceguard.Creation) { creations = append(creations, c) }
+	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata, track)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -85,7 +87,7 @@ func (s *Store) ConnectBYOMachine(
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, preparedToken)
+	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, preparedToken, track)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -110,10 +112,7 @@ func (s *Store) ConnectBYOMachine(
 		}
 		grants = append(grants, grant)
 	}
-	if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{
-		{Kind: resourceguard.Machines, OrgID: input.OrgID},
-		{Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: machine.ID},
-	}); err != nil {
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -11,7 +11,7 @@ import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, machinePool, projectMachinePoolGrant } from '@/test/fixtures'
 import { addProject } from '@/test/project-share-chips'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button } from '@/test/secret-editor'
+import { button, choose } from '@/test/secret-editor'
 
 import { CreateMachinePoolDialog } from './CreateMachinePoolDialog'
 
@@ -41,6 +41,7 @@ const project = {
   updated_at: timestamp,
 }
 const grantPath = `/api/v1/orgs/${orgId}/projects/${project.id}/machine-pool-grants`
+const checkConnectionPath = `${poolsPath}/check-connection`
 
 let container: HTMLDivElement
 let root: Root
@@ -94,6 +95,19 @@ function poolApi() {
     },
     {
       method: 'POST',
+      path: checkConnectionPath,
+      respond: () =>
+        jsonResponse(
+          {
+            code: 'unprocessable',
+            error: 'The provider rejected this API key.',
+            details: 'blaxel API returned HTTP 401',
+          },
+          422,
+        ),
+    },
+    {
+      method: 'POST',
       path: poolsPath,
       respond: () =>
         new Response(JSON.stringify(createdPool), {
@@ -109,6 +123,14 @@ async function interact(action: () => void) {
     action()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+async function waitForConnectionCheck() {
+  for (const delay of [1000, 0]) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    })
+  }
 }
 
 async function render(api: FakeApi, onOpenChange: (open: boolean) => void) {
@@ -145,13 +167,13 @@ async function click(name: string) {
   })
 }
 
-async function chooseSecret(name: string) {
+async function chooseSecret(name: string, labelText = 'Blaxel API token') {
   await interact(() => {
     const label = [...document.querySelectorAll('label')].find(
-      (candidate) => candidate.textContent === 'Blaxel API token',
+      (candidate) => candidate.textContent === labelText,
     )
     const control = label?.control
-    if (!(control instanceof HTMLElement)) throw new Error('Missing labeled Blaxel API token')
+    if (!(control instanceof HTMLElement)) throw new Error(`Missing labeled ${labelText}`)
     control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
   })
   await interact(() => {
@@ -191,18 +213,18 @@ it('walks through each step, summarizing finished ones, and creates the pool ear
   expect(button('Continue').disabled).toBe(true)
   await type('#mpool-name', 'default')
   await chooseSecret('BLAXEL_TOKEN')
-  await click('Continue')
-
-  expect(activeStep()).toBe('Image')
-  expect(text()).toContain('default · Blaxel · BLAXEL_TOKEN')
-  expect(() => button('Skip & create')).toThrow()
-  await type('#mpool-image', 'omnara/agent-sandbox')
   expect(button('Continue').disabled).toBe(true)
   await type('#mpool-provider-scope', 'acme')
   await click('Continue')
 
+  expect(activeStep()).toBe('Image')
+  expect(text()).toContain('default · Blaxel · BLAXEL_TOKEN · acme')
+  expect(() => button('Skip & create')).toThrow()
+  await type('#mpool-image', 'omnara/agent-sandbox')
+  await click('Continue')
+
   expect(activeStep()).toBe('Capacity')
-  expect(text()).toContain('omnara/agent-sandbox · acme')
+  expect(text()).toContain('omnara/agent-sandbox')
   expect(text()).toContain('Up to 3 machines in us-pdx-1 · 3 GB total')
   await click('More machines')
   expect(text()).toContain('Up to 4 machines in us-pdx-1 · 4 GB total')
@@ -242,9 +264,9 @@ it('blocks the capacity step on an invalid max machine memory and shows why', as
   await render(api, vi.fn())
   await type('#mpool-name', 'default')
   await chooseSecret('BLAXEL_TOKEN')
+  await type('#mpool-provider-scope', 'acme')
   await click('Continue')
   await type('#mpool-image', 'omnara/agent-sandbox')
-  await type('#mpool-provider-scope', 'acme')
   await click('Continue')
   expect(activeStep()).toBe('Capacity')
   expect(button('Continue').disabled).toBe(false)
@@ -265,4 +287,58 @@ it('blocks the capacity step on an invalid max machine memory and shows why', as
   expect(text()).not.toContain('Enter a size greater than 0 GB')
   await click('Advanced')
   expect(button('Advanced').getAttribute('aria-expanded')).toBe('false')
+})
+
+it('checks the connection once the credential and workspace are set', async () => {
+  const api = poolApi()
+  await render(api, vi.fn())
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN')
+  await waitForConnectionCheck()
+  expect(api.requestsTo('POST', checkConnectionPath)).toEqual([])
+  await type('#mpool-provider-scope', 'acme')
+  await waitForConnectionCheck()
+
+  expect(api.requestsTo('POST', checkConnectionPath).map((request) => request.body)).toEqual([
+    {
+      provider: 'blaxel',
+      provider_auth_secret_id: secret.id,
+      provider_config: { workspace: 'acme' },
+      default_machine_provider_options: { region: 'us-pdx-1' },
+    },
+  ])
+  expect(text()).toContain('The provider rejected this API key.')
+  expect(document.querySelector('details')?.textContent).toBe('Detailsblaxel API returned HTTP 401')
+  await type('#mpool-provider-scope', 'acme-2')
+  expect(text()).toContain('Checking connection…')
+  expect(text()).not.toContain('The provider rejected this API key')
+  expect(document.querySelector('details')).toBeNull()
+})
+
+it('keeps checking the connection after leaving the provider step', async () => {
+  const api = poolApi()
+  await render(api, vi.fn())
+  await type('#mpool-name', 'default')
+  await type('#mpool-provider-scope', 'acme')
+  await chooseSecret('BLAXEL_TOKEN')
+  await click('Continue')
+  expect(text()).toContain('BLAXEL_TOKEN · acme · Checking connection…')
+  await waitForConnectionCheck()
+
+  expect(api.requestsTo('POST', checkConnectionPath)).toHaveLength(1)
+  expect(text()).toContain('BLAXEL_TOKEN · acme · Connection failed')
+})
+
+it('asks for the optional Modal app with the image', async () => {
+  await render(poolApi(), vi.fn())
+  await choose('Provider', 'Modal')
+  expect(document.querySelector('#mpool-provider-scope')).toBeNull()
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN', 'Modal credentials')
+  await click('Continue')
+
+  expect(activeStep()).toBe('Image')
+  await type('#mpool-provider-scope', 'agents')
+  expect(text()).toContain('default · Modal · BLAXEL_TOKEN')
+  expect(text()).not.toContain('BLAXEL_TOKEN · agents')
 })

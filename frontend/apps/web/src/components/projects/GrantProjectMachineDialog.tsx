@@ -2,6 +2,7 @@ import { useGrantMachineToProject, useMachines, useProjectMachineGrants } from '
 import { type VisibleMachine } from '@omnara/sdk'
 import { useId } from 'react'
 
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -24,7 +25,9 @@ const MachineMultiCombobox = createResourceMultiCombobox<VisibleMachine>({
   renderItem: (machine) => (
     <span className="flex min-w-0 flex-col">
       <span className="truncate">{machine.display_name}</span>
-      <span className="text-muted-foreground text-xs">{machine.provider}</span>
+      <span className="text-muted-foreground text-xs">
+        {machinePoolProviderLabel(machine.provider)}
+      </span>
     </span>
   ),
   placeholder: 'Search machines…',

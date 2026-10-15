@@ -6,13 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
-	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
 )
@@ -127,6 +124,27 @@ type AgentConfigMCPToolSource struct {
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	parsed, _, err := parseSource(format, raw)
 	return parsed, err
+}
+
+// CanonicalDefinitionJSON compacts JSON and sorts object keys. Invalid JSON is
+// returned unchanged for the compiler to report.
+func CanonicalDefinitionJSON(raw []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return raw
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return raw
+	}
+	var canonical bytes.Buffer
+	encoder := json.NewEncoder(&canonical)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return raw
+	}
+	return bytes.TrimSuffix(canonical.Bytes(), []byte("\n"))
 }
 
 func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {
@@ -344,289 +362,7 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
+// SourceJSONSchema returns the OpenAPI agent config definition as a JSON Schema.
 func SourceJSONSchema() ([]byte, error) {
-	schemaJSON, err := json.Marshal(agentConfigSourceSchema())
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent config JSON schema: %w", err)
-	}
-	return canonicalizeJSON(schemaJSON), nil
-}
-
-func agentConfigSourceSchema() *kjsonschema.Schema {
-	schema := kjsonschema.Object(
-		kjsonschema.Prop("version", kjsonschema.Enum("v1")),
-		kjsonschema.Prop("instruction", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-		kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigModelSource")),
-		kjsonschema.Prop("machine_sources", kjsonschema.AnyOf(
-			kjsonschema.Array(kjsonschema.Items(kjsonschema.Ref("#/$defs/AgentConfigMachineSource"))),
-			kjsonschema.Null(),
-		)),
-		kjsonschema.Prop("tools", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.AllOf(
-				kjsonschema.AnyOf(
-					kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
-					kjsonschema.String(
-						kjsonschema.Pattern(`^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$`),
-						kjsonschema.MaxLength(64),
-					),
-				),
-				kjsonschema.Not(kjsonschema.String(kjsonschema.Pattern(`^`+toolcatalog.MCPRuntimeToolPrefix))),
-			)),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigToolSource")),
-		)),
-		kjsonschema.Prop("mcp", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPServerKeyPattern))),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPSource")),
-		)),
-		kjsonschema.Prop("memory_stores", kjsonschema.Array(kjsonschema.Items(kjsonschema.Object(
-			kjsonschema.Prop("name", kjsonschema.String(
-				kjsonschema.MinLength(1),
-				kjsonschema.MaxLength(64),
-				kjsonschema.Pattern(`^[a-z0-9]+(-[a-z0-9]+)*$`),
-			)),
-			kjsonschema.Prop("access", kjsonschema.Enum(MemoryStoreAccessRead, MemoryStoreAccessReadWrite)),
-			kjsonschema.Required("name", "access"),
-			kjsonschema.AdditionalProps(false),
-		)))),
-		kjsonschema.Prop("event_webhook", kjsonschema.Ref("#/$defs/EventWebhook")),
-		kjsonschema.Prop("skills", kjsonschema.AnyOf(
-			kjsonschema.Array(
-				kjsonschema.Items(kjsonschema.String(
-					kjsonschema.Pattern(`^skl_[a-z2-7]{26}$`),
-				)),
-				kjsonschema.UniqueItems(true),
-			),
-			kjsonschema.Null(),
-		)),
-		kjsonschema.Prop("subagents", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern))),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigSubagentSource")),
-		)),
-		kjsonschema.Prop(
-			"max_subagents",
-			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-		),
-		kjsonschema.Prop(
-			"max_depth",
-			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(MaxSubagentDepth))),
-		),
-		kjsonschema.Required("instruction", "model"),
-		kjsonschema.AdditionalProps(false),
-		kjsonschema.Defs(map[string]*kjsonschema.Schema{
-			"EventWebhook": kjsonschema.Object(
-				kjsonschema.Prop("events", kjsonschema.Array(
-					kjsonschema.MinItems(1),
-					kjsonschema.Items(kjsonschema.Enum(
-						string(events.KindAgentInput), string(events.KindModelOutput), string(events.KindToolResult),
-						string(events.KindContextCheckpoint), "tool_call_update",
-					)),
-					kjsonschema.UniqueItems(true),
-				)),
-				kjsonschema.Prop("signing_secret_id", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Prop("url", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Required("url", "events"), kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigSubagentSource": func() *kjsonschema.Schema {
-				def := kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Enum(SubagentTypeProfile, SubagentTypeSelf)),
-					kjsonschema.Prop("profile", resourceNameReferenceSchema()),
-					kjsonschema.Prop("description", kjsonschema.String()),
-					kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigSubagentModelSource")),
-					kjsonschema.Prop("instruction", kjsonschema.Ref("#/$defs/AgentConfigSubagentInstructionSource")),
-					kjsonschema.Prop(
-						"max_instances",
-						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-					kjsonschema.Prop(
-						"archive_after_idle_minutes",
-						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-					kjsonschema.Required("type"),
-					kjsonschema.AdditionalProps(false),
-				)
-				def.If = kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Const(SubagentTypeProfile)),
-					kjsonschema.Required("type"),
-				)
-				def.Then = &kjsonschema.Schema{Required: []string{"profile"}}
-				def.Else = kjsonschema.Not(kjsonschema.Object(kjsonschema.Required("profile")))
-				return def
-			}(),
-			"AgentConfigSubagentModelSource": kjsonschema.Object(
-				kjsonschema.DependentRequired(map[string][]string{
-					"provider_config": {"name"},
-					"name":            {"provider_config"},
-				}),
-				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
-				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
-				kjsonschema.Prop("reasoning", kjsonschema.Object(
-					kjsonschema.Prop("effort", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-					kjsonschema.Required("effort"),
-					kjsonschema.AdditionalProps(false),
-				)),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigSubagentInstructionSource": kjsonschema.Object(
-				kjsonschema.Prop("append", kjsonschema.String()),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigModelSource": kjsonschema.Object(
-				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
-				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
-				kjsonschema.Prop("reasoning", kjsonschema.Object(
-					kjsonschema.Prop("effort", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-					kjsonschema.Required("effort"),
-					kjsonschema.AdditionalProps(false),
-				)),
-				kjsonschema.Required("provider_config", "name"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMachineSource": kjsonschema.Object(
-				kjsonschema.Prop("machine_name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("machine_pool_name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("max_machines", kjsonschema.Integer(kjsonschema.Min(0))),
-				kjsonschema.Prop("initial_num_machines", kjsonschema.Integer(kjsonschema.Min(0))),
-				kjsonschema.Prop(
-					"delete_after_idle_minutes",
-					kjsonschema.AnyOf(
-						kjsonschema.Const(0),
-						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-				),
-				kjsonschema.Prop("cwd", kjsonschema.String(kjsonschema.MaxLength(MaxMachineCwdLength))),
-				kjsonschema.Prop(
-					"machine_cpu",
-					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-				),
-				kjsonschema.Prop(
-					"machine_memory_mb",
-					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-				),
-				kjsonschema.Prop("env_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(
-						kjsonschema.PropertyNames(envNameSchema()),
-						kjsonschema.AdditionalPropsSchema(kjsonschema.AnyOf(
-							kjsonschema.String(),
-							kjsonschema.Null(),
-						)),
-					),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("secret_env_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(
-						kjsonschema.PropertyNames(envNameSchema()),
-						kjsonschema.AdditionalPropsSchema(kjsonschema.AnyOf(
-							kjsonschema.String(kjsonschema.Pattern(`^sec_[a-z2-7]{26}$`)),
-							kjsonschema.Null(),
-						)),
-					),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("machine_provider_options_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MaxLength(4096))),
-				kjsonschema.AdditionalProps(false),
-				kjsonschema.Keyword(func(s *kjsonschema.Schema) {
-					s.OneOf = []*kjsonschema.Schema{
-						kjsonschema.Object(kjsonschema.Required("machine_name")),
-						kjsonschema.Object(kjsonschema.Required("machine_pool_name")),
-					}
-				}),
-			),
-			"AgentConfigToolSource": func() *kjsonschema.Schema {
-				def := kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Enum(toolcatalog.ToolTypeBuiltIn, toolcatalog.ToolTypeCustom)),
-					kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-					kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
-					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
-					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
-					kjsonschema.AdditionalProps(false),
-				)
-				def.If = kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Const(toolcatalog.ToolTypeCustom)),
-					kjsonschema.Required("type"),
-				)
-				def.Then = &kjsonschema.Schema{
-					Required: []string{"description", "input_schema"},
-				}
-				def.Else = kjsonschema.Not(kjsonschema.AnyOf(
-					kjsonschema.Object(kjsonschema.Required("description")),
-					kjsonschema.Object(kjsonschema.Required("input_schema")),
-				))
-				return def
-			}(),
-			"AgentToolInputSchema": kjsonschema.Object(
-				kjsonschema.Prop("type", kjsonschema.Const(toolcatalog.ToolInputSchemaObject)),
-				kjsonschema.Prop("properties", kjsonschema.Object(
-					kjsonschema.AdditionalPropsSchema(kjsonschema.Object()),
-				)),
-				kjsonschema.Prop("required", kjsonschema.Array(
-					kjsonschema.Items(kjsonschema.String(kjsonschema.MinLength(1))),
-				)),
-				kjsonschema.Required("type"),
-			),
-			"AgentConfigMCPSource": kjsonschema.Object(
-				kjsonschema.Prop("url", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Prop("auth", kjsonschema.Ref("#/$defs/AgentConfigMCPAuthSource")),
-				kjsonschema.Prop("default_enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-				kjsonschema.Prop("deferred", kjsonschema.Boolean()),
-				kjsonschema.Prop("tools", kjsonschema.Object(
-					kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern))),
-					kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPToolSource")),
-				)),
-				kjsonschema.Required("url"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMCPAuthSource": kjsonschema.Object(
-				kjsonschema.Prop(
-					"type",
-					kjsonschema.Enum(MCPAuthTypeBearer, MCPAuthTypeOAuth, MCPAuthTypeSigV4),
-				),
-				kjsonschema.Prop(
-					"secret_id",
-					kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`^sec_[a-z2-7]{26}$`)),
-				),
-				kjsonschema.Prop("service", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Prop("region", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Required("type", "secret_id"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMCPToolSource": kjsonschema.Object(
-				kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-				kjsonschema.Prop("deferred", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.AdditionalProps(false),
-			),
-			"ToolPermissionSelection": kjsonschema.Object(
-				kjsonschema.Prop("mode", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-				kjsonschema.Prop("parameters", kjsonschema.Object()),
-				kjsonschema.Required("mode"),
-				kjsonschema.AdditionalProps(false),
-			),
-		}),
-	)
-	addIntegrationSourceSchema(schema)
-	return schema
-}
-
-func resourceNameReferenceSchema() *kjsonschema.Schema {
-	return kjsonschema.String(
-		kjsonschema.MinLength(1),
-		kjsonschema.MaxLength(resourcename.MaxCodePoints),
-		kjsonschema.Pattern(`^\S(?:.*\S)?$`),
-	)
-}
-
-func envNameSchema() *kjsonschema.Schema {
-	return kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern("^[^=\x00]+$"))
+	return specJSONSchema(OpenAPIDefinitionComponent)
 }

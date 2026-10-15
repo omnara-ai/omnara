@@ -125,10 +125,12 @@ type fakeControlPlane struct {
 	image         *pb.ImageGetOrCreateRequest
 	create        *pb.SandboxCreateV2Request
 	lookup        *pb.SandboxGetFromNameRequest
+	list          *pb.SandboxListRequest
 	createCalls   int
 	createErr     error
 	createOnError bool
 	lookupErr     error
+	listErr       error
 	tagsErr       error
 	waitErr       error
 	terminateErr  error
@@ -230,6 +232,17 @@ func (m *fakeControlPlane) SandboxGetFromNameV2(
 		}
 	}
 	return nil, status.Error(codes.NotFound, "sandbox "+req.GetSandboxName()+" not found")
+}
+
+func (m *fakeControlPlane) SandboxListV2(
+	_ context.Context,
+	request *pb.SandboxListRequest,
+) (*pb.SandboxListResponse, error) {
+	m.list = request
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return pb.SandboxListResponse_builder{}.Build(), nil
 }
 
 func (m *fakeControlPlane) SandboxTagsGetV2(

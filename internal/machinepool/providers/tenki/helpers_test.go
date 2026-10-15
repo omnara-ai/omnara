@@ -58,6 +58,10 @@ func (a *fakeAPI) Get(_ context.Context, id string) (session, bool, error) {
 	}
 	return session{}, false, nil
 }
+func (*fakeAPI) CheckConnection(context.Context) error {
+	return nil
+}
+
 func (a *fakeAPI) Delete(_ context.Context, id string) error {
 	a.deletes++
 	for i := range a.sessions {

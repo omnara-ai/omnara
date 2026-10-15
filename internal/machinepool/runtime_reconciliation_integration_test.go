@@ -1679,6 +1679,13 @@ func (*runtimeReconciliationTestProvider) InspectMachine(
 	return "", false, errors.New("not implemented by runtime test provider")
 }
 
+func (*runtimeReconciliationTestProvider) CheckConnection(
+	context.Context,
+	executionstore.MachineProvisioningConfig,
+) error {
+	return nil
+}
+
 func (p *runtimeReconciliationTestProvider) DeleteMachine(
 	_ context.Context,
 	_, _ uuid.UUID,

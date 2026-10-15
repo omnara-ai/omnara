@@ -1,4 +1,6 @@
+import type { AgentConfigDefinition } from '@omnara/sdk'
 import { parse } from 'yaml'
+import * as z from 'zod'
 
 import { type BasicConfig, createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
 import type { CodeContent } from '@/components/overview/CodeBlock'
@@ -14,8 +16,14 @@ function shellLines(parts: string[]) {
   return parts.join(' \\\n  ')
 }
 
+// The server validates the full definition.
+const zDefinitionObject = z.custom<AgentConfigDefinition>(
+  (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
+)
+
 export interface ProfileCreateSpec {
   name: string
+  definition: AgentConfigDefinition
   json: string
   command: CodeContent
 }
@@ -26,8 +34,10 @@ export function profileCreateSpec(input: {
   name: string
   config: BasicConfig
 }): ProfileCreateSpec {
-  const source: unknown = parse(createBasicConfigSession('').apply(input.config))
-  const json = JSON.stringify(source ?? {}, null, 1).replaceAll(/\n\s*/g, ' ')
+  const definition = zDefinitionObject.parse(
+    parse(createBasicConfigSession('').apply(input.config)) ?? {},
+  )
+  const json = JSON.stringify(definition, null, 1).replaceAll(/\n\s*/g, ' ')
   const shellJson = json.replaceAll("'", "'\\''")
   const prefix = shellLines([
     'npx omnara profiles create',
@@ -38,6 +48,7 @@ export function profileCreateSpec(input: {
   ])
   return {
     name: input.name,
+    definition,
     json,
     command: {
       copy: `${prefix}${shellJson}'`,

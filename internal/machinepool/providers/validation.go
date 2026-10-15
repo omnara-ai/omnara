@@ -58,12 +58,15 @@ func ValidateImageRef(image string) error {
 
 func ValidateDNSLabel(value string) error {
 	if value == "" || len(value) > 63 {
-		return fmt.Errorf("%q must be a valid DNS label", value)
+		return fmt.Errorf("%q must be 1 to 63 lowercase letters, numbers, or hyphens", value)
 	}
 	for i, char := range value {
 		valid := char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-'
 		if !valid || char == '-' && (i == 0 || i == len(value)-1) {
-			return fmt.Errorf("%q must be a valid DNS label", value)
+			return fmt.Errorf(
+				"%q must be 1 to 63 lowercase letters, numbers, or hyphens, not starting or ending with a hyphen",
+				value,
+			)
 		}
 	}
 	return nil

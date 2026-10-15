@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestProviderProvisionCreatesSandbox(t *testing.T) {
@@ -264,5 +265,18 @@ func TestProviderRejectsMismatchedOwnershipTags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestProviderCheckConnectionListsSandboxesInEnvironment(t *testing.T) {
+	rpc := newFakeControlPlane()
+	rpc.listErr = status.Error(codes.Unauthenticated, "token rejected")
+
+	err := testProvider(t, rpc).CheckConnection(context.Background(), executionstore.MachineProvisioningConfig{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("check connection error = %v, want unauthenticated", err)
+	}
+	if rpc.list.GetEnvironmentName() != "staging" {
+		t.Fatalf("listed environment = %q, want staging", rpc.list.GetEnvironmentName())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -16,15 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubagentConfigReadOnly(t *testing.T) {
+func TestSubagentConfigEdits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
-	project := bootstrapPublicHTTPProject(t, handler, "readonly-subagent")
+	project := bootstrapPublicHTTPProject(t, handler, "subagent-edits")
 	store := newIntegrationStore(pool)
-	user := createHTTPInteractionUser(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, "readonly-subagent")
-	parent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "readonly-subagent")
+	user := createHTTPInteractionUser(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, "subagent-edits")
+	parent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, "subagent-edits")
 	base := parent.AgentConfig
 	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:         project.ProjectUUID,
@@ -47,14 +48,21 @@ func TestSubagentConfigReadOnly(t *testing.T) {
 		} else {
 			require.Equal(t, config.Source, response["source"])
 		}
-		before := child.CurrentConfigID
-		requestJSONWithHeaders(t, handler, http.MethodPost,
-			project.ProjectPath+"/agents/"+testPublicID(t, publicid.KindAgent, child.ID)+"/config",
-			`{"source_format":"yaml","source":`+quotedJSONString(base.Source)+`}`,
-			"", http.StatusBadRequest, authHeaders(project.AdminToken))
-		updated, err := store.Execution().GetAgentInProject(ctx, project.ProjectUUID, child.ID)
+		configPath := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, child.ID) + "/config"
+		edited := strings.Replace(base.Source, "HTTP integration test agent.", "HTTP integration test agent, edited.", 1)
+		require.NotEqual(t, base.Source, edited)
+		requestJSONWithHeaders(t, handler, http.MethodPost, configPath,
+			`{"source_format":"yaml","source":`+quotedJSONString(edited)+`}`,
+			"", http.StatusOK, authHeaders(project.AdminToken))
+		saved, err := store.Execution().GetAgentInProject(ctx, project.ProjectUUID, child.ID)
 		require.NoError(t, err)
-		require.Equal(t, before, updated.CurrentConfigID)
+		require.NotEqual(t, child.CurrentConfigID, saved.CurrentConfigID)
+		requestJSONWithHeaders(t, handler, http.MethodPost, configPath,
+			`{"source_format":"yaml","source":`+quotedJSONString(strings.TrimRight(edited, "\n")+"\nmax_depth: 2\n")+`}`,
+			"", http.StatusOK, authHeaders(project.AdminToken))
+		raised, err := store.Execution().GetAgentInProject(ctx, project.ProjectUUID, child.ID)
+		require.NoError(t, err)
+		require.NotEqual(t, saved.CurrentConfigID, raised.CurrentConfigID)
 	}
 }
 

@@ -8,6 +8,7 @@ import type { MachinePoolSummary, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { GrantMachinePoolDialog } from '@/components/projects/GrantMachinePoolDialog'
 import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMachineDialog'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -285,7 +286,7 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
       ),
       resolve('CPU', grant.default_machine_cpu, inherited?.default_machine_cpu),
       resolve('Max machines', grant.max_total_machines, inherited?.max_total_machines),
-      { label: 'Provider', value: pool.provider },
+      { label: 'Provider', value: machinePoolProviderLabel(pool.provider) },
       { label: 'Management', value: pool.management_kind },
       resolve('Min machine CPU', grant.min_machine_cpu, inherited?.min_machine_cpu),
       resolve(

@@ -84,6 +84,7 @@ const (
 	operationSubmitToolCallResult          operationID = "SubmitToolCallResult"
 	operationCreateMachine                 operationID = "CreateMachine"
 	operationCreateMachinePool             operationID = "CreateMachinePool"
+	operationCheckMachinePoolConnection    operationID = "CheckMachinePoolConnection"
 	operationCreateModelProviderConfig     operationID = "CreateModelProviderConfig"
 	operationCreateOrgAPIKey               operationID = "CreateOrgAPIKey"
 	operationCreateOrgInvitation           operationID = "CreateOrgInvitation"
@@ -141,6 +142,7 @@ const (
 	operationEndMachineDaemonRuntime       operationID = "EndMachineDaemonRuntime"
 	operationGetAgent                      operationID = "GetAgent"
 	operationGetAgentConfig                operationID = "GetAgentConfig"
+	operationGetAgentConfigGeneratedSource operationID = "GetAgentConfigGeneratedSource"
 	operationGetAgentProfile               operationID = "GetAgentProfile"
 	operationGetArtifact                   operationID = "GetArtifact"
 	operationGetArtifactContent            operationID = "GetArtifactContent"
@@ -319,6 +321,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCheckMachinePoolConnection: userPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -404,6 +407,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentConfigGeneratedSource: accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetToolCatalog:                accountPolicy(noScope()),
 	operationListMCPServers:                accountPolicy(noScope()),
 	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),

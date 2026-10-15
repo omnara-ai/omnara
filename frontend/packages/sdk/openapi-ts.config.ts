@@ -13,6 +13,14 @@ export default defineConfig({
       responses: true,
       definitions: true,
       $resolvers: {
+        // The generator ignores additionalProperties: true when an object also
+        // declares properties, so z.object would strip the extra keys.
+        object: (ctx) => {
+          const hasProperties = Object.keys(ctx.schema.properties ?? {}).length > 0
+          const additional = ctx.schema.additionalProperties
+          if (!hasProperties || additional === false || additional?.type !== 'unknown') return
+          return ctx.$(ctx.plugin.imports.z).attr('looseObject').call(ctx.nodes.shape(ctx))
+        },
         string: (ctx) => {
           if (ctx.schema.format === 'binary') {
             return ctx.chain.current.attr('instanceof').call('Blob')

@@ -159,18 +159,13 @@ func (s *Service) launchFromProfile(
 	message string,
 	idempotencyKey string,
 ) error {
-	profile, err := s.execution.GetAgentProfile(ctx, trigger.ProjectID, trigger.Target.ID)
-	if err != nil {
-		return fmt.Errorf("load target agent profile: %w", err)
-	}
 	actor, err := executionstore.CronTriggerActor(trigger.OrgID, trigger.TriggerID, trigger.Name)
 	if err != nil {
 		return err
 	}
 	launch, err := s.execution.LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:     trigger.ProjectID,
-		ProfileID:     profile.ID,
-		AgentConfigID: profile.CurrentConfigID,
+		ProjectID: trigger.ProjectID,
+		ProfileID: trigger.Target.ID,
 		LaunchedBy: identitystore.PrincipalRecord{
 			Type: identitystore.PrincipalTypeSystem,
 			ID:   trigger.TriggerID,

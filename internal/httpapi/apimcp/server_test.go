@@ -356,6 +356,13 @@ func TestInputSchemaIsEnforced(t *testing.T) {
 		{name: "wrong body type", tool: "agents_launch", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "config": testConfigID, "name": 7,
 		}},
+		{name: "launch without a target", tool: "agents_launch", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "name": "Nightly",
+		}},
+		{name: "launch with config and config_source", tool: "agents_launch", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "config": testConfigID,
+			"config_source": map[string]any{"source_format": "yaml", "source": "instruction: hi\n"},
+		}},
 		{name: "missing integration settings", tool: "crons_create", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "name": "daily-review", "cron": "0 9 * * *",
 			"target": map[string]any{"type": "integration", "integration_id": "itg_abcdefghijklmnopqrstuvwxyz"},

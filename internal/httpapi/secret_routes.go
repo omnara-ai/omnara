@@ -147,6 +147,8 @@ func secretAPIError(ctx context.Context, err error) apierror.ResponseError {
 	switch {
 	case errors.Is(err, storeerr.ErrUnauthorized):
 		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	case errors.Is(err, storeerr.ErrSecretNameExists):
+		return apierror.FromCode(openapi.ErrorCodeConflict, err.Error())
 	case errors.Is(err, storeerr.ErrConflict):
 		return apierror.FromCode(openapi.ErrorCodeConflict, "conflict")
 	case errors.Is(err, storeerr.ErrStateTransitionConflict):

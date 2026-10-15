@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestProviderProvisionCreatesResizesAndStartsManagedDaemon(t *testing.T) {
@@ -328,5 +329,23 @@ func TestProviderDeleteChecksOwnership(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership metadata") || api.deleteCalls != 0 {
 		t.Fatalf("foreign delete error = %v, delete calls = %d", err, api.deleteCalls)
+	}
+}
+
+func TestProviderCheckConnectionListsOneVM(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" || r.URL.Query().Get("limit") != "1" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	err := newTestProvider(newRESTClient(server.URL, "test-token", server.Client())).CheckConnection(
+		context.Background(),
+		executionstore.MachineProvisioningConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("check connection error = %v, want HTTP 401", err)
 	}
 }

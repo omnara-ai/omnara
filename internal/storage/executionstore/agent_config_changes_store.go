@@ -120,12 +120,6 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
 	}
-	if agent.ParentAgentID != nil {
-		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(
-			errors.New("subagent configurations are read-only"),
-		)
-	}
-
 	if AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
 	}

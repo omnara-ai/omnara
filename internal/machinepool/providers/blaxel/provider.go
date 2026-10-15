@@ -355,6 +355,15 @@ func (p *provider) InspectMachine(
 	return expectedName, true, nil
 }
 
+func (p *provider) CheckConnection(ctx context.Context, _ executionstore.MachineProvisioningConfig) error {
+	lister, ok := p.apiClient().(sandboxLister)
+	if !ok {
+		return errors.New("blaxel api client cannot list sandboxes")
+	}
+	_, err := lister.ListSandboxes(ctx, "", 1)
+	return err
+}
+
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID uuid.UUID,

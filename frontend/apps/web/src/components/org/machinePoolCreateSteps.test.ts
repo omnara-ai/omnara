@@ -32,10 +32,10 @@ describe('machinePoolCreateStepValid', () => {
     expect(machinePoolCreateStepValid('provider', { ...blaxel, secretId: '' })).toBe(false)
     expect(machinePoolCreateStepValid('provider', { ...blaxel, name: '' })).toBe(false)
     expect(machinePoolCreateStepValid('provider', { ...blaxel, image: '' })).toBe(true)
+    expect(machinePoolCreateStepValid('provider', { ...blaxel, providerScope: '' })).toBe(false)
 
     expect(machinePoolCreateStepValid('image', blaxel)).toBe(true)
     expect(machinePoolCreateStepValid('image', { ...blaxel, image: ' ' })).toBe(false)
-    expect(machinePoolCreateStepValid('image', { ...blaxel, providerScope: '' })).toBe(false)
     const tenki = machinePoolFormAfterProviderChange(blaxel, 'tenki')
     expect(machinePoolCreateStepValid('image', { ...tenki, image: '' })).toBe(true)
 
