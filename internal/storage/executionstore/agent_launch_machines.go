@@ -345,7 +345,7 @@ func insertAgentMachineBindingTx(
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf("upsert launch agent machine binding: %w", err)
 	}
-	return agentMachineBindingRecordFromSQLC(dbsqlc.GetAgentMachineBindingByMachineRow(row)), nil
+	return agentMachineBindingRecordFromSQLC(row), nil
 }
 
 func allocateNewPoolMachineForAgentTx(

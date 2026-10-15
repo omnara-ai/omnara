@@ -438,6 +438,8 @@ DROP FUNCTION agent_turn_opening_content_inputs(uuid,uuid,bigint);
 DROP FUNCTION agent_turn_id_at_event_sequence(uuid,bigint);
 
 ALTER TABLE agent_wakeups DROP COLUMN metadata;
+ALTER TABLE agent_machine_bindings DROP COLUMN machine_ref;
+DROP INDEX model_call_contexts_provider_cost_idx;
 
 CREATE INDEX tool_calls_runtime_reference_idx
     ON tool_calls(runtime_lock_id) WHERE runtime_lock_id IS NOT NULL;

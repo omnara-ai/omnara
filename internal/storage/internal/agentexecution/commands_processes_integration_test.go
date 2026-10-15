@@ -32,8 +32,8 @@ func processOwner(
 	require.NoError(t, err)
 	_, err = u.DB().
 		Exec(t.Context(),
-			`INSERT INTO agent_machine_bindings(id,org_id,project_id,agent_id,machine_id,machine_ref,binding_kind,created_at,updated_at)
- VALUES($1,$2,$3,$4,$5,'mchr-abcdef','explicit',statement_timestamp(),statement_timestamp())`,
+			`INSERT INTO agent_machine_bindings(id,org_id,project_id,agent_id,machine_id,binding_kind,created_at,updated_at)
+ VALUES($1,$2,$3,$4,$5,'explicit',statement_timestamp(),statement_timestamp())`,
 			binding, f.org, f.project, agent, machine)
 	require.NoError(t, err)
 	spec, err := json.Marshal(processcmd.ForShell("echo done", "", ""))

@@ -266,9 +266,6 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		)
 	}
 	mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))
-	if _, ok := binding["machine_ref"]; ok {
-		t.Fatalf("machine binding response exposes machine_ref: %+v", binding)
-	}
 	launchConfig := testutil.RequireType[map[string]any](t, retargetedLaunch["agent_config"])
 	if launchConfig["model"] == nil || launchConfig["instruction_hash"] == "" {
 		t.Fatalf("launch config projection missing model/instruction evidence: %+v", retargetedLaunch["agent_config"])

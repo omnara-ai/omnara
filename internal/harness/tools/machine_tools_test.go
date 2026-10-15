@@ -445,10 +445,6 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 					t.Fatalf("machine_id %q: unexpected validation result: %v", value, err)
 				}
 			}
-			input := json.RawMessage(fmt.Sprintf(tc.input, "machine_ref", "mchr-abc234"))
-			if err := validateRegisteredToolInput(tc.name, input); err == nil {
-				t.Fatal("legacy machine_ref was accepted")
-			}
 		})
 	}
 }

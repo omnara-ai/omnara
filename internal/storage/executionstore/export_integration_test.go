@@ -571,7 +571,7 @@ func IntegrationMachineStillUnreachableForToolExpiryTx(
 }
 
 func IntegrationAgentMachineBindingRecordFromSQLC(
-	row dbsqlc.GetAgentMachineBindingByMachineRow,
+	row dbsqlc.AgentMachineBinding,
 ) AgentMachineBindingRecord {
 	return agentMachineBindingRecordFromSQLC(row)
 }

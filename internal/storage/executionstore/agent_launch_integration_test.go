@@ -184,7 +184,7 @@ func getAgentMachineBindingForTest(
 	projectID, agentID, bindingID uuid.UUID,
 ) executionstore.AgentMachineBindingRecord {
 	t.Helper()
-	var row dbsqlc.GetAgentMachineBindingByMachineRow
+	var row dbsqlc.AgentMachineBinding
 	err := store.pool.QueryRow(ctx, `
 		SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id,
 		       machine_id, binding_kind, state, description, cwd, env_overlay,

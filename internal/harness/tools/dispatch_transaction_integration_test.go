@@ -1303,8 +1303,8 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			var bindingID uuid.UUID
 			err := fixture.Pool.QueryRow(ctx, `
 				INSERT INTO agent_machine_bindings(
-					org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)
+					org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)
 				RETURNING id`,
 				toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
 			).Scan(&bindingID)
@@ -1471,8 +1471,8 @@ func TestFileToolsUnavailableMemoryStoreFailsDispatch(t *testing.T) {
 				machine := createExecutableBinding(t, ctx, fixture.Store, fixture.User.ID, tool.name, fixture.Now)
 				_, err := fixture.Pool.Exec(ctx, `
 					INSERT INTO agent_machine_bindings(
-						org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, created_at, updated_at)
-					VALUES ($1, $2, $3, $4, 'mchr-file01', 'explicit', 'attached', $5, $5)`,
+						org_id, project_id, agent_id, machine_id, binding_kind, state, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, 'explicit', 'attached', $5, $5)`,
 					toolsTestOrgID, toolsTestProjectID, fixture.Agent.ID, machine.MachineID, fixture.Now,
 				)
 				require.NoError(t, err)
