@@ -53,6 +53,9 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 			require.InDelta(t, 1000, next.InputTokenEstimate, 200, "unreplayed reasoning is not input")
 			require.True(t, next.InputBudget.Fits())
 			require.Greater(t, next.MaxOutputTokens, 7500, "measured input must be applied before output clamping")
+			require.LessOrEqual(t,
+				next.InputTokenEstimate+next.MaxOutputTokens+modelcontext.DefaultSafetyMarginTokens(caps.ContextWindowTokens),
+				caps.ContextWindowTokens, "input and output must fit together after applying measured usage")
 			var body map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(next.Body, &body))
 			var sentLimit int

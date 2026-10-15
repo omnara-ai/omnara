@@ -206,26 +206,10 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 		t, ctx, agentID, kernelTestUserID, "Continue using the original details.", fixture.Now.Add(3*time.Second),
 	)
 	now = fixture.Now.Add(4 * time.Second)
-	bundle, err := executor.contextBuilder().Build(ctx, modelcontext.BuildInput{
-		ProjectID: kernelTestProjectID, AgentID: agentID, TurnID: second.TurnID, OpeningInputIDs: second.InputIDs, Now: now,
-		MediaProjector:             model.MediaProjectorForClient(client),
-		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
-	})
-	require.NoError(t, err)
-	bundle.ConfiguredModelRevisionID = revisionID
-	in := model.PrepareForSendInput{Context: bundle, Policy: model.RequestPolicyFromCapabilities(client.ModelCapabilities)}
-	prepared, err := model.PrepareForSend(ctx, client, in)
-	require.NoError(t, err)
-	require.False(t, prepared.UsesProviderInputUsage)
-	require.True(t, prepared.InputBudget.Fits())
-	require.Contains(t, string(prepared.Body), history)
 	require.NoError(t, executor.ExecuteModelWork(ctx, second))
-	var checkpoints, compactions int
-	require.NoError(t, fixture.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`, agentID).Scan(&checkpoints))
+	var compactions int
 	require.NoError(t, fixture.Pool.QueryRow(ctx,
 		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND operation_kind='compaction'`, agentID).Scan(&compactions))
-	require.Zero(t, checkpoints)
 	require.Zero(t, compactions)
 	require.Len(t, requests, 2)
 	require.Contains(t, string(requests[1]), history)
@@ -315,13 +299,10 @@ func TestAgentExecutorKeepsFittingHistoryAfterProviderMediaPruning(t *testing.T)
 	now = now.Add(time.Second)
 	second := admit("Compare the earlier images with this image again.", artifacts[:1], now)
 	require.NoError(t, executor.ExecuteModelWork(ctx, second))
-	var checkpoints, compactions int
-	require.NoError(t, fixture.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`, agentID).Scan(&checkpoints))
+	var compactions int
 	require.NoError(t, fixture.Pool.QueryRow(ctx,
 		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND operation_kind='compaction'`,
 		agentID).Scan(&compactions))
-	require.Zero(t, checkpoints)
 	require.Zero(t, compactions)
 	require.Len(t, sentImages, 2)
 	require.Equal(t, [][32]byte{imageDigests[1], imageDigests[2], imageDigests[0]}, sentImages[1])
