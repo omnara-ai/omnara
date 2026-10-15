@@ -317,15 +317,11 @@ CREATE TRIGGER model_call_contexts_execution_turn_valid BEFORE INSERT ON model_c
 DELETE FROM agent_wakeups w USING agents a,agent_execution_state h
 WHERE w.agent_id=a.id AND h.agent_id=a.id AND (a.state='archived' OR h.logical_ready_at IS NULL
     OR EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id));
-INSERT INTO agent_wakeups(agent_id,ready_at,updated_at)
-SELECT h.agent_id,h.logical_ready_at,statement_timestamp()
-FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
-WHERE a.state='active' AND h.logical_ready_at IS NOT NULL
-  AND NOT EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id)
-ON CONFLICT(agent_id) DO UPDATE SET ready_at=CASE
-    WHEN agent_wakeups.ready_at<=statement_timestamp() AND excluded.ready_at<=statement_timestamp()
-    THEN least(agent_wakeups.ready_at,excluded.ready_at) ELSE excluded.ready_at END,
-    updated_at=excluded.updated_at;
+UPDATE agent_wakeups w SET ready_at=CASE
+    WHEN w.ready_at<=statement_timestamp() AND h.logical_ready_at<=statement_timestamp()
+    THEN least(w.ready_at,h.logical_ready_at) ELSE h.logical_ready_at END,
+    updated_at=statement_timestamp()
+FROM agent_execution_state h WHERE w.agent_id=h.agent_id;
 
 -- +goose StatementBegin
 DO $$

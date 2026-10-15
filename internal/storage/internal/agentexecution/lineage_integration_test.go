@@ -74,7 +74,8 @@ func TestExecutionCutoverRejectsOrphanCompaction(t *testing.T) {
 
 func TestExecutionCutoverReconcilesOwnershipAgeAndDeadlines(t *testing.T) {
 	f := releasedExecutionFixture(t)
-	ready, owned, retry, archived := f.agent(t), f.agent(t), f.agent(t), f.agent(t)
+	ready, owned, retry, archived, dormant := f.agent(t), f.agent(t), f.agent(t), f.agent(t), f.agent(t)
+	f.opening(t, dormant, 1, uuid.Nil, "content")
 	for _, agent := range []uuid.UUID{ready, owned, retry, archived} {
 		f.opening(t, agent, 1, uuid.Nil, "content")
 		_, err := f.pool.Exec(t.Context(), `INSERT INTO agent_wakeups(agent_id,ready_at,updated_at)
@@ -125,6 +126,12 @@ SELECT logical_ready_at IS NOT NULL FROM agent_execution_state WHERE agent_id=$1
 			Scan(&ownedReady),
 	)
 	require.True(t, ownedReady)
+	var dormantReady, dormantQueued bool
+	require.NoError(t, f.pool.QueryRow(t.Context(), `
+SELECT h.logical_ready_at IS NOT NULL, EXISTS(SELECT 1 FROM agent_wakeups w WHERE w.agent_id=h.agent_id)
+FROM agent_execution_state h WHERE h.agent_id=$1`, dormant).Scan(&dormantReady, &dormantQueued))
+	require.True(t, dormantReady)
+	require.False(t, dormantQueued)
 	_, h := f.handle(t, archived)
 	snapshot, err := h.ReconstructExecution(t.Context())
 	require.NoError(t, err)
