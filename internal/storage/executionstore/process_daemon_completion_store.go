@@ -148,6 +148,10 @@ func (s *Store) CompleteDaemonProcess(
 	if !input.SourceEndedAt.IsZero() {
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	}
+	machineRead, machineReadLoaded, err := s.loadMachineFileRead(ctx, input)
+	if err != nil {
+		return DaemonProcessReportApplication{}, err
+	}
 	return agentexecution.Retry(ctx,
 		"complete_daemon_process",
 		func(ctx context.Context) (DaemonProcessReportApplication, error) {
@@ -232,7 +236,9 @@ func (s *Store) CompleteDaemonProcess(
 							return DaemonProcessReportApplication{}, err
 						}
 					}
-					outcome, raw, err := fileTransferToolResultContentParts(ctx, qtx, record, result)
+					outcome, raw, err := fileTransferToolResultContentParts(
+						ctx, qtx, record, result, machineRead, machineReadLoaded,
+					)
 					if err != nil {
 						return DaemonProcessReportApplication{}, err
 					}

@@ -142,7 +142,7 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 						ExitCode: &exitCode,
 					}
 					outcome, got, err := fileTransferToolResultContentParts(
-						context.Background(), dbsqlc.New(memoryTransferNameDB{}), process, result,
+						context.Background(), dbsqlc.New(memoryTransferNameDB{}), process, result, machineFileRead{}, false,
 					)
 					require.NoError(t, err)
 					if tc.wantOK {
@@ -191,7 +191,7 @@ func TestFileTransferFailureResult(t *testing.T) {
 			}
 			result := `{"output":"diagnostics", "file_transfer":{"error":` + tc.metadata + `}}`
 			outcome, got, err := fileTransferToolResultContentParts(
-				context.Background(), nil, process, json.RawMessage(result),
+				context.Background(), nil, process, json.RawMessage(result), machineFileRead{}, false,
 			)
 			require.NoError(t, err)
 			require.Equal(t, ToolResultOutcomeFailed, outcome)

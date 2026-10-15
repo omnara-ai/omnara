@@ -205,18 +205,21 @@ The download process has a 120-second execution timeout.
 
 ### `read_file`
 
-Reads a text or image file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
+Reads a text or image file at `/artifacts/<artifact_id>`, `/memory/<store-name>/<file-path>`, or on an attached machine. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory and machine files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
 
 Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
+Any other path, or any path passed with `machine_id`, is read from a machine: relative paths use the machine working directory, and `~` expands to the machine user's home directory. Provide `machine_id` when the agent has more than one machine. This lets the agent view a screenshot it just took without calling `upload_file` first. Machine reads use the same transfer as `upload_file` and require it to be enabled and not denied; each read snapshots the file as an artifact, and results also include `machine_id` and the snapshot's `artifact_path`.
+
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact or memory file path |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact or memory file path, or a machine file path |
+| `machine_id` | string | Machine to read from; required when the agent has more than one machine |
 | `offset_line` | integer | ≥ 1; default 1 |
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
-| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
+| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory or machine read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
 
 Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 

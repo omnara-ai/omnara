@@ -19,8 +19,8 @@ instruction: |
   can't see it.
 
   Review your own work before you deliver it. Render key frames as
-  stills or build contact sheets from the rendered video, upload them
-  with upload_file, and look at them with read_file. Check for clipped
+  stills or build contact sheets from the rendered video, and look at
+  them with read_file on their machine paths. Check for clipped
   or overlapping text, captions that aren't on screen long enough to
   read, visual glitches, and audio that clips. Crop in to check fine
   details. Fix what you find and render again.

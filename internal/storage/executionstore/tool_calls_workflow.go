@@ -39,6 +39,8 @@ func fileTransferToolResultContentParts(
 	qtx *dbsqlc.Queries,
 	process ProcessRecord,
 	result json.RawMessage,
+	machineRead machineFileRead,
+	machineReadLoaded bool,
 ) (ToolResultOutcome, json.RawMessage, error) {
 	transfer := process.ExecutionSpec.FileTransfer
 	direction := transfer.Direction
@@ -81,6 +83,17 @@ func fileTransferToolResultContentParts(
 			path := toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID)
 			if metadata.Path != path || metadata.Digest != artifact.Digest {
 				return failedFileTransferToolResultContentParts(result, invalidMetadata)
+			}
+			if machineReadLoaded {
+				if machineRead.artifactID != artifact.ID || machineRead.digest != artifact.Digest {
+					return "", nil, errMachineFileReadNotPrepared
+				}
+				return machineFileReadContentParts(process, machineRead)
+			}
+			if isRead, err := isMachineFileReadTx(ctx, qtx, process); err != nil {
+				return "", nil, err
+			} else if isRead {
+				return "", nil, errMachineFileReadNotPrepared
 			}
 			parts = append(parts, map[string]any{
 				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": true,

@@ -1,53 +1,74 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"net/http"
 	"path"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/fileread"
+	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	_ "golang.org/x/image/webp"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type readFileRequest struct {
-	Path           string  `json:"path"`
-	OffsetLine     *int    `json:"offset_line,omitempty"`
-	LimitLines     *int    `json:"limit_lines,omitempty"`
-	OffsetChar     *int    `json:"offset_char,omitempty"`
-	LimitChars     *int    `json:"limit_chars,omitempty"`
-	ExpectedDigest *string `json:"expected_digest,omitempty"`
+	Path           string          `json:"path"`
+	MachineID      json.RawMessage `json:"machine_id,omitempty"`
+	ExpectedDigest *string         `json:"expected_digest,omitempty"`
+	fileread.Paging
+
+	onMachine bool
+	machineID uuid.UUID
 }
+
+var errReadFileMachineUnavailable = errors.New(
+	"path must be /artifacts/<artifact_id> or /memory/<store>/<file>; " +
+		"other paths are read from an attached machine, and no executable machine is available",
+)
+
+var errReadFileMachineTransferDisabled = errors.New(
+	"reading machine files requires upload_file to be enabled and not denied for this agent",
+)
 
 func validateReadFileInput(raw json.RawMessage) error {
 	_, err := resolveReadFileRequest(raw)
 	return err
 }
 
+// resolveReadFileRequest routes /memory and /artifacts paths to Omnara storage
+// unless machine_id is supplied; every other path is read from a machine.
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
 		return readFileRequest{}, fmt.Errorf("parse read_file request: %w", err)
 	}
-	if err := validateFilePath(input.Path); err != nil {
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
+		return readFileRequest{}, err
+	}
+	input.machineID = machineID
+	input.onMachine = machineID != uuid.Nil || !isOmnaraFilePath(input.Path)
+	if input.onMachine {
+		if input.Path == "" {
+			return readFileRequest{}, errors.New("path is required")
+		}
+		if strings.Contains(input.Path, "\x00") {
+			return readFileRequest{}, errors.New("path cannot contain NUL")
+		}
+	} else if err := validateFilePath(input.Path); err != nil {
 		return readFileRequest{}, err
 	}
 	if input.ExpectedDigest != nil {
@@ -55,41 +76,124 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 			return readFileRequest{}, err
 		}
 	}
-	charMode := input.OffsetChar != nil || input.LimitChars != nil
-	lineMode := input.OffsetLine != nil || input.LimitLines != nil
-	if charMode && lineMode {
-		return readFileRequest{}, errors.New(
-			"character paging cannot be combined with line paging",
-		)
-	}
-	if charMode {
-		if input.OffsetChar == nil {
-			value := 0
-			input.OffsetChar = &value
-		}
-		if input.LimitChars == nil {
-			value := toolcatalog.ReadFileDefaultChars
-			input.LimitChars = &value
-		}
-		if *input.OffsetChar < 0 || *input.LimitChars < 1 ||
-			*input.LimitChars > toolcatalog.ReadFileMaxChars {
-			return readFileRequest{}, errors.New("invalid file character range")
-		}
-	} else {
-		if input.OffsetLine == nil {
-			value := 1
-			input.OffsetLine = &value
-		}
-		if input.LimitLines == nil {
-			value := toolcatalog.ReadFileDefaultLines
-			input.LimitLines = &value
-		}
-		if *input.OffsetLine < 1 || *input.LimitLines < 1 ||
-			*input.LimitLines > toolcatalog.ReadFileMaxLines {
-			return readFileRequest{}, errors.New("invalid file line range")
-		}
+	input.Paging, err = input.Paging.Normalize()
+	if err != nil {
+		return readFileRequest{}, err
 	}
 	return input, nil
+}
+
+func isOmnaraFilePath(path string) bool {
+	for _, root := range []string{memorystore.Root, toolcatalog.ArtifactVFSRoot} {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// runReadFile leaves Omnara file reads to the async phase. Machine reads reuse
+// the upload_file transfer that released daemons already run: the daemon
+// uploads the file as an artifact, and the process completion renders the
+// read_file result from that snapshot.
+func runReadFile(
+	ctx context.Context,
+	call transactionalToolContext,
+) (transactionalPhaseResult, error) {
+	input, err := resolveReadFileRequest(call.Call.Input)
+	if err != nil {
+		return failInTransaction(toolResultContent{}, err), nil
+	}
+	if !input.onMachine {
+		return continueAsync(), nil
+	}
+	if !machineFileTransferAllowed(call.Turn) {
+		return failInTransaction(toolResultContent{}, errReadFileMachineTransferDisabled), nil
+	}
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, input.machineID)
+	if errors.Is(err, ErrNoActiveAgentMachineBinding) && input.machineID == uuid.Nil {
+		return failInTransaction(toolResultContent{}, errReadFileMachineUnavailable), nil
+	}
+	if err != nil {
+		return processToolMachineResolutionError(err)
+	}
+	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	processInput, err := fileTransferProcessInput(
+		ctx, call.Reader, processcmd.FileTransferUpload, input.Path, toolcatalog.ArtifactVFSRoot, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return startProcessTool(ctx, call, binding, authorization, processInput)
+}
+
+// machineFileTransferAllowed keeps read_file from pulling machine files into
+// Omnara when the agent's upload_file configuration disables or denies that.
+func machineFileTransferAllowed(turn Turn) bool {
+	if turn.Tools == nil {
+		return true
+	}
+	spec, ok := turn.Tools[toolcatalog.ToolNameUploadFile]
+	return ok && spec.Permission.Mode != toolpermission.ModeAlwaysDeny
+}
+
+func wakeReadFileProcess(ctx context.Context, call backgroundToolContext) error {
+	input, err := resolveReadFileRequest(call.Call.Input)
+	if err != nil || !input.onMachine {
+		return err
+	}
+	return wakeProcessTool(ctx, call)
+}
+
+func readFilePermissionChallenge(
+	ctx context.Context,
+	executor Executor,
+	turn Turn,
+	call model.ToolCall,
+	mode permissionModeContext,
+) (toolpermission.Request, error) {
+	input, err := resolveReadFileRequest(call.Input)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	if !input.onMachine {
+		return genericPermissionChallenge(ctx, executor, turn, call, mode)
+	}
+	if !machineFileTransferAllowed(turn) {
+		return toolpermission.Request{}, readFilePreparationError(errReadFileMachineTransferDisabled)
+	}
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, input.machineID)
+	if errors.Is(err, ErrNoActiveAgentMachineBinding) && input.machineID == uuid.Nil {
+		return toolpermission.Request{}, readFilePreparationError(errReadFileMachineUnavailable)
+	}
+	if err != nil {
+		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Input)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(call, mode, authorization,
+		interactionform.ContextItem{Label: "Path", Value: input.Path},
+		interactionform.ContextItem{Label: "Machine", Value: machineID},
+	)
+}
+
+// readFilePreparationError completes a machine read that cannot be approved
+// with the same failure the transactional phase would report.
+func readFilePreparationError(cause error) error {
+	content, err := structuredToolResultContent(map[string]any{"error": cause.Error()})
+	if err != nil {
+		return err
+	}
+	return newToolCallPreparationError(content, cause)
 }
 
 func runReadFileAsync(
@@ -99,6 +203,9 @@ func runReadFileAsync(
 	input, err := resolveReadFileRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if input.onMachine {
+		return nil, errors.New("machine reads run as file transfer processes")
 	}
 	var content []byte
 	var digest, contentType string
@@ -125,7 +232,7 @@ func runReadFileAsync(
 		return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
 			errors.New("file digest mismatch; restart the read"))
 	}
-	if isViewableImage(contentType, content) {
+	if fileread.IsViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
 			artifact, err := call.Executor.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 				ProjectID:      call.Turn.ProjectID,
@@ -143,16 +250,9 @@ func runReadFileAsync(
 		}
 		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
 	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return nil, errors.New(
-			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
-		)
-	}
-	var result map[string]any
-	if input.OffsetChar != nil {
-		result = readFileChars(content, input.Path, *input.OffsetChar, *input.LimitChars)
-	} else {
-		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
+	result, err := input.Page(content, input.Path)
+	if err != nil {
+		return nil, err
 	}
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
@@ -212,14 +312,6 @@ func loadArtifactContent(
 	return content, record, nil
 }
 
-func isViewableImage(contentType string, content []byte) bool {
-	if kind, _ := modelcontext.AttachmentKindForMediaType(contentType); kind != modelcontext.AttachmentKindImage {
-		return false
-	}
-	_, format, err := image.DecodeConfig(bytes.NewReader(content))
-	return err == nil && "image/"+format == contentType
-}
-
 func completeImageRead(
 	path string,
 	contentType string,
@@ -241,87 +333,6 @@ func completeImageRead(
 		return nil, err
 	}
 	return completeAsynchronously(newToolResultContent(metadata, media)), nil
-}
-
-func readFileChars(
-	content []byte,
-	path string,
-	offset, limit int,
-) map[string]any {
-	start, position := 0, 0
-	for position < offset && start < len(content) {
-		_, size := utf8.DecodeRune(content[start:])
-		start += size
-		position++
-	}
-	end, count := start, 0
-	for count < limit && end < len(content) {
-		_, size := utf8.DecodeRune(content[end:])
-		if end-start+size > toolcatalog.FilePageBytes {
-			break
-		}
-		end += size
-		count++
-	}
-	result := map[string]any{
-		"path":        path,
-		"content":     string(content[start:end]),
-		"offset_char": position,
-		"bytes_read":  end - start,
-		"has_more":    end < len(content),
-	}
-	if end < len(content) {
-		result["next_offset_char"] = position + count
-	}
-	return result
-}
-
-func readFileLines(content []byte, path string, offsetLine, limitLines int) map[string]any {
-	start, lineNumber := 0, 1
-	for lineNumber < offsetLine && start < len(content) {
-		next := bytes.IndexByte(content[start:], '\n')
-		if next < 0 {
-			start = len(content)
-			break
-		}
-		start += next + 1
-		lineNumber++
-	}
-	end, count := start, 0
-	for end < len(content) && count < limitLines {
-		length := bytes.IndexByte(content[end:], '\n')
-		if length < 0 {
-			length = len(content) - end
-		} else {
-			length++
-		}
-		if end-start+length > toolcatalog.FilePageBytes {
-			break
-		}
-		end += length
-		count++
-	}
-	result := map[string]any{
-		"path":        path,
-		"offset_line": offsetLine,
-		"lines_read":  count,
-	}
-	if count == 0 && start < len(content) {
-		chunk := content[start:min(start+toolcatalog.FilePageBytes+utf8.UTFMax, len(content))]
-		end = start + len(textutil.TruncateBytes(string(chunk), toolcatalog.FilePageBytes))
-		result["notice"] = "The requested line exceeds one page; continue in character mode."
-	}
-	result["content"] = string(content[start:end])
-	result["bytes_read"] = end - start
-	result["has_more"] = end < len(content)
-	if end < len(content) {
-		if count == 0 {
-			result["next_offset_char"] = utf8.RuneCount(content[:end])
-		} else {
-			result["next_offset_line"] = offsetLine + count
-		}
-	}
-	return result
 }
 
 func completeFileTool(value any) (asyncPhaseResult, error) {

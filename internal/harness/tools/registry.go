@@ -173,8 +173,12 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameReadFile,
 			semanticInputValidator: validateReadFileInput,
-			handler:                toolHandler{Async: runReadFileAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler: toolHandler{
+				Transactional: runReadFile,
+				Async:         runReadFileAsync,
+				Background:    wakeReadFileProcess,
+			},
+			permissionModes: commonPermissionModeHandlers(readFilePermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteFile,

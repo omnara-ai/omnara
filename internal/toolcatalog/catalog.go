@@ -64,8 +64,9 @@ const (
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
 	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
-	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
+	readFileToolDescription  = "Read a text or image file stored in Omnara or on an attached machine. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
+		"Read machine files such as screenshots directly; upload_file is not needed to view them. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text in Omnara files. " +
@@ -554,14 +555,22 @@ func readFileTool() (Entry, error) {
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
+				"type":      "string",
+				"minLength": 1,
+				"description": "Exact Omnara path, /artifacts/<artifact_id> or /memory/<store>/<file>, " +
+					"or a regular file on the selected machine, at most 10 MiB. " +
+					"Other paths are machine paths: relative paths use the machine working directory; " +
+					"~ expands to the machine user's home directory.",
+			},
+			"machine_id": map[string]any{
+				"type": "string",
+				"description": "Public machine_id (mch_...) returned by list_machines. " +
+					"Omit it when the target is unambiguous. When set, path is always read from that machine.",
 			},
 			"expected_digest": map[string]any{
 				"type":    "string",
 				"pattern": fileDigestPattern,
-				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
+				"description": "Optional digest precondition. Use the first page's digest when continuing a memory or machine read. " +
 					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
 			},
 			"offset_line": map[string]any{

@@ -40,7 +40,7 @@ const toolDescriptions = new Map([
   ['list_machines', 'List the machines and machine pools available to the agent.'],
   ['inspect_machine', 'View details about a machine available to the agent.'],
   ['list_files', 'List files and directories in Omnara matching a glob.'],
-  ['read_file', 'Read a text or image file stored in Omnara.'],
+  ['read_file', 'Read a text or image file from Omnara or an attached machine.'],
   ['search_files', 'Search text in files stored in Omnara.'],
   ['write_file', 'Create or edit a memory text file.'],
   ['upload_file', 'Copy a file from an attached machine into Omnara.'],
