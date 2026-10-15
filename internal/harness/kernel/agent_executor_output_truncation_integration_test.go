@@ -103,10 +103,12 @@ Finish any remaining work and provide a concise completion message.`
 			require.LessOrEqual(t, summaryInput+largeSummary.Policy.MaxOutputTokens+margin, 32_000)
 			wantCutoffNotice := tc.sourceStopReason == model.StopReasonMaxTokens
 			if tc.partialSummary {
+				require.Equal(t, 16_000, continuation.Policy.MaxOutputTokens)
 				require.Nil(t, continuation.Bundle.ContextCheckpoint)
 				require.Contains(t, string(continuation.ProviderRequest), strings.TrimSpace(largeText),
 					"failed optional summary must resume with the original history")
 			} else {
+				require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
 				require.NotNil(t, continuation.Bundle.ContextCheckpoint)
 				require.Equal(t, summary, continuation.Bundle.ContextCheckpoint.Summary)
 				require.Equal(t, wantCutoffNotice, continuation.Bundle.ContextCheckpoint.EndsWithOutputLimit)
@@ -114,7 +116,6 @@ Finish any remaining work and provide a concise completion message.`
 				require.Equal(t, wantCutoffNotice, strings.Contains(checkpointText, "[Automatic Omnara harness notice]"))
 				require.NotContains(t, string(continuation.ProviderRequest), strings.TrimSpace(largeText))
 			}
-			require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
 			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 			var preserved, finished, failed, cutoffs int
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `
