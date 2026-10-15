@@ -61,8 +61,6 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		},
 		expectedTopology{async: true},
 	)
-	// read_file serves Omnara files asynchronously and machine files through
-	// file transfer processes.
 	add([]string{"read_file"}, expectedTopology{transactional: true, async: true, background: true})
 
 	catalog, err := toolcatalog.Default()

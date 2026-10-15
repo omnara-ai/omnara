@@ -188,7 +188,6 @@ func TestViewableImageTypesAreModelImages(t *testing.T) {
 	}
 }
 
-// testImages returns one valid image per viewable image media type.
 func testImages(t *testing.T) map[string][]byte {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, 1, 1))

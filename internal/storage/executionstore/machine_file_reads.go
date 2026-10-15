@@ -16,27 +16,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// errMachineFileReadNotPrepared makes the daemon retry a read_file completion
-// whose uploaded snapshot was not loaded before the completion transaction.
+// errMachineFileReadNotPrepared makes the daemon retry its completion report.
 var errMachineFileReadNotPrepared = errors.New("machine file read snapshot is not prepared; retry the report")
 
-// machineFileRead is the uploaded snapshot of a machine file requested by
-// read_file. It is loaded outside the completion transaction so blob reads
-// never hold the agent execution lock.
+// machineFileRead is loaded outside the completion transaction so blob reads don't hold the execution lock.
 type machineFileRead struct {
 	toolCallInput json.RawMessage
 	artifactID    uuid.UUID
 	contentType   string
 	digest        string
 	content       []byte
-	// unavailable records a snapshot whose blob is permanently missing, so the
-	// read fails instead of retrying the daemon report forever.
-	unavailable bool
+	unavailable   bool // blob is permanently missing; fail rather than retry the report forever
 }
 
-// loadMachineFileRead returns the snapshot for a successful read_file machine
-// transfer. It reports false for every other process so callers keep the
-// existing file transfer behavior.
 func (s *Store) loadMachineFileRead(
 	ctx context.Context,
 	input CompleteDaemonProcessInput,
@@ -111,8 +103,6 @@ func isMachineFileReadTx(ctx context.Context, qtx *dbsqlc.Queries, process Proce
 	return isMachineFileReadCall(call.Type, call.Name), nil
 }
 
-// machineFileReadContentParts renders the read_file result for an uploaded
-// machine file snapshot with the same paging and image rules as Omnara files.
 func machineFileReadContentParts(
 	process ProcessRecord,
 	read machineFileRead,

@@ -48,8 +48,6 @@ func validateReadFileInput(raw json.RawMessage) error {
 	return err
 }
 
-// resolveReadFileRequest routes /memory and /artifacts paths to Omnara storage
-// unless machine_id is supplied; every other path is read from a machine.
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
@@ -92,10 +90,7 @@ func isOmnaraFilePath(path string) bool {
 	return false
 }
 
-// runReadFile leaves Omnara file reads to the async phase. Machine reads reuse
-// the upload_file transfer that released daemons already run: the daemon
-// uploads the file as an artifact, and the process completion renders the
-// read_file result from that snapshot.
+// Machine reads run as upload_file transfers; the process completion renders the read_file result.
 func runReadFile(
 	ctx context.Context,
 	call transactionalToolContext,
@@ -130,8 +125,6 @@ func runReadFile(
 	return startProcessTool(ctx, call, binding, authorization, processInput)
 }
 
-// machineFileTransferAllowed keeps read_file from pulling machine files into
-// Omnara when the agent's upload_file configuration disables or denies that.
 func machineFileTransferAllowed(turn Turn) bool {
 	if turn.Tools == nil {
 		return true
@@ -186,8 +179,6 @@ func readFilePermissionChallenge(
 	)
 }
 
-// readFilePreparationError completes a machine read that cannot be approved
-// with the same failure the transactional phase would report.
 func readFilePreparationError(cause error) error {
 	content, err := structuredToolResultContent(map[string]any{"error": cause.Error()})
 	if err != nil {
