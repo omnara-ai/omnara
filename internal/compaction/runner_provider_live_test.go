@@ -130,7 +130,6 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 	response := (*client.responses)[0]
 	require.Equal(t, stopReason, response.StopReason)
 	require.Empty(t, response.ToolCalls())
-	require.NotEmpty(t, strings.TrimSpace(response.Text()))
 	require.Empty(t, store.terminalFailures)
 	require.Empty(t, store.replacements)
 	require.Len(t, store.claims, 1)
@@ -146,9 +145,12 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 		require.Equal(t, compactionErrorCodeSummaryTruncated, failure.ErrorCode)
 		require.Equal(t, apiFormat, failure.APIFormat)
 		require.Equal(t, apiVariant, failure.APIVariant)
+		require.Equal(t, response.Usage, failure.Usage)
+		require.Positive(t, failure.Usage.InputTokens)
 		require.Positive(t, failure.Usage.OutputTokens)
 		return
 	}
+	require.NotEmpty(t, strings.TrimSpace(response.Text()))
 	require.Empty(t, store.retryFailures)
 	require.Equal(t, RunCompleted, result.State)
 	require.NotNil(t, result.Checkpoint)

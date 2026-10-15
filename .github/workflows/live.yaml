@@ -122,6 +122,7 @@ jobs:
         if: steps.secrets.outputs.configured == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         if: steps.secrets.outputs.configured == 'true'
         with:
           go-version-file: go.mod
@@ -137,37 +138,38 @@ jobs:
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-live-
 
       - uses: ./.github/actions/setup-test-db
+        id: testdb
         if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
 
       - run: make test-live-openai-responses
-        if: steps.secrets.outputs.openai == 'true'
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - run: make test-live-openai-chat-completions
-        if: steps.secrets.outputs.openai == 'true'
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - run: make test-live-openrouter
-        if: steps.secrets.outputs.openrouter == 'true'
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openrouter == 'true' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
       - run: make test-live-anthropic
-        if: steps.secrets.outputs.anthropic == 'true'
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.anthropic == 'true' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - run: make test-live-api-format-switching
-        if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true'
+        if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - run: make test-live-sandbox-providers
-        if: steps.secrets.outputs.sandboxes == 'true'
+        if: ${{ !cancelled() && steps.go.outcome == 'success' && steps.secrets.outputs.sandboxes == 'true' }}
         env:
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
