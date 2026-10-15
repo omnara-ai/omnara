@@ -61,7 +61,6 @@ func validateListFiles(raw json.RawMessage) error {
 	return err
 }
 
-// machineListFiles validates list_files input and resolves machine listings.
 func machineListFiles(raw json.RawMessage) (machineFileCall, bool, error) {
 	var input listFilesRequest
 	if err := decodeSingleStrictJSON(raw, &input, "list_files request"); err != nil {
@@ -94,7 +93,6 @@ func machineListFiles(raw json.RawMessage) (machineFileCall, bool, error) {
 	return machineFileCall{}, false, err
 }
 
-// validateMachineGlob checks a machine path or glob; globs contain * or ?.
 func validateMachineGlob(pattern string) error {
 	if err := validateMachinePath(pattern); err != nil {
 		return err

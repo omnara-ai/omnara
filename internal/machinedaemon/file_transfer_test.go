@@ -145,7 +145,6 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	}
 }
 
-// runFileOperationProbe reports the spec it read from stdin as its value.
 func runFileOperationProbe() int {
 	if len(os.Args) != 4 || os.Args[2] != "--" || os.Args[3] != fileTransferTestProcessID {
 		return 2

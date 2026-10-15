@@ -1763,7 +1763,6 @@ func startPreparedLocalRunner(
 		return nil, processNotStarted, err
 	}
 	if runner.fileOperation != nil {
-		// File operations read their spec from stdin and accept no process input.
 		command.Stdin = bytes.NewReader(runner.fileOperation)
 	} else {
 		stdin, err := command.StdinPipe()

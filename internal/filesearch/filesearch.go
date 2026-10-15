@@ -1,6 +1,3 @@
-// Package filesearch holds the search_files argument grammar and result
-// rules shared by Omnara searches, which run ripgrep, and machine searches,
-// which omnarad runs in Go with Search.
 package filesearch
 
 import (
@@ -20,10 +17,8 @@ const (
 	entryOverheadBytes = 64
 )
 
-// ErrResultLimit stops a search once its result is full.
 var ErrResultLimit = errors.New("search result limit reached")
 
-// Options are the parsed ripgrep-style search_files args.
 type Options struct {
 	Patterns   []string
 	Fixed      bool
@@ -32,13 +27,11 @@ type Options struct {
 	Line       bool
 	Invert     bool
 	Multiline  bool
-	// Mode is "" for matching lines, "-l" for paths, or "-c" for counts.
-	Mode   string
-	Before int
-	After  int
+	Mode       string
+	Before     int
+	After      int
 }
 
-// ParseArgs validates search_files args and returns their options.
 func ParseArgs(args []string) (Options, error) {
 	var options Options
 	patternBytes := 0
@@ -120,8 +113,6 @@ type Result struct {
 	IncompleteReason string `json:"incomplete_reason,omitempty"`
 }
 
-// Collector builds a search result within the match limit and the one-page
-// response budget.
 type Collector struct {
 	Mode       string
 	Limit      int
@@ -130,7 +121,6 @@ type Collector struct {
 	used       int
 }
 
-// AddFile records a matching path, with its count in -c mode.
 func (c *Collector) AddFile(path string, count *uint64) error {
 	if c.Result.MatchCount >= c.Limit || c.used+len(path)+entryOverheadBytes > toolcatalog.FilePageBytes {
 		return ErrResultLimit
@@ -141,8 +131,6 @@ func (c *Collector) AddFile(path string, count *uint64) error {
 	return nil
 }
 
-// AddLine records a matching or context line; text may span lines for
-// multiline matches, and matchStart and matchEnd locate the first match in it.
 func (c *Collector) AddLine(path string, lineNumber int, text string, matchStart, matchEnd int, isMatch bool) error {
 	if lineNumber < c.OffsetLine {
 		return nil
@@ -164,7 +152,6 @@ func (c *Collector) AddLine(path string, lineNumber int, text string, matchStart
 	return nil
 }
 
-// MarkIncomplete flags the result as truncated, keeping the first reason.
 func (c *Collector) MarkIncomplete(reason string) {
 	c.Result.Truncated = true
 	if c.Result.IncompleteReason == "" {
@@ -172,8 +159,6 @@ func (c *Collector) MarkIncomplete(reason string) {
 	}
 }
 
-// Finish turns the error that stopped a search into truncation when the
-// search stopped at a limit.
 func (c *Collector) Finish(err error) (Result, error) {
 	switch {
 	case errors.Is(err, ErrResultLimit):

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// Compile builds the Go regular expression machine searches use for options.
 func Compile(options Options) (*regexp.Regexp, error) {
 	patterns := make([]string, len(options.Patterns))
 	for i, pattern := range options.Patterns {
@@ -35,15 +34,11 @@ func Compile(options Options) (*regexp.Regexp, error) {
 	return regexp.Compile(expression)
 }
 
-// block is a run of matching lines; start and end locate the first match
-// relative to the block's text.
 type block struct {
 	first, last int
 	start, end  int
 }
 
-// Search adds content's matches to the result the way ripgrep reports them:
-// matching lines (or multiline blocks) with context, matching paths, or counts.
 func (c *Collector) Search(path string, content []byte, re *regexp.Regexp, options Options) error {
 	if len(content) == 0 {
 		return nil
@@ -54,7 +49,6 @@ func (c *Collector) Search(path string, content []byte, re *regexp.Regexp, optio
 			starts = append(starts, i+1)
 		}
 	}
-	// lineEnd excludes the line's newline.
 	lineEnd := func(line int) int {
 		if line+1 < len(starts) {
 			return starts[line+1] - 1

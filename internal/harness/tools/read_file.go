@@ -35,8 +35,6 @@ func validateReadFileInput(raw json.RawMessage) error {
 	return err
 }
 
-// resolveReadFileRequest routes /memory and /artifacts paths to Omnara storage
-// unless machine_id is supplied; every other path is read from a machine.
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {

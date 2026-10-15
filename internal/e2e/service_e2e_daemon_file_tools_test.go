@@ -16,9 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// TestServiceE2EDockerDaemonFileToolsDeterministic drives read_file,
-// write_file, list_files, and search_files against a locally built daemon in
-// a container without grep or ripgrep beyond busybox.
 func TestServiceE2EDockerDaemonFileToolsDeterministic(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -39,7 +36,6 @@ func TestServiceE2EDockerDaemonFileToolsDeterministic(t *testing.T) {
 	waitForDaemonRuntime(t, ctx, env, project.orgID, machine.machineID)
 	waitForDockerMachineOnline(t, ctx, env, project.orgID, machine.machineID)
 
-	// A 1x1 PNG written with busybox base64.
 	const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg=="
 	var requestCount atomic.Int64
 	modelFailures := make(chan string, 1)

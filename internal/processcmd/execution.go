@@ -69,8 +69,6 @@ func (s ExecutionSpec) ValidateLocal() error {
 	}
 }
 
-// HasFileResult reports whether the process reports a structured file result
-// on exit, which alone completes its tool call.
 func (s ExecutionSpec) HasFileResult() bool {
 	return s.FileTransfer != nil || s.File != nil
 }

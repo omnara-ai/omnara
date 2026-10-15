@@ -83,8 +83,6 @@ type FileListResult struct {
 	Next    Cursor
 }
 
-// FileCursor is the payload of a list_files next_cursor. Scope binds it to
-// one listing; Key and ID locate the last returned entry.
 type FileCursor struct {
 	Version int       `json:"v"`
 	Scope   string    `json:"scope"`
@@ -94,7 +92,6 @@ type FileCursor struct {
 
 const FileCursorVersion = 1
 
-// FileCursorScope hashes the values a list_files cursor is bound to.
 func FileCursorScope(parts ...string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(parts, "/"))))
 }
@@ -109,7 +106,6 @@ func (c FileCursor) Encode() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(payload.Bytes()), nil
 }
 
-// DecodeFileCursor reports false for a malformed cursor or one from another version.
 func DecodeFileCursor(raw string) (FileCursor, bool) {
 	var cursor FileCursor
 	payload, err := base64.RawURLEncoding.DecodeString(raw)

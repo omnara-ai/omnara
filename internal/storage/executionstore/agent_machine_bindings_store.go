@@ -105,9 +105,7 @@ type AgentMachineBindingRecord struct {
 	Metadata               json.RawMessage          `json:"metadata"`
 	CreatedAt              time.Time                `json:"created_at"`
 	UpdatedAt              time.Time                `json:"updated_at"`
-	// DaemonVersion is the machine's current omnarad release, when known.
-	// Only executable binding listings set it.
-	DaemonVersion string `json:"-"`
+	DaemonVersion          string                   `json:"-"`
 }
 
 type insertAgentMachineBindingInput struct {

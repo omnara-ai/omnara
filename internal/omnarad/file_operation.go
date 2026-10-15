@@ -28,8 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/textutil"
 )
 
-// Safety bounds for file operations. The backend sets the agent-facing
-// limits in each operation; these only stop runaway work.
+// Safety bounds only; the backend sets the agent-facing limits in each operation.
 const (
 	maxFileOperationInputBytes = 4 * 1024 * 1024
 	maxFileOperationEntries    = 1000
@@ -44,9 +43,6 @@ var (
 	errFileOperationBound = errors.New("file operation reached a resource limit")
 )
 
-// runFileOperation executes the processcmd.FileOperation spec read from input
-// and writes a daemonprotocol.FileOperationResult. Operation failures are part
-// of the result, so it only fails when the result cannot be written.
 func runFileOperation(ctx context.Context, processID string, input io.Reader, resultWriter io.Writer) error {
 	result := executeFileOperation(ctx, processID, input)
 	if err := json.NewEncoder(resultWriter).Encode(result); err != nil {
@@ -111,7 +107,6 @@ func fileDigest(content []byte) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256(content))
 }
 
-// readMachineFile reads a regular file of at most the transfer size limit.
 func readMachineFile(ctx context.Context, processID string, operation processcmd.FileOperation) (any, string, error) {
 	paging, err := operation.Paging.Normalize()
 	if err != nil {
@@ -149,8 +144,6 @@ func readMachineFile(ctx context.Context, processID string, operation processcmd
 	return page, "", nil
 }
 
-// resolveMachinePath expands ~; relative paths stay relative to the process
-// working directory, which is the machine working directory.
 func resolveMachinePath(name string) (string, error) {
 	resolved, err := processcmd.ExpandHomeRelativePath(name)
 	if err != nil {
@@ -190,8 +183,6 @@ func readRegularFile(name string) ([]byte, error) {
 	return content, nil
 }
 
-// writeMachineFile replaces or appends to a text file atomically, creating
-// it and its parent directories when missing.
 func writeMachineFile(operation processcmd.FileOperation) (any, error) {
 	name, err := resolveMachinePath(operation.Path)
 	if err != nil {
@@ -248,8 +239,6 @@ func writeMachineFile(operation processcmd.FileOperation) (any, error) {
 	return map[string]any{"path": operation.Path, "digest": fileDigest(content)}, nil
 }
 
-// globRoot splits a machine glob into the directory it walks, as written and
-// as resolved, and the pattern below it. Paths without * or ? are literal.
 func globRoot(pattern string) (base, root, glob string, err error) {
 	if !strings.ContainsAny(pattern, "*?") {
 		return "", "", "", nil
@@ -269,9 +258,6 @@ func globPath(base, name string) string {
 	return path.Join(base, name)
 }
 
-// walkGlob visits the paths below root that match glob in lexical order,
-// which list cursors resume from, skipping paths up to and including after.
-// Symlinks are not followed and unreadable directories are skipped.
 func walkGlob(ctx context.Context, root, glob, after string, visit func(string, fs.DirEntry) error) error {
 	segments := strings.Split(glob, "/")
 	afterSegments := strings.Split(after, "/")
@@ -312,8 +298,6 @@ func skipEntry(entry fs.DirEntry) error {
 	return nil
 }
 
-// mayContainMatches reports whether directory dir can contain paths matching
-// the glob segments.
 func mayContainMatches(segments []string, dir string) bool {
 	if slices.ContainsFunc(segments, func(segment string) bool { return strings.Contains(segment, "{") }) {
 		return true
@@ -388,8 +372,6 @@ func listMachineFiles(ctx context.Context, operation processcmd.FileOperation) (
 	return map[string]any{"entries": entries, "next_cursor": next}, nil
 }
 
-// listedEntry describes a file or directory, following symlinks; other
-// file types are omitted like in Omnara listings.
 func listedEntry(display string, stat func() (fs.FileInfo, error)) (listing.FileEntry, bool) {
 	info, err := stat()
 	if err != nil {

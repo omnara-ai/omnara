@@ -21,8 +21,7 @@ import (
 
 const maxWriteFileScriptBytes = 64 * 1024
 
-// maxMachineWriteBytes keeps machine writes, which carry their content in the
-// process offer, within one daemon message.
+// Machine writes carry their content in the process offer, which must fit one daemon message.
 const maxMachineWriteBytes = 512 * 1024
 
 type writeFileRequest struct {

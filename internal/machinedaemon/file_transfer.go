@@ -13,8 +13,6 @@ import (
 
 const maxFileTransferResultBytes = 8 * 1024
 
-// fileTransferOutcome is the structured result a file transfer or file
-// operation child writes to its result pipe.
 type fileTransferOutcome struct {
 	result any
 	err    error
@@ -31,8 +29,6 @@ func fileTransferArgv(processID string, transfer processcmd.FileTransfer) ([]str
 	}, nil
 }
 
-// fileOperationArgv runs a file operation in omnarad, which reads the
-// execution spec from stdin.
 func fileOperationArgv(processID string) ([]string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -48,7 +44,6 @@ func readFileTransferResult(reader io.Reader) fileTransferOutcome {
 
 func readFileOperationResult(reader io.Reader) fileTransferOutcome {
 	var result daemonprotocol.FileOperationResult
-	// Leave room for the JSON envelope around the bounded value.
 	return readFileResult(reader, daemonprotocol.MaxFileOperationResultBytes+16*1024, &result)
 }
 

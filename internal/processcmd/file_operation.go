@@ -15,31 +15,24 @@ const (
 	KindFileSearch ExecutionKind = "file_search"
 )
 
-// FileOperationDaemonVersion is the first omnarad release that executes file
-// operation specs. Older daemons must never be offered one.
+// FileOperationDaemonVersion gates file operation offers; older daemons cannot parse them.
 const FileOperationDaemonVersion = "0.2.6"
 
-// FileOperation is a read_file, write_file, list_files, or search_files call
-// that omnarad executes against the machine filesystem. Path is a file for
-// reads and writes and a file or glob for lists and searches.
 type FileOperation struct {
 	Path string `json:"path"`
-	// Paging selects the read page; OffsetLine also starts exact-file searches.
 	fileread.Paging
-	Content *string  `json:"content,omitempty"`
-	Append  bool     `json:"append,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Limit   int      `json:"limit,omitempty"`
-	// After and CursorScope continue a listing; the daemon returns them in next_cursor.
-	After       string `json:"after,omitempty"`
-	CursorScope string `json:"cursor_scope,omitempty"`
+	Content     *string  `json:"content,omitempty"`
+	Append      bool     `json:"append,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+	After       string   `json:"after,omitempty"`
+	CursorScope string   `json:"cursor_scope,omitempty"`
 }
 
 func ForFileOperation(kind ExecutionKind, operation FileOperation) ExecutionSpec {
 	return ExecutionSpec{Kind: kind, File: &operation}
 }
 
-// IsFileOperation reports whether kind is executed as a FileOperation.
 func IsFileOperation(kind ExecutionKind) bool {
 	switch kind {
 	case KindFileRead, KindFileWrite, KindFileList, KindFileSearch:
@@ -49,8 +42,6 @@ func IsFileOperation(kind ExecutionKind) bool {
 	}
 }
 
-// SupportsFileOperations reports whether a daemon release executes file
-// operation specs. Unknown versions are treated as unsupported.
 func SupportsFileOperations(daemonVersion string) bool {
 	if daemonVersion == daemonversion.Development {
 		return true

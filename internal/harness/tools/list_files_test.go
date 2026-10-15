@@ -72,7 +72,6 @@ func TestListFilesLiteralRootValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw)
-		// Patterns outside /memory and /artifacts list machine files.
 		if valid := pattern != "/tmp/[*"; valid != (err == nil) {
 			t.Errorf("pattern %q: error = %v, want valid = %t", pattern, err, valid)
 		}

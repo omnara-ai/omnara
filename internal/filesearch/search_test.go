@@ -22,7 +22,6 @@ func search(t *testing.T, args []string, limit, offset int, text string) (Result
 	return collector.Result, err
 }
 
-// The cases mirror the ripgrep-backed Omnara search tests.
 func TestSearchMatchesRipgrepSemantics(t *testing.T) {
 	for _, test := range []struct {
 		name, text string

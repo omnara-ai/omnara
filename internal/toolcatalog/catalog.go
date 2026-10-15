@@ -555,8 +555,6 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-// machineFileID describes machine_id for the file tools, which use Omnara
-// storage when it is omitted for /memory and /artifacts paths.
 func machineFileID(verb string) map[string]any {
 	return map[string]any{
 		"type":        "string",

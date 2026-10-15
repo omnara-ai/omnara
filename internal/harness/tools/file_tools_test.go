@@ -274,7 +274,6 @@ func TestFileToolPaths(t *testing.T) {
 					wantValid = path == artifactPath
 				case toolcatalog.ToolNameWriteFile:
 					input["content"] = ""
-					// Paths outside /memory and /artifacts are machine files.
 					wantValid = path != "" && !isOmnaraFilePath(path)
 				}
 				wantValid = wantValid || path == "/memory/team/nested/note.md"

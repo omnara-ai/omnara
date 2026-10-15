@@ -22,26 +22,19 @@ import (
 
 const machineFileProcessTimeoutSeconds = 30
 
-
 var errMachineFileMachineUnavailable = errors.New(
 	"paths outside /memory and /artifacts are machine paths, and no executable machine is available",
 )
 
-// machineFileCall is a read_file, write_file, list_files, or search_files
-// call that omnarad runs on an attached machine as a file operation process.
 type machineFileCall struct {
 	machineID uuid.UUID
 	kind      processcmd.ExecutionKind
 	operation processcmd.FileOperation
-	// cursor is the list_files next_cursor to continue from.
-	cursor string
+	cursor    string
 }
 
-// machineFileResolver validates a file tool input and reports false when the
-// call is served from Omnara storage.
 type machineFileResolver func(json.RawMessage) (machineFileCall, bool, error)
 
-// isOmnaraFilePath reports whether path is under /memory or /artifacts.
 func isOmnaraFilePath(path string) bool {
 	for _, root := range []string{memorystore.Root, toolcatalog.ArtifactVFSRoot} {
 		if path == root || strings.HasPrefix(path, root+"/") {
@@ -51,7 +44,6 @@ func isOmnaraFilePath(path string) bool {
 	return false
 }
 
-// onMachine routes Omnara paths to storage unless machine_id is supplied.
 func onMachine(path string, machineID uuid.UUID) bool {
 	return machineID != uuid.Nil || !isOmnaraFilePath(path)
 }
@@ -66,8 +58,6 @@ func validateMachinePath(path string) error {
 	return nil
 }
 
-// prepare rejects daemons that cannot run file operations and binds list
-// cursors to the selected machine.
 func (c *machineFileCall) prepare(turn Turn, binding executionstore.AgentMachineBindingRecord) error {
 	if binding.DaemonVersion != "" && !processcmd.SupportsFileOperations(binding.DaemonVersion) {
 		return errors.New(daemonprotocol.UnsupportedFileOperationsMessage(binding.DaemonVersion))
@@ -89,8 +79,6 @@ func (c *machineFileCall) prepare(turn Turn, binding executionstore.AgentMachine
 	return nil
 }
 
-// machineFileToolHandler serves Omnara calls with async and machine calls with
-// file operation processes.
 func machineFileToolHandler(async asyncToolHandler, resolve machineFileResolver) toolHandler {
 	return toolHandler{
 		Transactional: runMachineFileTool(resolve),
@@ -99,8 +87,6 @@ func machineFileToolHandler(async asyncToolHandler, resolve machineFileResolver)
 	}
 }
 
-// runMachineFileTool leaves Omnara calls to the async phase and starts a file
-// operation process for machine calls.
 func runMachineFileTool(resolve machineFileResolver) transactionalToolHandler {
 	return func(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 		request, machine, err := resolve(call.Call.Input)
@@ -142,7 +128,6 @@ func wakeMachineFileTool(resolve machineFileResolver) backgroundToolHandler {
 	}
 }
 
-// machineFilePermissionChallenge shows the path and machine for machine calls.
 func machineFilePermissionChallenge(resolve machineFileResolver) permissionChallengeBuilder {
 	return func(
 		ctx context.Context,
@@ -183,8 +168,6 @@ func machineFilePermissionChallenge(resolve machineFileResolver) permissionChall
 	}
 }
 
-// machineFilePreparationError fails a machine call that cannot be approved
-// with the same result the transactional phase would report.
 func machineFilePreparationError(cause error) error {
 	content, err := structuredToolResultContent(map[string]any{"error": cause.Error()})
 	if err != nil {

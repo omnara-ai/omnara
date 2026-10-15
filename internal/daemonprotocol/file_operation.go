@@ -9,13 +9,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
-// MaxFileOperationResultBytes bounds the result omnarad reports for a file
-// operation so the terminal report always fits in one daemon message.
+// MaxFileOperationResultBytes keeps a file operation's terminal report within one daemon message.
 const MaxFileOperationResultBytes = 256 * 1024
 
-// FileOperationResult is the outcome of a processcmd.FileOperation. Value is
-// the tool result object. Artifact is set when a read uploaded an image for
-// the model to view.
 type FileOperationResult struct {
 	Value    json.RawMessage    `json:"value,omitempty"`
 	Artifact string             `json:"artifact,omitempty"`
@@ -35,8 +31,6 @@ func (r FileOperationResult) Validate() error {
 	return nil
 }
 
-// UnsupportedFileOperationsMessage explains how to use file tools on a machine
-// whose omnarad predates processcmd.FileOperationDaemonVersion.
 func UnsupportedFileOperationsMessage(daemonVersion string) string {
 	return fmt.Sprintf(
 		"this machine's omnarad %s does not support file tools on machines; "+
@@ -45,8 +39,6 @@ func UnsupportedFileOperationsMessage(daemonVersion string) string {
 	)
 }
 
-// withoutUnsupportedFileOperation replaces a file operation offer for a daemon
-// that cannot parse it with a preparation error, so the tool call fails cleanly.
 func withoutUnsupportedFileOperation(daemonVersion string, offer *ProcessOffer) *ProcessOffer {
 	if offer == nil || !processcmd.IsFileOperation(offer.ExecutionSpec.Kind) ||
 		processcmd.SupportsFileOperations(daemonVersion) {

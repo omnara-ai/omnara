@@ -102,9 +102,6 @@ func fileTransferToolResultContentParts(
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
 
-// fileOperationToolResultContentParts renders the result omnarad reported for
-// a machine file operation. Images read from a machine were uploaded as the
-// tool call's artifact and are returned for the model to view.
 func fileOperationToolResultContentParts(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

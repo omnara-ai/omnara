@@ -64,7 +64,6 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 		if err := validateMachineGlob(input.Path); err != nil {
 			return input, err
 		}
-		// Machines search with Go regular expressions rather than ripgrep.
 		if options, err := filesearch.ParseArgs(input.Args); err == nil {
 			if _, err := filesearch.Compile(options); err != nil {
 				return input, fmt.Errorf("invalid search pattern: %w", err)

@@ -110,7 +110,6 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 			); err != nil || !found {
 				t.Fatalf("accept file operation: found=%t err=%v", found, err)
 			}
-			// Only reads may upload, and only as the tool call's artifact.
 			scope, found, err := fixture.Store.Execution().GetDaemonFileProcessScope(
 				ctx, testOrgID, fixture.MachineID, process.ID, processcmd.FileTransferUpload,
 			)
