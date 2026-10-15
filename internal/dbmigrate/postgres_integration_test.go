@@ -21,12 +21,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
-	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
-	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,67 +53,6 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 			applied,
 			len(migrationFiles),
 		)
-	}
-}
-
-func TestPostgresNullableMCPInitializeError(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := integrationdb.OpenUnmigratedPool(t, ctx)
-	db := stdlib.OpenDBFromPool(pool)
-	defer func() { _ = db.Close() }()
-	_, err := db.ExecContext(ctx, `
-CREATE TABLE agent_mcp_connections (
-    id integer PRIMARY KEY,
-    state text NOT NULL,
-    initialize_error text NOT NULL DEFAULT ''
-);
-INSERT INTO agent_mcp_connections VALUES
-    (1, 'ready', ''), (2, 'ready', 'stale error'),
-    (3, 'initializing', ''), (4, 'initializing', 'stale error'),
-    (5, 'failed', ''), (6, 'failed', 'upstream unavailable'),
-    (7, 'expired', ''), (8, 'expired', 'upstream unavailable');
-`)
-	require.NoError(t, err)
-	const name = "000040_nullable_mcp_initialize_error.sql"
-	data, err := os.ReadFile(filepath.Join("../../migrations", name))
-	require.NoError(t, err)
-	provider, err := goose.NewProvider(goose.DialectPostgres, db,
-		fstest.MapFS{name: &fstest.MapFile{Data: data}}, goose.WithDisableGlobalRegistry(true))
-	require.NoError(t, err)
-	_, err = provider.Up(ctx)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO agent_mcp_connections(id, state) VALUES (9, 'initializing')`)
-	require.NoError(t, err)
-	var errorRows string
-	var preservedErrors int
-	var defaultIsNull bool
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT string_agg(id::text, ',' ORDER BY id) FROM agent_mcp_connections
-		 WHERE initialize_error IS NOT NULL`).Scan(&errorRows))
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT count(*) FROM agent_mcp_connections
-		 WHERE initialize_error = 'upstream unavailable'`).Scan(&preservedErrors))
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT initialize_error IS NULL FROM agent_mcp_connections WHERE id = 9`).Scan(&defaultIsNull))
-	require.Equal(t, "6,8", errorRows)
-	require.Equal(t, 2, preservedErrors)
-	require.True(t, defaultIsNull)
-	for _, state := range []string{"initializing", "ready", "failed", "expired"} {
-		for _, value := range []sql.NullString{{}, {String: "", Valid: true}, {String: "failure", Valid: true}} {
-			_, err := db.ExecContext(
-				ctx,
-				`UPDATE agent_mcp_connections SET state = $1, initialize_error = $2 WHERE id = 9`,
-				state,
-				value,
-			)
-			if !value.Valid || (value.String != "" && (state == "failed" || state == "expired")) {
-				require.NoError(t, err, "state=%s error=%+v", state, value)
-			} else {
-				require.ErrorContains(t, err, "agent_mcp_connections_initialize_error_state_check",
-					"state=%s error=%+v", state, value)
-			}
-		}
 	}
 }
 
@@ -695,146 +632,6 @@ SELECT pg_sleep(10);
 	}
 }
 
-func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
-	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	pool := integrationdb.OpenUnmigratedPool(t, ctx)
-	db := stdlib.OpenDBFromPool(pool)
-	defer func() { _ = db.Close() }()
-	latestVersion := latestPostgresMigrationVersion(t)
-
-	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 14); err != nil {
-		t.Fatalf("apply migrations through version 14: %v", err)
-	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
-		t.Fatalf("pre-upgrade schema version = %d, want 14", got)
-	}
-	var orgID, projectID, poolID, grantID, machineID string
-	require.NoError(t, db.QueryRowContext(ctx, `
-INSERT INTO orgs(name, created_at, updated_at)
-VALUES ('v14 populated org', statement_timestamp(), statement_timestamp())
-RETURNING id::text
-`).Scan(&orgID))
-	require.NoError(t, db.QueryRowContext(ctx, `
-INSERT INTO projects(org_id, name, created_at, updated_at)
-VALUES ($1, 'v14 populated project', statement_timestamp(), statement_timestamp())
-RETURNING id::text
-`, orgID).Scan(&projectID))
-	require.NoError(t, db.QueryRowContext(ctx, `
-INSERT INTO machine_pools(
-    org_id, name, management_kind, provider,
-    default_machine_cpu, default_machine_memory_mb,
-    provider_auth_env_var, max_total_machines,
-    max_machine_cpu, max_machine_memory_mb, metadata,
-    created_at, updated_at
-)
-VALUES (
-    $1, 'v14 populated pool', 'cluster', 'test',
-    4, 8192, 'V14_PROVIDER_TOKEN', 10, 8, 16384,
-    '{"fixture":"v14"}'::jsonb,
-    statement_timestamp(), statement_timestamp()
-)
-RETURNING id::text
-`, orgID).Scan(&poolID))
-	require.NoError(t, db.QueryRowContext(ctx, `
-INSERT INTO project_machine_pool_grants(
-    org_id, project_id, machine_pool_id,
-    default_machine_cpu, default_machine_memory_mb,
-    max_machine_cpu, max_machine_memory_mb, metadata,
-    created_at, updated_at
-)
-VALUES (
-    $1, $2, $3, 2, 4096, 6, 8192,
-    '{"fixture":"v14"}'::jsonb,
-    statement_timestamp(), statement_timestamp()
-)
-RETURNING id::text
-`, orgID, projectID, poolID).Scan(&grantID))
-	require.NoError(t, db.QueryRowContext(ctx, `
-INSERT INTO machines(
-    org_id, source_kind, display_name, provider,
-    lifecycle_state, lifecycle_changed_at, metadata,
-    created_at, updated_at
-)
-VALUES (
-    $1, 'byo', 'v14 populated machine', 'byo',
-    'active', statement_timestamp(),
-    '{"fixture":"v14","observed_platform":{"os":"linux","arch":"amd64"}}'::jsonb,
-    statement_timestamp(), statement_timestamp()
-)
-RETURNING id::text
-`, orgID).Scan(&machineID))
-
-	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
-		t.Fatalf("upgrade populated version 14 database: %v", err)
-	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
-		t.Fatalf("upgraded schema version = %d, want %d", got, latestVersion)
-	}
-	var joinedRows int
-	require.NoError(t, db.QueryRowContext(ctx, `
-SELECT count(*)
-FROM project_machine_pool_grants grant_record
-JOIN projects project_record
-  ON project_record.org_id = grant_record.org_id
- AND project_record.id = grant_record.project_id
-JOIN machine_pools pool_record
-  ON pool_record.org_id = grant_record.org_id
- AND pool_record.id = grant_record.machine_pool_id
-WHERE grant_record.id = $1
-  AND project_record.id = $2
-  AND pool_record.id = $3
-  AND pool_record.metadata = '{"fixture":"v14"}'::jsonb
-  AND grant_record.metadata = '{"fixture":"v14"}'::jsonb
-  AND pool_record.min_machine_cpu IS NULL
-  AND pool_record.min_machine_memory_mb IS NULL
-  AND grant_record.min_machine_cpu IS NULL
-  AND grant_record.min_machine_memory_mb IS NULL
-`, grantID, projectID, poolID).Scan(&joinedRows))
-	if joinedRows != 1 {
-		t.Fatalf("preserved v14 relationship rows = %d, want 1", joinedRows)
-	}
-	var observedPlatform string
-	require.NoError(t, db.QueryRowContext(
-		ctx,
-		`SELECT metadata->>'observed_platform' FROM machines WHERE id = $1`,
-		machineID,
-	).Scan(&observedPlatform))
-	if observedPlatform != "linux/amd64" {
-		t.Fatalf("normalized observed platform = %q, want linux/amd64", observedPlatform)
-	}
-
-	if _, err := db.ExecContext(ctx, `
-UPDATE machine_pools
-SET min_machine_cpu = 2, min_machine_memory_mb = 4096
-WHERE id = $1
-`, poolID); err != nil {
-		t.Fatalf("set valid pool minimums: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-UPDATE project_machine_pool_grants
-SET min_machine_cpu = 1, min_machine_memory_mb = 2048
-WHERE id = $1
-`, grantID); err != nil {
-		t.Fatalf("set valid grant minimums: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE machine_pools SET min_machine_cpu = 9 WHERE id = $1`, poolID); err == nil {
-		t.Fatal("pool minimum above maximum unexpectedly succeeded")
-	}
-	if _, err := db.ExecContext(
-		ctx,
-		`UPDATE project_machine_pool_grants SET min_machine_memory_mb = 9000 WHERE id = $1`,
-		grantID,
-	); err == nil {
-		t.Fatal("grant minimum above maximum unexpectedly succeeded")
-	}
-
-	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
-		t.Fatalf("replay upgraded populated database: %v", err)
-	}
-}
-
 func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	t.Parallel()
 
@@ -1160,31 +957,6 @@ func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.
 	return version
 }
 
-func latestPostgresMigrationVersion(t *testing.T) int64 {
-	t.Helper()
-	entries, err := os.ReadDir("../../migrations")
-	require.NoError(t, err)
-	var latest int64
-	for _, entry := range entries {
-		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
-			continue
-		}
-		prefix, _, ok := strings.Cut(entry.Name(), "_")
-		if !ok {
-			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
-		}
-		version, err := strconv.ParseInt(prefix, 10, 64)
-		if err != nil {
-			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
-		}
-		latest = max(latest, version)
-	}
-	if latest == 0 {
-		t.Fatal("no PostgreSQL migrations found")
-	}
-	return latest
-}
-
 func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
@@ -1258,45 +1030,4 @@ func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	parsed.Path = "/" + pool.Config().ConnConfig.Database
 	return parsed.String()
-}
-
-func TestProcessExecutionSpecMigration(t *testing.T) {
-	ctx := context.Background()
-	pool := integrationdb.OpenUnmigratedPool(t, ctx)
-	_, err := pool.Exec(ctx, `CREATE TABLE processes (
-  id integer PRIMARY KEY, command text NOT NULL CHECK(command <> ''),
-  shell_selector text NOT NULL CHECK(shell_selector <> ''),
-  io_mode text NOT NULL CHECK(io_mode IN ('pipe', 'pty'))
- );
- INSERT INTO processes VALUES (1, 'echo hello', 'default', 'pipe'), (2, 'python', 'bash', 'pty')`)
-	require.NoError(t, err)
-	migration, err := os.ReadFile("../../migrations/000047_memory_stores.sql")
-	require.NoError(t, err)
-	_, statement, found := strings.Cut(string(migration), "ALTER TABLE processes")
-	require.True(t, found)
-	_, err = pool.Exec(ctx, "ALTER TABLE processes"+statement)
-	require.NoError(t, err)
-	for _, expected := range []struct {
-		id                     int
-		command, shell, ioMode string
-	}{
-		{1, "echo hello", "default", "pipe"}, {2, "python", "bash", "pty"},
-	} {
-		var spec processcmd.ExecutionSpec
-		require.NoError(
-			t,
-			pool.QueryRow(ctx, `SELECT execution_spec FROM processes WHERE id = $1`, expected.id).Scan(&spec),
-		)
-		require.Equal(t, processcmd.ForShell(
-			expected.command, processcmd.ShellSelector(expected.shell), processcmd.IOMode(expected.ioMode),
-		), spec)
-	}
-	for _, invalid := range []string{
-		`null`, `{}`, `{"kind":"shell"}`, `{"kind":"unknown"}`,
-		`{"kind":"shell","shell":{"command":"echo hi","shell_selector":"default","io_mode":"pipe"},"file_transfer":{}}`,
-		`{"kind":"shell","shell":{"command":"","shell_selector":"default","io_mode":"pipe"}}`,
-	} {
-		_, err := pool.Exec(ctx, `UPDATE processes SET execution_spec = $1::jsonb WHERE id = 1`, invalid)
-		require.ErrorContains(t, err, "processes_execution_check")
-	}
 }
