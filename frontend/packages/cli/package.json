@@ -2,6 +2,14 @@
   "name": "omnara",
   "version": "0.0.0",
   "description": "Command-line interface for Omnara: launch and manage agents, organizations, integrations, and MCP servers",
+  "keywords": [
+    "ai-agents",
+    "managed-agents",
+    "durable-agents",
+    "agent-platform",
+    "llm",
+    "cli"
+  ],
   "license": "Apache-2.0",
   "homepage": "https://omnara.com",
   "repository": {

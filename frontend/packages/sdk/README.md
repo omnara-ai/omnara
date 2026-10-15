@@ -1,6 +1,6 @@
 # @omnara/sdk
 
-TypeScript SDK for the [Omnara](https://omnara.com) API.
+TypeScript SDK for the [Omnara](https://omnara.com) API. Omnara is an open-source managed agent platform for running AI agents on any model and any machine.
 
 ## Installation
 
@@ -30,7 +30,7 @@ Requires Node.js 22 or later.
 
 ## Documentation
 
-See the [Omnara docs](https://docs.omnara.com) and the [GitHub repository](https://github.com/omnara-ai/omnara).
+The [quickstart](https://docs.omnara.com/quickstart) shows how to launch an agent with the SDK. See also the [Omnara docs](https://docs.omnara.com) and the [GitHub repository](https://github.com/omnara-ai/omnara).
 
 ## License
 

@@ -4,6 +4,13 @@
   "title": "Omnara",
   "description": "Run durable AI agents with Omnara, the open-source managed agent platform.",
   "version": "0.1.0",
+  "icons": [
+    {
+      "src": "https://www.omnara.com/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["180x180"]
+    }
+  ],
   "repository": {
     "url": "https://github.com/omnara-ai/omnara",
     "source": "github"

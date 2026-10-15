@@ -200,8 +200,8 @@ memory filesystem. The
 ### Build agents
 
 - **[Any model](https://docs.omnara.com/organization/model-providers).** Bring
-  your own keys for OpenAI, Anthropic, OpenRouter, LiteLLM, Ollama, or any
-  compatible endpoint, including models you host yourself.
+  your own keys for OpenAI, Anthropic, OpenRouter, Amazon Bedrock, LiteLLM,
+  Ollama, or any compatible endpoint, including models you host yourself.
 - **[Tools](https://docs.omnara.com/tools/built-in).** Built-in tools for shell
   commands, files, web search and fetch, and asking a person a question, plus
   [MCP servers](https://docs.omnara.com/tools/mcp) and
@@ -309,6 +309,8 @@ and you can deploy any of them with one prompt to your coding agent.
 
 - [Slack coding agent](examples/slack-coding-agent) fixes issues you mention in
   Slack, Discord, or a GitHub pull request and opens a PR.
+- [PR review agent](examples/pr-review-agent) reviews your GitHub pull requests
+  against a checkout of the repository and leaves inline findings.
 - [SRE agent](examples/sre-agent) investigates production problems such as a
   5xx spike.
 - [Browser agent](examples/browser-agent) works in a real browser on
@@ -369,7 +371,7 @@ and self-hosted deployments.
 
 **Which models work?** Any model behind an OpenAI Responses, OpenAI Chat
 Completions, or Anthropic Messages compatible endpoint, including OpenAI,
-Anthropic, OpenRouter, LiteLLM, and Ollama.
+Anthropic, OpenRouter, Amazon Bedrock, LiteLLM, and Ollama.
 
 ## Development
 
