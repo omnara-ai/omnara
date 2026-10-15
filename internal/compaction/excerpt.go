@@ -70,7 +70,7 @@ func nextSourceExcerptLimit(
 	if err != nil {
 		return 0, err
 	}
-	previousBytes := len(previous.priorSummary) + len(previous.sourceText)
+	previousBytes := len(previous.sourceText)
 	next := min(initialSourceExcerptBytes, previousBytes/2)
 	if excerptBytes != nil {
 		if *excerptBytes <= minimumSourceExcerptBytes {
@@ -84,7 +84,7 @@ func nextSourceExcerptLimit(
 		if err != nil {
 			return 0, err
 		}
-		if len(candidate.priorSummary)+len(candidate.sourceText) < previousBytes {
+		if len(candidate.sourceText) < previousBytes {
 			return next, nil
 		}
 		if next == minimumSourceExcerptBytes {
@@ -95,7 +95,6 @@ func nextSourceExcerptLimit(
 }
 
 type compactionSource struct {
-	priorSummary   string
 	sourceText     string
 	omissionNotice string
 }
@@ -106,21 +105,11 @@ func renderCompactionSource(
 	events []executionstore.CompactionSourceEventRecord,
 	excerptBytes *int,
 ) (compactionSource, error) {
-	projected := compactionSource{priorSummary: prior.Summary}
+	var projected compactionSource
 	var notices []string
 	if prior.HasOmittedHistory {
 		notices = append(notices, "Some details of earlier history were omitted after provider overflow. "+
 			"Original events and checkpoints remain stored; this checkpoint does not contain their full content.")
-	}
-	if excerptBytes != nil && prior.SummarizedThroughEventSequence < input.OpeningEventSequence &&
-		len(prior.Summary) > *excerptBytes {
-		projected.priorSummary = excerptStoredHistory(
-			prior.Summary, *excerptBytes, "checkpoint "+prior.ID.String(),
-		)
-		notices = append(notices, fmt.Sprintf(
-			"Some details of prior checkpoint %s were omitted from the summary source after provider overflow. "+
-				"The original checkpoint remains stored; this checkpoint does not contain its full content.", prior.ID,
-		))
 	}
 	oldEnd := 0
 	for oldEnd < len(events) && events[oldEnd].Sequence < input.OpeningEventSequence {
@@ -147,10 +136,6 @@ func renderCompactionSource(
 }
 
 func excerptClosedEvent(content string, retainedBytes int) string {
-	return excerptStoredHistory(content, retainedBytes, "event")
-}
-
-func excerptStoredHistory(content string, retainedBytes int, original string) string {
 	if len(content) <= retainedBytes {
 		return content
 	}
@@ -163,8 +148,7 @@ func excerptStoredHistory(content string, retainedBytes int, original string) st
 		tailStart++
 	}
 	return content[:headEnd] + fmt.Sprintf(
-		"\n[OVERSIZED CLOSED HISTORY EXCERPT: %d bytes omitted after the summary provider rejected the full source. The original %s is stored; omitted details are unknown here.]\n",
+		"\n[OVERSIZED CLOSED HISTORY EXCERPT: %d bytes omitted after the summary provider rejected the full source. The original event is stored; omitted details are unknown here.]\n",
 		tailStart-headEnd,
-		original,
 	) + content[tailStart:]
 }

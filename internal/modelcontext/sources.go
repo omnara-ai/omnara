@@ -153,6 +153,7 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
 		message := Message{
+			InputFingerprint:          event.InputFingerprint,
 			InputEventSequence:        event.InputEventSequence,
 			AgentConfigID:             event.AgentConfigID,
 			ConfiguredModelRevisionID: event.ConfiguredModelRevisionID,

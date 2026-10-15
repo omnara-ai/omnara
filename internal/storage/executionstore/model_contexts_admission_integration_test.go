@@ -27,6 +27,7 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 		usage        modelenvelope.Usage
 	}{
 		{"text_with_usage", false, modelenvelope.Usage{InputTokens: 120, UncachedInputTokens: 120, OutputTokens: 30}},
+		{"tool_with_usage", true, modelenvelope.Usage{InputTokens: 120, UncachedInputTokens: 120, OutputTokens: 30}},
 		{"tool_without_usage", true, modelenvelope.Usage{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,10 +44,10 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 			)
 
 			envelope := modelenvelope.ResponseEnvelope{
-				RequestedProviderModelSlug: slug,
-				ServedProviderModelSlug:    slug,
-				APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
-				APIVariant:                 modelprotocol.APIVariantDefault,
+				InputFingerprint: strings.Repeat("a", 64), RequestedProviderModelSlug: slug,
+				ServedProviderModelSlug: slug,
+				APIFormat:               modelprotocol.APIFormatOpenAIResponses,
+				APIVariant:              modelprotocol.APIVariantDefault,
 				Normalized: modelenvelope.ResponseNormalized{
 					ID:         "usage-response",
 					Usage:      tc.usage,
@@ -101,6 +102,11 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 				)
 				return err
 			}
+			if !tc.toolResponse {
+				envelope.InputFingerprint = "invalid"
+				assertPgConstraint(t, complete(), "23514", "model_call_contexts_input_fingerprint")
+				envelope.InputFingerprint = strings.Repeat("a", 64)
+			}
 			require.NoError(t, complete())
 			require.NoError(t, complete())
 			record, found, err := fixture.Store.Execution().GetModelCallContext(
@@ -112,6 +118,13 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, envelope.Normalized.Usage, record.Usage)
+			if tc.usage.InputTokens > 0 {
+				require.Equal(t, envelope.InputFingerprint, record.InputFingerprint)
+				envelope.InputFingerprint = strings.Repeat("b", 64)
+				require.ErrorIs(t, complete(), storeerr.ErrIdempotencyConflict)
+			} else {
+				require.Empty(t, record.InputFingerprint)
+			}
 			watermark, err := fixture.Store.Execution().MaxEventSequence(ctx, testProjectID, fixture.AgentID)
 			require.NoError(t, err)
 			events, err := fixture.Store.Execution().ListContextEvents(ctx, testProjectID, fixture.AgentID, 0, watermark, 100)
@@ -122,6 +135,7 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 					continue
 				}
 				matched = true
+				require.Equal(t, record.InputFingerprint, event.InputFingerprint)
 				require.Equal(t, record.Usage, event.Usage)
 				require.Equal(t, record.InputEventSequence, event.InputEventSequence)
 				require.Equal(t, record.AgentConfigID, event.AgentConfigID)
@@ -223,7 +237,7 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_repair_owner")
 	sourceEnd := parent.Context.InputEventSequence
 	optional := admissionHandoff(t, ctx, fixture, parent, true, sourceEnd)
-	failure := executionstore.RecordCompactionFailureAndResumeNormalInput{
+	failure := executionstore.RecordOptionalCompactionFailureInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 		ModelCallContextID: optional.CompactionCall.Context.ID,
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
@@ -231,14 +245,22 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 		ErrorMessage: "optional summary ineffective",
 		Usage:        modelenvelope.Usage{InputTokens: 200, UncachedInputTokens: 200, OutputTokens: 10},
 	}
-	failed, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
+	err := fixture.Store.Execution().RecordTerminalCompactionFailure(ctx,
+		executionstore.RecordTerminalCompactionFailureInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: optional.CompactionCall.Context.ID,
+			ErrorKind:          modelprotocol.ErrorKindTransient,
+			ErrorMessage:       "optional failure must not produce a terminal error output",
+		})
+	assertPgErrorMessage(t, err, "23514", "model call context outcome does not match its terminal state")
+	failed, err := fixture.Store.Execution().RecordOptionalCompactionFailure(ctx, failure)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.ModelCallRecoveryResumeNormal, failed.RecoveryKind)
-	_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
+	require.Empty(t, failed.RecoveryKind)
+	_, err = fixture.Store.Execution().RecordOptionalCompactionFailure(ctx, failure)
 	require.NoError(t, err)
 	changed := failure
 	changed.ErrorMessage = "different evidence"
-	_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, changed)
+	_, err = fixture.Store.Execution().RecordOptionalCompactionFailure(ctx, changed)
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	var workKind string
 	var workID uuid.UUID
@@ -309,6 +331,11 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 		),
 	)
 	require.Zero(t, outputs)
+	checkpoint, err := publishCheckpointForRangeTest(
+		t, ctx, fixture, required.CompactionCall, "required recovery after optional failure", fixture.Now,
+	)
+	require.NoError(t, err)
+	require.Equal(t, required.CompactionCall.Context.ID, checkpoint.ProducerModelCallContextID)
 }
 
 func TestInterruptedOptionalCompactionResumesNormalAfterRuntimeRelease(t *testing.T) {
@@ -333,7 +360,7 @@ func TestInterruptedOptionalCompactionResumesNormalAfterRuntimeRelease(t *testin
 	)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, executionstore.ModelCallRecoveryResumeNormal, child.RecoveryKind)
+	require.Empty(t, child.RecoveryKind)
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(
 		ctx, testProjectID, fixture.AgentID, child.ID,
 	)
@@ -359,6 +386,14 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 	ctx := t.Context()
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "excerpt_retry_budget")
 	claim := admissionHandoff(t, ctx, fixture, parent, false, parent.Context.InputEventSequence).CompactionCall
+	_, err := fixture.Store.Execution().RecordOptionalCompactionFailure(
+		ctx, executionstore.RecordOptionalCompactionFailureInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+			ModelCallContextID: claim.Context.ID, ErrorKind: modelprotocol.ErrorKindProviderUnavailable,
+			ErrorMessage: "required compaction cannot skip recovery",
+		},
+	)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	for range executionstore.MaxModelCallRetriesPerOperation {
 		_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
 			ctx,
@@ -451,8 +486,8 @@ func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing
 	ctx := t.Context()
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_observation_scope")
 	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
-	_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx,
-		executionstore.RecordCompactionFailureAndResumeNormalInput{
+	_, err := fixture.Store.Execution().RecordOptionalCompactionFailure(ctx,
+		executionstore.RecordOptionalCompactionFailureInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			ModelCallContextID: optional.CompactionCall.Context.ID,
 			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorMessage: "optional refusal",
@@ -499,7 +534,7 @@ func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing
 	require.NoError(t, err)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
 	require.Zero(t, state.LatestObservedNormalInputTokens)
-	later := insertProjectionNormalContext(t, fixture, next.Context.ID, uuid.Nil, uuid.Nil)
+	later := insertNormalContextAtLatestFrontier(t, fixture, next.Context.ID, uuid.Nil, uuid.Nil)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, later.ID)
 	require.NoError(t, err)
 	require.Equal(t, 100, state.MinimumObservedNormalInputTokens)
@@ -508,7 +543,7 @@ func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing
 SET state='failed',recovery_kind='compact_optional',
 error_kind='context_window',error_message='later optional',completed_at=statement_timestamp() WHERE id=$1`, later.ID)
 	require.NoError(t, err)
-	afterOptional := insertProjectionNormalContext(t, fixture, later.ID, uuid.Nil, uuid.Nil)
+	afterOptional := insertNormalContextAtLatestFrontier(t, fixture, later.ID, uuid.Nil, uuid.Nil)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, afterOptional.ID)
 	require.NoError(t, err)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
@@ -530,7 +565,7 @@ error_kind='context_window',error_message='later optional',completed_at=statemen
 		ID: original.ConfiguredModelID, ContextWindowTokens: new(original.ContextWindowTokens + 1),
 	})
 	require.NoError(t, err)
-	changed := insertProjectionNormalContext(t, fixture, afterOptional.ID, updated.CurrentRevisionID, uuid.Nil)
+	changed := insertNormalContextAtLatestFrontier(t, fixture, afterOptional.ID, updated.CurrentRevisionID, uuid.Nil)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, changed.ID)
 	require.NoError(t, err)
 	require.False(t, state.HasPriorOptionalCompaction)
@@ -544,8 +579,8 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 	ctx := t.Context()
 	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "observed_pressure")
 	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
-	_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(
-		ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
+	_, err := fixture.Store.Execution().RecordOptionalCompactionFailure(
+		ctx, executionstore.RecordOptionalCompactionFailureInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			ModelCallContextID: optional.CompactionCall.Context.ID,
 			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorCode: "summary_not_reduced",
@@ -578,7 +613,7 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 			},
 		)
 		require.NoError(t, err)
-		current := insertProjectionNormalContext(t, fixture, claim.Context.ID, uuid.Nil, uuid.Nil)
+		current := insertNormalContextAtLatestFrontier(t, fixture, claim.Context.ID, uuid.Nil, uuid.Nil)
 		state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 		require.NoError(t, err)
 		require.Equal(t, inputTokens, state.LatestObservedNormalInputTokens)
@@ -604,9 +639,37 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 			ErrorMessage: "retry with a new agent configuration",
 		})
 	require.NoError(t, err)
-	changed := insertProjectionNormalContext(t, fixture, claim.Context.ID, uuid.Nil, config.ID)
+	changed := insertNormalContextAtLatestFrontier(t, fixture, claim.Context.ID, uuid.Nil, config.ID)
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, changed.ID)
 	require.NoError(t, err)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
 	require.Zero(t, state.LatestObservedNormalInputTokens)
+}
+
+func insertNormalContextAtLatestFrontier(
+	t *testing.T,
+	fixture processDaemonFixture,
+	source, revision, config uuid.UUID,
+) executionstore.ModelCallContextRecord {
+	t.Helper()
+	ctx := t.Context()
+	var id uuid.UUID
+	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+INSERT INTO model_call_contexts(
+org_id,project_id,agent_id,operation_kind,attempt_number,agent_config_id,
+configured_model_revision_id,input_event_sequence,runtime_lock_id,state,created_at)
+SELECT source.org_id,source.project_id,source.agent_id,'normal',
+coalesce((SELECT max(prior.attempt_number)+1 FROM model_call_contexts prior
+WHERE prior.agent_id=source.agent_id AND prior.operation_kind='normal'
+AND prior.input_event_sequence=frontier.sequence),1),
+coalesce(nullif($4::uuid,'00000000-0000-0000-0000-000000000000'),source.agent_config_id),
+coalesce(nullif($2::uuid,'00000000-0000-0000-0000-000000000000'),source.configured_model_revision_id),
+frontier.sequence,$3,'started',statement_timestamp()
+FROM model_call_contexts source
+CROSS JOIN LATERAL (SELECT max(sequence) AS sequence FROM agent_events WHERE agent_id=source.agent_id) frontier
+WHERE source.id=$1 RETURNING id`, source, revision, fixture.Lock.ID, config).Scan(&id))
+	row, found, err := fixture.Store.Execution().GetModelCallContext(ctx, testProjectID, fixture.AgentID, id)
+	require.NoError(t, err)
+	require.True(t, found)
+	return row
 }

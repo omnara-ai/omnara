@@ -26,10 +26,8 @@ const (
 	ModelCallContextCanceled  ModelCallState = "canceled"
 
 	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
-	ModelCallRecoveryExcerptCheckpoint      ModelCallRecoveryKind = "excerpt_checkpoint"
 	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
 	ModelCallRecoveryCompactOptional        ModelCallRecoveryKind = "compact_optional"
-	ModelCallRecoveryResumeNormal           ModelCallRecoveryKind = "resume_normal"
 	ModelCallRecoveryReduceCompactionSource ModelCallRecoveryKind = "reduce_compaction_source"
 )
 
@@ -41,7 +39,6 @@ type ModelCallRecoveryKind string
 
 type ModelCallContextRecord struct {
 	ParentNormalModelCallContextID uuid.UUID `json:"parent_normal_model_call_context_id,omitempty"`
-	ReplacesCheckpointID           uuid.UUID `json:"replaces_checkpoint_id,omitempty"`
 
 	SourceExcerptReductionCount int `json:"source_excerpt_reduction_count,omitempty"`
 
@@ -67,6 +64,7 @@ type ModelCallContextRecord struct {
 	ErrorMessage              string                                `json:"error_message,omitempty"`
 	ErrorDetails              json.RawMessage                       `json:"error_details"`
 	RetryAt                   *time.Time                            `json:"retry_at,omitempty"`
+	InputFingerprint          string                                `json:"input_fingerprint,omitempty"`
 	Usage                     modelenvelope.Usage                   `json:"usage"`
 	ProviderReportedCostUSD   modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
 	ProviderMetadata          modelenvelope.ProviderMetadata        `json:"provider_metadata,omitzero"`
@@ -170,7 +168,6 @@ type RecordRecoverableModelCallFailureInput struct {
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {
-	ReplacesCheckpointID   uuid.UUID
 	ParentContextID        uuid.UUID
 	Failure                RecordRecoverableModelCallFailureInput
 	SourceEventSequenceEnd int64

@@ -13,7 +13,6 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCall
 	providerMetadata := providerMetadataFromSQLC(row.ProviderMetadata)
 	return ModelCallContextRecord{
 		ParentNormalModelCallContextID: storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
-		ReplacesCheckpointID:           storeutil.IDFromPtr(row.ReplacesCheckpointID),
 		SourceExcerptReductionCount:    int(row.SourceExcerptReductionCount),
 		ID:                             row.ID,
 		OrgID:                          row.OrgID,
@@ -37,6 +36,7 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCall
 		ErrorMessage:                   row.ErrorMessage,
 		ErrorDetails:                   row.ErrorDetails,
 		RetryAt:                        row.RetryAt,
+		InputFingerprint:               row.InputFingerprint,
 		Usage: modelUsageFromSQLC(
 			row.InputTokensTotal,
 			row.UncachedInputTokens,

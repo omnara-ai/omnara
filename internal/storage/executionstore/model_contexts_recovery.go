@@ -7,13 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 type ModelCallRecoveryState struct {
-	RecoveryCheckpointID                  uuid.UUID
-	CheckpointExcerptReductionCount       int
-	CheckpointRecompressionAttempted      bool
 	HasPriorOptionalCompaction            bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int
@@ -36,9 +32,6 @@ func (s *Store) GetModelCallRecoveryState(
 		return ModelCallRecoveryState{}, fmt.Errorf("load model call recovery state: %w", err)
 	}
 	return ModelCallRecoveryState{
-		RecoveryCheckpointID:                  storeutil.IDFromPtr(row.RecoveryCheckpointID),
-		CheckpointExcerptReductionCount:       int(row.CheckpointExcerptReductionCount),
-		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
 		HasPriorOptionalCompaction:            row.HasPriorOptionalCompaction,
 		OptionalCompactionAttemptedAtFrontier: row.OptionalCompactionAttemptedAtFrontier,
 		LatestObservedNormalInputTokens:       int(row.LatestObservedNormalInputTokens),

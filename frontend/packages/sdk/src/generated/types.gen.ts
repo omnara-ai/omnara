@@ -368,7 +368,7 @@ export type CreateConfiguredModelRequest = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens: number;
     /**
@@ -420,7 +420,7 @@ export type UpdateConfiguredModelRequest = {
      */
     provider_model_slug?: string;
     /**
-     * Total token window for this model, including input and output.
+     * Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number;
     /**
@@ -474,7 +474,7 @@ export type ConfiguredModel = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens: number;
     /**
@@ -527,7 +527,7 @@ export type ConfiguredModelList = {
 export type CreateProjectModelGrantRequest = {
     configured_model_id: ConfiguredModelId;
     /**
-     * Optional project token-window limit. Cannot exceed the configured model's current limit.
+     * Optional project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number;
     /**
@@ -570,7 +570,7 @@ export type CreateProjectModelGrantRequest = {
  */
 export type UpdateProjectModelGrantRequest = {
     /**
-     * Project token-window limit. Cannot exceed the configured model's current limit.
+     * Project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number | null;
     /**
@@ -614,7 +614,7 @@ export type ProjectModelGrant = {
     project_id: ProjectId;
     configured_model_id: ConfiguredModelId;
     /**
-     * Project token-window limit, or omitted/null to inherit from the configured model.
+     * Project context target for input and output tokens, or omitted/null to inherit from the configured model. Guides compaction; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number | null;
     /**
@@ -1347,7 +1347,7 @@ export type AgentConfigModel = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Effective token window after configured-model, project-grant, and agent-config settings are applied.
+     * Effective context target for input and output tokens after model, project, and agent settings are applied. Guides compaction; provider-accepted requests can exceed it.
      */
     context_window_tokens: number;
     /**

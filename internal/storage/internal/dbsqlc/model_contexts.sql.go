@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $21
-    AND agent.id = $22
+  WHERE agent.project_id = $22
+    AND agent.id = $23
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $23
+  WHERE runtime_lock.id = $24
     AND (
-      $24::boolean
+      $25::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -135,19 +135,20 @@ SET state = $1,
       ELSE statement_timestamp() +
         ($11::bigint * interval '1 microsecond')
     END,
-    input_tokens_total = $12::integer,
-    uncached_input_tokens = $13::integer,
-    cache_read_input_tokens = $14::integer,
-    cache_write_input_tokens = $15::integer,
-    output_tokens_total = $16::integer,
-    reasoning_output_tokens = $17::integer,
-    provider_reported_cost_usd = $18::text::numeric,
-    provider_metadata = $19,
+    input_fingerprint = $12::text,
+    input_tokens_total = $13::integer,
+    uncached_input_tokens = $14::integer,
+    cache_read_input_tokens = $15::integer,
+    cache_write_input_tokens = $16::integer,
+    output_tokens_total = $17::integer,
+    reasoning_output_tokens = $18::integer,
+    provider_reported_cost_usd = $19::text::numeric,
+    provider_metadata = $20,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $20
+  AND context.id = $21
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -165,6 +166,7 @@ type FinishModelCallContextParams struct {
 	ErrorMessage                        string
 	ErrorDetails                        json.RawMessage
 	RetryDelayMicroseconds              *int64
+	InputFingerprint                    *string
 	InputTokensTotal                    *int32
 	UncachedInputTokens                 *int32
 	CacheReadInputTokens                *int32
@@ -193,6 +195,7 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.ErrorMessage,
 		arg.ErrorDetails,
 		arg.RetryDelayMicroseconds,
+		arg.InputFingerprint,
 		arg.InputTokensTotal,
 		arg.UncachedInputTokens,
 		arg.CacheReadInputTokens,
@@ -263,7 +266,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end, context.parent_normal_model_call_context_id,
-  prior_checkpoint.id AS replaces_checkpoint_id,
   (SELECT count(*) FROM model_call_contexts prior
    WHERE prior.project_id = context.project_id AND prior.agent_id = context.agent_id
      AND prior.operation_kind = 'compaction'
@@ -276,6 +278,7 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
   context.error_message, context.error_details,
+  coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
@@ -283,15 +286,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
   context.provider_metadata
 FROM model_call_contexts context
-LEFT JOIN context_checkpoints prior_checkpoint ON context.operation_kind = 'compaction'
-  AND prior_checkpoint.agent_id = context.agent_id
-  AND prior_checkpoint.summarized_through_event_sequence = context.source_event_sequence_end
-  AND prior_checkpoint.id = (
-    SELECT event.context_checkpoint_id FROM agent_events event
-    WHERE event.agent_id = context.agent_id AND event.event_kind = 'context_checkpoint'
-      AND event.sequence <= context.input_event_sequence
-    ORDER BY event.sequence DESC LIMIT 1
-  )
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.id = $3
@@ -315,7 +309,6 @@ type GetModelCallContextRow struct {
 	InputEventSequence             int64
 	SourceEventSequenceEnd         *int64
 	ParentNormalModelCallContextID *uuid.UUID
-	ReplacesCheckpointID           *uuid.UUID
 	SourceExcerptReductionCount    int64
 	RuntimeLockID                  uuid.UUID
 	State                          string
@@ -328,6 +321,7 @@ type GetModelCallContextRow struct {
 	ErrorCode                      string
 	ErrorMessage                   string
 	ErrorDetails                   json.RawMessage
+	InputFingerprint               string
 	RetryAt                        *time.Time
 	InputTokensTotal               *int32
 	UncachedInputTokens            *int32
@@ -356,7 +350,6 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.InputEventSequence,
 		&i.SourceEventSequenceEnd,
 		&i.ParentNormalModelCallContextID,
-		&i.ReplacesCheckpointID,
 		&i.SourceExcerptReductionCount,
 		&i.RuntimeLockID,
 		&i.State,
@@ -369,6 +362,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ErrorCode,
 		&i.ErrorMessage,
 		&i.ErrorDetails,
+		&i.InputFingerprint,
 		&i.RetryAt,
 		&i.InputTokensTotal,
 		&i.UncachedInputTokens,
@@ -430,15 +424,13 @@ func (q *Queries) GetModelCallContextTurnID(ctx context.Context, arg GetModelCal
 
 const getModelCallRecoveryState = `-- name: GetModelCallRecoveryState :one
 WITH current AS MATERIALIZED (
-  SELECT context.id, context.project_id, context.agent_id, context.operation_kind, context.input_event_sequence,
-         context.parent_normal_model_call_context_id, context.configured_model_revision_id,
+  SELECT context.project_id, context.agent_id, context.input_event_sequence, context.configured_model_revision_id,
          context.agent_config_id, context.created_at
   FROM model_call_contexts context
   WHERE context.project_id = $1 AND context.agent_id = $2
     AND context.id = $3
 ), latest_optional AS MATERIALIZED (
-  SELECT prior.id, prior.project_id, prior.agent_id, prior.input_event_sequence,
-         prior.completed_at
+  SELECT prior.id, prior.input_event_sequence, prior.completed_at
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
   WHERE prior.project_id = current.project_id
     AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'compact_optional'
@@ -459,42 +451,12 @@ WITH current AS MATERIALIZED (
     AND measured.created_at < current.created_at
   ORDER BY measured.created_at DESC, measured.id DESC LIMIT 1
 ), latest_checkpoint AS MATERIALIZED (
-  SELECT event.sequence, checkpoint.id, checkpoint.summarized_through_event_sequence
+  SELECT event.sequence
   FROM agent_events event JOIN current ON event.agent_id = current.agent_id
-  JOIN context_checkpoints checkpoint ON checkpoint.id = event.context_checkpoint_id AND checkpoint.agent_id = event.agent_id
   WHERE event.event_kind = 'context_checkpoint' AND event.sequence <= current.input_event_sequence
   ORDER BY event.sequence DESC LIMIT 1
-), checkpoint_projection AS MATERIALIZED (
-  SELECT latest_checkpoint.id AS recovery_checkpoint_id, count(*)::bigint AS checkpoint_excerpt_reduction_count
-  FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
-  JOIN latest_checkpoint ON prior.input_event_sequence >= latest_checkpoint.sequence
-    AND prior.input_event_sequence <= current.input_event_sequence
-  WHERE prior.project_id = current.project_id
-    AND prior.configured_model_revision_id = current.configured_model_revision_id
-    AND prior.agent_config_id = current.agent_config_id
-    AND prior.operation_kind = 'normal' AND prior.state = 'failed' AND prior.recovery_kind = 'excerpt_checkpoint'
-    AND prior.created_at < current.created_at
-  GROUP BY latest_checkpoint.id
 )
-SELECT checkpoint_projection.recovery_checkpoint_id,
-       coalesce(checkpoint_projection.checkpoint_excerpt_reduction_count, 0)::bigint AS checkpoint_excerpt_reduction_count,
-       EXISTS (
-         SELECT 1 FROM model_call_contexts prior
-         JOIN latest_checkpoint ON latest_checkpoint.summarized_through_event_sequence = prior.source_event_sequence_end
-         JOIN context_checkpoints replaced ON replaced.agent_id = prior.agent_id
-           AND replaced.summarized_through_event_sequence = prior.source_event_sequence_end
-           AND replaced.id = (
-             SELECT event.context_checkpoint_id FROM agent_events event
-             WHERE event.agent_id = prior.agent_id AND event.event_kind = 'context_checkpoint'
-               AND event.sequence <= prior.input_event_sequence
-             ORDER BY event.sequence DESC LIMIT 1
-           )
-         WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id AND prior.operation_kind = 'compaction'
-           AND prior.agent_config_id = current.agent_config_id
-           AND prior.configured_model_revision_id = current.configured_model_revision_id
-           AND prior.created_at < current.created_at
-       )::boolean AS checkpoint_recompression_attempted,
-       (latest_optional.id IS NOT NULL)::boolean AS has_prior_optional_compaction,
+SELECT (latest_optional.id IS NOT NULL)::boolean AS has_prior_optional_compaction,
        EXISTS (
          SELECT 1 FROM model_call_contexts prior WHERE prior.project_id = current.project_id AND prior.agent_id = current.agent_id
            AND prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
@@ -514,7 +476,6 @@ FROM current
 LEFT JOIN latest_optional ON true
 LEFT JOIN latest_observed_normal ON true
 LEFT JOIN latest_checkpoint ON true
-LEFT JOIN checkpoint_projection ON true
 `
 
 type GetModelCallRecoveryStateParams struct {
@@ -524,9 +485,6 @@ type GetModelCallRecoveryStateParams struct {
 }
 
 type GetModelCallRecoveryStateRow struct {
-	RecoveryCheckpointID                  *uuid.UUID
-	CheckpointExcerptReductionCount       int64
-	CheckpointRecompressionAttempted      bool
 	HasPriorOptionalCompaction            bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int32
@@ -539,9 +497,6 @@ func (q *Queries) GetModelCallRecoveryState(ctx context.Context, arg GetModelCal
 	row := q.db.QueryRow(ctx, getModelCallRecoveryState, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
 	var i GetModelCallRecoveryStateRow
 	err := row.Scan(
-		&i.RecoveryCheckpointID,
-		&i.CheckpointExcerptReductionCount,
-		&i.CheckpointRecompressionAttempted,
 		&i.HasPriorOptionalCompaction,
 		&i.OptionalCompactionAttemptedAtFrontier,
 		&i.LatestObservedNormalInputTokens,
@@ -708,15 +663,14 @@ predecessor AS MATERIALIZED (
   WHERE context.id = $3
     AND context.state = 'failed'
     AND (
-      (context.recovery_kind IN ('retry', 'excerpt_checkpoint')
+      (context.recovery_kind = 'retry'
         AND context.retry_at <= statement_timestamp()
-        AND (context.recovery_kind = 'excerpt_checkpoint'
-          OR model_call_transient_retry_count(context.id) <= $4::integer)
+        AND model_call_transient_retry_count(context.id) <= $4::integer
         AND EXISTS (
           SELECT 1 FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
           WHERE continuable.model_call_context_id = context.id AND NOT continuable.has_later_semantic_event
         ))
-      OR (context.operation_kind = 'normal' AND context.recovery_kind IN ('compact', 'compact_optional')
+      OR (context.operation_kind = 'normal' AND context.recovery_kind = 'compact_optional'
         AND NOT EXISTS (SELECT 1 FROM model_call_contexts newer
           WHERE newer.agent_id = context.agent_id AND newer.operation_kind = 'normal'
             AND newer.input_event_sequence = context.input_event_sequence
@@ -726,7 +680,7 @@ predecessor AS MATERIALIZED (
           JOIN agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
             ON continuable.model_call_context_id = child.id
           WHERE child.parent_normal_model_call_context_id = context.id
-            AND child.state = 'failed' AND child.recovery_kind = 'resume_normal'
+            AND child.state = 'failed' AND child.recovery_kind IS NULL
             AND NOT continuable.has_later_semantic_event
         ))
     )

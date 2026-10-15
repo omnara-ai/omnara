@@ -146,22 +146,19 @@ func largestFittingCompactionRequest(
 		witnessEvents,
 		atomicGroupsFromRecords(groups),
 	)
-	if input.Plan.ReplacesCheckpointID != uuid.Nil {
-		candidates = []int64{input.Plan.EventSequenceEnd}
-	}
 	if len(candidates) == 0 {
 		return preparedCompactionRequest{}, nil
 	}
 	prepareCandidate := func(end int64, policy model.RequestPolicy) (preparedCompactionRequest, error) {
 		count := int(end-input.Plan.EventSequenceStart) + 1
-		if count < 0 || count > len(events) || (count == 0 && input.Plan.ReplacesCheckpointID == uuid.Nil) {
+		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
 		}
 		source, err := renderCompactionSource(input, prior, events[:count], excerptBytes)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
-		bundle, err := compactionRequestBundle(input, source.priorSummary, source.sourceText)
+		bundle, err := compactionRequestBundle(input, prior.Summary, source.sourceText)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
@@ -255,9 +252,6 @@ func compactionRequestBundle(
 }
 
 func (r Runner) nextSmallerSourceEnd(ctx context.Context, plan Plan) (int64, error) {
-	if plan.ReplacesCheckpointID != uuid.Nil {
-		return 0, nil
-	}
 	window, err := r.loadCompactionBoundaryWindow(ctx, plan)
 	if err != nil {
 		return 0, err
@@ -320,9 +314,6 @@ func (r Runner) loadCompactionBoundaryWindow(
 	ctx context.Context,
 	plan Plan,
 ) (compactionBoundaryWindow, error) {
-	if plan.ReplacesCheckpointID != uuid.Nil {
-		return compactionBoundaryWindow{}, nil
-	}
 	sourceEvents, err := r.loadClosedEventRange(ctx, plan)
 	if err != nil {
 		return compactionBoundaryWindow{}, err

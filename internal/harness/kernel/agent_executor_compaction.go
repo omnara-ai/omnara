@@ -78,12 +78,11 @@ func (e AgentExecutor) resumeCompactionContext(
 		input,
 		resolver,
 		compaction.Plan{
-			ProjectID:            contextRow.ProjectID,
-			AgentID:              contextRow.AgentID,
-			InputEventSequence:   contextRow.InputEventSequence,
-			EventSequenceStart:   sourceStart,
-			EventSequenceEnd:     *contextRow.SourceEventSequenceEnd,
-			ReplacesCheckpointID: contextRow.ReplacesCheckpointID,
+			ProjectID:          contextRow.ProjectID,
+			AgentID:            contextRow.AgentID,
+			InputEventSequence: contextRow.InputEventSequence,
+			EventSequenceStart: sourceStart,
+			EventSequenceEnd:   *contextRow.SourceEventSequenceEnd,
 		},
 		claim,
 	)
@@ -110,7 +109,7 @@ func (e AgentExecutor) planCompactionForContext(
 		summarizedThrough = checkpoint.SummarizedThroughEventSequence
 	}
 	if frontier <= summarizedThrough+1 {
-		return checkpointRecompressionPlan(contextRow, checkpoint)
+		return compaction.Plan{}, false, nil
 	}
 	groups, err := e.Store.Execution().ListCompactionAtomicGroups(
 		ctx,
@@ -142,7 +141,7 @@ func (e AgentExecutor) planCompactionForContext(
 		return compaction.Plan{}, false, err
 	}
 	if len(events) < 2 {
-		return checkpointRecompressionPlan(contextRow, checkpoint)
+		return compaction.Plan{}, false, nil
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	requestPolicy, err := modelretry.RequestPolicyForModelCall(
@@ -184,7 +183,7 @@ func (e AgentExecutor) planCompactionForContext(
 		return compaction.Plan{}, false, err
 	}
 	if !ok {
-		return checkpointRecompressionPlan(contextRow, checkpoint)
+		return compaction.Plan{}, false, nil
 	}
 	boundaryInput.DesiredRetainFromSequence = retainFrom
 	projectionSummary := "[Earlier conversation compacted.]"
@@ -214,25 +213,7 @@ func (e AgentExecutor) planCompactionForContext(
 		RetainFromEventSequence:        retainFrom,
 		AtomicGroups:                   atomicGroups,
 	})
-	if err == nil && !ok {
-		return checkpointRecompressionPlan(contextRow, checkpoint)
-	}
 	return plan, ok, err
-}
-
-func checkpointRecompressionPlan(
-	call executionstore.ModelCallContextRecord,
-	checkpoint executionstore.ContextCheckpointRecord,
-) (compaction.Plan, bool, error) {
-	if checkpoint.ID == uuid.Nil {
-		return compaction.Plan{}, false, nil
-	}
-	return compaction.Plan{
-		ProjectID: call.ProjectID, AgentID: call.AgentID, InputEventSequence: call.InputEventSequence,
-		EventSequenceStart:   checkpoint.SummarizedThroughEventSequence + 1,
-		EventSequenceEnd:     checkpoint.SummarizedThroughEventSequence,
-		ReplacesCheckpointID: checkpoint.ID,
-	}, true, nil
 }
 
 func (e AgentExecutor) clampRetainFromToModelBudget(

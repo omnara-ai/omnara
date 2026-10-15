@@ -35,7 +35,8 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 			require.True(t, first.InputBudget.OverBudget(), "fixture must overestimate the static input")
 			input.Context.InputEventSequence = 3
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
-				ID: "answer", Role: modelprotocol.RoleAssistant, Sequence: 2,
+				InputFingerprint: first.InputFingerprint,
+				ID:               "answer", Role: modelprotocol.RoleAssistant, Sequence: 2,
 				InputEventSequence: 1, AgentConfigID: bundle.AgentConfigID,
 				ConfiguredModelRevisionID: bundle.ConfiguredModelRevisionID,
 				ProviderReplaySource:      model.ProviderReplayIdentityForClient("", tc.client),
@@ -73,9 +74,12 @@ func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
 				}},
 			}
 			input := model.PrepareForSendInput{Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps)}
+			first, err := model.PrepareForSend(t.Context(), tc.client, input)
+			require.NoError(t, err)
 			input.Context.Messages = append(input.Context.Messages,
 				modelcontext.Message{
-					ID: "success", Role: modelprotocol.RoleAssistant, Sequence: 2,
+					InputFingerprint: first.InputFingerprint,
+					ID:               "success", Role: modelprotocol.RoleAssistant, Sequence: 2,
 					InputEventSequence: 1, AgentConfigID: bundle.AgentConfigID,
 					ConfiguredModelRevisionID: bundle.ConfiguredModelRevisionID,
 					ProviderReplaySource:      model.ProviderReplayIdentityForClient("", tc.client),

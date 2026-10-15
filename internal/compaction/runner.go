@@ -25,8 +25,12 @@ func (r Runner) RunClaimed(
 		return RunResult{}, err
 	}
 	if !claim.Claimed {
+		recovery, err := r.Store.GetModelCallRetryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
+		if err != nil {
+			return RunResult{}, err
+		}
 		state := RunTerminal
-		if claim.Context.RecoveryKind == executionstore.ModelCallRecoveryResumeNormal {
+		if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
 			state = RunResumeNormal
 		}
 		return RunResult{State: state, ModelCallContextID: claim.Context.ID}, nil
@@ -60,11 +64,6 @@ func (r Runner) RunClaimed(
 			input.Plan.EventSequenceStart,
 			wantStart,
 		)
-	}
-	if input.Plan.ReplacesCheckpointID != uuid.Nil &&
-		(!hasPrior || prior.ID != input.Plan.ReplacesCheckpointID ||
-			input.Plan.EventSequenceEnd != prior.SummarizedThroughEventSequence) {
-		return RunResult{}, errors.New("checkpoint recompression must replace the applicable checkpoint at the same coverage")
 	}
 
 	snapshot, err := r.Store.CaptureAgentConfigForEventWatermark(
@@ -237,7 +236,7 @@ func (r Runner) RunClaimed(
 			summary += "\n\n" + notice
 		}
 	}
-	if err := validateCheckpointSummaryReduction(input.Plan, priorSummary, sourceText, summary); err != nil {
+	if err := validateSummaryReduction(priorSummary, sourceText, summary); err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
 	checkpoint, err := r.Store.PublishContextCheckpoint(
@@ -305,14 +304,13 @@ func validateInitialCompactionClaim(input RunInput, claim executionstore.ModelCa
 		contextRow.OperationKind == executionstore.ModelCallOperationCompaction &&
 		contextRow.InputEventSequence == input.Plan.InputEventSequence &&
 		contextRow.ParentNormalModelCallContextID != uuid.Nil &&
-		contextRow.ReplacesCheckpointID == input.Plan.ReplacesCheckpointID &&
 		contextRow.SourceEventSequenceEnd != nil &&
 		*contextRow.SourceEventSequenceEnd == input.Plan.EventSequenceEnd &&
 		contextRow.RuntimeLockID == input.RuntimeLockID
 	started := claim.Claimed && contextRow.State == executionstore.ModelCallContextStarted
 	denied := !claim.Claimed &&
 		contextRow.State == executionstore.ModelCallContextFailed &&
-		(contextRow.RecoveryKind == "" || contextRow.RecoveryKind == executionstore.ModelCallRecoveryResumeNormal)
+		contextRow.RecoveryKind == ""
 	if !matchesRequest || (!started && !denied) {
 		return fmt.Errorf(
 			"initial compaction claim does not match the requested operation: %w",
@@ -349,13 +347,9 @@ func (r Runner) validate(input RunInput) error {
 	if r.Resolver == nil {
 		return errors.New("compaction model resolver is required")
 	}
-	minimumEnd := input.Plan.EventSequenceStart
-	if input.Plan.ReplacesCheckpointID != uuid.Nil {
-		minimumEnd--
-	}
 	if input.Plan.ProjectID == uuid.Nil || input.Plan.AgentID == uuid.Nil ||
 		input.Plan.InputEventSequence <= 0 || input.Plan.EventSequenceStart <= 0 ||
-		input.Plan.EventSequenceEnd <= 0 || input.Plan.EventSequenceEnd < minimumEnd ||
+		input.Plan.EventSequenceEnd <= 0 || input.Plan.EventSequenceEnd < input.Plan.EventSequenceStart ||
 		input.Plan.EventSequenceEnd > input.Plan.InputEventSequence {
 		return errors.New("valid cumulative compaction plan is required")
 	}

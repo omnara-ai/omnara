@@ -253,3 +253,31 @@ func TestRunnerReconstructsExcerptAfterTransientRetry(t *testing.T) {
 	require.Len(t, store.replacements, 1)
 	require.Contains(t, result.Checkpoint.Summary, "details of old events 1..51 were omitted")
 }
+
+func TestRunnerPreservesInheritedOmissionNotice(t *testing.T) {
+	const notice = "Some details of earlier history were omitted after provider overflow. " +
+		"Original events and checkpoints remain stored; this checkpoint does not contain their full content."
+	for _, echoed := range []bool{false, true} {
+		store := &fakeStore{
+			priorCheckpoint: &executionstore.ContextCheckpointRecord{
+				ID: testIDN(7840), SummarizedThroughEventSequence: 1, CheckpointEventSequence: 2,
+				Summary: strings.Repeat("old state ", 100) + "\n\n" + notice, HasOmittedHistory: true,
+			},
+			events: []executionstore.CompactionSourceEventRecord{
+				{Sequence: 2, Kind: string(events.KindContextCheckpoint)},
+				textCompactionEvent(3, strings.Repeat("recent work ", 100)),
+			},
+		}
+		input := runInput(testPlan(2, 3, 4))
+		summary := "Continue the recent work."
+		if echoed {
+			summary += "\n\n" + notice
+		}
+		client := &summaryModel{results: []summaryResult{{response: completeSummaryResponse(summary)}}}
+		result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
+		require.NoError(t, err)
+		require.Equal(t, RunCompleted, result.State)
+		require.Equal(t, int64(3), result.Checkpoint.SummarizedThroughEventSequence)
+		require.Equal(t, 1, strings.Count(result.Checkpoint.Summary, notice))
+	}
+}

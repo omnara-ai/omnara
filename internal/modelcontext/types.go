@@ -102,6 +102,7 @@ func (m RenderedMedia) InputModality() string {
 }
 
 type Message struct {
+	InputFingerprint          string                               `json:"-"`
 	InputEventSequence        int64                                `json:"-"`
 	AgentConfigID             uuid.UUID                            `json:"-"`
 	ConfiguredModelRevisionID uuid.UUID                            `json:"-"`
@@ -143,7 +144,6 @@ type ToolResultRef struct {
 type CheckpointRef struct {
 	ID                             string `json:"-"`
 	Sequence                       int64  `json:"-"`
-	Excerpted                      bool   `json:"-"`
 	SummarizedThroughEventSequence int64  `json:"summarized_through_event_sequence"`
 	Summary                        string `json:"summary"`
 	EndsWithOutputLimit            bool   `json:"-"`

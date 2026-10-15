@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelretry"
@@ -126,28 +124,10 @@ func (e AgentExecutor) enterContextMaintenance(
 	if err != nil {
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
-	if ok && plan.ReplacesCheckpointID == uuid.Nil {
+	if ok {
 		return e.enterPlannedContextMaintenance(
 			ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
 		)
-	}
-	if ok {
-		recovery, err := e.Store.Execution().GetModelCallRecoveryState(
-			ctx, input.ProjectID, input.AgentID, claim.Context.ID,
-		)
-		if err != nil {
-			return modelStep{}, err
-		}
-		if !recovery.CheckpointRecompressionAttempted && recovery.CheckpointExcerptReductionCount == 0 {
-			return e.enterPlannedContextMaintenance(
-				ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
-			)
-		}
-		if step, reduced, reduceErr := e.retryWithCheckpointExcerpt(
-			ctx, input, claim, resolved, trigger, response, plan.ReplacesCheckpointID, recovery,
-		); reduceErr != nil || reduced {
-			return step, reduceErr
-		}
 	}
 	details, marshalErr := marshalJSON(map[string]any{
 		"source": modelErrorSourceForClient(resolved.Client),
@@ -167,54 +147,6 @@ func (e AgentExecutor) enterContextMaintenance(
 	return e.recordTerminalContextMaintenanceFailure(
 		ctx, input, claim, resolved, trigger, providerRequestStarted, response,
 	)
-}
-
-func (e AgentExecutor) retryWithCheckpointExcerpt(
-	ctx context.Context,
-	input ModelWorkExecution,
-	claim executionstore.ModelCallClaim,
-	resolved model.ResolvedClient,
-	trigger contextMaintenanceTrigger,
-	response model.Response,
-	checkpointID uuid.UUID,
-	recovery executionstore.ModelCallRecoveryState,
-) (modelStep, bool, error) {
-	checkpoint, found, err := e.Store.Execution().GetContextCheckpoint(
-		ctx, input.ProjectID, input.AgentID, checkpointID,
-	)
-	if err != nil || !found {
-		return modelStep{}, false, err
-	}
-	if checkpoint.SummarizedThroughEventSequence >= input.OpeningEventSequence {
-		return modelStep{}, false, nil
-	}
-	current, err := modelcontext.CheckpointExcerptBytes(checkpoint.Summary, recovery.CheckpointExcerptReductionCount)
-	if err != nil {
-		return modelStep{}, false, err
-	}
-	_, reduced, err := modelcontext.NextCheckpointExcerptBytes(checkpoint.Summary, current)
-	if err != nil || !reduced {
-		return modelStep{}, false, err
-	}
-	evidence := collectNormalCallFailureEvidence(resolved, trigger.RequestID, true, response)
-	record, err := e.Store.Execution().RecordRetryableModelCallFailure(
-		ctx,
-		executionstore.RecordRecoverableModelCallFailureInput{
-			ProjectID: input.ProjectID, AgentID: input.AgentID,
-			ModelCallContextID: claim.Context.ID, RuntimeLockID: input.RuntimeLockID,
-			RecoveryKind: executionstore.ModelCallRecoveryExcerptCheckpoint,
-			APIFormat:    evidence.APIFormat, APIVariant: evidence.APIVariant,
-			ProviderRequestID: evidence.ProviderRequestID, ProviderResponseID: evidence.ProviderResponseID,
-			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
-			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
-			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
-			ProviderMetadata: evidence.ProviderMetadata,
-		},
-	)
-	if err != nil {
-		return modelStep{}, false, errors.Join(trigger.Cause, err)
-	}
-	return modelStep{State: modelStepWaiting, Context: record, Resolved: resolved}, true, nil
 }
 
 func (e AgentExecutor) enterPlannedContextMaintenance(
@@ -261,7 +193,6 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 			ParentContextID:        claim.Context.ID,
 			Failure:                failure,
 			SourceEventSequenceEnd: plan.EventSequenceEnd,
-			ReplacesCheckpointID:   plan.ReplacesCheckpointID,
 		},
 	)
 	if err != nil {

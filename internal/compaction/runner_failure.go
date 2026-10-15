@@ -90,10 +90,6 @@ func (r Runner) recordFailure(
 	if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
 		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
 	}
-	_, semanticFailure := reasonForCompactionFailure(cause)
-	if input.Plan.ReplacesCheckpointID != uuid.Nil && semanticFailure {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
-	}
 	truncated := isTruncatedSummaryFailure(cause)
 	if shrinkableCompactionFailure(cause) || truncated {
 		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
@@ -176,9 +172,6 @@ func (r Runner) recordFailure(
 			RetryAt:            failedContext.RetryAt,
 		}, nil
 	}
-	if input.Plan.ReplacesCheckpointID != uuid.Nil {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
-	}
 	if err := r.Store.RecordTerminalCompactionFailure(
 		ctx,
 		executionstore.RecordTerminalCompactionFailureInput{
@@ -216,8 +209,8 @@ func (r Runner) recordFailureAndResumeNormal(
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
 	evidence := modelretry.EvidenceFor(cause)
-	failed, err := r.Store.RecordCompactionFailureAndResumeNormal(
-		ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
+	failed, err := r.Store.RecordOptionalCompactionFailure(
+		ctx, executionstore.RecordOptionalCompactionFailureInput{
 			ProjectID:               input.Plan.ProjectID,
 			AgentID:                 input.Plan.AgentID,
 			RuntimeLockID:           input.RuntimeLockID,
@@ -448,16 +441,6 @@ func validateSummaryReduction(priorSummary, sourceText, summary string) error {
 		return nil
 	}
 	return summaryNotReducedError()
-}
-
-func validateCheckpointSummaryReduction(plan Plan, priorSummary, sourceText, summary string) error {
-	if plan.ReplacesCheckpointID != uuid.Nil {
-		if len(summary) > len(priorSummary)-max(1, (len(priorSummary)+9)/10) {
-			return summaryNotReducedError()
-		}
-		return nil
-	}
-	return validateSummaryReduction(priorSummary, sourceText, summary)
 }
 
 func summaryNotReducedError() error {

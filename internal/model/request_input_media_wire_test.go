@@ -63,7 +63,8 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 			originalRequest := bytes.Clone(input.Context.Messages[0].Content)
 			input.Context.InputEventSequence = 3
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
-				ID: "read-image-output", ModelCallContextID: contextID, Role: modelprotocol.RoleAssistant, Sequence: 2,
+				InputFingerprint: first.InputFingerprint,
+				ID:               "read-image-output", ModelCallContextID: contextID, Role: modelprotocol.RoleAssistant, Sequence: 2,
 				InputEventSequence: 1, AgentConfigID: input.Context.AgentConfigID,
 				ConfiguredModelRevisionID: input.Context.ConfiguredModelRevisionID,
 				ProviderReplaySource:      model.ProviderReplayIdentityForClient("", tc.client),

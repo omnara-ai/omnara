@@ -100,9 +100,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			checkpointErr,
 		)
 	}
-	if !compactionSourceMatchesCheckpoint(
-		input.SourceEventSequenceEnd, input.ReplacesCheckpointID, checkpoint.ID, summarizedThrough,
-	) {
+	if input.SourceEventSequenceEnd <= summarizedThrough {
 		return TriggeredCompactionHandoff{}, storeerr.ErrStateTransitionConflict
 	}
 
@@ -270,11 +268,7 @@ func (s *Store) ReplaceCompactionSource(
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	if contextRow.ReplacesCheckpointID == uuid.Nil && input.NextSourceEventSequenceEnd < sourceStart {
-		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
-	}
-	if contextRow.ReplacesCheckpointID != uuid.Nil &&
-		input.NextSourceEventSequenceEnd != *contextRow.SourceEventSequenceEnd {
+	if input.NextSourceEventSequenceEnd < sourceStart {
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -355,13 +349,6 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{}, err
 	}
 	return ReplaceCompactionSourceResult{CompactionCall: nextClaim}, nil
-}
-
-func compactionSourceMatchesCheckpoint(sourceEnd int64, replacesID, priorID uuid.UUID, priorEnd int64) bool {
-	if replacesID == uuid.Nil {
-		return sourceEnd > priorEnd
-	}
-	return replacesID == priorID && sourceEnd == priorEnd
 }
 
 func compactionSourceProjectionAdvances(current ModelCallContextRecord, input ReplaceCompactionSourceInput) bool {

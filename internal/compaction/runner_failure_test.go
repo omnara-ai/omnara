@@ -215,11 +215,11 @@ func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.
 			claim.Context.State = executionstore.ModelCallContextFailed
 			claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
 			want := RunTerminal
+			store := &fakeStore{}
 			if resume {
-				claim.Context.RecoveryKind = executionstore.ModelCallRecoveryResumeNormal
+				store.parentRecoveryKind = executionstore.ModelCallRecoveryCompactOptional
 				want = RunResumeNormal
 			}
-			store := &fakeStore{}
 			client := &summaryModel{}
 			result, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
 			require.NoError(t, err)

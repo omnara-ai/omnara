@@ -162,6 +162,7 @@ type PreparedRequest struct {
 	// Body is the exact JSON byte sequence authorized by Prepare and passed to
 	// the provider transport. Respond must not rebuild or mutate it.
 	Body                   json.RawMessage
+	InputFingerprint       string
 	InputTokenEstimate     int
 	InputBudget            InputBudgetAssessment
 	MaxOutputTokens        int
@@ -262,6 +263,9 @@ func prepareRequest(ctx context.Context, client Client, input PrepareForSendInpu
 			Kind: ErrorKindInvalidRequest, Source: input.ErrorSource, Code: "empty_prepared_request",
 			Message: "The configured model produced an empty provider request.",
 		}
+	}
+	if prepared.InputFingerprint == "" {
+		prepared.InputFingerprint = RequestInputFingerprint(prepared.Body, "")
 	}
 	if prepared.InputTokenEstimate <= 0 {
 		prepared.InputTokenEstimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)

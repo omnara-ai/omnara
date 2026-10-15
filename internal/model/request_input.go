@@ -2,10 +2,13 @@ package model
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -25,7 +28,7 @@ func applyRequestInputMeasurement(
 			break
 		}
 	}
-	if source == nil || source.InputEventSequence <= 0 || source.InputEventSequence >= source.Sequence ||
+	if source == nil || source.InputEventSequence <= 0 || source.InputEventSequence >= source.Sequence || source.InputFingerprint == "" ||
 		bundle.AgentConfigID == uuid.Nil || source.AgentConfigID != bundle.AgentConfigID ||
 		bundle.ConfiguredModelRevisionID == uuid.Nil || source.ConfiguredModelRevisionID != bundle.ConfiguredModelRevisionID {
 		return
@@ -36,7 +39,7 @@ func applyRequestInputMeasurement(
 		return
 	}
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil &&
-		(checkpoint.Sequence == 0 || checkpoint.Sequence > source.InputEventSequence || checkpoint.Excerpted) {
+		(checkpoint.Sequence == 0 || checkpoint.Sequence > source.InputEventSequence) {
 		return
 	}
 	usage := modelenvelope.NormalizeUsage(source.Usage)
@@ -44,7 +47,10 @@ func applyRequestInputMeasurement(
 		return
 	}
 
-	suffix := bundle
+	prefix, suffix := bundle, bundle
+	prefix.InputEventSequence = source.InputEventSequence
+	prefix.Messages = nil
+	prefix.ToolResults = nil
 	suffix.SystemPrompt = ""
 	suffix.ContextCheckpoint = nil
 	suffix.Messages = nil
@@ -52,16 +58,29 @@ func applyRequestInputMeasurement(
 	for _, message := range bundle.Messages {
 		if message.Sequence > source.InputEventSequence {
 			suffix.Messages = append(suffix.Messages, message)
+		} else {
+			prefix.Messages = append(prefix.Messages, message)
 		}
 	}
 	for _, result := range bundle.ToolResults {
 		if result.ResultEventSequence <= source.InputEventSequence {
+			prefix.ToolResults = append(prefix.ToolResults, result)
 			continue
 		}
 		if result.SourceEventSequence <= source.InputEventSequence {
 			return
 		}
 		suffix.ToolResults = append(suffix.ToolResults, result)
+	}
+	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: input.Policy})
+	if err != nil {
+		return
+	}
+	if previous.InputFingerprint == "" {
+		previous.InputFingerprint = RequestInputFingerprint(previous.Body, "")
+	}
+	if previous.InputFingerprint != source.InputFingerprint {
+		return
 	}
 	rendered, err := client.Prepare(ctx, PrepareInput{Context: suffix, Policy: input.Policy})
 	if err != nil {
@@ -168,4 +187,27 @@ func inputHasReasoning(items []json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+func RequestInputFingerprint(body json.RawMessage, endpoint string) string {
+	var request map[string]json.RawMessage
+	if json.Unmarshal(body, &request) != nil || request == nil {
+		return ""
+	}
+	delete(request, "max_tokens")
+	delete(request, "max_output_tokens")
+	delete(request, "max_completion_tokens")
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return ""
+	}
+	canonical, err := jsoncanonical.Normalize(encoded)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.New()
+	digest.Write([]byte(endpoint))
+	digest.Write([]byte{0})
+	digest.Write(canonical)
+	return hex.EncodeToString(digest.Sum(nil))
 }

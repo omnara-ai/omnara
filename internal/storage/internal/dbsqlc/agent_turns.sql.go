@@ -450,6 +450,7 @@ SELECT event.id,
        coalesce(revision.provider_model_slug, '') AS requested_provider_model_slug,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
+       coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
        context.input_tokens_total, context.uncached_input_tokens,
        context.cache_read_input_tokens, context.cache_write_input_tokens,
        context.output_tokens_total, context.reasoning_output_tokens,
@@ -516,7 +517,7 @@ GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
   output.provider_replay, output.stop_reason, input.input_kind,
-  context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
+  context.input_fingerprint, context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
   context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
   context.input_event_sequence, context.agent_config_id, context.configured_model_revision_id,
   context.operation_kind, context.state
@@ -544,6 +545,7 @@ type ListContextEventsRow struct {
 	RequestedProviderModelSlug string
 	ApiFormat                  string
 	ApiVariant                 string
+	InputFingerprint           string
 	InputTokensTotal           *int32
 	UncachedInputTokens        *int32
 	CacheReadInputTokens       *int32
@@ -586,6 +588,7 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.RequestedProviderModelSlug,
 			&i.ApiFormat,
 			&i.ApiVariant,
+			&i.InputFingerprint,
 			&i.InputTokensTotal,
 			&i.UncachedInputTokens,
 			&i.CacheReadInputTokens,

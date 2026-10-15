@@ -11,6 +11,7 @@ import (
 )
 
 type wireClientConfig struct {
+	baseURL               string
 	modelProviderConfigID string
 	capabilities          model.Capabilities
 	httpClient            *http.Client
@@ -21,6 +22,10 @@ func adapterWireClients(config wireClientConfig) []struct {
 	name, field string
 	client      model.Client
 } {
+	baseURL := config.baseURL
+	if baseURL == "" {
+		baseURL = "https://example.test"
+	}
 	return []struct {
 		name, field string
 		client      model.Client
@@ -33,7 +38,7 @@ func adapterWireClients(config wireClientConfig) []struct {
 				EndpointPath:          "/chat/completions",
 				ProviderModelSlug:     "test-model",
 				ModelCapabilities:     config.capabilities,
-				BaseURL:               "https://example.test",
+				BaseURL:               baseURL,
 				HTTPClient:            config.httpClient,
 				IdleTimeout:           config.idleTimeout,
 			},
@@ -46,7 +51,7 @@ func adapterWireClients(config wireClientConfig) []struct {
 				EndpointPath:          "/responses",
 				ProviderModelSlug:     "test-model",
 				ModelCapabilities:     config.capabilities,
-				BaseURL:               "https://example.test",
+				BaseURL:               baseURL,
 				HTTPClient:            config.httpClient,
 				IdleTimeout:           config.idleTimeout,
 			},
@@ -59,7 +64,7 @@ func adapterWireClients(config wireClientConfig) []struct {
 				EndpointPath:          "/messages",
 				ProviderModelSlug:     "test-model",
 				ModelCapabilities:     config.capabilities,
-				BaseURL:               "https://example.test",
+				BaseURL:               baseURL,
 				HTTPClient:            config.httpClient,
 				IdleTimeout:           config.idleTimeout,
 			},

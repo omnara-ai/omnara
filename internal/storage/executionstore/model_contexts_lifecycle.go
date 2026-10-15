@@ -23,7 +23,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if input.RecoveryKind == "" {
 		input.RecoveryKind = ModelCallRecoveryRetry
 	}
-	if input.RecoveryKind != ModelCallRecoveryRetry && input.RecoveryKind != ModelCallRecoveryExcerptCheckpoint {
+	if input.RecoveryKind != ModelCallRecoveryRetry {
 		return ModelCallContextRecord{}, fmt.Errorf(
 			"unsupported retryable model call recovery kind %q",
 			input.RecoveryKind,
@@ -78,10 +78,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if currentContext.State != ModelCallContextStarted ||
-		(input.RecoveryKind == ModelCallRecoveryRetry && recovery.RetryCount >= MaxModelCallRetriesPerOperation) ||
-		(input.RecoveryKind == ModelCallRecoveryExcerptCheckpoint &&
-			currentContext.OperationKind != ModelCallOperationNormal) {
+	if currentContext.State != ModelCallContextStarted || recovery.RetryCount >= MaxModelCallRetriesPerOperation {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -130,18 +127,11 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 		return errors.New("model call retry delay cannot be negative")
 	}
 	if input.RecoveryKind != ModelCallRecoveryRetry &&
-		input.RecoveryKind != ModelCallRecoveryExcerptCheckpoint &&
 		input.RecoveryKind != ModelCallRecoveryCompact &&
 		input.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
 	}
-	if input.RecoveryKind == ModelCallRecoveryExcerptCheckpoint {
-		if input.APIFormat == "" || input.APIVariant == "" ||
-			(input.ErrorKind != modelprotocol.ErrorKindContextWindow &&
-				input.ErrorKind != modelprotocol.ErrorKindPayloadTooLarge) {
-			return errors.New("recovery checkpoint projection requires a provider context or payload rejection")
-		}
-	}
+
 	return nil
 }
 
@@ -183,6 +173,7 @@ type finishModelCallContextInput struct {
 	ErrorMessage            string
 	ErrorDetails            json.RawMessage
 	RetryDelay              *time.Duration
+	InputFingerprint        string
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 	ProviderMetadata        modelenvelope.ProviderMetadata
@@ -244,6 +235,7 @@ func finishModelCallContextWithAuthorityTx(
 		ErrorMessage:                        input.ErrorMessage,
 		ErrorDetails:                        normalizedJSONOrObject(input.ErrorDetails),
 		RetryDelayMicroseconds:              retryDelayMicroseconds,
+		InputFingerprint:                    storeutil.TextFromEmpty(input.InputFingerprint),
 		InputTokensTotal:                    storeutil.Int32Ptr(usage.InputTokens),
 		UncachedInputTokens:                 storeutil.Int32Ptr(usage.UncachedInputTokens),
 		CacheReadInputTokens:                storeutil.Int32Ptr(usage.CacheReadTokens),

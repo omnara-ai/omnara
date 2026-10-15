@@ -247,7 +247,8 @@
           ]
         },
         "context_window_tokens": {
-          "minimum": 1,
+          "maximum": 2147483647,
+          "minimum": 2,
           "type": "integer"
         },
         "default_max_output_tokens": {
@@ -315,7 +316,8 @@
           ]
         },
         "context_window_tokens": {
-          "minimum": 1,
+          "maximum": 2147483647,
+          "minimum": 2,
           "type": "integer"
         },
         "default_max_output_tokens": {

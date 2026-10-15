@@ -16,6 +16,7 @@ import (
 )
 
 type ContextEventRecord struct {
+	InputFingerprint          string
 	InputEventSequence        int64
 	AgentConfigID             uuid.UUID
 	ConfiguredModelRevisionID uuid.UUID
@@ -90,6 +91,7 @@ func (s *Store) ListContextEvents(
 			StopReason:                modelenvelope.StopReason(row.StopReason),
 		}
 		if row.IsSuccessfulNormalCall {
+			record.InputFingerprint = row.InputFingerprint
 			record.Usage = modelUsageFromSQLC(row.InputTokensTotal, row.UncachedInputTokens, row.CacheReadInputTokens,
 				row.CacheWriteInputTokens, row.OutputTokensTotal, row.ReasoningOutputTokens)
 		}

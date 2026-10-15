@@ -459,7 +459,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				}),
 				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
 				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
+				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(2), kjsonschema.Max(2147483647))),
 				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
 				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
 				kjsonschema.Prop("reasoning", kjsonschema.Object(
@@ -476,7 +476,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			"AgentConfigModelSource": kjsonschema.Object(
 				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
 				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
+				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(2), kjsonschema.Max(2147483647))),
 				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
 				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
 				kjsonschema.Prop("reasoning", kjsonschema.Object(

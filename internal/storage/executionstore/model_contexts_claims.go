@@ -100,9 +100,9 @@ func applyModelCallAdmissionTx(
 		if err != nil {
 			return ModelCallClaim{}, err
 		}
-		if parent.RecoveryKind == ModelCallRecoveryCompactOptional || claim.context.ReplacesCheckpointID != uuid.Nil {
+		if parent.RecoveryKind == ModelCallRecoveryCompactOptional {
 			failure := managedWorkAdmissionModelFailure(claim.context)
-			record, err := recordCompactionFailureAndResumeNormalTx(ctx, q, RecordCompactionFailureAndResumeNormalInput{
+			record, err := recordOptionalCompactionFailureTx(ctx, q, RecordOptionalCompactionFailureInput{
 				ProjectID: failure.ProjectID, AgentID: failure.AgentID, RuntimeLockID: failure.RuntimeLockID,
 				ModelCallContextID: failure.ModelCallContextID, ErrorKind: failure.ErrorKind,
 				ErrorCode: failure.ErrorCode, ErrorMessage: failure.ErrorMessage,
@@ -413,9 +413,7 @@ func claimNextModelCallContextTx(
 	}
 	if predecessor.State == ModelCallContextFailed &&
 		(predecessor.RecoveryKind == ModelCallRecoveryRetry ||
-			predecessor.RecoveryKind == ModelCallRecoveryExcerptCheckpoint ||
-			predecessor.RecoveryKind == ModelCallRecoveryCompactOptional ||
-			predecessor.RecoveryKind == ModelCallRecoveryCompact) {
+			predecessor.RecoveryKind == ModelCallRecoveryCompactOptional) {
 		modelRevision, err := getModelCallRevisionForClaim(
 			ctx,
 			q,

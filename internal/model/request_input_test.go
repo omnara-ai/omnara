@@ -18,7 +18,7 @@ func TestProviderBaselineCountsInputArrivingDuringGeneration(t *testing.T) {
 	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
 	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle := measuredInputBundle(tc.client)
+			bundle := measuredInputBundle(t, tc.client)
 			concurrent := modelcontext.Message{
 				Role: modelprotocol.RoleUser, Sequence: 2,
 				Content: json.RawMessage(`[{"type":"text","text":"` + strings.Repeat("new detail ", 1000) + `"}]`),
@@ -36,6 +36,14 @@ func TestProviderBaselineCountsInputArrivingDuringGeneration(t *testing.T) {
 				name string
 				edit func(*modelcontext.Bundle)
 			}{
+				{"prior input projection", func(b *modelcontext.Bundle) {
+					b.Messages = append([]modelcontext.Message(nil), b.Messages...)
+					b.Messages[0].Content = json.RawMessage(`[{"type":"text","text":"file is now a reference"}]`)
+				}},
+				{"system prompt", func(b *modelcontext.Bundle) { b.SystemPrompt = "updated live skills" }},
+				{"tool catalog", func(b *modelcontext.Bundle) {
+					b.ToolSpecs = []modelcontext.ToolSpec{{Name: "new_tool", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+				}},
 				{"agent config", func(b *modelcontext.Bundle) { b.AgentConfigID = uuid.New() }},
 				{"model revision", func(b *modelcontext.Bundle) { b.ConfiguredModelRevisionID = uuid.New() }},
 				{"new checkpoint", func(b *modelcontext.Bundle) {
@@ -59,7 +67,7 @@ func TestProviderBaselineCountsReplayedReasoningWithoutCountingCiphertext(t *tes
 	providerID := uuid.New().String()
 	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps, modelProviderConfigID: providerID}) {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle := measuredInputBundle(tc.client)
+			bundle := measuredInputBundle(t, tc.client)
 			message := &bundle.Messages[1]
 			message.Content = json.RawMessage(`[{"type":"reasoning","text":"thinking"},{"type":"text","text":"answer"}]`)
 			message.Usage.OutputTokens = 5000
@@ -99,9 +107,10 @@ func TestProviderBaselineCountsReplayedReasoningWithoutCountingCiphertext(t *tes
 	}
 }
 
-func measuredInputBundle(client model.Client) modelcontext.Bundle {
+func measuredInputBundle(t *testing.T, client model.Client) modelcontext.Bundle {
+	t.Helper()
 	configID, revisionID := uuid.New(), uuid.New()
-	return modelcontext.Bundle{
+	bundle := modelcontext.Bundle{
 		AgentConfigID: configID, ConfiguredModelRevisionID: revisionID,
 		Messages: []modelcontext.Message{
 			{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"text","text":"question"}]`)},
@@ -114,13 +123,27 @@ func measuredInputBundle(client model.Client) modelcontext.Bundle {
 			},
 		},
 	}
+	setMeasuredInputFingerprint(t, client, &bundle)
+	return bundle
+}
+
+func setMeasuredInputFingerprint(t *testing.T, client model.Client, bundle *modelcontext.Bundle) {
+	t.Helper()
+	prior := *bundle
+	prior.Messages = prior.Messages[:1]
+	prior.ToolResults = nil
+	prepared, err := model.PrepareForSend(t.Context(), client, model.PrepareForSendInput{
+		Context: prior, Policy: model.RequestPolicyFromCapabilities(client.Capabilities()),
+	})
+	require.NoError(t, err)
+	bundle.Messages[1].InputFingerprint = prepared.InputFingerprint
 }
 
 func TestProviderBaselineCountsNewlyLoadedDeferredSchema(t *testing.T) {
 	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
 	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
 		t.Run(tc.name, func(t *testing.T) {
-			bundle := measuredInputBundle(tc.client)
+			bundle := measuredInputBundle(t, tc.client)
 			bundle.Messages[1].ModelCallContextID = "search-context"
 			bundle.Messages[1].Content = json.RawMessage(`[{"type":"tool_call","tool_call_id":"search-call"}]`)
 			bundle.ToolSpecs = []modelcontext.ToolSpec{
@@ -137,6 +160,7 @@ func TestProviderBaselineCountsNewlyLoadedDeferredSchema(t *testing.T) {
 			prepare := func(description string) model.PreparedRequest {
 				t.Helper()
 				bundle.ToolSpecs[1].Description = description
+				setMeasuredInputFingerprint(t, tc.client, &bundle)
 				result, err := modelcontext.SearchDeferredTools(bundle.ToolSpecs, "weather", 1)
 				require.NoError(t, err)
 				bundle.ToolResults[0].ContentParts, err = json.Marshal([]any{
@@ -154,6 +178,58 @@ func TestProviderBaselineCountsNewlyLoadedDeferredSchema(t *testing.T) {
 			large := prepare(strings.Repeat("schema detail ", 2000))
 			require.Less(t, small.InputTokenEstimate, 1500, "unused deferred schemas stay out of the estimate")
 			require.InDelta(t, 7000, large.InputTokenEstimate-small.InputTokenEstimate, 100)
+		})
+	}
+}
+
+func TestProviderBaselineReanchorsAfterModelChange(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
+	clients := adapterWireClients(wireClientConfig{capabilities: caps})
+	for i, previous := range clients {
+		current := clients[(i+1)%len(clients)]
+		t.Run(previous.name+" to "+current.name, func(t *testing.T) {
+			bundle := measuredInputBundle(t, previous.client)
+			bundle.AgentConfigID, bundle.ConfiguredModelRevisionID = uuid.New(), uuid.New()
+			bundle.InputEventSequence = 4
+			bundle.Messages = append(bundle.Messages, modelcontext.Message{
+				Role: modelprotocol.RoleUser, Sequence: 4, Content: json.RawMessage(`[{"type":"text","text":"switch models"}]`),
+			})
+			input := model.PrepareForSendInput{Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps)}
+			first, err := model.PrepareForSend(t.Context(), current.client, input)
+			require.NoError(t, err)
+			require.False(t, first.UsesProviderInputUsage)
+			require.Contains(t, string(first.Body), "question")
+			input.Context.InputEventSequence = 6
+			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
+				Role: modelprotocol.RoleAssistant, Sequence: 5, InputEventSequence: 4,
+				AgentConfigID: bundle.AgentConfigID, ConfiguredModelRevisionID: bundle.ConfiguredModelRevisionID,
+				InputFingerprint:     first.InputFingerprint,
+				ProviderReplaySource: model.ProviderReplayIdentityForClient("", current.client),
+				Content:              json.RawMessage(`[{"type":"text","text":"new model answer"}]`),
+				Usage:                modelenvelope.Usage{InputTokens: 5000, OutputTokens: 10},
+			}, modelcontext.Message{
+				Role: modelprotocol.RoleUser, Sequence: 6, Content: json.RawMessage(`[{"type":"text","text":"continue"}]`),
+			})
+			next, err := model.PrepareForSend(t.Context(), current.client, input)
+			require.NoError(t, err)
+			require.True(t, next.UsesProviderInputUsage)
+			require.InDelta(t, 5000, next.InputTokenEstimate, 150)
+		})
+	}
+}
+
+func TestProviderBaselineRequiresSameProviderRoute(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
+	previous := adapterWireClients(wireClientConfig{capabilities: caps})
+	current := adapterWireClients(wireClientConfig{capabilities: caps, baseURL: "https://different-provider.test"})
+	for i, target := range current {
+		t.Run(target.name, func(t *testing.T) {
+			bundle := measuredInputBundle(t, previous[i].client)
+			prepared, err := model.PrepareForSend(t.Context(), target.client, model.PrepareForSendInput{
+				Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps),
+			})
+			require.NoError(t, err)
+			require.False(t, prepared.UsesProviderInputUsage)
 		})
 	}
 }

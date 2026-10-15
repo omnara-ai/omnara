@@ -15,7 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type RecordCompactionFailureAndResumeNormalInput struct {
+type RecordOptionalCompactionFailureInput struct {
 	ProjectID               uuid.UUID
 	AgentID                 uuid.UUID
 	RuntimeLockID           uuid.UUID
@@ -33,9 +33,9 @@ type RecordCompactionFailureAndResumeNormalInput struct {
 	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
-func (s *Store) RecordCompactionFailureAndResumeNormal(
+func (s *Store) RecordOptionalCompactionFailure(
 	ctx context.Context,
-	input RecordCompactionFailureAndResumeNormalInput,
+	input RecordOptionalCompactionFailureInput,
 ) (ModelCallContextRecord, error) {
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.RuntimeLockID == uuid.Nil ||
 		input.ModelCallContextID == uuid.Nil || input.ErrorKind == "" || input.ErrorMessage == "" {
@@ -65,7 +65,7 @@ func (s *Store) RecordCompactionFailureAndResumeNormal(
 	if err := ensureRuntimeLockActiveTx(ctx, tx, input.ProjectID, input.AgentID, input.RuntimeLockID); err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	record, err := recordCompactionFailureAndResumeNormalTx(ctx, q, input, modelCallContextRuntimeOwned)
+	record, err := recordOptionalCompactionFailureTx(ctx, q, input, modelCallContextRuntimeOwned)
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
@@ -84,10 +84,10 @@ func (s *Store) RecordCompactionFailureAndResumeNormal(
 	return record, nil
 }
 
-func recordCompactionFailureAndResumeNormalTx(
+func recordOptionalCompactionFailureTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	input RecordCompactionFailureAndResumeNormalInput,
+	input RecordOptionalCompactionFailureInput,
 	authority modelCallContextRuntimeAuthority,
 ) (ModelCallContextRecord, error) {
 	current, err := loadModelCallContextByID(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
@@ -108,7 +108,7 @@ func recordCompactionFailureAndResumeNormalTx(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if parent.RecoveryKind != ModelCallRecoveryCompactOptional && current.ReplacesCheckpointID == uuid.Nil {
+	if parent.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	input.ErrorDetails = normalizedJSONOrObject(input.ErrorDetails)
@@ -118,7 +118,7 @@ func recordCompactionFailureAndResumeNormalTx(
 		return ModelCallContextRecord{}, err
 	}
 	input.ProviderMetadata = providerMetadataFromSQLC(metadata)
-	if current.State == ModelCallContextFailed && current.RecoveryKind == ModelCallRecoveryResumeNormal {
+	if current.State == ModelCallContextFailed && current.RecoveryKind == "" {
 		if current.APIFormat != input.APIFormat || current.APIVariant != input.APIVariant ||
 			current.ProviderRequestID != input.ProviderRequestID || current.ProviderResponseID != input.ProviderResponseID ||
 			current.ErrorKind != input.ErrorKind || current.ErrorCode != input.ErrorCode ||
@@ -139,7 +139,6 @@ func recordCompactionFailureAndResumeNormalTx(
 		ModelCallContextID:      input.ModelCallContextID,
 		RuntimeLockID:           input.RuntimeLockID,
 		ToState:                 ModelCallContextFailed,
-		RecoveryKind:            ModelCallRecoveryResumeNormal,
 		APIFormat:               input.APIFormat,
 		APIVariant:              input.APIVariant,
 		ProviderRequestID:       input.ProviderRequestID,

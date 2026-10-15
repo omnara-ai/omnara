@@ -105,8 +105,7 @@ func (e AgentExecutor) executeModelStep(
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryExcerptCheckpoint {
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry {
 			state = modelStepDone
 		}
 		return modelStep{State: state, Context: claim.Context}, nil
@@ -247,17 +246,6 @@ func (e AgentExecutor) executeModelStep(
 	if err != nil {
 		return modelStep{}, err
 	}
-	if recovery.CheckpointExcerptReductionCount > 0 {
-		bundle, err = modelcontext.ApplyCheckpointExcerpt(
-			bundle, recovery.RecoveryCheckpointID, recovery.CheckpointExcerptReductionCount,
-		)
-		if err != nil {
-			return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
-				Code:    preSendErrorCodeBuildModelContextFailed,
-				Message: "Omnara could not apply the checkpoint recovery projection.",
-			})
-		}
-	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	workingInputTarget, err := model.WorkingInputTargetTokens(client, policy, modelErrorSourceForClient(client))
 	if err != nil {
@@ -295,7 +283,7 @@ func (e AgentExecutor) executeModelStep(
 		if planErr != nil {
 			return modelStep{}, planErr
 		}
-		if ok && plan.ReplacesCheckpointID == uuid.Nil {
+		if ok {
 			trigger.Optional = true
 			return e.enterPlannedContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{}, plan)
 		}
@@ -350,6 +338,7 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
+	envelope.InputFingerprint = prepared.InputFingerprint
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,

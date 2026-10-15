@@ -1,7 +1,15 @@
 -- +goose Up
 
 ALTER TABLE model_call_contexts
-    ADD COLUMN parent_normal_model_call_context_id uuid;
+    ADD COLUMN parent_normal_model_call_context_id uuid,
+    ADD COLUMN input_fingerprint text,
+    ADD CONSTRAINT model_call_contexts_input_fingerprint CHECK (
+        input_fingerprint IS NULL OR (
+            operation_kind = 'normal' AND state = 'succeeded'
+            AND coalesce(input_tokens_total, 0) > 0
+            AND input_fingerprint ~ '^[0-9a-f]{64}$'
+        )
+    );
 
 -- Existing compactions have exactly one blocked normal operation at their frontier.
 -- Backfill before strengthening the immutable identity and parent constraints.
@@ -38,10 +46,6 @@ BEGIN
     WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
       AND pg_get_constraintdef(oid) LIKE '%reduce_compaction_source%';
     EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
-    SELECT conname INTO STRICT existing_name FROM pg_constraint
-    WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%retry_at%';
-    EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
 END;
 $$;
 -- +goose StatementEnd
@@ -50,8 +54,8 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_recovery CHECK (
         recovery_kind IS NULL OR (
             state = 'failed' AND (
-                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'excerpt_checkpoint', 'compact', 'compact_optional')) OR
-                (operation_kind = 'compaction' AND recovery_kind IN ('retry', 'reduce_compaction_source', 'resume_normal'))
+                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'compact', 'compact_optional')) OR
+                (operation_kind = 'compaction' AND recovery_kind IN ('retry', 'reduce_compaction_source'))
             )
         )
     ),
@@ -59,17 +63,7 @@ ALTER TABLE model_call_contexts
         REFERENCES model_call_contexts(agent_id, id),
     ADD CONSTRAINT model_call_contexts_parent_operation CHECK (
         (operation_kind = 'compaction') = (parent_normal_model_call_context_id IS NOT NULL)
-    ),
-    ADD CONSTRAINT model_call_contexts_retry_at CHECK (
-        coalesce(recovery_kind IN ('retry', 'excerpt_checkpoint'), false) = (retry_at IS NOT NULL)
-    ),
-    ADD CONSTRAINT model_call_contexts_recovery_checkpoint_projection CHECK (
-        recovery_kind IS DISTINCT FROM 'excerpt_checkpoint' OR (
-            error_kind IN ('context_window', 'payload_too_large') AND api_format <> '' AND api_variant <> '')
     );
-
-ALTER TABLE context_checkpoints
-    DROP CONSTRAINT context_checkpoints_agent_id_summarized_through_event_seque_key;
 
 CREATE INDEX agent_events_checkpoint_sequence_idx ON agent_events(agent_id, sequence)
     WHERE event_kind = 'context_checkpoint';
@@ -77,6 +71,12 @@ CREATE INDEX agent_events_checkpoint_sequence_idx ON agent_events(agent_id, sequ
 CREATE UNIQUE INDEX model_call_contexts_compaction_identity_idx ON model_call_contexts(
     project_id, agent_id, parent_normal_model_call_context_id, attempt_number
 ) WHERE operation_kind = 'compaction';
+
+DROP INDEX model_call_contexts_one_compaction_outcome_idx;
+CREATE UNIQUE INDEX model_call_contexts_one_compaction_outcome_idx
+    ON model_call_contexts(project_id, agent_id, parent_normal_model_call_context_id)
+    WHERE operation_kind = 'compaction'
+      AND (state = 'succeeded' OR (state = 'failed' AND recovery_kind IS NULL));
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION agent_continuable_model_contexts(p_project_id uuid, p_agent_id uuid)
@@ -123,7 +123,11 @@ WHERE context_turn.turn_id = agent_latest_turn_id(p_project_id, p_agent_id)
       context.state = 'started'
       OR (
           context.state = 'failed'
-          AND context.recovery_kind IS NOT NULL
+          AND (context.recovery_kind IS NOT NULL OR EXISTS (
+              SELECT 1 FROM model_call_contexts parent
+              WHERE parent.id = context.parent_normal_model_call_context_id
+                AND parent.recovery_kind = 'compact_optional'
+          ))
       )
   )
   AND NOT EXISTS (
@@ -141,21 +145,10 @@ CREATE OR REPLACE FUNCTION enforce_model_call_context_transition()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    projection_checkpoint_sequence bigint;
-    prior_summarized_through bigint;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'model_call_contexts are immutable'
             USING ERRCODE = '25006';
-    END IF;
-    IF NEW.operation_kind = 'compaction' THEN
-        SELECT checkpoint.summarized_through_event_sequence INTO prior_summarized_through
-        FROM context_checkpoints checkpoint
-        JOIN agent_events event ON event.agent_id = checkpoint.agent_id
-          AND event.context_checkpoint_id = checkpoint.id AND event.event_kind = 'context_checkpoint'
-        WHERE event.agent_id = NEW.agent_id AND event.sequence <= NEW.input_event_sequence
-        ORDER BY event.sequence DESC LIMIT 1;
     END IF;
     IF TG_OP = 'INSERT' THEN
         IF NEW.state <> 'started' THEN
@@ -172,10 +165,6 @@ BEGIN
               AND parent.agent_config_id = NEW.agent_config_id
         ) THEN
             RAISE EXCEPTION 'compaction requires its blocked normal parent' USING ERRCODE = '23514';
-        END IF;
-        IF NEW.source_event_sequence_end < prior_summarized_through THEN
-            RAISE EXCEPTION 'compaction cannot move behind its latest applicable checkpoint'
-                USING ERRCODE = '23514';
         END IF;
         RETURN NEW;
     END IF;
@@ -207,37 +196,6 @@ BEGIN
             USING ERRCODE = '23514';
     END IF;
 
-    IF NEW.recovery_kind = 'resume_normal' AND NOT EXISTS (
-        SELECT 1 FROM model_call_contexts parent
-        WHERE parent.id = NEW.parent_normal_model_call_context_id
-          AND (parent.recovery_kind = 'compact_optional'
-            OR NEW.source_event_sequence_end = prior_summarized_through)
-    ) THEN
-        RAISE EXCEPTION 'only optional or checkpoint replacement compaction can resume its normal parent'
-            USING ERRCODE = '23514';
-    END IF;
-    IF NEW.recovery_kind = 'excerpt_checkpoint' THEN
-        SELECT max(event.sequence) INTO projection_checkpoint_sequence
-        FROM agent_events event
-        WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
-          AND event.sequence <= NEW.input_event_sequence;
-        IF NOT EXISTS (
-            SELECT 1 FROM context_checkpoints checkpoint
-            JOIN agent_events event ON event.agent_id = checkpoint.agent_id
-              AND event.context_checkpoint_id = checkpoint.id AND event.event_kind = 'context_checkpoint'
-            WHERE checkpoint.agent_id = NEW.agent_id AND event.sequence = projection_checkpoint_sequence
-              AND checkpoint.summarized_through_event_sequence < (
-                  SELECT min(opening.event_sequence) FROM agent_model_call_opening_content_inputs(
-                      NEW.project_id, NEW.agent_id,
-                      agent_turn_id_at_event_sequence(NEW.agent_id, NEW.input_event_sequence),
-                      NEW.input_event_sequence
-                  ) opening
-              )
-        ) THEN
-            RAISE EXCEPTION 'recovery projection requires an old applicable checkpoint'
-                USING ERRCODE = '23514';
-        END IF;
-    END IF;
     RETURN NEW;
 END;
 $$;
@@ -308,17 +266,19 @@ retry AS (
      AND retry_context.agent_id = p_agent_id
      AND retry_context.id = context.model_call_context_id
      AND retry_context.state = 'failed'
-     AND retry_context.recovery_kind IN ('retry', 'excerpt_checkpoint')
+     AND retry_context.recovery_kind = 'retry'
      AND retry_context.retry_at IS NOT NULL
     WHERE NOT context.has_later_semantic_event
     LIMIT 1
 ),
-resume_normal AS (
+optional_failure AS (
     SELECT context.turn_id, child.parent_normal_model_call_context_id AS model_call_context_id,
            context.input_event_sequence AS opening_watermark, child.completed_at AS ready_at
     FROM continuable context
     JOIN model_call_contexts child ON child.id = context.model_call_context_id
-    WHERE child.state = 'failed' AND child.recovery_kind = 'resume_normal'
+    JOIN model_call_contexts parent ON parent.id = child.parent_normal_model_call_context_id
+      AND parent.recovery_kind = 'compact_optional'
+    WHERE child.state = 'failed' AND child.recovery_kind IS NULL
       AND NOT context.has_later_semantic_event
     LIMIT 1
 ),
@@ -438,7 +398,7 @@ candidates AS (
     UNION ALL
     SELECT 'resume', model_call_context_id, NULL::uuid, turn_id,
            opening_watermark, ready_at, 2, 1
-    FROM resume_normal
+    FROM optional_failure
     UNION ALL
     SELECT 'start', NULL::uuid, NULL::uuid, turn_id,
            opening_watermark, ready_at, 2, 2
@@ -503,71 +463,51 @@ $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION enforce_context_checkpoint_lineage()
+CREATE OR REPLACE FUNCTION enforce_model_call_context_terminal_outcome()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    producer_operation_kind text;
-    producer_state text;
-    producer_source_end bigint;
-    producer_input_event_sequence bigint;
-    checkpoint_event_sequence bigint;
-    prior_summarized_through bigint;
-    prior_summary_bytes bigint;
+    output_count bigint;
+    checkpoint_count bigint;
 BEGIN
-    SELECT context.operation_kind,
-           context.state,
-           context.source_event_sequence_end,
-           context.input_event_sequence
-    INTO producer_operation_kind,
-         producer_state,
-         producer_source_end,
-         producer_input_event_sequence
-    FROM model_call_contexts context
-    WHERE context.agent_id = NEW.agent_id
-      AND context.id = NEW.producer_model_call_context_id;
-
-    IF producer_operation_kind <> 'compaction'
-       OR producer_state <> 'succeeded'
-       OR producer_source_end <> NEW.summarized_through_event_sequence THEN
-        RAISE EXCEPTION 'checkpoint must match its succeeded compaction context'
-            USING ERRCODE = '23514';
+    IF NEW.state = 'started' THEN
+        RETURN NEW;
     END IF;
 
-    SELECT event.sequence
-    INTO checkpoint_event_sequence
-    FROM agent_events event
-    WHERE event.agent_id = NEW.agent_id
-      AND event.context_checkpoint_id = NEW.id
-      AND event.event_kind = 'context_checkpoint';
+    SELECT count(*) INTO output_count
+    FROM model_outputs output
+    WHERE output.agent_id = NEW.agent_id
+      AND output.model_call_context_id = NEW.id;
 
-    IF checkpoint_event_sequence IS NULL THEN
-        RAISE EXCEPTION 'context checkpoint % must have a typed context_checkpoint event', NEW.id
-            USING ERRCODE = '23514';
-    ELSIF checkpoint_event_sequence <= NEW.summarized_through_event_sequence THEN
-        RAISE EXCEPTION 'context checkpoint event must follow its summarized frontier'
-            USING ERRCODE = '23514';
-    END IF;
+    SELECT count(*) INTO checkpoint_count
+    FROM context_checkpoints checkpoint
+    WHERE checkpoint.agent_id = NEW.agent_id
+      AND checkpoint.producer_model_call_context_id = NEW.id;
 
-    SELECT prior.summarized_through_event_sequence, octet_length(prior.summary)::bigint
-    INTO prior_summarized_through, prior_summary_bytes
-    FROM context_checkpoints prior
-    JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
-      AND prior_event.context_checkpoint_id = prior.id
-      AND prior_event.event_kind = 'context_checkpoint'
-    WHERE prior.agent_id = NEW.agent_id
-      AND prior_event.sequence <= producer_input_event_sequence
-    ORDER BY prior_event.sequence DESC LIMIT 1;
-
-    IF NEW.summarized_through_event_sequence = prior_summarized_through THEN
-        IF octet_length(NEW.summary)::bigint * 10 > prior_summary_bytes * 9 THEN
-            RAISE EXCEPTION 'replacement checkpoint must reduce its latest applicable summary by at least ten percent'
+    IF NEW.state = 'succeeded' AND NEW.operation_kind = 'normal' THEN
+        IF NOT (output_count = 1 AND checkpoint_count = 0) THEN
+            RAISE EXCEPTION 'succeeded normal context must own exactly one model output'
                 USING ERRCODE = '23514';
         END IF;
-    ELSIF prior_summarized_through IS NOT NULL
-       AND NEW.summarized_through_event_sequence <= prior_summarized_through THEN
-        RAISE EXCEPTION 'checkpoint must advance beyond the applicable prior checkpoint'
+    ELSIF NEW.state = 'succeeded' AND NEW.operation_kind = 'compaction' THEN
+        IF NOT (output_count = 0 AND checkpoint_count = 1) THEN
+            RAISE EXCEPTION 'succeeded compaction context must own exactly one checkpoint'
+                USING ERRCODE = '23514';
+        END IF;
+    ELSIF NEW.state = 'failed'
+       AND NEW.recovery_kind IS NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM model_call_contexts parent
+           WHERE parent.id = NEW.parent_normal_model_call_context_id
+             AND parent.recovery_kind = 'compact_optional'
+       ) THEN
+        IF NOT (output_count = 1 AND checkpoint_count = 0) THEN
+            RAISE EXCEPTION 'stopped model call context must own exactly one error output'
+                USING ERRCODE = '23514';
+        END IF;
+    ELSIF output_count <> 0 OR checkpoint_count <> 0 THEN
+        RAISE EXCEPTION 'model call context outcome does not match its terminal state'
             USING ERRCODE = '23514';
     END IF;
 

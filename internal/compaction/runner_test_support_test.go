@@ -28,7 +28,7 @@ type fakeStore struct {
 	claims           []executionstore.ModelCallClaim
 	retryFailures    []executionstore.RecordRecoverableModelCallFailureInput
 	terminalFailures []executionstore.RecordTerminalCompactionFailureInput
-	resumedFailures  []executionstore.RecordCompactionFailureAndResumeNormalInput
+	resumedFailures  []executionstore.RecordOptionalCompactionFailureInput
 	replacements     []executionstore.ReplaceCompactionSourceInput
 	publishInputs    []executionstore.PublishContextCheckpointInput
 	publishErrs      []error
@@ -123,7 +123,6 @@ func newCompactionClaim(
 			AgentID:                        input.Plan.AgentID,
 			OperationKind:                  executionstore.ModelCallOperationCompaction,
 			ParentNormalModelCallContextID: testIDN(799),
-			ReplacesCheckpointID:           input.Plan.ReplacesCheckpointID,
 			AttemptNumber:                  1,
 			AgentConfigID:                  testIDN(501),
 			ConfiguredModelRevisionID:      testIDN(601),
@@ -168,14 +167,14 @@ func (s *fakeStore) RecordTerminalCompactionFailure(
 	return nil
 }
 
-func (s *fakeStore) RecordCompactionFailureAndResumeNormal(
+func (s *fakeStore) RecordOptionalCompactionFailure(
 	_ context.Context,
-	input executionstore.RecordCompactionFailureAndResumeNormalInput,
+	input executionstore.RecordOptionalCompactionFailureInput,
 ) (executionstore.ModelCallContextRecord, error) {
 	s.resumedFailures = append(s.resumedFailures, input)
 	record, _ := s.contextByID(input.ModelCallContextID)
 	record.State = executionstore.ModelCallContextFailed
-	record.RecoveryKind = executionstore.ModelCallRecoveryResumeNormal
+	record.RecoveryKind = ""
 	return record, nil
 }
 
@@ -198,7 +197,6 @@ func (s *fakeStore) ReplaceCompactionSource(
 			AgentID:                        input.AgentID,
 			OperationKind:                  executionstore.ModelCallOperationCompaction,
 			ParentNormalModelCallContextID: previous.ParentNormalModelCallContextID,
-			ReplacesCheckpointID:           previous.ReplacesCheckpointID,
 			AttemptNumber:                  previous.AttemptNumber + 1,
 			AgentConfigID:                  testIDN(501),
 			ConfiguredModelRevisionID:      testIDN(601),

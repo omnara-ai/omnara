@@ -44,9 +44,9 @@ type ExecutionStore interface {
 		ctx context.Context,
 		input executionstore.RecordTerminalCompactionFailureInput,
 	) error
-	RecordCompactionFailureAndResumeNormal(
+	RecordOptionalCompactionFailure(
 		ctx context.Context,
-		input executionstore.RecordCompactionFailureAndResumeNormalInput,
+		input executionstore.RecordOptionalCompactionFailureInput,
 	) (executionstore.ModelCallContextRecord, error)
 	ReplaceCompactionSource(
 		ctx context.Context,
