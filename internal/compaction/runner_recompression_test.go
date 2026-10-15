@@ -48,7 +48,6 @@ func TestRunnerExcerptsPriorCheckpointOnlyAfterProviderOverflow(t *testing.T) {
 			require.NotContains(t, string(client.requests[0].ProviderRequest), "OVERSIZED CLOSED HISTORY EXCERPT")
 			for i, replacement := range store.replacements {
 				require.Equal(t, input.Plan.EventSequenceEnd, replacement.NextSourceEventSequenceEnd)
-				require.NotNil(t, replacement.NextSourceExcerptBytes)
 				require.Less(t, len(client.requests[i+1].ProviderRequest), len(client.requests[i].ProviderRequest))
 			}
 			last := string(client.requests[len(client.requests)-1].ProviderRequest)
@@ -199,7 +198,6 @@ func TestRunnerUnusableCheckpointRecompressionResumesNormal(t *testing.T) {
 			require.Equal(t, RunResumeNormal, result.State)
 			require.Len(t, client.requests, 1)
 			require.Len(t, store.resumedFailures, 1)
-			require.Empty(t, store.resumedFailures[0].Outcome)
 			require.Equal(t, result.ModelCallContextID, store.resumedFailures[0].ModelCallContextID)
 			require.Empty(t, store.retryFailures)
 			require.Empty(t, store.replacements)
@@ -231,7 +229,6 @@ func TestRunnerCheckpointRecompressionTransientBudgetResumesNormalOnlyWhenExhaus
 			if exhausted {
 				require.Equal(t, RunResumeNormal, result.State)
 				require.Len(t, store.resumedFailures, 1)
-				require.Empty(t, store.resumedFailures[0].Outcome)
 				require.Empty(t, store.retryFailures)
 			} else {
 				require.Equal(t, RunRetryScheduled, result.State)
@@ -263,8 +260,8 @@ func TestRunnerCheckpointRecompressionOverflowResumesAfterExcerptFloor(t *testin
 	require.Greater(t, len(client.requests), 1)
 	require.Less(t, len(client.requests), 16)
 	require.Len(t, store.resumedFailures, 1)
-	require.Empty(t, store.resumedFailures[0].Outcome)
-	require.Equal(t, minimumSourceExcerptBytes, *store.replacements[len(store.replacements)-1].NextSourceExcerptBytes)
+	last := string(client.requests[len(client.requests)-1].ProviderRequest)
+	require.LessOrEqual(t, strings.Count(last, "old state "), minimumSourceExcerptBytes/len("old state "))
 	require.Empty(t, store.terminalFailures)
 	require.Empty(t, store.publishInputs)
 }
@@ -286,7 +283,6 @@ func TestRunnerCheckpointRecompressionConfigurationFailureResumesBeforeProviderR
 	require.NoError(t, err)
 	require.Equal(t, RunResumeNormal, result.State)
 	require.Len(t, store.resumedFailures, 1)
-	require.Empty(t, store.resumedFailures[0].Outcome)
 	require.Empty(t, client.requests)
 	require.Empty(t, store.retryFailures)
 	require.Empty(t, store.terminalFailures)

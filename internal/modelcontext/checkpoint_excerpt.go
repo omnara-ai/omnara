@@ -11,19 +11,44 @@ import (
 
 const minimumCheckpointExcerptBytes = 256
 
-func ApplyCheckpointExcerpt(bundle Bundle, checkpointID uuid.UUID, retainedBytes int) (Bundle, error) {
+func ApplyCheckpointExcerpt(bundle Bundle, checkpointID uuid.UUID, reductions int) (Bundle, error) {
 	if checkpointID == uuid.Nil || bundle.ContextCheckpoint == nil ||
 		bundle.ContextCheckpoint.ID != checkpointID.String() {
 		return Bundle{}, errors.New("checkpoint excerpt must reference the applicable checkpoint")
 	}
-	checkpoint := *bundle.ContextCheckpoint
-	if retainedBytes < 0 || retainedBytes >= len(checkpoint.Summary) {
-		return Bundle{}, errors.New("checkpoint excerpt must retain fewer bytes than the stored summary")
+	if reductions <= 0 {
+		return Bundle{}, errors.New("checkpoint excerpt reductions must be positive")
 	}
-	checkpoint.Summary = checkpointExcerpt(checkpoint.Summary, retainedBytes)
+	checkpoint := *bundle.ContextCheckpoint
+	retainedBytes, err := CheckpointExcerptBytes(checkpoint.Summary, reductions)
+	if err != nil {
+		return Bundle{}, err
+	}
+	if retainedBytes == nil {
+		return bundle, nil
+	}
+	checkpoint.Summary = checkpointExcerpt(checkpoint.Summary, *retainedBytes)
 	checkpoint.Excerpted = true
 	bundle.ContextCheckpoint = &checkpoint
 	return bundle, nil
+}
+
+func CheckpointExcerptBytes(summary string, reductions int) (*int, error) {
+	if reductions < 0 {
+		return nil, errors.New("checkpoint excerpt reductions cannot be negative")
+	}
+	var retained *int
+	for range reductions {
+		next, reduced, err := NextCheckpointExcerptBytes(summary, retained)
+		if err != nil {
+			return nil, err
+		}
+		if !reduced {
+			break
+		}
+		retained = &next
+	}
+	return retained, nil
 }
 
 func NextCheckpointExcerptBytes(summary string, current *int) (int, bool, error) {

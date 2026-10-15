@@ -135,8 +135,12 @@ func largestFittingCompactionRequest(
 	client model.Client,
 	policy model.RequestPolicy,
 	errorSource string,
-	excerptBytes *int,
+	sourceExcerptReductionCount int,
 ) (preparedCompactionRequest, error) {
+	excerptBytes, err := sourceExcerptLimit(input, prior, events, sourceExcerptReductionCount)
+	if err != nil {
+		return preparedCompactionRequest{}, err
+	}
 	candidates := safeCompactionSourceEndsWithWitness(
 		events,
 		witnessEvents,

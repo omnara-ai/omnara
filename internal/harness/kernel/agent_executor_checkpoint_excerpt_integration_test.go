@@ -154,12 +154,10 @@ func TestAgentExecutorCheckpointMarkerOnlyRecoveryStopsAndLaterTurnRemainsUsable
 	require.Equal(t, "[Earlier history omitted to fit the model. The original checkpoint remains stored.]",
 		final.Bundle.ContextCheckpoint.Summary)
 	require.Contains(t, string(final.ProviderRequest), current)
-	var markerAttempts, terminalErrors int
+	var terminalErrors int
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT
-		count(*) FILTER(WHERE recovery_checkpoint_retained_bytes=0),
 		count(*) FILTER(WHERE error_code='context_cannot_be_compacted')
-		FROM model_call_contexts WHERE agent_id=$1`, work.AgentID).Scan(&markerAttempts, &terminalErrors))
-	require.Equal(t, 1, markerAttempts)
+		FROM model_call_contexts WHERE agent_id=$1`, work.AgentID).Scan(&terminalErrors))
 	require.Equal(t, 1, terminalErrors)
 	stored, found, err := fixture.Store.Execution().GetContextCheckpoint(ctx, kernelTestProjectID, work.AgentID, prior.ID)
 	require.NoError(t, err)
@@ -261,6 +259,6 @@ func TestAgentExecutorNeverExcerptsCheckpointCoveringCurrentOpening(t *testing.T
 	}
 	var excerptCount int
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
-		WHERE agent_id=$1 AND recovery_checkpoint_retained_bytes IS NOT NULL`, work.AgentID).Scan(&excerptCount))
+		WHERE agent_id=$1 AND recovery_kind='excerpt_checkpoint'`, work.AgentID).Scan(&excerptCount))
 	require.Zero(t, excerptCount)
 }

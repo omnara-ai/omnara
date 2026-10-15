@@ -39,7 +39,10 @@ func TestCheckpointExcerptRecoveryShrinksToNoticeWithoutChangingStoredContext(t 
 				if retained != nil {
 					require.Less(t, next, *retained)
 				}
-				projected, err := ApplyCheckpointExcerpt(original, id, next)
+				rebuilt, err := CheckpointExcerptBytes(summary, attempt+1)
+				require.NoError(t, err)
+				require.Equal(t, &next, rebuilt)
+				projected, err := ApplyCheckpointExcerpt(original, id, attempt+1)
 				require.NoError(t, err)
 				require.True(t, utf8.ValidString(projected.ContextCheckpoint.Summary))
 				require.Contains(t, projected.ContextCheckpoint.Summary, "remains stored")
@@ -64,8 +67,8 @@ func TestCheckpointExcerptRecoveryShrinksToNoticeWithoutChangingStoredContext(t 
 
 func TestCheckpointExcerptRejectsUnrelatedOrInvalidProjection(t *testing.T) {
 	id := uuid.New()
-	bundle := Bundle{ContextCheckpoint: &CheckpointRef{ID: id.String(), Summary: "saved state"}}
-	for _, invalid := range []int{-1, len(bundle.ContextCheckpoint.Summary), len(bundle.ContextCheckpoint.Summary) + 1} {
+	bundle := Bundle{ContextCheckpoint: &CheckpointRef{ID: id.String(), Summary: strings.Repeat("saved state ", 100)}}
+	for _, invalid := range []int{-1, 0} {
 		_, err := ApplyCheckpointExcerpt(bundle, id, invalid)
 		require.Error(t, err)
 	}
@@ -81,4 +84,9 @@ func TestCheckpointExcerptDoesNotExpandTinyMemory(t *testing.T) {
 	_, ok, err := NextCheckpointExcerptBytes("Done.", nil)
 	require.NoError(t, err)
 	require.False(t, ok)
+	id := uuid.New()
+	bundle := Bundle{ContextCheckpoint: &CheckpointRef{ID: id.String(), Summary: "Done."}}
+	projected, err := ApplyCheckpointExcerpt(bundle, id, 100)
+	require.NoError(t, err)
+	require.Equal(t, bundle, projected)
 }

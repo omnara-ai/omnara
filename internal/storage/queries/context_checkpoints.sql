@@ -60,7 +60,15 @@ SELECT checkpoint.id, agent.project_id,
     JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
       AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
     WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND producer.source_excerpt_bytes IS NOT NULL
+      AND producer.state = 'succeeded' AND EXISTS (
+        SELECT 1 FROM model_call_contexts reduction
+        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
+          AND reduction.operation_kind = 'compaction'
+          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
+          AND reduction.attempt_number < producer.attempt_number
+          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
+      )
   )::boolean AS has_omitted_history
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id
@@ -85,7 +93,15 @@ SELECT checkpoint.id, agent.project_id,
     JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
       AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
     WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND producer.source_excerpt_bytes IS NOT NULL
+      AND producer.state = 'succeeded' AND EXISTS (
+        SELECT 1 FROM model_call_contexts reduction
+        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
+          AND reduction.operation_kind = 'compaction'
+          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
+          AND reduction.attempt_number < producer.attempt_number
+          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
+      )
   )::boolean AS has_omitted_history
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id
@@ -112,7 +128,15 @@ SELECT checkpoint.id, agent.project_id,
     JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
       AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
     WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND producer.source_excerpt_bytes IS NOT NULL
+      AND producer.state = 'succeeded' AND EXISTS (
+        SELECT 1 FROM model_call_contexts reduction
+        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
+          AND reduction.operation_kind = 'compaction'
+          AND reduction.parent_normal_model_call_context_id = producer.parent_normal_model_call_context_id
+          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
+          AND reduction.attempt_number < producer.attempt_number
+          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
+      )
   )::boolean AS has_omitted_history
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id

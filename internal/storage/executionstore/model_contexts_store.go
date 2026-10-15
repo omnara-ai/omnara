@@ -26,13 +26,11 @@ const (
 	ModelCallContextCanceled  ModelCallState = "canceled"
 
 	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
+	ModelCallRecoveryExcerptCheckpoint      ModelCallRecoveryKind = "excerpt_checkpoint"
 	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
 	ModelCallRecoveryCompactOptional        ModelCallRecoveryKind = "compact_optional"
 	ModelCallRecoveryResumeNormal           ModelCallRecoveryKind = "resume_normal"
 	ModelCallRecoveryReduceCompactionSource ModelCallRecoveryKind = "reduce_compaction_source"
-
-	OptionalCompactionInterrupted OptionalCompactionOutcome = "interrupted"
-	OptionalCompactionIneffective OptionalCompactionOutcome = "ineffective"
 )
 
 type ModelCallOperation string
@@ -41,17 +39,11 @@ type ModelCallState string
 
 type ModelCallRecoveryKind string
 
-type OptionalCompactionOutcome string
-
 type ModelCallContextRecord struct {
 	ParentNormalModelCallContextID uuid.UUID `json:"parent_normal_model_call_context_id,omitempty"`
 	ReplacesCheckpointID           uuid.UUID `json:"replaces_checkpoint_id,omitempty"`
 
-	SourceExcerptBytes *int `json:"source_excerpt_bytes,omitempty"`
-
-	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
-
-	OptionalCompactionOutcome OptionalCompactionOutcome `json:"optional_compaction_outcome,omitempty"`
+	SourceExcerptReductionCount int `json:"source_excerpt_reduction_count,omitempty"`
 
 	ID                        uuid.UUID                             `json:"id"`
 	OrgID                     uuid.UUID                             `json:"org_id"`
@@ -124,7 +116,6 @@ type ClaimNormalModelCallInput struct {
 
 type claimCompactionContextInput struct {
 	AgentConfigID          uuid.UUID
-	SourceExcerptBytes     *int
 	ProjectID              uuid.UUID
 	AgentID                uuid.UUID
 	RuntimeLockID          uuid.UUID
@@ -140,7 +131,6 @@ type ClaimNextModelCallContextInput struct {
 }
 
 type ReplaceCompactionSourceInput struct {
-	NextSourceExcerptBytes     *int
 	ProjectID                  uuid.UUID
 	AgentID                    uuid.UUID
 	RuntimeLockID              uuid.UUID
@@ -160,24 +150,23 @@ type ReplaceCompactionSourceInput struct {
 }
 
 type RecordRecoverableModelCallFailureInput struct {
-	RecoveryCheckpointRetainedBytes *int
-	ProjectID                       uuid.UUID
-	AgentID                         uuid.UUID
-	ModelCallContextID              uuid.UUID
-	RuntimeLockID                   uuid.UUID
-	RecoveryKind                    ModelCallRecoveryKind
-	APIFormat                       modelprotocol.APIFormat
-	APIVariant                      modelprotocol.APIVariant
-	ProviderRequestID               string
-	ProviderResponseID              string
-	ErrorKind                       modelprotocol.ErrorKind
-	ErrorCode                       string
-	ErrorMessage                    string
-	ErrorDetails                    json.RawMessage
-	RetryDelay                      time.Duration
-	Usage                           modelenvelope.Usage
-	ProviderReportedCostUSD         modelenvelope.ProviderReportedCostUSD
-	ProviderMetadata                modelenvelope.ProviderMetadata
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ModelCallContextID      uuid.UUID
+	RuntimeLockID           uuid.UUID
+	RecoveryKind            ModelCallRecoveryKind
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	ErrorKind               modelprotocol.ErrorKind
+	ErrorCode               string
+	ErrorMessage            string
+	ErrorDetails            json.RawMessage
+	RetryDelay              time.Duration
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {

@@ -10,30 +10,23 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRunnerOptionalFailureResumesNormalAfterOneProviderAttempt(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		result  summaryResult
-		outcome executionstore.OptionalCompactionOutcome
+		name   string
+		result summaryResult
 	}{
-		{"overflow", summaryResult{err: model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "too_big"}},
-			executionstore.OptionalCompactionIneffective},
-		{"timeout", summaryResult{err: model.ProviderError{Kind: model.ErrorKindTransient, Code: "timeout"}},
-			executionstore.OptionalCompactionInterrupted},
-		{"refusal", summaryResult{response: model.Response{StopReason: model.StopReasonRefusal}},
-			executionstore.OptionalCompactionIneffective},
+		{"overflow", summaryResult{err: model.ProviderError{Kind: model.ErrorKindContextWindow, Code: "too_big"}}},
+		{"timeout", summaryResult{err: model.ProviderError{Kind: model.ErrorKindTransient, Code: "timeout"}}},
+		{"refusal", summaryResult{response: model.Response{StopReason: model.StopReasonRefusal}}},
 		{"invalid parsed response", summaryResult{response: model.Response{StopReason: model.StopReasonEndTurn,
-			Content: []model.ResponsePart{{Type: "unexpected"}}}}, executionstore.OptionalCompactionIneffective},
+			Content: []model.ResponsePart{{Type: "unexpected"}}}}},
 		{"truncated", summaryResult{response: model.Response{StopReason: model.StopReasonMaxTokens,
-			Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}}}},
-			executionstore.OptionalCompactionIneffective},
-		{"not reduced", summaryResult{response: completeSummaryResponse(strings.Repeat("expanded summary ", 1_000))},
-			executionstore.OptionalCompactionIneffective},
+			Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}}}}},
+		{"not reduced", summaryResult{response: completeSummaryResponse(strings.Repeat("expanded summary ", 1_000))}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeStore{parentRecoveryKind: executionstore.ModelCallRecoveryCompactOptional,
@@ -49,7 +42,6 @@ func TestRunnerOptionalFailureResumesNormalAfterOneProviderAttempt(t *testing.T)
 			require.Equal(t, RunResumeNormal, result.State)
 			require.Len(t, client.requests, 1)
 			require.Len(t, store.resumedFailures, 1)
-			require.Equal(t, tc.outcome, store.resumedFailures[0].Outcome)
 			require.Empty(t, store.replacements)
 			require.Empty(t, store.retryFailures)
 			require.Empty(t, store.terminalFailures)
@@ -71,7 +63,6 @@ func TestRunnerOptionalSourceLoadFailureResumesNormalWithOriginalCause(t *testin
 	require.Equal(t, RunResumeNormal, result.State)
 	require.Empty(t, client.requests)
 	require.Len(t, store.resumedFailures, 1)
-	require.Equal(t, executionstore.OptionalCompactionInterrupted, store.resumedFailures[0].Outcome)
 	require.Equal(t, compactionErrorCodeLoadSourceFailed, store.resumedFailures[0].ErrorCode)
 	require.Contains(t, string(store.resumedFailures[0].ErrorDetails), store.atomicGroupsErr.Error())
 }
@@ -92,9 +83,9 @@ func TestRunnerExcerptRecoveryMeasuresReductionAgainstReplacedHistory(t *testing
 			input := runInput(testPlan(1, 1, 2))
 			client := &summaryModel{
 				caps: model.Capabilities{ContextWindowTokens: 32768, MaxOutputTokens: new(16384), DefaultMaxOutputTokens: 16384},
-				respond: func(model.Request) (model.Response, error) {
-					claim := store.claims[len(store.claims)-1].Context
-					if claim.SourceExcerptBytes == nil || *claim.SourceExcerptBytes > tc.acceptedExcerptBytes {
+				respond: func(request model.Request) (model.Response, error) {
+					if strings.Count(string(request.ProviderRequest), "old closed history ") >
+						tc.acceptedExcerptBytes/len("old closed history ") {
 						return model.Response{}, model.ProviderError{Kind: model.ErrorKindContextWindow}
 					}
 					return completeSummaryResponse(tc.summary), nil
@@ -109,30 +100,6 @@ func TestRunnerExcerptRecoveryMeasuresReductionAgainstReplacedHistory(t *testing
 			require.Contains(t, result.Checkpoint.Summary, "details of old events 1..1 were omitted")
 		})
 	}
-}
-
-func TestOptionalCompactionOutcomeUsesTypedFailureInsteadOfProviderCode(t *testing.T) {
-	for _, kind := range []model.ErrorKind{
-		model.ErrorKindTransient, model.ErrorKindRateLimit, model.ErrorKindProviderUnavailable,
-		model.ErrorKindUnknown, model.ErrorKindAuth, model.ErrorKindBillingAccount, model.ErrorKindReplayRejected,
-		modelprotocol.ErrorKindRuntime, modelprotocol.ErrorKindCanceled,
-	} {
-		t.Run(string(kind), func(t *testing.T) {
-			cause := model.ProviderError{Kind: kind, Code: compactionErrorCodeSummaryTruncated}
-			require.Equal(t, executionstore.OptionalCompactionInterrupted, optionalCompactionOutcome(cause, true))
-		})
-	}
-	for _, kind := range []model.ErrorKind{
-		model.ErrorKindInvalidRequest, model.ErrorKindContextWindow, model.ErrorKindPayloadTooLarge,
-	} {
-		t.Run(string(kind), func(t *testing.T) {
-			cause := model.ProviderError{Kind: kind}
-			require.Equal(t, executionstore.OptionalCompactionInterrupted, optionalCompactionOutcome(cause, false))
-			require.Equal(t, executionstore.OptionalCompactionIneffective, optionalCompactionOutcome(cause, true))
-		})
-	}
-	cause := irreducibleCompactionError("no reducible source")
-	require.Equal(t, executionstore.OptionalCompactionIneffective, optionalCompactionOutcome(cause, false))
 }
 
 func TestRunnerExcerptsOldClosedAtomicGroupOnlyAfterActualOverflow(t *testing.T) {
@@ -168,10 +135,6 @@ func TestRunnerExcerptsOldClosedAtomicGroupOnlyAfterActualOverflow(t *testing.T)
 	require.NotContains(t, string(client.requests[0].ProviderRequest), "OVERSIZED CLOSED HISTORY EXCERPT")
 	for i, replacement := range store.replacements {
 		require.Equal(t, int64(3), replacement.NextSourceEventSequenceEnd, "atomic group must remain whole")
-		require.NotNil(t, replacement.NextSourceExcerptBytes)
-		if i > 0 {
-			require.Less(t, *replacement.NextSourceExcerptBytes, *store.replacements[i-1].NextSourceExcerptBytes)
-		}
 		require.Less(t, len(client.requests[i+1].ProviderRequest), len(client.requests[i].ProviderRequest))
 	}
 	last := string(client.requests[len(client.requests)-1].ProviderRequest)
@@ -235,7 +198,58 @@ func TestRunnerExcerptsStopAtFiniteFloor(t *testing.T) {
 	require.Equal(t, RunTerminal, result.State)
 	require.Greater(t, len(client.requests), 1)
 	require.Less(t, len(client.requests), 16)
-	require.Equal(t, minimumSourceExcerptBytes, *store.replacements[len(store.replacements)-1].NextSourceExcerptBytes)
+	last := string(client.requests[len(client.requests)-1].ProviderRequest)
+	require.LessOrEqual(t,
+		strings.Count(last, "large closed history "), minimumSourceExcerptBytes/len("large closed history "))
 	require.Empty(t, store.retryFailures)
 	require.Empty(t, store.publishInputs)
+	claim := store.addStartedClaim(compactionInput)
+	claim.Context.SourceExcerptReductionCount = 100
+	store.claims[len(store.claims)-1] = claim
+	restartedClient := &summaryModel{}
+	result, err = testRunner(store, restartedClient).RunClaimed(t.Context(), compactionInput, claim)
+	require.NoError(t, err)
+	require.Equal(t, RunCompleted, result.State)
+	require.Len(t, restartedClient.requests, 1)
+	require.Equal(t, last, string(restartedClient.requests[0].ProviderRequest))
+}
+
+func TestRunnerReconstructsExcerptAfterTransientRetry(t *testing.T) {
+	store := &fakeStore{atomicGroups: []executionstore.CompactionAtomicGroupRecord{{
+		Kind: "tool_call_result", StartSequence: 1, EndSequence: 51,
+	}}}
+	for sequence := int64(1); sequence <= 50; sequence++ {
+		store.events = append(store.events, textCompactionEvent(sequence, "done"))
+	}
+	store.events = append(store.events, textCompactionEvent(51, strings.Repeat("old history ", 700)))
+	input := runInput(testPlan(1, 51, 52))
+	original, err := renderCompactionSource(input, executionstore.ContextCheckpointRecord{}, store.events, nil)
+	require.NoError(t, err)
+	firstLimit := min(initialSourceExcerptBytes, len(original.sourceText)/2)
+	first, err := renderCompactionSource(input, executionstore.ContextCheckpointRecord{}, store.events, &firstLimit)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(first.sourceText), len(original.sourceText), "fixture must require skipping a candidate")
+	client := &summaryModel{results: []summaryResult{
+		{err: model.ProviderError{Kind: model.ErrorKindContextWindow}},
+		{err: model.ProviderError{Kind: model.ErrorKindTransient}},
+	}}
+	result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
+	require.NoError(t, err)
+	require.Equal(t, RunRetryScheduled, result.State)
+	require.Len(t, client.requests, 2)
+	require.Len(t, store.replacements, 1)
+	require.Less(t, len(client.requests[1].ProviderRequest), len(client.requests[0].ProviderRequest))
+	previous := store.claims[len(store.claims)-1].Context
+	retry := store.addStartedClaim(input)
+	retry.Context.AttemptNumber = previous.AttemptNumber + 1
+	retry.Context.SourceExcerptReductionCount = previous.SourceExcerptReductionCount
+	store.claims[len(store.claims)-1] = retry
+	restartedClient := &summaryModel{}
+	result, err = testRunner(store, restartedClient).RunClaimed(t.Context(), input, retry)
+	require.NoError(t, err)
+	require.Equal(t, RunCompleted, result.State)
+	require.Len(t, restartedClient.requests, 1)
+	require.Equal(t, client.requests[1].ProviderRequest, restartedClient.requests[0].ProviderRequest)
+	require.Len(t, store.replacements, 1)
+	require.Contains(t, result.Checkpoint.Summary, "details of old events 1..51 were omitted")
 }

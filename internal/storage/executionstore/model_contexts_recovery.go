@@ -12,10 +12,9 @@ import (
 
 type ModelCallRecoveryState struct {
 	RecoveryCheckpointID                  uuid.UUID
-	RecoveryCheckpointRetainedBytes       *int
+	CheckpointExcerptReductionCount       int
 	CheckpointRecompressionAttempted      bool
 	HasPriorOptionalCompaction            bool
-	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int
 	MinimumObservedNormalInputTokens      int
@@ -38,10 +37,9 @@ func (s *Store) GetModelCallRecoveryState(
 	}
 	return ModelCallRecoveryState{
 		RecoveryCheckpointID:                  storeutil.IDFromPtr(row.RecoveryCheckpointID),
-		RecoveryCheckpointRetainedBytes:       intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
+		CheckpointExcerptReductionCount:       int(row.CheckpointExcerptReductionCount),
 		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
 		HasPriorOptionalCompaction:            row.HasPriorOptionalCompaction,
-		LastOptionalCompactionNeedsHeadroom:   row.LastOptionalCompactionNeedsHeadroom,
 		OptionalCompactionAttemptedAtFrontier: row.OptionalCompactionAttemptedAtFrontier,
 		LatestObservedNormalInputTokens:       int(row.LatestObservedNormalInputTokens),
 		MinimumObservedNormalInputTokens:      int(row.MinimumObservedNormalInputTokens),

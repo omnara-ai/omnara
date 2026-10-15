@@ -2,6 +2,7 @@ package compaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -29,17 +30,53 @@ func (r Runner) nextSourceExcerptBytes(
 	if err != nil {
 		return 0, err
 	}
-	previous, err := renderCompactionSource(input, prior, events, claim.Context.SourceExcerptBytes)
+	excerptBytes, err := sourceExcerptLimit(input, prior, events, claim.Context.SourceExcerptReductionCount)
+	if err != nil {
+		return 0, err
+	}
+	return nextSourceExcerptLimit(input, prior, events, excerptBytes)
+}
+
+func sourceExcerptLimit(
+	input RunInput,
+	prior executionstore.ContextCheckpointRecord,
+	events []executionstore.CompactionSourceEventRecord,
+	reductions int,
+) (*int, error) {
+	if reductions < 0 {
+		return nil, errors.New("compaction source reduction count cannot be negative")
+	}
+	var excerptBytes *int
+	for range reductions {
+		next, err := nextSourceExcerptLimit(input, prior, events, excerptBytes)
+		if err != nil {
+			return nil, err
+		}
+		if next == 0 {
+			break
+		}
+		excerptBytes = &next
+	}
+	return excerptBytes, nil
+}
+
+func nextSourceExcerptLimit(
+	input RunInput,
+	prior executionstore.ContextCheckpointRecord,
+	events []executionstore.CompactionSourceEventRecord,
+	excerptBytes *int,
+) (int, error) {
+	previous, err := renderCompactionSource(input, prior, events, excerptBytes)
 	if err != nil {
 		return 0, err
 	}
 	previousBytes := len(previous.priorSummary) + len(previous.sourceText)
 	next := min(initialSourceExcerptBytes, previousBytes/2)
-	if claim.Context.SourceExcerptBytes != nil {
-		if *claim.Context.SourceExcerptBytes <= minimumSourceExcerptBytes {
+	if excerptBytes != nil {
+		if *excerptBytes <= minimumSourceExcerptBytes {
 			return 0, nil
 		}
-		next = *claim.Context.SourceExcerptBytes / 2
+		next = *excerptBytes / 2
 	}
 	next = max(minimumSourceExcerptBytes, next)
 	for {

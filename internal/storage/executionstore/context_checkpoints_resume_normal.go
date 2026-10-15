@@ -16,7 +16,6 @@ import (
 )
 
 type RecordCompactionFailureAndResumeNormalInput struct {
-	Outcome                 OptionalCompactionOutcome
 	ProjectID               uuid.UUID
 	AgentID                 uuid.UUID
 	RuntimeLockID           uuid.UUID
@@ -109,11 +108,7 @@ func recordCompactionFailureAndResumeNormalTx(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if parent.RecoveryKind == ModelCallRecoveryCompactOptional {
-		if input.Outcome != OptionalCompactionInterrupted && input.Outcome != OptionalCompactionIneffective {
-			return ModelCallContextRecord{}, errors.New("a valid optional compaction outcome is required")
-		}
-	} else if current.ReplacesCheckpointID == uuid.Nil || input.Outcome != "" {
+	if parent.RecoveryKind != ModelCallRecoveryCompactOptional && current.ReplacesCheckpointID == uuid.Nil {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	input.ErrorDetails = normalizedJSONOrObject(input.ErrorDetails)
@@ -124,8 +119,7 @@ func recordCompactionFailureAndResumeNormalTx(
 	}
 	input.ProviderMetadata = providerMetadataFromSQLC(metadata)
 	if current.State == ModelCallContextFailed && current.RecoveryKind == ModelCallRecoveryResumeNormal {
-		if current.OptionalCompactionOutcome != input.Outcome ||
-			current.APIFormat != input.APIFormat || current.APIVariant != input.APIVariant ||
+		if current.APIFormat != input.APIFormat || current.APIVariant != input.APIVariant ||
 			current.ProviderRequestID != input.ProviderRequestID || current.ProviderResponseID != input.ProviderResponseID ||
 			current.ErrorKind != input.ErrorKind || current.ErrorCode != input.ErrorCode ||
 			current.ErrorMessage != input.ErrorMessage ||
@@ -140,23 +134,22 @@ func recordCompactionFailureAndResumeNormalTx(
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	return finishModelCallContextWithAuthorityTx(ctx, q, finishModelCallContextInput{
-		ProjectID:                 input.ProjectID,
-		AgentID:                   input.AgentID,
-		ModelCallContextID:        input.ModelCallContextID,
-		RuntimeLockID:             input.RuntimeLockID,
-		ToState:                   ModelCallContextFailed,
-		RecoveryKind:              ModelCallRecoveryResumeNormal,
-		OptionalCompactionOutcome: input.Outcome,
-		APIFormat:                 input.APIFormat,
-		APIVariant:                input.APIVariant,
-		ProviderRequestID:         input.ProviderRequestID,
-		ProviderResponseID:        input.ProviderResponseID,
-		ErrorKind:                 input.ErrorKind,
-		ErrorCode:                 input.ErrorCode,
-		ErrorMessage:              input.ErrorMessage,
-		ErrorDetails:              input.ErrorDetails,
-		Usage:                     input.Usage,
-		ProviderReportedCostUSD:   input.ProviderReportedCostUSD,
-		ProviderMetadata:          input.ProviderMetadata,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            ModelCallRecoveryResumeNormal,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	}, authority)
 }

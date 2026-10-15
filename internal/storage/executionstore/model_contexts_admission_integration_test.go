@@ -224,7 +224,6 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	sourceEnd := parent.Context.InputEventSequence
 	optional := admissionHandoff(t, ctx, fixture, parent, true, sourceEnd)
 	failure := executionstore.RecordCompactionFailureAndResumeNormalInput{
-		Outcome:   executionstore.OptionalCompactionIneffective,
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 		ModelCallContextID: optional.CompactionCall.Context.ID,
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
@@ -235,15 +234,10 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	failed, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ModelCallRecoveryResumeNormal, failed.RecoveryKind)
-	require.Equal(t, executionstore.OptionalCompactionIneffective, failed.OptionalCompactionOutcome)
 	_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
 	require.NoError(t, err)
 	changed := failure
 	changed.ErrorMessage = "different evidence"
-	_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, changed)
-	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
-	changed = failure
-	changed.Outcome = executionstore.OptionalCompactionInterrupted
 	_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, changed)
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	var workKind string
@@ -283,7 +277,6 @@ func TestOptionalCompactionFailureResumesNormalAndOwnsLaterRepair(t *testing.T) 
 	require.NoError(t, err)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 	require.True(t, state.HasPriorOptionalCompaction)
-	require.True(t, state.LastOptionalCompactionNeedsHeadroom)
 	retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, next.Context.ID)
 	require.NoError(t, err)
 	require.Zero(t, retry.RetryCount)
@@ -341,12 +334,10 @@ func TestInterruptedOptionalCompactionResumesNormalAfterRuntimeRelease(t *testin
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.ModelCallRecoveryResumeNormal, child.RecoveryKind)
-	require.Equal(t, executionstore.OptionalCompactionInterrupted, child.OptionalCompactionOutcome)
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(
 		ctx, testProjectID, fixture.AgentID, child.ID,
 	)
 	require.NoError(t, err)
-	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 	var workID uuid.UUID
 	require.NoError(
@@ -393,23 +384,22 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, claim.Claimed)
 	}
-	budget := 4096
 	replacement, err := fixture.Store.Execution().ReplaceCompactionSource(
 		ctx,
 		executionstore.ReplaceCompactionSourceInput{
-			ProjectID:                  testProjectID,
-			AgentID:                    fixture.AgentID,
-			RuntimeLockID:              fixture.Lock.ID,
-			ModelCallContextID:         claim.Context.ID,
-			ErrorKind:                  modelprotocol.ErrorKindContextWindow,
-			ErrorMessage:               "source too large",
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			RuntimeLockID:      fixture.Lock.ID,
+			ModelCallContextID: claim.Context.ID,
+			ErrorKind:          modelprotocol.ErrorKindContextWindow,
+			ErrorMessage:       "source too large",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
 			NextSourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd,
-			NextSourceExcerptBytes:     &budget,
 		},
 	)
 	require.NoError(t, err)
 	require.True(t, replacement.CompactionCall.Claimed)
-	require.Equal(t, &budget, replacement.CompactionCall.Context.SourceExcerptBytes)
+	require.Equal(t, 1, replacement.CompactionCall.Context.SourceExcerptReductionCount)
 	require.Equal(t, claim.Context.AttemptNumber+1, replacement.CompactionCall.Context.AttemptNumber)
 	stale, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -450,9 +440,8 @@ func TestCompactionExcerptProgressSharesTransientRetryBudget(t *testing.T) {
 		RuntimeLockID:              fixture.Lock.ID,
 		ModelCallContextID:         replacement.CompactionCall.Context.ID,
 		ErrorKind:                  modelprotocol.ErrorKindContextWindow,
-		ErrorMessage:               "no reduction",
+		ErrorMessage:               "missing provider attempt evidence",
 		NextSourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd,
-		NextSourceExcerptBytes:     &budget,
 	})
 	require.True(t, errors.Is(err, storeerr.ErrStateTransitionConflict))
 }
@@ -464,7 +453,6 @@ func TestOptionalCompactionObservationsResetAtAttemptAndModelRevision(t *testing
 	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
 	_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx,
 		executionstore.RecordCompactionFailureAndResumeNormalInput{
-			Outcome:   executionstore.OptionalCompactionIneffective,
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			ModelCallContextID: optional.CompactionCall.Context.ID,
 			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorMessage: "optional refusal",
@@ -525,7 +513,6 @@ error_kind='context_window',error_message='later optional',completed_at=statemen
 	require.NoError(t, err)
 	require.Zero(t, state.MinimumObservedNormalInputTokens)
 	require.True(t, state.HasPriorOptionalCompaction)
-	require.False(t, state.LastOptionalCompactionNeedsHeadroom)
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		executionstore.RecordRecoverableModelCallFailureInput{
@@ -552,39 +539,6 @@ error_kind='context_window',error_message='later optional',completed_at=statemen
 	require.True(t, state.OptionalCompactionAttemptedAtFrontier)
 }
 
-func TestOptionalCompactionOutcomeGuards(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	fixture, _, parent := newStartedNormalModelCallTestFixture(t, ctx, "optional_outcome_guards")
-	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
-	for _, tc := range []struct {
-		recovery string
-		outcome  *string
-	}{
-		{"resume_normal", nil},
-		{"resume_normal", new("future_outcome")},
-		{"retry", new("interrupted")},
-	} {
-		_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind=$2,optional_compaction_outcome=$3,
-retry_at=CASE WHEN $2='retry' THEN statement_timestamp() ELSE NULL END,
-error_kind='runtime',error_message='optional outcome guard',completed_at=statement_timestamp() WHERE id=$1`,
-			optional.CompactionCall.Context.ID, tc.recovery, tc.outcome,
-		)
-		assertPgConstraint(t, err, "23514", "model_call_contexts_optional_outcome")
-	}
-	for _, outcome := range []executionstore.OptionalCompactionOutcome{"", "future_outcome"} {
-		_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(
-			ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
-				Outcome: outcome, ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-				ModelCallContextID: optional.CompactionCall.Context.ID,
-				ErrorKind:          modelprotocol.ErrorKindTransient, ErrorMessage: "optional outcome guard",
-			},
-		)
-		require.ErrorContains(t, err, "valid optional compaction outcome")
-	}
-}
-
 func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -592,7 +546,6 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 	optional := admissionHandoff(t, ctx, fixture, parent, true, parent.Context.InputEventSequence)
 	_, err := fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(
 		ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
-			Outcome:   executionstore.OptionalCompactionInterrupted,
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			ModelCallContextID: optional.CompactionCall.Context.ID,
 			ErrorKind:          modelprotocol.ErrorKindTransient, ErrorCode: "summary_not_reduced",
@@ -630,7 +583,6 @@ func TestObservedCompactionPressureDoesNotResurrectUsageAfterUnknownSuccess(t *t
 		require.NoError(t, err)
 		require.Equal(t, inputTokens, state.LatestObservedNormalInputTokens)
 		require.Equal(t, observation.minimum, state.MinimumObservedNormalInputTokens)
-		require.False(t, state.LastOptionalCompactionNeedsHeadroom)
 		if inputTokens == 2000 {
 			pinnedContextID = current.ID
 		}

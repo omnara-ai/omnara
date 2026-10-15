@@ -80,17 +80,16 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`,
 	require.NoError(t, err)
 	require.True(t, claim.Claimed)
 	require.Equal(t, first.ID, claim.Context.ReplacesCheckpointID)
-	bytes := 64
 	updated, err := fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 		ModelCallContextID: claim.Context.ID, ErrorKind: modelprotocol.ErrorKindContextWindow,
 		ErrorMessage: "full prior summary cannot fit", NextSourceEventSequenceEnd: first.SummarizedThroughEventSequence,
-		NextSourceExcerptBytes: &bytes,
+		APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
 	})
 	require.NoError(t, err)
 	claim = updated.CompactionCall
 	require.Equal(t, first.ID, claim.Context.ReplacesCheckpointID)
-	require.Equal(t, &bytes, claim.Context.SourceExcerptBytes)
+	require.Equal(t, 1, claim.Context.SourceExcerptReductionCount)
 	_, err = publishCheckpointForRangeTest(t, ctx, fixture, claim, strings.Repeat("b", 901), fixture.Now)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	second, err := publishCheckpointForRangeTest(t, ctx, fixture, claim, strings.Repeat("b", 900), fixture.Now)
@@ -100,7 +99,7 @@ FROM model_call_contexts WHERE id=$1 RETURNING id`,
 	require.Greater(t, second.CheckpointEventSequence, first.CheckpointEventSequence)
 
 	claim = claimReplacement(second)
-	require.Nil(t, claim.Context.SourceExcerptBytes)
+	require.Zero(t, claim.Context.SourceExcerptReductionCount)
 	third, err := publishCheckpointForRangeTest(t, ctx, fixture, claim, strings.Repeat("c", 810), fixture.Now)
 	require.NoError(t, err)
 	require.True(t, third.HasOmittedHistory)

@@ -137,20 +137,19 @@ func TestAgentExecutorContinuesAfterLiveTargetChangeWithoutResettingCompaction(t
 	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 }
 
-func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWater(t *testing.T) {
+func TestAgentExecutorUsesSharedCooldownAfterOptionalCompaction(t *testing.T) {
 	for _, test := range []struct {
-		name         string
-		failure      error
-		response     model.Response
-		inputTokens  int
-		interrupted  bool
-		wantOptional bool
+		name        string
+		failure     error
+		response    model.Response
+		inputTokens int
+		interrupted bool
 	}{
 		{name: "timeout without observed usage",
 			failure: model.ProviderError{Kind: model.ErrorKindTransient, Source: "test", Message: "Summary timed out"}},
-		{name: "rate limited with pressure", inputTokens: 9_000, wantOptional: true,
+		{name: "rate limited with pressure", inputTokens: 9_000,
 			failure: model.ProviderError{Kind: model.ErrorKindRateLimit, Source: "test", Message: "Rate limited"}},
-		{name: "worker interrupted with pressure", inputTokens: 9_000, wantOptional: true, interrupted: true,
+		{name: "worker interrupted with pressure", inputTokens: 9_000, interrupted: true,
 			failure: errors.New("summary worker stopped")},
 		{name: "rate limited with low actual input", inputTokens: 1_000,
 			failure: model.ProviderError{Kind: model.ErrorKindRateLimit, Source: "test", Message: "Rate limited"}},
@@ -173,9 +172,6 @@ func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWat
 				responses = append(responses, test.response)
 			}
 			responses = append(responses, observedOptionalRearmResponse("Normal work continued.", test.inputTokens))
-			if test.wantOptional {
-				responses = append(responses, completeProgressiveSummaryResponse("Preserve the objective and progress."))
-			}
 			responses = append(responses, observedOptionalRearmResponse("The next normal request completed.", test.inputTokens))
 			client := uncertainSoftContextClient(responses...)
 			if test.failure != nil {
@@ -213,13 +209,7 @@ func TestAgentExecutorRetriesUnavailableOptionalCompactionWithoutRequiringLowWat
 				"Continue despite the earlier summary outcome.", fixture.Now.Add(3*time.Second))
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			require.Len(t, client.responded, 3)
-			require.Equal(t, test.wantOptional, isCompactionRequestBundle(client.responded[2].Bundle))
-			if test.wantOptional {
-				work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(4*time.Second))
-				require.NoError(t, executor.ExecuteModelWork(ctx, work))
-				require.Len(t, client.responded, 4)
-				require.False(t, isCompactionRequestBundle(client.responded[3].Bundle))
-			}
+			require.False(t, isCompactionRequestBundle(client.responded[2].Bundle))
 			assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 		})
 	}

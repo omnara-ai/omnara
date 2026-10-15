@@ -101,13 +101,8 @@ func applyModelCallAdmissionTx(
 			return ModelCallClaim{}, err
 		}
 		if parent.RecoveryKind == ModelCallRecoveryCompactOptional || claim.context.ReplacesCheckpointID != uuid.Nil {
-			var outcome OptionalCompactionOutcome
-			if parent.RecoveryKind == ModelCallRecoveryCompactOptional {
-				outcome = OptionalCompactionInterrupted
-			}
 			failure := managedWorkAdmissionModelFailure(claim.context)
 			record, err := recordCompactionFailureAndResumeNormalTx(ctx, q, RecordCompactionFailureAndResumeNormalInput{
-				Outcome:   outcome,
 				ProjectID: failure.ProjectID, AgentID: failure.AgentID, RuntimeLockID: failure.RuntimeLockID,
 				ModelCallContextID: failure.ModelCallContextID, ErrorKind: failure.ErrorKind,
 				ErrorCode: failure.ErrorCode, ErrorMessage: failure.ErrorMessage,
@@ -304,7 +299,6 @@ func claimCompactionContextTx(
 	id, err := q.InsertTriggeredCompactionModelCallContext(
 		ctx,
 		dbsqlc.InsertTriggeredCompactionModelCallContextParams{
-			SourceExcerptBytes:        int32FromIntPtr(input.SourceExcerptBytes),
 			SourceEventSequenceEnd:    &sourceEnd,
 			ProjectID:                 input.ProjectID,
 			AgentID:                   input.AgentID,
@@ -419,6 +413,7 @@ func claimNextModelCallContextTx(
 	}
 	if predecessor.State == ModelCallContextFailed &&
 		(predecessor.RecoveryKind == ModelCallRecoveryRetry ||
+			predecessor.RecoveryKind == ModelCallRecoveryExcerptCheckpoint ||
 			predecessor.RecoveryKind == ModelCallRecoveryCompactOptional ||
 			predecessor.RecoveryKind == ModelCallRecoveryCompact) {
 		modelRevision, err := getModelCallRevisionForClaim(

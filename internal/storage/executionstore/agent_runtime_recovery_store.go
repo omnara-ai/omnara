@@ -64,12 +64,7 @@ func recoverRuntimeModelCallContextTx(
 	if contextRecord.OperationKind == ModelCallOperationCompaction &&
 		(recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional ||
 			(contextRecord.ReplacesCheckpointID != uuid.Nil && recovery.RetryCount >= MaxModelCallRetriesPerOperation)) {
-		var outcome OptionalCompactionOutcome
-		if recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional {
-			outcome = OptionalCompactionInterrupted
-		}
 		_, err := recordCompactionFailureAndResumeNormalTx(ctx, qtx, RecordCompactionFailureAndResumeNormalInput{
-			Outcome:            outcome,
 			ProjectID:          projectID,
 			AgentID:            agentID,
 			RuntimeLockID:      runtimeLockID,

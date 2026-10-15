@@ -138,7 +138,7 @@ func (e AgentExecutor) enterContextMaintenance(
 		if err != nil {
 			return modelStep{}, err
 		}
-		if !recovery.CheckpointRecompressionAttempted && recovery.RecoveryCheckpointRetainedBytes == nil {
+		if !recovery.CheckpointRecompressionAttempted && recovery.CheckpointExcerptReductionCount == 0 {
 			return e.enterPlannedContextMaintenance(
 				ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
 			)
@@ -188,9 +188,11 @@ func (e AgentExecutor) retryWithCheckpointExcerpt(
 	if checkpoint.SummarizedThroughEventSequence >= input.OpeningEventSequence {
 		return modelStep{}, false, nil
 	}
-	next, reduced, err := modelcontext.NextCheckpointExcerptBytes(
-		checkpoint.Summary, recovery.RecoveryCheckpointRetainedBytes,
-	)
+	current, err := modelcontext.CheckpointExcerptBytes(checkpoint.Summary, recovery.CheckpointExcerptReductionCount)
+	if err != nil {
+		return modelStep{}, false, err
+	}
+	_, reduced, err := modelcontext.NextCheckpointExcerptBytes(checkpoint.Summary, current)
 	if err != nil || !reduced {
 		return modelStep{}, false, err
 	}
@@ -200,14 +202,13 @@ func (e AgentExecutor) retryWithCheckpointExcerpt(
 		executionstore.RecordRecoverableModelCallFailureInput{
 			ProjectID: input.ProjectID, AgentID: input.AgentID,
 			ModelCallContextID: claim.Context.ID, RuntimeLockID: input.RuntimeLockID,
-			RecoveryKind: executionstore.ModelCallRecoveryRetry,
+			RecoveryKind: executionstore.ModelCallRecoveryExcerptCheckpoint,
 			APIFormat:    evidence.APIFormat, APIVariant: evidence.APIVariant,
 			ProviderRequestID: evidence.ProviderRequestID, ProviderResponseID: evidence.ProviderResponseID,
 			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
 			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
 			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
-			ProviderMetadata:                evidence.ProviderMetadata,
-			RecoveryCheckpointRetainedBytes: &next,
+			ProviderMetadata: evidence.ProviderMetadata,
 		},
 	)
 	if err != nil {
@@ -296,9 +297,8 @@ func shouldAttemptOptionalCompaction(
 	if !hasMeasuredPressure && recovery.LatestObservedNormalInputTokens < workingInputTarget {
 		return false
 	}
-	return !recovery.LastOptionalCompactionNeedsHeadroom ||
-		(recovery.MinimumObservedNormalInputTokens > 0 &&
-			recovery.MinimumObservedNormalInputTokens <= workingInputTarget*optionalCompactionRearmHeadroomPercent/100)
+	return recovery.MinimumObservedNormalInputTokens > 0 &&
+		recovery.MinimumObservedNormalInputTokens <= workingInputTarget*optionalCompactionRearmHeadroomPercent/100
 }
 
 func (e AgentExecutor) recordTerminalContextMaintenanceFailure(

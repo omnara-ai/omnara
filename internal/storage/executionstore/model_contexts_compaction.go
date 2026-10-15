@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -262,7 +263,7 @@ func (s *Store) ReplaceCompactionSource(
 		contextRow.State != ModelCallContextStarted ||
 		contextRow.RuntimeLockID != input.RuntimeLockID ||
 		contextRow.SourceEventSequenceEnd == nil ||
-		!compactionSourceProjectionAdvances(contextRow, input.NextSourceEventSequenceEnd, input.NextSourceExcerptBytes) {
+		!compactionSourceProjectionAdvances(contextRow, input) {
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	sourceStart, err := compactionSourceStartTx(ctx, q, contextRow)
@@ -329,7 +330,6 @@ func (s *Store) ReplaceCompactionSource(
 		RuntimeLockID:          input.RuntimeLockID,
 		SourceEventSequenceEnd: input.NextSourceEventSequenceEnd,
 		ParentContextID:        contextRow.ParentNormalModelCallContextID,
-		SourceExcerptBytes:     input.NextSourceExcerptBytes,
 	})
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
@@ -364,14 +364,14 @@ func compactionSourceMatchesCheckpoint(sourceEnd int64, replacesID, priorID uuid
 	return replacesID == priorID && sourceEnd == priorEnd
 }
 
-func compactionSourceProjectionAdvances(current ModelCallContextRecord, nextEnd int64, nextExcerpt *int) bool {
-	if current.SourceEventSequenceEnd == nil ||
-		(nextExcerpt != nil && (*nextExcerpt <= 0 || int64(*nextExcerpt) > 2147483647)) {
+func compactionSourceProjectionAdvances(current ModelCallContextRecord, input ReplaceCompactionSourceInput) bool {
+	if current.SourceEventSequenceEnd == nil {
 		return false
 	}
-	if nextEnd < *current.SourceEventSequenceEnd {
-		return true
+	if input.NextSourceEventSequenceEnd < *current.SourceEventSequenceEnd {
+		return current.SourceExcerptReductionCount == 0
 	}
-	return nextEnd == *current.SourceEventSequenceEnd && nextExcerpt != nil &&
-		(current.SourceExcerptBytes == nil || *nextExcerpt < *current.SourceExcerptBytes)
+	return input.NextSourceEventSequenceEnd == *current.SourceEventSequenceEnd &&
+		input.APIFormat != "" && input.APIVariant != "" &&
+		(input.ErrorKind == modelprotocol.ErrorKindContextWindow || input.ErrorKind == modelprotocol.ErrorKindPayloadTooLarge)
 }

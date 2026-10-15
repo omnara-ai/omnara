@@ -88,12 +88,11 @@ func (r Runner) recordFailure(
 	}
 	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
 	if recovery.ParentRecoveryKind == executionstore.ModelCallRecoveryCompactOptional {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt,
-			optionalCompactionOutcome(cause, providerAttempt.ProviderRequestStarted))
+		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
 	}
 	_, semanticFailure := reasonForCompactionFailure(cause)
 	if input.Plan.ReplacesCheckpointID != uuid.Nil && semanticFailure {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt, "")
+		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
 	}
 	truncated := isTruncatedSummaryFailure(cause)
 	if shrinkableCompactionFailure(cause) || truncated {
@@ -118,7 +117,7 @@ func (r Runner) recordFailure(
 			}
 			if excerptBytes > 0 {
 				return r.replaceCompactionProjection(
-					ctx, input, claim, cause, providerAttempt, input.Plan.EventSequenceEnd, &excerptBytes,
+					ctx, input, claim, cause, providerAttempt, input.Plan.EventSequenceEnd,
 				)
 			}
 		}
@@ -178,7 +177,7 @@ func (r Runner) recordFailure(
 		}, nil
 	}
 	if input.Plan.ReplacesCheckpointID != uuid.Nil {
-		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt, "")
+		return r.recordFailureAndResumeNormal(ctx, input, claim, cause, providerAttempt)
 	}
 	if err := r.Store.RecordTerminalCompactionFailure(
 		ctx,
@@ -215,12 +214,10 @@ func (r Runner) recordFailureAndResumeNormal(
 	claim executionstore.ModelCallClaim,
 	cause error,
 	providerAttempt providerAttemptEvidence,
-	outcome executionstore.OptionalCompactionOutcome,
 ) (RunResult, error) {
 	evidence := modelretry.EvidenceFor(cause)
 	failed, err := r.Store.RecordCompactionFailureAndResumeNormal(
 		ctx, executionstore.RecordCompactionFailureAndResumeNormalInput{
-			Outcome:                 outcome,
 			ProjectID:               input.Plan.ProjectID,
 			AgentID:                 input.Plan.AgentID,
 			RuntimeLockID:           input.RuntimeLockID,
@@ -243,22 +240,6 @@ func (r Runner) recordFailureAndResumeNormal(
 	return RunResult{State: RunResumeNormal, ModelCallContextID: failed.ID}, nil
 }
 
-func optionalCompactionOutcome(cause error, requestStarted bool) executionstore.OptionalCompactionOutcome {
-	if _, ok := reasonForCompactionFailure(cause); ok {
-		return executionstore.OptionalCompactionIneffective
-	}
-	if !requestStarted {
-		return executionstore.OptionalCompactionInterrupted
-	}
-	providerError, _ := model.ClassifyError(cause)
-	switch providerError.Kind {
-	case model.ErrorKindContextWindow, model.ErrorKindPayloadTooLarge, model.ErrorKindInvalidRequest:
-		return executionstore.OptionalCompactionIneffective
-	default:
-		return executionstore.OptionalCompactionInterrupted
-	}
-}
-
 func (r Runner) replaceCompactionSource(
 	ctx context.Context,
 	input RunInput,
@@ -277,7 +258,7 @@ func (r Runner) replaceCompactionSource(
 		}
 	}
 	return r.replaceCompactionProjection(
-		ctx, input, claim, cause, providerAttempt, nextEnd, claim.Context.SourceExcerptBytes,
+		ctx, input, claim, cause, providerAttempt, nextEnd,
 	)
 }
 
@@ -288,7 +269,6 @@ func (r Runner) replaceCompactionProjection(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 	nextEnd int64,
-	excerptBytes *int,
 ) (RunResult, error) {
 	evidence := modelretry.EvidenceFor(cause)
 	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
@@ -312,7 +292,6 @@ func (r Runner) replaceCompactionProjection(
 			ProviderReportedCostUSD:    providerReportedCostUSDAfter(providerAttempt),
 			ProviderMetadata:           providerMetadataAfter(providerAttempt),
 			NextSourceEventSequenceEnd: nextEnd,
-			NextSourceExcerptBytes:     excerptBytes,
 		},
 	)
 	if err != nil {

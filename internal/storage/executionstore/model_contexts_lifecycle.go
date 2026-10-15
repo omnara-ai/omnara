@@ -23,7 +23,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if input.RecoveryKind == "" {
 		input.RecoveryKind = ModelCallRecoveryRetry
 	}
-	if input.RecoveryKind != ModelCallRecoveryRetry {
+	if input.RecoveryKind != ModelCallRecoveryRetry && input.RecoveryKind != ModelCallRecoveryExcerptCheckpoint {
 		return ModelCallContextRecord{}, fmt.Errorf(
 			"unsupported retryable model call recovery kind %q",
 			input.RecoveryKind,
@@ -79,29 +79,30 @@ func (s *Store) RecordRetryableModelCallFailure(
 		return ModelCallContextRecord{}, err
 	}
 	if currentContext.State != ModelCallContextStarted ||
-		(input.RecoveryCheckpointRetainedBytes == nil && recovery.RetryCount >= MaxModelCallRetriesPerOperation) {
+		(input.RecoveryKind == ModelCallRecoveryRetry && recovery.RetryCount >= MaxModelCallRetriesPerOperation) ||
+		(input.RecoveryKind == ModelCallRecoveryExcerptCheckpoint &&
+			currentContext.OperationKind != ModelCallOperationNormal) {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:                       input.ProjectID,
-		AgentID:                         input.AgentID,
-		ModelCallContextID:              input.ModelCallContextID,
-		RuntimeLockID:                   input.RuntimeLockID,
-		ToState:                         ModelCallContextFailed,
-		RecoveryKind:                    input.RecoveryKind,
-		RecoveryCheckpointRetainedBytes: input.RecoveryCheckpointRetainedBytes,
-		APIFormat:                       input.APIFormat,
-		APIVariant:                      input.APIVariant,
-		ProviderRequestID:               input.ProviderRequestID,
-		ProviderResponseID:              input.ProviderResponseID,
-		ErrorKind:                       input.ErrorKind,
-		ErrorCode:                       input.ErrorCode,
-		ErrorMessage:                    input.ErrorMessage,
-		ErrorDetails:                    input.ErrorDetails,
-		RetryDelay:                      &input.RetryDelay,
-		Usage:                           input.Usage,
-		ProviderReportedCostUSD:         input.ProviderReportedCostUSD,
-		ProviderMetadata:                input.ProviderMetadata,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		ModelCallContextID:      input.ModelCallContextID,
+		RuntimeLockID:           input.RuntimeLockID,
+		ToState:                 ModelCallContextFailed,
+		RecoveryKind:            input.RecoveryKind,
+		APIFormat:               input.APIFormat,
+		APIVariant:              input.APIVariant,
+		ProviderRequestID:       input.ProviderRequestID,
+		ProviderResponseID:      input.ProviderResponseID,
+		ErrorKind:               input.ErrorKind,
+		ErrorCode:               input.ErrorCode,
+		ErrorMessage:            input.ErrorMessage,
+		ErrorDetails:            input.ErrorDetails,
+		RetryDelay:              &input.RetryDelay,
+		Usage:                   input.Usage,
+		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	})
 	if err != nil {
 		return ModelCallContextRecord{}, err
@@ -129,15 +130,13 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 		return errors.New("model call retry delay cannot be negative")
 	}
 	if input.RecoveryKind != ModelCallRecoveryRetry &&
+		input.RecoveryKind != ModelCallRecoveryExcerptCheckpoint &&
 		input.RecoveryKind != ModelCallRecoveryCompact &&
 		input.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
 	}
-	if input.RecoveryCheckpointRetainedBytes != nil {
-		if *input.RecoveryCheckpointRetainedBytes < 0 || int64(*input.RecoveryCheckpointRetainedBytes) > 2147483647 {
-			return errors.New("recovery checkpoint retained bytes must be a nonnegative integer")
-		}
-		if input.RecoveryKind != ModelCallRecoveryRetry || input.APIFormat == "" || input.APIVariant == "" ||
+	if input.RecoveryKind == ModelCallRecoveryExcerptCheckpoint {
+		if input.APIFormat == "" || input.APIVariant == "" ||
 			(input.ErrorKind != modelprotocol.ErrorKindContextWindow &&
 				input.ErrorKind != modelprotocol.ErrorKindPayloadTooLarge) {
 			return errors.New("recovery checkpoint projection requires a provider context or payload rejection")
@@ -169,26 +168,24 @@ func validateModelCallFailureEvidence(
 }
 
 type finishModelCallContextInput struct {
-	RecoveryCheckpointRetainedBytes *int
-	OptionalCompactionOutcome       OptionalCompactionOutcome
-	ProjectID                       uuid.UUID
-	AgentID                         uuid.UUID
-	ModelCallContextID              uuid.UUID
-	RuntimeLockID                   uuid.UUID
-	ToState                         ModelCallState
-	RecoveryKind                    ModelCallRecoveryKind
-	APIFormat                       modelprotocol.APIFormat
-	APIVariant                      modelprotocol.APIVariant
-	ProviderRequestID               string
-	ProviderResponseID              string
-	ErrorKind                       modelprotocol.ErrorKind
-	ErrorCode                       string
-	ErrorMessage                    string
-	ErrorDetails                    json.RawMessage
-	RetryDelay                      *time.Duration
-	Usage                           modelenvelope.Usage
-	ProviderReportedCostUSD         modelenvelope.ProviderReportedCostUSD
-	ProviderMetadata                modelenvelope.ProviderMetadata
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ModelCallContextID      uuid.UUID
+	RuntimeLockID           uuid.UUID
+	ToState                 ModelCallState
+	RecoveryKind            ModelCallRecoveryKind
+	APIFormat               modelprotocol.APIFormat
+	APIVariant              modelprotocol.APIVariant
+	ProviderRequestID       string
+	ProviderResponseID      string
+	ErrorKind               modelprotocol.ErrorKind
+	ErrorCode               string
+	ErrorMessage            string
+	ErrorDetails            json.RawMessage
+	RetryDelay              *time.Duration
+	Usage                   modelenvelope.Usage
+	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 type modelCallContextRuntimeAuthority uint8
@@ -236,8 +233,6 @@ func finishModelCallContextWithAuthorityTx(
 		retryDelayMicroseconds = &delay
 	}
 	params := dbsqlc.FinishModelCallContextParams{
-		RecoveryCheckpointRetainedBytes:     int32FromIntPtr(input.RecoveryCheckpointRetainedBytes),
-		OptionalCompactionOutcome:           storeutil.TextFromEmpty(string(input.OptionalCompactionOutcome)),
 		ToState:                             string(input.ToState),
 		RecoveryKind:                        storeutil.TextFromEmpty(string(input.RecoveryKind)),
 		ApiFormat:                           string(input.APIFormat),

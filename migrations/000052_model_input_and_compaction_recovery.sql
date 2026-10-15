@@ -1,10 +1,7 @@
 -- +goose Up
 
 ALTER TABLE model_call_contexts
-    ADD COLUMN parent_normal_model_call_context_id uuid,
-    ADD COLUMN source_excerpt_bytes integer,
-    ADD COLUMN recovery_checkpoint_retained_bytes integer,
-    ADD COLUMN optional_compaction_outcome text;
+    ADD COLUMN parent_normal_model_call_context_id uuid;
 
 -- Existing compactions have exactly one blocked normal operation at their frontier.
 -- Backfill before strengthening the immutable identity and parent constraints.
@@ -41,6 +38,10 @@ BEGIN
     WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
       AND pg_get_constraintdef(oid) LIKE '%reduce_compaction_source%';
     EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
+    SELECT conname INTO STRICT existing_name FROM pg_constraint
+    WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%retry_at%';
+    EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
 END;
 $$;
 -- +goose StatementEnd
@@ -49,7 +50,7 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_recovery CHECK (
         recovery_kind IS NULL OR (
             state = 'failed' AND (
-                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'compact', 'compact_optional')) OR
+                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'excerpt_checkpoint', 'compact', 'compact_optional')) OR
                 (operation_kind = 'compaction' AND recovery_kind IN ('retry', 'reduce_compaction_source', 'resume_normal'))
             )
         )
@@ -59,18 +60,12 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_parent_operation CHECK (
         (operation_kind = 'compaction') = (parent_normal_model_call_context_id IS NOT NULL)
     ),
-    ADD CONSTRAINT model_call_contexts_excerpt CHECK (
-        source_excerpt_bytes IS NULL OR (operation_kind = 'compaction' AND source_excerpt_bytes > 0)
+    ADD CONSTRAINT model_call_contexts_retry_at CHECK (
+        coalesce(recovery_kind IN ('retry', 'excerpt_checkpoint'), false) = (retry_at IS NOT NULL)
     ),
     ADD CONSTRAINT model_call_contexts_recovery_checkpoint_projection CHECK (
-        recovery_checkpoint_retained_bytes IS NULL OR (
-            operation_kind = 'normal' AND state = 'failed' AND recovery_kind IS NOT DISTINCT FROM 'retry'
-            AND error_kind IN ('context_window', 'payload_too_large')
-            AND api_format <> '' AND api_variant <> '' AND recovery_checkpoint_retained_bytes >= 0)
-    ),
-    ADD CONSTRAINT model_call_contexts_optional_outcome CHECK (
-        optional_compaction_outcome IS NULL OR (recovery_kind IS NOT DISTINCT FROM 'resume_normal'
-            AND optional_compaction_outcome IN ('interrupted', 'ineffective'))
+        recovery_kind IS DISTINCT FROM 'excerpt_checkpoint' OR (
+            error_kind IN ('context_window', 'payload_too_large') AND api_format <> '' AND api_variant <> '')
     );
 
 ALTER TABLE context_checkpoints
@@ -196,7 +191,6 @@ BEGIN
        OR OLD.input_event_sequence IS DISTINCT FROM NEW.input_event_sequence
        OR OLD.source_event_sequence_end IS DISTINCT FROM NEW.source_event_sequence_end
        OR OLD.parent_normal_model_call_context_id IS DISTINCT FROM NEW.parent_normal_model_call_context_id
-       OR OLD.source_excerpt_bytes IS DISTINCT FROM NEW.source_excerpt_bytes
        OR OLD.runtime_lock_id IS DISTINCT FROM NEW.runtime_lock_id
        OR OLD.created_at IS DISTINCT FROM NEW.created_at THEN
         RAISE EXCEPTION 'model_call_context identity and runtime ownership are immutable'
@@ -222,15 +216,7 @@ BEGIN
         RAISE EXCEPTION 'only optional or checkpoint replacement compaction can resume its normal parent'
             USING ERRCODE = '23514';
     END IF;
-    IF NEW.recovery_kind = 'resume_normal' AND EXISTS (
-        SELECT 1 FROM model_call_contexts parent
-        WHERE parent.id = NEW.parent_normal_model_call_context_id
-          AND ((parent.recovery_kind = 'compact_optional') <> (NEW.optional_compaction_outcome IS NOT NULL))
-    ) THEN
-        RAISE EXCEPTION 'optional compaction outcomes require an optional parent'
-            USING ERRCODE = '23514', CONSTRAINT = 'model_call_contexts_optional_outcome';
-    END IF;
-    IF NEW.recovery_checkpoint_retained_bytes IS NOT NULL THEN
+    IF NEW.recovery_kind = 'excerpt_checkpoint' THEN
         SELECT max(event.sequence) INTO projection_checkpoint_sequence
         FROM agent_events event
         WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
@@ -240,7 +226,6 @@ BEGIN
             JOIN agent_events event ON event.agent_id = checkpoint.agent_id
               AND event.context_checkpoint_id = checkpoint.id AND event.event_kind = 'context_checkpoint'
             WHERE checkpoint.agent_id = NEW.agent_id AND event.sequence = projection_checkpoint_sequence
-              AND NEW.recovery_checkpoint_retained_bytes < octet_length(checkpoint.summary)
               AND checkpoint.summarized_through_event_sequence < (
                   SELECT min(opening.event_sequence) FROM agent_model_call_opening_content_inputs(
                       NEW.project_id, NEW.agent_id,
@@ -249,24 +234,8 @@ BEGIN
                   ) opening
               )
         ) THEN
-            RAISE EXCEPTION 'recovery projection must reduce the latest applicable checkpoint'
+            RAISE EXCEPTION 'recovery projection requires an old applicable checkpoint'
                 USING ERRCODE = '23514';
-        END IF;
-        IF EXISTS (
-            SELECT 1 FROM model_call_contexts prior
-            WHERE prior.agent_id = NEW.agent_id AND prior.id <> NEW.id
-              AND prior.configured_model_revision_id = NEW.configured_model_revision_id
-              AND prior.agent_config_id = NEW.agent_config_id
-              AND prior.input_event_sequence >= projection_checkpoint_sequence
-              AND NOT EXISTS (
-                  SELECT 1 FROM agent_events event
-                  WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
-                    AND event.sequence > projection_checkpoint_sequence
-                    AND event.sequence <= prior.input_event_sequence
-              )
-              AND prior.recovery_checkpoint_retained_bytes <= NEW.recovery_checkpoint_retained_bytes
-        ) THEN
-            RAISE EXCEPTION 'recovery checkpoint retained bytes must decrease' USING ERRCODE = '23514';
         END IF;
     END IF;
     RETURN NEW;
@@ -284,7 +253,6 @@ JOIN model_call_contexts failure ON failure.project_id = current.project_id
     AND failure.operation_kind = current.operation_kind
 WHERE current.id = p_context_id
   AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
-  AND failure.recovery_checkpoint_retained_bytes IS NULL
   AND failure.attempt_number <= current.attempt_number
   AND (current.operation_kind = 'normal'
     OR (current.operation_kind = 'compaction'
@@ -340,7 +308,7 @@ retry AS (
      AND retry_context.agent_id = p_agent_id
      AND retry_context.id = context.model_call_context_id
      AND retry_context.state = 'failed'
-     AND retry_context.recovery_kind = 'retry'
+     AND retry_context.recovery_kind IN ('retry', 'excerpt_checkpoint')
      AND retry_context.retry_at IS NOT NULL
     WHERE NOT context.has_later_semantic_event
     LIMIT 1

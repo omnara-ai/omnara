@@ -76,9 +76,6 @@ func (r Runner) RunClaimed(
 	if err != nil {
 		return RunResult{}, err
 	}
-	if claim.Context.SourceExcerptBytes != nil && *claim.Context.SourceExcerptBytes < minimumSourceExcerptBytes {
-		return RunResult{}, errors.New("compaction excerpt requires a valid byte limit")
-	}
 	selection, err := compactionModelSelection(claim.Context, snapshot)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -159,7 +156,7 @@ func (r Runner) RunClaimed(
 		summaryClient,
 		policy,
 		errorSource,
-		claim.Context.SourceExcerptBytes,
+		claim.Context.SourceExcerptReductionCount,
 	)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -197,7 +194,7 @@ func (r Runner) RunClaimed(
 	}
 	prepared := preparedRequest.prepared
 	sourceText := preparedRequest.sourceText
-	if claim.Context.SourceExcerptBytes != nil {
+	if claim.Context.SourceExcerptReductionCount > 0 {
 		original, err := renderCompactionSource(input, prior, boundaryWindow.sourceEvents, nil)
 		if err != nil {
 			return RunResult{}, err

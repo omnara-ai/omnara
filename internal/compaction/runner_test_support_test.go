@@ -186,6 +186,10 @@ func (s *fakeStore) ReplaceCompactionSource(
 	s.replacements = append(s.replacements, input)
 	end := input.NextSourceEventSequenceEnd
 	previous, _ := s.contextByID(input.ModelCallContextID)
+	reductions := 0
+	if previous.SourceEventSequenceEnd != nil && end == *previous.SourceEventSequenceEnd {
+		reductions = previous.SourceExcerptReductionCount + 1
+	}
 	claim := executionstore.ModelCallClaim{
 		Context: executionstore.ModelCallContextRecord{
 			ID:                             testIDN(700 + len(s.replacements)),
@@ -195,12 +199,12 @@ func (s *fakeStore) ReplaceCompactionSource(
 			OperationKind:                  executionstore.ModelCallOperationCompaction,
 			ParentNormalModelCallContextID: previous.ParentNormalModelCallContextID,
 			ReplacesCheckpointID:           previous.ReplacesCheckpointID,
-			AttemptNumber:                  1,
+			AttemptNumber:                  previous.AttemptNumber + 1,
 			AgentConfigID:                  testIDN(501),
 			ConfiguredModelRevisionID:      testIDN(601),
 			InputEventSequence:             s.claims[0].Context.InputEventSequence,
 			SourceEventSequenceEnd:         &end,
-			SourceExcerptBytes:             input.NextSourceExcerptBytes,
+			SourceExcerptReductionCount:    reductions,
 			RuntimeLockID:                  input.RuntimeLockID,
 			State:                          executionstore.ModelCallContextStarted,
 			CreatedAt:                      s.now(),

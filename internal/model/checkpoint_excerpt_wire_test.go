@@ -54,8 +54,8 @@ func TestCheckpointExcerptChangesWireInputAndInvalidatesPriorMeasurement(t *test
 			full := prepare(bundle)
 			require.True(t, full.UsesProviderInputUsage)
 			previousBytes := len(full.Body)
-			for _, retained := range []int{1024, 256, 0} {
-				projected, err := modelcontext.ApplyCheckpointExcerpt(bundle, id, retained)
+			for _, reductions := range []int{1, 3, 100} {
+				projected, err := modelcontext.ApplyCheckpointExcerpt(bundle, id, reductions)
 				require.NoError(t, err)
 				prepared := prepare(projected)
 				require.False(t, prepared.UsesProviderInputUsage)

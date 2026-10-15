@@ -33,7 +33,7 @@ func (m *transientExcerptKernelModel) Respond(ctx context.Context, request model
 	return m.respond(ctx, request)
 }
 
-func TestAgentExecutorResumesPersistedExcerptAfterTransientFailureOnNewLease(t *testing.T) {
+func TestAgentExecutorReconstructsExcerptAfterTransientFailureOnNewLease(t *testing.T) {
 	for _, checkpointOnly := range []bool{false, true} {
 		name := "old message"
 		if checkpointOnly {
@@ -76,11 +76,9 @@ func TestAgentExecutorResumesPersistedExcerptAfterTransientFailureOnNewLease(t *
 			}
 			require.NotNil(t, client.failedExcerptRequest)
 			var failedContextID uuid.UUID
-			var excerptBytes int
-			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT id,source_excerpt_bytes FROM model_call_contexts
+			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT id FROM model_call_contexts
 				WHERE agent_id=$1 AND operation_kind='compaction' AND recovery_kind='retry'
-				ORDER BY created_at DESC LIMIT 1`, work.AgentID).Scan(&failedContextID, &excerptBytes))
-			require.Positive(t, excerptBytes)
+				ORDER BY created_at DESC LIMIT 1`, work.AgentID).Scan(&failedContextID))
 			requestCount := client.respondedCount()
 			work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(time.Minute))
 			require.Equal(t, failedContextID, work.ModelCallContextID)

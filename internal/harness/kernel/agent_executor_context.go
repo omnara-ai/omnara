@@ -105,7 +105,8 @@ func (e AgentExecutor) executeModelStep(
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry {
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry &&
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryExcerptCheckpoint {
 			state = modelStepDone
 		}
 		return modelStep{State: state, Context: claim.Context}, nil
@@ -246,14 +247,14 @@ func (e AgentExecutor) executeModelStep(
 	if err != nil {
 		return modelStep{}, err
 	}
-	if recovery.RecoveryCheckpointRetainedBytes != nil {
+	if recovery.CheckpointExcerptReductionCount > 0 {
 		bundle, err = modelcontext.ApplyCheckpointExcerpt(
-			bundle, recovery.RecoveryCheckpointID, *recovery.RecoveryCheckpointRetainedBytes,
+			bundle, recovery.RecoveryCheckpointID, recovery.CheckpointExcerptReductionCount,
 		)
 		if err != nil {
 			return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
 				Code:    preSendErrorCodeBuildModelContextFailed,
-				Message: "Omnara could not apply the saved checkpoint recovery projection.",
+				Message: "Omnara could not apply the checkpoint recovery projection.",
 			})
 		}
 	}

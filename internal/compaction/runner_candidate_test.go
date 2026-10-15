@@ -395,7 +395,7 @@ func TestCompactionAllowanceFitRespectsMinimumAndFinalInput(t *testing.T) {
 			prepared, err := largestFittingCompactionRequest(
 				context.Background(), runInput(testPlan(1, 1, 1)), executionstore.ContextCheckpointRecord{},
 				[]executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
-				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", nil)
+				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", 0)
 			require.NoError(t, err)
 			if tc.wantOutput == 0 {
 				require.Equal(t, int64(1), prepared.sourceEnd)
@@ -440,7 +440,7 @@ func TestCompactionAllowanceFitPrefersWholeTurnAndPreservesPartialProgress(t *te
 			}}}
 			prepared, err := largestFittingCompactionRequest(
 				context.Background(), runInput(testPlan(1, 2, 2)), executionstore.ContextCheckpointRecord{}, source, source, nil,
-				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", nil)
+				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", 0)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantEnd, prepared.sourceEnd)
 			require.True(t, prepared.prepared.InputBudget.Fits())

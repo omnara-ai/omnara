@@ -63,25 +63,26 @@ WHERE source.id=$1 RETURNING id`, source, revision, fixture.Lock.ID, config).Sca
 func checkpointProjectionFailure(
 	fixture processDaemonFixture,
 	current executionstore.ModelCallContextRecord,
-	retained int,
 ) executionstore.RecordRecoverableModelCallFailureInput {
 	return executionstore.RecordRecoverableModelCallFailureInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-		ModelCallContextID: current.ID, RecoveryKind: executionstore.ModelCallRecoveryRetry,
+		ModelCallContextID: current.ID, RecoveryKind: executionstore.ModelCallRecoveryExcerptCheckpoint,
 		APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
 		ErrorKind: modelprotocol.ErrorKindContextWindow, ErrorMessage: "provider input exceeds context",
-		RecoveryCheckpointRetainedBytes: &retained,
 	}
 }
 
-func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *testing.T) {
+func TestCheckpointExcerptActionsSurviveRestartWithoutConsumingTransientRetries(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fixture, checkpoint, current := checkpointProjectionFixture(t, "projection_restart")
-	failure := checkpointProjectionFailure(fixture, current, 512)
-	finished, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, failure)
+	finished, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
+		checkpointProjectionFailure(fixture, current))
 	require.NoError(t, err)
-	require.Equal(t, new(512), finished.RecoveryCheckpointRetainedBytes)
+	require.Equal(t, executionstore.ModelCallRecoveryExcerptCheckpoint, finished.RecoveryKind)
+	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
+		checkpointProjectionFailure(fixture, current))
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
 	))
@@ -89,7 +90,11 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 		ctx, testProjectID, fixture.AgentID, testWorkerProcessID, time.Minute,
 	)
 	require.NoError(t, err)
-	for _, retained := range []int{256, 128, 64, 32, 16, 8, 4, 2, 1, 0} {
+	for reductions := 1; reductions <= executionstore.MaxModelCallRetriesPerOperation+1; reductions++ {
+		work, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, current.ID, work.ModelCallContextID)
 		next, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 			PredecessorModelCallContextID: current.ID,
@@ -100,28 +105,14 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 		state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 		require.NoError(t, err)
 		require.Equal(t, checkpoint.ID, state.RecoveryCheckpointID)
-		require.Equal(t, failure.RecoveryCheckpointRetainedBytes, state.RecoveryCheckpointRetainedBytes)
+		require.Equal(t, reductions, state.CheckpointExcerptReductionCount)
 		retry, err := fixture.Store.Execution().GetModelCallRetryState(ctx, testProjectID, fixture.AgentID, current.ID)
 		require.NoError(t, err)
 		require.Zero(t, retry.RetryCount)
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-			checkpointProjectionFailure(fixture, current, *state.RecoveryCheckpointRetainedBytes))
-		assertPgErrorMessage(t, err, "23514", "recovery checkpoint retained bytes must decrease")
-		failure = checkpointProjectionFailure(fixture, current, retained)
-		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, failure)
+			checkpointProjectionFailure(fixture, current))
 		require.NoError(t, err)
 	}
-	next, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-		PredecessorModelCallContextID: current.ID,
-	})
-	require.NoError(t, err)
-	require.True(t, next.Claimed)
-	state, err := fixture.Store.Execution().GetModelCallRecoveryState(
-		ctx, testProjectID, fixture.AgentID, next.Context.ID,
-	)
-	require.NoError(t, err)
-	require.Equal(t, new(0), state.RecoveryCheckpointRetainedBytes)
 	stored, found, err := fixture.Store.Execution().GetContextCheckpoint(
 		ctx, testProjectID, fixture.AgentID, checkpoint.ID,
 	)
@@ -135,7 +126,7 @@ func TestCheckpointProjectionCarriesAcrossTurnsAndResetsForModelRevision(t *test
 	ctx := t.Context()
 	fixture, checkpoint, current := checkpointProjectionFixture(t, "projection_revision")
 	_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
-		ctx, checkpointProjectionFailure(fixture, current, 0),
+		ctx, checkpointProjectionFailure(fixture, current),
 	)
 	require.NoError(t, err)
 	current = insertProjectionNormalContext(t, fixture, current.ID, uuid.Nil, uuid.Nil)
@@ -155,10 +146,7 @@ func TestCheckpointProjectionCarriesAcrossTurnsAndResetsForModelRevision(t *test
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 	require.NoError(t, err)
 	require.Equal(t, checkpoint.ID, state.RecoveryCheckpointID)
-	require.Equal(t, new(0), state.RecoveryCheckpointRetainedBytes)
-	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, current, 128))
-	assertPgErrorMessage(t, err, "23514", "recovery checkpoint retained bytes must decrease")
+	require.Equal(t, 1, state.CheckpointExcerptReductionCount)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		executionstore.RecordRecoverableModelCallFailureInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -186,9 +174,9 @@ func TestCheckpointProjectionCarriesAcrossTurnsAndResetsForModelRevision(t *test
 	)
 	require.NoError(t, err)
 	require.Equal(t, uuid.Nil, state.RecoveryCheckpointID)
-	require.Nil(t, state.RecoveryCheckpointRetainedBytes)
+	require.Zero(t, state.CheckpointExcerptReductionCount)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
-		ctx, checkpointProjectionFailure(fixture, next.Context, 512),
+		ctx, checkpointProjectionFailure(fixture, next.Context),
 	)
 	require.NoError(t, err)
 }
@@ -218,7 +206,7 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 						ModelCallContextID: handoff.CompactionCall.Context.ID,
 						ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "summary source exceeds context",
 						NextSourceEventSequenceEnd: checkpoint.SummarizedThroughEventSequence,
-						NextSourceExcerptBytes:     new(512),
+						APIFormat:                  modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
 					})
 				require.NoError(t, err)
 				child := replacement.CompactionCall.Context
@@ -231,7 +219,6 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, executionstore.ModelCallRecoveryRetry, failed.RecoveryKind)
-				require.Empty(t, failed.OptionalCompactionOutcome)
 				work, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
 				require.NoError(t, err)
 				require.True(t, found)
@@ -251,7 +238,7 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 					child = claim.Context
 					require.Equal(t, checkpoint.ID, child.ReplacesCheckpointID)
 					require.Equal(t, current.ID, child.ParentNormalModelCallContextID)
-					require.Equal(t, new(512), child.SourceExcerptBytes)
+					require.Equal(t, 1, child.SourceExcerptReductionCount)
 					state, err := fixture.Store.Execution().GetModelCallRecoveryState(
 						ctx, testProjectID, fixture.AgentID, child.ID,
 					)
@@ -283,10 +270,6 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 					ModelCallContextID: handoff.CompactionCall.Context.ID,
 					ErrorKind:          modelprotocol.ErrorKindTransient, ErrorMessage: "summary cannot be produced",
 				}
-				failure.Outcome = executionstore.OptionalCompactionInterrupted
-				_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
-				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
-				failure.Outcome = ""
 				_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
 				require.NoError(t, err)
 				_, err = fixture.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx, failure)
@@ -311,7 +294,7 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, state.CheckpointRecompressionAttempted)
 			_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
-				ctx, checkpointProjectionFailure(fixture, next.Context, 512),
+				ctx, checkpointProjectionFailure(fixture, next.Context),
 			)
 			require.NoError(t, err)
 		})
@@ -321,37 +304,29 @@ func TestFailedCheckpointReplacementResumesNormalDurably(t *testing.T) {
 func TestCheckpointProjectionGuardsRejectInvalidOrCurrentHistory(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	fixture, checkpoint, current := checkpointProjectionFixture(t, "projection_guards")
+	fixture, _, current := checkpointProjectionFixture(t, "projection_guards")
 	for _, tc := range []struct {
-		retained *int
-		kind     string
-		format   string
+		kind   string
+		format string
 	}{
-		{new(-1), "context_window", "openai_responses"},
-		{new(128), "transient", "openai_responses"},
-		{new(128), "context_window", ""},
-		{new(len(checkpoint.Summary)), "context_window", "openai_responses"},
+		{"transient", "openai_responses"},
+		{"context_window", ""},
 	} {
 		_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind='retry',retry_at=statement_timestamp(),
-error_kind=$3,error_message='projection guard',api_format=$4,
-api_variant=CASE WHEN $4='' THEN '' ELSE 'default' END,
-recovery_checkpoint_retained_bytes=$2,completed_at=statement_timestamp()
-WHERE id=$1`, current.ID, tc.retained, tc.kind, tc.format)
-		if *tc.retained == len(checkpoint.Summary) {
-			assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
-		} else {
-			assertPgConstraint(t, err, "23514", "model_call_contexts_recovery_checkpoint_projection")
-		}
+SET state='failed',recovery_kind='excerpt_checkpoint',retry_at=statement_timestamp(),
+error_kind=$2,error_message='projection guard',api_format=$3,
+api_variant=CASE WHEN $3='' THEN '' ELSE 'default' END,completed_at=statement_timestamp()
+WHERE id=$1`, current.ID, tc.kind, tc.format)
+		assertPgConstraint(t, err, "23514", "model_call_contexts_recovery_checkpoint_projection")
 	}
 	_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, current, 128))
+		checkpointProjectionFailure(fixture, current))
 	require.NoError(t, err)
 
 	protected, _, opening := newStartedNormalModelCallTestFixture(t, ctx, "projection_protected")
 	_, err = protected.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(protected, opening.Context, 128))
-	assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
+		checkpointProjectionFailure(protected, opening.Context))
+	assertPgErrorMessage(t, err, "23514", "recovery projection requires an old applicable checkpoint")
 	handoff := admissionHandoff(t, ctx, protected, opening, false, opening.Context.InputEventSequence)
 	_, err = protected.Store.Execution().RecordCompactionFailureAndResumeNormal(ctx,
 		executionstore.RecordCompactionFailureAndResumeNormalInput{
@@ -367,8 +342,8 @@ WHERE id=$1`, current.ID, tc.retained, tc.kind, tc.format)
 	require.NoError(t, err)
 	next := insertProjectionNormalContext(t, protected, opening.Context.ID, uuid.Nil, uuid.Nil)
 	_, err = protected.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(protected, next, 128))
-	assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
+		checkpointProjectionFailure(protected, next))
+	assertPgErrorMessage(t, err, "23514", "recovery projection requires an old applicable checkpoint")
 }
 
 func TestCheckpointProjectionResetsWhenAgentConfigurationChanges(t *testing.T) {
@@ -376,7 +351,7 @@ func TestCheckpointProjectionResetsWhenAgentConfigurationChanges(t *testing.T) {
 	ctx := t.Context()
 	fixture, _, current := checkpointProjectionFixture(t, "projection_config")
 	_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, current, 0))
+		checkpointProjectionFailure(fixture, current))
 	require.NoError(t, err)
 	config := mustCreateAgentConfigFromYAML(t, ctx, fixture.Store,
 		strings.Replace(testAgentConfigYAML(), "instruction: test", "instruction: changed setup", 1))
@@ -384,10 +359,10 @@ func TestCheckpointProjectionResetsWhenAgentConfigurationChanges(t *testing.T) {
 	next := insertProjectionNormalContext(t, fixture, current.ID, uuid.Nil, config.ID)
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, next.ID)
 	require.NoError(t, err)
-	require.Nil(t, state.RecoveryCheckpointRetainedBytes)
+	require.Zero(t, state.CheckpointExcerptReductionCount)
 	require.Equal(t, uuid.Nil, state.RecoveryCheckpointID)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, next, 512))
+		checkpointProjectionFailure(fixture, next))
 	require.NoError(t, err)
 }
 
@@ -396,7 +371,7 @@ func TestCheckpointProjectionResetsWhenCheckpointAdvances(t *testing.T) {
 	ctx := t.Context()
 	fixture, checkpoint, current := checkpointProjectionFixture(t, "projection_new_checkpoint")
 	_, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, current, 0))
+		checkpointProjectionFailure(fixture, current))
 	require.NoError(t, err)
 	current = insertProjectionNormalContext(t, fixture, current.ID, uuid.Nil, uuid.Nil)
 	_, output := createModelOutputEventForTurnTest(t, ctx, fixture, uuid.Nil, current.ID,
@@ -408,14 +383,14 @@ func TestCheckpointProjectionResetsWhenCheckpointAdvances(t *testing.T) {
 	pinned, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 	require.NoError(t, err)
 	require.Equal(t, checkpoint.ID, pinned.RecoveryCheckpointID)
-	require.Equal(t, new(0), pinned.RecoveryCheckpointRetainedBytes)
+	require.Equal(t, 1, pinned.CheckpointExcerptReductionCount)
 	next := insertProjectionNormalContext(t, fixture, claim.Context.ID, uuid.Nil, uuid.Nil)
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, next.ID)
 	require.NoError(t, err)
-	require.Nil(t, state.RecoveryCheckpointRetainedBytes)
+	require.Zero(t, state.CheckpointExcerptReductionCount)
 	require.Equal(t, uuid.Nil, state.RecoveryCheckpointID)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		checkpointProjectionFailure(fixture, next, 512))
+		checkpointProjectionFailure(fixture, next))
 	require.NoError(t, err)
 	retry, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -426,5 +401,5 @@ func TestCheckpointProjectionResetsWhenCheckpointAdvances(t *testing.T) {
 	state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, retry.Context.ID)
 	require.NoError(t, err)
 	require.Equal(t, updated.ID, state.RecoveryCheckpointID)
-	require.Equal(t, new(512), state.RecoveryCheckpointRetainedBytes)
+	require.Equal(t, 1, state.CheckpointExcerptReductionCount)
 }

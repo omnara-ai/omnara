@@ -12,33 +12,31 @@ import (
 func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
 	providerMetadata := providerMetadataFromSQLC(row.ProviderMetadata)
 	return ModelCallContextRecord{
-		ParentNormalModelCallContextID:  storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
-		ReplacesCheckpointID:            storeutil.IDFromPtr(row.ReplacesCheckpointID),
-		SourceExcerptBytes:              intFromInt32Ptr(row.SourceExcerptBytes),
-		RecoveryCheckpointRetainedBytes: intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
-		OptionalCompactionOutcome:       OptionalCompactionOutcome(stringFromSQLCText(row.OptionalCompactionOutcome)),
-		ID:                              row.ID,
-		OrgID:                           row.OrgID,
-		ProjectID:                       row.ProjectID,
-		AgentID:                         row.AgentID,
-		OperationKind:                   ModelCallOperation(row.OperationKind),
-		AttemptNumber:                   int(row.AttemptNumber),
-		AgentConfigID:                   row.AgentConfigID,
-		ConfiguredModelRevisionID:       row.ConfiguredModelRevisionID,
-		InputEventSequence:              row.InputEventSequence,
-		SourceEventSequenceEnd:          storeutil.ClonePtr(row.SourceEventSequenceEnd),
-		RuntimeLockID:                   row.RuntimeLockID,
-		State:                           ModelCallState(row.State),
-		RecoveryKind:                    ModelCallRecoveryKind(stringFromSQLCText(row.RecoveryKind)),
-		APIFormat:                       modelprotocol.APIFormat(row.ApiFormat),
-		APIVariant:                      modelprotocol.APIVariant(row.ApiVariant),
-		ProviderRequestID:               row.ProviderRequestID,
-		ProviderResponseID:              row.ProviderResponseID,
-		ErrorKind:                       modelprotocol.ErrorKind(row.ErrorKind),
-		ErrorCode:                       row.ErrorCode,
-		ErrorMessage:                    row.ErrorMessage,
-		ErrorDetails:                    row.ErrorDetails,
-		RetryAt:                         row.RetryAt,
+		ParentNormalModelCallContextID: storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
+		ReplacesCheckpointID:           storeutil.IDFromPtr(row.ReplacesCheckpointID),
+		SourceExcerptReductionCount:    int(row.SourceExcerptReductionCount),
+		ID:                             row.ID,
+		OrgID:                          row.OrgID,
+		ProjectID:                      row.ProjectID,
+		AgentID:                        row.AgentID,
+		OperationKind:                  ModelCallOperation(row.OperationKind),
+		AttemptNumber:                  int(row.AttemptNumber),
+		AgentConfigID:                  row.AgentConfigID,
+		ConfiguredModelRevisionID:      row.ConfiguredModelRevisionID,
+		InputEventSequence:             row.InputEventSequence,
+		SourceEventSequenceEnd:         storeutil.ClonePtr(row.SourceEventSequenceEnd),
+		RuntimeLockID:                  row.RuntimeLockID,
+		State:                          ModelCallState(row.State),
+		RecoveryKind:                   ModelCallRecoveryKind(stringFromSQLCText(row.RecoveryKind)),
+		APIFormat:                      modelprotocol.APIFormat(row.ApiFormat),
+		APIVariant:                     modelprotocol.APIVariant(row.ApiVariant),
+		ProviderRequestID:              row.ProviderRequestID,
+		ProviderResponseID:             row.ProviderResponseID,
+		ErrorKind:                      modelprotocol.ErrorKind(row.ErrorKind),
+		ErrorCode:                      row.ErrorCode,
+		ErrorMessage:                   row.ErrorMessage,
+		ErrorDetails:                   row.ErrorDetails,
+		RetryAt:                        row.RetryAt,
 		Usage: modelUsageFromSQLC(
 			row.InputTokensTotal,
 			row.UncachedInputTokens,
@@ -60,20 +58,4 @@ func providerMetadataFromSQLC(raw json.RawMessage) modelenvelope.ProviderMetadat
 		return modelenvelope.ProviderMetadata{}
 	}
 	return metadata
-}
-
-func intFromInt32Ptr(value *int32) *int {
-	if value == nil {
-		return nil
-	}
-	converted := int(*value)
-	return &converted
-}
-
-func int32FromIntPtr(value *int) *int32 {
-	if value == nil {
-		return nil
-	}
-	converted := int32(*value)
-	return &converted
 }
