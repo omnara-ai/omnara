@@ -132,6 +132,7 @@ WHERE call.agent_id = $1
   AND call.type = 'built_in'
   AND call.name IN ('read_file', 'write_file')
   AND call.input->>'path' = $2::text
+  AND NOT call.input ? 'machine_id'
   AND result.outcome = 'succeeded'
   AND block.block_kind = 'structured_data'
   AND block.structured_data->>'digest' IS NOT NULL

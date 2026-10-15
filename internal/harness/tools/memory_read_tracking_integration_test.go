@@ -5,10 +5,13 @@ package tools
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -42,9 +45,13 @@ func TestMemoryReadTracking(t *testing.T) {
 	put("b.md", "other\n")
 	put("paged.md", "1\n2\n3\n")
 	const a, b, paged = "/memory/engineering/a.md", "/memory/engineering/b.md", "/memory/engineering/paged.md"
+	machineID, err := publicid.Encode(publicid.KindMachine, uuid.New())
+	require.NoError(t, err)
 	steps := []struct{ id, name, input string }{
 		{"first_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
 		{"unchanged_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
+		{"machine_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `","machine_id":"` + machineID + `"}`},
+		{"after_machine_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
 		{"stale_write", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":"stale"}`},
 		{"changed_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
 		{"fresh_write", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":"two"}`},
@@ -102,6 +109,13 @@ func TestMemoryReadTracking(t *testing.T) {
 
 	succeeds("first_read")
 	succeeds("unchanged_read")
+	machineRead, err := structuredToolResultContent(map[string]any{
+		"path": a, "machine_id": machineID, "digest": "sha256:" + strings.Repeat("0", 64),
+	})
+	require.NoError(t, err)
+	require.NoError(t, executor.completeAsyncToolResult(ctx, turn, fixture.toolCallID(t, ctx, "machine_read"),
+		machineRead, executionstore.ToolResultOutcomeSucceeded))
+	succeeds("after_machine_read")
 	put("a.md", "changed\n")
 	fails("stale_write", quote(a)+" was updated at "+at+" after your last read at "+last+
 		"; read it again before writing")

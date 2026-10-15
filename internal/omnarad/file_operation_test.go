@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -145,6 +146,64 @@ func TestFileOperationWriteReplacesAtomically(t *testing.T) {
 	require.NotNil(t, failure, "directories are not replaced")
 }
 
+func TestFileOperationWriteFollowsSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	write := func(path, content string, appendText bool) {
+		t.Helper()
+		_, result := runFileOperationForTest(t, "", processcmd.KindFileWrite, processcmd.FileOperation{
+			Path: path, Content: &content, Append: appendText,
+		})
+		require.Nil(t, result.Error)
+	}
+	requireLink := func(link, target string) {
+		t.Helper()
+		info, err := os.Lstat(link)
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&os.ModeSymlink, "%s stays a symlink", link)
+		destination, err := os.Readlink(link)
+		require.NoError(t, err)
+		require.Equal(t, target, destination)
+	}
+
+	dotfiles := filepath.Join(dir, "dotfiles")
+	home := filepath.Join(dir, "home")
+	require.NoError(t, os.MkdirAll(dotfiles, 0o755))
+	require.NoError(t, os.MkdirAll(home, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dotfiles, "bashrc"), []byte("one\n"), 0o600))
+	require.NoError(t, os.Symlink("../dotfiles/bashrc", filepath.Join(home, ".bashrc")))
+	require.NoError(t, os.Symlink(".bashrc", filepath.Join(home, ".profile")))
+
+	write(filepath.Join(home, ".profile"), "two\n", true)
+	write(filepath.Join(home, ".bashrc"), "three\n", true)
+	content, err := os.ReadFile(filepath.Join(dotfiles, "bashrc"))
+	require.NoError(t, err)
+	require.Equal(t, "one\ntwo\nthree\n", string(content), "writes reach the linked file through a chain")
+	requireLink(filepath.Join(home, ".bashrc"), "../dotfiles/bashrc")
+	requireLink(filepath.Join(home, ".profile"), ".bashrc")
+	info, err := os.Stat(filepath.Join(dotfiles, "bashrc"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	require.NoError(t, os.Symlink(filepath.Join(dotfiles, "new.conf"), filepath.Join(home, "new.conf")))
+	write(filepath.Join(home, "new.conf"), "created\n", false)
+	content, err = os.ReadFile(filepath.Join(dotfiles, "new.conf"))
+	require.NoError(t, err)
+	require.Equal(t, "created\n", string(content), "a dangling link's target is created")
+	requireLink(filepath.Join(home, "new.conf"), filepath.Join(dotfiles, "new.conf"))
+
+	loop := filepath.Join(home, "loop")
+	require.NoError(t, os.Symlink("loop", loop))
+	content2 := "x"
+	_, result := runFileOperationForTest(t, "", processcmd.KindFileWrite, processcmd.FileOperation{
+		Path: loop, Content: &content2,
+	})
+	require.NotNil(t, result.Error)
+	require.Contains(t, result.Error.Message, "too many levels of symbolic links")
+}
+
 func TestFileOperationListGlobsWithPagination(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -195,6 +254,17 @@ func TestFileOperationListGlobsWithPagination(t *testing.T) {
 		map[string]any{"path": dir + "/src/f.go", "type": "file", "size_bytes": float64(len("src/f.go"))},
 	}, value["entries"])
 	require.Nil(t, value["next_cursor"])
+
+	value, _ = runFileOperationForTest(t, "", processcmd.KindFileList, processcmd.FileOperation{
+		Path: "**/*.go", Limit: 4,
+	})
+	require.Len(t, value["entries"], 4)
+	require.Nil(t, value["next_cursor"], "a page that ends at the last match has no cursor")
+	value, _ = runFileOperationForTest(t, "", processcmd.KindFileList, processcmd.FileOperation{
+		Path: "**/*.go", Limit: 3,
+	})
+	require.Len(t, value["entries"], 3)
+	require.NotNil(t, value["next_cursor"])
 
 	value, _ = runFileOperationForTest(t, "", processcmd.KindFileList, processcmd.FileOperation{Path: "src", Limit: 10})
 	require.Equal(t, []any{map[string]any{"path": "src", "type": "directory"}}, value["entries"])

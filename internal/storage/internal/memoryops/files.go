@@ -199,19 +199,29 @@ func openRegularFile(root *os.Root, name string) (*os.File, error) {
 }
 
 func Read(root *os.Root, name string) ([]byte, error) {
+	body, _, err := ReadModified(root, name)
+	return body, err
+}
+
+// ReadModified returns a file's content and modification time from one open handle.
+func ReadModified(root *os.Root, name string) ([]byte, time.Time, error) {
 	file, err := openRegularFile(root, name)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
 	body, err := io.ReadAll(io.LimitReader(file, daemonprotocol.MaxFileTransferBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	if len(body) > daemonprotocol.MaxFileTransferBytes {
-		return nil, errors.New("memory file exceeds transfer limit")
+		return nil, time.Time{}, errors.New("memory file exceeds transfer limit")
 	}
-	return body, nil
+	return body, info.ModTime(), nil
 }
 
 func Digest(root *os.Root, name string) (string, error) {

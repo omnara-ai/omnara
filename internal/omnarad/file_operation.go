@@ -183,9 +183,44 @@ func readRegularFile(name string) ([]byte, error) {
 	return content, nil
 }
 
+const maxSymlinkHops = 40
+
+// resolveSymlinkTarget follows symlinks so writes replace the linked file, not the link.
+// Unlike filepath.EvalSymlinks it also follows dangling links, which a write then creates.
+func resolveSymlinkTarget(name string) (string, error) {
+	for range maxSymlinkHops {
+		info, err := os.Lstat(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			return name, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			return name, nil
+		}
+		target, err := os.Readlink(name)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(target) {
+			dir, err := filepath.EvalSymlinks(filepath.Dir(name))
+			if err != nil {
+				return "", err
+			}
+			target = filepath.Join(dir, target)
+		}
+		name = target
+	}
+	return "", errors.New("path has too many levels of symbolic links")
+}
+
 func writeMachineFile(operation processcmd.FileOperation) (any, error) {
 	name, err := resolveMachinePath(operation.Path)
 	if err != nil {
+		return nil, err
+	}
+	if name, err = resolveSymlinkTarget(name); err != nil {
 		return nil, err
 	}
 	content := []byte(*operation.Content)
@@ -343,13 +378,14 @@ func listMachineFiles(ctx context.Context, operation processcmd.FileOperation) (
 		if !ok {
 			return nil
 		}
+		// Stop at the first match past a full page so next_cursor means more entries exist.
+		if len(entries) == operation.Limit {
+			return errFileOperationFull
+		}
 		if size += len(entry.Path) + 64; size > maxListResultBytes {
 			return errFileOperationBound
 		}
 		entries, last = append(entries, entry), name
-		if len(entries) == operation.Limit {
-			return errFileOperationFull
-		}
 		return nil
 	})
 	limited := errors.Is(err, errFileOperationBound) || errors.Is(err, context.DeadlineExceeded)

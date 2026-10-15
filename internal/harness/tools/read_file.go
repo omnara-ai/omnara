@@ -85,11 +85,12 @@ func runReadFileAsync(
 	var digest, contentType, note string
 	var artifactID uuid.UUID
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
-		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
+		file, err := call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
 		if err != nil {
 			return nil, err
 		}
-		if note, err = call.Executor.memoryReadNote(ctx, call.Turn, input.Path, digest); err != nil {
+		digest, content = file.Digest, file.Content
+		if note, err = call.Executor.memoryReadNote(ctx, call.Turn, input.Path, file); err != nil {
 			return nil, err
 		}
 		contentType = http.DetectContentType(content)
@@ -137,38 +138,26 @@ func runReadFileAsync(
 	return completeFileRead(note, part), nil
 }
 
-func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
+func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (memorystore.File, error) {
 	name, relativePath, err := memorystore.ParsePath(filePath)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
 	store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
-	return e.Store.Memories().Read(ctx, memorystore.Scope{
+	return e.Store.Memories().ReadFile(ctx, memorystore.Scope{
 		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
 	}, store.ID, relativePath)
 }
 
-func (e Executor) memoryReadNote(ctx context.Context, turn Turn, filePath, digest string) (string, error) {
-	memories := e.Store.Memories()
-	seen, found, err := memories.LastSeen(ctx, turn.AgentID, filePath)
-	if err != nil || !found || seen.Digest == digest {
+func (e Executor) memoryReadNote(ctx context.Context, turn Turn, filePath string, file memorystore.File) (string, error) {
+	seen, found, err := e.Store.Memories().LastSeen(ctx, turn.AgentID, filePath)
+	if err != nil || !found || seen.Digest == file.Digest {
 		return "", err
 	}
-	name, relativePath, _ := memorystore.ParsePath(filePath)
-	store, err := memories.Resolve(ctx, turn.ProjectID, name)
-	if err != nil {
-		return "", err
-	}
-	modified, err := memories.ModifiedAt(ctx, memorystore.Scope{
-		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
-	}, store.ID, relativePath)
-	if err != nil {
-		return "", err
-	}
-	updated, last := memoryChangeTimes(modified, seen.At)
+	updated, last := memoryChangeTimes(file.ModifiedAt, seen.At)
 	return fmt.Sprintf("note: %s was updated at %s since your last read at %s", filePath, updated, last), nil
 }
 
