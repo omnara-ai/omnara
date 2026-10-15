@@ -571,10 +571,8 @@ func readFileTool() (Entry, error) {
 			"path": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Exact Omnara path, /artifacts/<artifact_id> or /memory/<store>/<file>, " +
-					"or a regular file on the selected machine, at most 10 MiB. " +
-					"Other paths are machine paths: relative paths use the machine working directory; " +
-					"~ expands to the machine user's home directory.",
+				"description": "Path on the machine, relative to its working directory (~ is the user's home), " +
+					"at most 10 MiB; or /artifacts/<artifact_id> or /memory/<store>/<file>.",
 			},
 			"machine_id": machineFileID("reading"),
 			"offset_line": map[string]any{
@@ -616,9 +614,8 @@ func writeFileTool() (Entry, error) {
 			"path": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Exact /memory/<store>/<file> destination, which requires write access, or a file on the selected machine. " +
-					"Other paths are machine paths: relative paths use the machine working directory; " +
-					"~ expands to the machine user's home directory. Missing parent directories are created.",
+				"description": "Path on the machine, relative to its working directory (~ is the user's home); " +
+					"missing parent directories are created. Or /memory/<store>/<file>, which requires write access.",
 			},
 			"machine_id": machineFileID("writing"),
 			"content": map[string]any{
@@ -652,10 +649,9 @@ func searchFilesTool() (Entry, error) {
 			"path": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Exact /artifacts/<artifact_id> path, /memory/<store>/<file> path or glob, or a file or glob on the selected machine. " +
-					"Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported. " +
-					"Machine globs skip binary files. Other paths are machine paths: relative paths use the machine working directory; " +
-					"~ expands to the machine user's home directory.",
+				"description": "File or glob on the machine, relative to its working directory (~ is the user's home); " +
+					"binary files are skipped. Or /artifacts/<artifact_id>, or a /memory/<store>/<file> path or glob, " +
+					"which follows list_files rules and only searches attached stores.",
 			},
 			"machine_id": machineFileID("searching"),
 			"args": map[string]any{
