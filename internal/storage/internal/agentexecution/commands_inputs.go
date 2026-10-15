@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -13,6 +14,7 @@ import (
 )
 
 type ReceiveContentInput struct {
+	CapacityExempt      bool
 	ActorID             uuid.UUID
 	IntegrationTargetID uuid.UUID
 	DeliveryMode        string
@@ -40,11 +42,24 @@ type InputAdmission struct {
 
 func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) (ReceivedContent, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (ReceivedContent, error) {
+		q := executiondb.New()
+		if input.IdempotencyKey != "" {
+			if input.IdempotencyScope == "" {
+				return ReceivedContent{}, errors.New("input idempotency key requires a scope")
+			}
+			id, err := q.FindExecutionInput(ctx, h.unit.DB(), executiondb.FindExecutionInputParams{
+				AgentID: h.route.AgentID,
+				Scope:   storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey),
+			})
+			if err == nil {
+				return ReceivedContent{ID: id}, nil
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return ReceivedContent{}, err
+			}
+		}
 		if input.DeliveryMode != "queued" && input.DeliveryMode != "steering" {
 			return ReceivedContent{}, errors.New("invalid content delivery mode")
-		}
-		if input.IdempotencyKey != "" && input.IdempotencyScope == "" {
-			return ReceivedContent{}, errors.New("input idempotency key requires a scope")
 		}
 		for _, part := range input.Content {
 			if part.Kind != "text" && part.Kind != "artifact" && part.Kind != "structured_data" {
@@ -55,7 +70,17 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		q := executiondb.New()
+		if !input.CapacityExempt {
+			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
+				AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
+			})
+			if err != nil {
+				return ReceivedContent{}, err
+			}
+			if pending >= executionpolicy.MaxPendingAgentContentInputs {
+				return ReceivedContent{}, storeerr.ErrAgentBacklogFull
+			}
+		}
 		row, err := q.ReceiveExecutionInput(ctx, h.unit.DB(), executiondb.ReceiveExecutionInputParams{
 			ID: uuid.New(), AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, ActorID: storeutil.IDFromNil(input.ActorID),
 			TargetID: storeutil.IDFromNil(
@@ -166,18 +191,4 @@ func (h *Handle) admitInputs(
 		return InputAdmission{}, err
 	}
 	return result, nil
-}
-
-func (h *Handle) CheckContentCapacity(ctx context.Context) error {
-	pending, err := executiondb.New().CountPendingExecutionContent(ctx, h.unit.DB(),
-		executiondb.CountPendingExecutionContentParams{
-			AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
-		})
-	if err != nil {
-		return err
-	}
-	if pending >= executionpolicy.MaxPendingAgentContentInputs {
-		return storeerr.ErrAgentBacklogFull
-	}
-	return nil
 }

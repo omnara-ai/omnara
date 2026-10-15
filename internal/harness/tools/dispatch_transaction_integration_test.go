@@ -1576,6 +1576,11 @@ func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	var pending int
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,
+		child.Agent.ID).Scan(&pending))
+	require.Equal(t, 50, pending)
 	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID))
 	var next executionstore.ClaimedAgentWork
 	for range 2 {
@@ -1591,11 +1596,6 @@ func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
 	}
 	require.Equal(t, f.Agent.ID, next.AgentID)
 	require.Equal(t, executionstore.AgentWorkModel, next.Kind)
-	var pending int
-	require.NoError(t, f.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,
-		child.Agent.ID).Scan(&pending))
-	require.Equal(t, 50, pending)
 }
 
 func TestSpawnAgentQuotaErrorMessage(t *testing.T) {

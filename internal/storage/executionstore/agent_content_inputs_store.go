@@ -209,9 +209,6 @@ func createAgentContentInputTx(
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
 	}
-	if err := h.CheckContentCapacity(ctx); err != nil {
-		return createAgentContentInputTxResult{}, err
-	}
 	artifacts, err := artifactstore.InsertPreparedArtifactsTx(ctx,
 		unit.DB(),
 		input.ProjectID,

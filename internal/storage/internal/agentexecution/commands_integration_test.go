@@ -68,7 +68,6 @@ func receiveCommand(
 	mode, text string,
 ) agentexecution.ReceivedContent {
 	t.Helper()
-	require.NoError(t, h.CheckContentCapacity(t.Context()))
 	row, err := h.ReceiveContent(
 		t.Context(),
 		agentexecution.ReceiveContentInput{DeliveryMode: mode,

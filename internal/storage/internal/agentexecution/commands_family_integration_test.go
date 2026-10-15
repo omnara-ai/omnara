@@ -97,7 +97,7 @@ func familyFixture(
 	return f, u, p, c, lease
 }
 
-func TestExecutionParentEffects(t *testing.T) {
+func TestExecutionParentEffectsAtCapacity(t *testing.T) {
 	for _, order := range []bool{false, true} {
 		for _, kind := range []string{"answer", "question", "failure"} {
 			t.Run(
@@ -161,10 +161,12 @@ func TestExecutionParentEffects(t *testing.T) {
 					require.Equal(t, 51, inputs)
 					statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 					require.NoError(t, err)
-					require.Equal(t, 2, statements)
-					require.Equal(t, 1, roundTrips)
+					require.Equal(t, 3, statements)
+					require.Equal(t, 2, roundTrips)
 					_, parent := f.handle(t, pr.AgentID)
-					err = parent.CheckContentCapacity(t.Context())
+					_, err = parent.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
+						DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "overflow"}},
+					})
 					require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 				},
 			)

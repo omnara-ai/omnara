@@ -44,7 +44,9 @@ func TestExecutionBacklogCapacity(t *testing.T) {
 	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
 	t.Run("reject", func(t *testing.T) {
 		u, h := f.handle(t, agent)
-		err := h.CheckContentCapacity(t.Context())
+		_, err := h.ReceiveContent(t.Context(), agentexecution.ReceiveContentInput{
+			DeliveryMode: "queued", Content: []agentexecution.Content{{Kind: "text", Text: "overflow"}},
+		})
 		require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 		require.NoError(t, u.Rollback(t.Context()))
 		require.Equal(t, 50, pendingExecutionCount(t, f, agent))
@@ -94,4 +96,61 @@ func TestExecutionBacklogCapacityDoesNotBlockControls(t *testing.T) {
 	_, err = h.Cancel(t.Context(), agentexecution.CancelInput{Reason: "user_cancel", Message: "cancel"})
 	require.NoError(t, err)
 	require.NoError(t, u.Commit(t.Context(), "cancel at capacity"))
+}
+
+func TestReceiveContentCapacityAndReplay(t *testing.T) {
+	f, agent, _ := commandFixture(t)
+	u, h := f.handle(t, agent)
+	input := agentexecution.ReceiveContentInput{
+		DeliveryMode: "queued", IdempotencyScope: "test", IdempotencyKey: "original",
+		Content: []agentexecution.Content{{Kind: "text", Text: "original"}},
+	}
+	original, err := h.ReceiveContent(t.Context(), input)
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "original input"))
+	fillExecutionBacklog(t, f, agent, 49)
+	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
+
+	u, h = f.handle(t, agent)
+	newInput := input
+	newInput.IdempotencyKey = "new"
+	_, err = h.ReceiveContent(t.Context(), newInput)
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	require.ErrorIs(t, u.Commit(t.Context(), "reject full backlog"), agentexecution.ErrUnitAborted)
+	require.NoError(t, u.Rollback(t.Context()))
+	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
+
+	u, h = f.handle(t, agent)
+	input.DeliveryMode = "steering"
+	input.Content = []agentexecution.Content{{Kind: "text", Text: "different"}}
+	replayed, err := h.ReceiveContent(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, original.ID, replayed.ID)
+	require.NoError(t, u.Commit(t.Context(), "replay at capacity"))
+	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
+	var mode, text string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `
+SELECT i.delivery_mode,c.text_content FROM agent_inputs i
+JOIN content_blocks c ON c.owner_agent_input_id=i.id WHERE i.id=$1`, original.ID).Scan(&mode, &text))
+	require.Equal(t, "queued", mode)
+	require.Equal(t, "original", text)
+
+	u, h = f.handle(t, agent)
+	newInput.CapacityExempt = true
+	accepted, err := h.ReceiveContent(t.Context(), newInput)
+	require.NoError(t, err)
+	require.NotEqual(t, original.ID, accepted.ID)
+	require.NoError(t, u.Commit(t.Context(), "exempt input at capacity"))
+	require.Equal(t, 51, pendingExecutionCount(t, f, agent))
+
+	u, h = f.handle(t, agent)
+	newInput.CapacityExempt = false
+	replayed, err = h.ReceiveContent(t.Context(), newInput)
+	require.NoError(t, err)
+	require.Equal(t, accepted.ID, replayed.ID)
+	newInput.IdempotencyKey = "another"
+	_, err = h.ReceiveContent(t.Context(), newInput)
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	require.NoError(t, u.Rollback(t.Context()))
+	require.Equal(t, 51, pendingExecutionCount(t, f, agent))
 }
