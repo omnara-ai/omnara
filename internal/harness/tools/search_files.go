@@ -202,8 +202,6 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 
 type searchResult = filesearch.Result
 
-type searchFileResult = filesearch.File
-
 type searchOutput struct {
 	input searchFilesRequest
 	filesearch.Collector

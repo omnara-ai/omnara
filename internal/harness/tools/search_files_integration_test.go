@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/filesearch"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -324,7 +325,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	}
 	write(engineering.ID, "é.md", "TARGET\n")
 	result, err = search("/memory/engineering/?.md", []string{"-l", "-e", "TARGET"}, 100, 0)
-	if err != nil || len(result.Files) != 2 || !slices.ContainsFunc(result.Files, func(file searchFileResult) bool {
+	if err != nil || len(result.Files) != 2 || !slices.ContainsFunc(result.Files, func(file filesearch.File) bool {
 		return file.Path == "/memory/engineering/é.md"
 	}) {
 		t.Fatalf("Unicode glob: %+v, %v", result, err)
