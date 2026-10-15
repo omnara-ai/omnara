@@ -30,8 +30,7 @@ func encodeForDaemon(daemonVersion string, message Message) ([]byte, error) {
 	return json.Marshal(message)
 }
 
-// Daemons before processaction.LongWaitDaemonVersion reject read payloads
-// whose wait_ms exceeds the legacy limit, so their reads wait at most that long.
+// Daemons before 0.2.6 reject read waits over 10s; remove this clamp once they are unsupported.
 func supportsLongReadWaits(daemonVersion string) bool {
 	if daemonVersion == daemonversion.Development {
 		return true

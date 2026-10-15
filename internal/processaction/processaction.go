@@ -9,17 +9,10 @@ import (
 )
 
 const (
-	// MaxWaitMilliseconds is the longest wait agents may request. The backend
-	// enforces it when validating tool input; daemons do not.
-	MaxWaitMilliseconds = 5 * 60 * 1000
-	// MaxPayloadWaitMilliseconds only rejects nonsensical read payloads, so the
-	// agent-facing limit can change without a daemon release.
+	MaxWaitMilliseconds        = 5 * 60 * 1000
 	MaxPayloadWaitMilliseconds = 24 * 60 * 60 * 1000
-	// LegacyMaxWaitMilliseconds is the read limit daemons before
-	// LongWaitDaemonVersion enforce; reads offered to them are clamped to it.
-	// Remove the clamp once older daemons are no longer supported.
-	LegacyMaxWaitMilliseconds = 10 * 1000
-	LongWaitDaemonVersion     = "0.2.6"
+	LegacyMaxWaitMilliseconds  = 10 * 1000
+	LongWaitDaemonVersion      = "0.2.6"
 
 	MaxObservationBytes     = 64 * 1024
 	DefaultObservationBytes = 8 * 1024

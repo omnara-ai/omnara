@@ -23,9 +23,7 @@ import (
 const (
 	fileUploadProcessTimeoutSeconds   = 30
 	fileDownloadProcessTimeoutSeconds = 120
-	// File transfers report quickly; they keep the original short initial
-	// wait rather than following process waits up to five minutes.
-	fileTransferInitialWaitMS = 10 * 1000
+	fileTransferInitialWaitMS         = 10 * 1000
 )
 
 type uploadFileRequest struct {
