@@ -100,8 +100,8 @@ already has one, skip to item 4.
    `entitlements` must include `functions_enabled`. If it doesn't, the email
    claim above hasn't finished. `managed_inbox_address` is the account's mail
    domain, for example `brave-crow.primitive.email` (a domain, not a full
-   address). If the user has verified their own domain in Primitive, they can
-   use that instead.
+   address). If the user wants their own domain, start with this one and
+   switch afterwards; "Your own domain" in step 9 covers it.
 5. Ask what the agent should be called. The name is the part before the `@`
    and is what people type to @mention it. Suggest `assistant`. The agent's
    address is `<name>@<domain>`, for example `assistant@brave-crow.primitive.email`.
@@ -261,6 +261,30 @@ then email or @mention any of them, and several can be on one thread. A
 `"*"` entry is a catch-all: mail to any other address on the domain goes to
 that profile, and the agent takes on the address it was sent to.
 
+**Your own domain.** The agent can use an address on the user's domain, such
+as `assistant@agents.example.com`, instead of the `*.primitive.email` one.
+Suggest a subdomain: the DNS records send all of the domain's mail to
+Primitive, so it must be a domain that doesn't already receive mail elsewhere.
+
+1. Claim it and note the domain's `id`:
+   `npx primitive@latest domains add --domain <domain> --json`. If it reports
+   `mx_conflict`, the domain already receives mail somewhere else. Stop and
+   suggest a subdomain instead; never re-run it with `--confirmed`, which
+   takes that mail over.
+2. Get the DNS records as an importable zone file:
+   `npx primitive@latest domains zone-file --id <domain-id> --output <domain>.zone`.
+   They go wherever the domain's DNS is hosted. If that provider's CLI is
+   installed and logged in (for example `aws route53`, `gcloud dns`, or
+   `vercel dns`), offer to add them; otherwise the user adds them in the
+   provider's dashboard, and many providers can import the zone file.
+3. Check them: `npx primitive@latest domains verify --id <domain-id>`. If a
+   check fails, it lists the records still expected. New records can take a
+   few minutes to be visible, so wait and run it again.
+4. Use `<agent-name>@<domain>` as the agent's address: replace the address in
+   `email-agent.yaml` and run `npx omnara profiles update` (step 5). The
+   function needs no change, since its route covers every domain on the
+   account and `AGENTS` matches by name, so the old address keeps working too.
+
 ## 10. Wrap up
 
 Summarize what you created: the secret, the profile, the Omnara org key, the
@@ -269,7 +293,8 @@ Primitive function, and the agent's address. Then tell the user:
 - **Change anything:** ask a coding agent with this skill. It reuses the
   secret, updates the profile in place, and redeploys the function.
 - **Remove it:** `npx primitive@latest functions route-unset --id <function-id>`
-  and `npx primitive@latest functions delete --id <function-id>`, then
+  and `npx primitive@latest functions delete --id <function-id>` (plus
+  `npx primitive@latest domains delete --id <domain-id>` for a custom domain), then
   `npx omnara profiles delete <agent-profile-id>` and
   `npx omnara secrets delete <secret-id>`. Revoke the Omnara org key on the
   **API Tokens** page and the Primitive key in Primitive's settings.
