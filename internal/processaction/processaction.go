@@ -9,7 +9,13 @@ import (
 )
 
 const (
-	MaxWaitMilliseconds     = 10 * 1000
+	// MaxWaitMilliseconds bounds how long a read waits for output or exit.
+	MaxWaitMilliseconds = 5 * 60 * 1000
+	// LegacyMaxWaitMilliseconds is the limit daemons before
+	// LongWaitDaemonVersion enforce; reads offered to them are clamped to it.
+	LegacyMaxWaitMilliseconds = 10 * 1000
+	LongWaitDaemonVersion     = "0.2.6"
+
 	MaxObservationBytes     = 64 * 1024
 	DefaultObservationBytes = 8 * 1024
 	MaxWriteBytes           = 128 * 1024

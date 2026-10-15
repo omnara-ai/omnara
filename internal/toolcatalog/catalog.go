@@ -148,8 +148,8 @@ func buildDefaultCatalog() (Catalog, error) {
 				"type":    "integer",
 				"minimum": 1,
 				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "Maximum time to wait for initial output or command exit before yielding. " +
-					"This is not a lifetime timeout.",
+				"description": "Maximum time to wait for initial output or command exit before yielding " +
+					"(up to 300000 ms). This is not a lifetime timeout.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",
@@ -219,10 +219,12 @@ func buildDefaultCatalog() (Catalog, error) {
 			"description": "Maximum output bytes to return.",
 		},
 		"wait_ms": map[string]any{
-			"type":        "integer",
-			"minimum":     1,
-			"maximum":     processaction.MaxWaitMilliseconds,
-			"description": "When no output is immediately available, wait up to this long for output or process completion.",
+			"type":    "integer",
+			"minimum": 1,
+			"maximum": processaction.MaxWaitMilliseconds,
+			"description": "When no output is immediately available, wait up to this long for output or process completion " +
+				"(up to 300000 ms; returns as soon as either arrives). When waiting on a long-running job, prefer one long wait " +
+				"over many short polls.",
 		},
 	}
 	if entries[ToolNameReadProcess], err = toolEntry(

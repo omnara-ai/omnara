@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -24,6 +23,9 @@ import (
 const (
 	fileUploadProcessTimeoutSeconds   = 30
 	fileDownloadProcessTimeoutSeconds = 120
+	// File transfers report quickly; they keep the original short initial
+	// wait rather than following process waits up to five minutes.
+	fileTransferInitialWaitMS = 10 * 1000
 )
 
 type uploadFileRequest struct {
@@ -276,7 +278,7 @@ func fileTransferProcessInput(
 	}
 	return executionstore.CreateProcessInput{
 		ExecutionSpec:  processcmd.ForFileTransfer(transfer),
-		InitialWaitMS:  processaction.MaxWaitMilliseconds,
+		InitialWaitMS:  fileTransferInitialWaitMS,
 		TimeoutSeconds: timeoutSeconds,
 	}, nil
 }

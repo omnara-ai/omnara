@@ -81,7 +81,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:     "max wait",
-			input:    json.RawMessage(`{"command":"echo ok","wait_ms":10000}`),
+			input:    json.RawMessage(`{"command":"echo ok","wait_ms":300000}`),
 			command:  "echo ok",
 			selector: "default",
 			waitMs:   processaction.MaxWaitMilliseconds,
@@ -150,7 +150,7 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 		{name: "zero wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":0}`), want: "wait_ms must be positive"},
 		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
 		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
-		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":10001}`), want: "wait_ms must be at most"},
+		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{
 			name: "unsupported io mode",
