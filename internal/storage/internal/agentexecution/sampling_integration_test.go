@@ -3,8 +3,10 @@
 package agentexecution_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,7 +84,7 @@ SET stop_sequence=stop_sequence+1,normal_context_id=NULL WHERE agent_id=$1`, cor
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	report, err := executionstore.New(f.pool, executionstore.Config{}).SampleExecutionHeads(ctx, 10)
+	report, err := executionstore.New(f.pool, executionstore.Config{}).SampleExecutionHeads(ctx, uuid.Nil, 10)
 	require.NoError(t, err)
 	require.Len(t, report.Samples, 2)
 	for _, sample := range report.Samples {
@@ -129,7 +131,7 @@ CREATE FUNCTION sample_context_state(agent uuid,state text) RETURNS text LANGUAG
  ALTER TABLE model_call_contexts RENAME TO sample_contexts;
  CREATE VIEW model_call_contexts AS SELECT %s FROM sample_contexts`, slow, strings.Join(columns, ",")))
 	require.NoError(t, err)
-	report, err := executionstore.New(f.pool, executionstore.Config{}).SampleExecutionHeads(t.Context(), 10)
+	report, err := executionstore.New(f.pool, executionstore.Config{}).SampleExecutionHeads(t.Context(), uuid.Nil, 10)
 	require.NoError(t, err)
 	require.Len(t, report.Samples, 2)
 	for _, sample := range report.Samples {
@@ -225,4 +227,110 @@ func TestExecutionHeadSampleIneligibleIsDistinctFromMissingFacts(t *testing.T) {
 		ProjectID: f.project, AgentID: uuid.New()})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.NotErrorIs(t, err, agentexecution.ErrSampleIneligible)
+}
+
+func TestExecutionHeadSamplerMissingHead(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	agent := f.create(t, uuid.New(), uuid.Nil)
+	_, err := f.pool.Exec(t.Context(), "DELETE FROM agent_execution_state WHERE agent_id=$1", agent)
+	require.NoError(t, err)
+	report, err := executionstore.New(f.pool, executionstore.Config{}).SampleExecutionHeads(t.Context(), uuid.Nil, 10)
+	require.NoError(t, err)
+	require.Len(t, report.Samples, 1)
+	require.NoError(t, report.Samples[0].Err)
+	require.Equal(t, []agentexecution.HeadDifference{{Field: "head_missing", Stored: true, Rebuilt: false}},
+		report.Samples[0].Differences)
+}
+
+func TestExecutionHeadSamplerMissingReadiness(t *testing.T) {
+	for _, work := range []string{"input", "tool"} {
+		t.Run(work, func(t *testing.T) {
+			var f executionFixture
+			var agent uuid.UUID
+			if work == "input" {
+				f = migratedExecutionFixture(t)
+				agent = f.create(t, uuid.New(), uuid.Nil)
+				unit, handle := f.handle(t, agent)
+				receiveCommand(t, handle, "queued", "pending")
+				require.NoError(t, unit.Commit(t.Context(), "receive"))
+			} else {
+				f = releasedExecutionFixture(t)
+				agent = f.agent(t)
+				turn, _ := f.opening(t, agent, 1, uuid.Nil, "content")
+				model := f.modelContext(t, agent, 1, "normal", nil, 1)
+				f.output(t, agent, turn, model, 2, "tool_use", "awaiting_authorization")
+				require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
+			}
+			store := executionstore.New(f.pool, executionstore.Config{})
+			report, err := store.SampleExecutionHeads(t.Context(), uuid.Nil, 10)
+			require.NoError(t, err)
+			require.Len(t, report.Samples, 1)
+			require.NoError(t, report.Samples[0].Err)
+			require.Empty(t, report.Samples[0].Differences)
+			tag, err := f.pool.Exec(t.Context(),
+				"UPDATE agent_execution_state SET logical_ready_at=NULL WHERE agent_id=$1 AND logical_ready_at IS NOT NULL", agent)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, tag.RowsAffected())
+			report, err = store.SampleExecutionHeads(t.Context(), uuid.Nil, 10)
+			require.NoError(t, err)
+			require.Len(t, report.Samples, 1)
+			require.NoError(t, report.Samples[0].Err)
+			require.Len(t, report.Samples[0].Differences, 1)
+			difference := report.Samples[0].Differences[0]
+			require.Equal(t, "logical_ready_at", difference.Field)
+			require.Nil(t, difference.Stored)
+			require.NotNil(t, difference.Rebuilt)
+		})
+	}
+}
+
+func TestExecutionHeadSamplesRotateActiveAgents(t *testing.T) {
+	for _, active := range []int{0, 3, 23} {
+		t.Run(fmt.Sprint(active), func(t *testing.T) {
+			f := migratedExecutionFixture(t)
+			ids := make([]uuid.UUID, max(1, active)*100)
+			for i := range ids {
+				ids[i] = uuid.New()
+				if i%2 == 0 {
+					var err error
+					ids[i], err = uuid.NewV7()
+					require.NoError(t, err)
+				}
+			}
+			slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+			_, err := f.pool.Exec(t.Context(), `INSERT INTO agents(
+id,root_agent_id,org_id,project_id,current_config_id,created_at,updated_at,state,archived_at)
+SELECT id,id,$1,$2,$3,now(),now(),CASE WHEN n%100=0 AND $5>0 THEN 'active' ELSE 'archived' END,
+CASE WHEN n%100=0 AND $5>0 THEN NULL ELSE now() END
+FROM unnest($4::uuid[]) WITH ORDINALITY AS seeds(id,n)`, f.org, f.project, f.config, ids, active)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(t.Context(), `INSERT INTO agent_execution_state(agent_id,turn_continuable,incomplete_tools)
+SELECT id,false,false FROM agents WHERE state='active'`)
+			require.NoError(t, err)
+			var expected []uuid.UUID
+			for i := range active {
+				expected = append(expected, ids[(i+1)*100-1])
+			}
+			store := executionstore.New(f.pool, executionstore.Config{})
+			var cursor uuid.UUID
+			offset := 0
+			for range 4 {
+				report, err := store.SampleExecutionHeads(t.Context(), cursor, 10)
+				require.NoError(t, err)
+				require.Len(t, report.Samples, min(10, active))
+				for _, sample := range report.Samples {
+					require.NoError(t, sample.Err)
+					require.Empty(t, sample.Differences)
+					require.Equal(t, expected[offset%active], sample.AgentID)
+					offset++
+				}
+				if active > 0 {
+					require.Equal(t, report.Samples[len(report.Samples)-1].AgentID, report.Cursor)
+				} else {
+					require.Equal(t, cursor, report.Cursor)
+				}
+				cursor = report.Cursor
+			}
+		})
+	}
 }

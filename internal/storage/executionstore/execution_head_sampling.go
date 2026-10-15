@@ -20,16 +20,17 @@ type ExecutionHeadSample struct {
 
 type ExecutionHeadSampleReport struct {
 	Samples []ExecutionHeadSample
+	Cursor  uuid.UUID
 }
 
-func (s *Store) SampleExecutionHeads(ctx context.Context, n int32) (ExecutionHeadSampleReport, error) {
+func (s *Store) SampleExecutionHeads(ctx context.Context, after uuid.UUID, n int32) (ExecutionHeadSampleReport, error) {
 	routes, err := readExecutionSnapshot(ctx, s.pool, func(tx pgx.Tx) ([]agentexecution.AgentRoute, error) {
-		return agentexecution.SelectExecutionSamples(ctx, tx, n)
+		return agentexecution.SelectExecutionSamples(ctx, tx, after, n)
 	})
 	if err != nil {
-		return ExecutionHeadSampleReport{}, err
+		return ExecutionHeadSampleReport{Cursor: after}, err
 	}
-	report := ExecutionHeadSampleReport{}
+	report := ExecutionHeadSampleReport{Cursor: after}
 	for _, route := range routes {
 		if err := ctx.Err(); err != nil {
 			return report, err
@@ -37,6 +38,7 @@ func (s *Store) SampleExecutionHeads(ctx context.Context, n int32) (ExecutionHea
 		differences, err := readExecutionSnapshot(ctx, s.pool, func(tx pgx.Tx) ([]agentexecution.HeadDifference, error) {
 			return agentexecution.CompareExecutionHead(ctx, tx, route)
 		})
+		report.Cursor = route.AgentID
 		if errors.Is(err, agentexecution.ErrSampleIneligible) {
 			continue
 		}

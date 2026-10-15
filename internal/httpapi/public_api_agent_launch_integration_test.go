@@ -6,11 +6,13 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -936,4 +938,50 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 			t.Fatalf("%s config_source with U+0000 should be rejected as invalid: %+v", format, nul)
 		}
 	}
+}
+
+func TestPublicAgentLaunchRetargetExhaustion(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "launch-retarget")
+	first := createPublicHTTPAgentConfig(t, handler, project, "retarget-first", "yaml",
+		"instruction: First.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	second := createPublicHTTPAgentConfig(t, handler, project, "retarget-second", "yaml",
+		"instruction: Second.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	firstID, err := publicid.Decode(publicid.KindAgentConfig, testutil.RequireType[string](t, first["id"]))
+	require.NoError(t, err)
+	secondID, err := publicid.Decode(publicid.KindAgentConfig, testutil.RequireType[string](t, second["id"]))
+	require.NoError(t, err)
+	profile := createPublicHTTPAgentProfile(t, handler, project, "retarget", "Retarget",
+		testutil.RequireType[string](t, first["id"]), project.AdminToken, http.StatusCreated)
+	profileID, err := publicid.Decode(publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
+	require.NoError(t, err)
+	store := newIntegrationStore(pool)
+	current, next := firstID, secondID
+	var attempts atomic.Int32
+	trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		if !strings.HasPrefix(sql, "-- name: LockAgentProfileForLaunch ") {
+			return
+		}
+		attempts.Add(1)
+		_, retargetErr := store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
+			ProjectID: project.ProjectUUID, ProfileID: profileID, ExpectedCurrentConfigID: current, ConfigID: next,
+		})
+		require.NoError(t, retargetErr)
+		current, next = next, current
+	}}
+	handler = newIntegrationServer(poolWithQueryTracer(t, ctx, pool, trace))
+	response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		`{"profile":"`+testutil.RequireType[string](t, profile["id"])+`"}`, "retarget",
+		http.StatusConflict, authHeaders(project.AdminToken))
+	require.Equal(t, "conflict", response["code"])
+	require.Equal(t, "conflict: agent profile changed during launch; retry: resource conflict", response["error"])
+	require.EqualValues(t, 3, attempts.Load())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT count(*) FROM agents WHERE project_id=$1", project.ProjectUUID).Scan(&count))
+	require.Zero(t, count)
 }

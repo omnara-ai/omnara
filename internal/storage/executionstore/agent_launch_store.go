@@ -65,11 +65,15 @@ func (s *Store) LaunchAgent(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	return agentexecution.Retry(ctx,
+	result, err := agentexecution.Retry(ctx,
 		"launch_agent",
 		func(ctx context.Context) (LaunchAgentResult, error) {
 			return s.launchAgentOnce(ctx, input)
 		})
+	if errors.Is(err, storeutil.ErrRetryTransaction) {
+		return LaunchAgentResult{}, fmt.Errorf("agent profile changed during launch; retry: %w", storeerr.ErrConflict)
+	}
+	return result, err
 }
 
 func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) {

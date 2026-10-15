@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
@@ -16,9 +17,11 @@ const (
 )
 
 func runExecutionHeadLoop(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder,
-	sample func(context.Context, int32) (executionstore.ExecutionHeadSampleReport, error)) {
+	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error)) {
+	recorder.InitializeItems(executionHeadJob, "checked", "mismatch", "error")
+	var cursor uuid.UUID
 	for {
-		runExecutionHeadTick(ctx, log, recorder, sample)
+		cursor = runExecutionHeadTick(ctx, log, recorder, cursor, sample)
 		timer := time.NewTimer(jitteredMaintenanceDelay(executionHeadInterval))
 		select {
 		case <-ctx.Done():
@@ -31,10 +34,10 @@ func runExecutionHeadLoop(ctx context.Context, log *slog.Logger, recorder *metri
 	}
 }
 
-func runExecutionHeadTick(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder,
-	sample func(context.Context, int32) (executionstore.ExecutionHeadSampleReport, error)) {
+func runExecutionHeadTick(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder, cursor uuid.UUID,
+	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error)) uuid.UUID {
 	started := time.Now()
-	report, err := sample(ctx, executionHeadSampleSize)
+	report, err := sample(ctx, cursor, executionHeadSampleSize)
 	result := metrics.JobResultSuccess
 	var checked, mismatch, failed int64
 	for _, sample := range report.Samples {
@@ -67,4 +70,5 @@ func runExecutionHeadTick(ctx context.Context, log *slog.Logger, recorder *metri
 	recorder.RecordItems(executionHeadJob, "mismatch", mismatch)
 	recorder.RecordItems(executionHeadJob, "error", failed)
 	recorder.RecordRun(executionHeadJob, result, time.Since(started))
+	return report.Cursor
 }

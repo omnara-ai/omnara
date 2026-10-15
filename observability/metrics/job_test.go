@@ -42,6 +42,7 @@ func TestJobRecorder(t *testing.T) {
 
 func TestNilJobRecorderIsNoop(t *testing.T) {
 	var recorder *JobRecorder
+	recorder.InitializeItems("job", "outcome")
 	recorder.RecordRun("job", JobResultSuccess, time.Second)
 	recorder.RecordItems("job", "outcome", 1)
 }
@@ -64,5 +65,24 @@ func TestHTTPRecorderStart(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestJobRecorderInitializeItems(t *testing.T) {
+	set := New()
+	recorder := NewJobRecorder(set, SubsystemMaintenance)
+	recorder.InitializeItems("execution_head_drift", "checked", "mismatch", "error")
+	body := scrapeMetrics(t, set)
+	for _, outcome := range []string{"checked", "mismatch", "error"} {
+		want := `omnara_maintenance_job_items_total{job="execution_head_drift",outcome="` + outcome + `"} 0`
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics missing %q:\n%s", want, body)
+		}
+	}
+	recorder.RecordItems("execution_head_drift", "checked", 1)
+	recorder.InitializeItems("execution_head_drift", "checked")
+	if !strings.Contains(scrapeMetrics(t, set),
+		`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="checked"} 1`) {
+		t.Fatal("initialization changed the existing counter")
 	}
 }

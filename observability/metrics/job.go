@@ -74,3 +74,12 @@ func (m *JobRecorder) RecordItems(job, outcome string, count int64) {
 	}
 	m.itemsTotal.WithLabelValues(job, outcome).Add(float64(count))
 }
+
+func (m *JobRecorder) InitializeItems(job string, outcomes ...string) {
+	if m == nil {
+		return
+	}
+	for _, outcome := range outcomes {
+		m.itemsTotal.WithLabelValues(job, outcome).Add(0)
+	}
+}

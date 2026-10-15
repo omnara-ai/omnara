@@ -1,10 +1,9 @@
 package agentexecution
 
 import (
+	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,47 +19,32 @@ type HeadDifference struct {
 	Rebuilt any    `json:"rebuilt"`
 }
 
-func SelectExecutionSamples(ctx context.Context, tx pgx.Tx, n int32) ([]AgentRoute, error) {
+func SelectExecutionSamples(ctx context.Context, tx pgx.Tx, after uuid.UUID, n int32) ([]AgentRoute, error) {
 	if n <= 0 {
 		return nil, nil
 	}
 	q := executiondb.New()
-	bounds, err := q.ExecutionSampleBounds(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	if bounds.FirstID == uuid.Nil {
-		return nil, nil
-	}
-	low := new(big.Int).SetBytes(bounds.FirstID[:])
-	high := new(big.Int).SetBytes(bounds.LastID[:])
-	span := new(big.Int).Add(new(big.Int).Sub(high, low), big.NewInt(1))
-	offset, err := rand.Int(rand.Reader, span)
-	if err != nil {
-		return nil, err
-	}
-	var pivot uuid.UUID
-	offset.Add(offset, low).FillBytes(pivot[:])
 	rows, err := q.ExecutionSampleCandidates(ctx, tx, executiondb.ExecutionSampleCandidatesParams{
-		Pivot: pivot, SampleSize: n})
+		AfterID: after, SampleSize: n})
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) < int(n) {
+	if len(rows) < int(n) && after != uuid.Nil {
 		more, err := q.ExecutionSampleCandidates(ctx, tx, executiondb.ExecutionSampleCandidatesParams{
-			Pivot: bounds.FirstID, SampleSize: n - int32(len(rows))})
+			AfterID: uuid.Nil, SampleSize: n - int32(len(rows))})
 		if err != nil {
 			return nil, err
 		}
-		rows = append(rows, more...)
+		for _, row := range more {
+			if bytes.Compare(row.ID[:], after[:]) > 0 {
+				break
+			}
+			rows = append(rows, row)
+		}
 	}
 	routes := make([]AgentRoute, 0, len(rows))
-	seen := make(map[uuid.UUID]bool, len(rows))
 	for _, row := range rows {
-		if row.Eligible && !seen[row.ID] {
-			routes = append(routes, AgentRoute{AgentID: row.ID, ProjectID: row.ProjectID, RootAgentID: row.RootAgentID})
-			seen[row.ID] = true
-		}
+		routes = append(routes, AgentRoute{AgentID: row.ID, ProjectID: row.ProjectID, RootAgentID: row.RootAgentID})
 	}
 	return routes, nil
 }
@@ -71,15 +55,19 @@ func CompareExecutionHead(ctx context.Context, tx pgx.Tx, route AgentRoute) ([]H
 	if err != nil {
 		return nil, err
 	}
-	if row.State != "active" || !row.HeadExists {
+	if row.State != "active" {
 		return nil, ErrSampleIneligible
+	}
+	if !row.HeadExists {
+		return []HeadDifference{{Field: "head_missing", Stored: true, Rebuilt: false}}, nil
 	}
 	rebuilt, err := reconstructExecution(ctx, tx, route)
 	if err != nil {
 		return nil, err
 	}
 	stored := executionHead(row)
-	if rebuilt.Selection.Work == WorkInput || rebuilt.Selection.Work == WorkTool {
+	if (rebuilt.Selection.Work == WorkInput || rebuilt.Selection.Work == WorkTool) &&
+		stored.LogicalReadyAt != nil && rebuilt.Head.LogicalReadyAt != nil {
 		stored.LogicalReadyAt = nil
 		rebuilt.Head.LogicalReadyAt = nil
 	}

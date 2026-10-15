@@ -11,37 +11,16 @@ import (
 	"github.com/google/uuid"
 )
 
-const executionSampleBounds = `-- name: ExecutionSampleBounds :one
-SELECT (SELECT id FROM agents ORDER BY id LIMIT 1)::uuid AS first_id,
-       (SELECT id FROM agents ORDER BY id DESC LIMIT 1)::uuid AS last_id
-`
-
-type ExecutionSampleBoundsRow struct {
-	FirstID uuid.UUID
-	LastID  uuid.UUID
-}
-
-func (q *Queries) ExecutionSampleBounds(ctx context.Context, db DBTX) (ExecutionSampleBoundsRow, error) {
-	row := db.QueryRow(ctx, executionSampleBounds)
-	var i ExecutionSampleBoundsRow
-	err := row.Scan(&i.FirstID, &i.LastID)
-	return i, err
-}
-
 const executionSampleCandidates = `-- name: ExecutionSampleCandidates :many
-WITH candidates AS MATERIALIZED (
-    SELECT id,project_id,root_agent_id,state FROM agents
-    WHERE id>=$1::uuid
-    ORDER BY id LIMIT $2::int
-)
-SELECT c.id,c.project_id,c.root_agent_id,
-       (c.state='active' AND (SELECT h.agent_id FROM agent_execution_state h
-        WHERE h.agent_id=c.id LIMIT 1) IS NOT NULL)::boolean AS eligible
-FROM candidates c
+SELECT id,project_id,root_agent_id
+FROM agents
+WHERE state='active' AND id>$1::uuid
+ORDER BY id
+LIMIT $2::int
 `
 
 type ExecutionSampleCandidatesParams struct {
-	Pivot      uuid.UUID
+	AfterID    uuid.UUID
 	SampleSize int32
 }
 
@@ -49,11 +28,10 @@ type ExecutionSampleCandidatesRow struct {
 	ID          uuid.UUID
 	ProjectID   uuid.UUID
 	RootAgentID uuid.UUID
-	Eligible    bool
 }
 
 func (q *Queries) ExecutionSampleCandidates(ctx context.Context, db DBTX, arg ExecutionSampleCandidatesParams) ([]ExecutionSampleCandidatesRow, error) {
-	rows, err := db.Query(ctx, executionSampleCandidates, arg.Pivot, arg.SampleSize)
+	rows, err := db.Query(ctx, executionSampleCandidates, arg.AfterID, arg.SampleSize)
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +39,7 @@ func (q *Queries) ExecutionSampleCandidates(ctx context.Context, db DBTX, arg Ex
 	items := []ExecutionSampleCandidatesRow{}
 	for rows.Next() {
 		var i ExecutionSampleCandidatesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.RootAgentID,
-			&i.Eligible,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.RootAgentID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

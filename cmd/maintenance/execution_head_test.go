@@ -24,8 +24,8 @@ func TestExecutionHeadTickOutcomes(t *testing.T) {
 			var logs bytes.Buffer
 			set := metrics.New()
 			recorder := metrics.NewJobRecorder(set, metrics.SubsystemMaintenance)
-			runExecutionHeadTick(ctx, slog.New(slog.NewJSONHandler(&logs, nil)), recorder,
-				func(context.Context, int32) (executionstore.ExecutionHeadSampleReport, error) {
+			runExecutionHeadTick(ctx, slog.New(slog.NewJSONHandler(&logs, nil)), recorder, uuid.Nil,
+				func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error) {
 					report := executionstore.ExecutionHeadSampleReport{
 						Samples: []executionstore.ExecutionHeadSample{{AgentID: uuid.New(), ProjectID: uuid.New()}}}
 					switch outcome {
@@ -55,8 +55,8 @@ func TestExecutionHeadTickMismatch(t *testing.T) {
 	set := metrics.New()
 	var logs bytes.Buffer
 	runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)),
-		metrics.NewJobRecorder(set, metrics.SubsystemMaintenance),
-		func(context.Context, int32) (executionstore.ExecutionHeadSampleReport, error) {
+		metrics.NewJobRecorder(set, metrics.SubsystemMaintenance), uuid.Nil,
+		func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error) {
 			return executionstore.ExecutionHeadSampleReport{
 				Samples: []executionstore.ExecutionHeadSample{sample}}, nil
 		})
@@ -71,4 +71,39 @@ func TestExecutionHeadTickMismatch(t *testing.T) {
 		require.Contains(t, response.Body.String(),
 			`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="`+outcome+`"} 1`)
 	}
+}
+
+func TestExecutionHeadTickCursor(t *testing.T) {
+	var logs bytes.Buffer
+	var cursor uuid.UUID
+	for range 3 {
+		previous, next := cursor, uuid.New()
+		cursor = runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)), nil, cursor,
+			func(_ context.Context, after uuid.UUID, n int32) (executionstore.ExecutionHeadSampleReport, error) {
+				require.Equal(t, previous, after)
+				require.EqualValues(t, 10, n)
+				return executionstore.ExecutionHeadSampleReport{Cursor: next}, nil
+			})
+		require.Equal(t, next, cursor)
+	}
+}
+
+func TestExecutionHeadLoopInitializesItems(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	set := metrics.New()
+	var logs bytes.Buffer
+	runExecutionHeadLoop(ctx, slog.New(slog.NewJSONHandler(&logs, nil)),
+		metrics.NewJobRecorder(set, metrics.SubsystemMaintenance),
+		func(_ context.Context, after uuid.UUID, _ int32) (executionstore.ExecutionHeadSampleReport, error) {
+			require.Equal(t, uuid.Nil, after)
+			response := httptest.NewRecorder()
+			set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			for _, outcome := range []string{"checked", "mismatch", "error"} {
+				require.Contains(t, response.Body.String(),
+					`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="`+outcome+`"} 0`)
+			}
+			cancel()
+			return executionstore.ExecutionHeadSampleReport{}, context.Canceled
+		})
 }

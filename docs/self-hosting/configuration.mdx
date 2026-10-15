@@ -44,7 +44,7 @@ same transaction. Workers claim wakeups under fenced runtime leases and may
 continue ready work within the configured continuation budget. Rollbacks discard
 all pending state and notifications.
 
-`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}` should always be zero; alert on `sum(omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}) > 0`.
+`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}` counts detected execution-head discrepancies. Plot `increase(omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}[1h])` and alert on `increase(omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}[1h]) > 0`.
 
 ### Integration inbox operation
 
