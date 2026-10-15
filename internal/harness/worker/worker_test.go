@@ -499,6 +499,36 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 	}
 }
 
+func TestClaimLoopDoesNotClaimAfterCancellation(t *testing.T) {
+	var claims atomic.Int32
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			ProjectID:   uuid.UUID{1},
+			AgentID:     uuid.UUID{2},
+			Kind:        executionstore.AgentWorkModel,
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}},
+		},
+		released:          make(chan uuid.UUID, 256),
+		beforeClaimReturn: func() { claims.Add(1) },
+	}
+	worker := NewWorker(store, &failingThenBlockTurnExecutor{secondStarted: make(chan struct{})}, Options{
+		Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 1,
+		AsyncToolCapacity:        1,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 200 {
+		var executions sync.WaitGroup
+		worker.claimLoop(ctx, make(chan struct{}, 1), &executions)
+		executions.Wait()
+	}
+	if got := claims.Load(); got != 0 {
+		t.Fatalf("claim loop claimed %d times after cancellation", got)
+	}
+}
+
 func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 	for _, test := range []struct {
 		name       string

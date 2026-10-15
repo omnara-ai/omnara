@@ -160,6 +160,10 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 		case <-ctx.Done():
 			return
 		}
+		if ctx.Err() != nil {
+			<-slots
+			return
+		}
 		loopCtx, event := logent.WorkerLoop(ctx, w.workerProcessID)
 		now := time.Now().UTC()
 		claim, handled, err := w.claimNext(loopCtx)

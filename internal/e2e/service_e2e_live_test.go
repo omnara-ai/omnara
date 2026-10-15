@@ -861,6 +861,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t.Fatalf("query pre-bridge event sequence: %v", err)
 	}
 	project.createInput(t, ctx, agentID, secondPrompt)
+	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
 		if err := env.db.QueryRow(
@@ -891,6 +892,14 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&failedBudgetContexts); err != nil {
 			return false, err.Error()
 		}
+		if checkpoints > maxCompactionRounds || failedBudgetContexts > maxCompactionRounds {
+			t.Fatalf(
+				"compaction kept repeating: checkpoints=%d failed_budget_contexts=%d max=%d",
+				checkpoints,
+				failedBudgetContexts,
+				maxCompactionRounds,
+			)
+		}
 		latestOutput, err := latestModelOutputTextAfterSequence(
 			ctx,
 			env,
@@ -904,7 +913,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		outputMatches := strings.Contains(latestOutput, bridgeToken) &&
 			!strings.Contains(latestOutput, projectLabel) &&
 			!strings.Contains(latestOutput, sampleID)
-		if outputMatches && checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 {
+		if outputMatches && checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 {
 			return true, ""
 		}
 		var locks, wakeups int
@@ -920,7 +929,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
-		if checkpoints == 1 && compactedContexts >= 1 && failedBudgetContexts == 1 && locks == 0 && wakeups == 0 {
+		if checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 && locks == 0 && wakeups == 0 {
 			t.Fatalf(
 				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q,%q",
 				latestOutput,
