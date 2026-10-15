@@ -70,5 +70,6 @@ func executableAgentMachineBindingRecordFromSQLC(
 		Metadata:         row.Metadata,
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
+		DaemonVersion:    row.DaemonVersion,
 	}
 }

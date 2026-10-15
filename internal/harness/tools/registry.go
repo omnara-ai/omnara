@@ -173,24 +173,20 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameReadFile,
 			semanticInputValidator: validateReadFileInput,
-			handler: toolHandler{
-				Transactional: runReadFile,
-				Async:         runReadFileAsync,
-				Background:    wakeReadFileProcess,
-			},
-			permissionModes: commonPermissionModeHandlers(readFilePermissionChallenge),
+			handler:                machineFileToolHandler(runReadFileAsync, machineReadFile),
+			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineReadFile)),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteFile,
 			semanticInputValidator: validateWriteFileInput,
-			handler:                toolHandler{Async: runWriteFileAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler:                machineFileToolHandler(runWriteFileAsync, machineWriteFile),
+			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineWriteFile)),
 		},
 		{
 			name:                   toolcatalog.ToolNameSearchFiles,
 			semanticInputValidator: validateSearchFilesInput,
-			handler:                toolHandler{Async: runSearchFilesAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler:                machineFileToolHandler(runSearchFilesAsync, machineSearchFiles),
+			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineSearchFiles)),
 		},
 		{
 			name:                   toolcatalog.ToolNameRunCommand,
@@ -262,8 +258,8 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameListFiles,
 			semanticInputValidator: validateListFiles,
-			handler:                toolHandler{Async: runListFiles},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler:                machineFileToolHandler(runListFiles, machineListFiles),
+			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineListFiles)),
 		},
 		{
 			name:                   toolcatalog.ToolNameListMachines,

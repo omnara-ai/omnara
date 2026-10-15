@@ -57,11 +57,15 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	add(
 		[]string{
 			"web_search", "web_fetch", "skill",
-			"list_files", "write_file", "search_files",
 		},
 		expectedTopology{async: true},
 	)
-	add([]string{"read_file"}, expectedTopology{transactional: true, async: true, background: true})
+	// File tools serve Omnara files asynchronously and machine files through
+	// file operation processes.
+	add(
+		[]string{"read_file", "write_file", "list_files", "search_files"},
+		expectedTopology{transactional: true, async: true, background: true},
+	)
 
 	catalog, err := toolcatalog.Default()
 	if err != nil {

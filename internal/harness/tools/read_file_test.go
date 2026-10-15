@@ -1,17 +1,13 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func TestReadFileDefaults(t *testing.T) {
@@ -133,7 +129,7 @@ func TestReadFileDigestValidation(t *testing.T) {
 		{`{"path":"/memory/team/file","expected_digest":123}`, false},
 		{`{"path":"/memory/team/file","expected_digest":"sha256:` + strings.Repeat("A", 64) + `"}`, false},
 		{`{"path":"/artifacts/` + artifactID + `","expected_digest":"` + digest + `"}`, true},
-		{`{"path":"/tmp/notes.md","expected_digest":"` + digest + `"}`, true},
+		{`{"path":"/tmp/notes.md","expected_digest":"` + digest + `"}`, false},
 	} {
 		if err := tool.validateInput(json.RawMessage(test.input)); (err == nil) != test.valid {
 			t.Errorf("input %s: %v", test.input, err)
@@ -172,63 +168,6 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 			t.Fatalf("filename error = %v", err)
 		}
 	})
-}
-
-func TestMachineFileTransferAllowedFollowsUploadFile(t *testing.T) {
-	allow := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)
-	ask := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
-	deny := toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
-	for _, test := range []struct {
-		name  string
-		tools map[string]ToolSpec
-		want  bool
-	}{
-		{name: "unrestricted", want: true},
-		{name: "upload allowed", tools: map[string]ToolSpec{"upload_file": {Permission: allow}}, want: true},
-		{name: "upload asks", tools: map[string]ToolSpec{"upload_file": {Permission: ask}}, want: true},
-		{name: "upload denied", tools: map[string]ToolSpec{"upload_file": {Permission: deny}}},
-		{name: "upload disabled", tools: map[string]ToolSpec{"read_file": {Permission: allow}}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := machineFileTransferAllowed(Turn{Tools: test.tools}); got != test.want {
-				t.Fatalf("machineFileTransferAllowed = %t, want %t", got, test.want)
-			}
-		})
-	}
-}
-
-func TestReadFileTransactionalPhaseRouting(t *testing.T) {
-	allow := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)
-	call := func(input string) transactionalToolContext {
-		return transactionalToolContext{
-			Turn: Turn{Tools: map[string]ToolSpec{"read_file": {Permission: allow}}},
-			Call: model.ToolCall{ID: "call_read", Name: "read_file", Input: json.RawMessage(input)},
-		}
-	}
-	result, err := runReadFile(context.Background(), call(`{"path":"/memory/team/notes.md"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := result.(continueAsyncTransaction); !ok {
-		t.Fatalf("Omnara read phase = %T, want async", result)
-	}
-	result, err = runReadFile(context.Background(), call(`{"path":"/tmp/shot.png"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	failed, ok := result.(failTransaction)
-	if !ok || !errors.Is(failed.cause, errReadFileMachineTransferDisabled) {
-		t.Fatalf("machine read without upload_file = %#v", result)
-	}
-}
-
-func TestWakeReadFileProcessSkipsOmnaraReads(t *testing.T) {
-	call := backgroundToolContext{
-		Call: model.ToolCall{Name: "read_file", Input: json.RawMessage(`{"path":"/memory/team/notes.md"}`)},
-	}
-	if err := wakeReadFileProcess(context.Background(), call); err != nil {
-		t.Fatalf("wake Omnara read: %v", err)
-	}
 }
 
 func TestCompleteImageReadReturnsMetadataAndMediaRef(t *testing.T) {

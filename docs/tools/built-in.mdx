@@ -167,9 +167,11 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 ## Files
 
-`path` addresses files stored in Omnara, not files on an attached machine. `/artifacts` is the destination for creating an artifact, `/artifacts/<artifact_id>` identifies an existing artifact, and `/memory/<store-name>/<file-path>` identifies a file in an [attached memory store](/agents/configuration#memory-stores).
+In Omnara storage, `/artifacts` is the destination for creating an artifact, `/artifacts/<artifact_id>` identifies an existing artifact, and `/memory/<store-name>/<file-path>` identifies a file in an [attached memory store](/agents/configuration#memory-stores).
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `list_files`, `read_file`, and `search_files` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `write_file`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Integration-contributed tools are compiled with the config too.
+`list_files`, `read_file`, `write_file`, and `search_files` also work on files on an attached machine. Any path outside `/memory` and `/artifacts`, or any call with `machine_id`, goes to the machine: relative paths use the machine working directory, and `~` expands to the machine user's home directory. Machines are picked as in [`run_command`](#picking-a-machine), and approvals show the path and machine. Machine file tools require omnarad 0.2.6 or later; older daemons return an error asking you to update omnarad or use `run_command`. Machine results include `machine_id`.
+
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `list_files`, `read_file`, and `search_files` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `write_file`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine for Omnara files. Integration-contributed tools are compiled with the config too.
 
 ### `list_files`
 
@@ -177,13 +179,16 @@ Lists matching files and directories without reading their contents.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Path pattern under literal `/memory` or `/artifacts`; globs are allowed only below the root |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Path pattern under literal `/memory` or `/artifacts`, where globs are allowed only below the root, or a machine path or glob |
+| `machine_id` | string | Machine to list; required for machine paths when the agent has more than one machine |
 | `limit` | integer | 1–100; default 50 |
 | `cursor` | string | `next_cursor` from the previous result; keep the same pattern |
 
 Use `/artifacts/*` for the agent's artifacts, `/memory/*` for attached stores and their descriptions, or `/memory/**` to list paths across attached stores recursively. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
 
 Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths for reading or downloading. An exact `/artifacts/<artifact_id>` selects one artifact; wildcards match filenames, not IDs, and a filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. Continue with `next_cursor` until it is `null`; narrow the pattern if the listing exceeds its resource limit.
+
+Machine patterns such as `src/**/*.go` or `~/Desktop/*.png` list files and directories in path order with `size_bytes` for files; a path without `*` or `?` returns just that entry. Listings don't follow symlinked directories.
 
 ### `upload_file`
 
@@ -209,7 +214,7 @@ Reads a text or image file at `/artifacts/<artifact_id>`, `/memory/<store-name>/
 
 Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
-Any other path, or any path passed with `machine_id`, is read from a machine: relative paths use the machine working directory, and `~` expands to the machine user's home directory. Provide `machine_id` when the agent has more than one machine. This lets the agent view a screenshot it just took without calling `upload_file` first. Machine reads use the same transfer as `upload_file` and require it to be enabled and not denied; each read snapshots the file as an artifact, and results also include `machine_id` and the snapshot's `artifact_path`.
+Machine files are read in place, so the agent can view a screenshot it just took without calling `upload_file`. Machine images are stored as artifacts so the model can view them; text reads create nothing in Omnara. `expected_digest` applies only to memory reads.
 
 | Input | Type | Notes |
 | --- | --- | --- |
@@ -219,7 +224,7 @@ Any other path, or any path passed with `machine_id`, is read from a machine: re
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
-| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory or machine read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
+| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
 
 Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 
@@ -227,25 +232,29 @@ When `has_more` is true, continue using the returned `next_offset_line` or `next
 
 ### `write_file`
 
-Creates or edits a memory text file in a writable store attached with `read_write` access. Returns `path` and `digest`.
+Creates or edits a memory text file in a writable store attached with `read_write` access, or a text file on an attached machine. Returns `path` and `digest`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact `/memory/<store-name>/<file-path>` destination |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact `/memory/<store-name>/<file-path>` destination, or a machine file path |
+| `machine_id` | string | Machine to write to; required for machine paths when the agent has more than one machine |
 | `content` | string | Text to create or replace the file with; empty text is allowed |
-| `script` | string | GNU sed script using extended regex, at most 64 KiB; transforms an existing file |
+| `script` | string | Memory files only. GNU sed script using extended regex, at most 64 KiB; transforms an existing file |
 | `append` | boolean | Append `content` exactly, without adding a newline; default false. Creates missing files. |
-| `expected_digest` | string | Current digest when changing an existing file; omit to create |
+| `expected_digest` | string | Memory files only. Current digest when changing an existing file; omit to create |
 
 Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Concurrent edits cause a conflict; read the file again before retrying.
 
+Machine writes replace or append to the file atomically, create missing parent directories, and keep an existing file's permissions; they don't take `expected_digest`. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
+
 ### `search_files`
 
-Searches text in one artifact or in memory files matching a path or glob. Binary files may be skipped when searching with a glob.
+Searches text in one artifact, in memory files matching a path or glob, or in machine files matching a path or glob. Binary files may be skipped when searching with a glob.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | For artifacts, one exact `/artifacts/<artifact_id>` path. For memory, an exact file path or a glob such as `/memory/notes/**/*.md`. |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | For artifacts, one exact `/artifacts/<artifact_id>` path. For memory, an exact file path or a glob such as `/memory/notes/**/*.md`. For machines, a file path or a glob such as `src/**/*.go`. |
+| `machine_id` | string | Machine to search; required for machine paths when the agent has more than one machine |
 | `args`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string[] | Ripgrep options and `-e` patterns; for example `["-i", "-C", "2", "-e", "deploy"]` |
 | `limit` | integer | 1–100 entries across all files; default 20 |
 | `offset_line` | integer | Starting line, default 1; only for exact-file content searches |
@@ -253,6 +262,8 @@ Searches text in one artifact or in memory files matching a path or glob. Binary
 Supported options are `-e` (repeatable patterns), `-F` (literal), `-i` (ignore case), `-w` (whole word), `-x` (whole line), `-v` (invert), `-U` (multiline), `-l` (matching paths), `-c` (counts), and `-A`/`-B`/`-C` (0–5 context lines). Patterns total at most 1024 UTF-8 bytes. Other options and file operands are rejected.
 
 Content results are a sequence of match and context records with paths, original line numbers, and bounded snippets. Context does not count toward `limit`; counts in `-c` results are not capped by it. Context may be cut off at the response limit. Narrow the query when truncated.
+
+Machine searches run in omnarad, without ripgrep, using Go regular expression syntax. They skip binary files and files over 10 MiB, and stop with `truncated: true` when a search runs too long.
 
 ### Large tool results
 

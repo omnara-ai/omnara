@@ -16,32 +16,33 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/fileread"
+	"github.com/omnara-ai/omnara/internal/filesearch"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const searchLineBytes = 256
 const searchInitialBufferBytes = 64 * 1024
 const searchEventBytes = 2 * 1024 * 1024
 const searchStoreBatchSize = 32
-const searchEntryOverheadBytes = 64
 
-var errSearchResultLimit = errors.New("search result limit reached")
 var searchGlobEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}", " ", "\\ ")
 
 type searchFilesRequest struct {
-	Path       string   `json:"path"`
-	Args       []string `json:"args"`
-	Limit      int      `json:"limit,omitempty"`
-	OffsetLine *int     `json:"offset_line,omitempty"`
+	Path       string          `json:"path"`
+	Args       []string        `json:"args"`
+	Limit      int             `json:"limit,omitempty"`
+	OffsetLine *int            `json:"offset_line,omitempty"`
+	MachineID  json.RawMessage `json:"machine_id,omitempty"`
 	mode       string
 	matcher    *regexp.Regexp
+	machineID  uuid.UUID
 }
 
 func validateSearchFilesInput(raw json.RawMessage) error {
@@ -55,8 +56,21 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 		return input, err
 	}
 	var err error
+	if input.machineID, err = resolveOptionalMachineID(input.MachineID); err != nil {
+		return input, err
+	}
 	memory := strings.HasPrefix(input.Path, memorystore.Root+"/")
-	if memory {
+	if onMachine(input.Path, input.machineID) {
+		if err := validateMachineGlob(input.Path); err != nil {
+			return input, err
+		}
+		// Machines search with Go regular expressions rather than ripgrep.
+		if options, err := filesearch.ParseArgs(input.Args); err == nil {
+			if _, err := filesearch.Compile(options); err != nil {
+				return input, fmt.Errorf("invalid search pattern: %w", err)
+			}
+		}
+	} else if memory {
 		input.matcher, err = storage.CompileFilePattern(input.Path)
 		if err != nil {
 			return input, err
@@ -95,48 +109,20 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 	return input, nil
 }
 
+func machineSearchFiles(raw json.RawMessage) (machineFileCall, bool, error) {
+	input, err := resolveSearchFilesRequest(raw)
+	if err != nil || !onMachine(input.Path, input.machineID) {
+		return machineFileCall{}, false, err
+	}
+	operation := processcmd.FileOperation{
+		Path: input.Path, Args: input.Args, Limit: input.Limit, Paging: fileread.Paging{OffsetLine: input.OffsetLine},
+	}
+	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileSearch, operation: operation}, true, nil
+}
+
 func parseSearchArgs(args []string) (string, error) {
-	var mode string
-	patterns, patternBytes := 0, 0
-	if len(args) == 0 || len(args) > toolcatalog.SearchMaxArgs {
-		return mode, errors.New("args must contain between 1 and 64 arguments")
-	}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch arg {
-		case "-i", "-F", "-w", "-x", "-v", "-U":
-			continue
-		case "-l", "-c":
-			if mode != "" && mode != arg {
-				return mode, errors.New("-l and -c cannot be combined")
-			}
-			mode = arg
-		case "-e", "-A", "-B", "-C":
-			i++
-			if i >= len(args) {
-				return mode, fmt.Errorf("%s requires a value", arg)
-			}
-			value := args[i]
-			if arg == "-e" {
-				patterns++
-				patternBytes += len(value)
-				if value == "" || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
-					return mode, errors.New("patterns must be nonempty UTF-8 text without NUL bytes")
-				}
-				continue
-			}
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 || n > toolcatalog.SearchMaxContextLines {
-				return mode, errors.New("context must be between 0 and 5 lines")
-			}
-		default:
-			return mode, fmt.Errorf("unsupported search argument %q; supply patterns with -e", arg)
-		}
-	}
-	if patterns == 0 || patternBytes > toolcatalog.SearchMaxPatternBytes {
-		return mode, errors.New("supply -e patterns totaling 1–1024 UTF-8 bytes")
-	}
-	return mode, nil
+	options, err := filesearch.ParseArgs(args)
+	return options.Mode, err
 }
 
 type searchSource struct {
@@ -157,7 +143,7 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	}
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	output := &searchOutput{input: input}
+	output := newSearchOutput(input)
 	searched := false
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
 		var stores []searchStore
@@ -207,47 +193,26 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	if err == nil && !searched {
 		err = output.search(searchCtx, searchSource{})
 	}
-	if errors.Is(err, errSearchResultLimit) {
-		output.result.Truncated = true
-		if output.result.IncompleteReason == "" {
-			output.result.IncompleteReason = "search result limit reached; narrow the search"
-		}
-	} else if errors.Is(err, context.DeadlineExceeded) {
-		output.result.Truncated = true
-		if output.result.IncompleteReason == "" {
-			output.result.IncompleteReason = "search resource limit reached; narrow the search"
-		}
-	} else if err != nil {
+	result, err := output.Finish(err)
+	if err != nil {
 		return nil, err
 	}
-	return completeFileTool(output.result)
+	return completeFileTool(result)
 }
 
-type searchLine struct {
-	Path       string `json:"path"`
-	LineNumber int    `json:"line_number"`
-	EndLine    int    `json:"end_line"`
-	Text       string `json:"text"`
-	IsMatch    bool   `json:"is_match"`
-}
+type searchResult = filesearch.Result
 
-type searchFileResult struct {
-	Path  string  `json:"path"`
-	Count *uint64 `json:"count,omitempty"`
-}
-
-type searchResult struct {
-	Lines            []searchLine       `json:"lines,omitempty"`
-	Files            []searchFileResult `json:"files,omitempty"`
-	MatchCount       int                `json:"match_count"`
-	Truncated        bool               `json:"truncated"`
-	IncompleteReason string             `json:"incomplete_reason,omitempty"`
-}
+type searchFileResult = filesearch.File
 
 type searchOutput struct {
-	input  searchFilesRequest
-	result searchResult
-	used   int
+	input searchFilesRequest
+	filesearch.Collector
+}
+
+func newSearchOutput(input searchFilesRequest) *searchOutput {
+	return &searchOutput{input: input, Collector: filesearch.Collector{
+		Mode: input.mode, Limit: input.Limit, OffsetLine: *input.OffsetLine,
+	}}
 }
 
 func (output *searchOutput) search(ctx context.Context, source searchSource) error {
@@ -399,8 +364,8 @@ func (s *searchStream) read(stdout io.Reader) error {
 				continue
 			}
 			skipping = true
-			s.output.result.Truncated = true
-			s.output.result.IncompleteReason = "oversized search events were skipped; results are incomplete"
+			s.output.Result.Truncated = true
+			s.output.Result.IncompleteReason = "oversized search events were skipped; results are incomplete"
 			continue
 		}
 		if !skipping && len(data) > 0 {
@@ -489,14 +454,7 @@ func (s *searchStream) consume(data []byte) error {
 		if err != nil || !ok {
 			return err
 		}
-		if output.result.MatchCount >= output.input.Limit ||
-			output.used+len(path)+searchEntryOverheadBytes > toolcatalog.FilePageBytes {
-			return errSearchResultLimit
-		}
-		output.result.Files = append(output.result.Files, searchFileResult{Path: path, Count: count})
-		output.result.MatchCount++
-		output.used += len(path) + searchEntryOverheadBytes
-		return nil
+		return output.AddFile(path, count)
 	}
 	var event searchEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -514,10 +472,7 @@ func (s *searchStream) consume(data []byte) error {
 	}
 	if event.Type == "end" {
 		if event.Data.BinaryOffset != nil {
-			output.result.Truncated = true
-			if output.result.IncompleteReason == "" {
-				output.result.IncompleteReason = "binary data detected; results may be incomplete"
-			}
+			output.MarkIncomplete("binary data detected; results may be incomplete")
 		}
 		return nil
 	}
@@ -525,65 +480,14 @@ func (s *searchStream) consume(data []byte) error {
 		return errors.New("unexpected ripgrep event")
 	}
 	eventData := event.Data
-	if eventData.LineNumber < *output.input.OffsetLine {
-		return nil
-	}
-	if event.Type == "match" && output.result.MatchCount >= output.input.Limit {
-		return errSearchResultLimit
-	}
 	text := eventData.Lines.Text
 	if eventData.Lines.Bytes != nil {
 		text = string(eventData.Lines.Bytes)
 	}
-	text = strings.TrimSuffix(text, "\n")
 	var matchStart, matchEnd int
 	if len(eventData.Submatches) > 0 {
 		matchStart, matchEnd = eventData.Submatches[0].Start, eventData.Submatches[0].End
 	}
-	line := searchLine{Path: path, LineNumber: eventData.LineNumber,
-		EndLine: eventData.LineNumber + strings.Count(text, "\n"),
-		Text:    searchSnippet(text, matchStart, matchEnd),
-		IsMatch: event.Type == "match"}
-	size := len(line.Path) + len(line.Text) + searchEntryOverheadBytes
-	if output.used+size > toolcatalog.FilePageBytes {
-		return errSearchResultLimit
-	}
-	output.result.Lines = append(output.result.Lines, line)
-	output.used += size
-	if line.IsMatch {
-		output.result.MatchCount++
-	}
-	return nil
-}
-
-func searchSnippet(text string, matchStart, matchEnd int) string {
-	matchStart, matchEnd = min(matchStart, len(text)), min(matchEnd, len(text))
-	if !utf8.ValidString(text) {
-		matchStart, matchEnd = len(strings.ToValidUTF8(text[:matchStart], "�")),
-			len(strings.ToValidUTF8(text[:matchEnd], "�"))
-		text = strings.ToValidUTF8(text, "�")
-	}
-	if len(text) > searchLineBytes {
-		const marker = "…"
-		limit := searchLineBytes - 2*len(marker)
-		for matchStart > 0 && matchStart < len(text) && !utf8.RuneStart(text[matchStart]) {
-			matchStart--
-		}
-		matchLength := min(matchEnd-matchStart, limit)
-		start := max(0, matchStart-(limit-matchLength)/2)
-		start = min(start, len(text)-limit)
-		for start < matchStart && !utf8.RuneStart(text[start]) {
-			start++
-		}
-		text = text[start:]
-		snippet := textutil.TruncateBytes(text, limit)
-		if len(snippet) < len(text) {
-			snippet += marker
-		}
-		if start > 0 {
-			snippet = marker + snippet
-		}
-		return snippet
-	}
-	return text
+	return output.AddLine(path, eventData.LineNumber, strings.TrimSuffix(text, "\n"),
+		matchStart, matchEnd, event.Type == "match")
 }

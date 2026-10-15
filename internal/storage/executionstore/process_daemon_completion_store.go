@@ -86,7 +86,7 @@ func (s *Store) MarkProcessStarted(
 				record = processRecordFromStartedSQLC(row)
 			}
 			resultCommitted := false
-			if record.ToolCallID != uuid.Nil && record.ExecutionSpec.FileTransfer == nil {
+			if record.ToolCallID != uuid.Nil && !record.ExecutionSpec.HasFileResult() {
 				h, err := unit.Handle(input.ProjectID, input.AgentID)
 				if err != nil {
 					return DaemonProcessReportApplication{}, err
@@ -147,10 +147,6 @@ func (s *Store) CompleteDaemonProcess(
 	}
 	if !input.SourceEndedAt.IsZero() {
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
-	}
-	machineRead, machineReadLoaded, err := s.loadMachineFileRead(ctx, input)
-	if err != nil {
-		return DaemonProcessReportApplication{}, err
 	}
 	return agentexecution.Retry(ctx,
 		"complete_daemon_process",
@@ -225,7 +221,7 @@ func (s *Store) CompleteDaemonProcess(
 			resultCommitted := false
 			if reportMatchesProcess && record.ToolCallID != uuid.Nil {
 				request := agentexecution.ProcessResult{ID: record.ID, Observed: input.Result}
-				if record.ExecutionSpec.FileTransfer != nil {
+				if record.ExecutionSpec.HasFileResult() {
 					_, result, err := processresult.Terminal(record.resultFacts())
 					if err != nil {
 						return DaemonProcessReportApplication{}, err
@@ -236,9 +232,11 @@ func (s *Store) CompleteDaemonProcess(
 							return DaemonProcessReportApplication{}, err
 						}
 					}
-					outcome, raw, err := fileTransferToolResultContentParts(
-						ctx, qtx, record, result, machineRead, machineReadLoaded,
-					)
+					render := fileTransferToolResultContentParts
+					if record.ExecutionSpec.File != nil {
+						render = fileOperationToolResultContentParts
+					}
+					outcome, raw, err := render(ctx, qtx, record, result)
 					if err != nil {
 						return DaemonProcessReportApplication{}, err
 					}

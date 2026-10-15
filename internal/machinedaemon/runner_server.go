@@ -945,14 +945,14 @@ func captureTerminalResult(
 	captureErr error,
 ) (json.RawMessage, processRunnerExit) {
 	var (
-		fileTransfer *daemonprotocol.FileTransferResult
-		output       string
-		start        int64
-		next         int64
-		truncated    bool
+		fileResult any
+		output     string
+		start      int64
+		next       int64
+		truncated  bool
 	)
 	if runner != nil {
-		fileTransfer = runner.captureFileTransferResult(&exit)
+		fileResult = runner.captureFileTransferResult(&exit)
 		cursor := int64(0)
 		var readErr error
 		output, start, next, truncated, readErr = runner.Slice(
@@ -977,8 +977,12 @@ func captureTerminalResult(
 		"done":        true,
 		"error":       processTerminalErrorMessage(exit),
 	}
-	if fileTransfer != nil {
-		resultObject["file_transfer"] = fileTransfer
+	if fileResult != nil {
+		key := "file_transfer"
+		if runner.fileOperation != nil {
+			key = "file_operation"
+		}
+		resultObject[key] = fileResult
 	}
 	result, _ := marshalJSON(resultObject)
 	return result, exit
@@ -1647,6 +1651,13 @@ func prepareLocalRunner(
 		terminalResultReady: make(chan struct{}),
 		fileTransfer:        assignment.Process.ExecutionSpec.FileTransfer,
 	}
+	if assignment.Process.ExecutionSpec.File != nil {
+		spec, err := json.Marshal(assignment.Process.ExecutionSpec)
+		if err != nil {
+			return nil, err
+		}
+		runner.fileOperation = spec
+	}
 	machine, err := localstore.Machine(
 		bootstrap.OmnaraHome,
 		bootstrap.InstallationID,
@@ -1751,22 +1762,27 @@ func startPreparedLocalRunner(
 	if err := setupProcessCommand(command); err != nil {
 		return nil, processNotStarted, err
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		return nil, processNotStarted, err
+	if runner.fileOperation != nil {
+		// File operations read their spec from stdin and accept no process input.
+		command.Stdin = bytes.NewReader(runner.fileOperation)
+	} else {
+		stdin, err := command.StdinPipe()
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		stdinFile, ok := stdin.(*os.File)
+		if !ok {
+			_ = stdin.Close()
+			return nil, processNotStarted, errors.New(
+				"process stdin pipe does not support write deadlines",
+			)
+		}
+		runner.stdin = stdinFile
+		runner.stdinOK = true
 	}
-	stdinFile, ok := stdin.(*os.File)
-	if !ok {
-		_ = stdin.Close()
-		return nil, processNotStarted, errors.New(
-			"process stdin pipe does not support write deadlines",
-		)
-	}
-	runner.stdin = stdinFile
-	runner.stdinOK = true
 	command.Stdout = &runner.output
 	command.Stderr = &runner.output
-	if runner.fileTransfer != nil {
+	if runner.fileTransfer != nil || runner.fileOperation != nil {
 		reader, writer, err := os.Pipe()
 		if err != nil {
 			return nil, processNotStarted, fmt.Errorf("create file transfer result pipe: %w", err)
@@ -1775,9 +1791,13 @@ func startPreparedLocalRunner(
 		command.ExtraFiles = []*os.File{writer}
 		runner.transferReader = reader
 		runner.transferResult = make(chan fileTransferOutcome, 1)
+		read := readFileTransferResult
+		if runner.fileOperation != nil {
+			read = readFileOperationResult
+		}
 		go func() {
 			defer func() { _ = reader.Close() }()
-			runner.transferResult <- readFileTransferResult(reader)
+			runner.transferResult <- read(reader)
 		}()
 	}
 	if err := command.Start(); err != nil {
@@ -1799,6 +1819,9 @@ func processArgvForLocalOS(processID string, process Process) ([]string, error) 
 	}
 	if transfer := process.ExecutionSpec.FileTransfer; transfer != nil {
 		return fileTransferArgv(processID, *transfer)
+	}
+	if process.ExecutionSpec.File != nil {
+		return fileOperationArgv(processID)
 	}
 	return processcmd.ResolveShellCommand(
 		process.ExecutionSpec.Shell.Command, process.ExecutionSpec.Shell.Shell, runtime.GOOS,

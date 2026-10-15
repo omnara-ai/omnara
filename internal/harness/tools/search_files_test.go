@@ -14,6 +14,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/filesearch"
 	"github.com/omnara-ai/omnara/internal/sandbox"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -91,6 +92,14 @@ func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesReq
 	return input
 }
 
+func searchResultBytes(result searchResult) int {
+	size := 0
+	for _, line := range result.Lines {
+		size += len(line.Path) + len(line.Text) + 64
+	}
+	return size
+}
+
 func TestSearchFilesModes(t *testing.T) {
 	setupSandbox(t)
 	for _, test := range []struct {
@@ -115,12 +124,12 @@ func TestSearchFilesModes(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, test.args, 20)
-			page := (&searchOutput{input: input})
+			page := newSearchOutput(input)
 			if err := page.search(t.Context(), searchSource{path: input.Path, content: []byte(test.text)}); err != nil {
 				t.Fatal(err)
 			}
 			var lines []int
-			for _, match := range page.result.Lines {
+			for _, match := range page.Result.Lines {
 				if match.IsMatch {
 					lines = append(lines, match.LineNumber)
 				}
@@ -128,11 +137,11 @@ func TestSearchFilesModes(t *testing.T) {
 			if !reflect.DeepEqual(lines, test.lines) {
 				t.Fatalf("lines = %v, want %v", lines, test.lines)
 			}
-			if test.files && (len(page.result.Files) != 1 || page.result.Files[0].Path != input.Path) {
-				t.Fatalf("files = %+v", page.result.Files)
+			if test.files && (len(page.Result.Files) != 1 || page.Result.Files[0].Path != input.Path) {
+				t.Fatalf("files = %+v", page.Result.Files)
 			}
-			if test.count != 0 && (page.result.Files[0].Count == nil || *page.result.Files[0].Count != test.count) {
-				t.Fatalf("count = %+v", page.result.Files)
+			if test.count != 0 && (page.Result.Files[0].Count == nil || *page.Result.Files[0].Count != test.count) {
+				t.Fatalf("count = %+v", page.Result.Files)
 			}
 		})
 	}
@@ -160,20 +169,20 @@ func TestSearchFilesContextAndLimits(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, test.args, test.limit)
 			input.OffsetLine = &test.offset
-			output := &searchOutput{input: input}
+			output := newSearchOutput(input)
 			err := output.search(t.Context(), searchSource{path: input.Path, content: []byte(text)})
-			if test.limited && !errors.Is(err, errSearchResultLimit) || !test.limited && err != nil {
+			if test.limited && !errors.Is(err, filesearch.ErrResultLimit) || !test.limited && err != nil {
 				t.Fatalf("search error: %v", err)
 			}
 			var lines []int
-			for _, line := range output.result.Lines {
+			for _, line := range output.Result.Lines {
 				lines = append(lines, line.LineNumber)
 				if line.Text != strings.Split(text, "\n")[line.LineNumber-1] {
 					t.Fatalf("incorrect text: %+v", line)
 				}
 			}
-			if !slices.Equal(lines, test.lines) || output.result.MatchCount != test.matches {
-				t.Fatalf("incorrect results: %+v", output.result)
+			if !slices.Equal(lines, test.lines) || output.Result.MatchCount != test.matches {
+				t.Fatalf("incorrect results: %+v", output.Result)
 			}
 		})
 	}
@@ -191,23 +200,23 @@ func TestSearchFilesLimitAcrossSources(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, test.args, 1)
-			output := &searchOutput{input: input}
+			output := newSearchOutput(input)
 			if err := output.search(t.Context(), searchSource{
 				path: input.Path, content: []byte("before\nTARGET\nafter1\nafter2\n"),
 			}); err != nil {
 				t.Fatalf("exact limit: %v", err)
 			}
-			if output.result.MatchCount != 1 || input.mode == "" && len(output.result.Lines) != 4 {
-				t.Fatalf("missing match or context: %+v", output.result)
+			if output.Result.MatchCount != 1 || input.mode == "" && len(output.Result.Lines) != 4 {
+				t.Fatalf("missing match or context: %+v", output.Result)
 			}
-			before := output.result
+			before := output.Result
 			if err := output.search(t.Context(), searchSource{
 				path: "/memory/team/other.txt", content: []byte("TARGET\n"),
-			}); !errors.Is(err, errSearchResultLimit) {
+			}); !errors.Is(err, filesearch.ErrResultLimit) {
 				t.Fatalf("next match: %v", err)
 			}
-			if !reflect.DeepEqual(before, output.result) {
-				t.Fatalf("next match changed results: before=%+v after=%+v", before, output.result)
+			if !reflect.DeepEqual(before, output.Result) {
+				t.Fatalf("next match changed results: before=%+v after=%+v", before, output.Result)
 			}
 		})
 	}
@@ -217,10 +226,11 @@ func TestSearchFilesResponseBudget(t *testing.T) {
 	setupSandbox(t)
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	input.Path = "/memory/team/" + strings.Repeat("name/", 190) + "file.txt"
-	output := &searchOutput{input: input}
+	output := newSearchOutput(input)
 	err := output.search(t.Context(), searchSource{path: input.Path,
 		content: []byte(strings.Repeat("before\nTARGET\nafter\n", 20))})
-	if !errors.Is(err, errSearchResultLimit) || output.used > toolcatalog.FilePageBytes || len(output.result.Lines) == 0 {
+	if !errors.Is(err, filesearch.ErrResultLimit) || searchResultBytes(output.Result) > toolcatalog.FilePageBytes ||
+		len(output.Result.Lines) == 0 {
 		t.Fatalf("response was not bounded: %+v, %v", output, err)
 	}
 }
@@ -230,20 +240,20 @@ func TestSearchFilesTextAndOutputBounds(t *testing.T) {
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	text := strings.Repeat(strings.Repeat("é", 5000)+"\n", 5) + "TARGET" +
 		strings.Repeat("x", 5000) + "\n" + strings.Repeat("after\n", 5)
-	page := (&searchOutput{input: input})
+	page := newSearchOutput(input)
 	if err := page.search(t.Context(), searchSource{path: input.Path, content: []byte(text)}); err != nil {
 		t.Fatal(err)
 	}
-	if page.result.MatchCount != 1 || page.used > toolcatalog.FilePageBytes {
-		t.Fatalf("missing or oversized match: %+v", page.result)
+	if page.Result.MatchCount != 1 || searchResultBytes(page.Result) > toolcatalog.FilePageBytes {
+		t.Fatalf("missing or oversized match: %+v", page.Result)
 	}
-	for _, line := range page.result.Lines {
+	for _, line := range page.Result.Lines {
 		if !utf8.ValidString(line.Text) {
 			t.Fatal("invalid UTF-8 snippet")
 		}
 	}
 	input = searchRequestForTest(t, []string{"-e", "["}, 20)
-	if (&searchOutput{input: input}).search(t.Context(), searchSource{}) == nil {
+	if newSearchOutput(input).search(t.Context(), searchSource{}) == nil {
 		t.Fatal("accepted invalid regex")
 	}
 }
@@ -260,13 +270,13 @@ func TestSearchFilesNativeBinaryContent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
-			page := &searchOutput{input: input}
+			page := newSearchOutput(input)
 			if err := page.search(t.Context(), searchSource{path: input.Path, content: []byte(test.content)}); err != nil {
 				t.Fatal(err)
 			}
-			if page.result.MatchCount != 1 || len(page.result.Lines) != 1 || page.result.Lines[0].Text != test.snippet ||
-				page.result.Truncated != test.binary || test.binary && page.result.IncompleteReason == "" {
-				t.Fatalf("incorrect native content result: %+v", page.result)
+			if page.Result.MatchCount != 1 || len(page.Result.Lines) != 1 || page.Result.Lines[0].Text != test.snippet ||
+				page.Result.Truncated != test.binary || test.binary && page.Result.IncompleteReason == "" {
+				t.Fatalf("incorrect native content result: %+v", page.Result)
 			}
 		})
 	}
@@ -279,7 +289,7 @@ func TestSearchFilesMatchSnippets(t *testing.T) {
 		prefix, suffix               bool
 	}{
 		{"short match", "TARGET", "TARGET", "TARGET", false, false},
-		{"exact limit", strings.Repeat("x", searchLineBytes-6) + "TARGET", "TARGET", "TARGET", false, false},
+		{"exact limit", strings.Repeat("x", filesearch.LineBytes-6) + "TARGET", "TARGET", "TARGET", false, false},
 		{"early match", "TARGET" + strings.Repeat("y", 5000), "TARGET", "TARGET", false, true},
 		{"late match", strings.Repeat("x", 5000) + "TARGET", "TARGET", "TARGET", true, false},
 		{"middle match", strings.Repeat("x", 5000) + "TARGET" + strings.Repeat("y", 5000), "TARGET", "TARGET", true, true},
@@ -295,15 +305,15 @@ func TestSearchFilesMatchSnippets(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, []string{"-U", "-e", test.pattern}, 20)
-			output := &searchOutput{input: input}
+			output := newSearchOutput(input)
 			if err := output.search(t.Context(), searchSource{path: input.Path, content: []byte(test.content)}); err != nil {
 				t.Fatal(err)
 			}
-			if len(output.result.Lines) != 1 || output.result.MatchCount != 1 {
-				t.Fatalf("unexpected results: %+v", output.result)
+			if len(output.Result.Lines) != 1 || output.Result.MatchCount != 1 {
+				t.Fatalf("unexpected results: %+v", output.Result)
 			}
-			line := output.result.Lines[0]
-			if !strings.Contains(line.Text, test.want) || len(line.Text) > searchLineBytes || !utf8.ValidString(line.Text) {
+			line := output.Result.Lines[0]
+			if !strings.Contains(line.Text, test.want) || len(line.Text) > filesearch.LineBytes || !utf8.ValidString(line.Text) {
 				t.Fatalf("invalid snippet: %q", line.Text)
 			}
 			if strings.HasPrefix(line.Text, "…") != test.prefix || strings.HasSuffix(line.Text, "…") != test.suffix {
@@ -361,18 +371,18 @@ func TestSearchFilesOversizedEvents(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
-			output := &searchOutput{input: input}
+			output := newSearchOutput(input)
 			if err := output.search(t.Context(), searchSource{path: input.Path, content: []byte(test.content)}); err != nil {
 				t.Fatal(err)
 			}
 			var lines []int
-			for _, line := range output.result.Lines {
+			for _, line := range output.Result.Lines {
 				lines = append(lines, line.LineNumber)
 			}
-			if !slices.Equal(lines, test.lines) || output.result.MatchCount != len(test.lines) ||
-				output.result.Truncated != test.truncated ||
-				test.truncated && !strings.Contains(output.result.IncompleteReason, "oversized") {
-				t.Fatalf("incorrect results: %+v", output.result)
+			if !slices.Equal(lines, test.lines) || output.Result.MatchCount != len(test.lines) ||
+				output.Result.Truncated != test.truncated ||
+				test.truncated && !strings.Contains(output.Result.IncompleteReason, "oversized") {
+				t.Fatalf("incorrect results: %+v", output.Result)
 			}
 		})
 	}
@@ -381,7 +391,7 @@ func TestSearchFilesOversizedEvents(t *testing.T) {
 func TestSearchFilesCancellation(t *testing.T) {
 	setupSandbox(t)
 	input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
-	page := &searchOutput{input: input}
+	page := newSearchOutput(input)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := page.search(ctx, searchSource{}); !errors.Is(err, context.Canceled) {

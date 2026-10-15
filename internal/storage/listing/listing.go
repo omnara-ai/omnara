@@ -1,6 +1,12 @@
 package listing
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,4 +81,41 @@ type FileEntry struct {
 type FileListResult struct {
 	Entries []FileEntry
 	Next    Cursor
+}
+
+// FileCursor is the payload of a list_files next_cursor. Scope binds it to
+// one listing; Key and ID locate the last returned entry.
+type FileCursor struct {
+	Version int       `json:"v"`
+	Scope   string    `json:"scope"`
+	Key     string    `json:"key"`
+	ID      uuid.UUID `json:"id"`
+}
+
+const FileCursorVersion = 1
+
+// FileCursorScope hashes the values a list_files cursor is bound to.
+func FileCursorScope(parts ...string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(parts, "/"))))
+}
+
+func (c FileCursor) Encode() (string, error) {
+	var payload bytes.Buffer
+	encoder := json.NewEncoder(&payload)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(c); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload.Bytes()), nil
+}
+
+// DecodeFileCursor reports false for a malformed cursor or one from another version.
+func DecodeFileCursor(raw string) (FileCursor, bool) {
+	var cursor FileCursor
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || json.Unmarshal(payload, &cursor) != nil ||
+		cursor.Version != FileCursorVersion || cursor.Scope == "" {
+		return FileCursor{}, false
+	}
+	return cursor, true
 }

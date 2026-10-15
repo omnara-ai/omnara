@@ -56,6 +56,9 @@ type daemonCommand struct {
 		ProcessID string `arg:"positional,required"`
 		LocalPath string `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_file_transfer,hidden"`
+	FileOperation *struct {
+		ProcessID string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_file_operation,hidden"`
 	RunService *struct {
 		Supervised bool `arg:"--supervised"`
 	} `arg:"subcommand:run-service,hidden"`
@@ -252,6 +255,18 @@ func Run(
 			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
 			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
 		); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	case command.FileOperation != nil:
+		result := os.NewFile(3, "file-operation-result")
+		defer func() { _ = result.Close() }()
+		if info, err := result.Stat(); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+			_, _ = fmt.Fprintln(stderr, "file operation requires a result pipe")
+			return 1
+		}
+		if err := runFileOperation(ctx, command.FileOperation.ProcessID, stdin, result); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1
 		}

@@ -205,7 +205,9 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
-	fileTransfer        *processcmd.FileTransfer
+	fileTransfer *processcmd.FileTransfer
+	// fileOperation is the execution spec a file operation reads from stdin.
+	fileOperation       []byte
 	transferReader      *os.File
 	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd

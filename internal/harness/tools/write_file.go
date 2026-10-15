@@ -12,19 +12,28 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const maxWriteFileScriptBytes = 64 * 1024
 
+// maxMachineWriteBytes keeps machine writes, which carry their content in the
+// process offer, within one daemon message.
+const maxMachineWriteBytes = 512 * 1024
+
 type writeFileRequest struct {
-	Path           string  `json:"path"`
-	Content        *string `json:"content,omitempty"`
-	Script         *string `json:"script,omitempty"`
-	Append         bool    `json:"append,omitempty"`
-	ExpectedDigest *string `json:"expected_digest,omitempty"`
+	Path           string          `json:"path"`
+	Content        *string         `json:"content,omitempty"`
+	Script         *string         `json:"script,omitempty"`
+	Append         bool            `json:"append,omitempty"`
+	ExpectedDigest *string         `json:"expected_digest,omitempty"`
+	MachineID      json.RawMessage `json:"machine_id,omitempty"`
+
+	machineID uuid.UUID
 }
 
 func validateWriteFileInput(raw json.RawMessage) error {
@@ -37,7 +46,26 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	if err := decodeSingleStrictJSON(raw, &input, "write_file request"); err != nil {
 		return input, err
 	}
-	if _, _, err := memorystore.ParsePath(input.Path); err != nil {
+	var err error
+	if input.machineID, err = resolveOptionalMachineID(input.MachineID); err != nil {
+		return input, err
+	}
+	if onMachine(input.Path, input.machineID) {
+		if err := validateMachinePath(input.Path); err != nil {
+			return input, err
+		}
+		if input.Script != nil {
+			return input, errors.New(
+				"script only applies to memory files; write machine files with content, or edit them with run_command",
+			)
+		}
+		if input.ExpectedDigest != nil {
+			return input, errExpectedDigestMemoryOnly
+		}
+		if input.Content != nil && len(*input.Content) > maxMachineWriteBytes {
+			return input, errors.New("machine file content must be at most 512 KiB")
+		}
+	} else if _, _, err := memorystore.ParsePath(input.Path); err != nil {
 		return input, err
 	}
 	if (input.Content == nil) == (input.Script == nil) {
@@ -63,6 +91,16 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 		}
 	}
 	return input, nil
+}
+
+func machineWriteFile(raw json.RawMessage) (machineFileCall, bool, error) {
+	input, err := resolveWriteFileRequest(raw)
+	if err != nil || !onMachine(input.Path, input.machineID) {
+		return machineFileCall{}, false, err
+	}
+	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileWrite, operation: processcmd.FileOperation{
+		Path: input.Path, Content: input.Content, Append: input.Append,
+	}}, true, nil
 }
 
 func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {

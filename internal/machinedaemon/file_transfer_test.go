@@ -145,6 +145,48 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	}
 }
 
+// runFileOperationProbe reports the spec it read from stdin as its value.
+func runFileOperationProbe() int {
+	if len(os.Args) != 4 || os.Args[2] != "--" || os.Args[3] != fileTransferTestProcessID {
+		return 2
+	}
+	spec, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return 3
+	}
+	result := os.NewFile(3, "file-operation-result")
+	defer func() { _ = result.Close() }()
+	if err := json.NewEncoder(result).Encode(daemonprotocol.FileOperationResult{Value: spec}); err != nil {
+		return 4
+	}
+	return 0
+}
+
+func TestDetachedSupervisorFileOperationReadsSpecFromStdin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	spec := processcmd.ForFileOperation(processcmd.KindFileList, processcmd.FileOperation{Path: "src/*", Limit: 5})
+	fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx, Config{}, ProcessAssignment{
+		ID:      fileTransferTestProcessID,
+		Process: Process{ExecutionSpec: spec, Cwd: t.TempDir()},
+		WaitMs:  20, TimeoutSeconds: 10,
+	})
+	fixture.acceptAndStart(t, ctx)
+	fixture.waitClosed(t, 10*time.Second)
+	_, event := fixture.terminalEvent(t)
+	require.Equal(t, daemonprotocol.ProcessStateExited, event.State)
+	var result struct {
+		FileOperation *daemonprotocol.FileOperationResult `json:"file_operation"`
+		FileTransfer  json.RawMessage                     `json:"file_transfer"`
+	}
+	require.NoError(t, json.Unmarshal(event.Result, &result))
+	require.Nil(t, result.FileTransfer)
+	require.NotNil(t, result.FileOperation)
+	var echoed processcmd.ExecutionSpec
+	require.NoError(t, json.Unmarshal(result.FileOperation.Value, &echoed))
+	require.Equal(t, spec, echoed)
+}
+
 func TestReadFileTransferResultEscapedPath(t *testing.T) {
 	component := strings.Repeat("&", 255)
 	want := daemonprotocol.FileTransferResult{

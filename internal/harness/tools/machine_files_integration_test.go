@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/fileread"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -30,46 +31,79 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func TestReadFileMachineDispatch(t *testing.T) {
+func TestMachineFileToolsDispatch(t *testing.T) {
 	allow := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)
-	deny := toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
+	content := "hello"
+	offset := 3
 	for _, test := range []struct {
 		name          string
+		tool          string
 		machines      int
+		daemonVersion string
 		input         func(machineIDs []string) string
-		upload        *toolpermission.Selection
 		wantMachine   int
+		wantKind      processcmd.ExecutionKind
+		wantOperation processcmd.FileOperation
 		wantErrorCode string
 		wantError     string
 	}{
 		{
-			name: "only machine by default", machines: 1,
-			input: func([]string) string { return `{"path":"/tmp/shot.png"}` },
+			name: "read only machine by default", tool: "read_file", machines: 1,
+			input:    func([]string) string { return `{"path":"/tmp/shot.png"}` },
+			wantKind: processcmd.KindFileRead,
+			wantOperation: processcmd.FileOperation{Path: "/tmp/shot.png",
+				Paging: fileread.Paging{OffsetLine: intPointer(1), LimitLines: intPointer(toolcatalog.ReadFileDefaultLines)}},
 		},
 		{
-			name: "explicit machine", machines: 2, wantMachine: 1,
-			input: func(ids []string) string { return `{"path":"shots/one.png","machine_id":"` + ids[1] + `"}` },
+			name: "read explicit machine", tool: "read_file", machines: 2, wantMachine: 1,
+			input:    func(ids []string) string { return `{"path":"shots/one.png","machine_id":"` + ids[1] + `"}` },
+			wantKind: processcmd.KindFileRead,
+			wantOperation: processcmd.FileOperation{Path: "shots/one.png",
+				Paging: fileread.Paging{OffsetLine: intPointer(1), LimitLines: intPointer(toolcatalog.ReadFileDefaultLines)}},
 		},
 		{
-			name: "ambiguous machine", machines: 2, wantErrorCode: ErrMachineSelectionRequired.Error(),
-			input: func([]string) string { return `{"path":"/tmp/shot.png"}` },
+			name: "write", tool: "write_file", machines: 1,
+			input:         func([]string) string { return `{"path":"~/notes.md","content":"hello","append":true}` },
+			wantKind:      processcmd.KindFileWrite,
+			wantOperation: processcmd.FileOperation{Path: "~/notes.md", Content: &content, Append: true},
 		},
 		{
-			name: "unavailable machine", machines: 1, wantErrorCode: ErrMachineIDUnavailable.Error(),
-			input: func([]string) string { return `{"path":"/tmp/shot.png","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}` },
+			name: "list", tool: "list_files", machines: 1,
+			input:         func([]string) string { return `{"pattern":"src/**/*.go"}` },
+			wantKind:      processcmd.KindFileList,
+			wantOperation: processcmd.FileOperation{Path: "src/**/*.go", Limit: toolcatalog.ListFilesDefaultLimit},
 		},
 		{
-			name: "no machine", wantError: errReadFileMachineUnavailable.Error(),
+			name: "search", tool: "search_files", machines: 1,
+			input:    func([]string) string { return `{"path":"main.go","args":["-e","TODO"],"offset_line":3}` },
+			wantKind: processcmd.KindFileSearch,
+			wantOperation: processcmd.FileOperation{Path: "main.go", Args: []string{"-e", "TODO"},
+				Limit: toolcatalog.SearchDefaultMatches, Paging: fileread.Paging{OffsetLine: &offset}},
+		},
+		{
+			name: "ambiguous machine", tool: "list_files", machines: 2, wantErrorCode: ErrMachineSelectionRequired.Error(),
+			input: func([]string) string { return `{"pattern":"*.txt"}` },
+		},
+		{
+			name: "unavailable machine", tool: "search_files", machines: 1, wantErrorCode: ErrMachineIDUnavailable.Error(),
+			input: func([]string) string {
+				return `{"path":"a.txt","args":["-e","x"],"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`
+			},
+		},
+		{
+			name: "no machine", tool: "read_file", wantError: errMachineFileMachineUnavailable.Error(),
 			input: func([]string) string { return `{"path":"notes.txt"}` },
 		},
 		{
-			name: "upload denied", machines: 1, upload: &deny, wantError: errReadFileMachineTransferDisabled.Error(),
-			input: func([]string) string { return `{"path":"/tmp/shot.png"}` },
+			name: "old daemon", tool: "write_file", machines: 1, daemonVersion: "0.2.5",
+			wantError: "this machine's omnarad 0.2.5 does not support file tools on machines; " +
+				"update omnarad to 0.2.6 or later, or use run_command",
+			input: func([]string) string { return `{"path":"notes.txt","content":"x"}` },
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			label := "rfm-" + strings.ReplaceAll(test.name, " ", "-")
+			label := "mft-" + strings.ReplaceAll(test.name, " ", "-")
 			fixture := newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{})
 			var machineIDs []string
 			var bindingIDs []uuid.UUID
@@ -80,17 +114,19 @@ func TestReadFileMachineDispatch(t *testing.T) {
 					t.Fatal(err)
 				}
 				machineIDs, bindingIDs = append(machineIDs, publicMachineID), append(bindingIDs, bindingID)
+				if test.daemonVersion != "" {
+					if _, err := fixture.Pool.Exec(ctx,
+						`UPDATE daemon_runtimes SET daemon_version = $1 WHERE machine_id = $2`,
+						test.daemonVersion, machineID,
+					); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 			input := test.input(machineIDs)
-			call := fixture.recordToolCall(t, ctx, "call_read_machine", "read_file", input, fixture.Now.Add(20*time.Second))
+			call := fixture.recordToolCall(t, ctx, "call_machine_file", test.tool, input, fixture.Now.Add(20*time.Second))
 			turn := fixture.turn()
-			uploadPermission := allow
-			if test.upload != nil {
-				uploadPermission = *test.upload
-			}
-			turn.Tools = map[string]ToolSpec{
-				"read_file": {Permission: allow}, "upload_file": {Permission: uploadPermission},
-			}
+			turn.Tools = map[string]ToolSpec{test.tool: {Permission: allow}}
 			wakes := 0
 			executor := Executor{Store: fixture.Store, BackgroundRunner: backgroundRunnerFunc(
 				func(string, func(context.Context) error) bool { wakes++; return true },
@@ -110,42 +146,35 @@ func TestReadFileMachineDispatch(t *testing.T) {
 				if result.Disposition != DispatchCompleted || found || wakes != 0 {
 					t.Fatalf("dispatch=%+v process=%t wakes=%d, want completed failure", result, found, wakes)
 				}
-				var parts []struct {
-					Value map[string]any `json:"value"`
-				}
-				if err := json.Unmarshal(result.ContentParts, &parts); err != nil || len(parts) != 1 {
-					t.Fatalf("failure parts = %s, %v", result.ContentParts, err)
-				}
-				if test.wantErrorCode != "" && parts[0].Value["error_code"] != test.wantErrorCode {
-					t.Fatalf("error_code = %v, want %s", parts[0].Value["error_code"], test.wantErrorCode)
-				}
-				if test.wantError != "" && parts[0].Value["error"] != test.wantError {
-					t.Fatalf("error = %v, want %s", parts[0].Value["error"], test.wantError)
+				if !strings.Contains(string(result.ContentParts), test.wantErrorCode) ||
+					!strings.Contains(string(result.ContentParts), test.wantError) {
+					t.Fatalf("failure parts = %s, want %q %q", result.ContentParts, test.wantErrorCode, test.wantError)
 				}
 				return
 			}
 			if result.Disposition != DispatchDeferred || !found || wakes != 1 {
-				t.Fatalf("dispatch=%+v process=%t wakes=%d, want deferred machine transfer", result, found, wakes)
+				t.Fatalf("dispatch=%+v process=%t wakes=%d, want deferred machine operation", result, found, wakes)
 			}
-			var request struct {
-				Path string `json:"path"`
-			}
-			if err := json.Unmarshal([]byte(input), &request); err != nil {
-				t.Fatal(err)
-			}
-			want := processcmd.ForFileTransfer(processcmd.FileTransfer{
-				Direction: processcmd.FileTransferUpload, LocalPath: request.Path,
-				Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
-			})
-			transfer := process.ExecutionSpec.FileTransfer
+			operation := process.ExecutionSpec.File
 			if process.AgentMachineBindingID != bindingIDs[test.wantMachine] ||
-				process.TimeoutSeconds != fileUploadProcessTimeoutSeconds || transfer == nil ||
-				!reflect.DeepEqual(*transfer, *want.FileTransfer) {
-				t.Fatalf("process = %+v, want transfer %+v", process, want.FileTransfer)
+				process.TimeoutSeconds != machineFileProcessTimeoutSeconds ||
+				process.ExecutionSpec.Kind != test.wantKind || operation == nil {
+				t.Fatalf("process = %+v, want %s on binding %s", process, test.wantKind, bindingIDs[test.wantMachine])
+			}
+			if test.wantKind == processcmd.KindFileList {
+				if operation.CursorScope == "" {
+					t.Fatal("machine listing has no cursor scope")
+				}
+				operation.CursorScope = ""
+			}
+			if !reflect.DeepEqual(*operation, test.wantOperation) {
+				t.Fatalf("operation = %+v, want %+v", *operation, test.wantOperation)
 			}
 		})
 	}
 }
+
+func intPointer(value int) *int { return &value }
 
 func TestReadFileMachineApprovalPinsBindingAndPath(t *testing.T) {
 	ctx := context.Background()
@@ -161,8 +190,7 @@ func TestReadFileMachineApprovalPinsBindingAndPath(t *testing.T) {
 	)
 	turn := fixture.turn()
 	turn.Tools = map[string]ToolSpec{
-		"read_file":   {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
-		"upload_file": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)},
+		"read_file": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
 	}
 	executor := Executor{Store: fixture.Store, BackgroundRunner: backgroundRunnerFunc(
 		func(string, func(context.Context) error) bool { return true },
@@ -200,36 +228,6 @@ func TestReadFileMachineApprovalPinsBindingAndPath(t *testing.T) {
 	)
 	if err != nil || !found || result.Disposition != DispatchDeferred || process.AgentMachineBindingID != bindingID {
 		t.Fatalf("approved dispatch=%+v process=%+v found=%t err=%v", result, process, found, err)
-	}
-}
-
-func TestReadFileMachineApprovalFailsWithoutUploadFile(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "rfm-approval-off", toolFixtureOptions{})
-	attachReadFileMachine(t, ctx, fixture, "rfm-approval-off")
-	call := fixture.recordPendingToolCall(
-		t, ctx, "call_read_off", "read_file", `{"path":"/tmp/shot.png"}`, fixture.Now.Add(20*time.Second),
-	)
-	turn := fixture.turn()
-	turn.Tools = map[string]ToolSpec{
-		"read_file": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
-	}
-	if err := (Executor{Store: fixture.Store}).PrepareToolCallPermission(ctx, turn, call); err != nil {
-		t.Fatal(err)
-	}
-	callID := fixture.toolCallID(t, ctx, call.ID)
-	if _, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
-		ctx, toolsTestProjectID, fixture.Agent.ID, callID, executionstore.AgentInteractionKindPermission,
-	); err != nil || found {
-		t.Fatalf("permission interaction found=%t err=%v, want none", found, err)
-	}
-	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Outcome != executionstore.ToolResultOutcomeFailed ||
-		!strings.Contains(string(record.ResultContentParts), errReadFileMachineTransferDisabled.Error()) {
-		t.Fatalf("read without upload_file = %s %s", record.Outcome, record.ResultContentParts)
 	}
 }
 

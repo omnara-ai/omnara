@@ -44,7 +44,7 @@ func TestFileToolSandboxFailures(t *testing.T) {
 				if operation == "edit" {
 					_, err = editFileText(ctx, []byte("x"), "d")
 				} else {
-					output := searchOutput{input: searchRequestForTest(t, []string{"-e", "x"}, 10)}
+					output := newSearchOutput(searchRequestForTest(t, []string{"-e", "x"}, 10))
 					err = output.search(ctx, searchSource{path: "/artifacts/test", content: []byte("x")})
 				}
 				require.Error(t, err)

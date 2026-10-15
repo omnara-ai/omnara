@@ -10,9 +10,10 @@ const (
 )
 
 type ExecutionSpec struct {
-	Kind         ExecutionKind `json:"kind"`
-	Shell        *ShellCommand `json:"shell,omitempty"`
-	FileTransfer *FileTransfer `json:"file_transfer,omitempty"`
+	Kind         ExecutionKind  `json:"kind"`
+	Shell        *ShellCommand  `json:"shell,omitempty"`
+	FileTransfer *FileTransfer  `json:"file_transfer,omitempty"`
+	File         *FileOperation `json:"file,omitempty"`
 }
 
 func ForShell(command string, shell ShellSelector, ioMode IOMode) ExecutionSpec {
@@ -42,7 +43,7 @@ func (s ExecutionSpec) Validate() error {
 func (s ExecutionSpec) ValidateLocal() error {
 	switch s.Kind {
 	case KindShell:
-		if s.Shell == nil || s.FileTransfer != nil {
+		if s.Shell == nil || s.FileTransfer != nil || s.File != nil {
 			return errors.New("shell execution requires only a shell payload")
 		}
 		if s.Shell.Shell == "" || s.Shell.IOMode == "" {
@@ -54,13 +55,24 @@ func (s ExecutionSpec) ValidateLocal() error {
 		_, err := NormalizeIOMode(s.Shell.IOMode)
 		return err
 	case KindFileTransfer:
-		if s.FileTransfer == nil || s.Shell != nil {
+		if s.FileTransfer == nil || s.Shell != nil || s.File != nil {
 			return errors.New("file transfer execution requires only a file transfer payload")
 		}
 		return s.FileTransfer.validateLocal()
+	case KindFileRead, KindFileWrite, KindFileList, KindFileSearch:
+		if s.File == nil || s.Shell != nil || s.FileTransfer != nil {
+			return errors.New("file operation execution requires only a file operation payload")
+		}
+		return s.File.validate(s.Kind)
 	default:
 		return errors.New("invalid execution kind")
 	}
+}
+
+// HasFileResult reports whether the process reports a structured file result
+// on exit, which alone completes its tool call.
+func (s ExecutionSpec) HasFileResult() bool {
+	return s.FileTransfer != nil || s.File != nil
 }
 
 func (s ExecutionSpec) IOMode() IOMode {
@@ -76,6 +88,9 @@ func (s ExecutionSpec) Label() string {
 	}
 	if s.FileTransfer != nil {
 		return s.FileTransfer.Label()
+	}
+	if s.File != nil {
+		return s.File.label(s.Kind)
 	}
 	return ""
 }

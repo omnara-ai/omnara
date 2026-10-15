@@ -435,7 +435,8 @@ SELECT binding.id, binding.org_id, binding.project_id, binding.agent_id,
        binding.binding_kind, binding.state, binding.description,
        binding.env_overlay, binding.secret_env_overlay, binding.metadata,
        binding.created_at, binding.updated_at,
-       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd
+       coalesce(nullif(binding.cwd, ''), machine.cwd, '') AS effective_cwd,
+       coalesce(current_runtime.daemon_version, '') AS daemon_version
 FROM agent_machine_bindings binding
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
   AND pmgrant.machine_id = binding.machine_id
@@ -445,6 +446,8 @@ JOIN machines machine ON machine.org_id = binding.org_id
   AND machine.lifecycle_state = 'active'
 JOIN machine_connection_states connection ON connection.org_id = machine.org_id
   AND connection.machine_id = machine.id
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE binding.project_id = $1
   AND binding.agent_id = $2
   AND binding.state = 'attached'
@@ -474,6 +477,7 @@ type ListExecutableAgentMachineBindingsRow struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	EffectiveCwd     string
+	DaemonVersion    string
 }
 
 func (q *Queries) ListExecutableAgentMachineBindings(ctx context.Context, arg ListExecutableAgentMachineBindingsParams) ([]ListExecutableAgentMachineBindingsRow, error) {
@@ -502,6 +506,7 @@ func (q *Queries) ListExecutableAgentMachineBindings(ctx context.Context, arg Li
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EffectiveCwd,
+			&i.DaemonVersion,
 		); err != nil {
 			return nil, err
 		}

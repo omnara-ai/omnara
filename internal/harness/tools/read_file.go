@@ -13,15 +13,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/fileread"
-	"github.com/omnara-ai/omnara/internal/interactionform"
-	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type readFileRequest struct {
@@ -34,20 +31,13 @@ type readFileRequest struct {
 	machineID uuid.UUID
 }
 
-var errReadFileMachineUnavailable = errors.New(
-	"path must be /artifacts/<artifact_id> or /memory/<store>/<file>; " +
-		"other paths are read from an attached machine, and no executable machine is available",
-)
-
-var errReadFileMachineTransferDisabled = errors.New(
-	"reading machine files requires upload_file to be enabled and not denied for this agent",
-)
-
 func validateReadFileInput(raw json.RawMessage) error {
 	_, err := resolveReadFileRequest(raw)
 	return err
 }
 
+// resolveReadFileRequest routes /memory and /artifacts paths to Omnara storage
+// unless machine_id is supplied; every other path is read from a machine.
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
@@ -58,13 +48,13 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 		return readFileRequest{}, err
 	}
 	input.machineID = machineID
-	input.onMachine = machineID != uuid.Nil || !isOmnaraFilePath(input.Path)
+	input.onMachine = onMachine(input.Path, machineID)
 	if input.onMachine {
-		if input.Path == "" {
-			return readFileRequest{}, errors.New("path is required")
+		if err := validateMachinePath(input.Path); err != nil {
+			return readFileRequest{}, err
 		}
-		if strings.Contains(input.Path, "\x00") {
-			return readFileRequest{}, errors.New("path cannot contain NUL")
+		if input.ExpectedDigest != nil {
+			return readFileRequest{}, errExpectedDigestMemoryOnly
 		}
 	} else if err := validateFilePath(input.Path); err != nil {
 		return readFileRequest{}, err
@@ -81,110 +71,14 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	return input, nil
 }
 
-func isOmnaraFilePath(path string) bool {
-	for _, root := range []string{memorystore.Root, toolcatalog.ArtifactVFSRoot} {
-		if path == root || strings.HasPrefix(path, root+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// Machine reads run as upload_file transfers; the process completion renders the read_file result.
-func runReadFile(
-	ctx context.Context,
-	call transactionalToolContext,
-) (transactionalPhaseResult, error) {
-	input, err := resolveReadFileRequest(call.Call.Input)
-	if err != nil {
-		return failInTransaction(toolResultContent{}, err), nil
-	}
-	if !input.onMachine {
-		return continueAsync(), nil
-	}
-	if !machineFileTransferAllowed(call.Turn) {
-		return failInTransaction(toolResultContent{}, errReadFileMachineTransferDisabled), nil
-	}
-	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, input.machineID)
-	if errors.Is(err, ErrNoActiveAgentMachineBinding) && input.machineID == uuid.Nil {
-		return failInTransaction(toolResultContent{}, errReadFileMachineUnavailable), nil
-	}
-	if err != nil {
-		return processToolMachineResolutionError(err)
-	}
-	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Call.Input)
-	if err != nil {
-		return nil, err
-	}
-	processInput, err := fileTransferProcessInput(
-		ctx, call.Reader, processcmd.FileTransferUpload, input.Path, toolcatalog.ArtifactVFSRoot, nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return startProcessTool(ctx, call, binding, authorization, processInput)
-}
-
-func machineFileTransferAllowed(turn Turn) bool {
-	if turn.Tools == nil {
-		return true
-	}
-	spec, ok := turn.Tools[toolcatalog.ToolNameUploadFile]
-	return ok && spec.Permission.Mode != toolpermission.ModeAlwaysDeny
-}
-
-func wakeReadFileProcess(ctx context.Context, call backgroundToolContext) error {
-	input, err := resolveReadFileRequest(call.Call.Input)
+func machineReadFile(raw json.RawMessage) (machineFileCall, bool, error) {
+	input, err := resolveReadFileRequest(raw)
 	if err != nil || !input.onMachine {
-		return err
+		return machineFileCall{}, false, err
 	}
-	return wakeProcessTool(ctx, call)
-}
-
-func readFilePermissionChallenge(
-	ctx context.Context,
-	executor Executor,
-	turn Turn,
-	call model.ToolCall,
-	mode permissionModeContext,
-) (toolpermission.Request, error) {
-	input, err := resolveReadFileRequest(call.Input)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	if !input.onMachine {
-		return genericPermissionChallenge(ctx, executor, turn, call, mode)
-	}
-	if !machineFileTransferAllowed(turn) {
-		return toolpermission.Request{}, readFilePreparationError(errReadFileMachineTransferDisabled)
-	}
-	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, input.machineID)
-	if errors.Is(err, ErrNoActiveAgentMachineBinding) && input.machineID == uuid.Nil {
-		return toolpermission.Request{}, readFilePreparationError(errReadFileMachineUnavailable)
-	}
-	if err != nil {
-		return toolpermission.Request{}, executor.machinePreparationError(err)
-	}
-	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Input)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	machineID, err := publicid.Encode(publicid.KindMachine, binding.MachineID)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
-	return permissionChallenge(call, mode, authorization,
-		interactionform.ContextItem{Label: "Path", Value: input.Path},
-		interactionform.ContextItem{Label: "Machine", Value: machineID},
-	)
-}
-
-func readFilePreparationError(cause error) error {
-	content, err := structuredToolResultContent(map[string]any{"error": cause.Error()})
-	if err != nil {
-		return err
-	}
-	return newToolCallPreparationError(content, cause)
+	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileRead, operation: processcmd.FileOperation{
+		Path: input.Path, Paging: input.Paging,
+	}}, true, nil
 }
 
 func runReadFileAsync(
@@ -196,7 +90,7 @@ func runReadFileAsync(
 		return nil, err
 	}
 	if input.onMachine {
-		return nil, errors.New("machine reads run as file transfer processes")
+		return nil, errors.New("machine reads run as file operation processes")
 	}
 	var content []byte
 	var digest, contentType string

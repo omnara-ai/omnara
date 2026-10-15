@@ -1,16 +1,16 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -18,34 +18,26 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const fileListCursorVersion = 1
-
 type listFilesRequest struct {
-	Pattern string `json:"pattern"`
-	Limit   int    `json:"limit,omitempty"`
-	Cursor  string `json:"cursor,omitempty"`
+	Pattern   string          `json:"pattern"`
+	Limit     int             `json:"limit,omitempty"`
+	Cursor    string          `json:"cursor,omitempty"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
 }
 
-type fileListCursor struct {
-	Version int       `json:"v"`
-	Scope   string    `json:"scope"`
-	Key     string    `json:"key"`
-	ID      uuid.UUID `json:"id"`
-}
+type fileListCursor = listing.FileCursor
 
 var errInvalidFileListCursor = errors.New("invalid file listing cursor; keep the same pattern or restart the listing")
 
 func decodeFileListCursor(raw string) (fileListCursor, error) {
-	var cursor fileListCursor
 	if raw == "" {
-		return cursor, nil
+		return fileListCursor{}, nil
 	}
 	if len(raw) > toolcatalog.ListFilesMaxCursorLength {
-		return cursor, errInvalidFileListCursor
+		return fileListCursor{}, errInvalidFileListCursor
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || json.Unmarshal(payload, &cursor) != nil ||
-		cursor.Version != fileListCursorVersion || cursor.Scope == "" {
+	cursor, ok := listing.DecodeFileCursor(raw)
+	if !ok {
 		return cursor, errInvalidFileListCursor
 	}
 	switch {
@@ -65,15 +57,52 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 }
 
 func validateListFiles(raw json.RawMessage) error {
+	_, _, err := machineListFiles(raw)
+	return err
+}
+
+// machineListFiles validates list_files input and resolves machine listings.
+func machineListFiles(raw json.RawMessage) (machineFileCall, bool, error) {
 	var input listFilesRequest
 	if err := decodeSingleStrictJSON(raw, &input, "list_files request"); err != nil {
-		return err
+		return machineFileCall{}, false, err
+	}
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
+		return machineFileCall{}, false, err
+	}
+	if onMachine(input.Pattern, machineID) {
+		if input.Limit == 0 {
+			input.Limit = toolcatalog.ListFilesDefaultLimit
+		}
+		if err := validateMachineGlob(input.Pattern); err != nil {
+			return machineFileCall{}, false, err
+		}
+		if input.Limit < 1 || input.Limit > toolcatalog.ListFilesMaxLimit {
+			return machineFileCall{}, false, fmt.Errorf("limit must be between 1 and %d", toolcatalog.ListFilesMaxLimit)
+		}
+		if len(input.Cursor) > toolcatalog.ListFilesMaxCursorLength {
+			return machineFileCall{}, false, errInvalidFileListCursor
+		}
+		return machineFileCall{machineID: machineID, kind: processcmd.KindFileList, cursor: input.Cursor,
+			operation: processcmd.FileOperation{Path: input.Pattern, Limit: input.Limit}}, true, nil
 	}
 	if _, err := storage.CompileFilePattern(input.Pattern); err != nil {
+		return machineFileCall{}, false, err
+	}
+	_, err = decodeFileListCursor(input.Cursor)
+	return machineFileCall{}, false, err
+}
+
+// validateMachineGlob checks a machine path or glob; globs contain * or ?.
+func validateMachineGlob(pattern string) error {
+	if err := validateMachinePath(pattern); err != nil {
 		return err
 	}
-	_, err := decodeFileListCursor(input.Cursor)
-	return err
+	if strings.ContainsAny(pattern, "*?") && !doublestar.ValidatePattern(filepath.ToSlash(pattern)) {
+		return errors.New("invalid glob pattern")
+	}
+	return nil
 }
 
 func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
@@ -85,9 +114,7 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("%x", sha256.Sum256([]byte(
-		call.Turn.ProjectID.String()+"/"+call.Turn.AgentID.String()+"/"+input.Pattern,
-	)))
+	scope := listing.FileCursorScope(call.Turn.ProjectID.String(), call.Turn.AgentID.String(), input.Pattern)
 	root, _, _ := strings.Cut(strings.TrimPrefix(input.Pattern, "/"), "/")
 	if input.Cursor != "" && (cursor.Scope != scope || !strings.HasPrefix(cursor.Key+"/", "/"+root+"/")) {
 		return nil, errInvalidFileListCursor
@@ -104,15 +131,12 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	}
 	var next *string
 	if result.Next.Set {
-		var payload bytes.Buffer
-		encoder := json.NewEncoder(&payload)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(fileListCursor{
-			Version: fileListCursorVersion, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
-		}); err != nil {
+		token, err := fileListCursor{
+			Version: listing.FileCursorVersion, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
+		}.Encode()
+		if err != nil {
 			return nil, err
 		}
-		token := base64.RawURLEncoding.EncodeToString(payload.Bytes())
 		next = &token
 	}
 	return completeFileTool(struct {
