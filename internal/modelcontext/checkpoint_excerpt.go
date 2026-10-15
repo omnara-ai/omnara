@@ -21,6 +21,7 @@ func ApplyCheckpointExcerpt(bundle Bundle, checkpointID uuid.UUID, retainedBytes
 		return Bundle{}, errors.New("checkpoint excerpt must retain fewer bytes than the stored summary")
 	}
 	checkpoint.Summary = checkpointExcerpt(checkpoint.Summary, retainedBytes)
+	checkpoint.Excerpted = true
 	bundle.ContextCheckpoint = &checkpoint
 	return bundle, nil
 }

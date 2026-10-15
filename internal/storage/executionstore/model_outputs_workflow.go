@@ -17,12 +17,11 @@ import (
 )
 
 type RecordModelOutputAndCompleteContextInput struct {
-	RequestInputIdentity *modelenvelope.RequestInputIdentity
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	RuntimeLockID        uuid.UUID
-	ModelCallContextID   uuid.UUID
-	ProviderRequestID    string
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
 	// the envelope shape is checked at compile time (no JSON re-parsing).
@@ -36,12 +35,11 @@ type ToolCallBindingInput struct {
 }
 
 type RecordToolCallSourceAndCompleteContextInput struct {
-	RequestInputIdentity *modelenvelope.RequestInputIdentity
-	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
-	RuntimeLockID        uuid.UUID
-	ModelCallContextID   uuid.UUID
-	ProviderRequestID    string
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	RuntimeLockID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderRequestID  string
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
 	// the envelope shape is checked at compile time (no JSON re-parsing).
@@ -205,7 +203,6 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		contextRow,
 		input.ProviderRequestID,
 		input.ProviderResponse,
-		input.RequestInputIdentity,
 	) {
 		return events.Event{}, nil, storeerr.ErrIdempotencyConflict
 	}
@@ -376,7 +373,6 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		input.RuntimeLockID,
 		input.ProviderRequestID,
 		input.ProviderResponse,
-		input.RequestInputIdentity,
 	); err != nil {
 		return events.Event{}, nil, err
 	}
@@ -486,7 +482,6 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		contextRow,
 		input.ProviderRequestID,
 		input.ProviderResponse,
-		input.RequestInputIdentity,
 	) {
 		return events.Event{}, storeerr.ErrIdempotencyConflict
 	}
@@ -573,7 +568,6 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 			input.RuntimeLockID,
 			input.ProviderRequestID,
 			input.ProviderResponse,
-			input.RequestInputIdentity,
 		); err != nil {
 			return events.Event{}, err
 		}
@@ -657,10 +651,8 @@ func sameSuccessfulModelCallCompletionEvidence(
 	contextRow ModelCallContextRecord,
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
-	identity *modelenvelope.RequestInputIdentity,
 ) bool {
-	return sameRequestInputIdentity(contextRow.RequestInputIdentity, identity) &&
-		contextRow.ProviderRequestID == providerRequestID &&
+	return contextRow.ProviderRequestID == providerRequestID &&
 		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD
 }
 
@@ -671,7 +663,6 @@ func completeSuccessfulNormalModelCallTx(
 	runtimeLockID uuid.UUID,
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
-	identity *modelenvelope.RequestInputIdentity,
 ) error {
 	if contextRow.OperationKind != ModelCallOperationNormal ||
 		contextRow.State != ModelCallContextStarted {
@@ -683,7 +674,6 @@ func completeSuccessfulNormalModelCallTx(
 		ModelCallContextID:      contextRow.ID,
 		RuntimeLockID:           runtimeLockID,
 		ToState:                 ModelCallContextSucceeded,
-		RequestInputIdentity:    identity,
 		APIFormat:               envelope.APIFormat,
 		APIVariant:              envelope.APIVariant,
 		ProviderRequestID:       providerRequestID,
@@ -717,11 +707,4 @@ func subagentTurnEndMessage(envelope modelenvelope.ResponseEnvelope) (subagentMe
 	default:
 		return subagentMessage{}, false
 	}
-}
-
-func sameRequestInputIdentity(left, right *modelenvelope.RequestInputIdentity) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
 }

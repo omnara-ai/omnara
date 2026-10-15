@@ -170,7 +170,6 @@ func validateModelCallFailureEvidence(
 
 type finishModelCallContextInput struct {
 	RecoveryCheckpointRetainedBytes *int
-	RequestInputIdentity            *modelenvelope.RequestInputIdentity
 	OptionalCompactionOutcome       OptionalCompactionOutcome
 	ProjectID                       uuid.UUID
 	AgentID                         uuid.UUID
@@ -220,14 +219,6 @@ func finishModelCallContextWithAuthorityTx(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if input.RequestInputIdentity != nil {
-		if input.ToState != ModelCallContextSucceeded {
-			return ModelCallContextRecord{}, errors.New("request identity requires successful normal completion")
-		}
-		if err := input.RequestInputIdentity.Validate(); err != nil {
-			return ModelCallContextRecord{}, err
-		}
-	}
 	usage := usageColumnsFromModelUsage(input.Usage)
 	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("provider-reported cost: %w", err)
@@ -271,10 +262,6 @@ func finishModelCallContextWithAuthorityTx(
 		AgentID:                             input.AgentID,
 		RuntimeLockID:                       input.RuntimeLockID,
 		AllowInactiveRuntimeLockForTeardown: allowInactiveRuntimeLockForTeardown,
-	}
-	if identity := input.RequestInputIdentity; identity != nil {
-		count := int32(identity.ItemCount)
-		params.RequestInputFingerprint, params.RequestInputItemCount = &identity.Fingerprint, &count
 	}
 	id, err := q.FinishModelCallContext(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {

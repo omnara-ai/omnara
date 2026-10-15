@@ -4,9 +4,7 @@ ALTER TABLE model_call_contexts
     ADD COLUMN parent_normal_model_call_context_id uuid,
     ADD COLUMN source_excerpt_bytes integer,
     ADD COLUMN recovery_checkpoint_retained_bytes integer,
-    ADD COLUMN optional_compaction_outcome text,
-    ADD COLUMN request_input_fingerprint text,
-    ADD COLUMN request_input_item_count integer;
+    ADD COLUMN optional_compaction_outcome text;
 
 -- Existing compactions have exactly one blocked normal operation at their frontier.
 -- Backfill before strengthening the immutable identity and parent constraints.
@@ -73,15 +71,6 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_optional_outcome CHECK (
         optional_compaction_outcome IS NULL OR (recovery_kind IS NOT DISTINCT FROM 'resume_normal'
             AND optional_compaction_outcome IN ('interrupted', 'ineffective'))
-    ),
-    ADD CONSTRAINT model_call_contexts_request_input_identity CHECK (
-        num_nonnulls(request_input_fingerprint, request_input_item_count) = 0
-        OR (
-            num_nonnulls(request_input_fingerprint, request_input_item_count) = 2
-            AND operation_kind = 'normal' AND state = 'succeeded'
-            AND request_input_item_count > 0
-            AND request_input_fingerprint ~ '^[0-9a-fA-F]{64}$'
-        )
     );
 
 ALTER TABLE context_checkpoints

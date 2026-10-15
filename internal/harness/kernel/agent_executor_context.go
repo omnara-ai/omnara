@@ -35,14 +35,13 @@ const (
 )
 
 type modelStep struct {
-	State                modelStepState
-	Context              executionstore.ModelCallContextRecord
-	Bundle               modelcontext.Bundle
-	Envelope             modelenvelope.ResponseEnvelope
-	Response             model.Response
-	Resolved             model.ResolvedClient
-	StreamedToolCallIDs  map[string]uuid.UUID
-	RequestInputIdentity *modelenvelope.RequestInputIdentity
+	State               modelStepState
+	Context             executionstore.ModelCallContextRecord
+	Bundle              modelcontext.Bundle
+	Envelope            modelenvelope.ResponseEnvelope
+	Response            model.Response
+	Resolved            model.ResolvedClient
+	StreamedToolCallIDs map[string]uuid.UUID
 }
 
 func (e AgentExecutor) executeModelStep(
@@ -258,6 +257,7 @@ func (e AgentExecutor) executeModelStep(
 			})
 		}
 	}
+	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	workingInputTarget, err := model.WorkingInputTargetTokens(client, policy, modelErrorSourceForClient(client))
 	if err != nil {
 		return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
@@ -349,20 +349,13 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
-	for _, part := range response.Content {
-		if part.ToolCallError != "" {
-			prepared.RequestInputIdentity = nil
-			break
-		}
-	}
 	step := modelStep{
-		Context:              claim.Context,
-		Bundle:               bundle,
-		Envelope:             envelope,
-		Response:             response,
-		Resolved:             resolved,
-		StreamedToolCallIDs:  streamSink.ToolCallIDs(),
-		RequestInputIdentity: prepared.RequestInputIdentity,
+		Context:             claim.Context,
+		Bundle:              bundle,
+		Envelope:            envelope,
+		Response:            response,
+		Resolved:            resolved,
+		StreamedToolCallIDs: streamSink.ToolCallIDs(),
 	}
 	return e.finishModelResponse(ctx, input, step)
 }
@@ -411,13 +404,12 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:            input.ProjectID,
-			AgentID:              input.AgentID,
-			RuntimeLockID:        input.RuntimeLockID,
-			ModelCallContextID:   step.Context.ID,
-			ProviderRequestID:    step.Response.ProviderRequestID,
-			ProviderResponse:     step.Envelope,
-			RequestInputIdentity: step.RequestInputIdentity,
+			ProjectID:          input.ProjectID,
+			AgentID:            input.AgentID,
+			RuntimeLockID:      input.RuntimeLockID,
+			ModelCallContextID: step.Context.ID,
+			ProviderRequestID:  step.Response.ProviderRequestID,
+			ProviderResponse:   step.Envelope,
 		},
 	)
 	if err != nil {

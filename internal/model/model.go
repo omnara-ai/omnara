@@ -165,10 +165,8 @@ type PreparedRequest struct {
 	InputTokenEstimate     int
 	InputBudget            InputBudgetAssessment
 	MaxOutputTokens        int
-	InputRouteFingerprint  string
 	RenderedMedia          []modelcontext.RenderedMedia
-	RequestInputIdentity   *modelenvelope.RequestInputIdentity
-	HasMeasuredInputPrefix bool
+	UsesProviderInputUsage bool
 }
 
 type PrepareForSendInput struct {
@@ -231,7 +229,7 @@ func PrepareForSend(
 	if err != nil {
 		return PreparedRequest{}, err
 	}
-	applyRequestInputMeasurement(&prepared, client, input.Context)
+	applyRequestInputMeasurement(ctx, &prepared, client, input)
 	usable := window.UsableInputTokens()
 	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
 		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
@@ -244,7 +242,7 @@ func PrepareForSend(
 			if err != nil {
 				return PreparedRequest{}, err
 			}
-			applyRequestInputMeasurement(&prepared, client, input.Context)
+			applyRequestInputMeasurement(ctx, &prepared, client, input)
 		}
 	}
 	prepared.MaxOutputTokens = input.Policy.MaxOutputTokens

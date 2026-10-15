@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $25
-    AND agent.id = $26
+  WHERE agent.project_id = $23
+    AND agent.id = $24
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $27
+  WHERE runtime_lock.id = $25
     AND (
-      $28::boolean
+      $26::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -145,13 +145,11 @@ SET state = $1,
     provider_metadata = $19,
     recovery_checkpoint_retained_bytes = $20::integer,
     optional_compaction_outcome = $21::text,
-    request_input_fingerprint = $22::text,
-    request_input_item_count = $23::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $24
+  AND context.id = $22
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -179,8 +177,6 @@ type FinishModelCallContextParams struct {
 	ProviderMetadata                    json.RawMessage
 	RecoveryCheckpointRetainedBytes     *int32
 	OptionalCompactionOutcome           *string
-	RequestInputFingerprint             *string
-	RequestInputItemCount               *int32
 	ID                                  uuid.UUID
 	ProjectID                           uuid.UUID
 	AgentID                             uuid.UUID
@@ -211,8 +207,6 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.ProviderMetadata,
 		arg.RecoveryCheckpointRetainedBytes,
 		arg.OptionalCompactionOutcome,
-		arg.RequestInputFingerprint,
-		arg.RequestInputItemCount,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
@@ -278,8 +272,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.source_excerpt_bytes, prior_checkpoint.id AS replaces_checkpoint_id,
   context.recovery_checkpoint_retained_bytes,
   context.optional_compaction_outcome,
-  context.request_input_fingerprint,
-  context.request_input_item_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
@@ -327,8 +319,6 @@ type GetModelCallContextRow struct {
 	ReplacesCheckpointID            *uuid.UUID
 	RecoveryCheckpointRetainedBytes *int32
 	OptionalCompactionOutcome       *string
-	RequestInputFingerprint         *string
-	RequestInputItemCount           *int32
 	RuntimeLockID                   uuid.UUID
 	State                           string
 	RecoveryKind                    *string
@@ -372,8 +362,6 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ReplacesCheckpointID,
 		&i.RecoveryCheckpointRetainedBytes,
 		&i.OptionalCompactionOutcome,
-		&i.RequestInputFingerprint,
-		&i.RequestInputItemCount,
 		&i.RuntimeLockID,
 		&i.State,
 		&i.RecoveryKind,

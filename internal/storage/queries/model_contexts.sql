@@ -198,8 +198,6 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.source_excerpt_bytes, prior_checkpoint.id AS replaces_checkpoint_id,
   context.recovery_checkpoint_retained_bytes,
   context.optional_compaction_outcome,
-  context.request_input_fingerprint,
-  context.request_input_item_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
@@ -420,8 +418,6 @@ SET state = sqlc.arg(to_state),
     provider_metadata = sqlc.arg(provider_metadata),
     recovery_checkpoint_retained_bytes = sqlc.narg(recovery_checkpoint_retained_bytes)::integer,
     optional_compaction_outcome = sqlc.narg(optional_compaction_outcome)::text,
-    request_input_fingerprint = sqlc.narg(request_input_fingerprint)::text,
-    request_input_item_count = sqlc.narg(request_input_item_count)::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id

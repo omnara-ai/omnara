@@ -1,226 +1,159 @@
-package model
+package model_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRequestInputIdentityMatchesPreparedPrefix(t *testing.T) {
-	for _, format := range []modelprotocol.APIFormat{
-		modelprotocol.APIFormatOpenAIChatCompletions,
-		modelprotocol.APIFormatOpenAIResponses,
-	} {
-		t.Run(string(format), func(t *testing.T) {
-			key, allowance := "messages", "max_completion_tokens"
-			if format == modelprotocol.APIFormatOpenAIResponses {
-				key, allowance = "input", "max_output_tokens"
+func TestProviderBaselineCountsInputArrivingDuringGeneration(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
+	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := measuredInputBundle(tc.client)
+			concurrent := modelcontext.Message{
+				Role: modelprotocol.RoleUser, Sequence: 2,
+				Content: json.RawMessage(`[{"type":"text","text":"` + strings.Repeat("new detail ", 1000) + `"}]`),
 			}
-			body := `{"model":"test","` + allowance + `":32000,"` + key + `":[` +
-				`{"role":"system","content":"instructions"},` +
-				`{"role":"user","content":"question"}]}`
-			prior, err := projectRequestInput(json.RawMessage(body), format)
-			if err != nil {
-				t.Fatal(err)
-			}
-			route := strings.Repeat("a", 64)
-			identity, err := prior.identity(route)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if identity.ItemCount != 1 {
-				t.Fatalf("conversation item count = %d; system prefix must be static", identity.ItemCount)
-			}
-			next := strings.Replace(body, `32000`, `16000`, 1)
-			next = strings.Replace(next, `{"role":"user","content":"question"}`,
-				`{"role":"user","content":"question"},`+
-					`{"role":"assistant","content":"answer"},{"role":"user","content":"next"}`, 1)
-			projection, err := projectRequestInput(json.RawMessage(next), format)
-			if err != nil || !projection.matches(identity, route) {
-				t.Fatalf("unchanged input plus suffix must match across output clamping: %v", err)
-			}
-			if projection.matches(identity, strings.Repeat("b", 64)) {
-				t.Fatal("changed route reused old measurement")
-			}
-			for _, changed := range []string{
-				strings.Replace(next, "instructions", "new instructions", 1),
-				strings.Replace(next, "question", "edited question", 1),
-			} {
-				projection, err := projectRequestInput(json.RawMessage(changed), format)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if projection.matches(identity, route) {
-					t.Fatal("changed measured input reused old measurement")
-				}
-			}
-			withSystemMessage := strings.Replace(next, `"role":"assistant"`, `"role":"system"`, 1)
-			_, err = projectRequestInput(json.RawMessage(withSystemMessage), format)
-			require.Error(t, err)
-		})
-	}
-}
-
-type inputMeasurementClient struct {
-	prepareForSendClient
-	format modelprotocol.APIFormat
-}
-
-func (c inputMeasurementClient) APIFormat() modelprotocol.APIFormat { return c.format }
-
-func TestOpaqueReasoningUsesMeasuredCompleteReplayOnlyWithinToolContinuation(t *testing.T) {
-	for _, format := range []modelprotocol.APIFormat{
-		modelprotocol.APIFormatAnthropicMessages, modelprotocol.APIFormatOpenAIResponses,
-	} {
-		t.Run(string(format), func(t *testing.T) {
-			key := "messages"
-			if format == modelprotocol.APIFormatOpenAIResponses {
-				key = "input"
-			}
-			priorBody := json.RawMessage(`{"model":"prepare-test","` + key + `":[{"role":"user","content":"question"}]}`)
-			prior, err := projectRequestInput(priorBody, format)
+			bundle.Messages = append(bundle.Messages[:1], append([]modelcontext.Message{concurrent}, bundle.Messages[1:]...)...)
+			input := model.PrepareForSendInput{Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps)}
+			prepared, err := model.PrepareForSend(context.Background(), tc.client, input)
 			require.NoError(t, err)
-			route := strings.Repeat("a", 64)
-			identity, err := prior.identity(route)
-			require.NoError(t, err)
-			replay := `[{"type":"thinking","thinking":"short visible summary","signature":"` +
-				strings.Repeat("opaque", 10000) + `"},{"type":"tool_use","id":"call","name":"read","input":{}}]`
-			assistant := `{"role":"assistant","content":` + replay + `}`
-			result := `{"role":"user","content":[{"type":"tool_result","tool_use_id":"call","content":"result"}]}`
-			if format == modelprotocol.APIFormatOpenAIResponses {
-				replay = `[{"type":"reasoning","encrypted_content":"` + strings.Repeat("opaque", 10000) +
-					`"},{"type":"function_call","call_id":"call","name":"read","arguments":"{}"}]`
-				assistant = replay[1 : len(replay)-1]
-				result = `{"type":"function_call_output","call_id":"call","output":"result"}`
-			}
-			body := json.RawMessage(`{"model":"prepare-test","` + key + `":[` +
-				`{"role":"user","content":"question"},` + assistant + `,` + result + `]}`)
-			source := modelcontext.Message{
-				Role: modelprotocol.RoleAssistant, RequestInputIdentity: &identity,
-				Usage:      modelenvelope.Usage{InputTokens: 2000, OutputTokens: 5000, ReasoningTokens: 4900},
-				StopReason: modelenvelope.StopReasonToolUse, ProviderReplay: json.RawMessage(replay),
-			}
-			bundle := modelcontext.Bundle{Messages: []modelcontext.Message{source}}
-			client := inputMeasurementClient{format: format}
-			prepared := PreparedRequest{Body: body, InputRouteFingerprint: route, InputTokenEstimate: 25000}
-			applyRequestInputMeasurement(&prepared, client, bundle)
-			require.True(t, prepared.HasMeasuredInputPrefix)
-			require.InDelta(t, 7000, prepared.InputTokenEstimate, 100, "count output tokens once, never ciphertext characters")
+			require.True(t, prepared.UsesProviderInputUsage)
+			require.InDelta(t, 3750, prepared.InputTokenEstimate, 150,
+				"the 1000-token input baseline must include the later input, even though it precedes the assistant event")
+			require.Contains(t, string(prepared.Body), "new detail")
 
-			for _, changed := range []json.RawMessage{
-				json.RawMessage(strings.Replace(string(body), `"question"`, `"changed"`, 1)),
-				json.RawMessage(string(body[:len(body)-2]) + `,{"role":"user","content":"new task"}]}`),
-				json.RawMessage(strings.Replace(string(body), "opaque", "modified", 1)),
+			for _, changed := range []struct {
+				name string
+				edit func(*modelcontext.Bundle)
+			}{
+				{"agent config", func(b *modelcontext.Bundle) { b.AgentConfigID = uuid.New() }},
+				{"model revision", func(b *modelcontext.Bundle) { b.ConfiguredModelRevisionID = uuid.New() }},
+				{"new checkpoint", func(b *modelcontext.Bundle) {
+					b.ContextCheckpoint = &modelcontext.CheckpointRef{Sequence: 4, Summary: "compacted"}
+				}},
 			} {
-				prepared = PreparedRequest{Body: changed, InputRouteFingerprint: route, InputTokenEstimate: 25000}
-				applyRequestInputMeasurement(&prepared, client, bundle)
-				require.False(t, prepared.HasMeasuredInputPrefix)
-				require.Equal(t, 25000, prepared.InputTokenEstimate)
+				t.Run(changed.name, func(t *testing.T) {
+					input.Context = bundle
+					changed.edit(&input.Context)
+					prepared, err := model.PrepareForSend(context.Background(), tc.client, input)
+					require.NoError(t, err)
+					require.False(t, prepared.UsesProviderInputUsage)
+				})
 			}
 		})
 	}
 }
 
-func TestRequestInputIdentityPreservesMediaAndExactNumbers(t *testing.T) {
-	const body = `{"model":"test","messages":[{"role":"user","content":[{"type":"image_url",` +
-		`"image_url":{"url":"data:image/png;base64,AAAA"}},{"type":"text","text":"question"}]},` +
-		`{"role":"assistant","tool_calls":[{"id":"call",` +
-		`"function":{"arguments":{"value":9007199254740992}}}]}]}`
-	prior, err := projectRequestInput(json.RawMessage(body), modelprotocol.APIFormatOpenAIChatCompletions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := strings.Repeat("a", 64)
-	identity, err := prior.identity(route)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, changed := range []string{
-		strings.Replace(body, "AAAA", "BBBB", 1),
-		strings.Replace(body, "9007199254740992", "9007199254740993", 1),
-	} {
-		projection, err := projectRequestInput(json.RawMessage(changed), modelprotocol.APIFormatOpenAIChatCompletions)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if projection.matches(identity, route) {
-			t.Fatal("changed image or integer reused old measurement")
-		}
+func TestProviderBaselineCountsReplayedReasoningWithoutCountingCiphertext(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000, SupportsReasoning: true}
+	providerID := uuid.New().String()
+	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps, modelProviderConfigID: providerID}) {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := measuredInputBundle(tc.client)
+			message := &bundle.Messages[1]
+			message.Content = json.RawMessage(`[{"type":"reasoning","text":"thinking"},{"type":"text","text":"answer"}]`)
+			message.Usage.OutputTokens = 5000
+			message.Usage.ReasoningTokens = 4990
+			message.ProviderReplaySource.ModelProviderConfigID = providerID
+			opaque := strings.Repeat("opaque", 10000)
+			switch tc.client.APIFormat() {
+			case modelprotocol.APIFormatOpenAIChatCompletions:
+				message.ProviderReplay = json.RawMessage(`{"role":"assistant","content":"answer","reasoning":"thinking",` +
+					`"reasoning_details":[{"type":"reasoning.encrypted","data":"` + opaque + `"}]}`)
+			case modelprotocol.APIFormatOpenAIResponses:
+				message.ProviderReplay = json.RawMessage(`[{"type":"reasoning","encrypted_content":"` + opaque + `",` +
+					`"summary":[{"type":"summary_text","text":"thinking"}]},` +
+					`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]`)
+			case modelprotocol.APIFormatAnthropicMessages:
+				message.ProviderReplay = json.RawMessage(`[{"type":"thinking","thinking":"thinking","signature":"` + opaque + `"},` +
+					`{"type":"text","text":"answer"}]`)
+			}
+			bundle.Messages = append(bundle.Messages, modelcontext.Message{
+				Role: modelprotocol.RoleUser, Sequence: 4, Content: json.RawMessage(`[{"type":"text","text":"next"}]`),
+			})
+			input := model.PrepareForSendInput{Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps)}
+			prepared, err := model.PrepareForSend(context.Background(), tc.client, input)
+			require.NoError(t, err)
+			require.Contains(t, string(prepared.Body), opaque, "fixture must retain reasoning replay")
+			require.True(t, prepared.UsesProviderInputUsage)
+			require.InDelta(t, 6000, prepared.InputTokenEstimate, 100)
+
+			input.Policy.ProviderReplayCutoffEventSequence = 3
+			prepared, err = model.PrepareForSend(context.Background(), tc.client, input)
+			require.NoError(t, err)
+			require.NotContains(t, string(prepared.Body), opaque)
+			require.True(t, prepared.UsesProviderInputUsage)
+			require.InDelta(t, 1000, prepared.InputTokenEstimate, 200,
+				"hidden output is not charged to input when replay is removed")
+		})
 	}
 }
 
-func TestRequestInputIdentityIgnoresOnlyProtocolCacheMarkers(t *testing.T) {
-	const body = `{"model":"test","max_tokens":1000,"system":[{"type":"text","text":"instructions",` +
-		`"cache_control":{"type":"ephemeral"}}],"tools":[{"name":"tool",` +
-		`"input_schema":{"type":"object","properties":{"cache_control":{"type":"string",` +
-		`"description":"before"}}},"cache_control":{"type":"ephemeral"}}],` +
-		`"messages":[{"role":"user","content":[{"type":"text","text":"question",` +
-		`"cache_control":{"type":"ephemeral"}}]},{"role":"assistant",` +
-		`"content":[{"type":"tool_use","id":"call","name":"tool",` +
-		`"input":{"cache_control":"before"}}]}]}`
-	prior, err := projectRequestInput(json.RawMessage(body), modelprotocol.APIFormatAnthropicMessages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := strings.Repeat("a", 64)
-	identity, err := prior.identity(route)
-	if err != nil {
-		t.Fatal(err)
-	}
-	withoutMarkers := strings.ReplaceAll(body, `,"cache_control":{"type":"ephemeral"}`, "")
-	projection, err := projectRequestInput(json.RawMessage(withoutMarkers), modelprotocol.APIFormatAnthropicMessages)
-	if err != nil || !projection.matches(identity, route) {
-		t.Fatalf("cache marker placement changed input identity: %v", err)
-	}
-	for _, changed := range []string{
-		strings.Replace(body, `"description":"before"`, `"description":"after"`, 1),
-		strings.Replace(body, `"cache_control":"before"`, `"cache_control":"after"`, 1),
-	} {
-		projection, err := projectRequestInput(json.RawMessage(changed), modelprotocol.APIFormatAnthropicMessages)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if projection.matches(identity, route) {
-			t.Fatal("cache_control inside real schema/arguments was discarded")
-		}
+func measuredInputBundle(client model.Client) modelcontext.Bundle {
+	configID, revisionID := uuid.New(), uuid.New()
+	return modelcontext.Bundle{
+		AgentConfigID: configID, ConfiguredModelRevisionID: revisionID,
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 1, Content: json.RawMessage(`[{"type":"text","text":"question"}]`)},
+			{
+				Role: modelprotocol.RoleAssistant, Sequence: 3, InputEventSequence: 1,
+				AgentConfigID: configID, ConfiguredModelRevisionID: revisionID,
+				Content:              json.RawMessage(`[{"type":"text","text":"answer"}]`),
+				Usage:                modelenvelope.Usage{InputTokens: 1000, OutputTokens: 10},
+				ProviderReplaySource: model.ProviderReplayIdentityForClient("", client),
+			},
+		},
 	}
 }
 
-func TestRequestInputIdentityInvalidatesActivatedDeferredTools(t *testing.T) {
-	const body = `{"model":"test","max_tokens":1000,"tools":[{"name":"new_tool","defer_loading":true,` +
-		`"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":[{"type":"text",` +
-		`"text":"question"}]}]}`
-	prior, err := projectRequestInput(json.RawMessage(body), modelprotocol.APIFormatAnthropicMessages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := strings.Repeat("a", 64)
-	identity, err := prior.identity(route)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var next map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &next); err != nil {
-		t.Fatal(err)
-	}
-	next["messages"] = json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"question"}]},{"role":"assistant",` +
-		`"content":[{"type":"tool_use","id":"search","name":"tool_search","input":{}}]},` +
-		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"search",` +
-		`"content":[{"type":"tool_reference","tool_name":"new_tool"}]}]}]`)
-	raw, err := json.Marshal(next)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projection, err := projectRequestInput(raw, modelprotocol.APIFormatAnthropicMessages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projection.matches(identity, route) {
-		t.Fatal("newly activated static tool schema reused the prior input measurement")
+func TestProviderBaselineCountsNewlyLoadedDeferredSchema(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
+	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := measuredInputBundle(tc.client)
+			bundle.Messages[1].ModelCallContextID = "search-context"
+			bundle.Messages[1].Content = json.RawMessage(`[{"type":"tool_call","tool_call_id":"search-call"}]`)
+			bundle.ToolSpecs = []modelcontext.ToolSpec{
+				{Name: "tool_search", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				{Name: "get_weather", Deferred: true, InputSchema: json.RawMessage(`{"type":"object"}`)},
+				{Name: "unloaded", Deferred: true, Description: strings.Repeat("unused ", 10000),
+					InputSchema: json.RawMessage(`{"type":"object"}`)},
+			}
+			bundle.ToolResults = []modelcontext.ToolResultRef{{
+				ToolCallID: "search-call", ModelCallContextID: "search-context", ProviderCallID: "search",
+				SourceEventSequence: 3, ResultEventSequence: 4, Name: "tool_search", Outcome: "succeeded",
+				Input: json.RawMessage(`{"pattern":"weather"}`),
+			}}
+			prepare := func(description string) model.PreparedRequest {
+				t.Helper()
+				bundle.ToolSpecs[1].Description = description
+				result, err := modelcontext.SearchDeferredTools(bundle.ToolSpecs, "weather", 1)
+				require.NoError(t, err)
+				bundle.ToolResults[0].ContentParts, err = json.Marshal([]any{
+					map[string]any{"type": "structured_data", "value": result},
+				})
+				require.NoError(t, err)
+				prepared, err := model.PrepareForSend(t.Context(), tc.client, model.PrepareForSendInput{
+					Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps),
+				})
+				require.NoError(t, err)
+				require.True(t, prepared.UsesProviderInputUsage)
+				return prepared
+			}
+			small := prepare("Get weather.")
+			large := prepare(strings.Repeat("schema detail ", 2000))
+			require.Less(t, small.InputTokenEstimate, 1500, "unused deferred schemas stay out of the estimate")
+			require.InDelta(t, 7000, large.InputTokenEstimate-small.InputTokenEstimate, 100)
+		})
 	}
 }

@@ -235,8 +235,9 @@ SELECT event.id,
        context.input_tokens_total, context.uncached_input_tokens,
        context.cache_read_input_tokens, context.cache_write_input_tokens,
        context.output_tokens_total, context.reasoning_output_tokens,
-       context.request_input_fingerprint,
-       context.request_input_item_count,
+       coalesce(context.input_event_sequence, 0)::bigint AS input_event_sequence,
+       context.agent_config_id, context.configured_model_revision_id,
+       coalesce(context.operation_kind = 'normal' AND context.state = 'succeeded', false)::boolean AS is_successful_normal_call,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
        CASE
@@ -299,6 +300,7 @@ GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   output.provider_replay, output.stop_reason, input.input_kind,
   context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
   context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
-  context.request_input_fingerprint, context.request_input_item_count
+  context.input_event_sequence, context.agent_config_id, context.configured_model_revision_id,
+  context.operation_kind, context.state
 ORDER BY event.sequence ASC
 LIMIT sqlc.arg(page_limit);

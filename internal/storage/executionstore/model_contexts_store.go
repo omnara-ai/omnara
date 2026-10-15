@@ -51,8 +51,7 @@ type ModelCallContextRecord struct {
 
 	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
 
-	OptionalCompactionOutcome OptionalCompactionOutcome           `json:"optional_compaction_outcome,omitempty"`
-	RequestInputIdentity      *modelenvelope.RequestInputIdentity `json:"request_input_identity,omitempty"`
+	OptionalCompactionOutcome OptionalCompactionOutcome `json:"optional_compaction_outcome,omitempty"`
 
 	ID                        uuid.UUID                             `json:"id"`
 	OrgID                     uuid.UUID                             `json:"org_id"`

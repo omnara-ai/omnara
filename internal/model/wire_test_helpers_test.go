@@ -11,10 +11,10 @@ import (
 )
 
 type wireClientConfig struct {
-	inputIdentityScope string
-	capabilities       model.Capabilities
-	httpClient         *http.Client
-	idleTimeout        time.Duration
+	modelProviderConfigID string
+	capabilities          model.Capabilities
+	httpClient            *http.Client
+	idleTimeout           time.Duration
 }
 
 func adapterWireClients(config wireClientConfig) []struct {
@@ -29,39 +29,39 @@ func adapterWireClients(config wireClientConfig) []struct {
 			"chat",
 			"max_completion_tokens",
 			openaichatcompletions.Client{
-				InputIdentityScope: config.inputIdentityScope,
-				EndpointPath:       "/chat/completions",
-				ProviderModelSlug:  "test-model",
-				ModelCapabilities:  config.capabilities,
-				BaseURL:            "https://example.test",
-				HTTPClient:         config.httpClient,
-				IdleTimeout:        config.idleTimeout,
+				ModelProviderConfigID: config.modelProviderConfigID,
+				EndpointPath:          "/chat/completions",
+				ProviderModelSlug:     "test-model",
+				ModelCapabilities:     config.capabilities,
+				BaseURL:               "https://example.test",
+				HTTPClient:            config.httpClient,
+				IdleTimeout:           config.idleTimeout,
 			},
 		},
 		{
 			"responses",
 			"max_output_tokens",
 			openairesponses.Client{
-				InputIdentityScope: config.inputIdentityScope,
-				EndpointPath:       "/responses",
-				ProviderModelSlug:  "test-model",
-				ModelCapabilities:  config.capabilities,
-				BaseURL:            "https://example.test",
-				HTTPClient:         config.httpClient,
-				IdleTimeout:        config.idleTimeout,
+				ModelProviderConfigID: config.modelProviderConfigID,
+				EndpointPath:          "/responses",
+				ProviderModelSlug:     "test-model",
+				ModelCapabilities:     config.capabilities,
+				BaseURL:               "https://example.test",
+				HTTPClient:            config.httpClient,
+				IdleTimeout:           config.idleTimeout,
 			},
 		},
 		{
 			"anthropic",
 			"max_tokens",
 			anthropicmessages.Client{
-				InputIdentityScope: config.inputIdentityScope,
-				EndpointPath:       "/messages",
-				ProviderModelSlug:  "test-model",
-				ModelCapabilities:  config.capabilities,
-				BaseURL:            "https://example.test",
-				HTTPClient:         config.httpClient,
-				IdleTimeout:        config.idleTimeout,
+				ModelProviderConfigID: config.modelProviderConfigID,
+				EndpointPath:          "/messages",
+				ProviderModelSlug:     "test-model",
+				ModelCapabilities:     config.capabilities,
+				BaseURL:               "https://example.test",
+				HTTPClient:            config.httpClient,
+				IdleTimeout:           config.idleTimeout,
 			},
 		},
 	}

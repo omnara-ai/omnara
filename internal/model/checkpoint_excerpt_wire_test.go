@@ -16,17 +16,18 @@ import (
 
 func TestCheckpointExcerptChangesWireInputAndInvalidatesPriorMeasurement(t *testing.T) {
 	caps := model.Capabilities{ContextWindowTokens: 100_000, DefaultMaxOutputTokens: 1024}
-	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps, inputIdentityScope: "route"}) {
+	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
 		t.Run(tc.name, func(t *testing.T) {
 			id := uuid.New()
 			summary := "SAVED_HEAD " + strings.Repeat("older context ", 1000) + " SAVED_TAIL"
 			bundle := modelcontext.Bundle{
+				AgentConfigID: uuid.New(), ConfiguredModelRevisionID: uuid.New(), InputEventSequence: 9,
 				SystemPrompt: "Follow the current request.",
 				ContextCheckpoint: &modelcontext.CheckpointRef{
-					ID: id.String(), Summary: summary, SummarizedThroughEventSequence: 5,
+					ID: id.String(), Sequence: 6, Summary: summary, SummarizedThroughEventSequence: 5,
 				},
 				Messages: []modelcontext.Message{{
-					ID: "prior-question", Role: modelprotocol.RoleUser, Sequence: 6,
+					ID: "prior-question", Role: modelprotocol.RoleUser, Sequence: 7,
 					Content: json.RawMessage(`[{"type":"text","text":"prior question"}]`),
 				}},
 			}
@@ -36,29 +37,28 @@ func TestCheckpointExcerptChangesWireInputAndInvalidatesPriorMeasurement(t *test
 					Context: contextBundle, Policy: model.RequestPolicyFromCapabilities(caps),
 				})
 				require.NoError(t, err)
-				require.NotNil(t, prepared.RequestInputIdentity)
 				return prepared
 			}
-			first := prepare(bundle)
 			bundle.Messages = append(bundle.Messages, modelcontext.Message{
-				ID: "answer", Role: modelprotocol.RoleAssistant, Sequence: 7,
-				Content:              json.RawMessage(`[{"type":"text","text":"prior answer"}]`),
-				Usage:                modelenvelope.Usage{InputTokens: 8000, OutputTokens: 20},
-				RequestInputIdentity: first.RequestInputIdentity,
-				StopReason:           modelenvelope.StopReasonEndTurn,
+				ID: "answer", Role: modelprotocol.RoleAssistant, Sequence: 8,
+				InputEventSequence: 7, AgentConfigID: bundle.AgentConfigID,
+				ConfiguredModelRevisionID: bundle.ConfiguredModelRevisionID,
+				ProviderReplaySource:      model.ProviderReplayIdentityForClient("", tc.client),
+				Content:                   json.RawMessage(`[{"type":"text","text":"prior answer"}]`),
+				Usage:                     modelenvelope.Usage{InputTokens: 8000, OutputTokens: 20},
+				StopReason:                modelenvelope.StopReasonEndTurn,
 			}, modelcontext.Message{
-				ID: "current", Role: modelprotocol.RoleUser, Sequence: 8,
+				ID: "current", Role: modelprotocol.RoleUser, Sequence: 9,
 				Content: json.RawMessage(`[{"type":"text","text":"CURRENT_REQUEST_UNCHANGED"}]`),
 			})
 			full := prepare(bundle)
-			require.True(t, full.HasMeasuredInputPrefix)
+			require.True(t, full.UsesProviderInputUsage)
 			previousBytes := len(full.Body)
 			for _, retained := range []int{1024, 256, 0} {
 				projected, err := modelcontext.ApplyCheckpointExcerpt(bundle, id, retained)
 				require.NoError(t, err)
 				prepared := prepare(projected)
-				require.False(t, prepared.HasMeasuredInputPrefix)
-				require.NotEqual(t, full.RequestInputIdentity.Fingerprint, prepared.RequestInputIdentity.Fingerprint)
+				require.False(t, prepared.UsesProviderInputUsage)
 				require.Less(t, len(prepared.Body), previousBytes)
 				require.Contains(t, string(prepared.Body), "CURRENT_REQUEST_UNCHANGED")
 				require.Contains(t, string(prepared.Body), "remains stored")

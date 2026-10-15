@@ -3,6 +3,7 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1014,8 +1015,11 @@ func isCompactionRequestBundle(bundle modelcontext.Bundle) bool {
 func (m *sequenceKernelModel) Respond(ctx context.Context, request model.Request) (model.Response, error) {
 	m.mu.Lock()
 	m.respondHadSink = append(m.respondHadSink, request.DeltaSink != nil)
-	if len(m.prepared) > 0 {
-		m.responded = append(m.responded, m.prepared[len(m.prepared)-1])
+	for i := len(m.prepared) - 1; i >= 0; i-- {
+		if bytes.Equal(m.prepared[i].ProviderRequest, request.ProviderRequest) {
+			m.responded = append(m.responded, m.prepared[i])
+			break
+		}
 	}
 	if request.DeltaSink != nil && len(m.streamEvents) > 0 {
 		streamEvents := m.streamEvents

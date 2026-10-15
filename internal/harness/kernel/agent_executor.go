@@ -87,7 +87,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 			step.Context,
 			step.Response.ProviderRequestID,
 			step.Envelope,
-			step.RequestInputIdentity,
 			step.Bundle.ToolSpecs,
 			step.StreamedToolCallIDs,
 		); err != nil {

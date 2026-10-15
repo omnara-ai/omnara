@@ -16,7 +16,6 @@ const APIVersion = "2023-06-01"
 
 type Client struct {
 	ModelProviderConfigID string
-	InputIdentityScope    string
 	Auth                  route.Auth
 	BaseURL               string
 	EndpointPath          string

@@ -72,6 +72,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			afterSequence = checkpoint.SummarizedThroughEventSequence
 			checkpointRef = &CheckpointRef{
 				ID:                             checkpoint.ID.String(),
+				Sequence:                       checkpoint.CheckpointEventSequence,
 				SummarizedThroughEventSequence: checkpoint.SummarizedThroughEventSequence,
 				Summary:                        checkpoint.Summary,
 			}
@@ -132,6 +133,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		TurnID:             input.TurnID,
 		OpeningInputIDs:    input.OpeningInputIDs,
 		InputEventSequence: watermark,
+		AgentConfigID:      snapshot.AgentConfig.ID,
 		SystemPrompt:       defaultSystemPromptForContract(agentPublicID, contract, toolSpecs, catalogSkills),
 	}
 	bundle.ContextCheckpoint = checkpointRef

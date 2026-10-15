@@ -292,7 +292,7 @@ func shouldAttemptOptionalCompaction(
 	if !recovery.HasPriorOptionalCompaction {
 		return true
 	}
-	hasMeasuredPressure := prepared.HasMeasuredInputPrefix && prepared.RequestInputIdentity != nil
+	hasMeasuredPressure := prepared.UsesProviderInputUsage
 	if !hasMeasuredPressure && recovery.LatestObservedNormalInputTokens < workingInputTarget {
 		return false
 	}
