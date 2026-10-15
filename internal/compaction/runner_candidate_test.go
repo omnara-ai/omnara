@@ -210,11 +210,11 @@ func TestSafeCompactionSourceEndsDoNotSplitAtomicGroups(t *testing.T) {
 	}
 }
 
-func TestPreferredWholeTurnSourceEndAvoidsSplittingAnsweredTurn(t *testing.T) {
+func TestRunnerRecoveryPrefersWholeAnsweredTurn(t *testing.T) {
 	firstTurnID := testIDN(812)
 	secondTurnID := testIDN(813)
 	records := []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("first opening ", 20)),
+		textCompactionEvent(1, strings.Repeat("first opening ", 200)),
 		textCompactionEvent(2, "first answer"),
 		textCompactionEvent(3, strings.Repeat("second opening ", 20)),
 		textCompactionEvent(4, "second answer"),
@@ -225,19 +225,18 @@ func TestPreferredWholeTurnSourceEndAvoidsSplittingAnsweredTurn(t *testing.T) {
 	records[2].Kind = string(events.KindAgentInput)
 	records[2].TurnID = secondTurnID
 	records[3].TurnID = secondTurnID
-	prefixBytes := []int{100, 110, 210, 220}
-
-	completeTurnEnds := completeTurnSourceEnds(records, records, []int64{1, 2, 3})
-	before, after := boundariesAroundTarget(completeTurnEnds, func(end int64) bool {
-		return prefixBytes[end-1] <= 100
-	})
-	got := before
-	if got == 0 {
-		got = after
-	}
-	if got != 2 {
-		t.Fatalf("preferred reduced source end = %d, want complete first turn at 2", got)
-	}
+	store := &fakeStore{events: records}
+	client := &summaryModel{results: []summaryResult{{err: model.ProviderError{Kind: model.ErrorKindContextWindow}}}}
+	input := runInput(testPlan(1, 4, 4))
+	result, err := testRunner(store, client).RunClaimed(t.Context(), input, store.addStartedClaim(input))
+	require.NoError(t, err)
+	require.Equal(t, RunCompleted, result.State)
+	require.Len(t, store.replacements, 1)
+	require.Equal(t, int64(2), store.replacements[0].NextSourceEventSequenceEnd)
+	require.Equal(t, int64(2), result.Checkpoint.SummarizedThroughEventSequence)
+	require.Len(t, client.requests, 2)
+	require.Contains(t, string(client.requests[1].ProviderRequest), "first answer")
+	require.NotContains(t, string(client.requests[1].ProviderRequest), "second opening")
 }
 
 func TestSafeCompactionSourceEndsRequireModelVisibleSemantics(t *testing.T) {

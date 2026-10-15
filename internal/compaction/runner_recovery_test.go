@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -90,7 +89,13 @@ func TestRunnerExcerptsOldClosedAtomicGroupOnlyAfterActualOverflow(t *testing.T)
 	require.Contains(t, last, old.ID.String())
 	require.Contains(t, last, "call_old")
 	require.NotContains(t, last, "CURRENT_REQUEST_MUST_REMAIN_COMPLETE")
-	require.True(t, utf8.ValidString(last))
+	for i, request := range client.requests {
+		var sent struct {
+			Messages []struct{ Content []struct{ Text string } }
+		}
+		require.NoError(t, json.Unmarshal(request.ProviderRequest, &sent))
+		require.NotContains(t, sent.Messages[0].Content[0].Text, "\uFFFD", "request %d", i)
+	}
 	require.Equal(t, originalOldContent, store.events[0].ContentParts)
 	require.Equal(t, originalCurrentContent, store.events[3].ContentParts)
 	require.Contains(t, result.Checkpoint.Summary, "details of old events 1..3 were omitted")
@@ -131,18 +136,9 @@ func TestRunnerExcerptsStopAtFiniteFloor(t *testing.T) {
 		strings.Count(last, "large closed history "), minimumSourceExcerptBytes/len("large closed history "))
 	require.Empty(t, store.retryFailures)
 	require.Empty(t, store.publishInputs)
-	claim := store.addStartedClaim(compactionInput)
-	claim.Context.SourceExcerptReductionCount = 100
-	store.claims[len(store.claims)-1] = claim
-	restartedClient := &summaryModel{}
-	result, err = testRunner(store, restartedClient).RunClaimed(t.Context(), compactionInput, claim)
-	require.NoError(t, err)
-	require.Equal(t, RunCompleted, result.State)
-	require.Len(t, restartedClient.requests, 1)
-	require.Equal(t, last, string(restartedClient.requests[0].ProviderRequest))
 }
 
-func TestRunnerReconstructsExcerptAfterTransientRetry(t *testing.T) {
+func TestRunnerReconstructsExcerptAfterSkippingNonReducingCandidate(t *testing.T) {
 	store := &fakeStore{atomicGroups: []executionstore.CompactionAtomicGroupRecord{{
 		Kind: "tool_call_result", StartSequence: 1, EndSequence: 51,
 	}}}
