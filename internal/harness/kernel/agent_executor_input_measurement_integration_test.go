@@ -3,9 +3,15 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"strings"
@@ -13,10 +19,12 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/stretchr/testify/require"
@@ -217,4 +225,99 @@ func TestAgentExecutorInvalidatesMeasuredInputAfterLiveSkillChange(t *testing.T)
 	require.Len(t, requests, 2)
 	require.Contains(t, string(requests[1]), history)
 	require.Contains(t, string(requests[1]), "Continue using the original details.")
+}
+
+func TestAgentExecutorKeepsFittingHistoryAfterProviderMediaPruning(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "anthropic/media-pressure", fixture.Now,
+		kernelConfiguredModelOptions{ContextWindowTokens: new(10_000), MaxOutputTokens: new(1_024)})
+	var artifacts []artifactstore.ArtifactRecord
+	var imageDigests [][32]byte
+	for i := range 3 {
+		frame := image.NewNRGBA(image.Rect(0, 0, 1225, 1225))
+		frame.SetNRGBA(0, 0, color.NRGBA{R: uint8(i), A: 255})
+		var data bytes.Buffer
+		encoder := png.Encoder{CompressionLevel: png.NoCompression}
+		require.NoError(t, encoder.Encode(&data, frame))
+		require.Less(t, int64(4*data.Len()), modelcontext.MaxResolvedMediaBytes)
+		artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID, ContentType: "image/png",
+			Filename: fmt.Sprintf("frame-%d.png", i), Content: data.Bytes(),
+		})
+		require.NoError(t, err)
+		artifacts = append(artifacts, artifact)
+		imageDigests = append(imageDigests, sha256.Sum256([]byte(base64.StdEncoding.EncodeToString(data.Bytes()))))
+	}
+	var sentImages [][][32]byte
+	client := anthropicmessages.Client{
+		ProviderModelSlug: "media-pressure", BaseURL: "https://provider.test", EndpointPath: "/messages",
+		ModelCapabilities: model.Capabilities{ContextWindowTokens: 10_000, DefaultMaxOutputTokens: 1_024,
+			InputModalities: []string{modelcontext.InputModalityText, modelcontext.InputModalityImage}},
+		HTTPClient: &http.Client{Transport: kernelSlackRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			var body struct {
+				Messages []struct {
+					Content []struct {
+						Type   string `json:"type"`
+						Source struct {
+							Data string `json:"data"`
+						} `json:"source"`
+					} `json:"content"`
+				} `json:"messages"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return nil, err
+			}
+			var images [][32]byte
+			for _, message := range body.Messages {
+				for _, part := range message.Content {
+					if part.Type == "image" {
+						images = append(images, sha256.Sum256([]byte(part.Source.Data)))
+					}
+				}
+			}
+			sentImages = append(sentImages, images)
+			response := fmt.Sprintf(`{"id":"media_response_%d","type":"message","role":"assistant",`+
+				`"model":"media-pressure","content":[{"type":"text","text":"Preserve the image details and continue."}],`+
+				`"stop_reason":"end_turn","usage":{"input_tokens":7500,"output_tokens":10}}`, len(sentImages))
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader(response))}, nil
+		})},
+	}
+	admit := func(text string, attached []artifactstore.ArtifactRecord, now time.Time) ModelWorkExecution {
+		blocks := []map[string]string{{"type": "text", "text": text}}
+		for _, artifact := range attached {
+			blocks = append(blocks, map[string]string{"type": "media_ref", "artifact_id": artifact.ID.String()})
+		}
+		_, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID, Actor: kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks: mustKernelJSON(blocks), IdempotencyKey: text,
+		})
+		require.NoError(t, err)
+		claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(now))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+		return modelWorkExecutionFromClaimForKernelTest(claim, now)
+	}
+	now := fixture.Now.Add(time.Second)
+	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+		Now: func() time.Time { return now }}
+	first := admit("Remember these three historical images.", artifacts, now)
+	require.NoError(t, executor.ExecuteModelWork(ctx, first))
+	require.Equal(t, [][][32]byte{imageDigests}, sentImages)
+	fixture.releaseModelRuntimeLock(t, ctx, first)
+	now = now.Add(time.Second)
+	second := admit("Compare the earlier images with this image again.", artifacts[:1], now)
+	require.NoError(t, executor.ExecuteModelWork(ctx, second))
+	var checkpoints, compactions int
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`, agentID).Scan(&checkpoints))
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND operation_kind='compaction'`,
+		agentID).Scan(&compactions))
+	require.Zero(t, checkpoints)
+	require.Zero(t, compactions)
+	require.Len(t, sentImages, 2)
+	require.Equal(t, [][32]byte{imageDigests[1], imageDigests[2], imageDigests[0]}, sentImages[1])
 }

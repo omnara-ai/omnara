@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
@@ -45,6 +46,14 @@ func applyRequestInputMeasurement(
 	}
 	usage := modelenvelope.NormalizeUsage(source.Usage)
 	if usage.InputTokens <= 0 {
+		return
+	}
+	if projector, ok := client.(modelcontext.MediaProjector); ok &&
+		!slices.EqualFunc(projector.ProjectRenderedMedia(bundle), prepared.RenderedMedia,
+			func(original, final modelcontext.RenderedMedia) bool {
+				return original.Occurrence == final.Occurrence && original.Media.ArtifactID == final.Media.ArtifactID &&
+					original.Representation == final.Representation && original.RouteParsed == final.RouteParsed
+			}) {
 		return
 	}
 
