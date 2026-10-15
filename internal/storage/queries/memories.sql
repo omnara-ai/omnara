@@ -133,3 +133,18 @@ UPDATE memory_stores
 SET files_removed_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id);
+
+-- name: GetAgentMemoryFileLastSeen :one
+SELECT (block.structured_data->>'digest')::text AS digest, result.completed_at
+FROM tool_calls call
+JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
+JOIN content_blocks block ON block.agent_id = result.agent_id AND block.owner_tool_call_result_id = result.id
+WHERE call.agent_id = sqlc.arg(agent_id)
+  AND call.type = 'built_in'
+  AND call.name IN ('read_file', 'write_file')
+  AND call.input->>'path' = sqlc.arg(path)::text
+  AND result.outcome = 'succeeded'
+  AND block.block_kind = 'structured_data'
+  AND block.structured_data->>'digest' IS NOT NULL
+ORDER BY result.completed_at DESC, result.id DESC
+LIMIT 1;

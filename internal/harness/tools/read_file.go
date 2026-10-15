@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
@@ -17,14 +18,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type readFileRequest struct {
-	Path           string          `json:"path"`
-	MachineID      json.RawMessage `json:"machine_id,omitempty"`
-	ExpectedDigest *string         `json:"expected_digest,omitempty"`
+	Path      string          `json:"path"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
 	fileread.Paging
 
 	onMachine bool
@@ -53,16 +52,8 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 		if err := validateMachinePath(input.Path); err != nil {
 			return readFileRequest{}, err
 		}
-		if input.ExpectedDigest != nil {
-			return readFileRequest{}, errExpectedDigestMemoryOnly
-		}
 	} else if err := validateFilePath(input.Path); err != nil {
 		return readFileRequest{}, err
-	}
-	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-			return readFileRequest{}, err
-		}
 	}
 	input.Paging, err = input.Paging.Normalize()
 	if err != nil {
@@ -93,11 +84,14 @@ func runReadFileAsync(
 		return nil, errors.New("machine reads run as file operation processes")
 	}
 	var content []byte
-	var digest, contentType string
+	var digest, contentType, note string
 	var artifactID uuid.UUID
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
 		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
 		if err != nil {
+			return nil, err
+		}
+		if note, err = call.Executor.memoryReadNote(ctx, call.Turn, input.Path, digest); err != nil {
 			return nil, err
 		}
 		contentType = http.DetectContentType(content)
@@ -112,10 +106,6 @@ func runReadFileAsync(
 			return nil, err
 		}
 		digest, contentType = record.Digest, record.ContentType
-	}
-	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
-		return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
-			errors.New("file digest mismatch; restart the read"))
 	}
 	if fileread.IsViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
@@ -133,7 +123,7 @@ func runReadFileAsync(
 			}
 			artifactID = artifact.ID
 		}
-		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
+		return completeImageRead(input.Path, contentType, digest, len(content), artifactID, note)
 	}
 	result, err := input.Page(content, input.Path)
 	if err != nil {
@@ -142,7 +132,11 @@ func runReadFileAsync(
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
 	result["digest"] = digest
-	return completeFileTool(result)
+	part, err := structuredToolResultPart(result)
+	if err != nil {
+		return nil, err
+	}
+	return completeFileRead(note, part), nil
 }
 
 func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
@@ -157,6 +151,43 @@ func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string
 	return e.Store.Memories().Read(ctx, memorystore.Scope{
 		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
 	}, store.ID, relativePath)
+}
+
+func (e Executor) memoryReadNote(ctx context.Context, turn Turn, filePath, digest string) (string, error) {
+	memories := e.Store.Memories()
+	seen, found, err := memories.LastSeen(ctx, turn.AgentID, filePath)
+	if err != nil || !found || seen.Digest == digest {
+		return "", err
+	}
+	name, relativePath, _ := memorystore.ParsePath(filePath)
+	store, err := memories.Resolve(ctx, turn.ProjectID, name)
+	if err != nil {
+		return "", err
+	}
+	modified, err := memories.ModifiedAt(ctx, memorystore.Scope{
+		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
+	}, store.ID, relativePath)
+	if err != nil {
+		return "", err
+	}
+	updated, last := memoryChangeTimes(modified, seen.At)
+	return fmt.Sprintf("note: %s was updated at %s since your last read at %s", filePath, updated, last), nil
+}
+
+func memoryChangeTimes(updated, seen time.Time) (string, string) {
+	const layout = "2006-01-02 15:04:05 UTC"
+	updated, seen = updated.UTC(), seen.UTC()
+	if updated.Format(time.DateOnly) == seen.Format(time.DateOnly) {
+		return updated.Format(layout), seen.Format(time.TimeOnly + " UTC")
+	}
+	return updated.Format(layout), seen.Format(layout)
+}
+
+func completeFileRead(note string, parts ...toolResultPart) asyncPhaseResult {
+	if note != "" {
+		parts = append([]toolResultPart{textToolResultPart(note)}, parts...)
+	}
+	return completeAsynchronously(newToolResultContent(parts...))
 }
 
 func loadArtifactContent(
@@ -203,6 +234,7 @@ func completeImageRead(
 	digest string,
 	sizeBytes int,
 	artifactID uuid.UUID,
+	note string,
 ) (asyncPhaseResult, error) {
 	metadata, err := structuredToolResultPart(map[string]any{
 		"path":         path,
@@ -217,7 +249,7 @@ func completeImageRead(
 	if err != nil {
 		return nil, err
 	}
-	return completeAsynchronously(newToolResultContent(metadata, media)), nil
+	return completeFileRead(note, metadata, media), nil
 }
 
 func completeFileTool(value any) (asyncPhaseResult, error) {

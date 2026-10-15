@@ -127,7 +127,7 @@ memory_stores:
 				return
 			}
 			writeOpenAIFunctionCall(w, fail, "resp_edit", "edit", "write_file", map[string]any{
-				"path": path, "script": "s/pending/complete/", "expected_digest": read.Digest,
+				"path": path, "script": "s/pending/complete/",
 			})
 		case 4:
 			var edit struct{ Path, Digest string }

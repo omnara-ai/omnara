@@ -36,14 +36,6 @@ func TestMachineFileToolsRouteByPathAndMachineID(t *testing.T) {
 			name: "write machine size", resolve: machineWriteFile, invalid: "at most 512 KiB",
 			input: `{"path":"a.md","content":"` + strings.Repeat("x", maxMachineWriteBytes+1) + `"}`,
 		},
-		{
-			name: "read machine digest", resolve: machineReadFile, invalid: "only applies to memory files",
-			input: `{"path":"a.md","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`,
-		},
-		{
-			name: "write machine digest", resolve: machineWriteFile, invalid: "only applies to memory files",
-			input: `{"path":"a.md","content":"","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`,
-		},
 		{name: "list artifacts", resolve: machineListFiles, input: `{"pattern":"/artifacts/*.png"}`},
 		{name: "list machine", resolve: machineListFiles, input: `{"pattern":"~/*.png"}`, kind: processcmd.KindFileList},
 		{name: "list machine glob", resolve: machineListFiles, input: `{"pattern":"[*"}`, invalid: "invalid glob"},

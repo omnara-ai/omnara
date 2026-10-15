@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,11 +36,30 @@ type WriteInput struct {
 	Path           string
 	Content        []byte
 	ExpectedDigest *string
+	Force          bool
 }
 
 type WriteResult struct {
 	Path   string
 	Digest string
+}
+
+type FileView struct {
+	Digest string
+	At     time.Time
+}
+
+func (s *Store) LastSeen(ctx context.Context, agentID uuid.UUID, path string) (FileView, bool, error) {
+	row, err := s.q.GetAgentMemoryFileLastSeen(ctx, dbsqlc.GetAgentMemoryFileLastSeenParams{
+		AgentID: agentID, Path: path,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return FileView{}, false, nil
+	}
+	if err != nil {
+		return FileView{}, false, fmt.Errorf("load memory file history: %w", err)
+	}
+	return FileView{Digest: row.Digest, At: row.CompletedAt}, true, nil
 }
 
 func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (string, []byte, error) {
@@ -56,6 +76,25 @@ func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path s
 		return "", nil, fileReadError(err)
 	}
 	return blobstore.ContentDigest(body), body, nil
+}
+
+func (s *Store) ModifiedAt(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (time.Time, error) {
+	if err := ValidatePath(path); err != nil {
+		return time.Time{}, storeerr.InvalidRequest(err)
+	}
+	root, err := s.openStoreForRead(ctx, scope, storeID)
+	if err != nil {
+		return time.Time{}, fileReadError(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := memoryops.CheckPath(root, path); err != nil {
+		return time.Time{}, fileReadError(err)
+	}
+	info, err := root.Stat(path)
+	if err != nil {
+		return time.Time{}, fileReadError(err)
+	}
+	return info.ModTime(), nil
 }
 
 func fileReadError(err error) error {
@@ -167,13 +206,13 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		if currentDigest == result.Digest {
 			return result, s.files.Sync(ref, root, input.Path)
 		}
-		if input.ExpectedDigest == nil {
+		if input.ExpectedDigest == nil && !input.Force {
 			return WriteResult{}, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
 			))
 		}
-		if *input.ExpectedDigest != currentDigest {
+		if input.ExpectedDigest != nil && *input.ExpectedDigest != currentDigest {
 			return WriteResult{}, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 				errors.New("memory changed; retrieve the latest contents and retry"),

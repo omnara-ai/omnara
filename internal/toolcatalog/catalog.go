@@ -63,12 +63,15 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	writeFileToolDescription = "Create or edit a text file in memory or on an attached machine. Returns path and digest."
-	readFileToolDescription  = "Read a text or image file stored in Omnara or on an attached machine. " +
+	writeFileToolDescription = "Create or edit a text file in memory or on an attached machine. " +
+		"Read a memory file before changing it; the write fails if it changed since your last read. " +
+		"Returns path and digest."
+	readFileToolDescription = "Read a text or image file stored in Omnara or on an attached machine. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Read machine files such as screenshots directly; upload_file is not needed to view them. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
-		"For large files, call again with the next position returned in the result."
+		"For large files, call again with the next position returned in the result. " +
+		"Memory reads include a note when the file changed since your last read."
 	searchFilesToolDescription = "Search text in Omnara files or files on an attached machine. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use read_file to read more around a match."
@@ -576,12 +579,6 @@ func readFileTool() (Entry, error) {
 					"~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineFileID("reading"),
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
-					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
-			},
 			"offset_line": map[string]any{
 				"type":    "integer",
 				"minimum": 1,
@@ -638,10 +635,11 @@ func writeFileTool() (Entry, error) {
 				"type":        "boolean",
 				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
 			},
-			"expected_digest": map[string]any{
-				"type":        "string",
-				"pattern":     fileDigestPattern,
-				"description": "Memory files only. Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
+			"force": map[string]any{
+				"type": "boolean",
+				"description": "Memory files only. Overwrite even if the file changed since you last read it, " +
+					"or was never read. Use only after a conflict when replacing the latest content is intended. " +
+					"Defaults to false.",
 			},
 		},
 	)

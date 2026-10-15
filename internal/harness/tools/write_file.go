@@ -26,12 +26,12 @@ const maxWriteFileScriptBytes = 64 * 1024
 const maxMachineWriteBytes = 512 * 1024
 
 type writeFileRequest struct {
-	Path           string          `json:"path"`
-	Content        *string         `json:"content,omitempty"`
-	Script         *string         `json:"script,omitempty"`
-	Append         bool            `json:"append,omitempty"`
-	ExpectedDigest *string         `json:"expected_digest,omitempty"`
-	MachineID      json.RawMessage `json:"machine_id,omitempty"`
+	Path      string          `json:"path"`
+	Content   *string         `json:"content,omitempty"`
+	Script    *string         `json:"script,omitempty"`
+	Append    bool            `json:"append,omitempty"`
+	Force     bool            `json:"force,omitempty"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
 
 	machineID uuid.UUID
 }
@@ -59,9 +59,6 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 				"script only applies to memory files; write machine files with content, or edit them with run_command",
 			)
 		}
-		if input.ExpectedDigest != nil {
-			return input, errExpectedDigestMemoryOnly
-		}
 		if input.Content != nil && len(*input.Content) > maxMachineWriteBytes {
 			return input, errors.New("machine file content must be at most 512 KiB")
 		}
@@ -84,11 +81,6 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	}
 	if input.Script != nil && len(*input.Script) > maxWriteFileScriptBytes {
 		return input, errors.New("script must be at most 64 KiB")
-	}
-	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-			return input, err
-		}
 	}
 	return input, nil
 }
@@ -116,8 +108,30 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	if err != nil {
 		return nil, err
 	}
+	seen, found, err := memories.LastSeen(ctx, call.Turn.AgentID, input.Path)
+	if err != nil {
+		return nil, err
+	}
 	scope := memorystore.Scope{
 		OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, AgentID: call.Turn.AgentID,
+	}
+	write := memorystore.WriteInput{Scope: scope, StoreID: store.ID, Path: path, Force: input.Force}
+	if found && !input.Force {
+		write.ExpectedDigest = &seen.Digest
+	}
+	unseen := func() error {
+		if !found {
+			return storeerr.Tag(&storeerr.FileContentConflictError{},
+				fmt.Errorf("%s exists but you have not read it; read it before writing", input.Path))
+		}
+		modified, err := memories.ModifiedAt(ctx, scope, store.ID, path)
+		if err != nil {
+			return err
+		}
+		updated, last := memoryChangeTimes(modified, seen.At)
+		return storeerr.Tag(&storeerr.FileContentConflictError{}, fmt.Errorf(
+			"%s was updated at %s after your last read at %s; read it again before writing", input.Path, updated, last,
+		))
 	}
 	var content []byte
 	if input.Content != nil {
@@ -125,18 +139,14 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	}
 	if input.Append || input.Script != nil {
 		digest, current, err := memories.Read(ctx, scope, store.ID, path)
-		if errors.Is(err, storeerr.ErrNotFound) && input.Append && input.ExpectedDigest == nil {
-			current = nil
+		if errors.Is(err, storeerr.ErrNotFound) && input.Append {
+			write.ExpectedDigest = nil
 		} else if err != nil {
 			return nil, err
-		} else if input.ExpectedDigest == nil {
-			return nil, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
-				&storeerr.FileContentConflictError{CurrentDigest: digest},
-				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
-			))
-		} else if *input.ExpectedDigest != digest {
-			return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
-				errors.New("memory changed; retrieve the latest contents and retry"))
+		} else if !input.Force && (!found || seen.Digest != digest) {
+			return nil, unseen()
+		} else {
+			write.ExpectedDigest = &digest
 		}
 		if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
 			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
@@ -153,9 +163,17 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 			}
 		}
 	}
-	result, err := memories.Write(ctx, memorystore.WriteInput{
-		Scope: scope, StoreID: store.ID, Path: path, Content: content, ExpectedDigest: input.ExpectedDigest,
-	})
+	write.Content = content
+	result, err := memories.Write(ctx, write)
+	var conflict *storeerr.FileContentConflictError
+	if errors.As(err, &conflict) && conflict.CurrentDigest == "" && input.Script == nil && !input.Append {
+		write.ExpectedDigest = nil
+		result, err = memories.Write(ctx, write)
+	}
+	if !input.Force && (errors.Is(err, storeerr.ErrExpectedDigestRequired) ||
+		errors.As(err, &conflict) && conflict.CurrentDigest != "") {
+		return nil, unseen()
+	}
 	if err != nil {
 		return nil, err
 	}

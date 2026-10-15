@@ -22,7 +22,6 @@ import (
 
 const machineFileProcessTimeoutSeconds = 30
 
-var errExpectedDigestMemoryOnly = errors.New("expected_digest only applies to memory files")
 
 var errMachineFileMachineUnavailable = errors.New(
 	"paths outside /memory and /artifacts are machine paths, and no executable machine is available",

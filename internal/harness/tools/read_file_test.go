@@ -108,32 +108,14 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestReadFileDigestValidation(t *testing.T) {
+func TestReadFileRejectsExpectedDigest(t *testing.T) {
 	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameReadFile)
 	if err != nil || !ok {
 		t.Fatalf("read_file registration: %v", err)
 	}
-	digest := "sha256:" + strings.Repeat("a", 64)
-	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		input string
-		valid bool
-	}{
-		{`{"path":"/memory/team/file","expected_digest":"` + digest + `"}`, true},
-		{`{"path":"/memory/team/file","expected_digest":null}`, false},
-		{`{"path":"/memory/team/file","expected_digest":""}`, false},
-		{`{"path":"/memory/team/file","expected_digest":"bad"}`, false},
-		{`{"path":"/memory/team/file","expected_digest":123}`, false},
-		{`{"path":"/memory/team/file","expected_digest":"sha256:` + strings.Repeat("A", 64) + `"}`, false},
-		{`{"path":"/artifacts/` + artifactID + `","expected_digest":"` + digest + `"}`, true},
-		{`{"path":"/tmp/notes.md","expected_digest":"` + digest + `"}`, false},
-	} {
-		if err := tool.validateInput(json.RawMessage(test.input)); (err == nil) != test.valid {
-			t.Errorf("input %s: %v", test.input, err)
-		}
+	input := `{"path":"/memory/team/file","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`
+	if err := tool.validateInput(json.RawMessage(input)); err == nil {
+		t.Fatal("expected_digest accepted")
 	}
 }
 
@@ -173,7 +155,7 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 func TestCompleteImageReadReturnsMetadataAndMediaRef(t *testing.T) {
 	artifactID := uuid.New()
 	digest := "sha256:" + strings.Repeat("a", 64)
-	result, err := completeImageRead("/artifacts/example", "image/png", digest, 12, artifactID)
+	result, err := completeImageRead("/artifacts/example", "image/png", digest, 12, artifactID, "")
 	if err != nil {
 		t.Fatal(err)
 	}

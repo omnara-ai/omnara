@@ -224,11 +224,12 @@ Machine files are read in place, so the agent can view a screenshot it just took
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
-| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
 
 Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
+
+If a memory file changed since the agent last read or wrote it, the result includes a note with the file's update time and the time of that read.
 
 ### `write_file`
 
@@ -241,9 +242,9 @@ Creates or edits a memory text file in a writable store attached with `read_writ
 | `content` | string | Text to create or replace the file with; empty text is allowed |
 | `script` | string | Memory files only. GNU sed script using extended regex, at most 64 KiB; transforms an existing file |
 | `append` | boolean | Append `content` exactly, without adding a newline; default false. Creates missing files. |
-| `expected_digest` | string | Memory files only. Current digest when changing an existing file; omit to create |
+| `force` | boolean | Memory files only. Overwrite even if the file changed since the agent's last read, or was never read; default false |
 
-Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Concurrent edits cause a conflict; read the file again before retrying.
+Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Changing an existing file requires the agent to have read or written it, and fails if the file changed since then; read the file again before retrying. Creating a file needs no prior read.
 
 Machine writes replace or append to the file atomically, create missing parent directories, and keep an existing file's permissions; they don't take `expected_digest`. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
 
