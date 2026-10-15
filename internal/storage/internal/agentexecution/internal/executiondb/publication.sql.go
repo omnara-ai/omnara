@@ -4,3 +4,26 @@
 // source: publication.sql
 
 package executiondb
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
+
+const deferExecutionClaim = `-- name: DeferExecutionClaim :exec
+UPDATE agent_wakeups
+SET ready_at=statement_timestamp()+($1::bigint*interval '1 second'),
+    updated_at=statement_timestamp()
+WHERE agent_id=$2 AND ready_at<=statement_timestamp()
+`
+
+type DeferExecutionClaimParams struct {
+	DelaySeconds int64
+	AgentID      uuid.UUID
+}
+
+func (q *Queries) DeferExecutionClaim(ctx context.Context, db DBTX, arg DeferExecutionClaimParams) error {
+	_, err := db.Exec(ctx, deferExecutionClaim, arg.DelaySeconds, arg.AgentID)
+	return err
+}

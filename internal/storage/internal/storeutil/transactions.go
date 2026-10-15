@@ -49,7 +49,7 @@ func RetryTransaction[T any](ctx context.Context, operation string, run func() (
 		returned = false
 		result, err := run()
 		returned = true
-		code := retryableTransactionSQLState(err)
+		code := RetryableTransactionSQLState(err)
 		if code == "" {
 			return result, err
 		}
@@ -77,7 +77,7 @@ type transactionConflict struct {
 	SQLState string `json:"sqlstate"`
 }
 
-func retryableTransactionSQLState(err error) string {
+func RetryableTransactionSQLState(err error) string {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "40P01") {
 		return pgErr.Code

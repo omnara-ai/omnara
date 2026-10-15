@@ -84,6 +84,8 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	}, nil
 }
 
+// relaxAgentConfigDefinitionValidation leaves definition validation to the
+// compiler, which reports path-specific issues.
 func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
 	for _, name := range []string{
 		agentconfig.OpenAPIDefinitionComponent,
@@ -93,6 +95,7 @@ func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
 		if !ok || ref.Value == nil {
 			return fmt.Errorf("openapi spec has no %s schema", name)
 		}
+		// Overwrite in place: resolved $refs share this schema value.
 		*ref.Value = openapi3.Schema{Type: &openapi3.Types{openapi3.TypeObject}}
 	}
 	return nil

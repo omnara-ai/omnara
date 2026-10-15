@@ -241,6 +241,7 @@ func main() {
 		StreamLog:       log,
 	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
+		Metrics:           metrics.NewWorkerRecorder(metricSet),
 		Log:               log,
 		Capacity:          cfg.WorkerCapacity,
 		ClaimConcurrency:  cfg.WorkerClaimConcurrency,

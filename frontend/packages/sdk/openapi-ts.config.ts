@@ -13,6 +13,8 @@ export default defineConfig({
       responses: true,
       definitions: true,
       $resolvers: {
+        // The generator ignores additionalProperties: true when an object also
+        // declares properties, so z.object would strip the extra keys.
         object: (ctx) => {
           const hasProperties = Object.keys(ctx.schema.properties ?? {}).length > 0
           const additional = ctx.schema.additionalProperties

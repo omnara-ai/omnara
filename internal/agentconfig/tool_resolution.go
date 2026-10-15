@@ -81,7 +81,7 @@ var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
 	return fields, nil
 })
 
-func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
+func ToolsFromSource(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)

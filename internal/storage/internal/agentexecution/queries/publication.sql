@@ -40,3 +40,9 @@ WHERE agent_wakeups.ready_at IS DISTINCT FROM CASE
  THEN least(agent_wakeups.ready_at,excluded.ready_at) ELSE excluded.ready_at END
 RETURNING agent_id
 ) SELECT scope.agent_id FROM scope;
+
+-- name: DeferExecutionClaim :exec
+UPDATE agent_wakeups
+SET ready_at=statement_timestamp()+(sqlc.arg(delay_seconds)::bigint*interval '1 second'),
+    updated_at=statement_timestamp()
+WHERE agent_id=sqlc.arg(agent_id) AND ready_at<=statement_timestamp();

@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
@@ -44,6 +45,7 @@ type Store interface {
 }
 
 type Worker struct {
+	metrics                  *metrics.WorkerRecorder
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
@@ -60,6 +62,7 @@ type Worker struct {
 }
 
 type Options struct {
+	Metrics                  *metrics.WorkerRecorder
 	Log                      *slog.Logger
 	RuntimeLockLeaseDuration time.Duration
 	Capacity                 int
@@ -104,6 +107,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		opts.AsyncToolCapacity = defaultAsyncToolCapacity
 	}
 	return &Worker{
+		metrics:                  opts.Metrics,
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -178,7 +182,12 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 			return
 		}
 		var delay time.Duration
+		var deferred *executionstore.ClaimDeferredError
 		switch {
+		case errors.As(err, &deferred):
+			failures = 0
+			idleDelay = minIdleClaimDelay
+			continue
 		case isRecoverableRunOnceError(err):
 			failures = 0
 			idleDelay = minIdleClaimDelay
@@ -238,6 +247,12 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 			LeaseDuration:   w.runtimeLockLeaseDuration,
 		},
 	)
+	var deferred *executionstore.ClaimDeferredError
+	if errors.As(err, &deferred) {
+		w.metrics.RecordClaimDeferral()
+		w.log.ErrorContext(ctx, "agent claim deferred", "project_id", deferred.ProjectID,
+			"agent_id", deferred.AgentID, "error", deferred.Cause)
+	}
 	if errors.Is(err, storeerr.ErrNoClaimableAgentWakeup) {
 		return executionstore.ClaimedAgentWork{}, false, nil
 	}
@@ -696,7 +711,8 @@ func (w *Worker) recoverRuntimeRenewalPanic(
 }
 
 func isRecoverableRunOnceError(err error) bool {
-	return errors.Is(err, storeerr.ErrAgentNotAdvanceable) ||
+	var deferred *executionstore.ClaimDeferredError
+	return errors.As(err, &deferred) || errors.Is(err, storeerr.ErrAgentNotAdvanceable) ||
 		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
 		errors.Is(err, storeerr.ErrStateTransitionConflict)

@@ -32,6 +32,8 @@ import {
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
 
+// Strict objects keep configs the builder cannot show in YAML mode; free text accepts unfinished rows.
+
 const permissionParameters = z.record(z.string(), z.json())
 
 const permission = z.strictObject({
@@ -173,6 +175,7 @@ const basicDocument = z.looseObject({
     .optional(),
   subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
+  // Out-of-range depths still load so the form can flag them; maxDepthValid enforces the limit.
   max_depth: positiveCount,
 })
 

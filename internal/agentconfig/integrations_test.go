@@ -131,7 +131,7 @@ git_credentials: {integration: reviews}`, opts)
 	for _, name := range []string{"list_files", "read_file", "search_files", "write_file", "tool_search"} {
 		require.True(t, result.Compiled.Tools[name].Enabled, name)
 	}
-	preview, err := ToolsFromSourceWithOptions(SourceFormatYAML, []byte(result.Source), opts)
+	preview, err := ToolsFromSource(SourceFormatYAML, []byte(result.Source), opts)
 	require.NoError(t, err)
 	require.Len(t, preview, len(result.Compiled.Tools))
 	for _, tool := range preview {

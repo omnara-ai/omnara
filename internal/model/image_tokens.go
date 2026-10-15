@@ -157,6 +157,7 @@ func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, heig
 
 	switch {
 	case name == "gpt-6-astra", strings.HasPrefix(name, "gpt-5.6"):
+		// The provider rejects images over 30,000 patches instead of resizing them to that limit.
 		patches, _, _ := openAIPatchDimensions(width, height, 65_535)
 		return scaledPatchTokens(patches, 1.2)
 	case strings.HasPrefix(name, "gpt-5.5"):

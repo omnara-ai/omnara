@@ -233,6 +233,7 @@ func largestFittingCompactionRequest(
 	if bestRequest.sourceEnd > 0 {
 		return bestRequest, nil
 	}
+	// An estimate alone cannot establish that the smallest safe source is unusable.
 	return prepareCandidate(candidates[0], policy)
 }
 

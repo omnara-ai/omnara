@@ -103,9 +103,11 @@ func (s *Store) ClaimNextAgentWork(
 		work  ClaimedAgentWork
 		found bool
 	}
+	var selected agentexecution.AgentRoute
 	result, err := agentexecution.Retry(ctx,
 		"claim_next_agent_work",
 		func(ctx context.Context) (executionResult, error) {
+			selected = agentexecution.AgentRoute{}
 			if input.WorkerProcessID == uuid.Nil {
 				return executionResult{ClaimedAgentWork{}, false}, errors.New("worker process id is required")
 			}
@@ -124,6 +126,7 @@ func (s *Store) ClaimNextAgentWork(
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
+			selected = route
 			h, err := unit.Agent(route)
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
@@ -146,6 +149,14 @@ func (s *Store) ClaimNextAgentWork(
 			}
 			return executionResult{claim, true}, nil
 		})
+	if selected.AgentID != uuid.Nil && ctx.Err() == nil && shouldDeferClaim(err) {
+		if deferErr := s.cell.DeferClaim(ctx, selected.AgentID); deferErr != nil {
+			return ClaimedAgentWork{}, false, errors.Join(err, fmt.Errorf("defer failed claim: %w", deferErr))
+		}
+		return ClaimedAgentWork{}, false, &ClaimDeferredError{
+			ProjectID: selected.ProjectID, AgentID: selected.AgentID, Cause: err,
+		}
+	}
 	return result.work, result.found, err
 }
 
