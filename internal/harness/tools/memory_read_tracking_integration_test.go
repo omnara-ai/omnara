@@ -5,7 +5,6 @@ package tools
 import (
 	"encoding/json"
 	"regexp"
-	"strings"
 	"sync"
 	"testing"
 
@@ -42,9 +41,9 @@ func TestMemoryReadTracking(t *testing.T) {
 		require.NoError(t, err)
 	}
 	put("a.md", "one\n")
-	put("b.md", "other\n")
 	put("paged.md", "1\n2\n3\n")
-	const a, b, paged = "/memory/engineering/a.md", "/memory/engineering/b.md", "/memory/engineering/paged.md"
+	put("gone.md", "old\n")
+	const a, paged, gone = "/memory/engineering/a.md", "/memory/engineering/paged.md", "/memory/engineering/gone.md"
 	machineID, err := publicid.Encode(publicid.KindMachine, uuid.New())
 	require.NoError(t, err)
 	steps := []struct{ id, name, input string }{
@@ -53,14 +52,15 @@ func TestMemoryReadTracking(t *testing.T) {
 		{"machine_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `","machine_id":"` + machineID + `"}`},
 		{"after_machine_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
 		{"stale_write", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":"stale"}`},
+		{"stale_append", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":"stale","append":true}`},
 		{"changed_read", toolcatalog.ToolNameReadFile, `{"path":"` + a + `"}`},
 		{"fresh_write", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":"two"}`},
 		{"second_write", toolcatalog.ToolNameWriteFile, `{"path":"` + a + `","content":" more","append":true}`},
-		{"unread_write", toolcatalog.ToolNameWriteFile, `{"path":"` + b + `","content":"x"}`},
-		{"forced_write", toolcatalog.ToolNameWriteFile, `{"path":"` + b + `","content":"x","force":true}`},
 		{"create", toolcatalog.ToolNameWriteFile, `{"path":"/memory/engineering/new.md","content":"x"}`},
 		{"paged_read", toolcatalog.ToolNameReadFile, `{"path":"` + paged + `","offset_line":2,"limit_lines":1}`},
 		{"paged_write", toolcatalog.ToolNameWriteFile, `{"path":"` + paged + `","content":"4\n"}`},
+		{"gone_read", toolcatalog.ToolNameReadFile, `{"path":"` + gone + `"}`},
+		{"gone_write", toolcatalog.ToolNameWriteFile, `{"path":"` + gone + `","content":"new"}`},
 	}
 	calls := map[string]model.ToolCall{}
 	batch := make([]model.ToolCall, 0, len(steps))
@@ -109,29 +109,33 @@ func TestMemoryReadTracking(t *testing.T) {
 
 	succeeds("first_read")
 	succeeds("unchanged_read")
-	machineRead, err := structuredToolResultContent(map[string]any{
-		"path": a, "machine_id": machineID, "digest": "sha256:" + strings.Repeat("0", 64),
-	})
+	machineRead, err := structuredToolResultContent(map[string]any{"path": a, "content": "machine copy\n"})
 	require.NoError(t, err)
 	require.NoError(t, executor.completeAsyncToolResult(ctx, turn, fixture.toolCallID(t, ctx, "machine_read"),
 		machineRead, executionstore.ToolResultOutcomeSucceeded))
 	succeeds("after_machine_read")
 	put("a.md", "changed\n")
-	fails("stale_write", quote(a)+" was updated at "+at+" after your last read at "+last+
-		"; read it again before writing")
+	stale := quote(a) + " was updated at " + at + " after your last read at " + last + "; read it again before writing"
+	fails("stale_write", stale)
+	fails("stale_append", stale)
 	note, value := run("changed_read")
 	require.Regexp(t, "^note: "+quote(a)+" was updated at "+at+" since your last read at "+last+"$", note)
 	require.Equal(t, "changed\n", value["content"])
 	succeeds("fresh_write")
 	succeeds("second_write")
-	fails("unread_write", quote(b)+" exists but you have not read it; read it before writing")
-	succeeds("forced_write")
 	succeeds("create")
 	succeeds("paged_read")
 	succeeds("paged_write")
-	_, content, err := memories.Read(ctx, scope, store.ID, "a.md")
+	succeeds("gone_read")
+	goneDigest, _, err := memories.Read(ctx, scope, store.ID, "gone.md")
 	require.NoError(t, err)
-	require.Equal(t, "two more", string(content))
+	require.NoError(t, memories.DeleteFile(ctx, scope, store.ID, "gone.md", goneDigest))
+	succeeds("gone_write")
+	for file, want := range map[string]string{"a.md": "two more", "gone.md": "new"} {
+		_, content, err := memories.Read(ctx, scope, store.ID, file)
+		require.NoError(t, err)
+		require.Equal(t, want, string(content), file)
+	}
 
 	direct := asyncToolContext{Executor: executor, Turn: turn}
 	write := func(agent asyncToolContext, content string) error {

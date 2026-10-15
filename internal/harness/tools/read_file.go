@@ -29,11 +29,6 @@ type readFileRequest struct {
 	machineID uuid.UUID
 }
 
-func validateReadFileInput(raw json.RawMessage) error {
-	_, err := resolveReadFileRequest(raw)
-	return err
-}
-
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {

@@ -210,11 +210,11 @@ The download process has a 120-second execution timeout.
 
 ### `read_file`
 
-Reads a text or image file at `/artifacts/<artifact_id>`, `/memory/<store-name>/<file-path>`, or on an attached machine. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory and machine files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
+Reads a text or image file at `/artifacts/<artifact_id>`, `/memory/<store-name>/<file-path>`, or on an attached machine. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory and machine files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and, for Omnara files, `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
 
 Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
-Machine files are read in place, so the agent can view a screenshot it just took without calling `upload_file`. Machine images are stored as artifacts so the model can view them; text reads create nothing in Omnara.
+Machine files are read in place, so the agent can view a screenshot it just took without calling `upload_file`. Machine images are stored as artifacts so the model can view them; text reads create nothing in Omnara. Machine reads don't return a digest, and text reads only read as far into the file as the requested page needs.
 
 | Input | Type | Notes |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ Machine files are read in place, so the agent can view a screenshot it just took
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
 
-Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
+Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, `has_more`, and, for Omnara files, the whole-file `digest`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
 
@@ -233,7 +233,7 @@ If a memory file changed since the agent last read or wrote it, the result inclu
 
 ### `write_file`
 
-Creates or edits a memory text file in a writable store attached with `read_write` access, or a text file on an attached machine. Returns `path` and `digest`.
+Creates or edits a memory text file in a writable store attached with `read_write` access, or a text file on an attached machine. Returns `path`, plus `digest` for memory files.
 
 | Input | Type | Notes |
 | --- | --- | --- |
@@ -246,7 +246,7 @@ Creates or edits a memory text file in a writable store attached with `read_writ
 
 Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Changing an existing file requires the agent to have read or written it, and fails if the file changed since then; read the file again before retrying. Creating a file needs no prior read.
 
-Machine writes replace or append to the file atomically, create missing parent directories, and keep an existing file's permissions. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
+Machine writes create missing parent directories; replacements are atomic and keep an existing file's permissions, and appends add to the end of the existing file. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
 
 ### `search_files`
 

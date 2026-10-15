@@ -21,8 +21,6 @@ func TestMachineFileToolsRouteByPathAndMachineID(t *testing.T) {
 		kind    processcmd.ExecutionKind
 		invalid string
 	}{
-		{name: "read memory", resolve: machineReadFile, input: `{"path":"/memory/team/a.md"}`},
-		{name: "read machine", resolve: machineReadFile, input: `{"path":"a.md"}`, kind: processcmd.KindFileRead},
 		{name: "write memory", resolve: machineWriteFile, input: `{"path":"/memory/team/a.md","content":""}`},
 		{
 			name: "write machine id", resolve: machineWriteFile, kind: processcmd.KindFileWrite,

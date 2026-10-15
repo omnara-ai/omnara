@@ -27,22 +27,21 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 	if err := png.Encode(&screenshot, image.NewGray(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
-	digest := "sha256:" + strings.Repeat("c", 64)
 	for _, test := range []struct {
 		name        string
 		kind        processcmd.ExecutionKind
 		operation   processcmd.FileOperation
 		image       []byte
-		result      func(artifactPath, artifactDigest string) map[string]any
+		result      func(artifactPath string) map[string]any
 		wantOutcome executionstore.ToolResultOutcome
 		wantFields  map[string]any
 	}{
 		{
 			name: "image", kind: processcmd.KindFileRead, operation: processcmd.FileOperation{Path: "/tmp/shot.png"},
 			image: screenshot.Bytes(),
-			result: func(path, digest string) map[string]any {
+			result: func(path string) map[string]any {
 				return map[string]any{"artifact": path, "value": map[string]any{
-					"path": "/tmp/shot.png", "content_type": "image/png", "size_bytes": screenshot.Len(), "digest": digest,
+					"path": "/tmp/shot.png", "content_type": "image/png", "size_bytes": screenshot.Len(),
 				}}
 			},
 			wantOutcome: executionstore.ToolResultOutcomeSucceeded,
@@ -50,16 +49,16 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 		},
 		{
 			name: "text", kind: processcmd.KindFileRead, operation: processcmd.FileOperation{Path: "notes.txt"},
-			result: func(string, string) map[string]any {
-				return map[string]any{"value": map[string]any{"path": "notes.txt", "content": "two\n", "digest": digest}}
+			result: func(string) map[string]any {
+				return map[string]any{"value": map[string]any{"path": "notes.txt", "content": "two\n"}}
 			},
 			wantOutcome: executionstore.ToolResultOutcomeSucceeded,
-			wantFields:  map[string]any{"path": "notes.txt", "content": "two\n", "digest": digest},
+			wantFields:  map[string]any{"path": "notes.txt", "content": "two\n"},
 		},
 		{
 			name: "write failure", kind: processcmd.KindFileWrite,
 			operation: processcmd.FileOperation{Path: "notes", Content: new(string)},
-			result: func(string, string) map[string]any {
+			result: func(string) map[string]any {
 				return map[string]any{"error": map[string]any{
 					"code": "file_operation_failed", "error": "path must be a regular file",
 				}}
@@ -72,7 +71,7 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 		{
 			name: "missing result", kind: processcmd.KindFileList,
 			operation:   processcmd.FileOperation{Path: "*.txt", Limit: 10},
-			result:      func(string, string) map[string]any { return nil },
+			result:      func(string) map[string]any { return nil },
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
 			wantFields:  map[string]any{"error": "file operation completed without a valid result", "machine_id": nil},
 		},
@@ -117,7 +116,7 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 				found && (scope.ToolCallID != toolCallID || scope.Transfer.Target.Artifact == nil) {
 				t.Fatalf("upload scope = %+v found=%t err=%v", scope, found, err)
 			}
-			var artifactPath, artifactDigest string
+			var artifactPath string
 			if test.image != nil {
 				artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 					ProjectID: testProjectID, AgentID: fixture.AgentID, ContentType: "image/png",
@@ -128,10 +127,9 @@ func TestMachineFileOperationCompletionRendersToolResult(t *testing.T) {
 					t.Fatalf("create uploaded image: %v", err)
 				}
 				artifactPath = toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID)
-				artifactDigest = artifact.Digest
 			}
 			observed := map[string]any{"output": "", "cursor": 0, "next_cursor": 0, "truncated": false}
-			if result := test.result(artifactPath, artifactDigest); result != nil {
+			if result := test.result(artifactPath); result != nil {
 				observed["file_operation"] = result
 			}
 			exitCode := 0

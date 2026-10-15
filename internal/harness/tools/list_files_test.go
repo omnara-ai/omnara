@@ -61,20 +61,3 @@ func TestFileListCursorValidation(t *testing.T) {
 		}
 	}
 }
-
-func TestListFilesLiteralRootValidation(t *testing.T) {
-	for _, pattern := range []string{
-		"/memory", "/artifacts", "/memory/*", "/memory/**", "/memory/*-archive/**/*.md",
-		"/artifacts/*.pdf", "/artifacts/art_*", "/*", "/**", "/**/review-note.txt", "/mem*/*", "/unknown/*",
-		"src/**/*.go", "~/Desktop/*.png", "/tmp/[*",
-	} {
-		raw, err := json.Marshal(listFilesRequest{Pattern: pattern})
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw)
-		if valid := pattern != "/tmp/[*"; valid != (err == nil) {
-			t.Errorf("pattern %q: error = %v, want valid = %t", pattern, err, valid)
-		}
-	}
-}

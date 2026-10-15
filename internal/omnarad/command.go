@@ -244,29 +244,21 @@ func Run(
 			return 1
 		}
 		return 0
-	case command.FileTransfer != nil:
-		result := os.NewFile(3, "file-transfer-result")
+	case command.FileTransfer != nil || command.FileOperation != nil:
+		result := os.NewFile(3, "file-result")
 		defer func() { _ = result.Close() }()
 		if info, err := result.Stat(); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
-			_, _ = fmt.Fprintln(stderr, "file transfer requires a result pipe")
+			_, _ = fmt.Fprintln(stderr, "file process requires a result pipe")
 			return 1
 		}
-		if err := runFileTransfer(
-			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
-			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
-		); err != nil {
-			_, _ = fmt.Fprintln(stderr, err)
-			return 1
+		var err error
+		if transfer := command.FileTransfer; transfer != nil {
+			err = runFileTransfer(ctx, processcmd.FileTransferDirection(transfer.Direction),
+				transfer.ProcessID, transfer.LocalPath, result)
+		} else {
+			err = runFileOperation(ctx, command.FileOperation.ProcessID, stdin, result)
 		}
-		return 0
-	case command.FileOperation != nil:
-		result := os.NewFile(3, "file-operation-result")
-		defer func() { _ = result.Close() }()
-		if info, err := result.Stat(); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
-			_, _ = fmt.Fprintln(stderr, "file operation requires a result pipe")
-			return 1
-		}
-		if err := runFileOperation(ctx, command.FileOperation.ProcessID, stdin, result); err != nil {
+		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1
 		}

@@ -36,7 +36,6 @@ type WriteInput struct {
 	Path           string
 	Content        []byte
 	ExpectedDigest *string
-	Force          bool
 }
 
 type WriteResult struct {
@@ -87,25 +86,6 @@ func (s *Store) ReadFile(ctx context.Context, scope Scope, storeID uuid.UUID, pa
 		return File{}, fileReadError(err)
 	}
 	return File{Digest: blobstore.ContentDigest(body), Content: body, ModifiedAt: modified}, nil
-}
-
-func (s *Store) ModifiedAt(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (time.Time, error) {
-	if err := ValidatePath(path); err != nil {
-		return time.Time{}, storeerr.InvalidRequest(err)
-	}
-	root, err := s.openStoreForRead(ctx, scope, storeID)
-	if err != nil {
-		return time.Time{}, fileReadError(err)
-	}
-	defer func() { _ = root.Close() }()
-	if err := memoryops.CheckPath(root, path); err != nil {
-		return time.Time{}, fileReadError(err)
-	}
-	info, err := root.Stat(path)
-	if err != nil {
-		return time.Time{}, fileReadError(err)
-	}
-	return info.ModTime(), nil
 }
 
 func fileReadError(err error) error {
@@ -217,13 +197,13 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		if currentDigest == result.Digest {
 			return result, s.files.Sync(ref, root, input.Path)
 		}
-		if input.ExpectedDigest == nil && !input.Force {
+		if input.ExpectedDigest == nil {
 			return WriteResult{}, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
 			))
 		}
-		if input.ExpectedDigest != nil && *input.ExpectedDigest != currentDigest {
+		if *input.ExpectedDigest != currentDigest {
 			return WriteResult{}, storeerr.Tag(
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 				errors.New("memory changed; retrieve the latest contents and retry"),

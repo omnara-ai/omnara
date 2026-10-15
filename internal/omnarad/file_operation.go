@@ -3,7 +3,6 @@ package omnarad
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -43,14 +43,6 @@ var (
 )
 
 func runFileOperation(ctx context.Context, processID string, input io.Reader, resultWriter io.Writer) error {
-	result := executeFileOperation(ctx, processID, input)
-	if err := json.NewEncoder(resultWriter).Encode(result); err != nil {
-		return fmt.Errorf("write file operation result: %w", err)
-	}
-	return nil
-}
-
-func executeFileOperation(ctx context.Context, processID string, input io.Reader) daemonprotocol.FileOperationResult {
 	value, artifact, err := dispatchFileOperation(ctx, processID, input)
 	var raw []byte
 	if err == nil {
@@ -59,6 +51,7 @@ func executeFileOperation(ctx context.Context, processID string, input io.Reader
 			err = errors.New("file operation result exceeds the size limit; narrow the request")
 		}
 	}
+	result := daemonprotocol.FileOperationResult{Value: raw, Artifact: artifact}
 	if err != nil {
 		failure := daemonprotocol.FileTransferError{Code: "file_operation_failed", Message: err.Error()}
 		var apiErr *daemonprotocol.FileTransferError
@@ -66,9 +59,12 @@ func executeFileOperation(ctx context.Context, processID string, input io.Reader
 			failure = *apiErr
 		}
 		failure.Message = textutil.TruncateBytes(failure.Message, maxFileTransferErrorBytes)
-		return daemonprotocol.FileOperationResult{Error: &failure}
+		result = daemonprotocol.FileOperationResult{Error: &failure}
 	}
-	return daemonprotocol.FileOperationResult{Value: raw, Artifact: artifact}
+	if err := json.NewEncoder(resultWriter).Encode(result); err != nil {
+		return fmt.Errorf("write file operation result: %w", err)
+	}
+	return nil
 }
 
 func dispatchFileOperation(ctx context.Context, processID string, input io.Reader) (any, string, error) {
@@ -102,9 +98,7 @@ func dispatchFileOperation(ctx context.Context, processID string, input io.Reade
 	return value, "", err
 }
 
-func fileDigest(content []byte) string {
-	return fmt.Sprintf("sha256:%x", sha256.Sum256(content))
-}
+const machinePageReadBytes = 64 * 1024
 
 func readMachineFile(ctx context.Context, processID string, operation processcmd.FileOperation) (any, string, error) {
 	paging, err := operation.Paging.Normalize()
@@ -115,32 +109,79 @@ func readMachineFile(ctx context.Context, processID string, operation processcmd
 	if err != nil {
 		return nil, "", err
 	}
-	content, err := readRegularFile(name)
+	file, info, err := openRegularFile(name)
 	if err != nil {
 		return nil, "", err
 	}
-	digest := fileDigest(content)
-	contentType := http.DetectContentType(content)
-	metadata := map[string]any{
-		"path": operation.Path, "content_type": contentType, "size_bytes": len(content), "digest": digest,
+	defer func() { _ = file.Close() }()
+	// DetectContentType only inspects the first 512 bytes.
+	content, eof, err := readUpTo(file, nil, 512)
+	if err != nil {
+		return nil, "", err
 	}
-	if fileread.IsViewableImage(contentType, content) {
-		uploaded, err := postTransferFile(ctx, processID, filepath.Base(operation.Path),
-			bytes.NewReader(content), int64(len(content)))
+	contentType := http.DetectContentType(content)
+	metadata := map[string]any{"path": operation.Path, "content_type": contentType, "size_bytes": info.Size()}
+	if slices.Contains(fileread.ViewableImageTypes(), contentType) {
+		if content, eof, err = readUpTo(file, content, daemonprotocol.MaxFileTransferBytes); err != nil {
+			return nil, "", err
+		}
+		if fileread.IsViewableImage(contentType, content) {
+			uploaded, err := postTransferFile(ctx, processID, filepath.Base(operation.Path),
+				bytes.NewReader(content), int64(len(content)))
+			if err != nil {
+				return nil, "", err
+			}
+			if uploaded.Error != nil || uploaded.Path == "" {
+				return nil, "", errors.New("image upload returned unexpected metadata")
+			}
+			return metadata, uploaded.Path, nil
+		}
+	}
+	// Read only as far as the requested page needs, doubling the prefix until the page fits.
+	for target := machinePageReadBytes; ; target *= 2 {
+		if content, eof, err = readUpTo(file, content, min(target, daemonprotocol.MaxFileTransferBytes)); err != nil {
+			return nil, "", err
+		}
+		text := content
+		if !eof {
+			text = trimPartialRune(content)
+		}
+		page, err := paging.Page(text, operation.Path)
 		if err != nil {
 			return nil, "", err
 		}
-		if uploaded.Error != nil || uploaded.Digest != digest || uploaded.Path == "" {
-			return nil, "", errors.New("image upload returned unexpected metadata")
+		if eof || page["has_more"] == true || len(content) >= daemonprotocol.MaxFileTransferBytes {
+			maps.Copy(page, metadata)
+			return page, "", nil
 		}
-		return metadata, uploaded.Path, nil
 	}
-	page, err := paging.Page(content, operation.Path)
-	if err != nil {
-		return nil, "", err
+}
+
+// readUpTo extends content to size bytes from r and reports whether r ended first.
+func readUpTo(r io.Reader, content []byte, size int) ([]byte, bool, error) {
+	if len(content) >= size {
+		return content, false, nil
 	}
-	maps.Copy(page, metadata)
-	return page, "", nil
+	n := len(content)
+	content = slices.Grow(content, size-n)[:size]
+	read, err := io.ReadFull(r, content[n:])
+	content = content[:n+read]
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return content, true, nil
+	}
+	return content, false, err
+}
+
+func trimPartialRune(content []byte) []byte {
+	for i := 1; i <= utf8.UTFMax && i <= len(content); i++ {
+		if utf8.RuneStart(content[len(content)-i]) {
+			if !utf8.FullRune(content[len(content)-i:]) {
+				return content[:len(content)-i]
+			}
+			break
+		}
+	}
+	return content
 }
 
 func resolveMachinePath(name string) (string, error) {
@@ -151,27 +192,36 @@ func resolveMachinePath(name string) (string, error) {
 	return resolved, nil
 }
 
-func readRegularFile(name string) ([]byte, error) {
+func openRegularFile(name string) (*os.File, fs.FileInfo, error) {
 	file, err := openTransferFile(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	switch {
+	case err != nil:
+	case info.IsDir():
+		err = &daemonprotocol.FileTransferError{
+			Code: "not_a_file", Message: "path is a directory; list its contents and choose a file",
+		}
+	case !info.Mode().IsRegular():
+		err = errors.New("path must be a regular file")
+	case info.Size() > daemonprotocol.MaxFileTransferBytes:
+		err = errors.New("file exceeds the 10 MiB limit")
+	}
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	return file, info, nil
+}
+
+func readRegularFile(name string) ([]byte, error) {
+	file, _, err := openRegularFile(name)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, &daemonprotocol.FileTransferError{
-			Code: "not_a_file", Message: "path is a directory; list its contents and choose a file",
-		}
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("path must be a regular file")
-	}
-	if info.Size() > daemonprotocol.MaxFileTransferBytes {
-		return nil, errors.New("file exceeds the 10 MiB limit")
-	}
 	content, err := io.ReadAll(io.LimitReader(file, daemonprotocol.MaxFileTransferBytes+1))
 	if err != nil {
 		return nil, err
@@ -223,73 +273,91 @@ func writeMachineFile(operation processcmd.FileOperation) (any, error) {
 		return nil, err
 	}
 	content := []byte(*operation.Content)
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return nil, fmt.Errorf("create parent directories: %w", err)
+	}
+	if operation.Append {
+		err = appendMachineFile(name, content)
+	} else {
+		err = replaceMachineFile(name, content)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": operation.Path}, nil
+}
+
+func appendMachineFile(name string, content []byte) error {
+	file, err := os.OpenFile(name, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("path must be a regular file")
+	}
+	if info.Size()+int64(len(content)) > daemonprotocol.MaxFileTransferBytes {
+		return errors.New("file content must be at most 10 MiB")
+	}
+	if _, err := file.Write(content); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return file.Close()
+}
+
+func replaceMachineFile(name string, content []byte) error {
 	perm := fs.FileMode(0o644)
 	info, err := os.Stat(name)
 	switch {
 	case err == nil:
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return nil, errors.New("path must be a regular file")
+		if !info.Mode().IsRegular() {
+			return errors.New("path must be a regular file")
 		}
 		perm = info.Mode().Perm()
-		if operation.Append {
-			current, err := readRegularFile(name)
-			if err != nil {
-				return nil, err
-			}
-			if !fileread.IsText(current) {
-				return nil, errors.New("file must contain UTF-8 text without NUL bytes")
-			}
-			content = append(current, content...)
-		}
 	case !errors.Is(err, fs.ErrNotExist):
-		return nil, err
+		return err
 	}
 	if len(content) > daemonprotocol.MaxFileTransferBytes {
-		return nil, errors.New("file content must be at most 10 MiB")
-	}
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		return nil, fmt.Errorf("create parent directories: %w", err)
+		return errors.New("file content must be at most 10 MiB")
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(name), ".omnara-file-*")
 	if err != nil {
-		return nil, fmt.Errorf("create temporary file: %w", err)
+		return fmt.Errorf("create temporary file: %w", err)
 	}
 	defer func() {
 		_ = temporary.Close()
 		_ = os.Remove(temporary.Name())
 	}()
 	if err := temporary.Chmod(perm); err != nil {
-		return nil, fmt.Errorf("set file permissions: %w", err)
+		return fmt.Errorf("set file permissions: %w", err)
 	}
 	if _, err := temporary.Write(content); err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+		return fmt.Errorf("write file: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return nil, fmt.Errorf("close file: %w", err)
+		return fmt.Errorf("close file: %w", err)
 	}
 	if err := os.Rename(temporary.Name(), name); err != nil {
-		return nil, fmt.Errorf("replace file: %w", err)
+		return fmt.Errorf("replace file: %w", err)
 	}
-	return map[string]any{"path": operation.Path, "digest": fileDigest(content)}, nil
+	return nil
 }
 
+// globRoot splits a glob into its literal base and pattern; glob is empty for a plain path.
 func globRoot(pattern string) (base, root, glob string, err error) {
-	if !strings.ContainsAny(pattern, "*?") {
-		return "", "", "", nil
-	}
-	base, glob = doublestar.SplitPattern(filepath.ToSlash(pattern))
-	if !doublestar.ValidatePattern(glob) {
-		return "", "", "", doublestar.ErrBadPattern
+	base = pattern
+	if strings.ContainsAny(pattern, "*?") {
+		base, glob = doublestar.SplitPattern(filepath.ToSlash(pattern))
+		if !doublestar.ValidatePattern(glob) {
+			return "", "", "", doublestar.ErrBadPattern
+		}
 	}
 	root, err = resolveMachinePath(base)
 	return base, root, glob, err
-}
-
-func globPath(base, name string) string {
-	if base == "." {
-		return name
-	}
-	return path.Join(base, name)
 }
 
 func walkGlob(ctx context.Context, root, glob, after string, visit func(string, fs.DirEntry) error) error {
@@ -309,10 +377,7 @@ func walkGlob(ctx context.Context, root, glob, after string, visit func(string, 
 		}
 		descend := entry.IsDir() && (braces || mayContainMatches(segments, name))
 		if after != "" && slices.Compare(strings.Split(name, "/"), afterSegments) <= 0 {
-			if descend && (name == after || strings.HasPrefix(after, name+"/")) {
-				return nil
-			}
-			if entry.IsDir() {
+			if entry.IsDir() && !(descend && strings.HasPrefix(after+"/", name+"/")) {
 				return fs.SkipDir
 			}
 			return nil
@@ -352,22 +417,14 @@ func listMachineFiles(ctx context.Context, operation processcmd.FileOperation) (
 	}
 	entries := []listing.FileEntry{}
 	if glob == "" {
-		if operation.After != "" {
-			return map[string]any{"entries": entries, "next_cursor": nil}, nil
-		}
-		name, err := resolveMachinePath(operation.Path)
-		if err != nil {
-			return nil, err
-		}
-		if entry, ok := listedEntry(operation.Path, func() (fs.FileInfo, error) { return os.Stat(name) }); ok {
+		if entry, ok := listedEntry(operation.Path, root); ok && operation.After == "" {
 			entries = append(entries, entry)
 		}
 		return map[string]any{"entries": entries, "next_cursor": nil}, nil
 	}
-	fsys := os.DirFS(root)
 	size, last := 0, ""
 	err = walkGlob(ctx, root, glob, operation.After, func(name string, _ fs.DirEntry) error {
-		entry, ok := listedEntry(globPath(base, name), func() (fs.FileInfo, error) { return fs.Stat(fsys, name) })
+		entry, ok := listedEntry(path.Join(base, name), filepath.Join(root, filepath.FromSlash(name)))
 		if !ok {
 			return nil
 		}
@@ -401,8 +458,8 @@ func listMachineFiles(ctx context.Context, operation processcmd.FileOperation) (
 	return map[string]any{"entries": entries, "next_cursor": next}, nil
 }
 
-func listedEntry(display string, stat func() (fs.FileInfo, error)) (listing.FileEntry, bool) {
-	info, err := stat()
+func listedEntry(display, name string) (listing.FileEntry, bool) {
+	info, err := os.Stat(name)
 	if err != nil {
 		return listing.FileEntry{}, false
 	}
@@ -448,11 +505,7 @@ func searchMachineFiles(ctx context.Context, operation processcmd.FileOperation)
 		return collector.Search(display, content, matcher, options)
 	}
 	if glob == "" {
-		name, err := resolveMachinePath(operation.Path)
-		if err != nil {
-			return nil, err
-		}
-		content, err := readRegularFile(name)
+		content, err := readRegularFile(root)
 		if err != nil {
 			return nil, err
 		}
@@ -467,7 +520,7 @@ func searchMachineFiles(ctx context.Context, operation processcmd.FileOperation)
 		if err != nil {
 			return nil //nolint:nilerr // Glob searches skip unreadable and oversized files.
 		}
-		return search(globPath(base, name), content)
+		return search(path.Join(base, name), content)
 	})
 	if errors.Is(err, errFileOperationBound) {
 		collector.MarkIncomplete("search resource limit reached; narrow the search")

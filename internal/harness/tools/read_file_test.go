@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func TestReadFileDefaults(t *testing.T) {
@@ -15,8 +14,6 @@ func TestReadFileDefaults(t *testing.T) {
 		`{"path":"/memory/team/notes.md"}`,
 		`{"path":"/memory/team/notes.md","offset_char":0}`,
 		`{"path":"/memory/team/notes.md","limit_chars":512}`,
-		`{"path":"/tmp/notes.md"}`,
-		`{"path":"/tmp/notes.md","offset_char":0}`,
 	} {
 		request, err := resolveReadFileRequest(json.RawMessage(input))
 		if err != nil {
@@ -48,8 +45,6 @@ func TestReadFileRoutesOmnaraAndMachinePaths(t *testing.T) {
 		{name: "memory", input: map[string]any{"path": "/memory/team/notes.md"}},
 		{name: "artifact", input: map[string]any{"path": "/artifacts/" + artifactID}},
 		{name: "absolute machine path", input: map[string]any{"path": "/tmp/shot.png"}, onMachine: true},
-		{name: "relative machine path", input: map[string]any{"path": "notes/today.md"}, onMachine: true},
-		{name: "home machine path", input: map[string]any{"path": "~/shot.png"}, onMachine: true},
 		{name: "other root", input: map[string]any{"path": "/skills/test"}, onMachine: true},
 		{name: "root prefix only", input: map[string]any{"path": "/memoryless/notes.md"}, onMachine: true},
 		{
@@ -94,28 +89,16 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 		{"path": "/memory/team/file", "limit_lines": 1, "limit_chars": 4},
 		{"path": path, "limit_lines": 201}, {"path": path, "unexpected": true},
 		{"path": "bad\x00path"}, {"path": "/tmp/shot.png", "machine_id": "bad"},
-		{"path": "/tmp/shot.png", "machine_id": nil}, {"path": "", "machine_id": "mch_aaaaaaaaaaaaaaaaaaaaaaaaae"},
-		{"path": "/tmp/notes.md", "offset_line": 1, "limit_chars": 4},
-		{"path": "/tmp/notes.md", "expected_digest": "bad"},
+		{"path": "", "machine_id": "mch_aaaaaaaaaaaaaaaaaaaaaaaaae"},
+		{"path": "/memory/team/file", "expected_digest": "sha256:" + strings.Repeat("a", 64)},
 	} {
 		raw, err := json.Marshal(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if validateReadFileInput(raw) == nil {
+		if _, _, err := machineReadFile(raw); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
-	}
-}
-
-func TestReadFileRejectsExpectedDigest(t *testing.T) {
-	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameReadFile)
-	if err != nil || !ok {
-		t.Fatalf("read_file registration: %v", err)
-	}
-	input := `{"path":"/memory/team/file","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`
-	if err := tool.validateInput(json.RawMessage(input)); err == nil {
-		t.Fatal("expected_digest accepted")
 	}
 }
 

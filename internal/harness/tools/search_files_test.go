@@ -326,17 +326,7 @@ func TestSearchFilesMatchSnippets(t *testing.T) {
 	}
 }
 
-func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
-	for _, args := range [][]string{
-		{"-e", "x", "/etc/passwd"}, {"--pre", "cat", "-e", "x"}, {"-f", "/etc/passwd"},
-		{"--follow", "-e", "x"}, {"-P", "-e", "x"}, {"-m", "1", "-e", "x"},
-		{"--json", "-e", "x"}, {"-e"}, {"-C", "6", "-e", "x"}, {"-l", "-c", "-e", "x"},
-		{"-e", strings.Repeat("x", 1025)}, {"-e", ""}, {"-e", "a\x00b"},
-	} {
-		if _, err := filesearch.ParseArgs(args); err == nil {
-			t.Fatalf("accepted unsafe args: %q", args)
-		}
-	}
+func TestSearchFilesRejectsInvalidInput(t *testing.T) {
 	for _, data := range []string{
 		`{"path":"/memory/team/../private/*","args":["-e","x"]}`,
 		`{"path":"/artifacts/*.txt","args":["-e","x"]}`,
@@ -345,7 +335,7 @@ func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 		`{"path":"/memory/team/file","args":["-e","x"],"cursor":"bad"}`,
 		`{"path":"/memory/team/file","pattern":"x"}`,
 	} {
-		if validateSearchFilesInput(json.RawMessage(data)) == nil {
+		if _, _, err := machineSearchFiles(json.RawMessage(data)); err == nil {
 			t.Fatalf("accepted invalid input: %s", data)
 		}
 	}

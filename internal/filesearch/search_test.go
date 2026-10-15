@@ -132,3 +132,16 @@ func TestFinishReportsTruncation(t *testing.T) {
 		t.Fatal("finish hid a search failure")
 	}
 }
+
+func TestParseArgsRejectsUnsafeArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"-e", "x", "/etc/passwd"}, {"--pre", "cat", "-e", "x"}, {"-f", "/etc/passwd"},
+		{"--follow", "-e", "x"}, {"-P", "-e", "x"}, {"-m", "1", "-e", "x"},
+		{"--json", "-e", "x"}, {"-e"}, {"-C", "6", "-e", "x"}, {"-l", "-c", "-e", "x"},
+		{"-e", strings.Repeat("x", 1025)}, {"-e", ""}, {"-e", "a\x00b"},
+	} {
+		if _, err := ParseArgs(args); err == nil {
+			t.Fatalf("accepted unsafe args: %q", args)
+		}
+	}
+}

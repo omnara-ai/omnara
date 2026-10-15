@@ -143,7 +143,6 @@ WHERE call.agent_id = sqlc.arg(agent_id)
   AND call.type = 'built_in'
   AND call.name IN ('read_file', 'write_file')
   AND call.input->>'path' = sqlc.arg(path)::text
-  AND NOT call.input ? 'machine_id'
   AND result.outcome = 'succeeded'
   AND block.block_kind = 'structured_data'
   AND block.structured_data->>'digest' IS NOT NULL

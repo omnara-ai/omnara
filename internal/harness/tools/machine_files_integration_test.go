@@ -3,14 +3,8 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"image"
-	"image/gif"
-	"image/jpeg"
-	"image/png"
 	"reflect"
 	"slices"
 	"strings"
@@ -23,10 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -44,7 +34,6 @@ func TestMachineFileToolsDispatch(t *testing.T) {
 		wantMachine   int
 		wantKind      processcmd.ExecutionKind
 		wantOperation processcmd.FileOperation
-		wantErrorCode string
 		wantError     string
 	}{
 		{
@@ -52,14 +41,14 @@ func TestMachineFileToolsDispatch(t *testing.T) {
 			input:    func([]string) string { return `{"path":"/tmp/shot.png"}` },
 			wantKind: processcmd.KindFileRead,
 			wantOperation: processcmd.FileOperation{Path: "/tmp/shot.png",
-				Paging: fileread.Paging{OffsetLine: intPointer(1), LimitLines: intPointer(toolcatalog.ReadFileDefaultLines)}},
+				Paging: fileread.Paging{OffsetLine: new(1), LimitLines: new(toolcatalog.ReadFileDefaultLines)}},
 		},
 		{
 			name: "read explicit machine", tool: "read_file", machines: 2, wantMachine: 1,
 			input:    func(ids []string) string { return `{"path":"shots/one.png","machine_id":"` + ids[1] + `"}` },
 			wantKind: processcmd.KindFileRead,
 			wantOperation: processcmd.FileOperation{Path: "shots/one.png",
-				Paging: fileread.Paging{OffsetLine: intPointer(1), LimitLines: intPointer(toolcatalog.ReadFileDefaultLines)}},
+				Paging: fileread.Paging{OffsetLine: new(1), LimitLines: new(toolcatalog.ReadFileDefaultLines)}},
 		},
 		{
 			name: "write", tool: "write_file", machines: 1,
@@ -79,16 +68,6 @@ func TestMachineFileToolsDispatch(t *testing.T) {
 			wantKind: processcmd.KindFileSearch,
 			wantOperation: processcmd.FileOperation{Path: "main.go", Args: []string{"-e", "TODO"},
 				Limit: toolcatalog.SearchDefaultMatches, Paging: fileread.Paging{OffsetLine: &offset}},
-		},
-		{
-			name: "ambiguous machine", tool: "list_files", machines: 2, wantErrorCode: ErrMachineSelectionRequired.Error(),
-			input: func([]string) string { return `{"pattern":"*.txt"}` },
-		},
-		{
-			name: "unavailable machine", tool: "search_files", machines: 1, wantErrorCode: ErrMachineIDUnavailable.Error(),
-			input: func([]string) string {
-				return `{"path":"a.txt","args":["-e","x"],"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`
-			},
 		},
 		{
 			name: "no machine", tool: "read_file", wantError: errMachineFileMachineUnavailable.Error(),
@@ -142,13 +121,12 @@ func TestMachineFileToolsDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if test.wantErrorCode != "" || test.wantError != "" {
+			if test.wantError != "" {
 				if result.Disposition != DispatchCompleted || found || wakes != 0 {
 					t.Fatalf("dispatch=%+v process=%t wakes=%d, want completed failure", result, found, wakes)
 				}
-				if !strings.Contains(string(result.ContentParts), test.wantErrorCode) ||
-					!strings.Contains(string(result.ContentParts), test.wantError) {
-					t.Fatalf("failure parts = %s, want %q %q", result.ContentParts, test.wantErrorCode, test.wantError)
+				if !strings.Contains(string(result.ContentParts), test.wantError) {
+					t.Fatalf("failure parts = %s, want %q", result.ContentParts, test.wantError)
 				}
 				return
 			}
@@ -173,8 +151,6 @@ func TestMachineFileToolsDispatch(t *testing.T) {
 		})
 	}
 }
-
-func intPointer(value int) *int { return &value }
 
 func TestReadFileMachineApprovalPinsBindingAndPath(t *testing.T) {
 	ctx := context.Background()
@@ -231,47 +207,6 @@ func TestReadFileMachineApprovalPinsBindingAndPath(t *testing.T) {
 	}
 }
 
-func TestReadFileOmnaraPathDispatchStaysAsync(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixtureWithOptions(
-		t, ctx, "rfm-omnara", toolFixtureOptions{},
-		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
-	)
-	attachReadFileMachine(t, ctx, fixture, "rfm-omnara")
-	artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
-		ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ContentType: "text/plain",
-		Content: []byte("first\nTARGET\n"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicArtifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := `{"path":"/artifacts/` + publicArtifactID + `","offset_line":2}`
-	call := fixture.recordToolCall(t, ctx, "call_read_artifact", "read_file", input, fixture.Now.Add(20*time.Second))
-	callID := fixture.toolCallID(t, ctx, call.ID)
-	implementation, ok, err := toolImplementationFor(toolcatalog.ToolNameReadFile)
-	if err != nil || !ok {
-		t.Fatalf("read_file implementation: %v", err)
-	}
-	dispatchTestAsyncHandler(t, ctx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, implementation.handler)
-	if _, found, err := fixture.Store.Execution().GetProcessByToolCall(
-		ctx, toolsTestProjectID, fixture.Agent.ID, callID,
-	); err != nil || found {
-		t.Fatalf("Omnara read started a machine process: found=%t err=%v", found, err)
-	}
-	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Outcome != executionstore.ToolResultOutcomeSucceeded ||
-		!strings.Contains(string(record.ResultContentParts), "TARGET") {
-		t.Fatalf("Omnara read result = %s %s", record.Outcome, record.ResultContentParts)
-	}
-}
-
 func attachReadFileMachine(
 	t *testing.T,
 	ctx context.Context,
@@ -291,29 +226,4 @@ func attachReadFileMachine(
 		t.Fatal(err)
 	}
 	return machine.MachineID, bindingID
-}
-
-func testImages(t *testing.T) map[string][]byte {
-	t.Helper()
-	img := image.NewGray(image.Rect(0, 0, 1, 1))
-	var pngContent, jpegContent, gifContent bytes.Buffer
-	if err := png.Encode(&pngContent, img); err != nil {
-		t.Fatal(err)
-	}
-	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := gif.Encode(&gifContent, img, nil); err != nil {
-		t.Fatal(err)
-	}
-	webpContent, err := base64.StdEncoding.DecodeString("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return map[string][]byte{
-		"image/png":  pngContent.Bytes(),
-		"image/jpeg": jpegContent.Bytes(),
-		"image/gif":  gifContent.Bytes(),
-		"image/webp": webpContent,
-	}
 }

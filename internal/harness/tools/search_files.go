@@ -45,11 +45,6 @@ type searchFilesRequest struct {
 	machineID  uuid.UUID
 }
 
-func validateSearchFilesInput(raw json.RawMessage) error {
-	_, err := resolveSearchFilesRequest(raw)
-	return err
-}
-
 func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) {
 	var input searchFilesRequest
 	if err := decodeSingleStrictJSON(raw, &input, "search_files request"); err != nil {

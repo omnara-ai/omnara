@@ -170,24 +170,9 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 func builtInToolRegistrations() []toolRegistration {
 	registrations := interactionToolRegistrations()
 	return append(registrations, []toolRegistration{
-		{
-			name:                   toolcatalog.ToolNameReadFile,
-			semanticInputValidator: validateReadFileInput,
-			handler:                machineFileToolHandler(runReadFileAsync, machineReadFile),
-			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineReadFile)),
-		},
-		{
-			name:                   toolcatalog.ToolNameWriteFile,
-			semanticInputValidator: validateWriteFileInput,
-			handler:                machineFileToolHandler(runWriteFileAsync, machineWriteFile),
-			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineWriteFile)),
-		},
-		{
-			name:                   toolcatalog.ToolNameSearchFiles,
-			semanticInputValidator: validateSearchFilesInput,
-			handler:                machineFileToolHandler(runSearchFilesAsync, machineSearchFiles),
-			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineSearchFiles)),
-		},
+		machineFileTool(toolcatalog.ToolNameReadFile, runReadFileAsync, machineReadFile),
+		machineFileTool(toolcatalog.ToolNameWriteFile, runWriteFileAsync, machineWriteFile),
+		machineFileTool(toolcatalog.ToolNameSearchFiles, runSearchFilesAsync, machineSearchFiles),
 		{
 			name:                   toolcatalog.ToolNameRunCommand,
 			semanticInputValidator: validateRunCommandInput,
@@ -255,12 +240,7 @@ func builtInToolRegistrations() []toolRegistration {
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
-		{
-			name:                   toolcatalog.ToolNameListFiles,
-			semanticInputValidator: validateListFiles,
-			handler:                machineFileToolHandler(runListFiles, machineListFiles),
-			permissionModes:        commonPermissionModeHandlers(machineFilePermissionChallenge(machineListFiles)),
-		},
+		machineFileTool(toolcatalog.ToolNameListFiles, runListFiles, machineListFiles),
 		{
 			name:                   toolcatalog.ToolNameListMachines,
 			semanticInputValidator: validateListMachinesInput,

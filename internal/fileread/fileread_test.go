@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"image"
 	"image/gif"
 	"image/jpeg"
@@ -130,30 +129,6 @@ func TestNormalizeDefaultsAndRejectsMixedModes(t *testing.T) {
 		if _, err := invalid.Normalize(); err == nil {
 			t.Fatalf("accepted paging %+v", invalid)
 		}
-	}
-}
-
-func TestPageSelectsModeAndRejectsBinary(t *testing.T) {
-	two := 2
-	paging, err := fileread.Paging{OffsetChar: &two}.Normalize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	page, err := paging.Page([]byte("abcdef"), "notes.txt")
-	if err != nil || page["content"] != "cdef" || page["offset_char"] != 2 {
-		t.Fatalf("character page = %v, %v", page, err)
-	}
-	lines, err := fileread.Paging{}.Normalize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, content := range [][]byte{{0xff, 0xfe}, []byte("a\x00b")} {
-		if _, err := lines.Page(content, "blob.bin"); !errors.Is(err, fileread.ErrUnreadableContent) {
-			t.Fatalf("binary page error = %v", err)
-		}
-	}
-	if _, err := (fileread.Paging{}).Page([]byte("a"), "a"); err == nil {
-		t.Fatal("unnormalized paging was accepted")
 	}
 }
 

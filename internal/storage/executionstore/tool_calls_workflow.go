@@ -135,8 +135,7 @@ func fileOperationToolResultContentParts(
 			return failedFileTransferToolResultContentParts(result,
 				daemonprotocol.FileTransferError{Message: "image read completed without an artifact"})
 		}
-		if process.ExecutionSpec.Kind != processcmd.KindFileRead || observed.File.Artifact != path ||
-			value["digest"] != artifact.Digest {
+		if process.ExecutionSpec.Kind != processcmd.KindFileRead || observed.File.Artifact != path {
 			return failedFileTransferToolResultContentParts(result,
 				daemonprotocol.FileTransferError{Message: "image read completed with mismatched artifact metadata"})
 		}

@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 const maxFileTransferResultBytes = 8 * 1024
@@ -18,23 +17,12 @@ type fileTransferOutcome struct {
 	err    error
 }
 
-func fileTransferArgv(processID string, transfer processcmd.FileTransfer) ([]string, error) {
+func fileProcessArgv(subcommand string, args ...string) ([]string, error) {
 	executable, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("resolve file transfer executable: %w", err)
+		return nil, fmt.Errorf("resolve file process executable: %w", err)
 	}
-	return []string{
-		executable, "__omnara_file_transfer", "--",
-		string(transfer.Direction), processID, transfer.LocalPath,
-	}, nil
-}
-
-func fileOperationArgv(processID string) ([]string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("resolve file operation executable: %w", err)
-	}
-	return []string{executable, "__omnara_file_operation", "--", processID}, nil
+	return append([]string{executable, subcommand, "--"}, args...), nil
 }
 
 func readFileTransferResult(reader io.Reader) fileTransferOutcome {

@@ -3,8 +3,14 @@
 package tools
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -413,4 +419,29 @@ func TestReadMemoryImagesCheckAccessBeforeSnapshot(t *testing.T) {
 	require.NoError(t, fixture.Pool.QueryRow(ctx,
 		"SELECT count(*) FROM artifacts WHERE agent_id = $1", fixture.Agent.ID).Scan(&count))
 	require.Zero(t, count)
+}
+
+func testImages(t *testing.T) map[string][]byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 1, 1))
+	var pngContent, jpegContent, gifContent bytes.Buffer
+	if err := png.Encode(&pngContent, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gifContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	webpContent, err := base64.StdEncoding.DecodeString("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"image/png":  pngContent.Bytes(),
+		"image/jpeg": jpegContent.Bytes(),
+		"image/gif":  gifContent.Bytes(),
+		"image/webp": webpContent,
+	}
 }

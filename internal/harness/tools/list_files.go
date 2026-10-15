@@ -54,11 +54,6 @@ func decodeFileListCursor(raw string) (listing.FileCursor, error) {
 	return cursor, errInvalidFileListCursor
 }
 
-func validateListFiles(raw json.RawMessage) error {
-	_, _, err := machineListFiles(raw)
-	return err
-}
-
 func machineListFiles(raw json.RawMessage) (machineFileCall, bool, error) {
 	var input listFilesRequest
 	if err := decodeSingleStrictJSON(raw, &input, "list_files request"); err != nil {

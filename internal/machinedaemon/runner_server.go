@@ -1817,10 +1817,10 @@ func processArgvForLocalOS(processID string, process Process) ([]string, error) 
 		return nil, err
 	}
 	if transfer := process.ExecutionSpec.FileTransfer; transfer != nil {
-		return fileTransferArgv(processID, *transfer)
+		return fileProcessArgv("__omnara_file_transfer", string(transfer.Direction), processID, transfer.LocalPath)
 	}
 	if process.ExecutionSpec.File != nil {
-		return fileOperationArgv(processID)
+		return fileProcessArgv("__omnara_file_operation", processID)
 	}
 	return processcmd.ResolveShellCommand(
 		process.ExecutionSpec.Shell.Command, process.ExecutionSpec.Shell.Shell, runtime.GOOS,

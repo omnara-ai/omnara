@@ -242,7 +242,7 @@ func TestMemoryUploadDigestValidation(t *testing.T) {
 	); err == nil {
 		t.Fatal("artifact accepted digest precondition")
 	}
-	if err := validateListFiles(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
+	if _, _, err := machineListFiles(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
 		t.Fatal("list_files accepted malformed cursor")
 	}
 }

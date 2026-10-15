@@ -79,11 +79,20 @@ func (c *machineFileCall) prepare(turn Turn, binding executionstore.AgentMachine
 	return nil
 }
 
-func machineFileToolHandler(async asyncToolHandler, resolve machineFileResolver) toolHandler {
-	return toolHandler{
-		Transactional: runMachineFileTool(resolve),
-		Async:         async,
-		Background:    wakeMachineFileTool,
+// machineFileTool registers a file tool that runs Omnara paths async and machine paths as processes.
+func machineFileTool(name string, async asyncToolHandler, resolve machineFileResolver) toolRegistration {
+	return toolRegistration{
+		name: name,
+		semanticInputValidator: func(raw json.RawMessage) error {
+			_, _, err := resolve(raw)
+			return err
+		},
+		handler: toolHandler{
+			Transactional: runMachineFileTool(resolve),
+			Async:         async,
+			Background:    wakeMachineFileTool,
+		},
+		permissionModes: commonPermissionModeHandlers(machineFilePermissionChallenge(resolve)),
 	}
 }
 

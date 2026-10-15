@@ -65,7 +65,7 @@ const (
 		"(e.g. curl) on the machine where the service runs instead."
 	writeFileToolDescription = "Create or edit a text file in memory or on an attached machine. " +
 		"Read a memory file before changing it; the write fails if it changed since your last read. " +
-		"Returns path and digest."
+		"Returns path, plus digest for memory files."
 	readFileToolDescription = "Read a text or image file stored in Omnara or on an attached machine. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Read machine files such as screenshots directly; upload_file is not needed to view them. " +
