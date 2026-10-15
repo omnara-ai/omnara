@@ -365,7 +365,9 @@
           ]
         },
         "context_window_tokens": {
-          "minimum": 1,
+          "description": "Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.",
+          "maximum": 2147483647,
+          "minimum": 2,
           "type": "integer"
         },
         "default_max_output_tokens": {
@@ -503,7 +505,9 @@
           ]
         },
         "context_window_tokens": {
-          "minimum": 1,
+          "description": "Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.",
+          "maximum": 2147483647,
+          "minimum": 2,
           "type": "integer"
         },
         "default_max_output_tokens": {

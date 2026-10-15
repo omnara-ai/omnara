@@ -80,23 +80,16 @@ func (s *Store) PublishContextCheckpoint(
 	if err != nil {
 		return ContextCheckpointRecord{}, err
 	}
+	if *contextRow.SourceEventSequenceEnd < sourceStart {
+		return ContextCheckpointRecord{}, storeerr.ErrStateTransitionConflict
+	}
 	if err := validateClosedCheckpointRangeTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		sourceStart,
-		*contextRow.SourceEventSequenceEnd,
+		ctx, tx, input.ProjectID, input.AgentID, sourceStart, *contextRow.SourceEventSequenceEnd,
 	); err != nil {
 		return ContextCheckpointRecord{}, err
 	}
 	if err := validateCheckpointDoesNotCutOpenAuthoritiesTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		sourceStart,
-		*contextRow.SourceEventSequenceEnd,
+		ctx, tx, input.ProjectID, input.AgentID, sourceStart, *contextRow.SourceEventSequenceEnd,
 	); err != nil {
 		return ContextCheckpointRecord{}, err
 	}

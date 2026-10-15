@@ -25,8 +25,8 @@ func (s *Store) RecordRetryableModelCallFailure(
 	}
 	if input.RecoveryKind != ModelCallRecoveryRetry {
 		return ModelCallContextRecord{}, fmt.Errorf(
-			"retryable model call failure requires recovery kind %q",
-			ModelCallRecoveryRetry,
+			"unsupported retryable model call recovery kind %q",
+			input.RecoveryKind,
 		)
 	}
 	if err := validateRecoverableModelCallFailure(input); err != nil {
@@ -74,8 +74,11 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("load retryable model call context: %w", err)
 	}
-	if currentContext.State != ModelCallContextStarted ||
-		currentContext.AttemptNumber > MaxModelCallRetriesPerOperation {
+	retryCount, err := countModelCallRetriesTx(ctx, q, input.ProjectID, input.AgentID, input.ModelCallContextID)
+	if err != nil {
+		return ModelCallContextRecord{}, err
+	}
+	if currentContext.State != ModelCallContextStarted || retryCount >= MaxModelCallRetriesPerOperation {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -84,7 +87,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 		ModelCallContextID:      input.ModelCallContextID,
 		RuntimeLockID:           input.RuntimeLockID,
 		ToState:                 ModelCallContextFailed,
-		RecoveryKind:            ModelCallRecoveryRetry,
+		RecoveryKind:            input.RecoveryKind,
 		APIFormat:               input.APIFormat,
 		APIVariant:              input.APIVariant,
 		ProviderRequestID:       input.ProviderRequestID,
@@ -123,9 +126,11 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 	if input.RetryDelay < 0 {
 		return errors.New("model call retry delay cannot be negative")
 	}
-	if input.RecoveryKind != ModelCallRecoveryRetry && input.RecoveryKind != ModelCallRecoveryCompact {
+	if input.RecoveryKind != ModelCallRecoveryRetry &&
+		input.RecoveryKind != ModelCallRecoveryCompact {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
 	}
+
 	return nil
 }
 
@@ -167,6 +172,7 @@ type finishModelCallContextInput struct {
 	ErrorMessage            string
 	ErrorDetails            json.RawMessage
 	RetryDelay              *time.Duration
+	InputFingerprint        string
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 	ProviderMetadata        modelenvelope.ProviderMetadata
@@ -216,7 +222,7 @@ func finishModelCallContextWithAuthorityTx(
 		delay := input.RetryDelay.Microseconds()
 		retryDelayMicroseconds = &delay
 	}
-	id, err := q.FinishModelCallContext(ctx, dbsqlc.FinishModelCallContextParams{
+	params := dbsqlc.FinishModelCallContextParams{
 		ToState:                             string(input.ToState),
 		RecoveryKind:                        storeutil.TextFromEmpty(string(input.RecoveryKind)),
 		ApiFormat:                           string(input.APIFormat),
@@ -228,6 +234,7 @@ func finishModelCallContextWithAuthorityTx(
 		ErrorMessage:                        input.ErrorMessage,
 		ErrorDetails:                        normalizedJSONOrObject(input.ErrorDetails),
 		RetryDelayMicroseconds:              retryDelayMicroseconds,
+		InputFingerprint:                    storeutil.TextFromEmpty(input.InputFingerprint),
 		InputTokensTotal:                    storeutil.Int32Ptr(usage.InputTokens),
 		UncachedInputTokens:                 storeutil.Int32Ptr(usage.UncachedInputTokens),
 		CacheReadInputTokens:                storeutil.Int32Ptr(usage.CacheReadTokens),
@@ -241,7 +248,8 @@ func finishModelCallContextWithAuthorityTx(
 		AgentID:                             input.AgentID,
 		RuntimeLockID:                       input.RuntimeLockID,
 		AllowInactiveRuntimeLockForTeardown: allowInactiveRuntimeLockForTeardown,
-	})
+	}
+	id, err := q.FinishModelCallContext(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if allowInactiveRuntimeLockForTeardown {
 			return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict

@@ -21,12 +21,13 @@ type compactionFailureReason uint8
 const (
 	compactionFailureSummaryNotReduced compactionFailureReason = iota + 1
 	compactionFailureSourceIrreducible
+	compactionFailureSummaryTruncated
+	compactionFailureSummaryInvalid
 )
 
 const (
 	compactionErrorCodeBuildModelSelectionFailed = "build_compaction_model_selection_failed"
 	compactionErrorCodeResolveModelFailed        = "resolve_compaction_model_failed"
-	compactionErrorCodeLoadReplayPolicyFailed    = "load_compaction_replay_policy_failed"
 	compactionErrorCodeLoadSourceFailed          = "load_compaction_source_failed"
 	compactionErrorCodePrepareRequestFailed      = "prepare_compaction_request_failed"
 	compactionErrorCodeSummaryTruncated          = "summary_truncated"
@@ -81,7 +82,9 @@ func (r Runner) recordFailure(
 	cause error,
 	providerAttempt providerAttemptEvidence,
 ) (RunResult, error) {
-	if shrinkableCompactionFailure(cause) {
+	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
+	truncated := isTruncatedSummaryFailure(cause)
+	if shrinkableCompactionFailure(cause) || truncated {
 		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
 		if err != nil {
 			return RunResult{}, errors.Join(cause, err)
@@ -96,13 +99,29 @@ func (r Runner) recordFailure(
 				nextEnd,
 			)
 		}
-		cause = irreducibleCompactionError(irreducibleCompactionFailureDetail(cause))
+		if providerAttempt.ProviderRequestStarted && isProviderSourceOverflow(cause) {
+			excerptBytes, err := r.nextSourceExcerptBytes(ctx, input, claim)
+			if err != nil {
+				return RunResult{}, errors.Join(cause, err)
+			}
+			if excerptBytes > 0 {
+				return r.replaceCompactionSource(
+					ctx, input, claim, cause, providerAttempt, input.Plan.EventSequenceEnd,
+				)
+			}
+		}
+		if !truncated {
+			cause = irreducibleCompactionError(irreducibleCompactionFailureDetail(cause))
+		}
 	}
-	providerAttempt.Response = model.ResponseEvidenceForStorage(providerAttempt.Response)
+	retryCount, err := r.Store.CountModelCallRetries(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
+	if err != nil {
+		return RunResult{}, errors.Join(cause, err)
+	}
 	now := r.now()
 	evidence, decision := modelretry.Decide(
 		cause,
-		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+		modelretry.Attempt{Number: retryCount + 1},
 		claim.Context.ID.String(),
 		now,
 	)
@@ -216,7 +235,7 @@ func (r Runner) replaceCompactionSource(
 	}
 	if replacement.BoundaryPreempted {
 		return RunResult{
-			State:              RunTerminal,
+			State:              RunPreempted,
 			ModelCallContextID: claim.Context.ID,
 		}, nil
 	}
@@ -229,6 +248,10 @@ func shrinkableCompactionFailure(err error) bool {
 	if hasReason {
 		return reason == compactionFailureSummaryNotReduced
 	}
+	return isProviderSourceOverflow(err)
+}
+
+func isProviderSourceOverflow(err error) bool {
 	providerErr, ok := model.ClassifyError(err)
 	if !ok {
 		return false
@@ -237,13 +260,18 @@ func shrinkableCompactionFailure(err error) bool {
 		providerErr.Kind == model.ErrorKindPayloadTooLarge
 }
 
+func isTruncatedSummaryFailure(err error) bool {
+	reason, ok := reasonForCompactionFailure(err)
+	return ok && reason == compactionFailureSummaryTruncated
+}
+
 func irreducibleCompactionFailureDetail(err error) string {
 	reason, _ := reasonForCompactionFailure(err)
 	switch reason {
 	case compactionFailureSummaryNotReduced:
 		return "the smallest closed source prefix did not produce a smaller summary"
 	default:
-		return "the smallest closed source prefix still exceeded the configured model window"
+		return "the provider rejected the smallest closed source after bounded source reductions"
 	}
 }
 
@@ -252,7 +280,7 @@ func irreducibleCompactionError(detail string) error {
 		Kind:    model.ErrorKindContextWindow,
 		Source:  "compaction",
 		Code:    compactionErrorCodeSourceIrreducible,
-		Message: "The conversation prefix cannot be compacted within the configured model window: " + detail + ".",
+		Message: "The conversation prefix could not be compacted: " + detail + ".",
 	})
 }
 
@@ -300,38 +328,43 @@ func validateCompactionResponse(errorSource string, response model.Response) (st
 		}
 	case model.StopReasonToolUse, model.StopReasonError, model.StopReasonUnknown:
 		if stopReason != model.StopReasonToolUse || !response.HasToolCalls() {
-			return "", model.MalformedProviderSuccess(
+			return "", withCompactionFailureReason(compactionFailureSummaryInvalid, model.MalformedProviderSuccess(
 				errorSource,
 				string(stopReason),
 				fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
 				nil,
-			)
+			))
 		}
-	case model.StopReasonEndTurn, model.StopReasonMaxTokens:
+	case model.StopReasonMaxTokens:
+		return "", withCompactionFailureReason(compactionFailureSummaryTruncated, model.ProviderError{
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: compactionErrorCodeSummaryTruncated,
+			Message: "compaction summary was truncated before completion",
+		})
+	case model.StopReasonEndTurn:
 	default:
-		return "", model.ProviderError{
+		return "", withCompactionFailureReason(compactionFailureSummaryInvalid, model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
 			Source:  errorSource,
 			Code:    string(stopReason),
 			Message: fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
-		}
+		})
 	}
 	if response.HasToolCalls() {
-		return "", model.ProviderError{
+		return "", withCompactionFailureReason(compactionFailureSummaryInvalid, model.ProviderError{
 			Kind:    model.ErrorKindTransient,
 			Source:  errorSource,
 			Code:    "tool_use",
 			Message: "compaction model returned tool calls",
-		}
+		})
 	}
 	summary := strings.TrimSpace(response.Text())
 	if summary == "" {
-		return "", model.ProviderError{
+		return "", withCompactionFailureReason(compactionFailureSummaryInvalid, model.ProviderError{
 			Kind:    model.ErrorKindTransient,
 			Source:  errorSource,
 			Code:    "empty_summary",
 			Message: "compaction model returned an empty summary",
-		}
+		})
 	}
 	return summary, nil
 }
@@ -350,6 +383,10 @@ func validateSummaryReduction(priorSummary, sourceText, summary string) error {
 		uncompactedTokens-summaryTokens >= requiredSourceSavings {
 		return nil
 	}
+	return summaryNotReducedError()
+}
+
+func summaryNotReducedError() error {
 	return withCompactionFailureReason(compactionFailureSummaryNotReduced, model.ProviderError{
 		Kind:    model.ErrorKindTransient,
 		Source:  "compaction",

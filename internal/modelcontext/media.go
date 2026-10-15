@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 // MaxResolvedMediaBytes is Omnara's per-model-request cap for decoded media.
@@ -29,7 +31,9 @@ type ResolvedMedia struct {
 }
 
 // Opening media is mandatory; historical media is selected newest-first.
-func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector MediaProjector) error {
+func (b Builder) resolveMedia(
+	ctx context.Context, bundle *Bundle, projector MediaProjector, textBudgetTokens int,
+) error {
 	occurrences := collectMediaOccurrences(bundle)
 	if len(occurrences) == 0 {
 		return nil
@@ -62,6 +66,10 @@ func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector Med
 		}
 	}
 	bundle.ResolvedMedia = metadata
+	if err := referenceLargeTextAttachments(bundle, textBudgetTokens); err != nil {
+		return err
+	}
+	occurrences = collectMediaOccurrences(bundle)
 	projectedByOccurrence := make(map[MediaOccurrenceRef]RenderedMedia, len(occurrences))
 	if projector == nil {
 		for _, occurrence := range occurrences {
@@ -181,6 +189,48 @@ func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector Med
 	}
 	logent.ModelContextMediaOmitted(ctx, omittedCount, omittedBytes, MaxResolvedMediaBytes)
 	return nil
+}
+
+func referenceLargeTextAttachments(bundle *Bundle, budgetTokens int) error {
+	if budgetTokens <= 0 || !callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameReadFile) {
+		return nil
+	}
+	usedTokens := make(map[int]int64)
+	for _, occurrence := range ResolvedMediaOccurrences(*bundle) {
+		if occurrence.IsToolResult() || occurrence.MessageRole != modelprotocol.RoleUser {
+			continue
+		}
+		media := occurrence.Media
+		if !IsTextDocumentMediaType(media.MediaType) || media.SizeBytes <= 0 ||
+			media.SizeBytes > toolcatalog.MaxReadableArtifactBytes {
+			continue
+		}
+		tokens := (media.SizeBytes-1)/4 + 1
+		if tokens <= int64(budgetTokens)-usedTokens[occurrence.Ref.ownerIndex] {
+			usedTokens[occurrence.Ref.ownerIndex] += tokens
+			continue
+		}
+		path := toolcatalog.ArtifactVFSRoot + "/" + ArtifactPublicID(media.ArtifactID)
+		text := fmt.Sprintf(
+			"Attached file %q (%s, %d bytes) is available at %s. "+
+				"The full file is stored, but its contents are not included in this request. "+
+				"Use read_file to read it in sections.",
+			media.Filename, media.MediaType, media.SizeBytes, path,
+		)
+		if callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameSearchFiles) {
+			text += " Use search_files to find relevant sections."
+		}
+		if err := replaceMediaOccurrenceWithText(bundle, occurrence.Ref, text); err != nil {
+			return fmt.Errorf("reference text attachment: %w", err)
+		}
+	}
+	return nil
+}
+
+func callableFileTool(specs []ToolSpec, name string) bool {
+	spec, ok := ToolSpecByName(specs, name)
+	return ok && spec.Type == toolcatalog.ToolTypeBuiltIn && !spec.Deferred &&
+		spec.Permission.Mode != toolpermission.ModeAlwaysDeny
 }
 
 type mediaContentOwner struct {
@@ -418,6 +468,10 @@ func ResolvedMediaOccurrences(bundle Bundle) []ResolvedMediaOccurrence {
 }
 
 func ReplaceMediaOccurrenceWithText(bundle *Bundle, ref MediaOccurrenceRef) error {
+	return replaceMediaOccurrenceWithText(bundle, ref, "")
+}
+
+func replaceMediaOccurrenceWithText(bundle *Bundle, ref MediaOccurrenceRef, text string) error {
 	if bundle == nil {
 		return errors.New("media occurrence bundle is required")
 	}
@@ -440,11 +494,13 @@ func ReplaceMediaOccurrenceWithText(bundle *Bundle, ref MediaOccurrenceRef) erro
 	if err := json.Unmarshal(parts[ref.partIndex]["type"], &partType); err != nil || partType != "media_ref" {
 		return fmt.Errorf("content part %d is not a media_ref", ref.partIndex)
 	}
-	text := MediaRefText(parts[ref.partIndex])
-	var artifactID string
-	if json.Unmarshal(parts[ref.partIndex]["artifact_id"], &artifactID) == nil {
-		if media, ok := bundle.ResolvedMedia[artifactID]; ok && media.Filename != "" {
-			text = mediaRefText(artifactID, media.Filename)
+	if text == "" {
+		text = MediaRefText(parts[ref.partIndex])
+		var artifactID string
+		if json.Unmarshal(parts[ref.partIndex]["artifact_id"], &artifactID) == nil {
+			if media, ok := bundle.ResolvedMedia[artifactID]; ok && media.Filename != "" {
+				text = mediaRefText(artifactID, media.Filename)
+			}
 		}
 	}
 	textJSON, err := json.Marshal(text)

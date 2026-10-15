@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -135,18 +134,11 @@ func (e AgentExecutor) enterContextMaintenance(
 		if marshalErr != nil {
 			return modelStep{}, errors.Join(trigger.Cause, marshalErr)
 		}
-		trigger.Kind = model.ErrorKindContextWindow
 		trigger.Code = contextMaintenanceErrorCodeCannotCompact
-		trigger.Message = "The current model input is too large and has no closed event prefix that can be compacted safely."
+		trigger.Message = "The current model input remains too large after the available safe context reductions."
 		trigger.Details = details
 		return e.recordTerminalContextMaintenanceFailure(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			providerRequestStarted,
-			response,
+			ctx, input, claim, resolved, trigger, providerRequestStarted, response,
 		)
 	}
 
@@ -186,14 +178,7 @@ func (e AgentExecutor) enterContextMaintenance(
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
 	if !handoff.BoundaryPreempted {
-		_, err = e.compactionRunner(e.ModelResolver, e.contextBuilder()).RunClaimed(ctx, compaction.RunInput{
-			Plan:                     plan,
-			TurnID:                   input.TurnID,
-			OpeningInputIDs:          input.InputIDs,
-			OpeningEventSequence:     input.OpeningEventSequence,
-			RuntimeLockID:            input.RuntimeLockID,
-			ParentModelCallContextID: claim.Context.ID,
-		}, handoff.CompactionCall)
+		err = e.executeCompaction(ctx, input, e.ModelResolver, plan, handoff.CompactionCall)
 		if err != nil {
 			return modelStep{}, err
 		}

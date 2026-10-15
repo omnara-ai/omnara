@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -179,13 +180,14 @@ func (e AgentExecutor) executeModelStep(
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		TurnID:              input.TurnID,
-		OpeningInputIDs:     input.InputIDs,
-		Now:                 input.Now,
-		AgentConfigSnapshot: &snapshot,
-		MediaProjector:      model.MediaProjectorForClient(client),
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		TurnID:                     input.TurnID,
+		OpeningInputIDs:            input.InputIDs,
+		Now:                        input.Now,
+		AgentConfigSnapshot:        &snapshot,
+		MediaProjector:             model.MediaProjectorForClient(client),
+		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -238,6 +240,7 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
+	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
@@ -264,15 +267,7 @@ func (e AgentExecutor) executeModelStep(
 		if triggerErr != nil {
 			return modelStep{}, triggerErr
 		}
-		return e.enterContextMaintenance(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			false,
-			model.Response{},
-		)
+		return e.enterContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{})
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
@@ -324,6 +319,7 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
+	envelope.InputFingerprint = prepared.InputFingerprint
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
@@ -344,8 +340,16 @@ func (e AgentExecutor) finishModelResponse(
 	errorSource := modelErrorSourceForClient(client)
 	calls := model.ToolCallsFromEnvelope(step.Envelope)
 	reason := step.Envelope.Normalized.StopReason
-	if cause := invalidModelResponse(errorSource, reason, calls); cause != nil {
-		return e.recordNormalFailure(
+	cause := invalidModelResponse(errorSource, reason, calls)
+	if cause == nil && reason == model.StopReasonMaxTokens && len(calls) == 0 &&
+		strings.TrimSpace(step.Envelope.Text()) == "" {
+		cause = model.ProviderError{
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: "model_output_no_progress",
+			Message: "The model exhausted its output allowance without producing text or a tool call.",
+		}
+	}
+	if cause != nil {
+		return e.recordNormalFailureForAttempt(
 			ctx,
 			input,
 			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
@@ -353,6 +357,7 @@ func (e AgentExecutor) finishModelResponse(
 			cause,
 			true,
 			step.Response,
+			modelretry.Attempt{Number: step.Context.AttemptNumber},
 		)
 	}
 	if len(calls) > 0 {

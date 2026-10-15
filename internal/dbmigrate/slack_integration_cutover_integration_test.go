@@ -714,8 +714,9 @@ tools:
 				exec(`ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_cutover_webhook`)
 			}
 			before := history()
-			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 49))
 			require.JSONEq(t, before, history())
+			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			if scenario != "pre_internal_ids" {
 				var deliveries int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -109,7 +110,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		ModelCallContextID:      failure.ModelCallContextID,
 		RuntimeLockID:           failure.RuntimeLockID,
 		ToState:                 ModelCallContextFailed,
-		RecoveryKind:            ModelCallRecoveryCompact,
+		RecoveryKind:            failure.RecoveryKind,
 		APIFormat:               failure.APIFormat,
 		APIVariant:              failure.APIVariant,
 		ProviderRequestID:       failure.ProviderRequestID,
@@ -152,23 +153,18 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			BoundaryPreempted: true,
 		}, nil
 	}
-	compactionClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+	compactionClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
+		AgentConfigID:          parent.AgentConfigID,
 		ProjectID:              failure.ProjectID,
 		AgentID:                failure.AgentID,
 		RuntimeLockID:          failure.RuntimeLockID,
-		InputEventSequence:     parent.InputEventSequence,
 		SourceEventSequenceEnd: input.SourceEventSequenceEnd,
 		ParentContextID:        parent.ID,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
 	}
-	if !compactionClaimTx.created {
-		return TriggeredCompactionHandoff{}, fmt.Errorf(
-			"triggered compaction context already exists: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
+
 	compactionClaim, err := applyModelCallAdmissionTx(
 		ctx,
 		txNotifications,
@@ -265,7 +261,7 @@ func (s *Store) ReplaceCompactionSource(
 		contextRow.State != ModelCallContextStarted ||
 		contextRow.RuntimeLockID != input.RuntimeLockID ||
 		contextRow.SourceEventSequenceEnd == nil ||
-		input.NextSourceEventSequenceEnd >= *contextRow.SourceEventSequenceEnd {
+		!compactionSourceProjectionAdvances(contextRow, input) {
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	sourceStart, err := compactionSourceStartTx(ctx, q, contextRow)
@@ -321,34 +317,25 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{BoundaryPreempted: true}, nil
 	}
 
-	parentID, err := q.GetNormalModelCallContextByIdentity(
-		ctx,
-		dbsqlc.GetNormalModelCallContextByIdentityParams{
-			ProjectID:          contextRow.ProjectID,
-			AgentID:            contextRow.AgentID,
-			InputEventSequence: contextRow.InputEventSequence,
-		},
-	)
+	parentID, err := q.GetNormalModelCallContextByIdentity(ctx, dbsqlc.GetNormalModelCallContextByIdentityParams{
+		ProjectID: contextRow.ProjectID, AgentID: contextRow.AgentID, InputEventSequence: contextRow.InputEventSequence,
+	})
 	if err != nil {
-		return ReplaceCompactionSourceResult{}, fmt.Errorf("load parent normal context for replacement compaction: %w", err)
+		return ReplaceCompactionSourceResult{}, fmt.Errorf("load blocked normal context for source replacement: %w", err)
 	}
-	nextClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+
+	nextClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
+		AgentConfigID:          contextRow.AgentConfigID,
 		ProjectID:              contextRow.ProjectID,
 		AgentID:                contextRow.AgentID,
 		RuntimeLockID:          input.RuntimeLockID,
-		InputEventSequence:     contextRow.InputEventSequence,
 		SourceEventSequenceEnd: input.NextSourceEventSequenceEnd,
 		ParentContextID:        parentID,
 	})
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	if !nextClaimTx.created {
-		return ReplaceCompactionSourceResult{}, fmt.Errorf(
-			"replacement compaction context already exists: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
+
 	nextClaim, err := applyModelCallAdmissionTx(
 		ctx,
 		txNotifications,
@@ -369,4 +356,16 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{}, err
 	}
 	return ReplaceCompactionSourceResult{CompactionCall: nextClaim}, nil
+}
+
+func compactionSourceProjectionAdvances(current ModelCallContextRecord, input ReplaceCompactionSourceInput) bool {
+	if current.SourceEventSequenceEnd == nil {
+		return false
+	}
+	if input.NextSourceEventSequenceEnd < *current.SourceEventSequenceEnd {
+		return current.SourceExcerptReductionCount == 0
+	}
+	return input.NextSourceEventSequenceEnd == *current.SourceEventSequenceEnd &&
+		input.APIFormat != "" && input.APIVariant != "" &&
+		(input.ErrorKind == modelprotocol.ErrorKindContextWindow || input.ErrorKind == modelprotocol.ErrorKindPayloadTooLarge)
 }

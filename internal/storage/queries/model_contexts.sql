@@ -97,7 +97,9 @@ live_runtime AS MATERIALIZED (
 ),
 latest_compaction AS MATERIALIZED (
   SELECT dependency.id, dependency.state, dependency.recovery_kind,
-         dependency.input_event_sequence, dependency.source_event_sequence_end
+         dependency.input_event_sequence, dependency.source_event_sequence_end,
+         dependency.error_kind, dependency.api_format, dependency.api_variant,
+         dependency.attempt_number
   FROM model_call_contexts dependency
   JOIN model_call_contexts parent ON parent.project_id = dependency.project_id
     AND parent.agent_id = dependency.agent_id
@@ -106,13 +108,14 @@ latest_compaction AS MATERIALIZED (
     AND agent.id = parent.agent_id
   WHERE dependency.operation_kind = 'compaction'
     AND dependency.input_event_sequence = parent.input_event_sequence
-  ORDER BY dependency.source_event_sequence_end ASC,
-           dependency.attempt_number DESC
+  ORDER BY dependency.source_event_sequence_end ASC, dependency.attempt_number DESC
   LIMIT 1
 ),
 blocked AS MATERIALIZED (
   SELECT context.id, context.agent_config_id,
-         context.input_event_sequence
+         context.input_event_sequence,
+         CASE WHEN latest.source_event_sequence_end = sqlc.arg(source_event_sequence_end)::bigint
+              THEN latest.attempt_number + 1 ELSE 1 END AS attempt_number
   FROM model_call_contexts context
   JOIN active_agent agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
@@ -127,7 +130,17 @@ blocked AS MATERIALIZED (
         latest.state = 'failed'
         AND latest.recovery_kind = 'reduce_compaction_source'
         AND latest.input_event_sequence = context.input_event_sequence
-        AND sqlc.arg(source_event_sequence_end)::bigint < latest.source_event_sequence_end
+        AND ((sqlc.arg(source_event_sequence_end)::bigint < latest.source_event_sequence_end
+          AND NOT EXISTS (
+            SELECT 1 FROM model_call_contexts prior
+            WHERE prior.project_id = context.project_id AND prior.agent_id = context.agent_id
+              AND prior.operation_kind = 'compaction' AND prior.input_event_sequence = context.input_event_sequence
+              AND prior.source_event_sequence_end = latest.source_event_sequence_end
+              AND prior.attempt_number < latest.attempt_number
+              AND prior.state = 'failed' AND prior.recovery_kind = 'reduce_compaction_source'
+          )) OR (sqlc.arg(source_event_sequence_end)::bigint = latest.source_event_sequence_end
+            AND latest.error_kind IN ('context_window', 'payload_too_large')
+            AND latest.api_format <> '' AND latest.api_variant <> ''))
       )
     )
 ),
@@ -150,7 +163,7 @@ SELECT active_agent.org_id,
        active_agent.project_id,
        active_agent.id,
        'compaction',
-       1,
+       blocked.attempt_number,
        blocked.agent_config_id,
        selected_model.configured_model_revision_id,
        blocked.input_event_sequence,
@@ -174,15 +187,14 @@ WHERE context.project_id = sqlc.arg(project_id)
 ORDER BY context.attempt_number DESC
 LIMIT 1;
 
--- name: GetCompactionModelCallContextByIdentity :one
+-- name: GetLatestCompactionModelCallContext :one
 SELECT context.id
 FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
   AND context.operation_kind = 'compaction'
   AND context.input_event_sequence = sqlc.arg(input_event_sequence)
-  AND context.source_event_sequence_end = sqlc.arg(source_event_sequence_end)
-ORDER BY context.attempt_number DESC
+ORDER BY context.source_event_sequence_end ASC, context.attempt_number DESC
 LIMIT 1;
 
 -- name: GetModelCallContext :one
@@ -190,10 +202,19 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end,
+  (SELECT count(*) FROM model_call_contexts prior
+   WHERE prior.project_id = context.project_id AND prior.agent_id = context.agent_id
+     AND prior.operation_kind = 'compaction'
+     AND prior.input_event_sequence = context.input_event_sequence
+     AND prior.source_event_sequence_end = context.source_event_sequence_end
+     AND prior.attempt_number < context.attempt_number
+     AND prior.state = 'failed' AND prior.recovery_kind = 'reduce_compaction_source'
+  )::bigint AS source_excerpt_reduction_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
   context.error_message, context.error_details,
+  coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
@@ -282,7 +303,6 @@ predecessor AS MATERIALIZED (
     AND context.state = 'failed'
     AND context.recovery_kind = 'retry'
     AND context.retry_at <= statement_timestamp()
-    AND context.attempt_number <= sqlc.arg(max_retries)::integer
     AND EXISTS (
       SELECT 1
       FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
@@ -374,6 +394,7 @@ SET state = sqlc.arg(to_state),
       ELSE statement_timestamp() +
         (sqlc.narg(retry_delay_microseconds)::bigint * interval '1 microsecond')
     END,
+    input_fingerprint = sqlc.narg(input_fingerprint)::text,
     input_tokens_total = sqlc.narg(input_tokens_total)::integer,
     uncached_input_tokens = sqlc.narg(uncached_input_tokens)::integer,
     cache_read_input_tokens = sqlc.narg(cache_read_input_tokens)::integer,
@@ -491,3 +512,21 @@ FROM agent_model_call_opening_content_inputs(
   sqlc.arg(input_event_sequence)
 ) AS opening(input_id, event_sequence)
 ORDER BY opening.event_sequence;
+
+-- name: CountModelCallRetries :one
+SELECT (
+  SELECT count(*) FROM model_call_contexts failure
+  WHERE failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND (
+      failure.source_event_sequence_end > context.source_event_sequence_end
+      OR (failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+          AND failure.attempt_number <= context.attempt_number)
+    )
+)::bigint AS retry_count
+FROM model_call_contexts context
+WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(model_call_context_id);

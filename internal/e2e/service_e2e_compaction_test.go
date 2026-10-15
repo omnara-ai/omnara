@@ -379,16 +379,19 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 				failModelRequest(w, http.StatusBadRequest, "first request unexpectedly used the compaction prompt: %+v", body)
 				return
 			}
-			writeOpenAIFunctionCall(
-				w,
-				failModelRequest,
-				"resp_tool_before_split_compaction",
-				"call_split_tool_group",
-				"run_command",
-				map[string]any{
-					"command": "printf '" + commandNeedle + "\\n' " + strings.Repeat("&& true ", 80),
-				},
-			)
+			response := map[string]any{
+				"id": "resp_tool_before_split_compaction", "status": "completed",
+				"output": []map[string]any{{
+					"type": "function_call", "call_id": "call_split_tool_group", "name": "run_command",
+					"arguments": mustJSONString(map[string]any{
+						"command": "printf '" + commandNeedle + "\\n' " + strings.Repeat("&& true ", 80),
+					}),
+				}},
+				"usage": map[string]int{"input_tokens": 2200, "output_tokens": 64},
+			}
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				failModelRequest(w, http.StatusInternalServerError, "encode tool-call response: %v", err)
+			}
 		case 2:
 			instructions, _ := body["instructions"].(string)
 			if !strings.Contains(instructions, "compact a closed Omnara event prefix") {

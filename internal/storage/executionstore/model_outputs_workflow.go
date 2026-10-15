@@ -653,7 +653,15 @@ func sameSuccessfulModelCallCompletionEvidence(
 	envelope modelenvelope.ResponseEnvelope,
 ) bool {
 	return contextRow.ProviderRequestID == providerRequestID &&
-		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD
+		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD &&
+		contextRow.InputFingerprint == successfulInputFingerprint(envelope)
+}
+
+func successfulInputFingerprint(envelope modelenvelope.ResponseEnvelope) string {
+	if modelUsageForStorage(envelope.Normalized.Usage).InputTokens <= 0 {
+		return ""
+	}
+	return envelope.InputFingerprint
 }
 
 func completeSuccessfulNormalModelCallTx(
@@ -678,6 +686,7 @@ func completeSuccessfulNormalModelCallTx(
 		APIVariant:              envelope.APIVariant,
 		ProviderRequestID:       providerRequestID,
 		ProviderResponseID:      envelope.Normalized.ID,
+		InputFingerprint:        successfulInputFingerprint(envelope),
 		Usage:                   envelope.Normalized.Usage,
 		ProviderReportedCostUSD: envelope.ProviderReportedCostUSD,
 		ProviderMetadata:        envelope.ProviderMetadata,

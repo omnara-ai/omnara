@@ -126,7 +126,7 @@ export const zAgentConfigDefinitionModel = z.object({
         'short',
         'long'
     ]).optional(),
-    context_window_tokens: z.int().gte(1).optional(),
+    context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     default_max_output_tokens: z.int().gte(1).optional(),
     name: zResourceNameReference,
     provider_config: zResourceNameReference,
@@ -141,7 +141,7 @@ export const zAgentConfigDefinitionSubagentModel = z.object({
         'short',
         'long'
     ]).optional(),
-    context_window_tokens: z.int().gte(1).optional(),
+    context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     default_max_output_tokens: z.int().gte(1).optional(),
     name: zResourceNameReference.optional(),
     provider_config: zResourceNameReference.optional(),
@@ -479,7 +479,7 @@ export const zCreateProjectModelGrantRequest = z.object({
  * Update a project model grant's overrides. Omitted fields keep their current values. Null clears an override so the project inherits from the configured model; for arrays, an empty array clears the override.
  */
 export const zUpdateProjectModelGrantRequest = z.object({
-    context_window_tokens: z.int().gte(1).nullish(),
+    context_window_tokens: z.int().gte(2).lte(2147483647).nullish(),
     max_output_tokens: z.int().gte(1).nullish(),
     default_max_output_tokens: z.int().gte(1).nullish(),
     default_cache_retention: zModelCacheRetention.nullish(),

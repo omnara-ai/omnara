@@ -8833,7 +8833,9 @@ components:
           enum: [none, short, long]
         context_window_tokens:
           type: integer
-          minimum: 1
+          minimum: 2
+          maximum: 2147483647
+          description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
           type: integer
           minimum: 1
@@ -8914,7 +8916,9 @@ components:
           enum: [none, short, long]
         context_window_tokens:
           type: integer
-          minimum: 1
+          minimum: 2
+          maximum: 2147483647
+          description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
           type: integer
           minimum: 1
@@ -9638,7 +9642,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Total token window for this model, including input and output.
+          description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: integer
           minimum: 1
@@ -9698,7 +9702,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Total token window for this model, including input and output.
+          description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: [integer, "null"]
           minimum: 1
@@ -9760,7 +9764,7 @@ components:
           description: Exact provider model slug sent to the provider endpoint by the current revision.
         context_window_tokens:
           type: integer
-          description: Total token window for this model, including input and output.
+          description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: [integer, "null"]
           description: Known output-token ceiling for this model, or null when unknown.
@@ -9824,7 +9828,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Optional project token-window limit. Cannot exceed the configured model's current limit.
+          description: Optional project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: integer
           minimum: 1
@@ -9872,8 +9876,9 @@ components:
       properties:
         context_window_tokens:
           type: [integer, "null"]
-          minimum: 1
-          description: Project token-window limit. Cannot exceed the configured model's current limit.
+          minimum: 2
+          maximum: 2147483647
+          description: Project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: [integer, "null"]
           minimum: 1
@@ -9925,7 +9930,7 @@ components:
           $ref: '#/components/schemas/ConfiguredModelID'
         context_window_tokens:
           type: [integer, "null"]
-          description: Project token-window limit, or omitted/null to inherit from the configured model.
+          description: Project context budget for input and output tokens, or omitted/null to inherit from the configured model. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: [integer, "null"]
           description: Project output-token ceiling, or omitted/null to inherit from the configured model.
@@ -11168,7 +11173,7 @@ components:
           $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         context_window_tokens:
           type: integer
-          description: Effective token window after configured-model, project-grant, and agent-config settings are applied.
+          description: Effective context budget for input and output tokens after model, project, and agent settings are applied. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         max_output_tokens:
           type: [integer, "null"]
           description: Effective known output-token ceiling after model and project settings, or null when unknown.

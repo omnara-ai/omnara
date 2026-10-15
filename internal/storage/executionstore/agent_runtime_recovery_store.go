@@ -57,7 +57,11 @@ func recoverRuntimeModelCallContextTx(
 	if err != nil {
 		return fmt.Errorf("marshal runtime recovery error: %w", err)
 	}
-	if contextRecord.AttemptNumber > MaxModelCallRetriesPerOperation {
+	retryCount, err := countModelCallRetriesTx(ctx, qtx, projectID, agentID, contextRecord.ID)
+	if err != nil {
+		return err
+	}
+	if retryCount >= MaxModelCallRetriesPerOperation {
 		return terminalizeExhaustedRuntimeModelCallContextTx(
 			ctx,
 			txNotifications,
@@ -83,7 +87,7 @@ func recoverRuntimeModelCallContextTx(
 			ErrorMessage:  evidence.Message,
 			ErrorDetails:  details,
 			RetryDelayMicroseconds: retryBackoff(
-				contextRecord.AttemptNumber,
+				retryCount+1,
 				contextRecord.ID.String(),
 			).Microseconds(),
 		},

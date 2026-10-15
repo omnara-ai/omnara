@@ -922,8 +922,8 @@ func TestBuildRequiresPinnedAgentConfig(t *testing.T) {
 	}
 }
 
-func TestBuildUsesLatestApplicableCheckpointAndUnsummarizedTail(t *testing.T) {
-	store := &fakeContextStore{watermark: 200, checkpoints: []executionstore.ContextCheckpointRecord{
+func TestBuildUsesCheckpointAndUnsummarizedTailAtSnapshotFrontier(t *testing.T) {
+	store := &fakeContextStore{checkpoints: []executionstore.ContextCheckpointRecord{
 		{
 			ID:                             testIDN(942),
 			SummarizedThroughEventSequence: 160, CheckpointEventSequence: 161,
@@ -934,11 +934,17 @@ func TestBuildUsesLatestApplicableCheckpointAndUnsummarizedTail(t *testing.T) {
 			SummarizedThroughEventSequence: 80, CheckpointEventSequence: 81,
 			Summary: "old",
 		},
+		{
+			ID:                             testIDN(953),
+			SummarizedThroughEventSequence: 190, CheckpointEventSequence: 201,
+			Summary: "published after the snapshot frontier",
+		},
 	}}
 	store.messages = append(store.messages,
 		contextTextEvent(t, testIDN(50), 50, "covered by old checkpoint"),
 		contextTextEvent(t, testIDN(120), 120, "covered by middle checkpoint"),
 		contextTextEvent(t, testIDN(170), 170, "latest"),
+		contextTextEvent(t, testIDN(210), 210, "after the snapshot frontier"),
 	)
 	store.toolCalls = []executionstore.ToolCallRecord{
 		{
@@ -972,73 +978,42 @@ func TestBuildUsesLatestApplicableCheckpointAndUnsummarizedTail(t *testing.T) {
 			ResultContentParts:      json.RawMessage(`[]`),
 		},
 	}
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if bundle.ContextCheckpoint == nil ||
-		bundle.ContextCheckpoint.ID != testIDN(942).String() ||
-		bundle.ContextCheckpoint.SummarizedThroughEventSequence != 160 ||
-		bundle.ContextCheckpoint.Summary != "cumulative middle" {
-		t.Fatalf("latest applicable checkpoint = %+v", bundle.ContextCheckpoint)
-	}
-	if len(bundle.Messages) != 1 || bundle.Messages[0].ID != testIDN(170).String() {
-		t.Fatalf("expected tail after latest checkpoint, got %+v", bundle.Messages)
-	}
-	if len(bundle.ToolResults) != 1 ||
-		bundle.ToolResults[0].ToolCallID != testIDN(948).String() {
-		t.Fatalf("expected only cross-turn tool results after checkpoint, got %+v", bundle.ToolResults)
-	}
-}
-
-func TestBuildIgnoresCheckpointPublishedAfterFixedFrontier(t *testing.T) {
-	store := &fakeContextStore{
-		watermark: 150,
-		checkpoints: []executionstore.ContextCheckpointRecord{
-			{
-				ID:                             testIDN(1001),
-				SummarizedThroughEventSequence: 80, CheckpointEventSequence: 81,
-				Summary: "visible checkpoint",
-			},
-			{
-				ID:                             testIDN(1002),
-				SummarizedThroughEventSequence: 140, CheckpointEventSequence: 151,
-				Summary: "published after the fixed frontier",
-			},
-		},
-	}
-	store.messages = append(store.messages,
-		contextTextEvent(t, testIDN(70), 70, "covered by visible checkpoint"),
-		contextTextEvent(t, testIDN(120), 120, "visible tail"),
-		contextTextEvent(t, testIDN(160), 160, "after fixed frontier"),
-	)
-	bundle, err := (Builder{Store: store}).Build(
-		context.Background(),
-		BuildInput{
-			ProjectID:       testProjectID,
-			AgentID:         testAgentID,
-			TurnID:          testTurnID,
-			OpeningInputIDs: []uuid.UUID{testInputID},
-			Now:             time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
-		},
-	)
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if bundle.ContextCheckpoint == nil || bundle.ContextCheckpoint.ID != testIDN(1001).String() {
-		t.Fatalf("checkpoint at frontier 150 = %+v, want visible checkpoint", bundle.ContextCheckpoint)
-	}
-	if len(bundle.Messages) != 1 || bundle.Messages[0].Sequence != 120 {
-		t.Fatalf("messages at frontier 150 = %+v, want only visible tail", bundle.Messages)
+	for _, tc := range []struct {
+		name      string
+		watermark int64
+		snapshot  *executionstore.AgentConfigSnapshotRecord
+	}{
+		{name: "captured snapshot", watermark: 200},
+		{name: "pinned snapshot", watermark: 300, snapshot: &executionstore.AgentConfigSnapshotRecord{
+			AgentConfig: testAgentConfigRecord(), InputEventSequence: 200,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store.watermark = tc.watermark
+			bundle, err := (Builder{Store: store}).Build(context.Background(), BuildInput{
+				ProjectID: testProjectID, AgentID: testAgentID, TurnID: testTurnID,
+				OpeningInputIDs: []uuid.UUID{testInputID}, AgentConfigSnapshot: tc.snapshot,
+				Now: time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+			})
+			if err != nil {
+				t.Fatalf("build context: %v", err)
+			}
+			if bundle.InputEventSequence != 200 {
+				t.Fatalf("context frontier = %d, want snapshot frontier 200", bundle.InputEventSequence)
+			}
+			if bundle.ContextCheckpoint == nil ||
+				bundle.ContextCheckpoint.ID != testIDN(942).String() ||
+				bundle.ContextCheckpoint.SummarizedThroughEventSequence != 160 ||
+				bundle.ContextCheckpoint.Summary != "cumulative middle" {
+				t.Fatalf("latest applicable checkpoint = %+v", bundle.ContextCheckpoint)
+			}
+			if len(bundle.Messages) != 1 || bundle.Messages[0].ID != testIDN(170).String() {
+				t.Fatalf("expected tail after latest checkpoint within snapshot, got %+v", bundle.Messages)
+			}
+			if len(bundle.ToolResults) != 1 || bundle.ToolResults[0].ToolCallID != testIDN(948).String() {
+				t.Fatalf("expected only cross-turn tool results after checkpoint, got %+v", bundle.ToolResults)
+			}
+		})
 	}
 }
 
