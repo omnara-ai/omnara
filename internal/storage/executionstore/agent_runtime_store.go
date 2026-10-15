@@ -26,7 +26,6 @@ const (
 
 type insertAgentInput struct {
 	ID                      uuid.UUID
-	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	AgentProfileID          uuid.UUID
 	Name                    string
@@ -77,7 +76,7 @@ type IntegrationTargetDisplay struct {
 	DisplayName      string                         `json:"display_name,omitempty"`
 }
 
-func insertAdmittedAgentTx(ctx context.Context, unit *agentexecution.Unit, qtx *dbsqlc.Queries,
+func insertAdmittedAgentTx(ctx context.Context, unit *agentexecution.Unit,
 	input insertAgentInput) (AgentRecord, error) {
 	if input.ID == uuid.Nil {
 		input.ID = uuid.New()
@@ -88,20 +87,6 @@ func insertAdmittedAgentTx(ctx context.Context, unit *agentexecution.Unit, qtx *
 		ArchiveAfterIdleMinutes: storeutil.Int32Ptr(input.ArchiveAfterIdleMinutes)})
 	if err != nil {
 		return AgentRecord{}, err
-	}
-	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-	if err != nil {
-		return AgentRecord{}, err
-	}
-	count, err := qtx.CountActiveAgentsForProject(
-		ctx,
-		dbsqlc.CountActiveAgentsForProjectParams{ProjectID: input.ProjectID},
-	)
-	if err != nil {
-		return AgentRecord{}, err
-	}
-	if count > limits.MaxActiveAgentsPerProject {
-		return AgentRecord{}, resourceLimitExceeded("active agents", limits.MaxActiveAgentsPerProject)
 	}
 	record, err := loadAgentInProjectTx(ctx, unit.DB(), input.ProjectID, input.ID)
 	record.Created = true

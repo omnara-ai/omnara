@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPublicAgentLaunchFlow(t *testing.T) {
@@ -717,4 +718,24 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 	if model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" || config["instruction_hash"] == "" {
 		t.Fatalf("JSON-authored config did not compile into runtime projection: %+v", config)
 	}
+}
+
+func TestPublicAgentLaunchQuotaErrorMessage(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "launch-quota")
+	config := createPublicHTTPAgentConfig(t, handler, project, "launch-quota", "yaml",
+		"instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		project.AdminToken, http.StatusCreated)
+	orgID, err := publicid.Decode(publicid.KindOrganization, project.OrgID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+VALUES($1,0)`, orgID)
+	require.NoError(t, err)
+	response := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents",
+		`{"config":"`+testutil.RequireType[string](t, config["id"])+`"}`, "quota",
+		http.StatusConflict, authHeaders(project.AdminToken))
+	require.Equal(t, "conflict", response["code"])
+	require.Equal(t, "conflict: active agents limit of 0 reached: resource conflict", response["error"])
 }

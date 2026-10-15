@@ -53,7 +53,7 @@ INSERT INTO agents(id,org_id,project_id,root_agent_id,parent_agent_id,subagent_k
  $6,$7,$8,$9,
  statement_timestamp(),statement_timestamp()
  FROM projects p JOIN orgs o ON o.id=p.org_id WHERE p.id=$10 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
- RETURNING id
+ RETURNING org_id
 `
 
 type CreateExecutionAgentParams struct {
@@ -82,9 +82,9 @@ func (q *Queries) CreateExecutionAgent(ctx context.Context, db DBTX, arg CreateE
 		arg.ArchiveAfterIdleMinutes,
 		arg.ProjectID,
 	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var org_id uuid.UUID
+	err := row.Scan(&org_id)
+	return org_id, err
 }
 
 const listExecutionIntegrationTargetAgents = `-- name: ListExecutionIntegrationTargetAgents :many

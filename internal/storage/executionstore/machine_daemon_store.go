@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -242,6 +243,11 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	}
 	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata)
 	if err == nil {
+		if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{{
+			Kind: resourceguard.Machines, OrgID: input.OrgID,
+		}}); err != nil {
+			return MachineRecord{}, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return MachineRecord{}, fmt.Errorf("commit create machine: %w", err)
 		}
@@ -316,9 +322,8 @@ func createDaemonMachineTx(
 	if err != nil {
 		return MachineRecord{}, err
 	}
-	row, err := insertMachineWithResourceLimitTx(
+	row, err := qtx.InsertMachine(
 		ctx,
-		qtx,
 		dbsqlc.InsertMachineParams{
 			OrgID:                  input.OrgID,
 			MachinePoolID:          nil,

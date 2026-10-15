@@ -5,7 +5,7 @@ INSERT INTO agents(id,org_id,project_id,root_agent_id,parent_agent_id,subagent_k
  sqlc.narg(profile_id),sqlc.arg(config_id),sqlc.narg(idempotency_key),sqlc.narg(archive_after_idle_minutes),
  statement_timestamp(),statement_timestamp()
  FROM projects p JOIN orgs o ON o.id=p.org_id WHERE p.id=sqlc.arg(project_id) AND p.deleted_at IS NULL AND o.deleted_at IS NULL
- RETURNING id;
+ RETURNING org_id;
 
 -- name: ReadExecutionAgentIdentity :one
 SELECT org_id,parent_agent_id,root_agent_id,state,name,subagent_key FROM agents

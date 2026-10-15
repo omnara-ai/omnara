@@ -122,6 +122,7 @@ CREATE FUNCTION sample_context_state(agent uuid,state text) RETURNS text LANGUAG
  IF current_setting('transaction_read_only')<>'on' OR current_setting('transaction_isolation')<>'repeatable read' THEN
  RAISE EXCEPTION 'not a read-only snapshot';
  END IF;
+ IF current_setting('transaction_timeout')<>'5s' THEN RAISE EXCEPTION 'unbounded snapshot'; END IF;
  IF agent='%s'::uuid THEN PERFORM pg_sleep(3); END IF;
  RETURN state;
  END $f$;
@@ -176,4 +177,52 @@ EXECUTE sample_plan('00000000-0000-0000-0000-000000000000',10)`).Scan(&plan))
 	})
 	require.True(t, indexed)
 	require.LessOrEqual(t, integrationdb.PlanBuffers(t, plan), 70)
+}
+
+func TestExecutionHeadSampleBoundedTurnOutputs(t *testing.T) {
+	f := releasedExecutionFixture(t)
+	agents := make([]uuid.UUID, 2)
+	for i, outputs := range []int{1, 100} {
+		agent := f.agent(t)
+		agents[i] = agent
+		turn, _ := f.opening(t, agent, 1, uuid.Nil, "content")
+		for j := range outputs {
+			watermark := int64(2*j + 1)
+			model := f.modelContext(t, agent, watermark, "normal", nil, 1)
+			_, call := f.output(t, agent, turn, model, watermark+1, "tool_use", "awaiting_authorization")
+			f.complete(t, agent, turn, call, watermark+2)
+		}
+		model := f.modelContext(t, agent, int64(2*outputs+1), "normal", nil, 1)
+		f.output(t, agent, turn, model, int64(2*outputs+2), "end_turn", "")
+	}
+	require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
+	for _, agent := range agents {
+		tx, err := f.pool.BeginTx(t.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		require.NoError(t, err)
+		counted := &integrationdb.CountingTx{Tx: tx}
+		differences, err := agentexecution.CompareExecutionHead(t.Context(), counted, agentexecution.AgentRoute{
+			AgentID: agent, ProjectID: f.project, RootAgentID: agent})
+		require.NoError(t, err)
+		require.Empty(t, differences)
+		require.LessOrEqual(t, counted.Statements, 12)
+		t.Logf("agent=%s statements=%d", agent, counted.Statements)
+		require.NoError(t, tx.Rollback(t.Context()))
+	}
+}
+
+func TestExecutionHeadSampleIneligibleIsDistinctFromMissingFacts(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	agent := f.create(t, uuid.New(), uuid.Nil)
+	_, err := f.pool.Exec(t.Context(), "UPDATE agents SET state='archived',archived_at=now() WHERE id=$1", agent)
+	require.NoError(t, err)
+	tx, err := f.pool.BeginTx(t.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	_, err = agentexecution.CompareExecutionHead(t.Context(), tx, agentexecution.AgentRoute{
+		ProjectID: f.project, AgentID: agent, RootAgentID: agent})
+	require.ErrorIs(t, err, agentexecution.ErrSampleIneligible)
+	_, err = agentexecution.CompareExecutionHead(t.Context(), tx, agentexecution.AgentRoute{
+		ProjectID: f.project, AgentID: uuid.New()})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.NotErrorIs(t, err, agentexecution.ErrSampleIneligible)
 }

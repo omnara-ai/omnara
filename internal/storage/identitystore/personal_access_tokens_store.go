@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -118,7 +119,7 @@ func createPersonalAccessTokenTx(
 		return dbsqlc.PersonalAccessToken{}, fmt.Errorf("count active personal access tokens: %w", err)
 	}
 	if tokenCount > MaxActivePersonalAccessTokensPerUser {
-		return dbsqlc.PersonalAccessToken{}, resourceLimitExceeded(
+		return dbsqlc.PersonalAccessToken{}, resourceguard.LimitExceeded(
 			"active personal access tokens",
 			MaxActivePersonalAccessTokensPerUser,
 		)

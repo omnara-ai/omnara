@@ -3,6 +3,7 @@ package agentexecution
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 )
+
+var ErrSampleIneligible = errors.New("agent is not eligible for execution head sampling")
 
 type HeadDifference struct {
 	Field   string `json:"field"`
@@ -69,7 +72,7 @@ func CompareExecutionHead(ctx context.Context, tx pgx.Tx, route AgentRoute) ([]H
 		return nil, err
 	}
 	if row.State != "active" || !row.HeadExists {
-		return nil, pgx.ErrNoRows
+		return nil, ErrSampleIneligible
 	}
 	rebuilt, err := reconstructExecution(ctx, tx, route)
 	if err != nil {

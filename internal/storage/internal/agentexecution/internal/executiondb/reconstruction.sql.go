@@ -12,67 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const loadExecutionBatch = `-- name: LoadExecutionBatch :one
-SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS has_tools,
-       EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND c.state<>'completed') AS
- incomplete,
-       EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND
-              (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable
-`
-
-type LoadExecutionBatchParams struct {
-	AgentID       uuid.UUID
-	ModelOutputID uuid.UUID
-}
-
-type LoadExecutionBatchRow struct {
-	HasTools   bool
-	Incomplete bool
-	Runnable   bool
-}
-
-func (q *Queries) LoadExecutionBatch(ctx context.Context, db DBTX, arg LoadExecutionBatchParams) (LoadExecutionBatchRow, error) {
-	row := db.QueryRow(ctx, loadExecutionBatch, arg.AgentID, arg.ModelOutputID)
-	var i LoadExecutionBatchRow
-	err := row.Scan(&i.HasTools, &i.Incomplete, &i.Runnable)
-	return i, err
-}
-
-const loadExecutionBatchCompletion = `-- name: LoadExecutionBatchCompletion :one
-SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
-       coalesce(max(e.sequence),0)::bigint AS last_result_sequence,
-       coalesce(max(r.completed_at),'epoch'::timestamptz)::timestamptz AS ready_at
-FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-WHERE c.agent_id=$1 AND c.model_output_id=$2
-`
-
-type LoadExecutionBatchCompletionParams struct {
-	AgentID       uuid.UUID
-	ModelOutputID uuid.UUID
-}
-
-type LoadExecutionBatchCompletionRow struct {
-	Calls              int64
-	Results            int64
-	Events             int64
-	LastResultSequence int64
-	ReadyAt            time.Time
-}
-
-func (q *Queries) LoadExecutionBatchCompletion(ctx context.Context, db DBTX, arg LoadExecutionBatchCompletionParams) (LoadExecutionBatchCompletionRow, error) {
-	row := db.QueryRow(ctx, loadExecutionBatchCompletion, arg.AgentID, arg.ModelOutputID)
-	var i LoadExecutionBatchCompletionRow
-	err := row.Scan(
-		&i.Calls,
-		&i.Results,
-		&i.Events,
-		&i.LastResultSequence,
-		&i.ReadyAt,
-	)
-	return i, err
-}
-
 const loadExecutionBoundaries = `-- name: LoadExecutionBoundaries :one
 SELECT coalesce((SELECT max(e.sequence)
  FROM (
@@ -280,8 +219,17 @@ func (q *Queries) ReconstructExecutionContexts(ctx context.Context, db DBTX, arg
 }
 
 const reconstructExecutionOutputs = `-- name: ReconstructExecutionOutputs :many
-SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
+SELECT o.id,o.model_call_context_id,o.stop_reason,e.sequence,
+ batch.calls,batch.results,batch.events,batch.incomplete,batch.last_result_sequence
 FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
+CROSS JOIN LATERAL (
+ SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(result_event.id)::bigint AS events,
+        coalesce(bool_or(c.state<>'completed'),false)::boolean AS incomplete,
+        coalesce(max(result_event.sequence),0)::bigint AS last_result_sequence
+ FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+ LEFT JOIN agent_events result_event ON result_event.agent_id=r.agent_id AND result_event.tool_call_result_id=r.id
+ WHERE c.agent_id=o.agent_id AND c.model_output_id=o.id
+) batch
 WHERE o.agent_id=$1 AND e.turn_id=$2 AND e.sequence>=$3
 ORDER BY e.sequence
 `
@@ -296,9 +244,12 @@ type ReconstructExecutionOutputsRow struct {
 	ID                 uuid.UUID
 	ModelCallContextID uuid.UUID
 	StopReason         string
-	EventID            uuid.UUID
 	Sequence           int64
-	CreatedAt          time.Time
+	Calls              int64
+	Results            int64
+	Events             int64
+	Incomplete         bool
+	LastResultSequence int64
 }
 
 func (q *Queries) ReconstructExecutionOutputs(ctx context.Context, db DBTX, arg ReconstructExecutionOutputsParams) ([]ReconstructExecutionOutputsRow, error) {
@@ -314,9 +265,12 @@ func (q *Queries) ReconstructExecutionOutputs(ctx context.Context, db DBTX, arg 
 			&i.ID,
 			&i.ModelCallContextID,
 			&i.StopReason,
-			&i.EventID,
 			&i.Sequence,
-			&i.CreatedAt,
+			&i.Calls,
+			&i.Results,
+			&i.Events,
+			&i.Incomplete,
+			&i.LastResultSequence,
 		); err != nil {
 			return nil, err
 		}

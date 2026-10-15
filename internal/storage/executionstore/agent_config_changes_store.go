@@ -142,7 +142,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	config, err := insertAgentConfigTx(ctx, qtx, configInput)
+	config, err := insertAgentConfigTx(ctx, qtx, configInput, unit.TrackCreation)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}

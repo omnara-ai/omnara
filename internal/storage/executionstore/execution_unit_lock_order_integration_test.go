@@ -219,37 +219,6 @@ func TestSubagentLaunchLocksMachinesBeforeParentAndInsert(t *testing.T) {
 	require.Len(t, outcome.Value.MachineBindings, 1)
 }
 
-func TestSubagentLaunchTakesQuotaBeforeParentAndMachines(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	f := newProcessDaemonFixture(t, ctx, "subagent-quota-order")
-	parent, err := f.Store.Execution().GetAgentInProject(ctx, testProjectID, f.AgentID)
-	require.NoError(t, err)
-	blocker := integrationdb.BeginTx(t, ctx, f.Store.pool)
-	require.NoError(t, dbsqlc.New(blocker).LockResourceCreation(ctx, dbsqlc.LockResourceCreationParams{
-		ResourceKind: "agents", Scope: testProjectID.String(),
-	}))
-	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
-		return spawnSubagentForTest(
-			t,
-			ctx,
-			f.Store,
-			parent,
-			parent.CurrentConfigID,
-			"helper",
-			"quota-order-child",
-			nil,
-		)
-	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, f.Store.pool, "LockResourceCreation", 1)
-	_, err = blocker.Exec(ctx, `SELECT id FROM machines WHERE id=$1 FOR UPDATE NOWAIT`, f.MachineID)
-	require.NoError(t, err)
-	_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE NOWAIT`, parent.ID)
-	require.NoError(t, err)
-	require.NoError(t, blocker.Commit(ctx))
-	require.NoError(t, integrationdb.Await(t, done, "subagent launch after quota").Err)
-}
-
 func TestPreparationFencesLeaseAfterAgentWait(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

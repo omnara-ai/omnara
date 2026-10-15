@@ -21,8 +21,17 @@ WHERE c.project_id=sqlc.arg(project_id) AND c.agent_id=sqlc.arg(agent_id) AND c.
 ORDER BY c.input_event_sequence DESC LIMIT 1),0)::bigint AS max_normal_input_sequence;
 
 -- name: ReconstructExecutionOutputs :many
-SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
+SELECT o.id,o.model_call_context_id,o.stop_reason,e.sequence,
+ batch.calls,batch.results,batch.events,batch.incomplete,batch.last_result_sequence
 FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
+CROSS JOIN LATERAL (
+ SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(result_event.id)::bigint AS events,
+        coalesce(bool_or(c.state<>'completed'),false)::boolean AS incomplete,
+        coalesce(max(result_event.sequence),0)::bigint AS last_result_sequence
+ FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+ LEFT JOIN agent_events result_event ON result_event.agent_id=r.agent_id AND result_event.tool_call_result_id=r.id
+ WHERE c.agent_id=o.agent_id AND c.model_output_id=o.id
+) batch
 WHERE o.agent_id=sqlc.arg(agent_id) AND e.turn_id=sqlc.arg(turn_id) AND e.sequence>=sqlc.arg(stop_sequence)
 ORDER BY e.sequence;
 
@@ -59,18 +68,3 @@ WHERE i.agent_id=sqlc.arg(agent_id) AND e.turn_id=sqlc.arg(turn_id) AND i.input_
   AND e.sequence>sqlc.arg(normal_watermark) AND e.sequence>=sqlc.arg(stop_sequence)
   AND e.sequence>=sqlc.arg(first_content_sequence) AND sqlc.arg(first_content_sequence)::bigint>0
 ORDER BY e.sequence DESC LIMIT 1;
-
--- name: LoadExecutionBatch :one
-SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(model_output_id)) AS has_tools,
-       EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(model_output_id) AND c.state<>'completed') AS
- incomplete,
-       EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(model_output_id) AND
-              (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable;
-
--- name: LoadExecutionBatchCompletion :one
-SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
-       coalesce(max(e.sequence),0)::bigint AS last_result_sequence,
-       coalesce(max(r.completed_at),'epoch'::timestamptz)::timestamptz AS ready_at
-FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
-LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(model_output_id);

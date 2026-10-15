@@ -993,3 +993,22 @@ func TestExecutionArchiveHistoryDoesNotDependOnReads(t *testing.T) {
 	require.Equal(t, histories[0], histories[1])
 	require.Contains(t, histories[0], `"input_kind": "control"`)
 }
+
+func TestExecutionCreationTracksQuota(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	_, err := f.pool.Exec(t.Context(), `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+ VALUES($1,0)`, f.org)
+	require.NoError(t, err)
+	unit, err := agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
+	require.NoError(t, err)
+	defer func() { _ = unit.Rollback(t.Context()) }()
+	agent := uuid.New()
+	_, err = unit.CreateAgent(t.Context(), agentexecution.CreateAgentInput{
+		ID: agent, ProjectID: f.project, ConfigID: f.config})
+	require.NoError(t, err)
+	require.EqualError(t, unit.Commit(t.Context(), "create agent"), "active agents limit of 0 reached: resource conflict")
+	require.NoError(t, unit.Rollback(t.Context()))
+	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), "SELECT count(*) FROM agents WHERE id=$1", agent).Scan(&count))
+	require.Zero(t, count)
+}

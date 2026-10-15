@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -82,7 +83,7 @@ func lockSubagentParentSourcesTx(ctx context.Context, tx dbsqlc.DBTX, launch Sub
 	if launch.MaxDepth < 1 || launch.MaxDepth > agentconfig.MaxSubagentDepth {
 		return fmt.Errorf("subagent launch max depth must be between 1 and %d", agentconfig.MaxSubagentDepth)
 	}
-	return lifecyclelock.AgentSources(ctx, tx, launch.ParentAgentID)
+	return lifecyclelock.AgentSourcesShared(ctx, tx, launch.ParentAgentID)
 }
 
 func (s *Store) AgentDepth(ctx context.Context, projectID, agentID uuid.UUID) (int, error) {
@@ -184,13 +185,13 @@ func admitSubagentLaunchTx(
 		return fmt.Errorf("count active subagents: %w", err)
 	}
 	if launch.MaxInstances != nil && int(siblings.SameKey) >= *launch.MaxInstances {
-		return resourceLimitExceeded(
+		return resourceguard.LimitExceeded(
 			fmt.Sprintf("active subagents for key %q", launch.Key),
 			int64(*launch.MaxInstances),
 		)
 	}
 	if launch.MaxSubagents != nil && int(siblings.Total) >= *launch.MaxSubagents {
-		return resourceLimitExceeded("active subagents", int64(*launch.MaxSubagents))
+		return resourceguard.LimitExceeded("active subagents", int64(*launch.MaxSubagents))
 	}
 	return nil
 }

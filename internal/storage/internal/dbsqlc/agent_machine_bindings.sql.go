@@ -608,6 +608,21 @@ func (q *Queries) LockAgentMachineSources(ctx context.Context, arg LockAgentMach
 	return err
 }
 
+const lockAgentMachineSourcesForLaunch = `-- name: LockAgentMachineSourcesForLaunch :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('agent_machine_sources:' || $1::uuid::text, 0)
+)
+`
+
+type LockAgentMachineSourcesForLaunchParams struct {
+	AgentID uuid.UUID
+}
+
+func (q *Queries) LockAgentMachineSourcesForLaunch(ctx context.Context, arg LockAgentMachineSourcesForLaunchParams) error {
+	_, err := q.db.Exec(ctx, lockAgentMachineSourcesForLaunch, arg.AgentID)
+	return err
+}
+
 const markAgentMachineBindingDeleteRequested = `-- name: MarkAgentMachineBindingDeleteRequested :one
 UPDATE agent_machine_bindings
 SET delete_tool_call_id = $1::uuid,

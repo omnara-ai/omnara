@@ -97,7 +97,7 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 		return CreatedOrgAPIKey{}, fmt.Errorf("count active org api keys: %w", err)
 	}
 	if keyCount > limits.MaxActiveOrgApiKeysPerOrg {
-		return CreatedOrgAPIKey{}, resourceLimitExceeded(
+		return CreatedOrgAPIKey{}, resourceguard.LimitExceeded(
 			"active org api keys",
 			limits.MaxActiveOrgApiKeysPerOrg,
 		)

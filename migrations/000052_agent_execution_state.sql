@@ -507,3 +507,22 @@ BEGIN
 END;
 $$;
 -- +goose StatementEnd
+
+CREATE OR REPLACE VIEW principal_project_authorization_roles AS
+WITH active_projects AS NOT MATERIALIZED (
+    SELECT project.org_id, project.id
+    FROM projects project
+    JOIN orgs org ON org.id = project.org_id
+    WHERE project.deleted_at IS NULL
+      AND org.deleted_at IS NULL
+)
+SELECT om.org_id, p.id AS project_id, om.user_id, om.org_api_key_id, 'admin'::text AS role
+FROM org_memberships om
+JOIN active_projects p
+    ON p.org_id = om.org_id
+WHERE om.role IN ('owner', 'admin')
+UNION
+SELECT pm.org_id, pm.project_id, om.user_id, om.org_api_key_id, pm.role
+FROM project_memberships pm
+JOIN org_memberships om ON om.org_id = pm.org_id AND om.id = pm.org_membership_id
+JOIN active_projects p ON p.org_id = pm.org_id AND p.id = pm.project_id;

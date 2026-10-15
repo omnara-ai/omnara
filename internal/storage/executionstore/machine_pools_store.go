@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -351,7 +352,7 @@ func (s *Store) CreateMachinePool(
 			return MachinePoolRecord{}, fmt.Errorf("count active tenant machine pools: %w", err)
 		}
 		if poolCount > limits.MaxActiveTenantMachinePoolsPerOrg {
-			return MachinePoolRecord{}, resourceLimitExceeded(
+			return MachinePoolRecord{}, resourceguard.LimitExceeded(
 				"active machine pools",
 				limits.MaxActiveTenantMachinePoolsPerOrg,
 			)

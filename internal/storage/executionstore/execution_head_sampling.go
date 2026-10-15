@@ -37,7 +37,7 @@ func (s *Store) SampleExecutionHeads(ctx context.Context, n int32) (ExecutionHea
 		differences, err := readExecutionSnapshot(ctx, s.pool, func(tx pgx.Tx) ([]agentexecution.HeadDifference, error) {
 			return agentexecution.CompareExecutionHead(ctx, tx, route)
 		})
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, agentexecution.ErrSampleIneligible) {
 			continue
 		}
 		report.Samples = append(report.Samples, ExecutionHeadSample{
@@ -54,7 +54,7 @@ func readExecutionSnapshot[T any](ctx context.Context, pool *storeutil.Pool, rea
 			return zero, err
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout = '2s'"); err != nil {
+		if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout = '2s'; SET LOCAL transaction_timeout = '5s'"); err != nil {
 			return zero, err
 		}
 		result, err := read(tx)

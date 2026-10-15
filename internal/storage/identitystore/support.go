@@ -40,10 +40,6 @@ const (
 	MaxActivePersonalAccessTokensPerUser = int64(1_000)
 )
 
-func resourceLimitExceeded(resource string, limit int64) error {
-	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)
-}
-
 func mapSkillOpsError(err error) error {
 	switch {
 	case errors.Is(err, skillops.ErrNotFound):

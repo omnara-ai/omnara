@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -50,6 +51,11 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	}
 	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
 	if err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{{
+		Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: input.MachineID,
+	}}); err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -113,34 +119,6 @@ func createBYOMachineDaemonTokenTx(
 	}
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
-	}
-	if err := lockResourceCreation(
-		ctx,
-		qtx,
-		resourceMachineDaemonTokens,
-		input.OrgID.String()+":"+input.MachineID.String(),
-	); err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	tokenCount, err := qtx.CountActiveMachineDaemonTokensForMachine(
-		ctx,
-		dbsqlc.CountActiveMachineDaemonTokensForMachineParams{
-			OrgID:     input.OrgID,
-			MachineID: input.MachineID,
-		},
-	)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("count active BYO daemon tokens: %w", err)
-	}
-	if tokenCount > limits.MaxActiveByoDaemonTokensPerMachine {
-		return MachineDaemonTokenRecord{}, resourceLimitExceeded(
-			"active machine daemon tokens",
-			limits.MaxActiveByoDaemonTokensPerMachine,
-		)
 	}
 	return machineDaemonTokenFromCreate(row), nil
 }

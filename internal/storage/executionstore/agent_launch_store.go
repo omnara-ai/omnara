@@ -232,7 +232,7 @@ func (s *Store) launchAgentTx(
 		derived := *input.DerivedConfig
 		derived.OrgID = project.OrgID
 		derived.ProjectID = input.ProjectID
-		created, err := insertAgentConfigTx(ctx, qtx, derived)
+		created, err := insertAgentConfigTx(ctx, qtx, derived, unit.TrackCreation)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
@@ -256,7 +256,6 @@ func (s *Store) launchAgentTx(
 		return LaunchAgentResult{}, err
 	}
 	insertInput := insertAgentInput{
-		OrgID:                   project.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          input.ProfileID,
 		Name:                    agentName,
@@ -273,9 +272,6 @@ func (s *Store) launchAgentTx(
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-	}
-	if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
-		return LaunchAgentResult{}, err
 	}
 	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
 	if input.Subagent != nil {
@@ -295,7 +291,7 @@ func (s *Store) launchAgentTx(
 	if err := s.resolveLaunchMachineSourcesTx(ctx, tx, qtx, project.OrgID, input.ProjectID, machineSources); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	agent, err := insertAdmittedAgentTx(ctx, unit, qtx, insertInput)
+	agent, err := insertAdmittedAgentTx(ctx, unit, insertInput)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -386,6 +382,7 @@ func (s *Store) launchAgentTx(
 		case source.PoolGrantForLaunch.ID != uuid.Nil:
 			binding, err := allocateNewPoolMachineForAgentTx(
 				ctx,
+				unit,
 				qtx,
 				project.OrgID,
 				input.ProjectID,

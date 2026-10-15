@@ -143,11 +143,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 			if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 				return AgentRecord{}, err
 			}
-			if err := lockResourceCreation(ctx, qtx, resourceAgents, input.ProjectID.String()); err != nil {
-				return AgentRecord{}, err
-			}
-			record, err := insertAdmittedAgentTx(ctx, unit, qtx, insertAgentInput{
-				OrgID:           project.OrgID,
+			record, err := insertAdmittedAgentTx(ctx, unit, insertAgentInput{
 				ProjectID:       input.ProjectID,
 				Name:            input.Name,
 				CurrentConfigID: input.CurrentConfigID,

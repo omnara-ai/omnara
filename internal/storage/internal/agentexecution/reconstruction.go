@@ -115,19 +115,14 @@ func reconstructExecution(ctx context.Context, db executiondb.DBTX, route AgentR
 		if !ok {
 			return ExecutionSnapshot{}, fmt.Errorf("%w: output %s missing context", ErrInvalidState, row.ID)
 		}
-		output := ModelOutput{
-			ID:      row.ID,
-			EventID: row.EventID,
-			Event:   EventBoundary{Sequence: row.Sequence, Time: row.CreatedAt},
-			Context: source,
-		}
-		batch, loadErr := l.batch(ctx, output)
-		if loadErr != nil {
-			return ExecutionSnapshot{}, loadErr
-		}
-		if batch != nil {
-			if batch.Completion != nil && acceptedWatermark >= batch.Completion.LastResultSequence {
-				continue
+		if row.Calls > 0 {
+			if !row.Incomplete {
+				if row.Calls != row.Results || row.Calls != row.Events {
+					return ExecutionSnapshot{}, fmt.Errorf("%w: output %s incomplete result authority", ErrInvalidState, row.ID)
+				}
+				if acceptedWatermark >= row.LastResultSequence {
+					continue
+				}
 			}
 			if head.PendingToolOutputID != uuid.Nil {
 				return ExecutionSnapshot{}, fmt.Errorf(
@@ -269,37 +264,4 @@ func (l *executionLoader) turn(ctx context.Context, head ExecutionHead) (*Turn, 
 		}
 	}
 	return turn, nil
-}
-
-func (l *executionLoader) batch(ctx context.Context, output ModelOutput) (*ToolBatch, error) {
-	row, err := l.q.LoadExecutionBatch(
-		ctx,
-		l.db,
-		executiondb.LoadExecutionBatchParams{AgentID: l.route.AgentID, ModelOutputID: output.ID},
-	)
-	if err != nil || !row.HasTools {
-		return nil, err
-	}
-	batch := &ToolBatch{Output: output, HasIncomplete: row.Incomplete, HasRunnable: row.Runnable}
-	if row.Incomplete {
-		return batch, nil
-	}
-	completion, err := l.q.LoadExecutionBatchCompletion(
-		ctx,
-		l.db,
-		executiondb.LoadExecutionBatchCompletionParams{
-			AgentID: l.route.AgentID, ModelOutputID: output.ID},
-	)
-	if err != nil {
-		return nil, err
-	}
-	if completion.Calls == 0 || completion.Calls != completion.Results ||
-		completion.Calls != completion.Events {
-		return nil, fmt.Errorf("%w: output %s incomplete result authority", ErrInvalidState, output.ID)
-	}
-	batch.Completion = &BatchCompletion{
-		LastResultSequence: completion.LastResultSequence,
-		ReadyAt:            completion.ReadyAt,
-	}
-	return batch, nil
 }

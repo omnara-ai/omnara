@@ -1589,3 +1589,29 @@ func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
 		child.Agent.ID).Scan(&pending))
 	require.Equal(t, 50, pending)
 }
+
+func TestSpawnAgentQuotaErrorMessage(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "spawn-quota", toolFixtureOptions{withSubagents: true})
+	_, err := fixture.Pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
+ VALUES($1,1)`, toolsTestOrgID)
+	require.NoError(t, err)
+	call := fixture.recordToolCall(t, ctx, "call_spawn_quota", "spawn_agent",
+		`{"agent":"fork","task":"Investigate the build."}`, fixture.Now.Add(20*time.Second))
+	turn := fixture.turn()
+	turn.Tools["spawn_agent"] = ToolSpec{Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)}
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
+	require.NoError(t, err)
+	require.Equal(t, DispatchCompleted, result.Disposition)
+	var parts []struct {
+		Type  string
+		Value map[string]any
+	}
+	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+	require.Len(t, parts, 1)
+	require.Equal(t, "spawn_agent_failed", parts[0].Value["error_code"])
+	require.Equal(t, "active agents limit of 1 reached: resource conflict", parts[0].Value["message"])
+	children, err := fixture.Store.Execution().ListSubagents(ctx, toolsTestProjectID, fixture.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, children)
+}

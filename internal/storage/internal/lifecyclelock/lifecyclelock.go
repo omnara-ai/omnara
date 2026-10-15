@@ -178,6 +178,19 @@ func AgentSources(ctx context.Context, tx dbsqlc.DBTX, agentIDs ...uuid.UUID) er
 	return nil
 }
 
+func AgentSourcesShared(ctx context.Context, tx dbsqlc.DBTX, agentIDs ...uuid.UUID) error {
+	q := dbsqlc.New(tx)
+	for _, agentID := range orderedIDs(agentIDs) {
+		if err := q.LockAgentMachineSourcesForLaunch(
+			ctx,
+			dbsqlc.LockAgentMachineSourcesForLaunchParams{AgentID: agentID},
+		); err != nil {
+			return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
+		}
+	}
+	return nil
+}
+
 func Pools(ctx context.Context, tx dbsqlc.DBTX, refs []PoolRef) error {
 	q := dbsqlc.New(tx)
 	ordered := append([]PoolRef(nil), refs...)

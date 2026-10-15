@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -108,6 +109,12 @@ func (s *Store) ConnectBYOMachine(
 			return ConnectBYOMachineResult{}, fmt.Errorf("create project machine grant: %w", err)
 		}
 		grants = append(grants, grant)
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{
+		{Kind: resourceguard.Machines, OrgID: input.OrgID},
+		{Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: machine.ID},
+	}); err != nil {
+		return ConnectBYOMachineResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ConnectBYOMachineResult{}, fmt.Errorf("commit connect BYO machine: %w", err)

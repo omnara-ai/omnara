@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -20,6 +21,7 @@ var ErrUnitAborted = errors.New("agent execution unit requires rollback")
 var ErrLockPlan = errors.New("agent execution lock plan must be restarted")
 
 type Unit struct {
+	creations         []resourceguard.Creation
 	cell              *AgentCell
 	expanded          retryPlan
 	claimedAgent      uuid.UUID
@@ -44,6 +46,10 @@ func newUnit(cell *AgentCell, tx pgx.Tx) *Unit {
 
 func (u *Unit) DB() unitDB { return unitDB{unit: u} }
 
+func (u *Unit) TrackCreation(creation resourceguard.Creation) {
+	u.creations = append(u.creations, creation)
+}
+
 func (u *Unit) Notifications() *notifications.TxNotifications { return u.notifications }
 
 func (u *Unit) active() error {
@@ -67,13 +73,15 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	defer func() {
 		if err != nil {
 			u.aborted = true
-			err = fmt.Errorf("commit %s: %w", operation, err)
 		}
 	}()
 	if err := u.publishExecution(ctx); err != nil {
 		return err
 	}
 	if err := u.enqueueWebhooks(ctx); err != nil {
+		return err
+	}
+	if err := resourceguard.CheckCreations(ctx, u.DB(), u.creations); err != nil {
 		return err
 	}
 	if err := u.tx.Commit(ctx); err != nil {
@@ -83,9 +91,9 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 			(postgres.SeverityUnlocalized == "ERROR" || postgres.Severity == "ERROR") &&
 			postgres.Code != "40003" && !strings.HasPrefix(postgres.Code, "08")
 		if !knownAbort && !errors.Is(err, pgx.ErrTxCommitRollback) && !pgconn.SafeToRetry(err) {
-			return errors.Join(storeerr.ErrCommitOutcomeUnknown, err)
+			return fmt.Errorf("commit %s: %w", operation, errors.Join(storeerr.ErrCommitOutcomeUnknown, err))
 		}
-		return err
+		return fmt.Errorf("commit %s: %w", operation, err)
 	}
 	u.closed = true
 	u.notifications.Flush(context.WithoutCancel(ctx), u.cell.publisher)

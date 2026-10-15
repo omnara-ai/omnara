@@ -44,3 +44,7 @@ func ResolveLimits(
 func OwnerScope(orgID uuid.UUID, ownerKind string, projectID, userID uuid.UUID) string {
 	return fmt.Sprintf("%s:%s:%s:%s", orgID, ownerKind, projectID, userID)
 }
+
+func LimitExceeded(resource string, limit int64) error {
+	return fmt.Errorf("%s limit of %d reached: %w", resource, limit, storeerr.ErrConflict)
+}

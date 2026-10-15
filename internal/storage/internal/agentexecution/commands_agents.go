@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -56,7 +57,7 @@ func (u *Unit) CreateAgent(ctx context.Context, input CreateAgentInput) (*Handle
 		}
 		root = parent.route.RootAgentID
 	}
-	_, err := executiondb.New().CreateExecutionAgent(ctx, u.DB(), executiondb.CreateExecutionAgentParams{
+	orgID, err := executiondb.New().CreateExecutionAgent(ctx, u.DB(), executiondb.CreateExecutionAgentParams{
 		ID:        input.ID,
 		ProjectID: input.ProjectID,
 		RootID:    root,
@@ -72,6 +73,7 @@ func (u *Unit) CreateAgent(ctx context.Context, input CreateAgentInput) (*Handle
 	if err != nil {
 		return nil, err
 	}
+	u.TrackCreation(resourceguard.Creation{Kind: resourceguard.Agents, OrgID: orgID, ProjectID: input.ProjectID})
 	if err = u.CreatedAgent(input.ProjectID, input.ID, input.ParentID); err != nil {
 		u.aborted = true
 		return nil, err

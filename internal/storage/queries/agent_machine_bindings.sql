@@ -178,6 +178,11 @@ SELECT pg_advisory_xact_lock(
   hashtextextended('agent_machine_sources:' || sqlc.arg(agent_id)::uuid::text, 0)
 );
 
+-- name: LockAgentMachineSourcesForLaunch :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('agent_machine_sources:' || sqlc.arg(agent_id)::uuid::text, 0)
+);
+
 -- name: ListAttachedAgentPoolMachineIDsForLifecycle :many
 SELECT machine.id
 FROM machines machine

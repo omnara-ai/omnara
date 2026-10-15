@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -284,6 +285,7 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
+	t.unit.TrackCreation(resourceguard.Creation{Kind: resourceguard.Machines, OrgID: agent.OrgID})
 	status, err := poolMachineByIDTx(ctx, t.q, projectID, agentID, binding.MachineID)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
@@ -759,7 +761,7 @@ func createPoolMachineBindingTx(
 	if err != nil {
 		return AgentMachineBindingRecord{}, fmt.Errorf("prepare resolved binding environment: %w", err)
 	}
-	machineRow, err := insertMachineWithResourceLimitTx(ctx, qtx, dbsqlc.InsertMachineParams{
+	machineRow, err := qtx.InsertMachine(ctx, dbsqlc.InsertMachineParams{
 		OrgID:                  input.OrgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -22,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
@@ -600,17 +602,38 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 		t.Fatalf("machine pool sources = %+v, want one source", sources)
 	}
 
-	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
-		ProjectID:     testProjectID,
-		AgentID:       agent.ID,
-		ToolCallID:    toolCalls["create"],
-		RuntimeLockID: lock.ID,
-	}, executionstore.CreatePoolMachineInput{
-		MachinePoolID: machinePool.ID,
-	})
+	var statements []string
+	tracedConfig := pool.Config()
+	tracedConfig.ConnConfig.Tracer = &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		statements = append(statements, sql)
+	}}
+	traced, err := pgxpool.NewWithConfig(ctx, tracedConfig)
+	require.NoError(t, err)
+	defer traced.Close()
+	tracedStore := newIntegrationStore(traced, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	create := func() (executionstore.CreatePoolMachineResult, error) {
+		return createPoolMachineForTest(ctx, tracedStore, executionstore.ExecuteToolCallInput{
+			ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: toolCalls["create"], RuntimeLockID: lock.ID,
+		}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID})
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO org_resource_limit_overrides(org_id,max_live_machines_per_org) VALUES($1,0)`,
+		testOrgID)
+	require.NoError(t, err)
+	_, err = create()
+	require.EqualError(t, err, "live machines limit of 0 reached: resource conflict")
+	for _, table := range []string{"machines", "project_machine_grants", "agent_machine_bindings"} {
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
+	_, err = pool.Exec(ctx, "DELETE FROM org_resource_limit_overrides WHERE org_id=$1", testOrgID)
+	require.NoError(t, err)
+	statements = nil
+	created, err := create()
 	if err != nil {
 		t.Fatalf("create pool machine: %v", err)
 	}
+	assertMachineQuotaTail(t, statements)
 	if created.Machine.Binding.Cwd != "" {
 		t.Fatalf("created binding cwd = %q, want empty", created.Machine.Binding.Cwd)
 	}
