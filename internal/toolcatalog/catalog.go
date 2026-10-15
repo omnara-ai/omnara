@@ -275,14 +275,12 @@ func buildDefaultCatalog() (Catalog, error) {
 			"pattern": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Pattern under literal /memory or /artifacts, or a path or glob on the selected machine. " +
-					"Memory patterns match paths: " +
+				"description": "Path or glob on the machine, relative to its working directory (~ is the user's home), " +
+					"or a pattern under literal /memory or /artifacts. Memory patterns match paths: " +
 					"/memory/* lists attached stores; /memory/** lists recursively. " +
 					"Artifact patterns match filenames, which can repeat, and return /artifacts/<artifact_id> paths for read/download. " +
 					"An exact artifact ID selects one artifact; wildcards match filenames, not IDs. " +
-					"* matches within a segment, ** spans directory levels, and ? matches one character. " +
-					"Other paths are machine paths: relative paths use the machine working directory; " +
-					"~ expands to the machine user's home directory.",
+					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
 			"machine_id": machineFileID("listing"),
 			"cursor": map[string]any{
