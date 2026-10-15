@@ -92,7 +92,7 @@ func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesReq
 	return input
 }
 
-func searchResultBytes(result searchResult) int {
+func searchResultBytes(result filesearch.Result) int {
 	size := 0
 	for _, line := range result.Lines {
 		size += len(line.Path) + len(line.Text) + 64
@@ -333,7 +333,7 @@ func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 		{"--json", "-e", "x"}, {"-e"}, {"-C", "6", "-e", "x"}, {"-l", "-c", "-e", "x"},
 		{"-e", strings.Repeat("x", 1025)}, {"-e", ""}, {"-e", "a\x00b"},
 	} {
-		if _, err := parseSearchArgs(args); err == nil {
+		if _, err := filesearch.ParseArgs(args); err == nil {
 			t.Fatalf("accepted unsafe args: %q", args)
 		}
 	}

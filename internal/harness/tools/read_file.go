@@ -26,7 +26,6 @@ type readFileRequest struct {
 	MachineID json.RawMessage `json:"machine_id,omitempty"`
 	fileread.Paging
 
-	onMachine bool
 	machineID uuid.UUID
 }
 
@@ -45,8 +44,7 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 		return readFileRequest{}, err
 	}
 	input.machineID = machineID
-	input.onMachine = onMachine(input.Path, machineID)
-	if input.onMachine {
+	if onMachine(input.Path, machineID) {
 		if err := validateMachinePath(input.Path); err != nil {
 			return readFileRequest{}, err
 		}
@@ -62,7 +60,7 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 
 func machineReadFile(raw json.RawMessage) (machineFileCall, bool, error) {
 	input, err := resolveReadFileRequest(raw)
-	if err != nil || !input.onMachine {
+	if err != nil || !onMachine(input.Path, input.machineID) {
 		return machineFileCall{}, false, err
 	}
 	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileRead, operation: processcmd.FileOperation{
@@ -77,9 +75,6 @@ func runReadFileAsync(
 	input, err := resolveReadFileRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
-	}
-	if input.onMachine {
-		return nil, errors.New("machine reads run as file operation processes")
 	}
 	var content []byte
 	var digest, contentType, note string

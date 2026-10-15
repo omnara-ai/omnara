@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -36,7 +37,7 @@ func TestFileListCursorValidation(t *testing.T) {
 		{"/other", uuid.Nil, false},
 	} {
 		t.Run(test.key, func(t *testing.T) {
-			want := fileListCursor{Version: 1, Scope: "scope", Key: test.key, ID: test.id}
+			want := listing.FileCursor{Version: 1, Scope: "scope", Key: test.key, ID: test.id}
 			var payload bytes.Buffer
 			encoder := json.NewEncoder(&payload)
 			encoder.SetEscapeHTML(false)

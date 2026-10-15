@@ -25,16 +25,14 @@ type listFilesRequest struct {
 	MachineID json.RawMessage `json:"machine_id,omitempty"`
 }
 
-type fileListCursor = listing.FileCursor
-
 var errInvalidFileListCursor = errors.New("invalid file listing cursor; keep the same pattern or restart the listing")
 
-func decodeFileListCursor(raw string) (fileListCursor, error) {
+func decodeFileListCursor(raw string) (listing.FileCursor, error) {
 	if raw == "" {
-		return fileListCursor{}, nil
+		return listing.FileCursor{}, nil
 	}
 	if len(raw) > toolcatalog.ListFilesMaxCursorLength {
-		return fileListCursor{}, errInvalidFileListCursor
+		return listing.FileCursor{}, errInvalidFileListCursor
 	}
 	cursor, ok := listing.DecodeFileCursor(raw)
 	if !ok {
@@ -129,7 +127,7 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 	}
 	var next *string
 	if result.Next.Set {
-		token, err := fileListCursor{
+		token, err := listing.FileCursor{
 			Version: listing.FileCursorVersion, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
 		}.Encode()
 		if err != nil {

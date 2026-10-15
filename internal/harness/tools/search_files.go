@@ -60,11 +60,12 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 		return input, err
 	}
 	memory := strings.HasPrefix(input.Path, memorystore.Root+"/")
+	options, argsErr := filesearch.ParseArgs(input.Args)
 	if onMachine(input.Path, input.machineID) {
 		if err := validateMachineGlob(input.Path); err != nil {
 			return input, err
 		}
-		if options, err := filesearch.ParseArgs(input.Args); err == nil {
+		if argsErr == nil {
 			if _, err := filesearch.Compile(options); err != nil {
 				return input, fmt.Errorf("invalid search pattern: %w", err)
 			}
@@ -85,10 +86,10 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 		}
 		return input, errors.New("path must be a /memory/ path or glob, or one /artifacts/<artifact_id> path")
 	}
-	input.mode, err = parseSearchArgs(input.Args)
-	if err != nil {
-		return input, err
+	if argsErr != nil {
+		return input, argsErr
 	}
+	input.mode = options.Mode
 	if input.Limit == 0 {
 		input.Limit = toolcatalog.SearchDefaultMatches
 	}
@@ -117,11 +118,6 @@ func machineSearchFiles(raw json.RawMessage) (machineFileCall, bool, error) {
 		Path: input.Path, Args: input.Args, Limit: input.Limit, Paging: fileread.Paging{OffsetLine: input.OffsetLine},
 	}
 	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileSearch, operation: operation}, true, nil
-}
-
-func parseSearchArgs(args []string) (string, error) {
-	options, err := filesearch.ParseArgs(args)
-	return options.Mode, err
 }
 
 type searchSource struct {
@@ -198,8 +194,6 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	}
 	return completeFileTool(result)
 }
-
-type searchResult = filesearch.Result
 
 type searchOutput struct {
 	input searchFilesRequest

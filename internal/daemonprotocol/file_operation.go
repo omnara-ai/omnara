@@ -40,7 +40,7 @@ func UnsupportedFileOperationsMessage(daemonVersion string) string {
 }
 
 func withoutUnsupportedFileOperation(daemonVersion string, offer *ProcessOffer) *ProcessOffer {
-	if offer == nil || !processcmd.IsFileOperation(offer.ExecutionSpec.Kind) ||
+	if offer == nil || offer.ExecutionSpec.File == nil ||
 		processcmd.SupportsFileOperations(daemonVersion) {
 		return offer
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/filesearch"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -187,7 +188,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 				t.Fatal(err)
 			}
 			var parts []struct {
-				Value searchResult `json:"value"`
+				Value filesearch.Result `json:"value"`
 			}
 			if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 				t.Fatal(err)

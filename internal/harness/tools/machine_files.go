@@ -83,7 +83,7 @@ func machineFileToolHandler(async asyncToolHandler, resolve machineFileResolver)
 	return toolHandler{
 		Transactional: runMachineFileTool(resolve),
 		Async:         async,
-		Background:    wakeMachineFileTool(resolve),
+		Background:    wakeMachineFileTool,
 	}
 }
 
@@ -118,14 +118,11 @@ func runMachineFileTool(resolve machineFileResolver) transactionalToolHandler {
 	}
 }
 
-func wakeMachineFileTool(resolve machineFileResolver) backgroundToolHandler {
-	return func(ctx context.Context, call backgroundToolContext) error {
-		_, machine, err := resolve(call.Call.Input)
-		if err != nil || !machine {
-			return err
-		}
-		return wakeProcessTool(ctx, call)
+func wakeMachineFileTool(ctx context.Context, call backgroundToolContext) error {
+	if _, started := call.CommandResult.(executionstore.ProcessRecord); !started {
+		return nil
 	}
+	return wakeProcessTool(ctx, call)
 }
 
 func machineFilePermissionChallenge(resolve machineFileResolver) permissionChallengeBuilder {

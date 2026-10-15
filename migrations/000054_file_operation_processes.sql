@@ -25,6 +25,4 @@ ALTER TABLE processes
                 AND NOT execution_spec ? 'shell'
                 AND NOT execution_spec ? 'file_transfer')
         ), false
-    )) NOT VALID;
-
-ALTER TABLE processes VALIDATE CONSTRAINT processes_execution_check;
+    ));

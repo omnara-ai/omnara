@@ -17,7 +17,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -237,7 +236,7 @@ func writeMachineFile(operation processcmd.FileOperation) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
+			if !fileread.IsText(current) {
 				return nil, errors.New("file must contain UTF-8 text without NUL bytes")
 			}
 			content = append(current, content...)
@@ -296,6 +295,7 @@ func globPath(base, name string) string {
 func walkGlob(ctx context.Context, root, glob, after string, visit func(string, fs.DirEntry) error) error {
 	segments := strings.Split(glob, "/")
 	afterSegments := strings.Split(after, "/")
+	braces := strings.Contains(glob, "{")
 	visited := 0
 	return fs.WalkDir(os.DirFS(root), ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || name == "." {
@@ -307,12 +307,15 @@ func walkGlob(ctx context.Context, root, glob, after string, visit func(string, 
 		if visited++; visited > maxListVisitedEntries {
 			return errFileOperationBound
 		}
-		descend := entry.IsDir() && mayContainMatches(segments, name)
+		descend := entry.IsDir() && (braces || mayContainMatches(segments, name))
 		if after != "" && slices.Compare(strings.Split(name, "/"), afterSegments) <= 0 {
 			if descend && (name == after || strings.HasPrefix(after, name+"/")) {
 				return nil
 			}
-			return skipEntry(entry)
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if matched, _ := doublestar.Match(glob, name); matched {
 			if err := visit(name, entry); err != nil {
@@ -326,17 +329,7 @@ func walkGlob(ctx context.Context, root, glob, after string, visit func(string, 
 	})
 }
 
-func skipEntry(entry fs.DirEntry) error {
-	if entry.IsDir() {
-		return fs.SkipDir
-	}
-	return nil
-}
-
 func mayContainMatches(segments []string, dir string) bool {
-	if slices.ContainsFunc(segments, func(segment string) bool { return strings.Contains(segment, "{") }) {
-		return true
-	}
 	parts := strings.Split(dir, "/")
 	for i, part := range parts {
 		if i >= len(segments) {

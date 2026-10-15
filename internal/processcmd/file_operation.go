@@ -33,15 +33,6 @@ func ForFileOperation(kind ExecutionKind, operation FileOperation) ExecutionSpec
 	return ExecutionSpec{Kind: kind, File: &operation}
 }
 
-func IsFileOperation(kind ExecutionKind) bool {
-	switch kind {
-	case KindFileRead, KindFileWrite, KindFileList, KindFileSearch:
-		return true
-	default:
-		return false
-	}
-}
-
 func SupportsFileOperations(daemonVersion string) bool {
 	if daemonVersion == daemonversion.Development {
 		return true

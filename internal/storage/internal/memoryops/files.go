@@ -179,13 +179,13 @@ func (f *Filesystem) Lock(ctx context.Context, ref StoreRef) (*os.File, error) {
 	}
 }
 
-func openRegularFile(root *os.Root, name string) (*os.File, error) {
+func openRegularFile(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
 	if err := CheckPath(root, name); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	file, err := root.Open(name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	info, err := file.Stat()
 	if err == nil && !info.Mode().IsRegular() {
@@ -193,9 +193,9 @@ func openRegularFile(root *os.Root, name string) (*os.File, error) {
 	}
 	if err != nil {
 		_ = file.Close()
-		return nil, err
+		return nil, nil, err
 	}
-	return file, nil
+	return file, info, nil
 }
 
 func Read(root *os.Root, name string) ([]byte, error) {
@@ -205,15 +205,11 @@ func Read(root *os.Root, name string) ([]byte, error) {
 
 // ReadModified returns a file's content and modification time from one open handle.
 func ReadModified(root *os.Root, name string) ([]byte, time.Time, error) {
-	file, err := openRegularFile(root, name)
+	file, info, err := openRegularFile(root, name)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
 	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, time.Time{}, err
-	}
 	body, err := io.ReadAll(io.LimitReader(file, daemonprotocol.MaxFileTransferBytes+1))
 	if err != nil {
 		return nil, time.Time{}, err
@@ -225,7 +221,7 @@ func ReadModified(root *os.Root, name string) ([]byte, time.Time, error) {
 }
 
 func Digest(root *os.Root, name string) (string, error) {
-	file, err := openRegularFile(root, name)
+	file, _, err := openRegularFile(root, name)
 	if err != nil {
 		return "", err
 	}

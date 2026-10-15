@@ -71,9 +71,9 @@ func TestReadFileRoutesOmnaraAndMachinePaths(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if request.onMachine != test.onMachine || request.machineID != test.machineID {
+			if onMachine(request.Path, request.machineID) != test.onMachine || request.machineID != test.machineID {
 				t.Fatalf("request routed to machine=%t id=%s, want machine=%t id=%s",
-					request.onMachine, request.machineID, test.onMachine, test.machineID)
+					onMachine(request.Path, request.machineID), request.machineID, test.onMachine, test.machineID)
 			}
 		})
 	}

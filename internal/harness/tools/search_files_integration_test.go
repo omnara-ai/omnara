@@ -155,7 +155,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	write(private.ID, "secret.md", "TARGET SECRET\n")
 	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
 	call.Turn.AgentID = agent.ID
-	search := func(path string, args []string, limit, offset int) (searchResult, error) {
+	search := func(path string, args []string, limit, offset int) (filesearch.Result, error) {
 		t.Helper()
 		request := map[string]any{"path": path, "args": args, "limit": limit}
 		if offset > 0 {
@@ -172,10 +172,10 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 			t.Fatalf("search left temporary views: %v %v", views, cleanupErr)
 		}
 		if err != nil {
-			return searchResult{}, err
+			return filesearch.Result{}, err
 		}
 		var parts []struct {
-			Value searchResult `json:"value"`
+			Value filesearch.Result `json:"value"`
 		}
 		if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 			t.Fatal(err)

@@ -56,8 +56,13 @@ func valueOrDefault(value *int, fallback int) *int {
 	return &fallback
 }
 
+// IsText reports whether content is UTF-8 text without NUL bytes.
+func IsText(content []byte) bool {
+	return utf8.Valid(content) && bytes.IndexByte(content, 0) < 0
+}
+
 func (p Paging) Page(content []byte, path string) (map[string]any, error) {
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+	if !IsText(content) {
 		return nil, ErrUnreadableContent
 	}
 	if p.OffsetChar != nil && p.LimitChars != nil {

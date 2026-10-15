@@ -214,7 +214,7 @@ Reads a text or image file at `/artifacts/<artifact_id>`, `/memory/<store-name>/
 
 Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
-Machine files are read in place, so the agent can view a screenshot it just took without calling `upload_file`. Machine images are stored as artifacts so the model can view them; text reads create nothing in Omnara. `expected_digest` applies only to memory reads.
+Machine files are read in place, so the agent can view a screenshot it just took without calling `upload_file`. Machine images are stored as artifacts so the model can view them; text reads create nothing in Omnara.
 
 | Input | Type | Notes |
 | --- | --- | --- |
@@ -246,7 +246,7 @@ Creates or edits a memory text file in a writable store attached with `read_writ
 
 Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Changing an existing file requires the agent to have read or written it, and fails if the file changed since then; read the file again before retrying. Creating a file needs no prior read.
 
-Machine writes replace or append to the file atomically, create missing parent directories, and keep an existing file's permissions; they don't take `expected_digest`. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
+Machine writes replace or append to the file atomically, create missing parent directories, and keep an existing file's permissions. Machine content is limited to 512 KiB; edit larger machine files with `run_command`.
 
 ### `search_files`
 

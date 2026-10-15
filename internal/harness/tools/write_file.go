@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/fileread"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -107,16 +108,19 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	if err != nil {
 		return nil, err
 	}
-	seen, found, err := memories.LastSeen(ctx, call.Turn.AgentID, input.Path)
-	if err != nil {
-		return nil, err
-	}
 	scope := memorystore.Scope{
 		OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, AgentID: call.Turn.AgentID,
 	}
 	write := memorystore.WriteInput{Scope: scope, StoreID: store.ID, Path: path, Force: input.Force}
-	if found && !input.Force {
-		write.ExpectedDigest = &seen.Digest
+	var seen memorystore.FileView
+	var found bool
+	if !input.Force {
+		if seen, found, err = memories.LastSeen(ctx, call.Turn.AgentID, input.Path); err != nil {
+			return nil, err
+		}
+		if found {
+			write.ExpectedDigest = &seen.Digest
+		}
 	}
 	unseen := func() error {
 		if !found {
@@ -147,7 +151,7 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 		} else {
 			write.ExpectedDigest = &digest
 		}
-		if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
+		if !fileread.IsText(current) {
 			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
 		}
 		if input.Append {
@@ -222,7 +226,7 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 		}
 		return nil, fmt.Errorf("script execution failed: %w", waitErr)
 	}
-	if !utf8.Valid(output) || bytes.IndexByte(output, 0) >= 0 {
+	if !fileread.IsText(output) {
 		return nil, errors.New("result must be UTF-8 text without NUL bytes")
 	}
 	return output, nil
