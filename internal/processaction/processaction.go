@@ -9,7 +9,11 @@ import (
 )
 
 const (
-	MaxWaitMilliseconds     = 10 * 1000
+	MaxWaitMilliseconds        = 5 * 60 * 1000
+	MaxPayloadWaitMilliseconds = 24 * 60 * 60 * 1000
+	LegacyMaxWaitMilliseconds  = 10 * 1000
+	LongWaitDaemonVersion      = "0.2.6"
+
 	MaxObservationBytes     = 64 * 1024
 	DefaultObservationBytes = 8 * 1024
 	MaxWriteBytes           = 128 * 1024
@@ -94,10 +98,10 @@ func DecodeReadPayload(raw json.RawMessage) (ReadPayload, error) {
 			MaxObservationBytes,
 		)
 	}
-	if payload.WaitMS < 0 || payload.WaitMS > MaxWaitMilliseconds {
+	if payload.WaitMS < 0 || payload.WaitMS > MaxPayloadWaitMilliseconds {
 		return ReadPayload{}, fmt.Errorf(
 			"wait_ms must be between 0 and %d",
-			MaxWaitMilliseconds,
+			MaxPayloadWaitMilliseconds,
 		)
 	}
 	return payload, nil

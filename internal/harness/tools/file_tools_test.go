@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -215,7 +214,7 @@ func TestFileTransferProcessInput(t *testing.T) {
 			Direction: tc.direction, LocalPath: localPath, Target: processcmd.FileTarget{Artifact: &target},
 		}
 		if !reflect.DeepEqual(input.ExecutionSpec, processcmd.ForFileTransfer(want)) || input.Cwd != "" ||
-			input.InitialWaitMS != processaction.MaxWaitMilliseconds || input.TimeoutSeconds != tc.timeout {
+			input.InitialWaitMS != fileTransferInitialWaitMS || input.TimeoutSeconds != tc.timeout {
 			t.Fatalf("%s process input = %+v", tc.direction, input)
 		}
 	}

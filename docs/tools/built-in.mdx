@@ -69,7 +69,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `machine_id` | string | Public ID (`mch_...`) of the [machine](#picking-a-machine) to use; omit when the agent has exactly one |
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
-| `wait_ms` | integer | 1–10000; how long to wait for early output or exit before returning |
+| `wait_ms` | integer | 1–300000; how long to wait for early output or exit before returning |
 | `io_mode` | enum | `pipe` (default) or `pty` |
 
 Every command returns a `process_id` (`prc_…`). `wait_ms` controls how long `run_command` waits for the command to finish before returning. If it finishes in time, the result includes its output:
@@ -112,7 +112,7 @@ Reads process output from a byte cursor and can briefly wait for new output.
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `cursor` | integer | ≥ 0; resume where the last read stopped |
 | `max_bytes` | integer | 1–65536 (default 8192) |
-| `wait_ms` | integer | 1–10000 |
+| `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. |
 
 ### `write_process`
 
