@@ -59,8 +59,11 @@ Fill in an instruction for what the user asked for, a short profile name, and
 a simple first message. The machine tools come with `machine_sources`; don't
 list them, or other built-in tools the user doesn't need.
 
-Add relevant secrets for the machine pool env override. If needed, you can pipe
-a GitHub PAT via a secret into the env var overlay.
+Add relevant secrets or startup scripts for the machine pool env override. For
+example, if the user wants to clone a GitHub repository, you may set up a script
+(`machine_provider_options_overlay.startup_script` on the machine source) which
+clones the repo upon starting the machine. If needed, you can pipe a GitHub PAT
+via a secret into the env var overlay.
 
 Then create the profile and launch the agent:
 
