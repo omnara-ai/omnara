@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -139,7 +141,7 @@ func TestExecutionRecoveryExhaustion(t *testing.T) {
 				start,
 					err := h.BeginCompaction(t.Context(),
 					agentexecution.BeginCompactionInput{SourceEnd: prepared.Context.InputEventSequence,
-						Failure: agentexecution.ModelFailure{ContextID: prepared.Context.ID,
+						Failure: agentexecution.ModelFailure{Recovery: agentexecution.RecoveryCompact, ContextID: prepared.Context.ID,
 							RuntimeLockID: lease,
 							ErrorKind:     "context_length",
 							ErrorMessage:  "compact"}})
@@ -222,4 +224,60 @@ func TestExecutionClaimInvalidLease(t *testing.T) {
 			require.ErrorContains(t, err, "runtime lease duration must be between 15s and 30m0s")
 		})
 	}
+}
+
+func TestExecutionCompactionExcerptRecoveryUsesRetryCount(t *testing.T) {
+	f, agent, lease := commandFixture(t)
+	unit, handle := f.handle(t, agent)
+	receiveCommand(t, handle, "steering", "first")
+	receiveCommand(t, handle, "steering", "second")
+	_, err := handle.AdmitInputs(t.Context())
+	require.NoError(t, err)
+	normal := prepareCommand(t, handle, lease)
+	failure := agentexecution.ModelFailure{
+		ContextID: normal.Context.ID, RuntimeLockID: lease, Recovery: agentexecution.RecoveryCompact,
+		ErrorKind: modelprotocol.ErrorKindContextWindow, ErrorMessage: "provider overflow",
+		Evidence: agentexecution.ModelEvidence{APIFormat: "openai-responses", APIVariant: "default"},
+	}
+	compact, err := handle.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{
+		Failure: failure, SourceEnd: normal.Context.InputEventSequence,
+	})
+	require.NoError(t, err)
+	for range executionpolicy.MaxModelCallRetriesPerOperation + 1 {
+		failure.ContextID = compact.Model.Context.ID
+		failure.Recovery = agentexecution.RecoveryReduce
+		compact, err = handle.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{
+			Failure: failure, SourceEnd: compact.Model.Context.SourceEventSequenceEnd,
+		})
+		require.NoError(t, err)
+		require.True(t, compact.Model.Created)
+		assertCommandState(t, unit, handle)
+	}
+	require.Greater(t, int(compact.Model.Context.Attempt), executionpolicy.MaxModelCallRetriesPerOperation)
+	_, err = handle.FailModel(t.Context(), agentexecution.ModelFailure{
+		ContextID: compact.Model.Context.ID, RuntimeLockID: lease, Recovery: agentexecution.RecoveryRetry,
+		ErrorKind: modelprotocol.ErrorKindProviderUnavailable, ErrorMessage: "transient",
+	})
+	require.NoError(t, err)
+	compact.Model = prepareCommand(t, handle, lease)
+	require.NoError(t, unit.Commit(t.Context(), "excerpt attempts and retry"))
+	unit, handle = f.handle(t, agent)
+	failure.ContextID = compact.Model.Context.ID
+	_, err = handle.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{
+		Failure: failure, SourceEnd: compact.Model.Context.SourceEventSequenceEnd - 1,
+	})
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.NoError(t, unit.Rollback(t.Context()))
+	unit, handle = f.handle(t, agent)
+	require.NoError(t, handle.Release(t.Context(), lease))
+	var recovery string
+	var delay int64
+	require.NoError(t, unit.DB().QueryRow(t.Context(), `
+SELECT recovery_kind,extract(epoch FROM (retry_at-completed_at))*1000000
+ FROM model_call_contexts WHERE id=$1`, compact.Model.Context.ID).Scan(&recovery, &delay))
+	require.Equal(t, "retry", recovery)
+	require.Equal(t, modelprotocol.RetryBackoff(2, compact.Model.Context.ID.String()).Microseconds(), delay)
+	snapshot := assertCommandState(t, unit, handle)
+	require.Equal(t, agentexecution.OriginRetry, snapshot.Selection.Model.Origin)
+	require.NoError(t, unit.Commit(t.Context(), "recover second transient failure"))
 }

@@ -132,10 +132,11 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		evidence := ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
-			RequestID:  input.RequestID,
-			ResponseID: input.Response.Normalized.ID,
-			Usage:      input.Response.Normalized.Usage,
-			Cost:       input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
+			InputFingerprint: successfulInputFingerprint(input.Response),
+			RequestID:        input.RequestID,
+			ResponseID:       input.Response.Normalized.ID,
+			Usage:            input.Response.Normalized.Usage,
+			Cost:             input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
 		parts, proposals, err := outputParts(input.Response, input.Tools)
 		if err != nil {
 			return AcceptedOutput{}, err
@@ -327,4 +328,11 @@ func ParentEffectKind(response modelenvelope.ResponseEnvelope) string {
 	return map[modelenvelope.StopReason]string{modelenvelope.StopReasonEndTurn: "result",
 		modelenvelope.StopReasonRefusal:       "refused",
 		modelenvelope.StopReasonContentFilter: "content_filtered"}[response.Normalized.StopReason]
+}
+
+func successfulInputFingerprint(response modelenvelope.ResponseEnvelope) string {
+	if normalizedUsage(response.Normalized.Usage).InputTokens <= 0 {
+		return ""
+	}
+	return response.InputFingerprint
 }

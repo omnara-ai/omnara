@@ -80,7 +80,6 @@ func (e AgentExecutor) executeModelWork(
 			return executionstore.OwnedAgentWorkTransition{}, false, e.resumeCompactionContext(
 				ctx,
 				input,
-				builder,
 				e.ModelResolver,
 				contextRow,
 			)

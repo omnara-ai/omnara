@@ -29,6 +29,8 @@ type ModelCallState string
 type ModelCallRecoveryKind string
 
 type ModelCallContextRecord struct {
+	SourceExcerptReductionCount int `json:"source_excerpt_reduction_count,omitempty"`
+
 	ID                        uuid.UUID                             `json:"id"`
 	OrgID                     uuid.UUID                             `json:"org_id"`
 	ProjectID                 uuid.UUID                             `json:"project_id"`
@@ -51,6 +53,7 @@ type ModelCallContextRecord struct {
 	ErrorMessage              string                                `json:"error_message,omitempty"`
 	ErrorDetails              json.RawMessage                       `json:"error_details"`
 	RetryAt                   *time.Time                            `json:"retry_at,omitempty"`
+	InputFingerprint          string                                `json:"input_fingerprint,omitempty"`
 	Usage                     modelenvelope.Usage                   `json:"usage"`
 	ProviderReportedCostUSD   modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
 	ProviderMetadata          modelenvelope.ProviderMetadata        `json:"provider_metadata,omitzero"`
@@ -62,15 +65,6 @@ type ModelCallClaim struct {
 	Context ModelCallContextRecord
 	Created bool
 	Claimed bool
-}
-
-type ClaimCompactionModelCallInput struct {
-	ProjectID              uuid.UUID
-	AgentID                uuid.UUID
-	RuntimeLockID          uuid.UUID
-	InputEventSequence     int64
-	SourceEventSequenceEnd int64
-	ParentContextID        uuid.UUID
 }
 
 type ClaimNextModelCallContextInput struct {

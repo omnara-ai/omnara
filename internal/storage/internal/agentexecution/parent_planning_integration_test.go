@@ -40,7 +40,9 @@ func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 					if kind == "compaction_failure" {
 						compaction, err := child.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{
 							SourceEnd: prepared.Context.InputEventSequence,
-							Failure: agentexecution.ModelFailure{ContextID: prepared.Context.ID, RuntimeLockID: lease,
+							Failure: agentexecution.ModelFailure{
+								Recovery:  agentexecution.RecoveryCompact,
+								ContextID: prepared.Context.ID, RuntimeLockID: lease,
 								ErrorKind: "context_length", ErrorMessage: "compact"},
 						})
 						require.NoError(t, err)

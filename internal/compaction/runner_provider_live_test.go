@@ -123,7 +123,8 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 	}}
 	apiFormat, apiVariant, ok := model.APIIdentityForClient(client)
 	require.True(t, ok)
-	result, err := testRunner(store, client).Run(ctx, runInput(testPlan(1, 1, 2)))
+	compactionInput := runInput(testPlan(1, 1, 2))
+	result, err := testRunner(store, client).RunClaimed(ctx, compactionInput, store.addStartedClaim(compactionInput))
 	require.NoError(t, err)
 	require.Len(t, *client.responses, 1)
 	response := (*client.responses)[0]

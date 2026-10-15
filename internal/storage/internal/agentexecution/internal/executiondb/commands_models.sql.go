@@ -168,10 +168,10 @@ UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
  output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
  provider_reported_cost_usd=$18::text::numeric,provider_metadata=$19::jsonb,
- completed_at=statement_timestamp()
-WHERE c.agent_id=$20 AND c.id=$21 AND c.state='started' AND c.runtime_lock_id=$22
+ input_fingerprint=$20::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$21 AND c.id=$22 AND c.state='started' AND c.runtime_lock_id=$23
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
- AND r.id=$22 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
+ AND r.id=$23 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
 `
 
 type FinishExecutionAttemptParams struct {
@@ -194,6 +194,7 @@ type FinishExecutionAttemptParams struct {
 	ReasoningTokens   *int32
 	Cost              *string
 	ProviderMetadata  json.RawMessage
+	InputFingerprint  *string
 	AgentID           uuid.UUID
 	ID                uuid.UUID
 	RuntimeID         uuid.UUID
@@ -220,6 +221,7 @@ func (q *Queries) FinishExecutionAttempt(ctx context.Context, db DBTX, arg Finis
 		arg.ReasoningTokens,
 		arg.Cost,
 		arg.ProviderMetadata,
+		arg.InputFingerprint,
 		arg.AgentID,
 		arg.ID,
 		arg.RuntimeID,
@@ -256,6 +258,26 @@ func (q *Queries) LatestExecutionAttempt(ctx context.Context, db DBTX, arg Lates
 	return id, err
 }
 
+const latestExecutionFrontierContext = `-- name: LatestExecutionFrontierContext :one
+SELECT id FROM model_call_contexts
+WHERE agent_id=$1 AND operation_kind=$2
+ AND input_event_sequence=$3
+ORDER BY source_event_sequence_end ASC,attempt_number DESC LIMIT 1
+`
+
+type LatestExecutionFrontierContextParams struct {
+	AgentID   uuid.UUID
+	Operation string
+	Watermark int64
+}
+
+func (q *Queries) LatestExecutionFrontierContext(ctx context.Context, db DBTX, arg LatestExecutionFrontierContextParams) (uuid.UUID, error) {
+	row := db.QueryRow(ctx, latestExecutionFrontierContext, arg.AgentID, arg.Operation, arg.Watermark)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const readExecutionAttempt = `-- name: ReadExecutionAttempt :one
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
  c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,c.runtime_lock_id,
@@ -263,7 +285,11 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.error_kind,c.error_code,c.error_message,c.error_details,c.input_tokens_total,c.uncached_input_tokens,
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
- r.provider_model_slug
+ r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
+ AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
+ AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
+ AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
 WHERE c.agent_id=$1 AND c.id=$2
 `
@@ -274,38 +300,40 @@ type ReadExecutionAttemptParams struct {
 }
 
 type ReadExecutionAttemptRow struct {
-	ID                        uuid.UUID
-	AgentID                   uuid.UUID
-	TurnID                    uuid.UUID
-	OperationKind             string
-	AttemptNumber             int32
-	InputEventSequence        int64
-	SourceEventSequenceEnd    *int64
-	State                     string
-	RecoveryKind              *string
-	RetryAt                   *time.Time
-	OpeningInputIds           []uuid.UUID
-	OpeningEventSequence      int64
-	RuntimeLockID             uuid.UUID
-	AgentConfigID             uuid.UUID
-	ConfiguredModelRevisionID uuid.UUID
-	ApiFormat                 string
-	ApiVariant                string
-	ProviderRequestID         string
-	ProviderResponseID        string
-	ErrorKind                 string
-	ErrorCode                 string
-	ErrorMessage              string
-	ErrorDetails              json.RawMessage
-	InputTokensTotal          *int32
-	UncachedInputTokens       *int32
-	CacheReadInputTokens      *int32
-	CacheWriteInputTokens     *int32
-	OutputTokensTotal         *int32
-	ReasoningOutputTokens     *int32
-	ProviderReportedCostUsd   string
-	ProviderMetadata          json.RawMessage
-	ProviderModelSlug         string
+	ID                          uuid.UUID
+	AgentID                     uuid.UUID
+	TurnID                      uuid.UUID
+	OperationKind               string
+	AttemptNumber               int32
+	InputEventSequence          int64
+	SourceEventSequenceEnd      *int64
+	State                       string
+	RecoveryKind                *string
+	RetryAt                     *time.Time
+	OpeningInputIds             []uuid.UUID
+	OpeningEventSequence        int64
+	RuntimeLockID               uuid.UUID
+	AgentConfigID               uuid.UUID
+	ConfiguredModelRevisionID   uuid.UUID
+	ApiFormat                   string
+	ApiVariant                  string
+	ProviderRequestID           string
+	ProviderResponseID          string
+	ErrorKind                   string
+	ErrorCode                   string
+	ErrorMessage                string
+	ErrorDetails                json.RawMessage
+	InputTokensTotal            *int32
+	UncachedInputTokens         *int32
+	CacheReadInputTokens        *int32
+	CacheWriteInputTokens       *int32
+	OutputTokensTotal           *int32
+	ReasoningOutputTokens       *int32
+	ProviderReportedCostUsd     string
+	ProviderMetadata            json.RawMessage
+	ProviderModelSlug           string
+	InputFingerprint            string
+	SourceExcerptReductionCount int64
 }
 
 func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExecutionAttemptParams) (ReadExecutionAttemptRow, error) {
@@ -344,6 +372,8 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 		&i.ProviderReportedCostUsd,
 		&i.ProviderMetadata,
 		&i.ProviderModelSlug,
+		&i.InputFingerprint,
+		&i.SourceExcerptReductionCount,
 	)
 	return i, err
 }

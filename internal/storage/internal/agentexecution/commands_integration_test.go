@@ -251,6 +251,7 @@ func TestExecutionCompactionCommands(t *testing.T) {
 		t.Context(),
 		agentexecution.BeginCompactionInput{SourceEnd: normal.Context.InputEventSequence,
 			Failure: agentexecution.ModelFailure{
+				Recovery:      agentexecution.RecoveryCompact,
 				ContextID:     normal.Context.ID,
 				RuntimeLockID: lease,
 				ErrorKind:     "context_length",
@@ -269,6 +270,7 @@ func TestExecutionCompactionCommands(t *testing.T) {
 	require.Equal(t, start.Model.Context.Opening, retry.Context.Opening)
 	reduced, err := h.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{SourceEnd: 1,
 		Failure: agentexecution.ModelFailure{
+			Recovery:      agentexecution.RecoveryReduce,
 			ContextID:     retry.Context.ID,
 			RuntimeLockID: lease,
 			ErrorKind:     "context_length",
@@ -485,6 +487,7 @@ func TestExecutionConfigAndCheckpointBoundaries(t *testing.T) {
 				t.Context(),
 				agentexecution.BeginCompactionInput{SourceEnd: normal.Context.InputEventSequence,
 					Failure: agentexecution.ModelFailure{
+						Recovery:      agentexecution.RecoveryCompact,
 						ContextID:     normal.Context.ID,
 						RuntimeLockID: lease,
 						ErrorKind:     "context_length",
@@ -619,6 +622,7 @@ func TestExecutionCheckpointRejectsCutBatch(t *testing.T) {
 	compact, err := h.BeginCompaction(
 		t.Context(),
 		agentexecution.BeginCompactionInput{SourceEnd: 2, Failure: agentexecution.ModelFailure{
+			Recovery:  agentexecution.RecoveryCompact,
 			ContextID: next.Context.ID, RuntimeLockID: lease, ErrorKind: "context_length", ErrorMessage: "compact"}},
 	)
 	require.NoError(t, err)
@@ -720,6 +724,7 @@ func TestExecutionPreparationRevalidatesAfterBlockedConfig(t *testing.T) {
 				_, err = h.FailModel(t.Context(), failure)
 				require.NoError(t, err)
 			} else {
+				failure.Recovery = agentexecution.RecoveryCompact
 				compact,
 					err := h.BeginCompaction(t.Context(),
 					agentexecution.BeginCompactionInput{Failure: failure,
@@ -884,7 +889,9 @@ func TestExecutionCompactionReplayDoesNotAdmitNewInputs(t *testing.T) {
 				receiveCommand(t, h, "steering", "interrupt")
 			}
 			input := agentexecution.BeginCompactionInput{SourceEnd: normal.Context.InputEventSequence,
-				Failure: agentexecution.ModelFailure{ContextID: normal.Context.ID, RuntimeLockID: lease,
+				Failure: agentexecution.ModelFailure{
+					Recovery:  agentexecution.RecoveryCompact,
+					ContextID: normal.Context.ID, RuntimeLockID: lease,
 					ErrorKind: "context_length", ErrorMessage: "compact"}}
 			first, err := h.BeginCompaction(t.Context(), input)
 			require.NoError(t, err)

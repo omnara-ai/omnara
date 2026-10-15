@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -186,14 +187,15 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		TurnID:              input.TurnID,
-		OpeningInputIDs:     input.InputIDs,
-		Now:                 input.Now,
-		AgentConfigSnapshot: &snapshot,
-		ContextData:         contextData,
-		MediaProjector:      model.MediaProjectorForClient(client),
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		TurnID:                     input.TurnID,
+		OpeningInputIDs:            input.InputIDs,
+		Now:                        input.Now,
+		AgentConfigSnapshot:        &snapshot,
+		MediaProjector:             model.MediaProjectorForClient(client),
+		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
+		ContextData:                contextData,
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -253,6 +255,7 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 			},
 		)
 	}
+	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
@@ -279,15 +282,7 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 		if triggerErr != nil {
 			return modelStep{}, triggerErr
 		}
-		return e.enterContextMaintenance(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			false,
-			model.Response{},
-		)
+		return e.enterContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{})
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
@@ -339,6 +334,7 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 			response,
 		)
 	}
+	envelope.InputFingerprint = prepared.InputFingerprint
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
@@ -347,14 +343,45 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 		Resolved:            resolved,
 		StreamedToolCallIDs: streamSink.ToolCallIDs(),
 	}
-	if advance != nil && time.Now().Before(advance.Deadline) &&
-		invalidModelResponse(modelErrorSourceForClient(client), step.Envelope.Normalized.StopReason,
-			model.ToolCallsFromEnvelope(step.Envelope)) == nil {
+	return e.finishModelResponse(ctx, input, step, advance)
+}
+
+func (e AgentExecutor) finishModelResponse(
+	ctx context.Context,
+	input ModelWorkExecution,
+	step modelStep,
+	advance *ModelWorkAdvanceOptions,
+) (modelStep, error) {
+	client := step.Resolved.Client
+	errorSource := modelErrorSourceForClient(client)
+	calls := model.ToolCallsFromEnvelope(step.Envelope)
+	reason := step.Envelope.Normalized.StopReason
+	cause := invalidModelResponse(errorSource, reason, calls)
+	if cause == nil && reason == model.StopReasonMaxTokens && len(calls) == 0 &&
+		strings.TrimSpace(step.Envelope.Text()) == "" {
+		cause = model.ProviderError{
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: "model_output_no_progress",
+			Message: "The model exhausted its output allowance without producing text or a tool call.",
+		}
+	}
+	if cause != nil {
+		return e.recordNormalFailureForAttempt(
+			ctx,
+			input,
+			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
+			step.Resolved,
+			cause,
+			true,
+			step.Response,
+			modelretry.Attempt{Number: step.Context.AttemptNumber},
+		)
+	}
+	if advance != nil && time.Now().Before(advance.Deadline) {
 		transition, err := e.Store.Execution().AcceptModelOutputAndAdvance(
 			ctx, executionstore.AcceptModelOutputAndAdvanceInput{
 				Output: executionstore.RecordModelOutputAndCompleteContextInput{
 					ProjectID: input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
-					ModelCallContextID: claim.Context.ID, ProviderRequestID: step.Response.ProviderRequestID,
+					ModelCallContextID: step.Context.ID, ProviderRequestID: step.Response.ProviderRequestID,
 					ProviderResponse: step.Envelope,
 				},
 				ToolCallBindings: toolCallBindings(step.Envelope, step.Bundle.ToolSpecs, step.StreamedToolCallIDs),
@@ -367,7 +394,7 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 				log = slog.Default()
 			}
 			log.WarnContext(ctx, "model output advancement fell back",
-				"agent_id", input.AgentID, "model_call_context_id", claim.Context.ID,
+				"agent_id", input.AgentID, "model_call_context_id", step.Context.ID,
 				"runtime_lock_id", input.RuntimeLockID, "error", transition.Fallback)
 		}
 		if err != nil {
@@ -375,29 +402,6 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 		}
 		step.State, step.Transition = modelStepDone, &transition
 		return step, nil
-	}
-	return e.finishModelResponse(ctx, input, step)
-}
-
-func (e AgentExecutor) finishModelResponse(
-	ctx context.Context,
-	input ModelWorkExecution,
-	step modelStep,
-) (modelStep, error) {
-	client := step.Resolved.Client
-	errorSource := modelErrorSourceForClient(client)
-	calls := model.ToolCallsFromEnvelope(step.Envelope)
-	reason := step.Envelope.Normalized.StopReason
-	if cause := invalidModelResponse(errorSource, reason, calls); cause != nil {
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-			step.Resolved,
-			cause,
-			true,
-			step.Response,
-		)
 	}
 	if len(calls) > 0 {
 		step.State = modelStepToolUse

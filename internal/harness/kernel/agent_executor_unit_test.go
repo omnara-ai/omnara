@@ -23,10 +23,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func unitKernelID(seed string) uuid.UUID {
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("omnara-kernel-unit:"+seed))
-}
-
 type kernelSkillStoreStub struct{}
 
 func (*kernelSkillStoreStub) GetSkillForDispatch(
@@ -337,25 +333,8 @@ func TestToolSpecDerivedSets(t *testing.T) {
 	}
 }
 
-func TestToToolTurnAndExecutorNow(t *testing.T) {
+func TestAgentExecutorNow(t *testing.T) {
 	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.FixedZone("test", -7*60*60))
-	input := ModelWorkExecution{
-		OrgID:                unitKernelID("org"),
-		ProjectID:            unitKernelID("project"),
-		AgentID:              unitKernelID("agent"),
-		TurnID:               unitKernelID("turn"),
-		InputIDs:             []uuid.UUID{unitKernelID("input")},
-		OpeningEventSequence: 12,
-		RuntimeLockID:        unitKernelID("runtime-lock"),
-		Now:                  now,
-	}
-	turn := toToolTurn(input)
-	if turn.OrgID != input.OrgID ||
-		turn.ProjectID != input.ProjectID ||
-		turn.AgentID != input.AgentID ||
-		turn.RuntimeLockID != input.RuntimeLockID {
-		t.Fatalf("tool turn = %+v, want fields copied from %+v", turn, input)
-	}
 	gotNow := (AgentExecutor{Now: func() time.Time { return now }}).now()
 	if gotNow.Location() != time.UTC || !gotNow.Equal(now.UTC()) {
 		t.Fatalf("executor now = %s (%s), want UTC %s", gotNow, gotNow.Location(), now.UTC())

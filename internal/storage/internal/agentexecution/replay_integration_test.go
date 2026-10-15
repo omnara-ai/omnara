@@ -50,6 +50,7 @@ func TestInternalModelReplayIdentityAndFence(t *testing.T) {
 					}
 					return err
 				case "compaction":
+					failure.Recovery = agentexecution.RecoveryCompact
 					failure.RuntimeLockID = runtime
 					result, err := h.BeginCompaction(t.Context(), agentexecution.BeginCompactionInput{
 						Failure: failure, SourceEnd: prepared.Context.InputEventSequence,
@@ -78,23 +79,6 @@ func TestInternalModelReplayIdentityAndFence(t *testing.T) {
 			u, h = f.handle(t, agent)
 			require.NoError(t, run(h, lease))
 			require.NoError(t, u.Commit(t.Context(), "replay attempt"))
-			if kind == "compaction" {
-				u, h = f.handle(t, agent)
-				resume := agentexecution.ResumeCompactionInput{
-					RuntimeLockID: lease, ParentID: prepared.Context.ID,
-					Watermark: prepared.Context.InputEventSequence, SourceEnd: prepared.Context.InputEventSequence,
-				}
-				replay, err := h.ResumeCompaction(t.Context(), resume)
-				require.NoError(t, err)
-				require.Equal(t, compact.Model.Context.ID, replay.Model.Context.ID)
-				require.False(t, replay.Model.Created)
-				require.NoError(t, u.Commit(t.Context(), "replay compaction"))
-				u, h = f.handle(t, agent)
-				resume.RuntimeLockID = uuid.New()
-				_, err = h.ResumeCompaction(t.Context(), resume)
-				require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
-				require.NoError(t, u.Rollback(t.Context()))
-			}
 			u, h = f.handle(t, agent)
 			require.ErrorIs(t, run(h, uuid.New()), storeerr.ErrRuntimeLockInactive)
 			require.NoError(t, u.Rollback(t.Context()))

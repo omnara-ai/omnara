@@ -50,7 +50,7 @@ func releasedExecutionFixture(t *testing.T) executionFixture {
 		}
 		version, parseErr := strconv.Atoi(strings.Split(entry.Name(), "_")[0])
 		require.NoError(t, parseErr)
-		if version > 51 {
+		if version > 52 {
 			continue
 		}
 		body, readErr := os.ReadFile(filepath.Join("../../../../migrations", entry.Name()))
@@ -278,7 +278,7 @@ INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,blo
 		ctx,
 		`
 UPDATE model_call_contexts SET state='succeeded',api_format='openai-responses',api_variant='default',
-completed_at=$2 WHERE id=$1
+input_tokens_total=1,uncached_input_tokens=1,input_fingerprint=repeat('a',64),completed_at=$2 WHERE id=$1
 `,
 		model,
 		f.now,
@@ -473,6 +473,21 @@ func TestReleasedExecutionReconstruction(t *testing.T) {
 			f.fail(t, c, "compact")
 			f.modelContext(t, a, 1, "compaction", new(int64(1)), 1)
 		}, agentexecution.WorkNone, 0},
+		{"excerpt_attempts", func(a uuid.UUID) {
+			turn, _ := f.opening(t, a, 1, uuid.Nil, "content")
+			f.opening(t, a, 2, turn, "config_change")
+			f.opening(t, a, 3, turn, "config_change")
+			normal := f.modelContext(t, a, 3, "normal", nil, 1)
+			f.fail(t, normal, "compact")
+			first := f.modelContext(t, a, 3, "compaction", new(int64(3)), 1)
+			f.fail(t, first, "retry")
+			second := f.modelContext(t, a, 3, "compaction", new(int64(3)), 2)
+			f.fail(t, second, "reduce_compaction_source")
+			smaller := f.modelContext(t, a, 3, "compaction", new(int64(2)), 1)
+			f.fail(t, smaller, "reduce_compaction_source")
+			excerpt := f.modelContext(t, a, 3, "compaction", new(int64(2)), 2)
+			f.fail(t, excerpt, "retry")
+		}, agentexecution.WorkNone, agentexecution.OriginRetry},
 		{"checkpoint", func(a uuid.UUID) {
 			turn, _ := f.opening(t, a, 1, uuid.Nil, "content")
 			normal := f.modelContext(t, a, 1, "normal", nil, 1)
@@ -488,6 +503,12 @@ func TestReleasedExecutionReconstruction(t *testing.T) {
 		tc.build(ids[i])
 	}
 	require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
+	var fingerprints int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `
+SELECT count(*) FROM model_call_contexts WHERE state='succeeded' AND operation_kind='normal'
+ AND input_fingerprint=repeat('a',64) AND input_tokens_total=1`).Scan(&fingerprints))
+	require.Positive(t, fingerprints)
+
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			u, h := f.handle(t, ids[i])

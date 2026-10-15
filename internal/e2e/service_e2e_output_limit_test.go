@@ -27,6 +27,7 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.
 	const modelName = "service-e2e-openrouter"
 	const finalText = "Recovered with a smaller tool call."
 	var requests atomic.Int64
+	var retryMessages atomic.Value
 	failures := make(chan string, 1)
 	fail := func(w http.ResponseWriter, message string) {
 		select {
@@ -128,12 +129,13 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.
 				fail(w, "text cutoff must preserve reasoning and append a harness notice")
 				return
 			}
+			retryMessages.Store(mustJSONString(messages))
 			writeOutputLimitChatChunk(w, map[string]any{"role": "assistant"}, "length", "")
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 		case 5:
-			if strings.Count(mustJSONString(messages), "Automatic Omnara harness notice") != 2 ||
-				!strings.Contains(mustJSONString(messages), `"reasoning":"working through results"`) {
-				fail(w, "empty cutoff must continue without removing historical reasoning or notices")
+			if strings.Count(mustJSONString(messages), "Automatic Omnara harness notice") != 1 ||
+				mustJSONString(messages) != retryMessages.Load() {
+				fail(w, "empty output retry must preserve the previous request history exactly")
 				return
 			}
 			writeServiceE2EOpenRouterChatMessage(w, "completed", modelName, finalText, 100, 12)
@@ -171,14 +173,18 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ETextOutput(t, ctx, env, projectUUID, agentUUID, finalText, failures, worker)
 	waitForServiceE2EAgentIdle(t, ctx, env, projectUUID, agentUUID)
-	var succeeded, failed, truncated, calls int
+	var succeeded, failed, retriedWithoutOutput, truncated, calls int
 	require.NoError(t, env.db.QueryRow(
 		ctx,
-		`SELECT count(*) FILTER(WHERE state='succeeded'),count(*) FILTER(WHERE state='failed') FROM model_call_contexts WHERE agent_id=$1`,
+		`SELECT count(*) FILTER(WHERE state='succeeded'),count(*) FILTER(WHERE state='failed'),
+  count(*) FILTER(WHERE state='failed' AND recovery_kind='retry' AND error_code='model_output_no_progress'
+    AND NOT EXISTS (SELECT 1 FROM model_outputs output WHERE output.model_call_context_id=context.id))
+FROM model_call_contexts context WHERE agent_id=$1`,
 		agentUUID,
 	).Scan(
 		&succeeded,
 		&failed,
+		&retriedWithoutOutput,
 	))
 	require.NoError(t, env.db.QueryRow(
 		ctx,
@@ -194,15 +200,17 @@ WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.provider
 		agentUUID,
 	).Scan(&calls))
 	if requests.Load() != 5 ||
-		succeeded != 5 ||
-		failed != 0 ||
+		succeeded != 4 ||
+		failed != 1 ||
+		retriedWithoutOutput != 1 ||
 		truncated != 1 ||
 		calls != 3 {
 		t.Fatalf(
-			"requests=%d succeeded=%d failed=%d truncated=%d calls=%d",
+			"requests=%d succeeded=%d failed=%d retried_without_output=%d truncated=%d calls=%d",
 			requests.Load(),
 			succeeded,
 			failed,
+			retriedWithoutOutput,
 			truncated,
 			calls,
 		)

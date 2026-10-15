@@ -16,24 +16,29 @@ import (
 )
 
 type ContextEventRecord struct {
-	ID                    uuid.UUID
-	SourceEventID         uuid.UUID
-	AgentInputID          uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	TurnID                uuid.UUID
-	ModelOutputID         uuid.UUID
-	ModelCallContextID    uuid.UUID
-	ModelProviderConfigID uuid.UUID
-	Role                  modelprotocol.MessageRole
-	Sequence              int64
-	ContentParts          json.RawMessage
-	RequestedModelSlug    string
-	APIFormat             modelprotocol.APIFormat
-	APIVariant            modelprotocol.APIVariant
-	ProviderReplay        json.RawMessage
-	StopReason            modelenvelope.StopReason
-	CreatedAt             time.Time
+	InputFingerprint          string
+	InputEventSequence        int64
+	AgentConfigID             uuid.UUID
+	ConfiguredModelRevisionID uuid.UUID
+	Usage                     modelenvelope.Usage
+	ID                        uuid.UUID
+	SourceEventID             uuid.UUID
+	AgentInputID              uuid.UUID
+	ProjectID                 uuid.UUID
+	AgentID                   uuid.UUID
+	TurnID                    uuid.UUID
+	ModelOutputID             uuid.UUID
+	ModelCallContextID        uuid.UUID
+	ModelProviderConfigID     uuid.UUID
+	Role                      modelprotocol.MessageRole
+	Sequence                  int64
+	ContentParts              json.RawMessage
+	RequestedModelSlug        string
+	APIFormat                 modelprotocol.APIFormat
+	APIVariant                modelprotocol.APIVariant
+	ProviderReplay            json.RawMessage
+	StopReason                modelenvelope.StopReason
+	CreatedAt                 time.Time
 }
 
 func (s *Store) ListContextEvents(
@@ -72,19 +77,27 @@ func contextEventsFromSQLC(rows []dbsqlc.ListContextEventsRow, projectID, agentI
 	out := make([]ContextEventRecord, 0, len(rows))
 	for _, row := range rows {
 		record := ContextEventRecord{
-			SourceEventID:         row.ID,
-			AgentInputID:          storeutil.IDFromPtr(row.AgentInputID),
-			Sequence:              row.Sequence,
-			CreatedAt:             row.CreatedAt,
-			ContentParts:          row.ContentParts,
-			ModelOutputID:         storeutil.IDFromPtr(row.ModelOutputID),
-			ModelCallContextID:    storeutil.IDFromPtr(row.ModelCallContextID),
-			ModelProviderConfigID: storeutil.IDFromPtr(row.ModelProviderConfigID),
-			RequestedModelSlug:    row.RequestedProviderModelSlug,
-			APIFormat:             modelprotocol.APIFormat(row.ApiFormat),
-			APIVariant:            modelprotocol.APIVariant(row.ApiVariant),
-			ProviderReplay:        rawMessageFromSQLCPtr(row.ProviderReplay),
-			StopReason:            modelenvelope.StopReason(row.StopReason),
+			InputEventSequence:        row.InputEventSequence,
+			AgentConfigID:             storeutil.IDFromPtr(row.AgentConfigID),
+			ConfiguredModelRevisionID: storeutil.IDFromPtr(row.ConfiguredModelRevisionID),
+			SourceEventID:             row.ID,
+			AgentInputID:              storeutil.IDFromPtr(row.AgentInputID),
+			Sequence:                  row.Sequence,
+			CreatedAt:                 row.CreatedAt,
+			ContentParts:              row.ContentParts,
+			ModelOutputID:             storeutil.IDFromPtr(row.ModelOutputID),
+			ModelCallContextID:        storeutil.IDFromPtr(row.ModelCallContextID),
+			ModelProviderConfigID:     storeutil.IDFromPtr(row.ModelProviderConfigID),
+			RequestedModelSlug:        row.RequestedProviderModelSlug,
+			APIFormat:                 modelprotocol.APIFormat(row.ApiFormat),
+			APIVariant:                modelprotocol.APIVariant(row.ApiVariant),
+			ProviderReplay:            rawMessageFromSQLCPtr(row.ProviderReplay),
+			StopReason:                modelenvelope.StopReason(row.StopReason),
+		}
+		if row.IsSuccessfulNormalCall {
+			record.InputFingerprint = row.InputFingerprint
+			record.Usage = modelUsageFromSQLC(row.InputTokensTotal, row.UncachedInputTokens, row.CacheReadInputTokens,
+				row.CacheWriteInputTokens, row.OutputTokensTotal, row.ReasoningOutputTokens)
 		}
 		record.ID = record.SourceEventID
 		record.ProjectID = projectID

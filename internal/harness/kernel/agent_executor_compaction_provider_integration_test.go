@@ -429,62 +429,16 @@ LIMIT 1
 `, kernelTestProjectID, agentID).Scan(&completedCompactionContextID); err != nil {
 		t.Fatalf("load completed compaction context id: %v", err)
 	}
-	completedCompactionContext, found, err := fixture.Store.Execution().GetModelCallContext(
+	replayedClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
-		kernelTestProjectID,
-		agentID,
-		completedCompactionContextID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load completed compaction context: found=%v err=%v", found, err)
-	}
-	if completedCompactionContext.SourceEventSequenceEnd == nil {
-		t.Fatalf("completed compaction context has no source range: %+v", completedCompactionContext)
-	}
-	parentContext, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		completedCompactionContext.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load completed compaction parent: found=%v err=%v", found, err)
-	}
-	replayedCompaction, err := (compaction.Runner{
-		Store:          compaction.NewStore(fixture.Store.Execution()),
-		Resolver:       executor.ModelResolver,
-		ContextBuilder: executor.contextBuilder(),
-		Now:            executor.Now,
-	}).Run(ctx, compaction.RunInput{
-		Plan: compaction.Plan{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			InputEventSequence: completedCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(
-				t,
-				ctx,
-				fixture.Store,
-				completedCompactionContext,
-			),
-			EventSequenceEnd: *completedCompactionContext.SourceEventSequenceEnd,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID,
+			PredecessorModelCallContextID: completedCompactionContextID,
+			RuntimeLockID:                 retryTurn.RuntimeLockID,
 		},
-		TurnID:                   retryTurn.TurnID,
-		OpeningInputIDs:          retryTurn.InputIDs,
-		OpeningEventSequence:     retryTurn.OpeningEventSequence,
-		RuntimeLockID:            retryTurn.RuntimeLockID,
-		ParentModelCallContextID: parentContext.ID,
-	})
-	if err != nil {
-		t.Fatalf("replay completed compaction: %v", err)
-	}
-	if replayedCompaction.State != compaction.RunCompleted || replayedCompaction.Checkpoint == nil {
-		t.Fatalf("replayed compaction = %+v, want adopted checkpoint", replayedCompaction)
-	}
-	if retryModel.respondedCount() != 2 {
-		t.Fatalf(
-			"completed compaction replay made a provider request; prepared=%d",
-			retryModel.respondedCount(),
-		)
+	)
+	if err != nil || replayedClaim.Created || replayedClaim.Claimed {
+		t.Fatalf("completed compaction created another claim: claim=%+v err=%v", replayedClaim, err)
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,
@@ -878,8 +832,18 @@ func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
 		ctx,
 		"resp_managed_context_window",
 	)
+	notices := 0
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
+			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
+		notices++
+		return nil
+	}
 	if err := journey.executor.ExecuteModelWork(ctx, journey.turn); err != nil {
 		t.Fatalf("execute managed context-window attempt: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications = %d, want 1", notices)
 	}
 	if journey.model.respondedCount() != 1 {
 		t.Fatalf(
@@ -887,15 +851,6 @@ func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
 			journey.model.respondedCount(),
 		)
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		journey.fixture,
-		journey.agentID,
-		journey.turn.TurnID,
-		string(modelprotocol.ErrorKindRuntime),
-		storeerr.ManagedWorkAdmissionDeniedCode,
-	)
 	var compactableParents, deniedCompactions, checkpoints int
 	if err := journey.fixture.Pool.QueryRow(ctx, `
 SELECT count(*) FILTER (
@@ -938,6 +893,13 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing.T) {
 	ctx := context.Background()
 	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
+	notices := 0
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
+			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
+		notices++
+		return nil
+	}
 	journey.model.errs = []error{nil, model.ProviderError{
 		Kind:    model.ErrorKindTransient,
 		Source:  "test-provider",
@@ -953,6 +915,9 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 			journey.model.respondedCount(),
 		)
 	}
+	if notices != 0 {
+		t.Fatalf("retryable failure notifications = %d, want 0", notices)
+	}
 
 	journey.fixture.setManagedWorkAdmission(t, ctx, false)
 	retry := continueTurnOnNewLeaseForKernelTest(
@@ -966,22 +931,18 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 	if err := journey.executor.ExecuteModelWork(ctx, retry); err != nil {
 		t.Fatalf("deny managed compaction retry: %v", err)
 	}
+	if err := journey.executor.ExecuteModelWork(ctx, retry); err != nil {
+		t.Fatalf("replay denied compaction retry: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications after replay = %d, want 1", notices)
+	}
 	if journey.model.respondedCount() != 2 {
 		t.Fatalf(
 			"provider requests after denied compaction retry = %d, want 2",
 			journey.model.respondedCount(),
 		)
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		journey.fixture,
-		journey.agentID,
-		journey.turn.TurnID,
-		string(modelprotocol.ErrorKindRuntime),
-		storeerr.ManagedWorkAdmissionDeniedCode,
-	)
-
 	var retryable, denied int
 	if err := journey.fixture.Pool.QueryRow(ctx, `
 SELECT count(*) FILTER (WHERE recovery_kind = 'retry'),
@@ -1384,16 +1345,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		},
 		responses: malformedResponses,
 	}
-	executor := AgentExecutor{
-		Store:           fixture.Store,
-		ModelResolver:   liveTestModelResolver(fixture.Store, compactionModel),
-		ModelRetryDelay: immediateKernelModelRetryDelay,
-	}
 	currentNow := runNow
 	runner := compaction.Runner{
-		Store:           compaction.NewStore(fixture.Store.Execution()),
-		Resolver:        executor.ModelResolver,
-		ContextBuilder:  executor.contextBuilder(),
+		Store:           fixture.Store.Execution(),
+		Resolver:        liveTestModelResolver(fixture.Store, compactionModel),
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,
 	}
@@ -1405,19 +1360,28 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 			EventSequenceStart: 1,
 			EventSequenceEnd:   turn.OpeningEventSequence - 1,
 		},
-		TurnID:                   turn.TurnID,
-		OpeningInputIDs:          turn.InputIDs,
-		OpeningEventSequence:     turn.OpeningEventSequence,
-		RuntimeLockID:            turn.RuntimeLockID,
-		ParentModelCallContextID: parent.Context.ID,
+		TurnID:               turn.TurnID,
+		OpeningInputIDs:      turn.InputIDs,
+		OpeningEventSequence: turn.OpeningEventSequence,
+		RuntimeLockID:        turn.RuntimeLockID,
 	}
 	var result compaction.RunResult
 	for attemptNumber := 1; attemptNumber <= maxAttempts; attemptNumber++ {
-		if attemptNumber == 1 {
-			result, err = runner.RunClaimed(ctx, runInput, handoff.CompactionCall)
-		} else {
-			result, err = runner.Run(ctx, runInput)
+		claim := handoff.CompactionCall
+		if attemptNumber > 1 {
+			claim, err = fixture.Store.Execution().ClaimNextModelCallContext(
+				ctx,
+				executionstore.ClaimNextModelCallContextInput{
+					ProjectID: kernelTestProjectID, AgentID: agentID,
+					PredecessorModelCallContextID: result.ModelCallContextID,
+					RuntimeLockID:                 turn.RuntimeLockID,
+				},
+			)
+			if err != nil || !claim.Created || !claim.Claimed {
+				t.Fatalf("claim malformed compaction retry %d: claim=%+v err=%v", attemptNumber, claim, err)
+			}
 		}
+		result, err = runner.RunClaimed(ctx, runInput, claim)
 		if err != nil {
 			t.Fatalf("run malformed compaction response attempt %d: %v", attemptNumber, err)
 		}
@@ -1647,11 +1611,18 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		"trigger context window after revoke",
 		fixture.Now.Add(3*time.Second),
 	)
+	notices := 0
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, retryModel),
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
+		OnModelFailure: func(ctx context.Context, _, _, _ uuid.UUID) error {
+			assertDurableModelErrorForKernelTest(t, ctx, fixture, agentID, retryTurn.TurnID,
+				string(modelprotocol.ErrorKindAuth), "model_grant_unavailable")
+			notices++
+			return nil
+		},
 	}
 	err = executor.ExecuteModelWork(ctx, retryTurn)
 	if revokeErr != nil {
@@ -1659,6 +1630,9 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	}
 	if err != nil {
 		t.Fatalf("execute turn after grant unavailable before compaction: %v", err)
+	}
+	if notices != 1 {
+		t.Fatalf("failure notifications = %d, want 1", notices)
 	}
 	if retryModel.respondedCount() != 1 {
 		t.Fatalf(
@@ -1674,33 +1648,6 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 			"compaction provider response was consumed after grant revoke; remaining=%+v",
 			remainingResponses,
 		)
-	}
-	var errorOutputs int
-	if err := fixture.Pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM model_outputs output
-		JOIN agent_events event
-		  ON event.agent_id = output.agent_id
-		 AND event.model_output_id = output.id
-		JOIN model_call_contexts context
-		  ON context.agent_id = output.agent_id
-		 AND context.id = output.model_call_context_id
-		WHERE context.project_id = $1
-		  AND output.agent_id = $2
-		  AND event.turn_id = $3
-		  AND output.stop_reason = 'error'
-		  AND context.state = 'failed'
-		  AND context.recovery_kind IS NULL
-		  AND context.error_kind = 'auth'
-		  AND context.error_code = 'model_grant_unavailable'`,
-		kernelTestProjectID,
-		agentID,
-		retryTurn.TurnID,
-	).Scan(&errorOutputs); err != nil {
-		t.Fatalf("count grant-unavailable error outputs: %v", err)
-	}
-	if errorOutputs != 1 {
-		t.Fatalf("grant-unavailable error outputs = %d, want 1", errorOutputs)
 	}
 	var providerRequestID, providerResponseID string
 	if err := fixture.Pool.QueryRow(ctx, `

@@ -717,7 +717,7 @@ SELECT min(CASE WHEN event.event_kind = 'model_output' THEN event.sequence END),
 	}
 }
 
-func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *testing.T) {
+func TestAgentExecutorStopsWhenCompactionLeavesOversizedUnansweredOpening(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
@@ -813,15 +813,30 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 	if compactionModel.respondedCount() != 1 {
 		t.Fatalf("serialized-candidate provider calls = %d, want 1", compactionModel.respondedCount())
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		fixture,
-		agentID,
-		turn.TurnID,
-		string(model.ErrorKindContextWindow),
-		"compaction_source_irreducible",
-	)
+	turn = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, turn, runNow.Add(time.Second))
+	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+		t.Fatalf("execute normal request after checkpoint: %v", err)
+	}
+	if compactionModel.respondedCount() != 1 {
+		t.Fatal("oversized normal request must not bypass compaction")
+	}
+	var errorCode string
+	if err := fixture.Pool.QueryRow(ctx, `SELECT error_code FROM model_call_contexts
+		WHERE agent_id=$1 AND state='failed' AND recovery_kind IS NULL`, agentID).Scan(&errorCode); err != nil {
+		t.Fatal(err)
+	}
+	if errorCode != contextMaintenanceErrorCodeCannotCompact || pendingModelWork(t, ctx, fixture, agentID) != 0 {
+		t.Fatalf("expected bounded terminal overflow, got %q", errorCode)
+	}
+	currentInput := "current input " + strings.Repeat("must remain semantically represented ", 50)
+	var preserved int
+	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM content_blocks
+		WHERE agent_id=$1 AND text_content=$2`, agentID, currentInput).Scan(&preserved); err != nil {
+		t.Fatal(err)
+	}
+	if preserved != 1 {
+		t.Fatal("unanswered opening must remain stored verbatim")
+	}
 	var checkpoints int
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT count(*)
@@ -832,7 +847,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 	); err != nil {
 		t.Fatalf("count serialized-candidate checkpoints: %v", err)
 	}
-	if checkpoints != 0 {
-		t.Fatalf("serialized-candidate checkpoint count = %d, want 0", checkpoints)
+	if checkpoints != 1 {
+		t.Fatalf("serialized-candidate checkpoint count = %d, want 1", checkpoints)
 	}
 }

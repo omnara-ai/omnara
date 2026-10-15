@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -40,12 +41,12 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 		}
 		if input.SourceEnd <= 0 || input.SourceEnd > source.InputEventSequence ||
 			source.OperationKind == "compaction" &&
-				input.SourceEnd >= storeutil.ValueOrZero(source.SourceEventSequenceEnd) {
+				!compactionSourceProjectionAdvances(source, input) {
 			return CompactionStart{}, storeerr.ErrStateTransitionConflict
 		}
-		input.Failure.Recovery = RecoveryCompact
-		if source.OperationKind == "compaction" {
-			input.Failure.Recovery = RecoveryReduce
+		if source.OperationKind == "normal" && input.Failure.Recovery != RecoveryCompact ||
+			source.OperationKind == "compaction" && input.Failure.Recovery != RecoveryReduce {
+			return CompactionStart{}, storeerr.ErrStateTransitionConflict
 		}
 		if source.State != "started" {
 			historical := input.Failure
@@ -58,7 +59,7 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 			id, err := q.LatestExecutionAttempt(ctx, h.unit.DB(), executiondb.LatestExecutionAttemptParams{
 				AgentID: h.route.AgentID, Operation: "compaction", Watermark: source.InputEventSequence,
 				SourceEnd: &input.SourceEnd})
-			if err == nil {
+			if err == nil && id != source.ID {
 				existing, err := q.ReadExecutionAttempt(
 					ctx,
 					h.unit.DB(),
@@ -66,7 +67,7 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 				)
 				return CompactionStart{Model: attemptRecord(existing)}, err
 			}
-			if !errors.Is(err, pgx.ErrNoRows) {
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return CompactionStart{}, err
 			}
 			snapshot, err := h.LoadExecution(ctx)
@@ -91,7 +92,7 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 			return CompactionStart{}, err
 		}
 		if input.SourceEnd <= covered {
-			return CompactionStart{}, storeerr.ErrAgentNotAdvanceable
+			return CompactionStart{}, storeerr.ErrStateTransitionConflict
 		}
 		if source.State == "started" {
 			if _, err = h.finishAttempt(
@@ -119,7 +120,7 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 			Operation: "compaction",
 			Watermark: source.InputEventSequence,
 			SourceEnd: &input.SourceEnd})
-		if err == nil {
+		if err == nil && id != source.ID {
 			existing, err := q.ReadExecutionAttempt(
 				ctx,
 				h.unit.DB(),
@@ -127,8 +128,11 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 			)
 			return CompactionStart{Model: attemptRecord(existing)}, err
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return CompactionStart{}, err
+		}
+		if source.OperationKind == "normal" && m.head.CompactionContextID != uuid.Nil {
+			return CompactionStart{}, storeerr.ErrStateTransitionConflict
 		}
 		governing := m.head.NormalContextID
 		if source.OperationKind == "compaction" {
@@ -141,6 +145,9 @@ func (h *Handle) BeginCompaction(ctx context.Context, input BeginCompactionInput
 		desired.Context.ID = uuid.New()
 		desired.Context.Operation = OperationCompaction
 		desired.Context.Attempt = 1
+		if source.OperationKind == "compaction" && input.SourceEnd == storeutil.ValueOrZero(source.SourceEventSequenceEnd) {
+			desired.Context.Attempt = source.AttemptNumber + 1
+		}
 		desired.Context.SourceEventSequenceEnd = input.SourceEnd
 		desired.Context.State = ContextStarted
 		desired.Context.Recovery = RecoveryNone
@@ -288,31 +295,15 @@ func (h *Handle) PublishCheckpoint(
 	})
 }
 
-type ResumeCompactionInput struct {
-	RuntimeLockID uuid.UUID
-	ParentID      uuid.UUID
-	Watermark     int64
-	SourceEnd     int64
-}
-
-func (h *Handle) ResumeCompaction(ctx context.Context, input ResumeCompactionInput) (CompactionStart, error) {
-	return executeCommand(ctx, h, func(_ *executionMutation) (CompactionStart, error) {
-		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
-			return CompactionStart{}, err
-		}
-		parent, err := executiondb.New().ReadExecutionAttempt(ctx, h.unit.DB(), executiondb.ReadExecutionAttemptParams{
-			AgentID: h.route.AgentID, ID: input.ParentID,
-		})
-		if err != nil {
-			return CompactionStart{}, err
-		}
-		if parent.OperationKind != "normal" || parent.State != "failed" ||
-			storeutil.ValueOrZero(parent.RecoveryKind) != "compact" || parent.InputEventSequence != input.Watermark {
-			return CompactionStart{}, storeerr.ErrAgentNotAdvanceable
-		}
-		return h.BeginCompaction(ctx, BeginCompactionInput{
-			SourceEnd: input.SourceEnd,
-			Failure:   ModelFailure{ContextID: parent.ID, RuntimeLockID: input.RuntimeLockID},
-		})
-	})
+func compactionSourceProjectionAdvances(source executiondb.ReadExecutionAttemptRow, input BeginCompactionInput) bool {
+	if source.SourceEventSequenceEnd == nil {
+		return false
+	}
+	if input.SourceEnd < *source.SourceEventSequenceEnd {
+		return source.SourceExcerptReductionCount == 0
+	}
+	return input.SourceEnd == *source.SourceEventSequenceEnd && input.Failure.Evidence.APIFormat != "" &&
+		input.Failure.Evidence.APIVariant != "" &&
+		(input.Failure.ErrorKind == modelprotocol.ErrorKindContextWindow ||
+			input.Failure.ErrorKind == modelprotocol.ErrorKindPayloadTooLarge)
 }

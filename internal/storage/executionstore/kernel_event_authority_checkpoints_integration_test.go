@@ -160,7 +160,7 @@ WHERE agent.project_id = $1
 	}
 }
 
-func TestContextCheckpointPublicationRecordsProviderCost(t *testing.T) {
+func TestContextCheckpointPublicationRecordsProviderCostAndRejectsReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "checkpoint_provider_cost")
@@ -208,39 +208,6 @@ func TestContextCheckpointPublicationRecordsProviderCost(t *testing.T) {
 			contextRecord.ProviderReportedCostUSD,
 			input.ProviderReportedCostUSD,
 		)
-	}
-}
-
-func TestContextCheckpointPublicationRejectsRepeatedTransition(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, _ := newMultiInputContinuationSeedFixture(
-		t,
-		ctx,
-		"checkpoint_repeated_publication",
-	)
-	frontier := admitted.Events[len(admitted.Events)-1].Sequence
-	claim := claimSentCompactionForRangeTest(
-		t,
-		ctx,
-		fixture,
-		1,
-		frontier,
-		frontier,
-		fixture.Now.Add(4*time.Second),
-	)
-	input := executionstore.PublishContextCheckpointInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		ModelCallContextID: claim.Context.ID,
-		Summary:            "single checkpoint publication",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         modelprotocol.APIVariantDefault,
-		ProviderResponseID: "resp_single_checkpoint_publication",
-	}
-	if _, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input); err != nil {
-		t.Fatalf("publish checkpoint: %v", err)
 	}
 	if _, err := fixture.Store.Execution().PublishContextCheckpoint(
 		ctx,
@@ -390,7 +357,7 @@ func TestContextCheckpointRejectsInactiveRuntimeBeforeReaping(t *testing.T) {
 	}
 }
 
-func TestContextCheckpointAndCancellationSerializeWithOneWinner(t *testing.T) {
+func TestContextCheckpointPublicationRespectsCancellationOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 

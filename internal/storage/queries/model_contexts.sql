@@ -1,22 +1,21 @@
--- name: GetNormalModelCallContextByIdentity :one
-SELECT context.id
-FROM model_call_contexts context
-WHERE context.project_id = sqlc.arg(project_id)
-  AND context.agent_id = sqlc.arg(agent_id)
-  AND context.operation_kind = 'normal'
-  AND context.input_event_sequence = sqlc.arg(input_event_sequence)
-ORDER BY context.attempt_number DESC
-LIMIT 1;
-
 -- name: GetModelCallContext :one
 SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end,
+  (SELECT count(*) FROM model_call_contexts prior
+   WHERE prior.project_id = context.project_id AND prior.agent_id = context.agent_id
+     AND prior.operation_kind = 'compaction'
+     AND prior.input_event_sequence = context.input_event_sequence
+     AND prior.source_event_sequence_end = context.source_event_sequence_end
+     AND prior.attempt_number < context.attempt_number
+     AND prior.state = 'failed' AND prior.recovery_kind = 'reduce_compaction_source'
+  )::bigint AS source_excerpt_reduction_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
   context.error_message, context.error_details,
+  coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
@@ -62,3 +61,21 @@ SELECT COALESCE((
     AND failure.api_variant = current.api_variant
 ), 0)::bigint AS cutoff_event_sequence
 FROM current_replay_identity current;
+
+-- name: CountModelCallRetries :one
+SELECT (
+  SELECT count(*) FROM model_call_contexts failure
+  WHERE failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND (
+      failure.source_event_sequence_end > context.source_event_sequence_end
+      OR (failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+          AND failure.attempt_number <= context.attempt_number)
+    )
+)::bigint AS retry_count
+FROM model_call_contexts context
+WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(model_call_context_id);

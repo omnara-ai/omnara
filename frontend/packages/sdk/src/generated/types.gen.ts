@@ -130,6 +130,9 @@ export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemor
 
 export type AgentConfigDefinitionModel = {
     cache_retention?: 'none' | 'short' | 'long';
+    /**
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
+     */
     context_window_tokens?: number;
     default_max_output_tokens?: number;
     name: ResourceNameReference;
@@ -157,6 +160,9 @@ export type AgentConfigDefinitionSubagentInstruction = {
 
 export type AgentConfigDefinitionSubagentModel = {
     cache_retention?: 'none' | 'short' | 'long';
+    /**
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
+     */
     context_window_tokens?: number;
     default_max_output_tokens?: number;
     name?: ResourceNameReference;
@@ -575,7 +581,7 @@ export type CreateConfiguredModelRequest = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**
@@ -627,7 +633,7 @@ export type UpdateConfiguredModelRequest = {
      */
     provider_model_slug?: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
     /**
@@ -681,7 +687,7 @@ export type ConfiguredModel = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**
@@ -734,7 +740,7 @@ export type ConfiguredModelList = {
 export type CreateProjectModelGrantRequest = {
     configured_model_id: ConfiguredModelId;
     /**
-     * Optional project token-window limit. Cannot exceed the configured model's current limit.
+     * Optional project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
     /**
@@ -777,7 +783,7 @@ export type CreateProjectModelGrantRequest = {
  */
 export type UpdateProjectModelGrantRequest = {
     /**
-     * Project token-window limit. Cannot exceed the configured model's current limit.
+     * Project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number | null;
     /**
@@ -821,7 +827,7 @@ export type ProjectModelGrant = {
     project_id: ProjectId;
     configured_model_id: ConfiguredModelId;
     /**
-     * Project token-window limit, or omitted/null to inherit from the configured model.
+     * Project context budget for input and output tokens, or omitted/null to inherit from the configured model. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number | null;
     /**
@@ -1565,7 +1571,7 @@ export type AgentConfigModel = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Effective token window after configured-model, project-grant, and agent-config settings are applied.
+     * Effective context budget for input and output tokens after model, project, and agent settings are applied. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**

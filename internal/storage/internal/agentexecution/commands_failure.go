@@ -12,18 +12,20 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type ModelEvidence struct {
-	APIFormat  modelprotocol.APIFormat
-	APIVariant modelprotocol.APIVariant
-	RequestID  string
-	ResponseID string
-	Usage      modelenvelope.Usage
-	Cost       modelenvelope.ProviderReportedCostUSD
-	Metadata   modelenvelope.ProviderMetadata
+	APIFormat        modelprotocol.APIFormat
+	APIVariant       modelprotocol.APIVariant
+	RequestID        string
+	ResponseID       string
+	InputFingerprint string
+	Usage            modelenvelope.Usage
+	Cost             modelenvelope.ProviderReportedCostUSD
+	Metadata         modelenvelope.ProviderMetadata
 }
 
 type ModelFailure struct {
@@ -79,12 +81,13 @@ func evidenceParams(e ModelEvidence) (executiondb.FinishExecutionAttemptParams, 
 	}
 	usage := normalizedUsage(e.Usage)
 	return executiondb.FinishExecutionAttemptParams{
-		ApiFormat:      string(e.APIFormat),
-		ApiVariant:     string(e.APIVariant),
-		RequestID:      e.RequestID,
-		ResponseID:     e.ResponseID,
-		InputTokens:    tokenCount(usage.InputTokens),
-		UncachedTokens: tokenCount(usage.UncachedInputTokens),
+		ApiFormat:        string(e.APIFormat),
+		ApiVariant:       string(e.APIVariant),
+		RequestID:        e.RequestID,
+		ResponseID:       e.ResponseID,
+		InputFingerprint: storeutil.TextFromEmpty(e.InputFingerprint),
+		InputTokens:      tokenCount(usage.InputTokens),
+		UncachedTokens:   tokenCount(usage.UncachedInputTokens),
 		CacheReadTokens: tokenCount(
 			usage.CacheReadTokens,
 		),
@@ -122,11 +125,16 @@ func (h *Handle) finishAttempt(
 	if err != nil {
 		return false, err
 	}
-	if failure.Recovery == RecoveryRetry &&
-		(row.AttemptNumber > executionpolicy.MaxModelCallRetriesPerOperation || failure.RetryDelay < 0) {
-		return false, storeerr.ErrStateTransitionConflict
-	}
 	if failure.Recovery == RecoveryRetry {
+		count, err := dbsqlc.New(h.unit.DB()).CountModelCallRetries(ctx, dbsqlc.CountModelCallRetriesParams{
+			ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, ModelCallContextID: row.ID,
+		})
+		if err != nil {
+			return false, err
+		}
+		if count >= executionpolicy.MaxModelCallRetriesPerOperation || failure.RetryDelay < 0 {
+			return false, storeerr.ErrStateTransitionConflict
+		}
 		delay := failure.RetryDelay.Microseconds()
 		args.RetryMicroseconds = &delay
 	}

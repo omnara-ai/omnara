@@ -584,6 +584,10 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 		}},
 		ToolExecutor: tools.Executor{Store: fixture.Store},
 		Now:          func() time.Time { return currentNow },
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+			t.Error("compaction preempted by a config change must not notify failure")
+			return nil
+		},
 	}
 	overflowTurn := fixture.admitContentInputTurn(
 		t,
@@ -804,51 +808,20 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 	if !compactionRetryAt.After(now.Add(30 * time.Minute)) {
 		t.Fatalf("compaction retry_at = %s, want provider backoff well after new input", compactionRetryAt)
 	}
-	retryingCompactionContext, found, err := fixture.Store.Execution().GetModelCallContext(
+	replayedRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
-		kernelTestProjectID,
-		agentID,
-		compactionContextID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load retrying compaction context: found=%v err=%v", found, err)
-	}
-	if retryingCompactionContext.SourceEventSequenceEnd == nil {
-		t.Fatalf("retrying compaction context has no source range: %+v", retryingCompactionContext)
-	}
-	replayedRetry, err := (compaction.Runner{
-		Store:          compaction.NewStore(fixture.Store.Execution()),
-		Resolver:       executor.ModelResolver,
-		ContextBuilder: executor.contextBuilder(),
-		Now:            executor.Now,
-	}).Run(ctx, compaction.RunInput{
-		Plan: compaction.Plan{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			InputEventSequence: retryingCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(
-				t,
-				ctx,
-				fixture.Store,
-				retryingCompactionContext,
-			),
-			EventSequenceEnd: *retryingCompactionContext.SourceEventSequenceEnd,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID,
+			PredecessorModelCallContextID: compactionContextID,
+			RuntimeLockID:                 overflowTurn.RuntimeLockID,
 		},
-		TurnID:                   overflowTurn.TurnID,
-		OpeningInputIDs:          overflowTurn.InputIDs,
-		OpeningEventSequence:     overflowTurn.OpeningEventSequence,
-		RuntimeLockID:            overflowTurn.RuntimeLockID,
-		ParentModelCallContextID: blockedContextID,
-	})
+	)
 	if err != nil {
-		t.Fatalf("replay compaction before retry deadline: %v", err)
+		t.Fatalf("claim compaction before retry deadline: %v", err)
 	}
-	if replayedRetry.State != compaction.RunRetryScheduled || replayedRetry.RetryAt == nil ||
-		!replayedRetry.RetryAt.Equal(compactionRetryAt) {
-		t.Fatalf("replayed compaction retry = %+v, want deadline %s", replayedRetry, compactionRetryAt)
-	}
-	if retryModel.respondedCount() != 2 {
-		t.Fatalf("early compaction replay made a provider request; prepared=%d", retryModel.respondedCount())
+	if replayedRetry.Created || replayedRetry.Claimed || replayedRetry.Context.ID != compactionContextID ||
+		replayedRetry.Context.RetryAt == nil || !replayedRetry.Context.RetryAt.Equal(compactionRetryAt) {
+		t.Fatalf("early compaction claim = %+v, want existing deadline %s", replayedRetry, compactionRetryAt)
 	}
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,

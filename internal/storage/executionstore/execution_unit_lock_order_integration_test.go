@@ -86,7 +86,7 @@ func TestModelMutationsPlanLocksBeforeFencing(t *testing.T) {
 			f, parent, child := executionLockOrderAgents(t, parentFirst)
 			runtime, source := uuid.New(), uuid.New()
 			for _, operation := range []string{
-				"claim compaction", "retry", "prepare",
+				"retry", "prepare",
 				"begin compaction", "replace compaction", "terminal compaction",
 			} {
 				t.Run(operation, func(t *testing.T) {
@@ -97,14 +97,6 @@ func TestModelMutationsPlanLocksBeforeFencing(t *testing.T) {
 					assertExecutionAgentOrder(t, f, first, second, func(ctx context.Context) error {
 						s := f.Store.Execution()
 						switch operation {
-						case "claim compaction":
-							_, err := s.ClaimCompactionModelCall(
-								ctx,
-								executionstore.ClaimCompactionModelCallInput{
-									ProjectID: testProjectID, AgentID: child, RuntimeLockID: runtime, ParentContextID: source,
-									InputEventSequence: 1, SourceEventSequenceEnd: 1},
-							)
-							return err
 						case "retry":
 							_, err := s.ClaimNextModelCallContext(
 								ctx,

@@ -14,29 +14,52 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (e AgentExecutor) compactionRunner(
+func (e AgentExecutor) executeCompaction(
+	ctx context.Context,
+	input ModelWorkExecution,
 	resolver model.Resolver,
-	builder modelcontext.Builder,
-) compaction.Runner {
-	return compaction.Runner{
-		Store:           compaction.NewStore(e.Store.Execution()),
+	plan compaction.Plan,
+	claim executionstore.ModelCallClaim,
+) error {
+	runner := compaction.Runner{
+		Store:           e.Store.Execution(),
 		Resolver:        resolver,
-		ContextBuilder:  builder,
 		Now:             e.Now,
 		ModelRetryDelay: e.ModelRetryDelay,
 	}
+	result, err := runner.RunClaimed(ctx, compaction.RunInput{
+		Plan:                 plan,
+		TurnID:               input.TurnID,
+		OpeningInputIDs:      input.InputIDs,
+		OpeningEventSequence: input.OpeningEventSequence,
+		RuntimeLockID:        input.RuntimeLockID,
+	}, claim)
+	if err != nil {
+		return err
+	}
+	if result.State == compaction.RunTerminal {
+		e.notifyModelFailure(ctx, input)
+	}
+	return nil
 }
 
 func (e AgentExecutor) resumeCompactionContext(
 	ctx context.Context,
 	input ModelWorkExecution,
-	builder modelcontext.Builder,
 	resolver model.Resolver,
 	contextRow executionstore.ModelCallContextRecord,
 ) error {
 	if contextRow.SourceEventSequenceEnd == nil {
 		return fmt.Errorf("active compaction context has no source range: %w", storeerr.ErrStateTransitionConflict)
 	}
+	claim, err := e.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
+		ProjectID: contextRow.ProjectID, AgentID: contextRow.AgentID,
+		PredecessorModelCallContextID: contextRow.ID, RuntimeLockID: input.RuntimeLockID,
+	})
+	if err != nil || !claim.Created {
+		return err
+	}
+	contextRow = claim.Context
 	sourceStart := int64(1)
 	checkpoint, found, err := e.Store.Execution().GetLatestApplicableContextCheckpoint(
 		ctx,
@@ -50,36 +73,19 @@ func (e AgentExecutor) resumeCompactionContext(
 	if found {
 		sourceStart = checkpoint.SummarizedThroughEventSequence + 1
 	}
-	parent, found, err := e.Store.Execution().GetNormalModelCallContextForFrontier(
+	return e.executeCompaction(
 		ctx,
-		contextRow.ProjectID,
-		contextRow.AgentID,
-		contextRow.InputEventSequence,
-	)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("active compaction context has no parent normal call: %w", storeerr.ErrStateTransitionConflict)
-	}
-	_, err = e.compactionRunner(resolver, builder).Run(
-		ctx,
-		compaction.RunInput{
-			Plan: compaction.Plan{
-				ProjectID:          contextRow.ProjectID,
-				AgentID:            contextRow.AgentID,
-				InputEventSequence: contextRow.InputEventSequence,
-				EventSequenceStart: sourceStart,
-				EventSequenceEnd:   *contextRow.SourceEventSequenceEnd,
-			},
-			TurnID:                   input.TurnID,
-			OpeningInputIDs:          input.InputIDs,
-			OpeningEventSequence:     input.OpeningEventSequence,
-			RuntimeLockID:            input.RuntimeLockID,
-			ParentModelCallContextID: parent.ID,
+		input,
+		resolver,
+		compaction.Plan{
+			ProjectID:          contextRow.ProjectID,
+			AgentID:            contextRow.AgentID,
+			InputEventSequence: contextRow.InputEventSequence,
+			EventSequenceStart: sourceStart,
+			EventSequenceEnd:   *contextRow.SourceEventSequenceEnd,
 		},
+		claim,
 	)
-	return err
 }
 
 func (e AgentExecutor) planCompactionForContext(
@@ -173,15 +179,18 @@ func (e AgentExecutor) planCompactionForContext(
 		AtomicGroups:              atomicGroups,
 	}
 	retainFrom, ok, err := compaction.SelectRetainFromEventSequence(boundaryInput)
-	if err != nil || !ok {
+	if err != nil {
 		return compaction.Plan{}, false, err
+	}
+	if !ok {
+		return compaction.Plan{}, false, nil
 	}
 	boundaryInput.DesiredRetainFromSequence = retainFrom
 	projectionSummary := "[Earlier conversation compacted.]"
 	if hasCheckpoint {
 		projectionSummary = checkpoint.Summary + "\n\n[Additional closed history compacted.]"
 	}
-	retainFrom, ok, err = e.clampRetainFromToModelBudget(
+	budgetRetainFrom, fitsEstimate, err := e.clampRetainFromToModelBudget(
 		ctx,
 		contextRow,
 		client,
@@ -190,8 +199,11 @@ func (e AgentExecutor) planCompactionForContext(
 		projectionSummary,
 		requestPolicy,
 	)
-	if err != nil || !ok {
+	if err != nil {
 		return compaction.Plan{}, false, err
+	}
+	if fitsEstimate {
+		retainFrom = budgetRetainFrom
 	}
 	plan, ok, err := compaction.PlanCheckpoint(compaction.PlanInput{
 		ProjectID:                      contextRow.ProjectID,
@@ -231,13 +243,14 @@ func (e AgentExecutor) clampRetainFromToModelBudget(
 		boundaryInput.DesiredRetainFromSequence,
 		func(retainFrom int64) (bool, error) {
 			bundle, buildErr := e.contextBuilder().Build(ctx, modelcontext.BuildInput{
-				ProjectID:           contextRow.ProjectID,
-				AgentID:             contextRow.AgentID,
-				TurnID:              input.TurnID,
-				OpeningInputIDs:     input.InputIDs,
-				Now:                 input.Now,
-				AgentConfigSnapshot: &snapshot,
-				MediaProjector:      model.MediaProjectorForClient(client),
+				ProjectID:                  contextRow.ProjectID,
+				AgentID:                    contextRow.AgentID,
+				TurnID:                     input.TurnID,
+				OpeningInputIDs:            input.InputIDs,
+				Now:                        input.Now,
+				AgentConfigSnapshot:        &snapshot,
+				MediaProjector:             model.MediaProjectorForClient(client),
+				TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 				CheckpointOverride: &modelcontext.CheckpointRef{
 					SummarizedThroughEventSequence: retainFrom - 1,
 					Summary:                        projectionSummary,

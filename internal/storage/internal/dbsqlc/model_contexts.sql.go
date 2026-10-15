@@ -13,15 +13,56 @@ import (
 	"github.com/google/uuid"
 )
 
+const countModelCallRetries = `-- name: CountModelCallRetries :one
+SELECT (
+  SELECT count(*) FROM model_call_contexts failure
+  WHERE failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND (
+      failure.source_event_sequence_end > context.source_event_sequence_end
+      OR (failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+          AND failure.attempt_number <= context.attempt_number)
+    )
+)::bigint AS retry_count
+FROM model_call_contexts context
+WHERE context.project_id = $1 AND context.agent_id = $2
+  AND context.id = $3
+`
+
+type CountModelCallRetriesParams struct {
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ModelCallContextID uuid.UUID
+}
+
+func (q *Queries) CountModelCallRetries(ctx context.Context, arg CountModelCallRetriesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countModelCallRetries, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
+	var retry_count int64
+	err := row.Scan(&retry_count)
+	return retry_count, err
+}
+
 const getModelCallContext = `-- name: GetModelCallContext :one
 SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end,
+  (SELECT count(*) FROM model_call_contexts prior
+   WHERE prior.project_id = context.project_id AND prior.agent_id = context.agent_id
+     AND prior.operation_kind = 'compaction'
+     AND prior.input_event_sequence = context.input_event_sequence
+     AND prior.source_event_sequence_end = context.source_event_sequence_end
+     AND prior.attempt_number < context.attempt_number
+     AND prior.state = 'failed' AND prior.recovery_kind = 'reduce_compaction_source'
+  )::bigint AS source_excerpt_reduction_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
   context.error_message, context.error_details,
+  coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
   context.retry_at, context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
@@ -41,38 +82,40 @@ type GetModelCallContextParams struct {
 }
 
 type GetModelCallContextRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-	OperationKind             string
-	AttemptNumber             int32
-	AgentConfigID             uuid.UUID
-	ConfiguredModelRevisionID uuid.UUID
-	InputEventSequence        int64
-	SourceEventSequenceEnd    *int64
-	RuntimeLockID             uuid.UUID
-	State                     string
-	RecoveryKind              *string
-	ApiFormat                 string
-	ApiVariant                string
-	ProviderRequestID         string
-	ProviderResponseID        string
-	ErrorKind                 string
-	ErrorCode                 string
-	ErrorMessage              string
-	ErrorDetails              json.RawMessage
-	RetryAt                   *time.Time
-	InputTokensTotal          *int32
-	UncachedInputTokens       *int32
-	CacheReadInputTokens      *int32
-	CacheWriteInputTokens     *int32
-	OutputTokensTotal         *int32
-	ReasoningOutputTokens     *int32
-	CreatedAt                 time.Time
-	CompletedAt               *time.Time
-	ProviderReportedCostUsd   string
-	ProviderMetadata          json.RawMessage
+	ID                          uuid.UUID
+	OrgID                       uuid.UUID
+	ProjectID                   uuid.UUID
+	AgentID                     uuid.UUID
+	OperationKind               string
+	AttemptNumber               int32
+	AgentConfigID               uuid.UUID
+	ConfiguredModelRevisionID   uuid.UUID
+	InputEventSequence          int64
+	SourceEventSequenceEnd      *int64
+	SourceExcerptReductionCount int64
+	RuntimeLockID               uuid.UUID
+	State                       string
+	RecoveryKind                *string
+	ApiFormat                   string
+	ApiVariant                  string
+	ProviderRequestID           string
+	ProviderResponseID          string
+	ErrorKind                   string
+	ErrorCode                   string
+	ErrorMessage                string
+	ErrorDetails                json.RawMessage
+	InputFingerprint            string
+	RetryAt                     *time.Time
+	InputTokensTotal            *int32
+	UncachedInputTokens         *int32
+	CacheReadInputTokens        *int32
+	CacheWriteInputTokens       *int32
+	OutputTokensTotal           *int32
+	ReasoningOutputTokens       *int32
+	CreatedAt                   time.Time
+	CompletedAt                 *time.Time
+	ProviderReportedCostUsd     string
+	ProviderMetadata            json.RawMessage
 }
 
 func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (GetModelCallContextRow, error) {
@@ -89,6 +132,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ConfiguredModelRevisionID,
 		&i.InputEventSequence,
 		&i.SourceEventSequenceEnd,
+		&i.SourceExcerptReductionCount,
 		&i.RuntimeLockID,
 		&i.State,
 		&i.RecoveryKind,
@@ -100,6 +144,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ErrorCode,
 		&i.ErrorMessage,
 		&i.ErrorDetails,
+		&i.InputFingerprint,
 		&i.RetryAt,
 		&i.InputTokensTotal,
 		&i.UncachedInputTokens,
@@ -113,30 +158,6 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ProviderMetadata,
 	)
 	return i, err
-}
-
-const getNormalModelCallContextByIdentity = `-- name: GetNormalModelCallContextByIdentity :one
-SELECT context.id
-FROM model_call_contexts context
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.operation_kind = 'normal'
-  AND context.input_event_sequence = $3
-ORDER BY context.attempt_number DESC
-LIMIT 1
-`
-
-type GetNormalModelCallContextByIdentityParams struct {
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	InputEventSequence int64
-}
-
-func (q *Queries) GetNormalModelCallContextByIdentity(ctx context.Context, arg GetNormalModelCallContextByIdentityParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getNormalModelCallContextByIdentity, arg.ProjectID, arg.AgentID, arg.InputEventSequence)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
 }
 
 const getProviderReplaySuppressionCutoff = `-- name: GetProviderReplaySuppressionCutoff :one

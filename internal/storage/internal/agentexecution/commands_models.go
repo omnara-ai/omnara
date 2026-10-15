@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -149,8 +148,7 @@ func (h *Handle) PrepareModel(ctx context.Context, input PrepareModelInput) (Pre
 		}
 		candidate := snapshot.Selection.Model
 		if candidate == nil || !sameDecision(*candidate, input.Selected) || boundary.Started ||
-			(input.Selected.Kind == ModelResume && (candidate.ReadyAt.After(boundary.DatabaseNow) ||
-				desired.Context.Attempt > executionpolicy.MaxModelCallRetriesPerOperation+1)) {
+			(input.Selected.Kind == ModelResume && candidate.ReadyAt.After(boundary.DatabaseNow)) {
 			return PreparedModel{}, storeerr.ErrAgentNotAdvanceable
 		}
 		return h.createAttempt(ctx, m, desired, snapshot)
@@ -312,9 +310,9 @@ func (h *Handle) ResumeModel(ctx context.Context, runtimeID, predecessorID uuid.
 		if err != nil {
 			return PreparedModel{}, err
 		}
-		id, err := q.LatestExecutionAttempt(ctx, h.unit.DB(), executiondb.LatestExecutionAttemptParams{
+		id, err := q.LatestExecutionFrontierContext(ctx, h.unit.DB(), executiondb.LatestExecutionFrontierContextParams{
 			AgentID: h.route.AgentID, Operation: predecessor.OperationKind,
-			Watermark: predecessor.InputEventSequence, SourceEnd: predecessor.SourceEventSequenceEnd,
+			Watermark: predecessor.InputEventSequence,
 		})
 		if err != nil {
 			return PreparedModel{}, err
@@ -340,8 +338,7 @@ func (h *Handle) ResumeModel(ctx context.Context, runtimeID, predecessorID uuid.
 			return PreparedModel{}, err
 		}
 		if boundary.Started ||
-			selected.ReadyAt.After(boundary.DatabaseNow) ||
-			predecessor.AttemptNumber >= executionpolicy.MaxModelCallRetriesPerOperation+1 {
+			selected.ReadyAt.After(boundary.DatabaseNow) {
 			return attemptRecord(latest), nil
 		}
 		return h.PrepareModel(ctx, PrepareModelInput{RuntimeLockID: runtimeID, Selected: *selected})

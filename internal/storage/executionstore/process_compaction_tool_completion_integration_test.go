@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -140,26 +141,22 @@ func TestSucceededCompactionCannotStartAnotherBranch(t *testing.T) {
 	); err != nil {
 		t.Fatalf("publish successful checkpoint: %v", err)
 	}
-	parent, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		claim.Context.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
-	}
 
-	_, err = fixture.Store.Execution().ClaimCompactionModelCall(ctx, executionstore.ClaimCompactionModelCallInput{
-		ProjectID:              testProjectID,
-		AgentID:                fixture.AgentID,
-		RuntimeLockID:          fixture.Lock.ID,
-		InputEventSequence:     claim.Context.InputEventSequence,
-		SourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd - 1,
-		ParentContextID:        parent.ID,
-	})
-	if !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-		t.Fatalf("second compaction branch error = %v, want %v", err, storeerr.ErrAgentNotAdvanceable)
+	parentID := blockedNormalContextIDForRangeTest(t, ctx, fixture, claim.Context)
+	_, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
+		ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
+			ParentContextID:        parentID,
+			SourceEventSequenceEnd: *claim.Context.SourceEventSequenceEnd - 1,
+			Failure: executionstore.RecordRecoverableModelCallFailureInput{
+				ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+				ModelCallContextID: parentID,
+				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
+				ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "second compaction branch",
+			},
+		},
+	)
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("second compaction branch error = %v, want state transition conflict", err)
 	}
 }
 
@@ -242,5 +239,11 @@ WHERE project_id = $1
 	}
 	if replacementCount != 1 {
 		t.Fatalf("replacement compaction contexts = %d, want 1", replacementCount)
+	}
+	retries, err := fixture.Store.Execution().CountModelCallRetries(
+		ctx, testProjectID, fixture.AgentID, replacement.CompactionCall.Context.ID,
+	)
+	if err != nil || retries != 1 {
+		t.Fatalf("replacement retry budget = %+v, err=%v; want one prior retry", retries, err)
 	}
 }

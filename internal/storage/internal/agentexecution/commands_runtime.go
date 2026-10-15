@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -324,8 +325,14 @@ func (h *Handle) releaseRuntime(
 			ErrorMessage: message,
 			ErrorDetails: details,
 		}
-		if row.AttemptNumber <= executionpolicy.MaxModelCallRetriesPerOperation {
-			delay := max(0, h.unit.cell.retryBackoff(int(row.AttemptNumber), c.ID.String()).Microseconds())
+		retryCount, err := dbsqlc.New(h.unit.DB()).CountModelCallRetries(ctx, dbsqlc.CountModelCallRetriesParams{
+			ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, ModelCallContextID: row.ID,
+		})
+		if err != nil {
+			return err
+		}
+		if retryCount < executionpolicy.MaxModelCallRetriesPerOperation {
+			delay := max(0, h.unit.cell.retryBackoff(int(retryCount)+1, c.ID.String()).Microseconds())
 			args.RetryMicroseconds = &delay
 			args.Recovery = storeutil.TextFromEmpty("retry")
 		}

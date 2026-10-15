@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func compactionSourceAdjustmentError(
@@ -117,50 +118,11 @@ func (r Runner) openingEventsRequireVerbatimRetention(
 	return true, nil
 }
 
-func (r Runner) hasRemainingSemanticSource(
-	ctx context.Context,
-	input RunInput,
-	protectOpening bool,
-) (bool, error) {
-	plan := input.Plan
-	after := plan.EventSequenceEnd
-	for after < plan.InputEventSequence {
-		page, err := r.Store.ListCompactionSourceEvents(
-			ctx,
-			plan.ProjectID,
-			plan.AgentID,
-			after,
-			500,
-		)
-		if err != nil {
-			return false, err
-		}
-		if len(page) == 0 {
-			break
-		}
-		for _, event := range page {
-			if event.Sequence > plan.InputEventSequence {
-				return false, nil
-			}
-			after = event.Sequence
-			if protectOpening && event.Sequence >= input.OpeningEventSequence {
-				continue
-			}
-			if compactionEventHasModelSemantics(event) {
-				return true, nil
-			}
-		}
-		if len(page) < 500 {
-			break
-		}
-	}
-	return false, nil
-}
-
 type preparedCompactionRequest struct {
-	prepared   model.PreparedRequest
-	sourceEnd  int64
-	sourceText string
+	prepared       model.PreparedRequest
+	sourceEnd      int64
+	sourceText     string
+	omissionNotice string
 }
 
 func largestFittingCompactionRequest(
@@ -173,7 +135,12 @@ func largestFittingCompactionRequest(
 	client model.Client,
 	policy model.RequestPolicy,
 	errorSource string,
+	sourceExcerptReductionCount int,
 ) (preparedCompactionRequest, error) {
+	excerptBytes, err := sourceExcerptLimit(input, events, sourceExcerptReductionCount)
+	if err != nil {
+		return preparedCompactionRequest{}, err
+	}
 	candidates := safeCompactionSourceEndsWithWitness(
 		events,
 		witnessEvents,
@@ -187,11 +154,11 @@ func largestFittingCompactionRequest(
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
 		}
-		sourceText, err := renderEventSource(events[:count])
+		source, err := renderCompactionSource(input, events[:count], excerptBytes)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
-		bundle, err := compactionRequestBundle(input, priorSummary, sourceText)
+		bundle, err := compactionRequestBundle(input, priorSummary, source.sourceText)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
@@ -209,9 +176,10 @@ func largestFittingCompactionRequest(
 			return preparedCompactionRequest{}, err
 		}
 		return preparedCompactionRequest{
-			prepared:   prepared,
-			sourceEnd:  end,
-			sourceText: sourceText,
+			prepared:       prepared,
+			sourceEnd:      end,
+			sourceText:     source.sourceText,
+			omissionNotice: source.omissionNotice,
 		}, nil
 	}
 	var bestRequest preparedCompactionRequest
@@ -262,7 +230,10 @@ func largestFittingCompactionRequest(
 			return candidate, nil
 		}
 	}
-	return bestRequest, nil
+	if bestRequest.sourceEnd > 0 {
+		return bestRequest, nil
+	}
+	return prepareCandidate(candidates[0], policy)
 }
 
 func compactionRequestBundle(
@@ -416,9 +387,25 @@ func compactionBundle(input RunInput, priorSummary, sourceText string) (modelcon
 }
 
 func renderEventSource(events []executionstore.CompactionSourceEventRecord) (string, error) {
+	return renderEventSourceWithExcerpt(events, nil)
+}
+
+func renderEventSourceWithExcerpt(
+	events []executionstore.CompactionSourceEventRecord,
+	excerptBytes *int,
+) (string, error) {
+	text, _, err := renderEventSourceProjection(events, excerptBytes)
+	return text, err
+}
+
+func renderEventSourceProjection(
+	events []executionstore.CompactionSourceEventRecord,
+	excerptBytes *int,
+) (string, bool, error) {
 	const completedToolOutputProjectionBytes = 32_768
 	reducer := modelcontext.ToolOutputReducer{PreviewBytes: completedToolOutputProjectionBytes}
 	var builder strings.Builder
+	omitted := false
 	for _, event := range events {
 		if !compactionEventHasModelSemantics(event) {
 			continue
@@ -428,6 +415,21 @@ func renderEventSource(events []executionstore.CompactionSourceEventRecord) (str
 			label += "." + event.InputKind
 		}
 		fmt.Fprintf(&builder, "Event %d (%s) at %s\n", event.Sequence, label, event.CreatedAt.UTC().Format(time.RFC3339Nano))
+		if excerptBytes != nil {
+			fmt.Fprintf(&builder, "Stored event ID: %s\n", event.ID)
+			var identities []struct {
+				Type   string `json:"type"`
+				Name   string `json:"name"`
+				CallID string `json:"provider_call_id"`
+			}
+			if err := json.Unmarshal(event.ContentParts, &identities); err == nil {
+				for _, part := range identities {
+					if part.Type == "tool_call" {
+						fmt.Fprintf(&builder, "Tool call identity: %s call_id=%s\n", part.Name, part.CallID)
+					}
+				}
+			}
+		}
 		if event.ToolName != "" {
 			fmt.Fprintf(&builder, "Tool: %s call_id=%s", event.ToolName, event.ProviderCallID)
 			if event.ToolOutcome != "" {
@@ -439,18 +441,22 @@ func renderEventSource(events []executionstore.CompactionSourceEventRecord) (str
 		if event.ToolName != "" {
 			reduced, err := reducer.Reduce(parts)
 			if err != nil {
-				return "", fmt.Errorf("reduce tool output for event %d: %w", event.Sequence, err)
+				return "", false, fmt.Errorf("reduce tool output for event %d: %w", event.Sequence, err)
 			}
 			parts = reduced
 		}
 		if content := renderContentParts(parts); content != "" {
+			if excerptBytes != nil {
+				omitted = omitted || len(content) > *excerptBytes
+				content = excerptClosedEvent(content, *excerptBytes)
+			}
 			builder.WriteString(content)
 			if !strings.HasSuffix(content, "\n") {
 				builder.WriteString("\n")
 			}
 		}
 	}
-	return builder.String(), nil
+	return builder.String(), omitted, nil
 }
 
 func renderContentParts(raw json.RawMessage) string {
@@ -488,6 +494,10 @@ func renderContentParts(raw json.RawMessage) string {
 			builder.WriteString("\n")
 		case "media_ref":
 			builder.WriteString("Artifact: ")
+			if id, ok := part["artifact_id"].(string); ok {
+				part["path"] = toolcatalog.ArtifactVFSRoot + "/" + modelcontext.ArtifactPublicID(id)
+				delete(part, "artifact_id")
+			}
 			builder.WriteString(compactJSONValue(part))
 			builder.WriteString("\n")
 		case "structured_data":
@@ -518,11 +528,4 @@ func estimateTokens(value string) int {
 		return 0
 	}
 	return len(value)/4 + 1
-}
-
-func (r Runner) progressivePolicy() ProgressiveCheckpointPolicy {
-	if r.ProgressivePolicy != nil {
-		return r.ProgressivePolicy
-	}
-	return BoundedProgressiveCheckpointPolicy{}
 }

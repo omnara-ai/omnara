@@ -29,14 +29,14 @@ func TestExecutionCutoverRemovesHistoryEngine(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			defer func() { _ = db.Close() }()
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 51))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 52))
 			if mode == "rollback" {
-				body, err := os.ReadFile("../../migrations/000052_agent_execution_state.sql")
+				body, err := os.ReadFile("../../migrations/000053_agent_execution_state.sql")
 				require.NoError(t, err)
 				body = append(body, []byte("\nSELECT gate_11_cutover_failure();\n")...)
-				files := fstest.MapFS{"000052_agent_execution_state.sql": {Data: body}}
+				files := fstest.MapFS{"000053_agent_execution_state.sql": {Data: body}}
 				require.ErrorContains(t, dbmigrate.ApplyPostgres(ctx, db, files), "gate_11_cutover_failure")
-				require.EqualValues(t, 51, currentPostgresMigrationVersion(t, ctx, db))
+				require.EqualValues(t, 52, currentPostgresMigrationVersion(t, ctx, db))
 				var restored bool
 				require.NoError(t, pool.QueryRow(ctx, `
 SELECT to_regclass('tool_calls_runtime_lock_idx') IS NOT NULL

@@ -367,6 +367,13 @@ SELECT event.id,
        coalesce(revision.provider_model_slug, '') AS requested_provider_model_slug,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
+       coalesce(context.input_fingerprint, '')::text AS input_fingerprint,
+       context.input_tokens_total, context.uncached_input_tokens,
+       context.cache_read_input_tokens, context.cache_write_input_tokens,
+       context.output_tokens_total, context.reasoning_output_tokens,
+       coalesce(context.input_event_sequence, 0)::bigint AS input_event_sequence,
+       context.agent_config_id, context.configured_model_revision_id,
+       coalesce(context.operation_kind = 'normal' AND context.state = 'succeeded', false)::boolean AS is_successful_normal_call,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
        CASE
@@ -426,7 +433,11 @@ WHERE scoped_agent.project_id = $1
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, output.stop_reason, input.input_kind
+  output.provider_replay, output.stop_reason, input.input_kind,
+  context.input_fingerprint, context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
+  context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
+  context.input_event_sequence, context.agent_config_id, context.configured_model_revision_id,
+  context.operation_kind, context.state
 ORDER BY event.sequence ASC
 LIMIT $5
 `
@@ -451,6 +462,17 @@ type ListContextEventsRow struct {
 	RequestedProviderModelSlug string
 	ApiFormat                  string
 	ApiVariant                 string
+	InputFingerprint           string
+	InputTokensTotal           *int32
+	UncachedInputTokens        *int32
+	CacheReadInputTokens       *int32
+	CacheWriteInputTokens      *int32
+	OutputTokensTotal          *int32
+	ReasoningOutputTokens      *int32
+	InputEventSequence         int64
+	AgentConfigID              *uuid.UUID
+	ConfiguredModelRevisionID  *uuid.UUID
+	IsSuccessfulNormalCall     bool
 	ProviderReplay             *json.RawMessage
 	StopReason                 string
 	ContentParts               json.RawMessage
@@ -483,6 +505,17 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.RequestedProviderModelSlug,
 			&i.ApiFormat,
 			&i.ApiVariant,
+			&i.InputFingerprint,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.InputEventSequence,
+			&i.AgentConfigID,
+			&i.ConfiguredModelRevisionID,
+			&i.IsSuccessfulNormalCall,
 			&i.ProviderReplay,
 			&i.StopReason,
 			&i.ContentParts,

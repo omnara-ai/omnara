@@ -89,21 +89,6 @@ func ParseRetryAfter(value string) *RetryAfter {
 	return &RetryAfter{HTTPDate: &when}
 }
 
-func ParseRetryAfterJSON(value json.RawMessage) *RetryAfter {
-	if len(value) == 0 {
-		return nil
-	}
-	var text string
-	if err := json.Unmarshal(value, &text); err == nil {
-		return ParseRetryAfter(text)
-	}
-	var number json.Number
-	if err := json.Unmarshal(value, &number); err == nil {
-		return ParseRetryAfter(number.String())
-	}
-	return nil
-}
-
 func RetryAfterFromHeader(header http.Header) *RetryAfter {
 	if milliseconds, ok := parseRetryDelayMilliseconds(
 		header.Get("Retry-After-Ms"),

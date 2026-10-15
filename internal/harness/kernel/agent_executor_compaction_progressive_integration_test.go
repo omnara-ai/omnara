@@ -10,80 +10,44 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
+
+type progressiveSeedTurn struct {
+	input  string
+	output string
+}
+
+func seedProgressiveHistory(
+	t *testing.T, ctx context.Context, turns []progressiveSeedTurn,
+) (kernelFixture, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
+	for index, turn := range turns {
+		response := completeProgressiveSummaryResponse(turn.output)
+		response.ID = "progressive-seed-" + strconv.Itoa(index)
+		client := &sequenceKernelModel{providerModelSlug: "kernel-test", responses: []model.Response{response}}
+		work := fixture.admitContentInputTurn(t, ctx, agentID, userID, turn.input,
+			fixture.Now.Add(time.Duration(index*2+1)*time.Second))
+		executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+		require.NoError(t, executor.ExecuteModelWork(ctx, work))
+		fixture.releaseModelRuntimeLock(t, ctx, work)
+	}
+	return fixture, agentID, userID
+}
 
 func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *testing.T) {
 	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
-
 	seedText := "PROGRESSIVE_SEED_HISTORY " + strings.Repeat("durable seed detail ", 120)
-	seedModel := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
-		responses: []model.Response{
-			{
-				ID:         "resp_progressive_seed_one",
-				Content:    []model.ResponsePart{{Type: "text", Text: "first seed history accepted"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-			{
-				ID:         "resp_progressive_seed_two",
-				Content:    []model.ResponsePart{{Type: "text", Text: "second seed history accepted"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-		},
-	}
-	seedTurn := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		seedText,
-		fixture.Now.Add(time.Second),
-	)
-	seedExecutor := AgentExecutor{
-		Store:         fixture.Store,
-		ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
-		ToolExecutor:  tools.Executor{Store: fixture.Store},
-		Now:           func() time.Time { return fixture.Now.Add(2 * time.Second) },
-	}
-	if err := seedExecutor.ExecuteModelWork(ctx, seedTurn); err != nil {
-		t.Fatalf("execute progressive seed turn: %v", err)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		seedTurn.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release progressive seed runtime: %v", err)
-	}
 	secondSeedText := "SECOND_PROGRESSIVE_SEED " + strings.Repeat("second durable seed detail ", 120)
-	secondSeedTurn := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		secondSeedText,
-		fixture.Now.Add(3*time.Second),
-	)
-	seedExecutor.Now = func() time.Time { return fixture.Now.Add(4 * time.Second) }
-	if err := seedExecutor.ExecuteModelWork(ctx, secondSeedTurn); err != nil {
-		t.Fatalf("execute second progressive seed turn: %v", err)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		secondSeedTurn.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release second progressive seed runtime: %v", err)
-	}
+	fixture, agentID, userID := seedProgressiveHistory(t, ctx, []progressiveSeedTurn{
+		{input: seedText, output: "first seed history accepted"},
+		{input: secondSeedText, output: "second seed history accepted"},
+	})
 
 	const (
 		intermediateSummary = "INTERMEDIATE_PROGRESSIVE_CHECKPOINT Preserve the earlier seed request."
@@ -146,48 +110,18 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(6 * time.Second) },
 	}
-	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
-		t.Fatalf("execute first progressive compaction lease: %v", err)
+	work := turn
+	for lease, expectedCalls := range []int{2, 3, 4} {
+		if lease > 0 {
+			work = continueTurnOnNewLeaseForKernelTest(
+				t, ctx, fixture, work, fixture.Now.Add(time.Duration(6+lease)*time.Second),
+			)
+		}
+		require.NoError(t, executor.ExecuteModelWork(ctx, work))
+		require.Equal(t, expectedCalls, progressiveModel.respondedCount(), "lease %d", lease)
 	}
-	if progressiveModel.respondedCount() != 2 {
-		t.Fatalf(
-			"first progressive lease prepared %d requests, want truncated and smaller compaction calls",
-			progressiveModel.respondedCount(),
-		)
-	}
-
-	secondLease := continueTurnOnNewLeaseForKernelTest(
-		t,
-		ctx,
-		fixture,
-		turn,
-		fixture.Now.Add(7*time.Second),
-	)
-	if err := executor.ExecuteModelWork(ctx, secondLease); err != nil {
-		t.Fatalf("execute second progressive compaction lease: %v", err)
-	}
-	if progressiveModel.respondedCount() != 3 {
-		t.Fatalf(
-			"second progressive lease prepared %d requests, want final compaction call",
-			progressiveModel.respondedCount(),
-		)
-	}
-
-	finalLease := continueTurnOnNewLeaseForKernelTest(
-		t,
-		ctx,
-		fixture,
-		secondLease,
-		fixture.Now.Add(8*time.Second),
-	)
-	if err := executor.ExecuteModelWork(ctx, finalLease); err != nil {
-		t.Fatalf("execute post-progressive model call: %v", err)
-	}
-	if progressiveModel.respondedCount() != 4 {
-		t.Fatalf(
-			"progressive journey prepared %d requests, want three compaction calls and one normal call",
-			progressiveModel.respondedCount(),
-		)
+	for index, request := range progressiveModel.responded {
+		require.Equal(t, index < 3, isCompactionRequestBundle(request.Bundle), "request %d", index)
 	}
 
 	rows, err := fixture.Pool.Query(ctx, `
@@ -242,43 +176,6 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 	if finalCheckpoint.SummarizedThroughEventSequence != 3 ||
 		finalCheckpoint.Summary != finalSummary {
 		t.Fatalf("final progressive checkpoint = %+v", finalCheckpoint)
-	}
-	for _, test := range []struct {
-		name      string
-		frontier  int64
-		wantDepth int
-	}{
-		{name: "first", frontier: firstCheckpoint.CheckpointEventSequence, wantDepth: 1},
-		{name: "final", frontier: finalCheckpoint.CheckpointEventSequence, wantDepth: 2},
-	} {
-		depth, err := fixture.Store.Execution().CountConsecutiveContextCheckpointLineage(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			test.frontier,
-		)
-		if err != nil || depth != test.wantDepth {
-			t.Fatalf(
-				"%s checkpoint lineage depth = %d, want %d (err=%v)",
-				test.name,
-				depth,
-				test.wantDepth,
-				err,
-			)
-		}
-	}
-	semanticFrontier, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("load post-compaction semantic frontier: %v", err)
-	}
-	depth, err := fixture.Store.Execution().CountConsecutiveContextCheckpointLineage(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		semanticFrontier,
-	)
-	if err != nil || depth != 0 {
-		t.Fatalf("post-compaction semantic frontier lineage depth = %d, want 0 (err=%v)", depth, err)
 	}
 
 	var reexpandedContexts, compactedParents int
@@ -345,49 +242,16 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 	}
 }
 
-func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
+func TestProgressiveCompactionAdvancesBeyondThreeCheckpointsBeforeNormalWork(t *testing.T) {
 	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
-
-	seedModel := &sequenceKernelModel{providerModelSlug: "kernel-test"}
+	var seeds []progressiveSeedTurn
 	for index := range 4 {
-		suffix := strconv.Itoa(index + 1)
-		seedModel.responses = append(seedModel.responses, model.Response{
-			ID: "resp_progressive_exhaustion_seed_" + suffix,
-			Content: []model.ResponsePart{{
-				Type: "text",
-				Text: "seed output " + strings.Repeat("completed detail ", 80),
-			}},
-			StopReason: model.StopReasonEndTurn,
+		seeds = append(seeds, progressiveSeedTurn{
+			input:  "seed input " + strings.Repeat("progressive exhaustion history ", 80) + strconv.Itoa(index+1),
+			output: "seed output " + strings.Repeat("completed detail ", 80),
 		})
-		seedTurn := fixture.admitContentInputTurn(
-			t,
-			ctx,
-			agentID,
-			userID,
-			"seed input "+strings.Repeat("progressive exhaustion history ", 80)+suffix,
-			fixture.Now.Add(time.Duration(index*3+1)*time.Second),
-		)
-		seedNow := fixture.Now.Add(time.Duration(index*3+2) * time.Second)
-		seedExecutor := AgentExecutor{
-			Store:         fixture.Store,
-			ModelResolver: liveTestModelResolver(fixture.Store, seedModel),
-			ToolExecutor:  tools.Executor{Store: fixture.Store},
-			Now:           func() time.Time { return seedNow },
-		}
-		if err := seedExecutor.ExecuteModelWork(ctx, seedTurn); err != nil {
-			t.Fatalf("execute progressive exhaustion seed %d: %v", index, err)
-		}
-		if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			seedTurn.RuntimeLockID,
-		); err != nil {
-			t.Fatalf("release progressive exhaustion seed %d: %v", index, err)
-		}
 	}
+	fixture, agentID, userID := seedProgressiveHistory(t, ctx, seeds)
 
 	turn := fixture.admitContentInputTurn(
 		t,
@@ -409,195 +273,58 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		)
 	}
 
-	compactionModel := &sequenceKernelModel{
+	client := &sequenceKernelModel{
 		providerModelSlug: "kernel-test",
 		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {
-			if isCompactionRequestBundle(bundle) {
+			if isCompactionRequestBundle(bundle) && strings.Count(string(bundle.Messages[0].Content), "Event ") <= 2 {
+				return 500
+			}
+			if bundle.ContextCheckpoint != nil && bundle.ContextCheckpoint.Summary == "step four summary" {
 				return 500
 			}
 			return 200_000
 		},
-		capabilities: model.Capabilities{
-			ContextWindowTokens: 128000,
-			MaxOutputTokens:     new(256),
-		},
+		capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(256)},
 		responses: []model.Response{
 			completeProgressiveSummaryResponse("step one summary"),
 			completeProgressiveSummaryResponse("step two summary"),
 			completeProgressiveSummaryResponse("step three summary"),
 			completeProgressiveSummaryResponse("step four summary"),
+			completeProgressiveSummaryResponse("Continued after four advancing checkpoints."),
 		},
 	}
-	resolver := liveTestModelResolver(fixture.Store, compactionModel)
-	runNow := fixture.Now.Add(21 * time.Second)
-	runner := compaction.Runner{
-		Store:    compaction.NewStore(fixture.Store.Execution()),
-		Resolver: resolver,
-		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(
-				fixture.Store.Execution(),
-				fixture.Store.Artifacts(),
-				fixture.Store.Integrations(),
-			),
-		},
-		Now: func() time.Time { return runNow },
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, client),
+		ToolExecutor:  tools.Executor{Store: fixture.Store},
 	}
-	claimOverflowParent := func(
-		frontier, sourceEventSequenceEnd int64,
-	) (executionstore.ModelCallClaim, executionstore.ModelCallClaim) {
-		t.Helper()
-
-		prepared1, err := fixture.Store.Execution().
-			PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-				ProjectID:       kernelTestProjectID,
-				AgentID:         agentID,
-				RuntimeLockID:   turn.RuntimeLockID,
-				OpeningInputIDs: turn.InputIDs,
-			})
-		parent := prepared1.Claim
-
-		if err != nil {
-			t.Fatalf("claim progressive exhaustion parent: %v", err)
-		}
-		handoff, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
-			ctx,
-			executionstore.RecordModelCallFailureAndClaimCompactionInput{
-				ParentContextID: parent.Context.ID,
-				Failure: executionstore.RecordRecoverableModelCallFailureInput{
-					ProjectID:          kernelTestProjectID,
-					AgentID:            agentID,
-					ModelCallContextID: parent.Context.ID,
-					RuntimeLockID:      turn.RuntimeLockID,
-					RecoveryKind:       executionstore.ModelCallRecoveryCompact,
-					ErrorKind:          model.ErrorKindContextWindow,
-					ErrorCode:          "configured_input_budget_exceeded",
-					ErrorMessage:       "The prepared model request exceeds the configured input budget.",
-				},
-				SourceEventSequenceEnd: sourceEventSequenceEnd,
-			},
-		)
-		if err != nil {
-			t.Fatalf("record progressive exhaustion parent failure: %v", err)
-		}
-		if handoff.BoundaryPreempted || !handoff.CompactionCall.Created || !handoff.CompactionCall.Claimed {
-			t.Fatalf("progressive exhaustion handoff = %+v, want newly claimed child", handoff)
-		}
-		runNow = runNow.Add(time.Second)
-		return parent, handoff.CompactionCall
-	}
-	run := func(
-		start, end, frontier int64,
-		blockedContextID uuid.UUID,
-		compactionClaim executionstore.ModelCallClaim,
-	) compaction.RunResult {
-		t.Helper()
-		result, err := runner.RunClaimed(ctx, compaction.RunInput{
-			Plan: compaction.Plan{
-				ProjectID:          kernelTestProjectID,
-				AgentID:            agentID,
-				InputEventSequence: frontier,
-				EventSequenceStart: start,
-				EventSequenceEnd:   end,
-			},
-			TurnID:                   turn.TurnID,
-			OpeningInputIDs:          turn.InputIDs,
-			OpeningEventSequence:     turn.OpeningEventSequence,
-			RuntimeLockID:            turn.RuntimeLockID,
-			ParentModelCallContextID: blockedContextID,
-		}, compactionClaim)
-		if err != nil {
-			t.Fatalf("run progressive exhaustion source %d..%d: %v", start, end, err)
-		}
-		runNow = runNow.Add(time.Second)
-		return result
-	}
-
-	frontier := watermark
-	ranges := [][2]int64{{1, 3}, {4, 5}, {6, 7}}
-	for step, sourceRange := range ranges {
-		parent, compactionClaim := claimOverflowParent(frontier, sourceRange[1])
-		result := run(
-			sourceRange[0],
-			sourceRange[1],
-			frontier,
-			parent.Context.ID,
-			compactionClaim,
-		)
-		if result.State != compaction.RunCompleted || result.Checkpoint == nil {
-			t.Fatalf("progressive exhaustion step %d result = %+v", step+1, result)
-		}
-		depth, err := fixture.Store.Execution().CountConsecutiveContextCheckpointLineage(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			result.Checkpoint.CheckpointEventSequence,
-		)
-		if err != nil || depth != step+1 {
-			t.Fatalf(
-				"progressive exhaustion step %d lineage depth = %d (err=%v)",
-				step+1,
-				depth,
-				err,
+	work := turn
+	for lease := range 5 {
+		if lease > 0 {
+			work = continueTurnOnNewLeaseForKernelTest(
+				t, ctx, fixture, work, fixture.Now.Add(time.Duration(21+lease)*time.Second),
 			)
 		}
-		frontier = result.Checkpoint.CheckpointEventSequence
+		require.NoError(t, executor.ExecuteModelWork(ctx, work))
+		require.Equal(t, lease+1, client.respondedCount(), "lease %d", lease)
 	}
-
-	parent, compactionClaim := claimOverflowParent(frontier, 9)
-	terminal := run(8, 9, frontier, parent.Context.ID, compactionClaim)
-	if terminal.State != compaction.RunTerminal || terminal.Checkpoint != nil {
-		t.Fatalf("progressive exhaustion terminal result = %+v", terminal)
+	for index, request := range client.responded {
+		require.Equal(t, index < 4, isCompactionRequestBundle(request.Bundle), "request %d", index)
 	}
-	if compactionModel.respondedCount() != 4 {
-		t.Fatalf("progressive exhaustion prepared %d requests, want four", compactionModel.respondedCount())
+	rows, err := fixture.Pool.Query(ctx, `SELECT summarized_through_event_sequence
+        FROM context_checkpoints WHERE agent_id=$1 ORDER BY summarized_through_event_sequence`, agentID)
+	require.NoError(t, err)
+	defer rows.Close()
+	var ends []int64
+	for rows.Next() {
+		var end int64
+		require.NoError(t, rows.Scan(&end))
+		ends = append(ends, end)
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		fixture,
-		agentID,
-		turn.TurnID,
-		string(model.ErrorKindContextWindow),
-		"compaction_source_irreducible",
-	)
-	var checkpoints, failedCompactions, parentContexts int
-	if err := fixture.Pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM context_checkpoints checkpoint
-		JOIN agents agent ON agent.id = checkpoint.agent_id
-		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(
-		&checkpoints,
-	); err != nil {
-		t.Fatalf("count bounded progressive checkpoints: %v", err)
-	}
-	if err := fixture.Pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM model_call_contexts
-		WHERE project_id = $1
-		  AND agent_id = $2
-		  AND operation_kind = 'compaction'
-		  AND state = 'failed'`, kernelTestProjectID, agentID).Scan(&failedCompactions); err != nil {
-		t.Fatalf("count failed progressive compactions: %v", err)
-	}
-	if err := fixture.Pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM model_call_contexts
-		WHERE project_id = $1
-		  AND agent_id = $2
-		  AND operation_kind = 'normal'
-		  AND input_event_sequence = $3`,
-		kernelTestProjectID,
-		agentID,
-		parent.Context.InputEventSequence,
-	).Scan(&parentContexts); err != nil {
-		t.Fatalf("count progressive exhaustion parent contexts: %v", err)
-	}
-	if checkpoints != 3 || failedCompactions != 1 || parentContexts != 1 {
-		t.Fatalf(
-			"bounded progressive checkpoints / failed compactions / parent contexts = %d/%d/%d, want 3/1/1",
-			checkpoints,
-			failedCompactions,
-			parentContexts,
-		)
-	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []int64{3, 5, 7, 9}, ends)
+	require.Contains(t, string(client.responded[4].ProviderRequest), "current request after progressive exhaustion seeds")
+	require.Contains(t, string(client.responded[4].ProviderRequest), "step four summary")
+	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
+	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 }

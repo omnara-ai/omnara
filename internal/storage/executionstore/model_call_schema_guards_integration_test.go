@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -191,7 +192,18 @@ WHERE id = $1`, normal.Context.ID)
 		frontier,
 		compactionFixture.Now.Add(4*time.Second),
 	)
-	_, err = compactionFixture.Store.pool.Exec(ctx, `
+	duplicateTx, err := compactionFixture.Store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := duplicateTx.Exec(ctx, `
+UPDATE model_call_contexts
+SET state='canceled', error_kind='canceled', error_message='test duplicate identity',
+    completed_at=statement_timestamp()
+WHERE id=$1`, compaction.Context.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = duplicateTx.Exec(ctx, `
 INSERT INTO model_call_contexts(
   turn_id, opening_input_ids, opening_event_sequence,
 org_id, project_id, agent_id, operation_kind,
@@ -208,35 +220,47 @@ SELECT turn_id, opening_input_ids, opening_event_sequence, org_id, project_id, a
        created_at + interval '1 second'
 FROM model_call_contexts
 WHERE id = $1`, compaction.Context.ID)
+	_ = duplicateTx.Rollback(ctx)
 	assertPgConstraint(t, err, "23505", "model_call_contexts_compaction_identity_idx")
-	parent, found, err := compactionFixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		testProjectID,
-		compactionFixture.AgentID,
-		compaction.Context.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
-	}
 
-	replayed, err := compactionFixture.Store.Execution().ClaimCompactionModelCall(
-		ctx,
-		executionstore.ClaimCompactionModelCallInput{
-			ProjectID:              testProjectID,
-			AgentID:                compactionFixture.AgentID,
-			RuntimeLockID:          compactionFixture.Lock.ID,
-			InputEventSequence:     compaction.Context.InputEventSequence,
+	parentID := blockedNormalContextIDForRangeTest(t, ctx, compactionFixture, compaction.Context)
+	var before, after int
+	require.NoError(t, compactionFixture.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1`, compactionFixture.AgentID).Scan(&before))
+	replayed, err := compactionFixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
+		ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
+			ParentContextID:        parentID,
 			SourceEventSequenceEnd: *compaction.Context.SourceEventSequenceEnd,
-			ParentContextID:        parent.ID,
+			Failure: executionstore.RecordRecoverableModelCallFailureInput{
+				ProjectID: testProjectID, AgentID: compactionFixture.AgentID, RuntimeLockID: compactionFixture.Lock.ID,
+				ModelCallContextID: parentID,
+				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
+				ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "duplicate handoff",
+			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("re-find compaction identity: %v", err)
-	}
-	if replayed.Context.ID != compaction.Context.ID || replayed.Created || replayed.Claimed ||
-		replayed.Context.State != executionstore.ModelCallContextStarted {
-		t.Fatalf("replayed compaction claim = %+v, want existing context without send authority", replayed)
-	}
+	require.NoError(t, err)
+	require.Equal(t, compaction.Context.ID, replayed.CompactionCall.Context.ID)
+	require.False(t, replayed.CompactionCall.Created)
+	require.False(t, replayed.CompactionCall.Claimed)
+	require.NoError(t, compactionFixture.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1`, compactionFixture.AgentID).Scan(&after))
+	require.Equal(t, before, after)
+
+	_, err = compactionFixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(ctx,
+		executionstore.RecordModelCallFailureAndClaimCompactionInput{
+			ParentContextID: parentID, SourceEventSequenceEnd: *compaction.Context.SourceEventSequenceEnd - 1,
+			Failure: executionstore.RecordRecoverableModelCallFailureInput{
+				ProjectID: testProjectID, AgentID: compactionFixture.AgentID, RuntimeLockID: compactionFixture.Lock.ID,
+				ModelCallContextID: parentID, RecoveryKind: executionstore.ModelCallRecoveryCompact,
+				ErrorKind: modelprotocol.ErrorKindContextWindow, ErrorMessage: "second compaction branch",
+			},
+		})
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.NoError(t, compactionFixture.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1`, compactionFixture.AgentID).Scan(&after))
+	require.Equal(t, before, after)
+
 }
 
 func TestModelCallRecoveryKindMatchesOperation(t *testing.T) {
