@@ -240,11 +240,18 @@ func PrepareForSend(
 				usable = prepared.InputTokenEstimate
 			}
 			input.Policy.MaxOutputTokens = remaining
+			measured := prepared
 			prepared, err = prepareRequest(ctx, client, input)
 			if err != nil {
 				return PreparedRequest{}, err
 			}
-			applyRequestInputMeasurement(ctx, &prepared, client, input)
+			if measured.UsesProviderInputUsage && measured.InputFingerprint != "" &&
+				measured.InputFingerprint == prepared.InputFingerprint {
+				prepared.InputTokenEstimate = measured.InputTokenEstimate
+				prepared.UsesProviderInputUsage = true
+			} else {
+				applyRequestInputMeasurement(ctx, &prepared, client, input)
+			}
 		}
 	}
 	prepared.MaxOutputTokens = input.Policy.MaxOutputTokens

@@ -8835,7 +8835,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Working context target for input and output tokens. Guides compaction; provider-accepted requests can exceed it.
+          description: Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
         default_max_output_tokens:
           type: integer
           minimum: 1
@@ -8918,7 +8918,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Working context target for input and output tokens. Guides compaction; provider-accepted requests can exceed it.
+          description: Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
         default_max_output_tokens:
           type: integer
           minimum: 1
@@ -9828,7 +9828,7 @@ components:
           type: integer
           minimum: 2
           maximum: 2147483647
-          description: Optional project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
+          description: Optional project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction and output allowance; provider-accepted requests can exceed it.
         max_output_tokens:
           type: integer
           minimum: 1
@@ -9878,7 +9878,7 @@ components:
           type: [integer, "null"]
           minimum: 2
           maximum: 2147483647
-          description: Project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
+          description: Project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction and output allowance; provider-accepted requests can exceed it.
         max_output_tokens:
           type: [integer, "null"]
           minimum: 1
@@ -9930,7 +9930,7 @@ components:
           $ref: '#/components/schemas/ConfiguredModelID'
         context_window_tokens:
           type: [integer, "null"]
-          description: Project context target for input and output tokens, or omitted/null to inherit from the configured model. Guides compaction; provider-accepted requests can exceed it.
+          description: Project context target for input and output tokens, or omitted/null to inherit from the configured model. Guides compaction and output allowance; provider-accepted requests can exceed it.
         max_output_tokens:
           type: [integer, "null"]
           description: Project output-token ceiling, or omitted/null to inherit from the configured model.
@@ -11173,7 +11173,7 @@ components:
           $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         context_window_tokens:
           type: integer
-          description: Effective context target for input and output tokens after model, project, and agent settings are applied. Guides compaction; provider-accepted requests can exceed it.
+          description: Effective context target for input and output tokens after model, project, and agent settings are applied. Guides compaction and output allowance; provider-accepted requests can exceed it.
         max_output_tokens:
           type: [integer, "null"]
           description: Effective known output-token ceiling after model and project settings, or null when unknown.

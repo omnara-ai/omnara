@@ -65,9 +65,6 @@ ALTER TABLE model_call_contexts
         (operation_kind = 'compaction') = (parent_normal_model_call_context_id IS NOT NULL)
     );
 
-CREATE INDEX agent_events_checkpoint_sequence_idx ON agent_events(agent_id, sequence)
-    WHERE event_kind = 'context_checkpoint';
-
 CREATE UNIQUE INDEX model_call_contexts_compaction_identity_idx ON model_call_contexts(
     project_id, agent_id, parent_normal_model_call_context_id, attempt_number
 ) WHERE operation_kind = 'compaction';

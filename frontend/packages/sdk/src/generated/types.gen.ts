@@ -131,7 +131,7 @@ export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemor
 export type AgentConfigDefinitionModel = {
     cache_retention?: 'none' | 'short' | 'long';
     /**
-     * Working context target for input and output tokens. Guides compaction; provider-accepted requests can exceed it.
+     * Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number;
     default_max_output_tokens?: number;
@@ -161,7 +161,7 @@ export type AgentConfigDefinitionSubagentInstruction = {
 export type AgentConfigDefinitionSubagentModel = {
     cache_retention?: 'none' | 'short' | 'long';
     /**
-     * Working context target for input and output tokens. Guides compaction; provider-accepted requests can exceed it.
+     * Working context target for input and output tokens. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number;
     default_max_output_tokens?: number;
@@ -740,7 +740,7 @@ export type ConfiguredModelList = {
 export type CreateProjectModelGrantRequest = {
     configured_model_id: ConfiguredModelId;
     /**
-     * Optional project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
+     * Optional project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number;
     /**
@@ -783,7 +783,7 @@ export type CreateProjectModelGrantRequest = {
  */
 export type UpdateProjectModelGrantRequest = {
     /**
-     * Project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction; provider-accepted requests can exceed it.
+     * Project context target for input and output tokens. Cannot exceed the configured model's target. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number | null;
     /**
@@ -827,7 +827,7 @@ export type ProjectModelGrant = {
     project_id: ProjectId;
     configured_model_id: ConfiguredModelId;
     /**
-     * Project context target for input and output tokens, or omitted/null to inherit from the configured model. Guides compaction; provider-accepted requests can exceed it.
+     * Project context target for input and output tokens, or omitted/null to inherit from the configured model. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens?: number | null;
     /**
@@ -1571,7 +1571,7 @@ export type AgentConfigModel = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Effective context target for input and output tokens after model, project, and agent settings are applied. Guides compaction; provider-accepted requests can exceed it.
+     * Effective context target for input and output tokens after model, project, and agent settings are applied. Guides compaction and output allowance; provider-accepted requests can exceed it.
      */
     context_window_tokens: number;
     /**
