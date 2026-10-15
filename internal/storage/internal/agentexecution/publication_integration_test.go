@@ -44,16 +44,12 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			}
 			statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 			require.NoError(t, err)
-			expected := 2
-			if step == "model" {
-				expected = 1
-			}
-			expectedStatements := expected
+			expectedStatements, expectedRoundTrips := 2, 2
 			if step == "tool" {
-				expectedStatements = 3
+				expectedStatements, expectedRoundTrips = 4, 3
 			}
-			require.LessOrEqual(t, statements, expectedStatements)
-			require.LessOrEqual(t, roundTrips, expected)
+			require.Equal(t, expectedStatements, statements)
+			require.Equal(t, expectedRoundTrips, roundTrips)
 		})
 	}
 	for _, size := range []int{2, 1000} {

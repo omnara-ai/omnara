@@ -28,7 +28,6 @@ type Unit struct {
 	tx                pgx.Tx
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle
-	webhooks          map[uuid.UUID]webhookTarget
 	exclusiveProjects map[uuid.UUID]struct{}
 	runtimeLocked     bool
 	closed            bool
@@ -39,7 +38,7 @@ type Unit struct {
 func newUnit(cell *AgentCell, tx pgx.Tx) *Unit {
 	return &Unit{
 		cell: cell, tx: tx, notifications: notifications.NewTxNotifications(),
-		handles: make(map[uuid.UUID]*Handle), webhooks: make(map[uuid.UUID]webhookTarget),
+		handles:           make(map[uuid.UUID]*Handle),
 		exclusiveProjects: make(map[uuid.UUID]struct{}),
 	}
 }

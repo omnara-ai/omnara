@@ -2,10 +2,10 @@ package agentexecution
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -96,7 +96,7 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 		writes[i] = h.mutation.publicationParams(h.route)
 	}
 	published := q.PublishExecution(ctx, u.DB(), writes)
-	published.QueryRow(func(i int, row executiondb.PublishExecutionRow, err error) {
+	published.QueryRow(func(i int, agentID uuid.UUID, err error) {
 		if failure != nil {
 			return
 		}
@@ -104,16 +104,9 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 			failure = err
 			return
 		}
-		if row.AgentID != handles[i].route.AgentID {
+		if agentID != handles[i].route.AgentID {
 			failure = fmt.Errorf("%w: missing execution head", ErrInvalidState)
-			return
 		}
-		target := webhookTarget{orgID: row.WebhookOrgID}
-		if err := json.Unmarshal(row.WebhookEvents, &target.events); err != nil {
-			failure = err
-			return
-		}
-		u.webhooks[row.AgentID] = target
 	})
 	return errors.Join(failure, published.Close())
 }

@@ -7,7 +7,6 @@ package executiondb
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -522,16 +521,7 @@ WHERE agent_wakeups.ready_at IS DISTINCT FROM CASE
  WHEN agent_wakeups.ready_at<=statement_timestamp() AND excluded.ready_at<=statement_timestamp()
  THEN least(agent_wakeups.ready_at,excluded.ready_at) ELSE excluded.ready_at END
 RETURNING agent_id
-) SELECT scope.agent_id,
- coalesce(w.org_id,'00000000-0000-0000-0000-000000000000'::uuid)::uuid AS webhook_org_id,
- coalesce(w.events,'[]'::jsonb)::jsonb AS webhook_events
-FROM scope LEFT JOIN LATERAL (
- SELECT p.org_id,c.compiled_definition->'event_webhook'->'events' AS events
- FROM agents a JOIN agent_configs c ON c.project_id=a.project_id AND c.id=a.current_config_id
- JOIN projects p ON p.id=a.project_id JOIN orgs o ON o.id=p.org_id
- WHERE a.id=scope.agent_id AND p.deleted_at IS NULL AND o.deleted_at IS NULL
- AND coalesce(c.compiled_definition->'event_webhook'->>'url','')<>''
-) w ON true
+) SELECT scope.agent_id FROM scope
 `
 
 type PublishExecutionBatchResults struct {
@@ -556,12 +546,6 @@ type PublishExecutionParams struct {
 	PendingCheckpointID     *uuid.UUID
 	TurnContinuable         bool
 	IncompleteTools         bool
-}
-
-type PublishExecutionRow struct {
-	AgentID       uuid.UUID
-	WebhookOrgID  uuid.UUID
-	WebhookEvents json.RawMessage
 }
 
 func (q *Queries) PublishExecution(ctx context.Context, db DBTX, arg []PublishExecutionParams) *PublishExecutionBatchResults {
@@ -590,20 +574,20 @@ func (q *Queries) PublishExecution(ctx context.Context, db DBTX, arg []PublishEx
 	return &PublishExecutionBatchResults{br, len(arg), false}
 }
 
-func (b *PublishExecutionBatchResults) QueryRow(f func(int, PublishExecutionRow, error)) {
+func (b *PublishExecutionBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
-		var i PublishExecutionRow
+		var agent_id uuid.UUID
 		if b.closed {
 			if f != nil {
-				f(t, i, ErrBatchAlreadyClosed)
+				f(t, agent_id, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
 		row := b.br.QueryRow()
-		err := row.Scan(&i.AgentID, &i.WebhookOrgID, &i.WebhookEvents)
+		err := row.Scan(&agent_id)
 		if f != nil {
-			f(t, i, err)
+			f(t, agent_id, err)
 		}
 	}
 }

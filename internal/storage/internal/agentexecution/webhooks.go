@@ -12,45 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-type webhookTarget struct {
-	orgID  uuid.UUID
-	events []string
-}
-
-func (u *Unit) captureWebhookEligibility(ctx context.Context) error {
-	ids := make(map[uuid.UUID]struct{})
-	for id := range u.notifications.AgentEvents() {
-		ids[id] = struct{}{}
-	}
-	for _, update := range u.notifications.ToolCallUpdates() {
-		ids[update.AgentID] = struct{}{}
-	}
-	q := dbsqlc.New(u.DB())
-	for id := range ids {
-		if _, captured := u.webhooks[id]; captured {
-			continue
-		}
-		row, err := q.GetAgentEventWebhookTarget(ctx, dbsqlc.GetAgentEventWebhookTargetParams{ID: id})
-		if errors.Is(err, pgx.ErrNoRows) {
-			u.webhooks[id] = webhookTarget{}
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("load event webhook target: %w", err)
-		}
-		if row.Url == "" {
-			u.webhooks[id] = webhookTarget{}
-			continue
-		}
-		var events []string
-		if err := json.Unmarshal(row.Events, &events); err != nil {
-			return fmt.Errorf("decode event webhook events: %w", err)
-		}
-		u.webhooks[id] = webhookTarget{orgID: row.OrgID, events: events}
-	}
-	return nil
-}
-
 func webhookJSON(value json.RawMessage) *json.RawMessage {
 	if len(value) == 0 {
 		return nil
@@ -63,14 +24,40 @@ func (u *Unit) enqueueWebhooks(ctx context.Context) error {
 	if pending == nil || (len(pending.AgentEvents()) == 0 && len(pending.ToolCallUpdates()) == 0) {
 		return nil
 	}
-	if err := u.captureWebhookEligibility(ctx); err != nil {
-		return err
-	}
 	q := dbsqlc.New(u.DB())
-	webhookTargets := u.webhooks
+	type webhookTarget struct {
+		orgID  uuid.UUID
+		events []string
+	}
+	webhookTargets := make(map[uuid.UUID]webhookTarget)
+	for agentID := range pending.AgentEvents() {
+		webhookTargets[agentID] = webhookTarget{}
+	}
+	for _, update := range pending.ToolCallUpdates() {
+		webhookTargets[update.AgentID] = webhookTarget{}
+	}
+	for agentID := range webhookTargets {
+		target, err := q.GetAgentEventWebhookTarget(ctx, dbsqlc.GetAgentEventWebhookTargetParams{ID: agentID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			delete(webhookTargets, agentID)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("load event webhook target: %w", err)
+		}
+		if target.Url == "" {
+			delete(webhookTargets, agentID)
+			continue
+		}
+		var events []string
+		if err := json.Unmarshal(target.Events, &events); err != nil {
+			return fmt.Errorf("decode event webhook events: %w", err)
+		}
+		webhookTargets[agentID] = webhookTarget{orgID: target.OrgID, events: events}
+	}
 	for agentID, events := range pending.AgentEvents() {
 		target, enabled := webhookTargets[agentID]
-		if !enabled || target.orgID == uuid.Nil {
+		if !enabled {
 			continue
 		}
 		for _, event := range events {
