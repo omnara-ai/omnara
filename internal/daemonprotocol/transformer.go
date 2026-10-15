@@ -52,9 +52,15 @@ func clampReadWait(payload json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, err
 	}
+	raw, ok := fields["wait_ms"]
+	if !ok {
+		return payload, nil
+	}
 	var waitMS int
-	if raw, ok := fields["wait_ms"]; !ok || json.Unmarshal(raw, &waitMS) != nil ||
-		waitMS <= processaction.LegacyMaxWaitMilliseconds {
+	if err := json.Unmarshal(raw, &waitMS); err != nil {
+		return nil, err
+	}
+	if waitMS <= processaction.LegacyMaxWaitMilliseconds {
 		return payload, nil
 	}
 	fields["wait_ms"] = json.RawMessage(strconv.Itoa(processaction.LegacyMaxWaitMilliseconds))

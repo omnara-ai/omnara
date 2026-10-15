@@ -61,7 +61,8 @@ func TestEncodeForDaemonClampsLongReadWaitsForOlderDaemons(t *testing.T) {
 			t.Fatalf("version %q: clamped payload is invalid: %v", version, err)
 		}
 	}
-	if longRead.ActionOffer.Payload == nil || string(longRead.ActionOffer.Payload) != `{"cursor":7,"max_bytes":4096,"wait_ms":300000}` {
+	const original = `{"cursor":7,"max_bytes":4096,"wait_ms":300000}`
+	if string(longRead.ActionOffer.Payload) != original {
 		t.Fatalf("encodeForDaemon mutated the caller's offer: %s", longRead.ActionOffer.Payload)
 	}
 }
