@@ -1,4 +1,4 @@
-import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
+import { type AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isNode, type Node } from 'yaml'
 
@@ -23,6 +23,7 @@ import {
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import {
   type BasicSubagent,
+  maxDepthValid,
   subagentsValid,
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
@@ -86,7 +87,7 @@ export interface BasicConfig {
   reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
-  interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
+  interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentialsIntegration: string
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
@@ -253,7 +254,7 @@ export function useAgentBuilderForm(
           ? {
               subagents,
               maxSubagents: '',
-              maxDepth: '',
+              maxDepth: maxDepthValid(draft.maxDepth) ? draft.maxDepth : '',
               tools: draft.tools.filter((tool) => tool.name !== 'spawn_agent'),
             }
           : { subagents },

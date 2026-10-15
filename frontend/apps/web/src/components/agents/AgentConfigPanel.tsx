@@ -1,5 +1,7 @@
-import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
+import { useAgentConfig, useOmnaraClient, useUpdateAgentConfig } from '@omnara/react'
 import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
+import { getAgentConfigGeneratedSourceOptions } from '@omnara/sdk/tanstack'
+import { useQuery } from '@tanstack/react-query'
 import { type SyntheticEvent, useState } from 'react'
 
 import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
@@ -35,28 +37,20 @@ export function AgentConfigPanel({
   if (snapshot === null && configQuery.data !== undefined) {
     setSnapshot(configQuery.data)
   }
+  const { source, loadingSource, refetchSource } = useEditableSource(orgId, projectId, snapshot)
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      {snapshot !== null && (agent.parent_agent_id || snapshot.source === undefined) ? (
-        <>
-          <h2 className="type-card-title">Agent configuration</h2>
-          <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
-          <AgentCompiledConfig definition={snapshot.compiled_definition} collapsible={false} />
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </>
-      ) : snapshot !== null ? (
+      {snapshot !== null && source !== undefined ? (
         <AgentConfigPanelEditor
           key={String(resetNonce)}
           orgId={orgId}
           projectId={projectId}
           agentId={agent.id}
           configId={snapshot.id}
-          source={snapshot.source ?? ''}
+          source={source}
           compiledDefinition={snapshot.compiled_definition}
-          canManage={canManage}
+          canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}
@@ -67,7 +61,7 @@ export function AgentConfigPanel({
           }}
           onClose={onClose}
         />
-      ) : configQuery.isPending ? (
+      ) : configQuery.isPending || loadingSource ? (
         <>
           <h2 className="type-card-title">Agent configuration</h2>
           <Spinner className="mx-auto my-8" />
@@ -81,7 +75,7 @@ export function AgentConfigPanel({
               size="sm"
               variant="outline"
               onClick={() => {
-                void configQuery.refetch()
+                void (snapshot === null ? configQuery.refetch() : refetchSource())
               }}
             >
               Retry
@@ -96,6 +90,24 @@ export function AgentConfigPanel({
       )}
     </div>
   )
+}
+
+function useEditableSource(orgId: string, projectId: string, config: AgentConfig | null) {
+  const client = useOmnaraClient()
+  const generated = useQuery({
+    ...getAgentConfigGeneratedSourceOptions({
+      path: { orgID: orgId, projectID: projectId, agentConfigID: config?.id ?? '' },
+      client,
+    }),
+    enabled: config !== null && config.source === undefined,
+    staleTime: Infinity,
+    gcTime: 0,
+  })
+  return {
+    source: config?.source ?? generated.data?.source,
+    loadingSource: generated.isLoading,
+    refetchSource: generated.refetch,
+  }
 }
 
 function AgentConfigPanelEditor({

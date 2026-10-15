@@ -4,6 +4,7 @@ package omnarad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -580,4 +581,152 @@ func TestRenderSystemdUnitPassesSystemdAnalyze(t *testing.T) {
 	if output, err := exec.Command(systemdAnalyze, "verify", unitPath).CombinedOutput(); err != nil {
 		t.Fatalf("systemd-analyze verify: %v\n%s", err, output)
 	}
+}
+
+const systemdUserBusUnavailableStderr = "Failed to connect to user scope bus via local transport: " +
+	"No such file or directory"
+
+func TestSystemdUnavailableClassifiesProbeFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		stderr      string
+		unavailable bool
+	}{
+		{name: "legacy bus", stderr: "Failed to connect to bus: No medium found", unavailable: true},
+		{name: "user scope bus", stderr: systemdUserBusUnavailableStderr, unavailable: true},
+		{
+			name: "user scope bus without runtime dir",
+			stderr: "Failed to connect to user scope bus via local transport: " +
+				"$DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined " +
+				"(consider using --machine=<user>@.host --user to connect to bus of other user)",
+			unavailable: true,
+		},
+		{
+			name:        "not booted",
+			stderr:      "System has not been booted with systemd as init system (PID 1). Can't operate.",
+			unavailable: true,
+		},
+		{name: "d-bus connection", stderr: "Failed to get D-Bus connection: Operation not permitted", unavailable: true},
+		{name: "access denied", stderr: "Access denied", unavailable: false},
+		{name: "empty", stderr: "", unavailable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := serviceCommandResult{stderr: tc.stderr + "\n", err: errors.New("exit status 1")}
+			require.Equal(t, tc.unavailable, systemdUnavailable(result))
+		})
+	}
+}
+
+func TestSystemdServiceManagerAbsent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	status, err := inspectDaemonService(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, systemdManagedDaemonStatus{}, status)
+	require.NoError(t, stopDaemonService(context.Background()))
+}
+
+func TestSystemdUserBusUnavailableIsNoServiceManager(t *testing.T) {
+	commandDir := t.TempDir()
+	commands := filepath.Join(t.TempDir(), "systemctl.commands")
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+printf '%%s\n' %s >&2
+exit 1
+`, shellTestQuote(commands), shellTestQuote(systemdUserBusUnavailableStderr)))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", commandDir)
+
+	status, err := inspectDaemonService(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, systemdManagedDaemonStatus{}, status)
+	require.NoError(t, stopDaemonService(context.Background()))
+	var stderr strings.Builder
+	managed, err := ensureDaemonService(context.Background(), t.TempDir(), false, &stderr, discardLogger())
+	require.NoError(t, err)
+	require.False(t, managed)
+	require.Empty(t, stderr.String())
+	require.Equal(t,
+		"--user show-environment\n--user show-environment\n--user show --property=Version\n",
+		readTestFile(t, commands),
+	)
+}
+
+func TestSystemdServiceManagerAvailable(t *testing.T) {
+	commandDir := t.TempDir()
+	commands := filepath.Join(t.TempDir(), "systemctl.commands")
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+[ "$1" = --user ] || exit 4
+case "$2" in
+  show-environment) exit 0 ;;
+  show)
+    printf 'LoadState=loaded\nFragmentPath=/tmp/omnarad.service\nNeedDaemonReload=no\nActiveState=active\nMainPID=%d\n'
+    exit 0
+    ;;
+  stop) exit 0 ;;
+esac
+exit 5
+`, shellTestQuote(commands), os.Getpid()))
+	t.Setenv("PATH", commandDir)
+
+	status, err := inspectDaemonService(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, systemdManagedDaemonStatus{managerAvailable: true, running: true, pid: os.Getpid()}, status)
+	require.NoError(t, stopDaemonService(context.Background()))
+	require.Contains(t, readTestFile(t, commands), "--user stop "+systemdServiceName)
+}
+
+func TestSystemdNoServiceStartWithoutUserBus(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	require.NoError(t, os.MkdirAll(userHome, 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
+	writeTestExecutable(t, filepath.Join(home, "bin", "omnarad"), "#!/bin/sh\nexit 0\n")
+	commandDir := t.TempDir()
+	commands := filepath.Join(t.TempDir(), "systemctl.commands")
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+printf '%%s\n' %s >&2
+exit 1
+`, shellTestQuote(commands), shellTestQuote(systemdUserBusUnavailableStderr)))
+	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
+	defer server.Close()
+	setConfiguredDaemonEnvironment(t, home, server.URL, "/bin")
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", commandDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var stdout strings.Builder
+	var stderr strings.Builder
+	code := Run(context.Background(), []string{"start", "--no-service"}, nil, &stdout, &stderr, discardLogger())
+	require.Equal(t, 0, code, "stderr = %q", stderr.String())
+	require.Empty(t, stdout.String())
+	require.Empty(t, stderr.String())
+	require.Contains(t, readTestFile(t, commands), "--user show-environment")
+	_, err := os.Stat(filepath.Join(userHome, ".config", "systemd"))
+	require.True(t, os.IsNotExist(err), "systemd directory exists after no-service start: %v", err)
+}
+
+func TestSystemdStartWithoutUserBusFallsBackToForeground(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	require.NoError(t, os.MkdirAll(userHome, 0o700))
+	commandDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' %s >&2
+exit 1
+`, shellTestQuote(systemdUserBusUnavailableStderr)))
+	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
+	defer server.Close()
+	setConfiguredDaemonEnvironment(t, home, server.URL, "/bin")
+	t.Setenv("HOME", userHome)
+	t.Setenv("PATH", commandDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var stdout strings.Builder
+	ctx, cancel := context.WithCancel(context.Background())
+	stderr := cancelWriter{cancel: cancel}
+	code := Run(ctx, []string{"start"}, nil, &stdout, &stderr, discardLogger())
+	require.Equal(t, 0, code, "stderr = %q", stderr.String())
+	require.Empty(t, stdout.String())
+	require.Equal(t, noServiceWarning+"\n", stderr.String())
 }

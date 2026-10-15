@@ -142,6 +142,7 @@ const (
 	operationEndMachineDaemonRuntime       operationID = "EndMachineDaemonRuntime"
 	operationGetAgent                      operationID = "GetAgent"
 	operationGetAgentConfig                operationID = "GetAgentConfig"
+	operationGetAgentConfigGeneratedSource operationID = "GetAgentConfigGeneratedSource"
 	operationGetAgentProfile               operationID = "GetAgentProfile"
 	operationGetArtifact                   operationID = "GetArtifact"
 	operationGetArtifactContent            operationID = "GetArtifactContent"
@@ -406,6 +407,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentConfigGeneratedSource: accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetToolCatalog:                accountPolicy(noScope()),
 	operationListMCPServers:                accountPolicy(noScope()),
 	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),

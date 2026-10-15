@@ -148,7 +148,7 @@ race-unit: ## Run internal and observability unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
 	$(GO) -C observability test -race -count=1 ./...
 
-config-schema-generate: ## Generate agent config and shared OpenAPI schemas
+config-schema-generate: ## Generate the agent config JSON Schema from the OpenAPI spec
 	$(GO) run ./tools/config-schema
 
 openapi-generate: config-schema-generate

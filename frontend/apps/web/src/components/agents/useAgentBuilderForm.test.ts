@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import { mcpToolEnabled, unexposableMcpTools } from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
   type BasicConfig,
   basicConfigValid,
-  type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
 } from './useAgentBuilderForm'
@@ -33,7 +31,7 @@ const fullConfig: BasicConfig = {
       machineMemoryGb: '8',
       providerOptions: emptyProviderOptions,
       envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
-      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
+      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_aaaaaaaaaaaaaaaaaaaaaaaaaa' }],
     },
     {
       id: 'source-2',
@@ -76,7 +74,7 @@ const fullConfig: BasicConfig = {
       permission: { mode: 'always_ask', parameters: {} },
       defaultEnabled: false,
       authType: 'sigv4',
-      secretId: 'sec_456',
+      secretId: 'sec_bbbbbbbbbbbbbbbbbbbbbbbbbb',
       service: 'execute-api',
       region: 'us-east-1',
       tools: [],
@@ -88,13 +86,13 @@ const fullConfig: BasicConfig = {
       permission: { mode: 'always_ask', parameters: {} },
       defaultEnabled: true,
       authType: 'bearer',
-      secretId: 'sec_789',
+      secretId: 'sec_cccccccccccccccccccccccccc',
       service: '',
       region: '',
       tools: [],
     },
   ],
-  skillIds: ['skl_1', 'skl_2'],
+  skillIds: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
   subagents: [
     {
       id: 'sub-1',
@@ -218,7 +216,7 @@ model: {provider_config: openai, name: primary}
       instruction: fullConfig.instruction,
       providerConfig: 'anthropic',
       modelName: 'claude-sonnet-5',
-      skillIds: ['skl_1', 'skl_2'],
+      skillIds: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
     })
     expect(config.machineSources.map((s) => [s.kind, s.name])).toEqual([
       ['pool', 'default-pool'],
@@ -243,7 +241,7 @@ model: {provider_config: openai, name: primary}
     ])
     expect(config.mcpServers.map((server) => server.authType)).toEqual(['none', 'sigv4', 'bearer'])
     expect(config.mcpServers[1]).toMatchObject({
-      secretId: 'sec_456',
+      secretId: 'sec_bbbbbbbbbbbbbbbbbbbbbbbbbb',
       service: 'execute-api',
       region: 'us-east-1',
     })
@@ -426,6 +424,21 @@ mcp:
     expect(pool?.envRows.map((row) => [row.key, row.value])).toEqual([['MODE', null]])
     expect(pool?.secretEnvRows.map((row) => [row.key, row.secretId])).toEqual([['TOKEN', null]])
     expect(applyToSource(source, config)).toBe(source)
+  })
+
+  it('accepts null config sections', () => {
+    const config = mustDeserialize(`${minimalYaml}machine_sources:
+tools:
+mcp:
+memory_stores:
+subagents:
+interaction_handlers:
+`)
+    expect(config.machineSources).toEqual([])
+    expect(config.mcpServers).toEqual([])
+    expect(config.memoryStores).toEqual([])
+    expect(config.subagents).toEqual([])
+    expect(config.interactionHandlers).toEqual({})
   })
 
   it('rejects unknown fields inside builder-owned entries', () => {
@@ -723,15 +736,38 @@ model:
     expect(parse(updated)).toMatchObject({ mcp: { '': { url: '' } } })
   })
 
+  it('reads back incomplete drafts instead of leaving the builder', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_name: ""
+    secret_env_overlay: {TOKEN: ""}
+  - machine_pool_name: ""
+mcp:
+  "": {url: "", auth: {type: sigv4, secret_id: "", service: "", region: ""}}
+  docs: {url: "", auth: {type: bearer, secret_id: ""}}
+subagents:
+  helper: {type: profile, profile: ""}
+`
+    const draft = mustDeserialize(source)
+    expect(draft.machineSources.map((row) => row.name)).toEqual(['', ''])
+    expect(draft.mcpServers.map((server) => server.url)).toEqual(['', ''])
+    expect(draft.subagents[0]?.profileName).toBe('')
+    expect(applyToSource(source, draft)).toBe(source)
+  })
+
   it('builds a fresh document when there is no baseline source', () => {
     const source = applyToSource('', fullConfig)
     expect(parse(source)).toMatchObject({
       instruction: fullConfig.instruction,
       model: { provider_config: 'anthropic', name: 'claude-sonnet-5' },
-      skills: ['skl_1', 'skl_2'],
+      skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
       tools: { shell: { type: 'built_in' } },
     })
   })
+})
+
+it('accepts max_depth without subagents', () => {
+  expect(basicConfigValid({ ...fullConfig, subagents: [], maxSubagents: '' })).toBe(true)
+  expect(basicConfigValid({ ...fullConfig, subagents: [] })).toBe(false)
 })
 
 describe('basic agent config names', () => {
@@ -754,54 +790,6 @@ describe('basic agent config names', () => {
       index === 0 ? { ...server, name: ` ${server.name}` } : server,
     )
     expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
-  })
-
-  it('lists enabled discovered and configured MCP tools the model cannot accept', () => {
-    const [server] = fullConfig.mcpServers
-    if (!server) throw new Error('fixture needs a server')
-    const longName = 'b'.repeat(64)
-    const configured: BasicMcpServer = {
-      ...server,
-      name: 'github',
-      defaultEnabled: true,
-      tools: [
-        { name: longName, enabled: null, permission: null },
-        { name: 'c'.repeat(64), enabled: false, permission: null },
-        { name: 'search.issues', enabled: true, permission: null },
-      ],
-    }
-    expect(
-      unexposableMcpTools(configured, ['list-issues', 'get.issue', 'search.issues']).map(
-        (tool) => tool.name,
-      ),
-    ).toEqual(['get.issue', 'search.issues', longName])
-    expect(unexposableMcpTools({ ...configured, defaultEnabled: false }, ['get.issue'])).toEqual([
-      {
-        name: 'search.issues',
-        error:
-          '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
-      },
-    ])
-  })
-
-  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
-    const [enabledByDefault, disabledByDefault] = fullConfig.mcpServers
-    if (!enabledByDefault || !disabledByDefault) throw new Error('fixture needs two servers')
-    const overrides = [
-      { name: 'on', enabled: true, permission: null },
-      { name: 'off', enabled: false, permission: null },
-      { name: 'inherit', enabled: null, permission: null },
-    ]
-    const enabled = { ...enabledByDefault, tools: overrides }
-    const disabled = { ...disabledByDefault, tools: overrides }
-    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 
   it('rejects duplicate MCP server keys', () => {

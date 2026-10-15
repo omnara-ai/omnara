@@ -411,9 +411,19 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 	}
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
+	const resourceNameReferenceRef = "#/components/schemas/ResourceNameReference"
 	exceptions := map[string]string{
-		"MemoryStore.name":                                        "#/components/schemas/MemoryStoreName",
-		"CreateMemoryStore.name":                                  "#/components/schemas/MemoryStoreName",
+		"MemoryStore.name":                      "#/components/schemas/MemoryStoreName",
+		"CreateMemoryStore.name":                "#/components/schemas/MemoryStoreName",
+		"AgentConfigDefinitionMemoryStore.name": "#/components/schemas/MemoryStoreName",
+		// Config definitions reference existing resources by name; the agent
+		// config compiler resolves them.
+		"AgentConfigDefinitionMachineSource.machine_name":      resourceNameReferenceRef,
+		"AgentConfigDefinitionMachineSource.machine_pool_name": resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.name":                      resourceNameReferenceRef,
+		"AgentConfigDefinitionModel.provider_config":           resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.name":              resourceNameReferenceRef,
+		"AgentConfigDefinitionSubagentModel.provider_config":   resourceNameReferenceRef,
 		"Integration.name":                                        "#/components/schemas/IntegrationName",
 		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
 		"Agent.name":                                              "#/components/schemas/AgentName",

@@ -13,6 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCanonicalDefinitionJSON(t *testing.T) {
+	for name, tc := range map[string]struct{ raw, want string }{
+		"sorts keys and compacts": {
+			raw:  "{\n  \"b\": {\"y\": 1, \"x\": 2},\n  \"a\": [3, 1]\n}\n",
+			want: `{"a":[3,1],"b":{"x":2,"y":1}}`,
+		},
+		"keeps number text":    {raw: `{"n": 12345678901234567890, "f": 1.50}`, want: `{"f":1.50,"n":12345678901234567890}`},
+		"does not escape html": {raw: `{"instruction": "Use <tags> & stuff"}`, want: `{"instruction":"Use <tags> & stuff"}`},
+		"invalid json":         {raw: `{"a":`, want: `{"a":`},
+		"trailing value":       {raw: `{"a":1} {"b":2}`, want: `{"a":1} {"b":2}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, string(CanonicalDefinitionJSON([]byte(tc.raw))))
+		})
+	}
+}
+
 func TestParseSourceRejectsOversizedMachineResources(t *testing.T) {
 	for _, field := range []string{"machine_cpu", "machine_memory_mb"} {
 		t.Run(field, func(t *testing.T) {
@@ -247,23 +264,37 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"EventWebhook":                           reflect.TypeOf(EventWebhook{}),
-		"AgentConfigIntegrationCapabilitySource": reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
-		"GitCredentialsSource":                   reflect.TypeOf(GitCredentialsSource{}),
-		"AgentConfigModelSource":                 reflect.TypeOf(AgentConfigModelSource{}),
-		"AgentConfigMachineSource":               reflect.TypeOf(AgentConfigMachineSource{}),
-		"AgentConfigToolSource":                  reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigMCPSource":                   reflect.TypeOf(AgentConfigMCPSource{}),
-		"AgentConfigMCPAuthSource":               reflect.TypeOf(AgentConfigMCPAuthSource{}),
-		"AgentConfigMCPToolSource":               reflect.TypeOf(AgentConfigMCPToolSource{}),
-		"ToolPermissionSelection":                reflect.TypeOf(toolpermission.Selection{}),
-		"AgentConfigSubagentSource":              reflect.TypeOf(AgentConfigSubagentSource{}),
-		"AgentConfigSubagentModelSource":         reflect.TypeOf(AgentConfigSubagentModelSource{}),
-		"AgentConfigSubagentInstructionSource":   reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionEventWebhook":        reflect.TypeOf(EventWebhook{}),
+		"AgentConfigDefinitionGitCredentials":      reflect.TypeOf(GitCredentialsSource{}),
+		"AgentConfigDefinitionInteractionHandler":  reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
+		"AgentConfigDefinitionModel":               reflect.TypeOf(AgentConfigModelSource{}),
+		"AgentConfigDefinitionMachineSource":       reflect.TypeOf(AgentConfigMachineSource{}),
+		"AgentConfigDefinitionTool":                reflect.TypeOf(AgentConfigToolSource{}),
+		"AgentConfigDefinitionMCPServer":           reflect.TypeOf(AgentConfigMCPSource{}),
+		"AgentConfigDefinitionMCPAuth":             reflect.TypeOf(AgentConfigMCPAuthSource{}),
+		"AgentConfigDefinitionMCPTool":             reflect.TypeOf(AgentConfigMCPToolSource{}),
+		"AgentConfigDefinitionToolPermission":      reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigDefinitionSubagent":            reflect.TypeOf(AgentConfigSubagentSource{}),
+		"AgentConfigDefinitionSubagentModel":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
+		"AgentConfigDefinitionSubagentInstruction": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionMemoryStore":         reflect.TypeOf(MemoryStoreSource{}),
 	}
 	// Custom tool input_schema decodes into map[string]any, so its schema
-	// stays deliberately open.
-	openDefs := map[string]bool{"AgentToolInputSchema": true}
+	// stays deliberately open. The rest are maps, arrays, and strings rather
+	// than struct-backed objects.
+	openDefs := map[string]bool{
+		"AgentConfigDefinitionToolInputSchema":     true,
+		"AgentConfigDefinitionMachineSources":      true,
+		"AgentConfigDefinitionInteractionHandlers": true,
+		"AgentConfigDefinitionMCPServers":          true,
+		"AgentConfigDefinitionMemoryStores":        true,
+		"AgentConfigDefinitionSkills":              true,
+		"AgentConfigDefinitionSubagents":           true,
+		"AgentConfigDefinitionTools":               true,
+		"EnvironmentVariableName":                  true,
+		"MemoryStoreName":                          true,
+		"ResourceNameReference":                    true,
+	}
 	for name := range defs {
 		if !openDefs[name] && structsByDef[name] == nil {
 			t.Errorf("schema $def %q is not mapped to a Go struct here; map it or mark it open", name)

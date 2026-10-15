@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest'
 
-import { mcpRuntimeToolNameError, mcpServerNameError } from './agentConfigMcp'
+import {
+  mcpRuntimeToolNameError,
+  mcpServerNameError,
+  mcpToolEnabled,
+  unexposableMcpTools,
+} from './agentConfigMcp'
+import type { BasicMcpServer } from './useAgentBuilderForm'
+
+function mcpServer(patch: Partial<BasicMcpServer>): BasicMcpServer {
+  return {
+    id: 'mcp-1',
+    name: 'search',
+    url: 'https://mcp.example.com',
+    permission: { mode: 'always_allow', parameters: {} },
+    defaultEnabled: true,
+    authType: 'none',
+    secretId: '',
+    service: '',
+    region: '',
+    tools: [],
+    ...patch,
+  }
+}
 
 describe('MCP config names', () => {
   it.each([
@@ -47,5 +69,50 @@ describe('MCP config names', () => {
     ['search_issues-v2', undefined],
   ])('explains when the MCP tool name %j has characters the model rejects', (name, expected) => {
     expect(mcpRuntimeToolNameError('github', name)).toBe(expected)
+  })
+})
+
+describe('MCP tool exposure', () => {
+  it('lists enabled discovered and configured MCP tools the model cannot accept', () => {
+    const longName = 'b'.repeat(64)
+    const configured = mcpServer({
+      name: 'github',
+      defaultEnabled: true,
+      tools: [
+        { name: longName, enabled: null, permission: null },
+        { name: 'c'.repeat(64), enabled: false, permission: null },
+        { name: 'search.issues', enabled: true, permission: null },
+      ],
+    })
+    expect(
+      unexposableMcpTools(configured, ['list-issues', 'get.issue', 'search.issues']).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['get.issue', 'search.issues', longName])
+    expect(unexposableMcpTools({ ...configured, defaultEnabled: false }, ['get.issue'])).toEqual([
+      {
+        name: 'search.issues',
+        error:
+          '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
+      },
+    ])
+  })
+
+  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
+    const tools = [
+      { name: 'on', enabled: true, permission: null },
+      { name: 'off', enabled: false, permission: null },
+      { name: 'inherit', enabled: null, permission: null },
+    ]
+    const enabled = mcpServer({ defaultEnabled: true, tools })
+    const disabled = mcpServer({ defaultEnabled: false, tools })
+    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 })

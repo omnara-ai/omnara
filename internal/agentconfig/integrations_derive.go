@@ -111,7 +111,11 @@ func DeriveWithIntegrationCapabilities(
 		if err != nil {
 			return Compiled{}, err
 		}
-		for _, name := range fileRetrievalToolNames() {
+		names := fileRetrievalToolNames()
+		if tool.Deferred {
+			names = append(names, toolcatalog.ToolNameToolSearch)
+		}
+		for _, name := range names {
 			if _, configured := derived.Tools[name]; configured {
 				continue
 			}
@@ -121,7 +125,6 @@ func DeriveWithIntegrationCapabilities(
 			}
 			derived.Tools[name] = entry
 		}
-		break
 	}
 	if len(additions.InteractionHandlers) > 0 && derived.InteractionHandlers == nil {
 		derived.InteractionHandlers = map[string]IntegrationCapabilityCompiled{}
