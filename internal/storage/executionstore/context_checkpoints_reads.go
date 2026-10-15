@@ -12,7 +12,6 @@ import (
 )
 
 type ContextCheckpointRecord struct {
-	HasOmittedHistory              bool      `json:"has_omitted_history"`
 	ID                             uuid.UUID `json:"id"`
 	ProjectID                      uuid.UUID `json:"project_id"`
 	AgentID                        uuid.UUID `json:"agent_id"`

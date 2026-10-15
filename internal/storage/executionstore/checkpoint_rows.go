@@ -8,7 +8,6 @@ import (
 )
 
 type contextCheckpointFields struct {
-	hasOmittedHistory              bool
 	id                             uuid.UUID
 	projectID                      uuid.UUID
 	agentID                        uuid.UUID
@@ -23,7 +22,6 @@ type contextCheckpointFields struct {
 func contextCheckpointRecordFromGetSQLC(row dbsqlc.GetContextCheckpointRow) ContextCheckpointRecord {
 	return contextCheckpointRecordFromFields(contextCheckpointFields{
 		id: row.ID, projectID: row.ProjectID, agentID: row.AgentID,
-		hasOmittedHistory:              row.HasOmittedHistory,
 		summarizedThroughEventSequence: row.SummarizedThroughEventSequence,
 		producerModelCallContextID:     row.ProducerModelCallContextID,
 		checkpointEventID:              row.CheckpointEventID, summary: row.Summary,
@@ -36,7 +34,6 @@ func contextCheckpointRecordFromLatestSQLC(
 ) ContextCheckpointRecord {
 	return contextCheckpointRecordFromFields(contextCheckpointFields{
 		id: row.ID, projectID: row.ProjectID, agentID: row.AgentID,
-		hasOmittedHistory:              row.HasOmittedHistory,
 		summarizedThroughEventSequence: row.SummarizedThroughEventSequence,
 		producerModelCallContextID:     row.ProducerModelCallContextID,
 		checkpointEventID:              row.CheckpointEventID, summary: row.Summary,
@@ -49,7 +46,6 @@ func contextCheckpointRecordFromProducerContextSQLC(
 ) ContextCheckpointRecord {
 	return contextCheckpointRecordFromFields(contextCheckpointFields{
 		id: row.ID, projectID: row.ProjectID, agentID: row.AgentID,
-		hasOmittedHistory:              row.HasOmittedHistory,
 		summarizedThroughEventSequence: row.SummarizedThroughEventSequence,
 		producerModelCallContextID:     row.ProducerModelCallContextID,
 		checkpointEventID:              row.CheckpointEventID, summary: row.Summary,
@@ -60,7 +56,6 @@ func contextCheckpointRecordFromProducerContextSQLC(
 func contextCheckpointRecordFromFields(row contextCheckpointFields) ContextCheckpointRecord {
 	return ContextCheckpointRecord{
 		ID:                             row.id,
-		HasOmittedHistory:              row.hasOmittedHistory,
 		ProjectID:                      row.projectID,
 		AgentID:                        row.agentID,
 		SummarizedThroughEventSequence: row.summarizedThroughEventSequence,

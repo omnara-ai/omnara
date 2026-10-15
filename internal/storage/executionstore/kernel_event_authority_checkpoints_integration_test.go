@@ -264,16 +264,6 @@ func TestContextCheckpointLineageDerivesPriorCheckpointFromEvents(t *testing.T) 
 		firstFrontier,
 		fixture.Now.Add(4*time.Second),
 	)
-	excerpt, err := fixture.Store.Execution().ReplaceCompactionSource(ctx, executionstore.ReplaceCompactionSourceInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
-		ModelCallContextID: firstClaim.Context.ID, NextSourceEventSequenceEnd: firstFrontier,
-		APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
-		ErrorKind: modelprotocol.ErrorKindContextWindow, ErrorMessage: "old closed source exceeds provider context",
-	})
-	if err != nil {
-		t.Fatalf("excerpt oversized source: %v", err)
-	}
-	firstClaim = excerpt.CompactionCall
 	firstCheckpoint, err := publishCheckpointForRangeTest(
 		t,
 		ctx,
@@ -316,10 +306,6 @@ func TestContextCheckpointLineageDerivesPriorCheckpointFromEvents(t *testing.T) 
 	)
 	if err != nil {
 		t.Fatalf("publish second checkpoint: %v", err)
-	}
-	if !firstCheckpoint.HasOmittedHistory || !secondCheckpoint.HasOmittedHistory ||
-		secondClaim.Context.SourceExcerptReductionCount != 0 {
-		t.Fatalf("cumulative omission history was lost: first=%+v second=%+v", firstCheckpoint, secondCheckpoint)
 	}
 	secondSourceStart, err := executionstore.IntegrationCompactionSourceStartTx(ctx, fixture.Store.q, secondClaim.Context)
 	if err != nil {

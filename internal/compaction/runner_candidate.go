@@ -128,7 +128,7 @@ type preparedCompactionRequest struct {
 func largestFittingCompactionRequest(
 	ctx context.Context,
 	input RunInput,
-	prior executionstore.ContextCheckpointRecord,
+	priorSummary string,
 	events []executionstore.CompactionSourceEventRecord,
 	witnessEvents []executionstore.CompactionSourceEventRecord,
 	groups []executionstore.CompactionAtomicGroupRecord,
@@ -137,7 +137,7 @@ func largestFittingCompactionRequest(
 	errorSource string,
 	sourceExcerptReductionCount int,
 ) (preparedCompactionRequest, error) {
-	excerptBytes, err := sourceExcerptLimit(input, prior, events, sourceExcerptReductionCount)
+	excerptBytes, err := sourceExcerptLimit(input, events, sourceExcerptReductionCount)
 	if err != nil {
 		return preparedCompactionRequest{}, err
 	}
@@ -154,11 +154,11 @@ func largestFittingCompactionRequest(
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
 		}
-		source, err := renderCompactionSource(input, prior, events[:count], excerptBytes)
+		source, err := renderCompactionSource(input, events[:count], excerptBytes)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
-		bundle, err := compactionRequestBundle(input, prior.Summary, source.sourceText)
+		bundle, err := compactionRequestBundle(input, priorSummary, source.sourceText)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}

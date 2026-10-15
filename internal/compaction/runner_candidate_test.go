@@ -393,7 +393,7 @@ func TestCompactionAllowanceFitRespectsMinimumAndFinalInput(t *testing.T) {
 				minimum: tc.minimum,
 			}
 			prepared, err := largestFittingCompactionRequest(
-				context.Background(), runInput(testPlan(1, 1, 1)), executionstore.ContextCheckpointRecord{},
+				context.Background(), runInput(testPlan(1, 1, 1)), "",
 				[]executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
 				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", 0)
 			require.NoError(t, err)
@@ -439,7 +439,7 @@ func TestCompactionAllowanceFitPrefersWholeTurnAndPreservesPartialProgress(t *te
 				ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000),
 			}}}
 			prepared, err := largestFittingCompactionRequest(
-				context.Background(), runInput(testPlan(1, 2, 2)), executionstore.ContextCheckpointRecord{}, source, source, nil,
+				context.Background(), runInput(testPlan(1, 2, 2)), "", source, source, nil,
 				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction", 0)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantEnd, prepared.sourceEnd)

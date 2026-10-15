@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -140,7 +139,7 @@ func (r Runner) RunClaimed(
 	preparedRequest, err := largestFittingCompactionRequest(
 		ctx,
 		input,
-		prior,
+		priorSummary,
 		boundaryWindow.sourceEvents,
 		boundaryWindow.witnessEvents,
 		boundaryWindow.atomicGroups,
@@ -186,7 +185,7 @@ func (r Runner) RunClaimed(
 	prepared := preparedRequest.prepared
 	sourceText := preparedRequest.sourceText
 	if claim.Context.SourceExcerptReductionCount > 0 {
-		original, err := renderCompactionSource(input, prior, boundaryWindow.sourceEvents, nil)
+		original, err := renderCompactionSource(input, boundaryWindow.sourceEvents, nil)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -223,10 +222,8 @@ func (r Runner) RunClaimed(
 	if err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
-	for _, notice := range strings.Split(preparedRequest.omissionNotice, "\n") {
-		if notice != "" && !strings.Contains(summary, notice) {
-			summary += "\n\n" + notice
-		}
+	if notice := preparedRequest.omissionNotice; notice != "" {
+		summary += "\n\n" + notice
 	}
 	if err := validateSummaryReduction(priorSummary, sourceText, summary); err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)

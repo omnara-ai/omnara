@@ -82,24 +82,7 @@ SELECT checkpoint.id, agent.project_id,
   checkpoint.producer_model_call_context_id,
   event.id AS checkpoint_event_id,
   checkpoint.summary,
-  checkpoint.created_at, event.sequence AS checkpoint_event_sequence,
-  EXISTS (
-    SELECT 1 FROM context_checkpoints prior
-    JOIN model_call_contexts producer ON producer.agent_id = prior.agent_id
-      AND producer.id = prior.producer_model_call_context_id
-    JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
-      AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
-    WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND EXISTS (
-        SELECT 1 FROM model_call_contexts reduction
-        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
-          AND reduction.operation_kind = 'compaction'
-          AND reduction.input_event_sequence = producer.input_event_sequence
-          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
-          AND reduction.attempt_number < producer.attempt_number
-          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
-      )
-  )::boolean AS has_omitted_history
+  checkpoint.created_at, event.sequence AS checkpoint_event_sequence
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id
 JOIN agent_events event ON event.agent_id = checkpoint.agent_id
@@ -126,7 +109,6 @@ type GetContextCheckpointRow struct {
 	Summary                        string
 	CreatedAt                      time.Time
 	CheckpointEventSequence        int64
-	HasOmittedHistory              bool
 }
 
 func (q *Queries) GetContextCheckpoint(ctx context.Context, arg GetContextCheckpointParams) (GetContextCheckpointRow, error) {
@@ -142,7 +124,6 @@ func (q *Queries) GetContextCheckpoint(ctx context.Context, arg GetContextCheckp
 		&i.Summary,
 		&i.CreatedAt,
 		&i.CheckpointEventSequence,
-		&i.HasOmittedHistory,
 	)
 	return i, err
 }
@@ -153,24 +134,7 @@ SELECT checkpoint.id, agent.project_id,
   checkpoint.producer_model_call_context_id,
   event.id AS checkpoint_event_id,
   checkpoint.summary,
-  checkpoint.created_at, event.sequence AS checkpoint_event_sequence,
-  EXISTS (
-    SELECT 1 FROM context_checkpoints prior
-    JOIN model_call_contexts producer ON producer.agent_id = prior.agent_id
-      AND producer.id = prior.producer_model_call_context_id
-    JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
-      AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
-    WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND EXISTS (
-        SELECT 1 FROM model_call_contexts reduction
-        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
-          AND reduction.operation_kind = 'compaction'
-          AND reduction.input_event_sequence = producer.input_event_sequence
-          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
-          AND reduction.attempt_number < producer.attempt_number
-          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
-      )
-  )::boolean AS has_omitted_history
+  checkpoint.created_at, event.sequence AS checkpoint_event_sequence
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id
 JOIN agent_events event ON event.agent_id = checkpoint.agent_id
@@ -197,7 +161,6 @@ type GetContextCheckpointByProducerContextRow struct {
 	Summary                        string
 	CreatedAt                      time.Time
 	CheckpointEventSequence        int64
-	HasOmittedHistory              bool
 }
 
 func (q *Queries) GetContextCheckpointByProducerContext(ctx context.Context, arg GetContextCheckpointByProducerContextParams) (GetContextCheckpointByProducerContextRow, error) {
@@ -213,7 +176,6 @@ func (q *Queries) GetContextCheckpointByProducerContext(ctx context.Context, arg
 		&i.Summary,
 		&i.CreatedAt,
 		&i.CheckpointEventSequence,
-		&i.HasOmittedHistory,
 	)
 	return i, err
 }
@@ -224,24 +186,7 @@ SELECT checkpoint.id, agent.project_id,
   checkpoint.producer_model_call_context_id,
   event.id AS checkpoint_event_id,
   checkpoint.summary,
-  checkpoint.created_at, event.sequence AS checkpoint_event_sequence,
-  EXISTS (
-    SELECT 1 FROM context_checkpoints prior
-    JOIN model_call_contexts producer ON producer.agent_id = prior.agent_id
-      AND producer.id = prior.producer_model_call_context_id
-    JOIN agent_events prior_event ON prior_event.agent_id = prior.agent_id
-      AND prior_event.context_checkpoint_id = prior.id AND prior_event.event_kind = 'context_checkpoint'
-    WHERE prior.agent_id = checkpoint.agent_id AND prior_event.sequence <= event.sequence
-      AND producer.state = 'succeeded' AND EXISTS (
-        SELECT 1 FROM model_call_contexts reduction
-        WHERE reduction.project_id = producer.project_id AND reduction.agent_id = producer.agent_id
-          AND reduction.operation_kind = 'compaction'
-          AND reduction.input_event_sequence = producer.input_event_sequence
-          AND reduction.source_event_sequence_end = producer.source_event_sequence_end
-          AND reduction.attempt_number < producer.attempt_number
-          AND reduction.state = 'failed' AND reduction.recovery_kind = 'reduce_compaction_source'
-      )
-  )::boolean AS has_omitted_history
+  checkpoint.created_at, event.sequence AS checkpoint_event_sequence
 FROM context_checkpoints checkpoint
 JOIN agents agent ON agent.id = checkpoint.agent_id
 JOIN agent_events event ON event.agent_id = checkpoint.agent_id
@@ -270,7 +215,6 @@ type GetLatestApplicableContextCheckpointRow struct {
 	Summary                        string
 	CreatedAt                      time.Time
 	CheckpointEventSequence        int64
-	HasOmittedHistory              bool
 }
 
 func (q *Queries) GetLatestApplicableContextCheckpoint(ctx context.Context, arg GetLatestApplicableContextCheckpointParams) (GetLatestApplicableContextCheckpointRow, error) {
@@ -286,7 +230,6 @@ func (q *Queries) GetLatestApplicableContextCheckpoint(ctx context.Context, arg 
 		&i.Summary,
 		&i.CreatedAt,
 		&i.CheckpointEventSequence,
-		&i.HasOmittedHistory,
 	)
 	return i, err
 }
