@@ -112,7 +112,7 @@ Reads process output from a byte cursor and can briefly wait for new output.
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `cursor` | integer | ≥ 0; resume where the last read stopped |
 | `max_bytes` | integer | 1–65536 (default 8192) |
-| `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. Machines running omnarad older than 0.2.6 wait at most 10000. |
+| `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. |
 
 ### `write_process`
 

@@ -9,10 +9,15 @@ import (
 )
 
 const (
-	// MaxWaitMilliseconds bounds how long a read waits for output or exit.
+	// MaxWaitMilliseconds is the longest wait agents may request. The backend
+	// enforces it when validating tool input; daemons do not.
 	MaxWaitMilliseconds = 5 * 60 * 1000
-	// LegacyMaxWaitMilliseconds is the limit daemons before
+	// MaxPayloadWaitMilliseconds only rejects nonsensical read payloads, so the
+	// agent-facing limit can change without a daemon release.
+	MaxPayloadWaitMilliseconds = 24 * 60 * 60 * 1000
+	// LegacyMaxWaitMilliseconds is the read limit daemons before
 	// LongWaitDaemonVersion enforce; reads offered to them are clamped to it.
+	// Remove the clamp once older daemons are no longer supported.
 	LegacyMaxWaitMilliseconds = 10 * 1000
 	LongWaitDaemonVersion     = "0.2.6"
 
@@ -100,10 +105,10 @@ func DecodeReadPayload(raw json.RawMessage) (ReadPayload, error) {
 			MaxObservationBytes,
 		)
 	}
-	if payload.WaitMS < 0 || payload.WaitMS > MaxWaitMilliseconds {
+	if payload.WaitMS < 0 || payload.WaitMS > MaxPayloadWaitMilliseconds {
 		return ReadPayload{}, fmt.Errorf(
 			"wait_ms must be between 0 and %d",
-			MaxWaitMilliseconds,
+			MaxPayloadWaitMilliseconds,
 		)
 	}
 	return payload, nil

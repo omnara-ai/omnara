@@ -41,7 +41,7 @@ func TestDecodeReadPayload(t *testing.T) {
 		{name: "explicit", raw: json.RawMessage(`{"cursor":4,"max_bytes":128,"wait_ms":20}`), ok: true},
 		{name: "negative cursor", raw: json.RawMessage(`{"cursor":-1}`)},
 		{name: "negative bytes", raw: json.RawMessage(`{"max_bytes":-1}`)},
-		{name: "excess wait", raw: json.RawMessage(`{"wait_ms":300001}`)},
+		{name: "excess wait", raw: json.RawMessage(`{"wait_ms":86400001}`)},
 		{name: "null", raw: json.RawMessage(`{"cursor":null}`)},
 		{name: "unknown", raw: json.RawMessage(`{"extra":true}`)},
 	} {
