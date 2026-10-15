@@ -32,7 +32,7 @@ WHERE wake.agent_id=sqlc.arg(agent_id) AND agent.state<>'archived'
 FOR UPDATE OF wake;
 
 -- name: ListQueuedBacklogInputs :many
-SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
+SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, input.metadata
 FROM agent_inputs input
 WHERE input.project_id = sqlc.arg(project_id)
   AND input.agent_id = sqlc.arg(agent_id)

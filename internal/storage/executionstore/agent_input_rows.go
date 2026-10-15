@@ -29,7 +29,6 @@ func agentInputRecordFromIdempotencySQLC(row dbsqlc.GetAgentInputByIdempotencyRo
 		row.TargetInteractionID,
 		row.AgentConfigID,
 		row.ResolvedAt,
-		row.RejectedReason,
 		row.Metadata,
 	)
 }
@@ -55,7 +54,6 @@ func agentInputRecordFromBacklogSQLC(row dbsqlc.ListQueuedBacklogInputsRow) Agen
 		row.TargetInteractionID,
 		nil,
 		row.ResolvedAt,
-		row.RejectedReason,
 		row.Metadata,
 	)
 }
@@ -78,7 +76,6 @@ func agentInputRecordFromNewFields(
 	targetInteractionID *uuid.UUID,
 	agentConfigID *uuid.UUID,
 	resolvedAt *time.Time,
-	rejectedReason string,
 	metadata []byte,
 ) AgentInputRecord {
 	return AgentInputRecord{
@@ -101,7 +98,6 @@ func agentInputRecordFromNewFields(
 		TargetInteractionID: storeutil.IDFromPtr(targetInteractionID),
 		AgentConfigID:       storeutil.IDFromPtr(agentConfigID),
 		ResolvedAt:          resolvedAt,
-		RejectedReason:      rejectedReason,
 		Metadata:            metadata,
 	}
 }
@@ -127,7 +123,6 @@ func agentInputRecordFromGetSQLC(row dbsqlc.GetAgentInputRow) AgentInputRecord {
 		row.TargetInteractionID,
 		row.AgentConfigID,
 		row.ResolvedAt,
-		row.RejectedReason,
 		row.Metadata,
 	)
 }

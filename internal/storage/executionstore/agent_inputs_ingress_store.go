@@ -32,7 +32,6 @@ type AgentInputRecord struct {
 	TargetInteractionID uuid.UUID              `json:"target_interaction_id,omitempty"`
 	AgentConfigID       uuid.UUID              `json:"agent_config_id,omitempty"`
 	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
-	RejectedReason      string                 `json:"rejected_reason,omitempty"`
 	Metadata            json.RawMessage        `json:"metadata"`
 	ContentBlocks       json.RawMessage        `json:"-"`
 }
