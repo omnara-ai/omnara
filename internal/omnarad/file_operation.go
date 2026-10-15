@@ -513,9 +513,10 @@ func searchMachineFiles(ctx context.Context, operation processcmd.FileOperation)
 		return collector.Finish(err)
 	}
 	err = walkGlob(ctx, root, glob, "", func(name string, entry fs.DirEntry) error {
-		if !entry.Type().IsRegular() {
+		if entry.IsDir() {
 			return nil
 		}
+		// readRegularFile follows symlinks and skips anything that is not a regular file.
 		content, err := readRegularFile(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {
 			return nil //nolint:nilerr // Glob searches skip unreadable and oversized files.

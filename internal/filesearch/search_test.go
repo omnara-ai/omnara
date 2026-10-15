@@ -38,6 +38,7 @@ func TestSearchMatchesRipgrepSemantics(t *testing.T) {
 		{"invert", "# heading\nbody\n", []string{"-v", "-e", "^#"}, []int{2}, 0, false},
 		{"multiple", "deploy\nrollback\n", []string{"-e", "deploy", "-e", "rollback"}, []int{1, 2}, 0, false},
 		{"multiline", "start\nend\nno\nstart\nend\n", []string{"-U", "-e", "start\\nend"}, []int{1, 4}, 0, false},
+		{"multiline dot stays in line", "a\nb\n", []string{"-U", "-e", "a.b"}, nil, 0, false},
 		{"files", "deploy\n", []string{"-l", "-e", "deploy"}, nil, 0, true},
 		{"counts", strings.Repeat("deploy deploy\n", 100), []string{"-c", "-e", "deploy"}, nil, 100, true},
 		{"empty", "", []string{"-e", "^$"}, nil, 0, false},

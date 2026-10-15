@@ -292,6 +292,12 @@ func TestFileOperationSearchModesAndTruncation(t *testing.T) {
 		{Path: "a.txt", Count: new(uint64(1))}, {Path: "b.txt", Count: new(uint64(2))},
 	}, result.Files)
 
+	require.NoError(t, os.Symlink("a.txt", "link.md"))
+	require.NoError(t, os.Mkdir("dir", 0o700))
+	require.NoError(t, os.Symlink("dir", "dir.md"))
+	result = searchFiles("*.md", 20, "-l", "-e", "TODO")
+	require.Equal(t, []filesearch.File{{Path: "link.md"}}, result.Files, "file symlinks are searched")
+
 	result = searchFiles("*.txt", 1, "-l", "-e", "TODO")
 	require.Equal(t, []filesearch.File{{Path: "a.txt"}}, result.Files)
 	require.True(t, result.Truncated)

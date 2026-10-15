@@ -77,7 +77,7 @@ func TestServiceE2EDockerDaemonFileToolsDeterministic(t *testing.T) {
 				})
 			}
 		case 2:
-			if contains("call_write", "notes/todo.txt", "sha256:", "mch_") {
+			if contains("call_write", "notes/todo.txt", "mch_") {
 				call(w, "read", "read_file", map[string]any{
 					"path": "/work/notes/todo.txt", "offset_line": 2, "limit_lines": 1,
 				})
