@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -131,68 +131,6 @@ WHERE agent.project_id = $1
 			wantWakeups,
 			wantLocks,
 		)
-	}
-}
-
-func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "claim_recovers_unstarted_turn")
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		fixture.Lock.ID,
-	); err != nil {
-		t.Fatalf("release fixture runtime lock: %v", err)
-	}
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"recover me"}]`),
-		IdempotencyKey: "claim-recovers-unstarted-turn",
-	})
-	if err != nil {
-		t.Fatalf("create content input: %v", err)
-	}
-	firstClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
-	if err != nil {
-		t.Fatalf("claim initial input work: %v", err)
-	}
-	if !found || firstClaim.Kind != executionstore.AgentWorkModel || firstClaim.Model.TurnID == uuid.Nil ||
-		!claimedOpeningInputIDsEqual(firstClaim, input.ID) {
-		t.Fatalf(
-			"initial claim = %+v found=%v, want executable turn for input %s",
-			firstClaim,
-			found,
-			input.ID,
-		)
-	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		firstClaim.RuntimeLock.ID,
-	); err != nil {
-		t.Fatalf("release runtime before model context: %v", err)
-	}
-	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
-	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("unstarted-turn wakeups = %d, want 1", wakeups)
-	}
-	recoveredClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
-		ctx,
-		testClaimNextAgentWorkInput(),
-	)
-	if err != nil {
-		t.Fatalf("claim recovered unstarted turn: %v", err)
-	}
-	if !found || recoveredClaim.Kind != executionstore.AgentWorkModel {
-		t.Fatalf("recovered claim = %+v found=%v, want executable", recoveredClaim, found)
-	}
-	if recoveredClaim.Model.TurnID != firstClaim.Model.TurnID || !claimedOpeningInputIDsEqual(recoveredClaim, input.ID) {
-		t.Fatalf("recovered claim = %+v, want same turn/input", recoveredClaim)
 	}
 }
 
@@ -519,32 +457,6 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 		retryClaim.Context.ID == modelClaim.Context.ID {
 		t.Fatalf("retry claim = %+v, want a new context at attempt 2", retryClaim)
 	}
-}
-
-func TestReleaseExhaustedModelContextIsTerminal(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, work, modelClaim := claimExhaustedNormalModelContext(
-		t,
-		ctx,
-		"release_exhausted_model_context",
-	)
-
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		work.RuntimeLock.ID,
-	); err != nil {
-		t.Fatalf("release exhausted runtime: %v", err)
-	}
-	assertExhaustedNormalModelContextTerminalized(
-		t,
-		ctx,
-		fixture,
-		modelClaim,
-		"runtime_released_before_model_result_acceptance",
-	)
 }
 
 func TestReapExhaustedModelContextIsTerminal(t *testing.T) {

@@ -94,38 +94,79 @@ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_prepared_cont
 }
 
 func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
-	for _, mode := range []string{"expired", "opening inputs", "missing source", "wrong source"} {
+	for _, mode := range []string{
+		"outside opening", "subset", "duplicate", "opening inputs", "missing source", "wrong source", "wrong context",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			f := newProcessDaemonFixture(t, ctx, "prepare_validation")
-			id := createToolCallForProcessTest(t, ctx, f, "tool", "read_process")
-			ownedCompleteTool(t, ctx, f, id)
-			work := reclaimAgentWork(t, ctx, &f)
+			initial := mode == "outside opening" || mode == "subset" || mode == "duplicate"
+			var work executionstore.ClaimedAgentWork
+			if initial {
+				first := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "first")
+				second := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "second")
+				work = reclaimAgentWork(t, ctx, &f)
+				require.Equal(t, []uuid.UUID{first.ID, second.ID}, work.Model.InputIDs)
+				admitted := work.Model.AdmittedInputTurn
+				require.Len(t, admitted.Events, 2)
+				turns, err := f.Store.Execution().ListAgentTurnsForRead(ctx, testProjectID, f.AgentID, 0, 1)
+				require.NoError(t, err)
+				require.Len(t, turns, 1)
+				require.Equal(t, admitted.Turn.ID, turns[0].ID)
+				require.True(t, turns[0].StartedAt.Equal(admitted.Events[0].At))
+				require.True(t, turns[0].UpdatedAt.Equal(admitted.Events[1].At))
+			} else {
+				id := createToolCallForProcessTest(t, ctx, f, "tool", "read_process")
+				ownedCompleteTool(t, ctx, f, id)
+				work = reclaimAgentWork(t, ctx, &f)
+			}
 			input := executionstore.PrepareNormalModelCallInput{
 				ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
 				OpeningInputIDs:          work.Model.InputIDs,
 				SourceModelCallContextID: work.Model.SourceModelCallContextID,
 				SourceModelOutputID:      work.Model.SourceModelOutputID,
 			}
-			wantErr := storeerr.ErrAgentNotAdvanceable
+			invalid := input
 			switch mode {
-			case "expired":
-				expireAgentRuntimeLockForTest(t, ctx, f.Store, f.Lock.ID)
-				wantErr = storeerr.ErrRuntimeLockInactive
+			case "outside opening":
+				var configInput uuid.UUID
+				require.NoError(t, f.Store.pool.QueryRow(ctx,
+					`SELECT id FROM agent_inputs WHERE agent_id=$1 AND input_kind='config_change' LIMIT 1`, f.AgentID).Scan(&configInput))
+				invalid.OpeningInputIDs = []uuid.UUID{configInput}
+			case "subset":
+				invalid.OpeningInputIDs = input.OpeningInputIDs[:1]
+			case "duplicate":
+				invalid.OpeningInputIDs = []uuid.UUID{input.OpeningInputIDs[0], input.OpeningInputIDs[0]}
 			case "opening inputs":
-				input.OpeningInputIDs = []uuid.UUID{uuid.New()}
+				invalid.OpeningInputIDs = []uuid.UUID{uuid.New()}
 			case "missing source":
-				input.SourceModelCallContextID, input.SourceModelOutputID = uuid.Nil, uuid.Nil
+				invalid.SourceModelCallContextID, invalid.SourceModelOutputID = uuid.Nil, uuid.Nil
 			case "wrong source":
-				input.SourceModelOutputID = uuid.New()
+				invalid.SourceModelOutputID = uuid.New()
+			case "wrong context":
+				invalid.SourceModelCallContextID = uuid.New()
 			}
-			_, err := f.Store.Execution().PrepareNormalModelCall(ctx, input)
-			require.ErrorIs(t, err, wantErr)
+			_, err := f.Store.Execution().PrepareNormalModelCall(ctx, invalid)
+			require.ErrorIs(t, err, storeerr.ErrAgentNotAdvanceable)
 			var count int
 			require.NoError(t, f.Store.pool.QueryRow(ctx,
-				`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND state='started'`, f.AgentID,
-			).Scan(&count))
+				`SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND state='started'`, f.AgentID).Scan(&count))
 			require.Zero(t, count)
+			watermark, err := f.Store.Execution().MaxEventSequence(ctx, testProjectID, f.AgentID)
+			require.NoError(t, err)
+			if initial {
+				require.Equal(t, work.Model.AdmittedInputTurn.Events[1].Sequence, watermark)
+			}
+			prepared, err := f.Store.Execution().PrepareNormalModelCall(ctx, input)
+			require.NoError(t, err)
+			require.True(t, prepared.Claim.Created)
+			require.True(t, prepared.Claim.Claimed)
+			require.Equal(t, watermark, prepared.Claim.Context.InputEventSequence)
+			replay, err := f.Store.Execution().PrepareNormalModelCall(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, prepared.Claim.Context.ID, replay.Claim.Context.ID)
+			require.False(t, replay.Claim.Created)
+			require.False(t, replay.Claim.Claimed)
 		})
 	}
 }

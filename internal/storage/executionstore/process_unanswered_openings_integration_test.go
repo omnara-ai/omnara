@@ -194,90 +194,78 @@ func mustMarshalJSONString(t *testing.T, value string) string {
 
 func TestContinuationPreparesInheritedUnansweredOpenings(t *testing.T) {
 	t.Parallel()
-	for _, interrupted := range []string{"before_context", "retry"} {
-		for _, continuation := range []string{"tools", "max_tokens"} {
-			t.Run(interrupted+"/"+continuation, func(t *testing.T) {
-				t.Parallel()
-				ctx := t.Context()
-				f := newProcessDaemonFixture(t, ctx, "inherited_openings_"+interrupted+"_"+continuation)
-				require.NoError(
-					t,
-					f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID),
-				)
-				first := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "first")
-				work, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
-				require.NoError(t, err)
-				require.True(t, found)
-				f.Lock = work.RuntimeLock
-				if interrupted == "retry" {
-					claim := ownedModelClaim(t, ctx, f, work)
-					_, err = f.Store.Execution().RecordRetryableModelCallFailure(ctx,
-						executionstore.RecordRecoverableModelCallFailureInput{
-							ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
-							ModelCallContextID: claim.Context.ID, ErrorKind: "transient", ErrorCode: "unavailable",
-							ErrorMessage: "retry later", RetryDelay: time.Hour,
-						})
-					require.NoError(t, err)
-				}
-				require.NoError(
-					t,
-					f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID),
-				)
-				steering := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "steering")
-				work, found, err = f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
-				require.NoError(t, err)
-				require.True(t, found)
-				require.Equal(t, []uuid.UUID{first.ID, steering.ID}, work.Model.InputIDs)
-				f.Lock = work.RuntimeLock
-				claim := ownedModelClaim(t, ctx, f, work)
-				if continuation == "tools" {
-					completeToolCallForContinuationSeedTest(t, ctx, f, work.Model.TurnID,
-						claim.Context.ID, "inherited", f.Now)
-				} else {
-					slug := modelProviderSlugForContext(t, ctx, f.Store, testProjectID, f.AgentID, claim.Context.ID)
-					_, err = f.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
-						executionstore.RecordModelOutputAndCompleteContextInput{
-							ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
-							ModelCallContextID: claim.Context.ID,
-							ProviderResponse: modelenvelope.ResponseEnvelope{
-								RequestedProviderModelSlug: slug, ServedProviderModelSlug: slug,
-								APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: "default",
-								Normalized: modelenvelope.ResponseNormalized{
-									ID: "inherited_output", StopReason: modelenvelope.StopReasonMaxTokens,
-								},
+	for _, continuation := range []string{"tools", "max_tokens"} {
+		t.Run("before_context/"+continuation, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			f := newProcessDaemonFixture(t, ctx, "inherited_openings_before_context_"+continuation)
+			require.NoError(
+				t,
+				f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID),
+			)
+			first := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "first")
+			work, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+			require.NoError(t, err)
+			require.True(t, found)
+			f.Lock = work.RuntimeLock
+			require.NoError(
+				t,
+				f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID),
+			)
+			steering := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "steering")
+			work, found, err = f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, []uuid.UUID{first.ID, steering.ID}, work.Model.InputIDs)
+			f.Lock = work.RuntimeLock
+			claim := ownedModelClaim(t, ctx, f, work)
+			if continuation == "tools" {
+				completeToolCallForContinuationSeedTest(t, ctx, f, work.Model.TurnID,
+					claim.Context.ID, "inherited", f.Now)
+			} else {
+				slug := modelProviderSlugForContext(t, ctx, f.Store, testProjectID, f.AgentID, claim.Context.ID)
+				_, err = f.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
+					executionstore.RecordModelOutputAndCompleteContextInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
+						ModelCallContextID: claim.Context.ID,
+						ProviderResponse: modelenvelope.ResponseEnvelope{
+							RequestedProviderModelSlug: slug, ServedProviderModelSlug: slug,
+							APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: "default",
+							Normalized: modelenvelope.ResponseNormalized{
+								ID: "inherited_output", StopReason: modelenvelope.StopReasonMaxTokens,
 							},
-						})
-					require.NoError(t, err)
-				}
-				seed, found, err := f.Store.Execution().NextAgentModelWork(ctx, testProjectID, f.AgentID)
+						},
+					})
 				require.NoError(t, err)
-				require.True(t, found)
-				require.Equal(t, executionstore.ModelWorkContinue, seed.Kind)
-				require.Equal(t, work.Model.InputIDs, seed.InputIDs)
-				prepare := executionstore.PrepareNormalModelCallInput{
-					ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
-					OpeningInputIDs: seed.InputIDs, SourceModelCallContextID: seed.ModelCallContextID,
-					SourceModelOutputID: seed.SourceModelOutputID,
-				}
-				prepared, err := f.Store.Execution().PrepareNormalModelCall(ctx, prepare)
-				require.NoError(t, err)
-				require.True(t, prepared.Claim.Claimed)
-				require.Greater(
-					t,
-					prepared.Claim.Context.InputEventSequence,
-					claim.Context.InputEventSequence,
-				)
-				var ids []uuid.UUID
-				require.NoError(
-					t,
-					f.Store.pool.QueryRow(ctx,
-						`SELECT opening_input_ids FROM model_call_contexts WHERE id=$1`,
-						prepared.Claim.Context.ID).
-						Scan(&ids),
-				)
-				require.Equal(t, []uuid.UUID{first.ID, steering.ID}, ids)
+			}
+			seed, found, err := f.Store.Execution().NextAgentModelWork(ctx, testProjectID, f.AgentID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, executionstore.ModelWorkContinue, seed.Kind)
+			require.Equal(t, work.Model.InputIDs, seed.InputIDs)
+			prepare := executionstore.PrepareNormalModelCallInput{
+				ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
+				OpeningInputIDs: seed.InputIDs, SourceModelCallContextID: seed.ModelCallContextID,
+				SourceModelOutputID: seed.SourceModelOutputID,
+			}
+			prepared, err := f.Store.Execution().PrepareNormalModelCall(ctx, prepare)
+			require.NoError(t, err)
+			require.True(t, prepared.Claim.Claimed)
+			require.Greater(
+				t,
+				prepared.Claim.Context.InputEventSequence,
+				claim.Context.InputEventSequence,
+			)
+			var ids []uuid.UUID
+			require.NoError(
+				t,
+				f.Store.pool.QueryRow(ctx,
+					`SELECT opening_input_ids FROM model_call_contexts WHERE id=$1`,
+					prepared.Claim.Context.ID).
+					Scan(&ids),
+			)
+			require.Equal(t, []uuid.UUID{first.ID, steering.ID}, ids)
 
-			})
-		}
+		})
 	}
 }

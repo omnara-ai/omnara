@@ -4,12 +4,12 @@ package agentexecution_test
 
 import (
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -149,6 +149,10 @@ func TestExecutionBacklogDeliveryReplay(t *testing.T) {
 	require.NoError(t, u.Rollback(t.Context()))
 	u, h = f.handle(t, a)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	_, err = h.ChangeBacklog(t.Context(), agentexecution.BacklogChange{ID: first.ID, DeliveryMode: "steering"})
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.NoError(t, u.Rollback(t.Context()))
+	u, h = f.handle(t, a)
 	assertCommandState(t, u, h)
 }
 

@@ -29,3 +29,8 @@ func LockTestAgent(
 	}
 	return unit.Handle(projectID, agentID)
 }
+
+func CapacityExemptForTest(input ReceiveContentInput) ReceiveContentInput {
+	input.capacityExempt = true
+	return input
+}

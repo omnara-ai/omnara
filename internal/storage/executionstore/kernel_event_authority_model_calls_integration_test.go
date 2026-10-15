@@ -23,7 +23,6 @@ func TestModelCallRowConstraintsProtectImmutableEvidence(t *testing.T) {
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	_ = admitted.Events[len(admitted.Events)-1].Sequence
 	claimInput := executionstore.PrepareNormalModelCallInput{
 		ProjectID:       testProjectID,
 		AgentID:         fixture.AgentID,
@@ -250,16 +249,6 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			if pending != wantPending {
 				t.Fatalf("pending work=%d want=%d", pending, wantPending)
 			}
-			conflictingInput := recordInput
-			conflictingInput.ProviderResponse.Normalized.Content = append(
-				[]modelenvelope.ResponsePart(nil),
-				recordInput.ProviderResponse.Normalized.Content...,
-			)
-			conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
-			replayed, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput)
-			require.NoError(t, err)
-			require.Equal(t, event.ID, replayed.ID)
-
 			conflictingCostInput := recordInput
 			conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
 			replayed, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput)

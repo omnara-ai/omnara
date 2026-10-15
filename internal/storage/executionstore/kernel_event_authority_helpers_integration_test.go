@@ -118,10 +118,6 @@ LIMIT 1
 `, testProjectID, fixture.AgentID, turnID).Scan(&openingInputID, &inputSequence); err != nil {
 		t.Fatalf("load opening event for model output: %v", err)
 	}
-	_, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for model output: %v", err)
-	}
 	var toolCallID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 		SELECT tool_call.id
@@ -485,24 +481,6 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 	}
 	require.NoError(t, fixture.Store.Execution().RepairExecutionForTest(ctx, testProjectID, fixture.AgentID))
 	return turnID
-}
-
-func assertFrontierCountTest(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	label, query string,
-	agentID, id uuid.UUID,
-	want int,
-) {
-	t.Helper()
-	var got int
-	if err := store.pool.QueryRow(ctx, query, testProjectID, agentID, id).Scan(&got); err != nil {
-		t.Fatalf("%s: count frontier rows: %v", label, err)
-	}
-	if got != want {
-		t.Fatalf("%s: frontier rows = %d, want %d", label, got, want)
-	}
 }
 
 func newStartedNormalModelCallTestFixture(

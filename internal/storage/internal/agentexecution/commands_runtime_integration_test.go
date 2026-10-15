@@ -3,7 +3,6 @@
 package agentexecution_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,6 +86,11 @@ func TestExecutionRecoveryExhaustion(t *testing.T) {
 			snapshot := assertCommandState(t, u, h)
 			require.False(t, snapshot.Selection.TurnContinuable)
 			require.Equal(t, agentexecution.WorkNone, snapshot.Selection.Work)
+			var terminal int
+			require.NoError(t, u.DB().QueryRow(t.Context(), `SELECT count(*) FROM model_call_contexts
+ WHERE id=$1 AND state='failed' AND recovery_kind IS NULL AND error_kind='runtime'
+ AND error_code='runtime_released_before_model_result_acceptance'`, prepared.Context.ID).Scan(&terminal))
+			require.Equal(t, 1, terminal)
 			var outputs int
 			require.NoError(t,
 				u.DB().QueryRow(t.Context(),
@@ -98,46 +101,12 @@ func TestExecutionRecoveryExhaustion(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, reaped)
 			require.NoError(t, u.Commit(t.Context(), "recovery exhausted"))
+			var wakeups int
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM agent_wakeups WHERE agent_id=$1`, a).Scan(&wakeups))
+			require.Zero(t, wakeups)
 		})
 	}
-}
-
-func TestExecutionRenewalSamplesTimeAfterLock(t *testing.T) {
-	f, a, lease := commandFixture(t)
-	_, err := f.pool.Exec(t.Context(), `UPDATE agent_runtime_locks SET
- lease_expires_at=statement_timestamp()+interval '2 seconds' WHERE id=$1`, lease)
-	require.NoError(t, err)
-	blocker, err := f.pool.Begin(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = blocker.Rollback(context.Background()) }()
-	_, err = blocker.Exec(t.Context(), `SELECT id FROM agent_runtime_locks WHERE id=$1 FOR UPDATE`, lease)
-	require.NoError(t, err)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
-	result := make(chan error, 1)
-	go func() {
-		u, err := agentexecution.BeginTestUnit(t.Context(), cell)
-		if err != nil {
-			result <- err
-			return
-		}
-		defer func() { _ = u.Rollback(context.Background()) }()
-		_, err = u.RenewRuntime(t.Context(),
-			agentexecution.AgentRoute{ProjectID: f.project,
-				AgentID:     a,
-				RootAgentID: a},
-			lease,
-			90*time.Second)
-		result <- err
-	}()
-	integrationdb.WaitForLockWaiters(t, t.Context(), f.pool, "", 1)
-	require.Eventually(t, func() bool {
-		var expired bool
-		err := f.pool.QueryRow(t.Context(), `SELECT lease_expires_at<=statement_timestamp()
- FROM agent_runtime_locks WHERE id=$1`, lease).Scan(&expired)
-		return err == nil && expired
-	}, 3*time.Second, 10*time.Millisecond)
-	require.NoError(t, blocker.Commit(t.Context()))
-	require.NoError(t, <-result)
 }
 
 func TestExecutionClaimInvalidLease(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -655,10 +655,6 @@ func claimTestNormalModelCallForWork(
 	now time.Time,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	_, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for model context: %v", err)
-	}
 	var openingEventSequence int64
 	if err := fixture.Store.pool.QueryRow(
 		ctx,
@@ -808,10 +804,6 @@ func retryBackoffWithQueuedInput(
 	)
 	if !found || len(admitted.Events) != 1 {
 		t.Fatalf("admit retry opening input found=%v turn=%+v", found, admitted)
-	}
-	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load retry agent: %v", err)
 	}
 	prepared2, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{

@@ -204,7 +204,7 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 	_, err = parent.ReceiveContent(
 		ctx,
 		ReceiveContentInput{
-			CapacityExempt:   true,
+			capacityExempt:   true,
 			ActorID:          actorID,
 			DeliveryMode:     "steering",
 			IdempotencyScope: "subagent_message",

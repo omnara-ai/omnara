@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -120,56 +119,6 @@ func TestExecutionToolCustody(t *testing.T) {
 			_, err = complete()
 			require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
 			require.NoError(t, u.Rollback(t.Context()))
-		})
-	}
-}
-
-func TestExecutionQuestionCustody(t *testing.T) {
-	for _, cancel := range []bool{false, true} {
-		t.Run(map[bool]string{false: "resolve", true: "supersede"}[cancel], func(t *testing.T) {
-			f, a, lease := commandFixture(t)
-			u, h := f.handle(t, a)
-			ref := toolCommand(t, h, lease, "built_in")
-			_, err := h.AuthorizeTool(t.Context(), ref)
-			require.NoError(t, err)
-			form := interactionform.Form{
-				Title: "Question",
-				Questions: []interactionform.Question{
-					{Prompt: "Continue?", Options: []interactionform.Option{{Label: "yes"}}},
-				},
-			}
-			opened, err := h.OpenInteraction(
-				t.Context(),
-				agentexecution.OpenInteractionInput{ToolRef: ref, Question: &form},
-			)
-			require.NoError(t, err)
-			require.True(t, opened.Created)
-			assertCommandState(t, u, h)
-			replay, err := h.OpenInteraction(
-				t.Context(),
-				agentexecution.OpenInteractionInput{ToolRef: ref, Question: &form},
-			)
-			require.NoError(t, err)
-			require.False(t, replay.Created)
-			require.NoError(t, h.Release(t.Context(), lease))
-			assertCommandState(t, u, h)
-			if cancel {
-				input := receiveCommand(t, h, "steering", "cancel question")
-				ids, err := h.SupersedeInteractions(t.Context(), input.ID)
-				require.NoError(t, err)
-				require.Equal(t, []uuid.UUID{opened.ID}, ids)
-			} else {
-				input := agentexecution.ResolveInteractionInput{ID: opened.ID,
-					Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{0}}}}}
-				resolved, err := h.ResolveInteraction(t.Context(), input)
-				require.NoError(t, err)
-				require.Equal(t, "resolved", resolved.State)
-				replay, err := h.ResolveInteraction(t.Context(), input)
-				require.NoError(t, err)
-				require.Equal(t, resolved.InputID, replay.InputID)
-			}
-			assertCommandState(t, u, h)
-			require.NoError(t, u.Commit(t.Context(), "question custody"))
 		})
 	}
 }

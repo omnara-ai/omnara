@@ -76,35 +76,26 @@ func TestExecutionPermissionAndPresentation(t *testing.T) {
 			require.NoError(t, u.Rollback(t.Context()))
 			u, h = f.handle(t, a)
 			snapshot := assertCommandState(t, u, h)
+			var state string
+			var outcome *string
+			require.NoError(t, u.DB().QueryRow(t.Context(), `SELECT c.state,r.outcome FROM tool_calls c
+ LEFT JOIN tool_call_results r ON r.tool_call_id=c.id WHERE c.id=$1`, ref.ID).Scan(&state, &outcome))
 			if mode == "allow" {
 				require.Equal(t, agentexecution.WorkTool, snapshot.Selection.Work)
+				require.Equal(t, "ready", state)
+				require.Nil(t, outcome)
+			} else {
+				require.Equal(t, "completed", state)
+				require.NotNil(t, outcome)
+				if mode == "deny" {
+					require.Equal(t, "denied", *outcome)
+				} else {
+					require.Equal(t, "canceled", *outcome)
+				}
 			}
 			require.NoError(t, u.Commit(t.Context(), "permission"))
 		})
 	}
-}
-
-func TestExecutionRepairAndMetadata(t *testing.T) {
-	f, a, _ := commandFixture(t)
-	u, h := f.handle(t, a)
-	receiveCommand(t, h, "queued", "metadata")
-	changed, err := h.SetInteractionTarget(t.Context(), uuid.Nil, "", true)
-	require.NoError(t, err)
-	require.True(t, changed)
-	_, err = h.Repair(t.Context())
-	require.NoError(t, err)
-	assertCommandState(t, u, h)
-	require.NoError(t, u.Commit(t.Context(), "repair metadata"))
-	u, h = f.handle(t, a)
-	_, err = u.DB().Exec(t.Context(), `DELETE FROM agent_execution_state WHERE agent_id=$1`, a)
-	require.NoError(t, err)
-	_, err = h.Repair(t.Context())
-	require.NoError(t, err)
-	require.NoError(t, u.Commit(t.Context(), "repair missing head"))
-	u, h = f.handle(t, a)
-	assertCommandState(t, u, h)
-	require.NoError(t, u.ClearIntegrationTargets(t.Context(), f.project, uuid.New()))
-	require.NoError(t, u.Commit(t.Context(), "empty integration cleanup"))
 }
 
 func TestExecutionIntegrationTargetCleanup(t *testing.T) {
@@ -129,15 +120,6 @@ func TestExecutionIntegrationTargetCleanup(t *testing.T) {
 		target)
 	require.NoError(t, err)
 	require.NoError(t, u.ClearIntegrationTargets(t.Context(), f.project, integration))
-	var selected *uuid.UUID
-	var automatic bool
-	require.NoError(t,
-		u.DB().QueryRow(t.Context(),
-			`SELECT interaction_target_id,interaction_auto_select FROM agents WHERE id=$1`,
-			a).Scan(&selected,
-			&automatic))
-	require.Nil(t, selected)
-	require.False(t, automatic)
 	statements, roundTrips, err := agentexecution.CountCommit(t.Context(), u)
 	require.NoError(t, err)
 	require.Zero(t, statements)

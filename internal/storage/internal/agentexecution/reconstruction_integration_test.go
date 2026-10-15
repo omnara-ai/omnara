@@ -497,6 +497,37 @@ func TestReleasedExecutionReconstruction(t *testing.T) {
 		}, agentexecution.WorkModel, agentexecution.OriginCheckpoint},
 	}
 
+	for _, state := range []string{"started", "awaiting_authorization", "completed", "running"} {
+		cases = append(cases, struct {
+			name   string
+			build  func(uuid.UUID)
+			work   agentexecution.WorkKind
+			origin agentexecution.CandidateOrigin
+		}{"newer turn/" + state, func(a uuid.UUID) {
+			turn, _ := f.opening(t, a, 1, uuid.Nil, "content")
+			c := f.modelContext(t, a, 1, "normal", nil, 1)
+			if state != "started" {
+				_, call := f.output(t, a, turn, c, 2, "tool_use", "awaiting_authorization")
+				if state == "running" {
+					lease := uuid.New()
+					_, err := f.pool.Exec(t.Context(), `
+INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+ VALUES($1,$2,$3,now(),now(),now()+interval '90 seconds')`, lease, a, uuid.New())
+					require.NoError(t, err)
+					_, err = f.pool.Exec(t.Context(), `UPDATE tool_calls SET state='ready' WHERE id=$1`, call)
+					require.NoError(t, err)
+					_, err = f.pool.Exec(t.Context(),
+						`UPDATE tool_calls SET state='running',runtime_lock_id=$2 WHERE id=$1`, call, lease)
+					require.NoError(t, err)
+				}
+				if state == "completed" {
+					f.complete(t, a, turn, call, 3)
+				}
+			}
+			f.opening(t, a, 4, uuid.Nil, "content")
+		}, agentexecution.WorkModel, agentexecution.OriginInitial})
+	}
+
 	ids := make([]uuid.UUID, len(cases))
 	for i, tc := range cases {
 		ids[i] = f.agent(t)
@@ -520,6 +551,11 @@ SELECT count(*) FROM model_call_contexts WHERE state='succeeded' AND operation_k
 			rebuilt.Head.LogicalReadyAt = nil
 			require.Equal(t, got.Head, rebuilt.Head)
 			require.Equal(t, tc.work, got.Selection.Work)
+			if strings.HasPrefix(tc.name, "newer turn/") {
+				require.Equal(t, uuid.Nil, got.Head.NormalContextID)
+				require.Equal(t, uuid.Nil, got.Head.PendingToolOutputID)
+				require.False(t, got.Head.IncompleteTools)
+			}
 
 			if tc.origin != 0 {
 				require.NotNil(t, got.Selection.Model)
@@ -553,5 +589,6 @@ func TestExecutionCutoverRejectsEmptyContextLineage(t *testing.T) {
 	agent := f.agent(t)
 	f.opening(t, agent, 1, uuid.Nil, "config_change")
 	f.modelContext(t, agent, 1, "normal", nil, 1)
-	require.Error(t, applyExecutionCutover(t.Context(), f.pool))
+	require.ErrorContains(t, applyExecutionCutover(t.Context(), f.pool),
+		`column "opening_event_sequence" of relation "model_call_contexts" contains null values (SQLSTATE 23502)`)
 }

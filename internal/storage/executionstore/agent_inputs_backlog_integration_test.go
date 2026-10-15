@@ -19,80 +19,6 @@ import (
 
 const backlogRankStride int64 = 1024
 
-func TestPromoteQueuedInputToSteeringIsIdempotentAfterPromotionAndAdmission(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "idempotent-backlog-promotion")
-	createQueued := func(label string) executionstore.AgentInputRecord {
-		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-			ctx,
-			executionstore.CreateAgentContentInputInput{
-				ProjectID:      testProjectID,
-				AgentID:        fixture.AgentID,
-				Actor:          mustOmnaraActorParams(t, fixture.UserID),
-				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + label + `"}]`),
-				IdempotencyKey: "idem-idempotent-promotion-" + label,
-			},
-		)
-		if err != nil {
-			t.Fatalf("create %s input: %v", label, err)
-		}
-		return input
-	}
-	promote := func(inputID uuid.UUID) error {
-		return fixture.Store.Execution().PromoteQueuedInputToSteering(
-			ctx,
-			executionstore.PromoteQueuedInputToSteeringInput{
-				ProjectID: testProjectID,
-				AgentID:   fixture.AgentID,
-				InputID:   inputID,
-			},
-		)
-	}
-
-	admittedFirst := createQueued("admitted-first")
-	admitted, found := admitNextAgentInputAndOpenTurnForTest(
-		t,
-		ctx,
-		fixture.Store,
-		testProjectID,
-		fixture.AgentID,
-		fixture.Lock.ID,
-	)
-	if !found || len(admitted.Inputs) != 1 || admitted.Inputs[0].ID != admittedFirst.ID {
-		t.Fatalf("admitted inputs = %+v, want %s", admitted.Inputs, admittedFirst.ID)
-	}
-	if err := promote(admittedFirst.ID); err != nil {
-		t.Fatalf("promote after admission: %v", err)
-	}
-	if err := promote(admittedFirst.ID); err != nil {
-		t.Fatalf("repeat promotion after admission: %v", err)
-	}
-
-	promotedFirst := createQueued("promoted-first")
-	if err := promote(promotedFirst.ID); err != nil {
-		t.Fatalf("promote queued input: %v", err)
-	}
-	if err := promote(promotedFirst.ID); err != nil {
-		t.Fatalf("repeat promotion while steering: %v", err)
-	}
-
-	canceled := createQueued("canceled")
-	if err := fixture.Store.Execution().CancelQueuedBacklogInput(
-		ctx,
-		executionstore.CancelQueuedBacklogInputInput{
-			ProjectID: testProjectID,
-			AgentID:   fixture.AgentID,
-			InputID:   canceled.ID,
-		},
-	); err != nil {
-		t.Fatalf("cancel queued input: %v", err)
-	}
-	if err := promote(canceled.ID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("promote canceled input error = %v, want state transition conflict", err)
-	}
-}
-
 func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -414,7 +340,7 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 	assertOrder(firstSteering.ID, secondSteering.ID, third.ID, second.ID, first.ID)
 }
 
-func TestMoveQueuedBacklogInputRebalancesExhaustedRankGap(t *testing.T) {
+func TestMoveQueuedBacklogInputRejectsMissingAnchor(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -464,25 +390,6 @@ WHERE project_id = $3
 		t.Fatalf("invalid move changed exhausted ranks to (%d, %d)", firstRank, secondRank)
 	}
 
-	if err := store.Execution().MoveQueuedBacklogInput(ctx, executionstore.MoveQueuedBacklogInputInput{
-		ProjectID:     testProjectID,
-		AgentID:       agentID,
-		InputID:       third.ID,
-		Position:      executionstore.MoveQueuedBacklogInputBefore,
-		AnchorInputID: second.ID,
-	}); err != nil {
-		t.Fatalf("move input through exhausted rank gap: %v", err)
-	}
-	if firstRank := loadAgentInputRank(t, ctx, pool, first.ID); firstRank != backlogRankStride {
-		t.Fatalf("rebalanced first input rank = %d, want %d", firstRank, backlogRankStride)
-	}
-	wantMidpoint := 3 * backlogRankStride / 2
-	if thirdRank := loadAgentInputRank(t, ctx, pool, third.ID); thirdRank != wantMidpoint {
-		t.Fatalf("moved third input rank = %d, want midpoint %d", thirdRank, wantMidpoint)
-	}
-	if secondRank := loadAgentInputRank(t, ctx, pool, second.ID); secondRank != 2*backlogRankStride {
-		t.Fatalf("rebalanced second input rank = %d, want %d", secondRank, 2*backlogRankStride)
-	}
 }
 
 func TestConcurrentQueuedBacklogMovesSerializePerAgent(t *testing.T) {

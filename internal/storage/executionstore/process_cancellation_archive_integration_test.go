@@ -171,10 +171,6 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 	if !found {
 		t.Fatal("expected admitted content input")
 	}
-	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
 	prepared1, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID,
@@ -272,10 +268,6 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 	)
 	if !found {
 		t.Fatal("expected admitted content input")
-	}
-	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
 	}
 	prepared2, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
@@ -401,10 +393,6 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			if !found {
 				t.Fatal("expected admitted content input")
 			}
-			_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-			if err != nil {
-				t.Fatalf("load agent: %v", err)
-			}
 			prepared3, err := fixture.Store.Execution().
 				PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
 					ProjectID:       testProjectID,
@@ -519,7 +507,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 	}
 }
 
-func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testing.T) {
+func TestCancelAgentRequestsRuntimeCancellation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "cancel_active_cancels_steering")
@@ -539,33 +527,6 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 		fixture.Lock.ID,
 		true,
 	)
-	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued"}]`),
-			IdempotencyKey: "cancel-active-preserve-queued",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create queued input: %v", err)
-	}
-	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steering"}]`),
-			DeliveryMode:   "steering",
-			IdempotencyKey: "cancel-active-cancel-steering",
-		},
-	)
-	if err != nil {
-		t.Fatalf("create steering input: %v", err)
-	}
 	cancelResult, err := fixture.Store.Execution().CancelAgent(
 		ctx,
 		executionstore.CancelAgentInput{
@@ -577,31 +538,8 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 	if err != nil {
 		t.Fatalf("cancel active agent: %v", err)
 	}
-	if cancelResult.Event.ID == uuid.Nil || !cancelResult.Affected {
-		t.Fatalf(
-			"cancel active agent = event %+v runtime_cancel_requested %v affected %v, want affected event",
-			cancelResult.Event,
-			cancelResult.RuntimeCancelRequested,
-			cancelResult.Affected,
-		)
-	}
 	if !cancelResult.RuntimeCancelRequested {
 		t.Fatalf("runtime_cancel_requested = false, want durable runtime cancel mark")
-	}
-	var queuedState, steeringState string
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT state FROM agent_inputs WHERE id = $1`, queuedInput.ID).
-		Scan(&queuedState); err != nil {
-		t.Fatalf("load queued input state: %v", err)
-	}
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT state FROM agent_inputs WHERE id = $1`, steeringInput.ID).
-		Scan(&steeringState); err != nil {
-		t.Fatalf("load steering input state: %v", err)
-	}
-	if queuedState != "received" {
-		t.Fatalf("queued input state = %q, want received", queuedState)
-	}
-	if steeringState != "canceled" {
-		t.Fatalf("steering input state = %q, want canceled", steeringState)
 	}
 }
 

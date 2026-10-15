@@ -73,9 +73,9 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 					},
 				}
 			}
-			complete := func() error {
+			complete := func() (uuid.UUID, []uuid.UUID, error) {
 				if tc.toolResponse {
-					_, _, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
+					event, calls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(
 						ctx,
 						executionstore.RecordToolCallSourceAndCompleteContextInput{
 							ProjectID:          testProjectID,
@@ -91,40 +91,59 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 							},
 						},
 					)
-					return err
+					ids := make([]uuid.UUID, len(calls))
+					for i, call := range calls {
+						ids[i] = call.ID
+					}
+					return event.ID, ids, err
 				}
-				_, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+				event, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
 					ctx,
 					executionstore.RecordModelOutputAndCompleteContextInput{
 						ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
 						ModelCallContextID: claim.Context.ID, ProviderResponse: envelope,
 					},
 				)
-				return err
+				return event.ID, nil, err
 			}
 			if !tc.toolResponse {
 				envelope.InputFingerprint = "invalid"
-				assertPgConstraint(t, complete(), "23514", "model_call_contexts_input_fingerprint")
+				_, _, err := complete()
+				assertPgConstraint(t, err, "23514", "model_call_contexts_input_fingerprint")
 				envelope.InputFingerprint = strings.Repeat("a", 64)
 			}
-			require.NoError(t, complete())
-			require.NoError(t, complete())
-			record, found, err := fixture.Store.Execution().GetModelCallContext(
-				ctx,
-				testProjectID,
-				fixture.AgentID,
-				claim.Context.ID,
-			)
+			eventID, toolIDs, err := complete()
 			require.NoError(t, err)
-			require.True(t, found)
+			loadRecord := func() executionstore.ModelCallContextRecord {
+				record, found, err := fixture.Store.Execution().GetModelCallContext(
+					ctx,
+					testProjectID,
+					fixture.AgentID,
+					claim.Context.ID,
+				)
+				require.NoError(t, err)
+				require.True(t, found)
+				return record
+			}
+			record := loadRecord()
 			require.Equal(t, envelope.Normalized.Usage, record.Usage)
 			if tc.usage.InputTokens > 0 {
 				require.Equal(t, envelope.InputFingerprint, record.InputFingerprint)
-				envelope.InputFingerprint = strings.Repeat("b", 64)
-				require.ErrorIs(t, complete(), storeerr.ErrIdempotencyConflict)
 			} else {
 				require.Empty(t, record.InputFingerprint)
 			}
+			replayed := envelope
+			replayed.InputFingerprint = strings.Repeat("b", 64)
+			replayed.Normalized.Usage.InputTokens += 7
+			replayed.Normalized.Usage.UncachedInputTokens += 7
+			original := envelope
+			envelope = replayed
+			replayEventID, replayToolIDs, err := complete()
+			envelope = original
+			require.NoError(t, err)
+			require.Equal(t, eventID, replayEventID)
+			require.Equal(t, toolIDs, replayToolIDs)
+			require.Equal(t, record, loadRecord())
 			watermark, err := fixture.Store.Execution().MaxEventSequence(ctx, testProjectID, fixture.AgentID)
 			require.NoError(t, err)
 			events, err := fixture.Store.Execution().ListContextEvents(ctx, testProjectID, fixture.AgentID, 0, watermark, 100)

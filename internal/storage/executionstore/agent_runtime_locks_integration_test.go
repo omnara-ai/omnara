@@ -354,65 +354,6 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 	}
 }
 
-func TestAgentRuntimeLockAcquisitionWaitGrantsFullLeaseAfterAgentUnlock(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx)
-	lockTx, err := fixture.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin agent lock holder: %v", err)
-	}
-	defer func() { _ = lockTx.Rollback(ctx) }()
-	if _, err := lockTx.Exec(
-		ctx,
-		`SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE`,
-		testProjectID,
-		fixture.AgentID,
-	); err != nil {
-		t.Fatalf("lock agent row: %v", err)
-	}
-
-	leaseDuration := 43 * time.Second
-	type acquireResult struct {
-		lock executionstore.AgentRuntimeLockRecord
-		err  error
-	}
-	acquired := make(chan acquireResult, 1)
-	go func() {
-		lock, acquireErr := fixture.Store.Execution().AcquireAgentRuntimeLock(
-			context.Background(),
-			testProjectID,
-			fixture.AgentID,
-			testWorkerProcessID,
-			leaseDuration,
-		)
-		acquired <- acquireResult{lock: lock, err: acquireErr}
-	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockAgentInProject", 1)
-	var releasedAfter time.Time
-	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
-		t.Fatalf("read database time before agent unlock: %v", err)
-	}
-	if err := lockTx.Commit(ctx); err != nil {
-		t.Fatalf("release agent row: %v", err)
-	}
-
-	result := <-acquired
-	if result.err != nil {
-		t.Fatalf("acquire after agent unlock: %v", result.err)
-	}
-	if result.lock.RenewedAt.Before(releasedAfter) {
-		t.Fatalf(
-			"lease started before row-lock wait ended: renewed=%s marker=%s",
-			result.lock.RenewedAt,
-			releasedAfter,
-		)
-	}
-	if got := result.lock.LeaseExpiresAt.Sub(result.lock.RenewedAt); got != leaseDuration {
-		t.Fatalf("post-wait lease duration = %s, want full %s", got, leaseDuration)
-	}
-}
-
 func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -25,20 +25,28 @@ func TestExecutionBatchConsumption(t *testing.T) {
 		response.Normalized.Content = []modelenvelope.ResponsePart{
 			{Type: "tool_call", ProviderCallID: "one", ToolName: "tool", ToolInput: json.RawMessage(`{}`)},
 			{Type: "tool_call", ProviderCallID: "two", ToolName: "tool", ToolInput: json.RawMessage(`{}`)},
+			{Type: "tool_call", ProviderCallID: "invalid", ToolName: "tool", ToolInput: json.RawMessage(`{}`), ToolCallError: "invalid input"},
 		}
-		output, err := h.AcceptOutput(t.Context(), agentexecution.AcceptOutputInput{
+		input := agentexecution.AcceptOutputInput{
 			ContextID: prepared.Context.ID, RuntimeLockID: lease, Response: response,
 			Tools: []agentexecution.ToolProposal{
 				{ProviderCallID: "one", Type: "built_in"}, {ProviderCallID: "two", Type: "built_in"},
+				{ProviderCallID: "invalid", Type: "built_in"},
 			},
-		})
+		}
+		output, err := h.AcceptOutput(t.Context(), input)
 		require.NoError(t, err)
+		replay, err := h.AcceptOutput(t.Context(), input)
+		require.NoError(t, err)
+		require.False(t, replay.Created)
+		require.Len(t, output.Tools, 3)
+		require.True(t, assertCommandState(t, u, h).Selection.IncompleteTools)
 		var config agentexecution.ActivatedConfig
 		if cycle == 1 {
 			config, err = h.ActivateConfig(t.Context(), agentexecution.ActivateConfigInput{ConfigID: f.config})
 			require.NoError(t, err)
 		}
-		for _, tool := range output.Tools {
+		for _, tool := range output.Tools[:2] {
 			snapshot := assertCommandState(t, u, h)
 			require.Equal(t, agentexecution.WorkTool, snapshot.Selection.Work)
 			require.Equal(t, output.ID, snapshot.Head.PendingToolOutputID)

@@ -46,6 +46,7 @@ func TestInternalModelReplayIdentityAndFence(t *testing.T) {
 						require.False(t, result.Created)
 					}
 					if accepted.ID == uuid.Nil {
+						require.True(t, result.Created)
 						accepted = result
 					}
 					return err
@@ -76,8 +77,10 @@ func TestInternalModelReplayIdentityAndFence(t *testing.T) {
 			failure.Evidence.ResponseID = "ignored without API identity"
 			output.Response.Normalized.Content = nil
 			output.Response.Normalized.Usage.OutputTokens = 100
+			output.Response.ProviderMetadata.OpenRouter.Provider = "different"
 			u, h = f.handle(t, agent)
 			require.NoError(t, run(h, lease))
+			assertCommandState(t, u, h)
 			require.NoError(t, u.Commit(t.Context(), "replay attempt"))
 			u, h = f.handle(t, agent)
 			require.ErrorIs(t, run(h, uuid.New()), storeerr.ErrRuntimeLockInactive)
@@ -122,10 +125,13 @@ func TestInteractionReplayStateAndFence(t *testing.T) {
 			open := agentexecution.OpenInteractionInput{ToolRef: ref, Question: &form}
 			original, err := h.OpenInteraction(t.Context(), open)
 			require.NoError(t, err)
+			require.True(t, original.Created)
+			assertCommandState(t, u, h)
 			form.Title = "Changed"
 			replay, err := h.OpenInteraction(t.Context(), open)
 			require.NoError(t, err)
 			require.Equal(t, original.ID, replay.ID)
+			require.False(t, replay.Created)
 			require.JSONEq(t, string(original.Request), string(replay.Request))
 			resolution := agentexecution.ResolveInteractionInput{
 				ID:         original.ID,
@@ -133,17 +139,20 @@ func TestInteractionReplayStateAndFence(t *testing.T) {
 			}
 			if canceled {
 				input := receiveCommand(t, h, "steering", "supersede")
-				_, err = h.SupersedeInteractions(t.Context(), input.ID)
+				ids, err := h.SupersedeInteractions(t.Context(), input.ID)
 				require.NoError(t, err)
+				require.Equal(t, []uuid.UUID{original.ID}, ids)
 			} else {
 				original, err = h.ResolveInteraction(t.Context(), resolution)
 				require.NoError(t, err)
+				require.Equal(t, "resolved", original.State)
 				replay, err = h.ResolveInteraction(t.Context(), resolution)
 				require.NoError(t, err)
 				require.Equal(t, original.InputID, replay.InputID)
 				require.JSONEq(t, string(original.Resolution), string(replay.Resolution))
 				resolution.Resolution.Answers[0].OptionIndices = []int{1}
 			}
+			assertCommandState(t, u, h)
 			require.NoError(t, u.Commit(t.Context(), "interaction replay"))
 			u, h = f.handle(t, agent)
 			_, err = h.ResolveInteraction(t.Context(), resolution)

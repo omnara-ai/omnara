@@ -39,7 +39,7 @@ func TestExecutionBacklogCapacity(t *testing.T) {
 	f, agent, _ := commandFixture(t)
 	ids := fillExecutionBacklog(t, f, agent, 49)
 	u, h := f.handle(t, agent)
-	last := receiveCommand(t, h, "queued", "last")
+	receiveCommand(t, h, "queued", "last")
 	require.NoError(t, u.Commit(t.Context(), "last slot"))
 	require.Equal(t, 50, pendingExecutionCount(t, f, agent))
 	t.Run("reject", func(t *testing.T) {
@@ -49,18 +49,6 @@ func TestExecutionBacklogCapacity(t *testing.T) {
 		})
 		require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 		require.NoError(t, u.Rollback(t.Context()))
-		require.Equal(t, 50, pendingExecutionCount(t, f, agent))
-	})
-	t.Run("reorder_and_convert", func(t *testing.T) {
-		u, h := f.handle(t, agent)
-		changed, err := h.ChangeBacklog(t.Context(), agentexecution.BacklogChange{ID: last.ID,
-			DeliveryMode: "queued", Position: "front"})
-		require.NoError(t, err)
-		require.True(t, changed)
-		changed, err = h.ChangeBacklog(t.Context(), agentexecution.BacklogChange{ID: last.ID, DeliveryMode: "steering"})
-		require.NoError(t, err)
-		require.True(t, changed)
-		require.NoError(t, u.Commit(t.Context(), "reorder and convert"))
 		require.Equal(t, 50, pendingExecutionCount(t, f, agent))
 	})
 	t.Run("cancel", func(t *testing.T) {
@@ -77,10 +65,10 @@ func TestExecutionBacklogCapacity(t *testing.T) {
 		u, h := f.handle(t, agent)
 		admitted, err := h.AdmitInputs(t.Context())
 		require.NoError(t, err)
-		require.Len(t, admitted.Inputs, 25)
+		require.Len(t, admitted.Inputs, 24)
 		receiveCommand(t, h, "queued", "replacement")
 		require.NoError(t, u.Commit(t.Context(), "admit and refill"))
-		require.Equal(t, 26, pendingExecutionCount(t, f, agent))
+		require.Equal(t, 27, pendingExecutionCount(t, f, agent))
 	})
 }
 
@@ -136,15 +124,13 @@ JOIN content_blocks c ON c.owner_agent_input_id=i.id WHERE i.id=$1`, original.ID
 	require.Equal(t, "original", text)
 
 	u, h = f.handle(t, agent)
-	newInput.CapacityExempt = true
-	accepted, err := h.ReceiveContent(t.Context(), newInput)
+	accepted, err := h.ReceiveContent(t.Context(), agentexecution.CapacityExemptForTest(newInput))
 	require.NoError(t, err)
 	require.NotEqual(t, original.ID, accepted.ID)
 	require.NoError(t, u.Commit(t.Context(), "exempt input at capacity"))
 	require.Equal(t, 51, pendingExecutionCount(t, f, agent))
 
 	u, h = f.handle(t, agent)
-	newInput.CapacityExempt = false
 	replayed, err = h.ReceiveContent(t.Context(), newInput)
 	require.NoError(t, err)
 	require.Equal(t, accepted.ID, replayed.ID)

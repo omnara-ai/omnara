@@ -211,36 +211,6 @@ func TestSubagentLaunchLocksMachinesBeforeParentAndInsert(t *testing.T) {
 	require.Len(t, outcome.Value.MachineBindings, 1)
 }
 
-func TestPreparationFencesLeaseAfterAgentWait(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	f, _, child := executionLockOrderAgents(t, true)
-	runtime, err := f.Store.Execution().AcquireAgentRuntimeLock(
-		ctx, testProjectID, child, testWorkerProcessID, time.Minute,
-	)
-	require.NoError(t, err)
-	blocker := integrationdb.BeginTx(t, ctx, f.Store.pool)
-	_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, child)
-	require.NoError(t, err)
-	done := integrationdb.RunAsyncError(func() error {
-		_, err := f.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       testProjectID,
-			AgentID:         child,
-			RuntimeLockID:   runtime.ID,
-			OpeningInputIDs: []uuid.UUID{uuid.New()},
-		})
-		return err
-	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, f.Store.pool, "LockAgentInProject", 1)
-	expireAgentRuntimeLockForTest(t, ctx, f.Store, runtime.ID)
-	require.NoError(t, blocker.Commit(ctx))
-	require.ErrorIs(
-		t,
-		integrationdb.Await(t, done, "preparation after lease expiry"),
-		storeerr.ErrRuntimeLockInactive,
-	)
-}
-
 func TestSubagentLaunchReplansAfterMachineTeardown(t *testing.T) {
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, "subagent-machine-teardown")

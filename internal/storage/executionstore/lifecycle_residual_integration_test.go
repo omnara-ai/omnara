@@ -41,13 +41,16 @@ func TestOrganizationDeletionIncludesDeletedProjectPoolAgents(t *testing.T) {
  FROM agent_configs WHERE id=$2 RETURNING id`,
 			project,
 			f.agent.CurrentConfigID).Scan(&config))
-	_,
-		err = f.store.Execution().CreateAgentFixture(ctx,
+	remaining, err := f.store.Execution().CreateAgentFixture(ctx,
 		executionstore.AgentFixtureInput{ProjectID: project,
 			CurrentConfigID: config})
 	require.NoError(t, err)
 	_, err = f.store.Organizations().DeleteOrganization(ctx, testOrgID, userPrincipal(f.userID))
 	require.NoError(t, err)
+	for _, agent := range []uuid.UUID{f.agent.ID, remaining.ID} {
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT state FROM agents WHERE id=$1`, agent).Scan(&state))
+		require.Equal(t, "archived", state)
+	}
 }
 
 func TestGrantRevocationIncludesStartingProcessWithReleasedBinding(t *testing.T) {

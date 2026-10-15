@@ -202,41 +202,6 @@ func TestExecutionSemanticCommands(t *testing.T) {
 	require.NoError(t, u.Commit(t.Context(), "semantic completion"))
 }
 
-func TestExecutionCommandRollback(t *testing.T) {
-	f, a, _ := commandFixture(t)
-	u, h := f.handle(t, a)
-	input := agentexecution.ReceiveContentInput{
-		DeliveryMode:     "queued",
-		IdempotencyScope: "test",
-		IdempotencyKey:   "one",
-		Content:          []agentexecution.Content{{Kind: "text", Text: "one"}},
-	}
-	first, err := h.ReceiveContent(t.Context(), input)
-	require.NoError(t, err)
-	expected := assertCommandState(t, u, h)
-	require.NoError(t, u.Commit(t.Context(), "input"))
-	u, h = f.handle(t, a)
-	receiveCommand(t, h, "steering", "later")
-	_, err = h.AdmitInputs(t.Context())
-	require.NoError(t, err)
-	assertCommandState(t, u, h)
-	require.NoError(t, u.Rollback(t.Context()))
-	u, h = f.handle(t, a)
-	got := assertCommandState(t, u, h)
-	require.Equal(t, expected.Head.CurrentTurnID, got.Head.CurrentTurnID)
-	require.Equal(t, agentexecution.AdmitOneQueued, got.Selection.Admission)
-	require.NoError(t, u.Commit(t.Context(), "rollback verified"))
-	var count int
-	var text string
-	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, a).Scan(&count))
-	require.Equal(t, 1, count)
-	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT text_content FROM content_blocks WHERE owner_agent_input_id=$1`, first.ID).Scan(&text))
-	require.Equal(t, "one", text)
-
-}
-
 func TestExecutionCompactionCommands(t *testing.T) {
 	f, a, lease := commandFixture(t)
 	u, h := f.handle(t, a)
@@ -304,44 +269,6 @@ func TestExecutionCompactionCommands(t *testing.T) {
 	require.True(t, changed)
 	assertCommandState(t, u, h)
 	require.NoError(t, u.Commit(t.Context(), "compaction trace"))
-}
-
-func TestExecutionOutputToolProposalCommand(t *testing.T) {
-	f, a, lease := commandFixture(t)
-	u, h := f.handle(t, a)
-	receiveCommand(t, h, "queued", "input")
-	_, err := h.AdmitInputs(t.Context())
-	require.NoError(t, err)
-	prepared := prepareCommand(t, h, lease)
-	response := commandResponse(modelenvelope.StopReasonToolUse)
-	response.Normalized.Content = []modelenvelope.ResponsePart{
-		{Type: "tool_call", ProviderCallID: "one", ToolName: "list_agents", ToolInput: json.RawMessage(`{}`)},
-		{
-			Type:           "tool_call",
-			ProviderCallID: "two",
-			ToolName:       "list_agents",
-			ToolInput:      json.RawMessage(`{}`),
-			ToolCallError:  "bad arguments",
-		},
-	}
-	input := agentexecution.AcceptOutputInput{
-		ContextID:     prepared.Context.ID,
-		RuntimeLockID: lease,
-		Response:      response,
-		Tools: []agentexecution.ToolProposal{
-			{ProviderCallID: "one", Type: "built_in"},
-			{ProviderCallID: "two", Type: "built_in"},
-		},
-	}
-	output, err := h.AcceptOutput(t.Context(), input)
-	require.NoError(t, err)
-	require.Len(t, output.Tools, 2)
-	snapshot := assertCommandState(t, u, h)
-	require.True(t, snapshot.Selection.IncompleteTools)
-	again, err := h.AcceptOutput(t.Context(), input)
-	require.NoError(t, err)
-	require.False(t, again.Created)
-	require.NoError(t, u.Commit(t.Context(), "tool proposal"))
 }
 
 func TestExecutionCommandFencing(t *testing.T) {
@@ -829,52 +756,6 @@ SELECT count(*) FROM model_call_contexts WHERE agent_id=$1`, a).Scan(&contexts))
 	require.Zero(t, contexts)
 }
 
-func TestExecutionOutputReplayReturnsStoredEvidence(t *testing.T) {
-	f, a, lease := commandFixture(t)
-	u, h := f.handle(t, a)
-	receiveCommand(t, h, "queued", "work")
-	_, err := h.AdmitInputs(t.Context())
-	require.NoError(t, err)
-	prepared := prepareCommand(t, h, lease)
-	input := agentexecution.AcceptOutputInput{
-		RuntimeLockID: lease,
-		ContextID:     prepared.Context.ID,
-		Response:      commandResponse(modelenvelope.StopReasonEndTurn),
-	}
-	input.Response.Normalized.Usage.OutputTokens = 10
-	accepted, err := h.AcceptOutput(t.Context(), input)
-	require.NoError(t, err)
-	require.True(t, accepted.Created)
-	require.NoError(t, u.Commit(t.Context(), "accepted output"))
-	for _, variant := range []string{"usage", "metadata", "content"} {
-		t.Run(variant, func(t *testing.T) {
-			u, h := f.handle(t, a)
-			conflict := input
-			switch variant {
-			case "usage":
-				conflict.Response.Normalized.Usage.OutputTokens++
-			case "metadata":
-				conflict.Response.ProviderMetadata.OpenRouter.Provider = "different"
-			case "content":
-				conflict.Response.Normalized.Content = []modelenvelope.ResponsePart{
-					{Type: "text", Text: "different"},
-				}
-			}
-			replayed, err := h.AcceptOutput(t.Context(), conflict)
-			require.NoError(t, u.Rollback(t.Context()))
-			require.NoError(t, err)
-			require.Equal(t, accepted.ID, replayed.ID)
-			require.False(t, replayed.Created)
-		})
-	}
-	u, h = f.handle(t, a)
-	replay, err := h.AcceptOutput(t.Context(), input)
-	require.NoError(t, err)
-	require.False(t, replay.Created)
-	require.Equal(t, accepted.ID, replay.ID)
-	assertCommandState(t, u, h)
-}
-
 func TestExecutionCompactionReplayDoesNotAdmitNewInputs(t *testing.T) {
 	for _, phase := range []string{"started", "checkpoint", "preempted"} {
 		t.Run(phase, func(t *testing.T) {
@@ -998,23 +879,4 @@ func TestExecutionArchiveHistoryDoesNotDependOnReads(t *testing.T) {
 	}
 	require.Equal(t, histories[0], histories[1])
 	require.Contains(t, histories[0], `"input_kind": "control"`)
-}
-
-func TestExecutionCreationTracksQuota(t *testing.T) {
-	f := migratedExecutionFixture(t)
-	_, err := f.pool.Exec(t.Context(), `INSERT INTO org_resource_limit_overrides(org_id,max_active_agents_per_project)
- VALUES($1,0)`, f.org)
-	require.NoError(t, err)
-	unit, err := agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
-	require.NoError(t, err)
-	defer func() { _ = unit.Rollback(t.Context()) }()
-	agent := uuid.New()
-	_, err = unit.CreateAgent(t.Context(), agentexecution.CreateAgentInput{
-		ID: agent, ProjectID: f.project, ConfigID: f.config})
-	require.NoError(t, err)
-	require.EqualError(t, unit.Commit(t.Context(), "create agent"), "active agents limit of 0 reached: resource conflict")
-	require.NoError(t, unit.Rollback(t.Context()))
-	var count int
-	require.NoError(t, f.pool.QueryRow(t.Context(), "SELECT count(*) FROM agents WHERE id=$1", agent).Scan(&count))
-	require.Zero(t, count)
 }

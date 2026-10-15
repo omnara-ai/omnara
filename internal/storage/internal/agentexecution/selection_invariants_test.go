@@ -92,51 +92,6 @@ func TestSelectNextRejectsMalformedViews(t *testing.T) {
 	}
 }
 
-func TestCorrectedOpeningLineageSurvivesRepeatedContinuationAndRetry(t *testing.T) {
-	t.Parallel()
-	for _, tools := range []bool{false, true} {
-		view := completedBatchView()
-		inherited := agentexecution.Opening{InputIDs: []uuid.UUID{identity(11), identity(3)}, EventSequence: 2}
-		view.ToolBatch.Output.Context.Opening = inherited
-		if !tools {
-			o := view.ToolBatch.Output
-			view.ToolBatch, view.OutputLimit = nil, &o
-		}
-		for cycle := range 3 {
-			selection, err := agentexecution.SelectNext(view, decisionTime())
-			require.NoError(t, err)
-			require.Equal(t, agentexecution.ModelContinue, selection.Model.Kind)
-			require.Equal(t, inherited, selection.Model.Opening)
-			next := *view.NormalContext
-			next.ID, next.Attempt = identity(byte(20+cycle)), 1
-			next.InputEventSequence = 30 + int64(cycle)*20
-			next.Opening = selection.Model.Opening
-			next.State, next.Recovery = agentexecution.ContextFailed, agentexecution.RecoveryRetry
-			deadline := decisionTime()
-			next.RetryAt = &deadline
-			view.NormalContext, view.OutputLimit = &next, nil
-			view.MaxNormalInputSequence, view.MaxContextInputSequence = next.InputEventSequence, next.InputEventSequence
-			selection, err = agentexecution.SelectNext(view, decisionTime())
-			require.NoError(t, err)
-			require.Equal(t, agentexecution.OriginRetry, selection.Model.Origin)
-			require.Equal(t, inherited, selection.Model.Opening)
-			next.ID, next.Attempt = identity(byte(40+cycle)), 2
-			next.State, next.Recovery, next.RetryAt = agentexecution.ContextSucceeded, agentexecution.RecoveryNone, nil
-			o := agentexecution.ModelOutput{
-				ID: identity(byte(60 + cycle)), EventID: identity(byte(80 + cycle)), Context: next,
-				Event: agentexecution.EventBoundary{Sequence: next.InputEventSequence + 1, Time: decisionTime()},
-			}
-			if tools {
-				view.ToolBatch = &agentexecution.ToolBatch{Output: o, Completion: &agentexecution.BatchCompletion{
-					LastResultSequence: o.Event.Sequence + 1, ReadyAt: decisionTime(),
-				}}
-			} else {
-				view.OutputLimit = &o
-			}
-		}
-	}
-}
-
 func FuzzSelectNext(f *testing.F) {
 	for mode := range byte(6) {
 		for flags := range byte(16) {

@@ -37,7 +37,7 @@ An agent accepts up to 50 pending messages across queued and steering inputs; fu
 
   <SendingInputSend />
 
-  `state: received` means Omnara accepted the input. When the agent processes it, the state becomes `resolved` and a matching event appears on the timeline. An input can instead become `canceled` or `rejected` if it is withdrawn or cannot be delivered.
+  `state: received` means Omnara accepted the input. When the agent processes it, the state becomes `resolved` and a matching event appears on the timeline. An input can instead become `canceled` if it is withdrawn before the agent processes it.
 
   If your system retries requests, send an `Idempotency-Key` to avoid delivering the same message twice.
 

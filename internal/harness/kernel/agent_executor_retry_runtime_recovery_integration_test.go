@@ -96,11 +96,6 @@ func TestAgentExecutorRetriesInterruptedModelContext(t *testing.T) {
 		"recover interrupted model call",
 		fixture.Now.Add(time.Second),
 	)
-	_, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
-	if err != nil {
-		t.Fatalf("max event sequence: %v", err)
-	}
-
 	prepared1, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
 			ProjectID:       kernelTestProjectID,

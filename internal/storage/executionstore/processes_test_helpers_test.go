@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -880,10 +880,6 @@ func createToolCallBatchForProcessTest(
 	)
 	if !found || len(admitted.Events) != 1 {
 		t.Fatalf("admit source agent input: found=%v admitted=%+v", found, admitted)
-	}
-	_, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for model context fixture: %v", err)
 	}
 	prepared1, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{

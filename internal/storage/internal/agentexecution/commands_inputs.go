@@ -14,7 +14,7 @@ import (
 )
 
 type ReceiveContentInput struct {
-	CapacityExempt      bool
+	capacityExempt      bool
 	ActorID             uuid.UUID
 	IntegrationTargetID uuid.UUID
 	DeliveryMode        string
@@ -70,7 +70,7 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		if !input.CapacityExempt {
+		if !input.capacityExempt {
 			pending, err := q.CountPendingExecutionContent(ctx, h.unit.DB(), executiondb.CountPendingExecutionContentParams{
 				AgentID: h.route.AgentID, Capacity: executionpolicy.MaxPendingAgentContentInputs,
 			})

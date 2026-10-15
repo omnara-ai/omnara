@@ -71,6 +71,9 @@ func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
 func TestModelCallOpeningInputsRejectWrongProject(t *testing.T) {
 	ctx := t.Context()
 	f, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "opening-project-scope")
+	var opening []uuid.UUID
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT opening_input_ids FROM model_call_contexts WHERE id=$1`, claim.Context.ID).Scan(&opening))
 	_, found, err := f.Store.Execution().GetModelCallContext(ctx, uuid.New(), f.AgentID, claim.Context.ID)
 	require.NoError(t, err)
 	require.False(t, found)
@@ -79,8 +82,8 @@ func TestModelCallOpeningInputsRejectWrongProject(t *testing.T) {
 			executionstore.PrepareNormalModelCallInput{ProjectID: uuid.New(),
 				AgentID:         f.AgentID,
 				RuntimeLockID:   f.Lock.ID,
-				OpeningInputIDs: []uuid.UUID{uuid.New()}})
-	require.Error(t, err)
+				OpeningInputIDs: opening})
+	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
 }
 
 func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {

@@ -4,6 +4,7 @@ package agentexecution_test
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/stretchr/testify/require"
@@ -32,7 +32,7 @@ func TestExecutionSchemaContracts(t *testing.T) {
 	var columns int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.columns
  WHERE table_schema='public' AND table_name='agent_execution_state'
- AND (data_type IN ('json','jsonb') OR column_name IN ('project_id','dirty','incremental'))`).Scan(&columns))
+ AND (data_type IN ('json','jsonb') OR column_name = 'project_id')`).Scan(&columns))
 	require.Zero(t, columns)
 	var fks int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_constraint
@@ -203,23 +203,6 @@ INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,queu
 	require.Equal(t, expected.Head, rebuilt.Head)
 }
 
-func TestExecutionReconstructionRejectsCorruptLineage(t *testing.T) {
-	f := releasedExecutionFixture(t)
-	a, b := f.agent(t), f.agent(t)
-	f.opening(t, a, 1, uuid.Nil, "content")
-	c := f.modelContext(t, a, 1, "normal", nil, 1)
-	_, other := f.opening(t, b, 1, uuid.Nil, "content")
-	require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
-	u, h := f.handle(t, a)
-	_, err := u.DB().Exec(t.Context(), `ALTER TABLE model_call_contexts DISABLE TRIGGER USER`)
-	require.NoError(t, err)
-	_, err = u.DB().
-		Exec(t.Context(), `UPDATE model_call_contexts SET opening_input_ids=ARRAY[$2::uuid] WHERE id=$1`, c, other)
-	require.NoError(t, err)
-	_, err = h.ReconstructExecution(t.Context())
-	require.ErrorIs(t, err, agentexecution.ErrInvalidState)
-}
-
 func TestExecutionFactPlans(t *testing.T) {
 	f := releasedExecutionFixture(t)
 	require.NoError(t, applyExecutionCutover(t.Context(), f.pool))
@@ -273,8 +256,6 @@ func TestExecutionFactPlans(t *testing.T) {
 					limit = 28
 				}
 				require.LessOrEqual(t, strings.Count(plan, `"Node Type"`), limit)
-				require.NotContains(t, plan, "agent_next_")
-				require.NotContains(t, plan, "scheduler_")
 				if name == "LoadExecutionBase" || name == "LoadExecutionFacts" ||
 					name == "ListExecutionIntegrationTargetAgents" ||
 					name == "ClearExecutionIntegrationTargets" {

@@ -49,10 +49,6 @@ func TestReplaceCompactionSourceRejectsLargerRange(t *testing.T) {
 	if !found || len(admitted.Events) != 2 {
 		t.Fatalf("admitted opening events = %+v found=%v, want two", admitted.Events, found)
 	}
-	_, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent: %v", err)
-	}
 	prepared1, err := fixture.Store.Execution().
 		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
 			ProjectID:       testProjectID,
