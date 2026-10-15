@@ -57,16 +57,14 @@ func TestPrepareNormalModelCallRollbackAndReplay(t *testing.T) {
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, "prepare_rollback")
 	input := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
-	_, continued, err := f.Store.Execution().AdvanceOwnedAgentWork(ctx, ownedAdvanceInput(f, true))
-	require.NoError(t, err)
-	require.True(t, continued)
+	reclaimAgentWork(t, ctx, &f)
 	prepare := executionstore.PrepareNormalModelCallInput{
 		ProjectID:       testProjectID,
 		AgentID:         f.AgentID,
 		RuntimeLockID:   f.Lock.ID,
 		OpeningInputIDs: []uuid.UUID{input.ID},
 	}
-	_, err = f.Store.pool.Exec(
+	_, err := f.Store.pool.Exec(
 		ctx,
 		`CREATE FUNCTION reject_prepared_context() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'reject'; END $$;
@@ -102,9 +100,7 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 			f := newProcessDaemonFixture(t, ctx, "prepare_validation")
 			id := createToolCallForProcessTest(t, ctx, f, "tool", "read_process")
 			ownedCompleteTool(t, ctx, f, id)
-			work, continued, err := f.Store.Execution().AdvanceOwnedAgentWork(ctx, ownedAdvanceInput(f, true))
-			require.NoError(t, err)
-			require.True(t, continued)
+			work := reclaimAgentWork(t, ctx, &f)
 			input := executionstore.PrepareNormalModelCallInput{
 				ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
 				OpeningInputIDs:          work.Model.InputIDs,
@@ -123,7 +119,7 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 			case "wrong source":
 				input.SourceModelOutputID = uuid.New()
 			}
-			_, err = f.Store.Execution().PrepareNormalModelCall(ctx, input)
+			_, err := f.Store.Execution().PrepareNormalModelCall(ctx, input)
 			require.ErrorIs(t, err, wantErr)
 			var count int
 			require.NoError(t, f.Store.pool.QueryRow(ctx,

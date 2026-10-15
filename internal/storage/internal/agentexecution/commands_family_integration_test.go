@@ -270,20 +270,11 @@ func TestSiblingPreparationDoesNotLockParent(t *testing.T) {
 			response.Normalized.Content = []modelenvelope.ResponsePart{{Type: "tool_call", ProviderCallID: "call",
 				ToolName: "tool", ToolInput: json.RawMessage(`{}`)}}
 			bindings := []executionstore.ToolCallBindingInput{{ProviderCallID: "call", Type: "built_in"}}
-			if i%4 < 2 {
-				_, err = store.Execution().AcceptModelOutputAndAdvance(ctx, executionstore.AcceptModelOutputAndAdvanceInput{
-					Output: executionstore.RecordModelOutputAndCompleteContextInput{
-						ProjectID: f.project, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
-						ModelCallContextID: prepared.Claim.Context.ID, ProviderResponse: response,
-					}, ToolCallBindings: bindings,
+			_, _, err = store.Execution().RecordToolCallSourceAndCompleteContext(ctx,
+				executionstore.RecordToolCallSourceAndCompleteContextInput{
+					ProjectID: f.project, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+					ModelCallContextID: prepared.Claim.Context.ID, ProviderResponse: response, ToolCallBindings: bindings,
 				})
-			} else {
-				_, _, err = store.Execution().RecordToolCallSourceAndCompleteContext(ctx,
-					executionstore.RecordToolCallSourceAndCompleteContextInput{
-						ProjectID: f.project, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
-						ModelCallContextID: prepared.Claim.Context.ID, ProviderResponse: response, ToolCallBindings: bindings,
-					})
-			}
 			done <- err
 		}()
 	}

@@ -17,79 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExecutionAdvanceBudgetsAndRecovery(t *testing.T) {
-	for _, mode := range []string{"tools",
-		"model_budget",
-		"input_budget",
-		"retained",
-		"model",
-		"canceled",
-		"expired"} {
-		t.Run(mode, func(t *testing.T) {
-			f, a, lease := commandFixture(t)
-			u, h := f.handle(t, a)
-			ref := toolCommand(t, h, lease, "built_in")
-			_, err := h.AuthorizeTool(t.Context(), ref)
-			require.NoError(t, err)
-			if mode == "retained" {
-				_, err = h.RunTool(t.Context(), ref)
-				require.NoError(t, err)
-			}
-			if mode == "model_budget" || mode == "input_budget" || mode == "model" {
-				_, err = h.CompleteTool(
-					t.Context(),
-					agentexecution.ToolCompletion{
-						ToolRef: ref,
-						Outcome: "succeeded",
-						Content: []agentexecution.Content{{Kind: "text", Text: "done"}},
-					},
-				)
-				require.NoError(t, err)
-			}
-			if mode == "input_budget" {
-				receiveCommand(t, h, "steering", "new input")
-			}
-			if mode == "canceled" || mode == "expired" {
-				query := `UPDATE agent_runtime_locks SET cancel_requested_at=statement_timestamp() WHERE id=$1`
-				if mode == "expired" {
-					query = `UPDATE agent_runtime_locks SET started_at=statement_timestamp()-interval '3 minutes',
- renewed_at=statement_timestamp()-interval '2 minutes',
- lease_expires_at=statement_timestamp()-interval '1 minute' WHERE id=$1`
-				}
-				_, err = u.DB().Exec(t.Context(), query, lease)
-				require.NoError(t, err)
-				require.NoError(t, u.Commit(t.Context(), "before rejected command"))
-				u, h = f.handle(t, a)
-				_, err = h.Advance(t.Context(), lease, true, true)
-				require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
-				require.NoError(t, u.Rollback(t.Context()))
-				return
-			}
-			work, err := h.Advance(t.Context(), lease, mode == "model", true)
-			require.NoError(t, err)
-			switch mode {
-			case "tools":
-				require.Equal(t, agentexecution.WorkTool, work.Selection.Work)
-				require.False(t, work.Released)
-			case "model":
-				require.Equal(t, agentexecution.WorkModel, work.Selection.Work)
-				require.NotEqual(t, uuid.Nil, work.Model.Context.ID)
-			default:
-				require.True(t, work.Released)
-			}
-			snapshot := assertCommandState(t, u, h)
-			if mode == "input_budget" {
-				require.Equal(t, agentexecution.AdmitAllSteering, snapshot.Selection.Admission)
-			}
-			if mode == "retained" {
-				require.Equal(t, agentexecution.WorkModel, snapshot.Selection.Work)
-			}
-			require.NoError(t, u.Commit(t.Context(), "advance"))
-		})
-	}
-}
-
-func TestExecutionClaimRenewAcceptAdvance(t *testing.T) {
+func TestExecutionClaimRenewAcceptRelease(t *testing.T) {
 	f, a, oldLease := commandFixture(t)
 	_, err := f.pool.Exec(t.Context(), `DELETE FROM agent_runtime_locks WHERE id=$1`, oldLease)
 	require.NoError(t, err)
@@ -116,16 +44,13 @@ func TestExecutionClaimRenewAcceptAdvance(t *testing.T) {
 	}
 	accepted, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
-	work, err := h.Advance(t.Context(), input.RuntimeLockID, true, true)
-	require.NoError(t, err)
 	require.True(t, accepted.Created)
-	require.NotEqual(t, prepared.Context.ID, work.Model.Context.ID)
 	replay, err := h.AcceptOutput(t.Context(), input)
 	require.NoError(t, err)
 	require.False(t, replay.Created)
 	require.NoError(t, h.Release(t.Context(), input.RuntimeLockID))
 	assertCommandState(t, u, h)
-	require.NoError(t, u.Commit(t.Context(), "claim renew advance"))
+	require.NoError(t, u.Commit(t.Context(), "claim renew accept release"))
 }
 
 func TestExecutionRecoveryExhaustion(t *testing.T) {

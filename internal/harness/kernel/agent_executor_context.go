@@ -3,9 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -37,7 +35,6 @@ const (
 )
 
 type modelStep struct {
-	Transition          *executionstore.OwnedAgentWorkTransition
 	State               modelStepState
 	Context             executionstore.ModelCallContextRecord
 	Bundle              modelcontext.Bundle
@@ -47,9 +44,8 @@ type modelStep struct {
 	StreamedToolCallIDs map[string]uuid.UUID
 }
 
-func (e AgentExecutor) executeModelStepWithAdvance(
+func (e AgentExecutor) executeModelStep(
 	ctx context.Context, input ModelWorkExecution, builder modelcontext.Builder, resolver model.Resolver,
-	advance *ModelWorkAdvanceOptions,
 ) (modelStep, error) {
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	var contextData *executionstore.ModelContextData
@@ -83,27 +79,19 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 			}
 		}
 	} else {
-		var prepared executionstore.PreparedNormalModelCall
-		if input.Prepared != nil {
-			prepared = *input.Prepared
-		} else {
-			prepared, err = e.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-				ProjectID:                input.ProjectID,
-				AgentID:                  input.AgentID,
-				RuntimeLockID:            input.RuntimeLockID,
-				OpeningInputIDs:          input.InputIDs,
-				SourceModelCallContextID: input.SourceModelCallContextID,
-				SourceModelOutputID:      input.SourceModelOutputID,
-			})
-		}
+		prepared, prepareErr := e.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:                input.ProjectID,
+			AgentID:                  input.AgentID,
+			RuntimeLockID:            input.RuntimeLockID,
+			OpeningInputIDs:          input.InputIDs,
+			SourceModelCallContextID: input.SourceModelCallContextID,
+			SourceModelOutputID:      input.SourceModelOutputID,
+		})
+		err = prepareErr
 		claim, snapshot, contextData = prepared.Claim, prepared.Snapshot, prepared.ContextData
 	}
 	if err != nil {
 		return modelStep{}, err
-	}
-	if input.Prepared != nil && (claim.Context.ProjectID != input.ProjectID || claim.Context.AgentID != input.AgentID ||
-		claim.Context.RuntimeLockID != input.RuntimeLockID || claim.Context.AgentConfigID != snapshot.AgentConfig.ID) {
-		return modelStep{}, storeerr.ErrStateTransitionConflict
 	}
 	if !claim.Claimed {
 		if claim.Created &&
@@ -343,14 +331,13 @@ func (e AgentExecutor) executeModelStepWithAdvance(
 		Resolved:            resolved,
 		StreamedToolCallIDs: streamSink.ToolCallIDs(),
 	}
-	return e.finishModelResponse(ctx, input, step, advance)
+	return e.finishModelResponse(ctx, input, step)
 }
 
 func (e AgentExecutor) finishModelResponse(
 	ctx context.Context,
 	input ModelWorkExecution,
 	step modelStep,
-	advance *ModelWorkAdvanceOptions,
 ) (modelStep, error) {
 	client := step.Resolved.Client
 	errorSource := modelErrorSourceForClient(client)
@@ -375,33 +362,6 @@ func (e AgentExecutor) finishModelResponse(
 			step.Response,
 			modelretry.Attempt{Number: step.Context.AttemptNumber},
 		)
-	}
-	if advance != nil && time.Now().Before(advance.Deadline) {
-		transition, err := e.Store.Execution().AcceptModelOutputAndAdvance(
-			ctx, executionstore.AcceptModelOutputAndAdvanceInput{
-				Output: executionstore.RecordModelOutputAndCompleteContextInput{
-					ProjectID: input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
-					ModelCallContextID: step.Context.ID, ProviderRequestID: step.Response.ProviderRequestID,
-					ProviderResponse: step.Envelope,
-				},
-				ToolCallBindings: toolCallBindings(step.Envelope, step.Bundle.ToolSpecs, step.StreamedToolCallIDs),
-				AllowModelWork:   advance.AllowModelWork, PrepareModel: true,
-			},
-		)
-		if transition.Fallback != nil {
-			log := e.StreamLog
-			if log == nil {
-				log = slog.Default()
-			}
-			log.WarnContext(ctx, "model output advancement fell back",
-				"agent_id", input.AgentID, "model_call_context_id", step.Context.ID,
-				"runtime_lock_id", input.RuntimeLockID, "error", transition.Fallback)
-		}
-		if err != nil {
-			return modelStep{}, err
-		}
-		step.State, step.Transition = modelStepDone, &transition
-		return step, nil
 	}
 	if len(calls) > 0 {
 		step.State = modelStepToolUse

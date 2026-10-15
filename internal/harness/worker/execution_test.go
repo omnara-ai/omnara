@@ -18,12 +18,3 @@ func (w *Worker) RunOnce(ctx context.Context) (worked bool, err error) {
 	}
 	return true, w.executeClaimedWorkRecovering(ctx, claim, now)
 }
-
-func (w *Worker) executeWork(
-	ctx context.Context,
-	claim executionstore.ClaimedAgentWork,
-	now time.Time,
-) (err error) {
-	_, _, err = w.executeWorkWithAdvance(ctx, claim, now, nil)
-	return err
-}

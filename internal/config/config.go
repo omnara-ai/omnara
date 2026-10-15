@@ -66,8 +66,6 @@ type Config struct {
 	AllowInsecureDev                  bool
 	WorkerEventWebhookConcurrency     int
 	EventWebhookPerOrgConcurrency     int
-	WorkerContinuationMaxModelStarts  int
-	WorkerContinuationMaxDuration     time.Duration
 	WorkerCapacity                    int
 	WorkerClaimConcurrency            int
 	WorkerInboxCapacity               int
@@ -217,14 +215,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	workerContinuationMaxModelStarts, err := getenvInt("OMNARA_WORKER_CONTINUATION_MAX_MODEL_STARTS", 2)
-	if err != nil {
-		return Config{}, err
-	}
-	workerContinuationMaxDuration, err := time.ParseDuration(getenv("OMNARA_WORKER_CONTINUATION_MAX_DURATION", "30s"))
-	if err != nil {
-		return Config{}, fmt.Errorf("parse OMNARA_WORKER_CONTINUATION_MAX_DURATION: %w", err)
-	}
 	workerCapacity, err := getenvInt("OMNARA_WORKER_CAPACITY", 4)
 	if err != nil {
 		return Config{}, err
@@ -281,8 +271,6 @@ func Load() (Config, error) {
 		AllowInsecureDev:                  os.Getenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS") == "1",
 		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
 		EventWebhookPerOrgConcurrency:     eventWebhookPerOrgConcurrency,
-		WorkerContinuationMaxModelStarts:  workerContinuationMaxModelStarts,
-		WorkerContinuationMaxDuration:     workerContinuationMaxDuration,
 		WorkerCapacity:                    workerCapacity,
 		WorkerClaimConcurrency:            workerClaimConcurrency,
 		WorkerInboxCapacity:               workerInboxCapacity,
@@ -639,12 +627,6 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.EventWebhookPerOrgConcurrency <= 0 {
 		return fmt.Errorf("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY must be positive")
-	}
-	if cfg.WorkerContinuationMaxModelStarts < 0 {
-		return fmt.Errorf("OMNARA_WORKER_CONTINUATION_MAX_MODEL_STARTS must be non-negative")
-	}
-	if cfg.WorkerContinuationMaxDuration <= 0 {
-		return fmt.Errorf("OMNARA_WORKER_CONTINUATION_MAX_DURATION must be positive")
 	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")

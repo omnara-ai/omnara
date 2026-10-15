@@ -864,13 +864,6 @@ func (*dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.U
 	return nil
 }
 
-func (*dispatchStore) AdvanceOwnedAgentWork(
-	context.Context,
-	executionstore.AdvanceOwnedAgentWorkInput,
-) (executionstore.ClaimedAgentWork, bool, error) {
-	return executionstore.ClaimedAgentWork{}, false, nil
-}
-
 func (*dispatchStore) RenewAgentRuntimeLock(
 	_ context.Context,
 	_, _, runtimeID uuid.UUID,
@@ -967,61 +960,37 @@ func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) 
 	}
 }
 
-func (s *retainedRuntimeStore) AdvanceOwnedAgentWork(
-	ctx context.Context,
-	input executionstore.AdvanceOwnedAgentWorkInput,
-) (executionstore.ClaimedAgentWork, bool, error) {
-	err := s.ReleaseAgentRuntimeLock(ctx, input.ProjectID, input.AgentID, input.RuntimeLockID)
-	return executionstore.ClaimedAgentWork{}, false, err
-}
-
-func (s *renewalDeadlineStore) AdvanceOwnedAgentWork(
-	ctx context.Context,
-	input executionstore.AdvanceOwnedAgentWorkInput,
-) (executionstore.ClaimedAgentWork, bool, error) {
-	err := s.ReleaseAgentRuntimeLock(ctx, input.ProjectID, input.AgentID, input.RuntimeLockID)
-	return executionstore.ClaimedAgentWork{}, false, err
-}
-
-func (e toolWorkOnlyExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e fixedModelErrorExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e *recordingModelWorkExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e *failingThenBlockTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e *holdingModelExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (modelWorkOnlyExecutor) ExecuteModelWorkAndAdvance(context.Context,
-	kernel.ModelWorkExecution,
-	kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	panic("unexpected advancement")
+func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		age          time.Duration
+		wantRenewals int32
+	}{
+		{"fresh", 0, 0}, {"delayed beyond local cutoff", time.Minute, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &retainedRuntimeStore{
+				claim: executionstore.ClaimedAgentWork{
+					OrgID: uuid.New(), ProjectID: uuid.New(), AgentID: uuid.New(),
+					Kind:        executionstore.AgentWorkModel,
+					RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+				},
+				released: make(chan uuid.UUID, 1),
+			}
+			store.claim.LocalLeaseBudgetStartedAt = time.Now().Add(-test.age)
+			worker := NewWorker(store,
+				&recordingModelWorkExecutor{},
+				Options{RuntimeLockLeaseDuration: time.Minute})
+			worked, err := worker.RunOnce(t.Context())
+			if err != nil || !worked {
+				t.Fatalf("worked=%v err=%v", worked, err)
+			}
+			if len(store.released) != 1 || <-store.released != store.claim.RuntimeLock.ID {
+				t.Fatal("runtime was not released once")
+			}
+			if got := store.renewalCalls.Load(); got != test.wantRenewals {
+				t.Fatalf("renewals=%d want=%d", got, test.wantRenewals)
+			}
+		})
+	}
 }

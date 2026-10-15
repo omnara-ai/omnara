@@ -18,12 +18,9 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 		name                string
 		estimate, allowance int
 		continuation        bool
-		advance             bool
 	}{
 		{name: "full allowance", estimate: 500, allowance: 8192},
 		{name: "after partial output", estimate: 3500, allowance: 5476, continuation: true},
-		{name: "fused full allowance", estimate: 500, allowance: 8192, advance: true},
-		{name: "fused after partial output", estimate: 3500, allowance: 5476, continuation: true, advance: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -57,14 +54,7 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			for attempt := range attempts {
 				executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
 					ModelRetryDelay: immediateKernelModelRetryDelay}
-				if tc.advance {
-					_, advanced, err := executor.ExecuteModelWorkAndAdvance(ctx, work,
-						ModelWorkAdvanceOptions{AllowModelWork: true, Deadline: time.Now().Add(time.Hour)})
-					require.NoError(t, err)
-					require.False(t, advanced)
-				} else {
-					require.NoError(t, executor.ExecuteModelWork(ctx, work))
-				}
+				require.NoError(t, executor.ExecuteModelWork(ctx, work))
 				if attempt < attempts-1 {
 					work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work,
 						fixture.Now.Add(time.Duration(attempt+2)*time.Second))

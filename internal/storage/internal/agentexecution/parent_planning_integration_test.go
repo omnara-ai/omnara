@@ -18,7 +18,7 @@ import (
 func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 	for _, childFirst := range []bool{false, true} {
 		for _, kind := range []string{
-			"fused", "output", "tool_source", "refusal", "content_filter", "failure", "compaction_failure", "question",
+			"output", "tool_source", "refusal", "content_filter", "failure", "compaction_failure", "question",
 		} {
 			t.Run(map[bool]string{true: "child_first", false: "parent_first"}[childFirst]+"/"+kind, func(t *testing.T) {
 				f, u, parent, child, lease := familyFixture(t, childFirst)
@@ -62,11 +62,6 @@ func TestPredictableParentEffectsUseOneAttempt(t *testing.T) {
 					ModelCallContextID: prepared.Context.ID, ProviderResponse: commandResponse(modelenvelope.StopReasonEndTurn),
 				}
 				switch kind {
-				case "fused":
-					transition, acceptErr := store.AcceptModelOutputAndAdvance(t.Context(),
-						executionstore.AcceptModelOutputAndAdvanceInput{Output: output})
-					err = acceptErr
-					require.Nil(t, transition.Fallback)
 				case "output", "refusal", "content_filter":
 					if kind == "refusal" {
 						output.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonRefusal

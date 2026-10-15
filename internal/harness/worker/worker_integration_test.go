@@ -2864,25 +2864,3 @@ func assertNoOpenInteractions(t *testing.T, ctx context.Context, store *storage.
 		t.Fatalf("expected no open interactions, got %+v", page.Interactions)
 	}
 }
-
-func (e *captureTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e *cancelOnceTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}
-func (e *concurrentTurnExecutor) ExecuteModelWorkAndAdvance(ctx context.Context,
-	input kernel.ModelWorkExecution,
-	_ kernel.ModelWorkAdvanceOptions) (executionstore.OwnedAgentWorkTransition,
-	bool,
-	error) {
-	return executionstore.OwnedAgentWorkTransition{}, false, e.ExecuteModelWork(ctx, input)
-}

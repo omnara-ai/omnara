@@ -1576,13 +1576,21 @@ func TestSendAgentMessageFullBacklogCompletesTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-	next, found, err := f.Store.Execution().AdvanceOwnedAgentWork(ctx, executionstore.AdvanceOwnedAgentWorkInput{
-		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, RuntimeLockID: f.Lock.ID, AllowModelWork: true,
-		PrepareModel: true,
-	})
-	require.NoError(t, err)
-	require.True(t, found)
-	require.NotNil(t, next.Model)
+	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID))
+	var next executionstore.ClaimedAgentWork
+	for range 2 {
+		var found bool
+		next, found, err = f.Store.Execution().ClaimNextAgentWork(ctx, executionstore.ClaimNextAgentWorkInput{
+			WorkerProcessID: uuid.New(), LeaseDuration: 90 * time.Second,
+		})
+		require.NoError(t, err)
+		require.True(t, found)
+		if next.AgentID == f.Agent.ID {
+			break
+		}
+	}
+	require.Equal(t, f.Agent.ID, next.AgentID)
+	require.Equal(t, executionstore.AgentWorkModel, next.Kind)
 	var pending int
 	require.NoError(t, f.Pool.QueryRow(ctx,
 		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND state='received' AND input_kind='content'`,

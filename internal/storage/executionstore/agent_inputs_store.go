@@ -60,7 +60,6 @@ const (
 )
 
 type ClaimedModelWork struct {
-	Prepared                 *PreparedNormalModelCall
 	Kind                     ModelWorkKind
 	ModelCallContextID       uuid.UUID
 	SourceModelCallContextID uuid.UUID
@@ -137,7 +136,7 @@ func (s *Store) ClaimNextAgentWork(
 			if err := applyAdmissionDestination(ctx, unit, route.ProjectID, route.AgentID, work.Admission); err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
-			claim, err := shapeOwnedWork(ctx, unit, route.ProjectID, route.AgentID, work)
+			claim, err := shapeClaimedWork(ctx, unit, route.ProjectID, route.AgentID, work)
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}

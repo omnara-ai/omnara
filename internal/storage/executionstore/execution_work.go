@@ -9,14 +9,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func shapeOwnedWork(
+func shapeClaimedWork(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	projectID, agentID uuid.UUID,
-	work agentexecution.OwnedWork,
+	work agentexecution.ClaimedWork,
 ) (ClaimedAgentWork, error) {
 	result := ClaimedAgentWork{ProjectID: projectID, AgentID: agentID}
-	if work.Released || work.Selection.Work == agentexecution.WorkNone {
+	if work.Selection.Work == agentexecution.WorkNone {
 		return result, nil
 	}
 	q := dbsqlc.New(unit.DB())
@@ -54,13 +54,6 @@ func shapeOwnedWork(
 	if selected.Kind == agentexecution.ModelContinue {
 		result.Model.SourceModelCallContextID = selected.SourceContextID
 		result.Model.SourceModelOutputID = selected.SourceOutputID
-	}
-	if work.Model.Context.ID != uuid.Nil {
-		prepared, shapeErr := shapePreparedModel(ctx, unit, projectID, agentID, work.Model)
-		if shapeErr != nil {
-			return result, shapeErr
-		}
-		result.Model.Prepared = &prepared
 	}
 	if work.Admission.TurnID != uuid.Nil {
 		result.Model.AdmittedInputTurn, err = shapeAdmission(ctx, q, projectID, agentID, work.Admission)

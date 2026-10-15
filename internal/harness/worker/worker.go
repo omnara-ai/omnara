@@ -26,19 +26,12 @@ import (
 type AgentWorkExecutor interface {
 	ExecuteModelWork(context.Context, kernel.ModelWorkExecution) error
 	ExecuteToolWork(context.Context, kernel.ToolWorkExecution) error
-	ExecuteModelWorkAndAdvance(
-		context.Context, kernel.ModelWorkExecution, kernel.ModelWorkAdvanceOptions,
-	) (executionstore.OwnedAgentWorkTransition, bool, error)
 }
 
 type Store interface {
 	ClaimNextAgentWork(
 		context.Context,
 		executionstore.ClaimNextAgentWorkInput,
-	) (executionstore.ClaimedAgentWork, bool, error)
-	AdvanceOwnedAgentWork(
-		context.Context,
-		executionstore.AdvanceOwnedAgentWorkInput,
 	) (executionstore.ClaimedAgentWork, bool, error)
 	ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 	RenewAgentRuntimeLock(
@@ -64,7 +57,6 @@ type Worker struct {
 	activeMu                 sync.Mutex
 	active                   map[uuid.UUID]*activeRuntime
 	retained                 sync.WaitGroup
-	continuation             ContinuationOptions
 }
 
 type Options struct {
@@ -74,7 +66,6 @@ type Options struct {
 	ClaimConcurrency         int
 	AsyncToolCapacity        int
 	ControlSubscriber        notifications.WorkerControlSubscriber
-	Continuation             ContinuationOptions
 }
 
 type activeRuntime struct {
@@ -113,7 +104,6 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		opts.AsyncToolCapacity = defaultAsyncToolCapacity
 	}
 	return &Worker{
-		continuation:             opts.Continuation,
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -303,69 +293,18 @@ func (w *Worker) executeClaimedWork(
 		}
 		return err
 	}
-	startedAt := time.Now()
-	additionalModelStarts := 0
-	for {
-		if claim.Kind == executionstore.AgentWorkModel && claim.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
-			logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
-		}
-		asyncScope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
-		var advance *kernel.ModelWorkAdvanceOptions
-		if w.continuation.canAdvance(time.Since(startedAt)) {
-			advance = &kernel.ModelWorkAdvanceOptions{
-				Deadline:       startedAt.Add(w.continuation.MaxDuration),
-				AllowModelWork: additionalModelStarts < w.continuation.MaxModelStarts,
-			}
-		}
-		transition, advanced, stepErr := w.executeWorkWithAdvance(
-			tools.WithAsyncExecutionScope(turnCtx, asyncScope), claim, now, advance,
-		)
-		err = stepErr
-		asyncScope.Seal()
-		if asyncScope.Started() {
-			w.retainRuntimeUntilAsyncCompletion(
-				ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal,
-			)
-			return runtimeExecutionError(err, active)
-		}
-		if err == nil && advanced && !transition.Continued {
-			stopRenewal()
-			return nil
-		}
-		if err == nil {
-			err = turnCtx.Err()
-		}
-		if err != nil {
-			break
-		}
-		if advanced {
-			claim = transition.Work
-		} else {
-			if !w.continuation.canAdvance(time.Since(startedAt)) {
-				break
-			}
-			var continued bool
-			claim, continued, err = w.advanceOwnedWork(turnCtx, executionstore.AdvanceOwnedAgentWorkInput{
-				ProjectID: projectID, AgentID: agentID, RuntimeLockID: runtime.ID,
-				AllowModelWork: additionalModelStarts < w.continuation.MaxModelStarts,
-				PrepareModel:   true,
-			})
-			if err != nil {
-				break
-			}
-			if !continued {
-				stopRenewal()
-				return nil
-			}
-		}
+	if claim.Kind == executionstore.AgentWorkModel && claim.Model.AdmittedInputTurn.Turn.ID != uuid.Nil {
+		logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
+	}
+	asyncScope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
+	err = w.executeWork(tools.WithAsyncExecutionScope(turnCtx, asyncScope), claim, now)
+	asyncScope.Seal()
+	if asyncScope.Started() {
+		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal)
+		return runtimeExecutionError(err, active)
+	}
+	if err == nil {
 		err = turnCtx.Err()
-		if err != nil {
-			break
-		}
-		if claim.Kind == executionstore.AgentWorkModel {
-			additionalModelStarts++
-		}
-		now = time.Now().UTC()
 	}
 	stopRenewal()
 	finalizeCtx, cancelFinalize := w.finalizeContext(ctx)
@@ -415,9 +354,9 @@ func (w *Worker) retainRuntimeUntilAsyncCompletion(
 	}()
 }
 
-func (w *Worker) executeWorkWithAdvance(
-	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time, advance *kernel.ModelWorkAdvanceOptions,
-) (transition executionstore.OwnedAgentWorkTransition, advanced bool, err error) {
+func (w *Worker) executeWork(
+	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time,
+) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicError("agent work", recovered)
@@ -426,7 +365,6 @@ func (w *Worker) executeWorkWithAdvance(
 	switch claim.Kind {
 	case executionstore.AgentWorkModel:
 		input := kernel.ModelWorkExecution{
-			Prepared:                 claim.Model.Prepared,
 			Kind:                     claim.Model.Kind,
 			OrgID:                    claim.OrgID,
 			ProjectID:                claim.ProjectID,
@@ -440,12 +378,9 @@ func (w *Worker) executeWorkWithAdvance(
 			RuntimeLockID:            claim.RuntimeLock.ID,
 			Now:                      now,
 		}
-		if advance != nil {
-			return w.executor.ExecuteModelWorkAndAdvance(ctx, input, *advance)
-		}
-		return transition, false, w.executor.ExecuteModelWork(ctx, input)
+		return w.executor.ExecuteModelWork(ctx, input)
 	case executionstore.AgentWorkTool:
-		return transition, false, w.executor.ExecuteToolWork(ctx, kernel.ToolWorkExecution{
+		return w.executor.ExecuteToolWork(ctx, kernel.ToolWorkExecution{
 			Prepared:           claim.Tool.Prepared,
 			ProjectID:          claim.ProjectID,
 			AgentID:            claim.AgentID,
@@ -457,7 +392,7 @@ func (w *Worker) executeWorkWithAdvance(
 			Now:                now,
 		})
 	default:
-		return transition, false, fmt.Errorf("unsupported agent work kind %d", claim.Kind)
+		return fmt.Errorf("unsupported agent work kind %d", claim.Kind)
 	}
 }
 
@@ -765,4 +700,14 @@ func isRecoverableRunOnceError(err error) bool {
 		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
 		errors.Is(err, storeerr.ErrStateTransitionConflict)
+}
+
+func runtimeExecutionError(err error, active *activeRuntime) error {
+	if errors.Is(err, context.Canceled) && active.cancelRequested.Load() {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) && active.renewalFailed.Load() {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	return err
 }

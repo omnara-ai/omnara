@@ -73,9 +73,7 @@ func TestExecutionToolCustody(t *testing.T) {
 				_, err = h.RunTool(t.Context(), ref)
 				require.NoError(t, err)
 			} else {
-				work, err := h.Advance(t.Context(), lease, true, true)
-				require.NoError(t, err)
-				require.True(t, work.Released)
+				require.NoError(t, h.Release(t.Context(), lease))
 			}
 			content := []agentexecution.Content{{Kind: "text", Text: "result"}}
 			complete := func() (agentexecution.CompletedTool, error) {
@@ -153,9 +151,7 @@ func TestExecutionQuestionCustody(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.False(t, replay.Created)
-			work, err := h.Advance(t.Context(), lease, true, true)
-			require.NoError(t, err)
-			require.True(t, work.Released)
+			require.NoError(t, h.Release(t.Context(), lease))
 			assertCommandState(t, u, h)
 			if cancel {
 				input := receiveCommand(t, h, "steering", "cancel question")

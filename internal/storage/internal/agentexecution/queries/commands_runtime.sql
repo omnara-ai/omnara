@@ -60,9 +60,3 @@ WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
 
 -- name: ConsumeExecutionWakeup :exec
 DELETE FROM agent_wakeups WHERE agent_id=sqlc.arg(agent_id);
-
--- name: ExecutionRetainedRuntimeWork :one
-SELECT EXISTS(SELECT 1 FROM model_call_contexts c WHERE c.agent_id=sqlc.arg(agent_id)
- AND c.runtime_lock_id=sqlc.arg(runtime_id) AND c.state='started') OR
- EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.runtime_lock_id=sqlc.arg(runtime_id)
- AND c.state='running') AS retained;

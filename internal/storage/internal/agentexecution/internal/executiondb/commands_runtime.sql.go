@@ -87,25 +87,6 @@ func (q *Queries) DeleteExecutionRuntime(ctx context.Context, db DBTX, arg Delet
 	return result.RowsAffected(), nil
 }
 
-const executionRetainedRuntimeWork = `-- name: ExecutionRetainedRuntimeWork :one
-SELECT EXISTS(SELECT 1 FROM model_call_contexts c WHERE c.agent_id=$1
- AND c.runtime_lock_id=$2 AND c.state='started') OR
- EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.runtime_lock_id=$2
- AND c.state='running') AS retained
-`
-
-type ExecutionRetainedRuntimeWorkParams struct {
-	AgentID   uuid.UUID
-	RuntimeID *uuid.UUID
-}
-
-func (q *Queries) ExecutionRetainedRuntimeWork(ctx context.Context, db DBTX, arg ExecutionRetainedRuntimeWorkParams) (*bool, error) {
-	row := db.QueryRow(ctx, executionRetainedRuntimeWork, arg.AgentID, arg.RuntimeID)
-	var retained *bool
-	err := row.Scan(&retained)
-	return retained, err
-}
-
 const insertExecutionStop = `-- name: InsertExecutionStop :one
 INSERT INTO agent_inputs(project_id,agent_id,state,actor_id,input_kind,delivery_mode,control_type,
  idempotency_scope,input_idempotency_key,queued_at,metadata)

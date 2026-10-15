@@ -15,25 +15,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type OwnedWork struct {
+type ClaimedWork struct {
 	RuntimeID uuid.UUID
 	Selection Selection
-	Model     PreparedModel
 	Admission InputAdmission
-	Released  bool
 }
 
 func (h *Handle) Claim(
 	ctx context.Context,
 	workerID uuid.UUID,
 	leaseDuration time.Duration,
-) (OwnedWork, error) {
-	return executeCommand(ctx, h, func(m *executionMutation) (OwnedWork, error) {
+) (ClaimedWork, error) {
+	return executeCommand(ctx, h, func(m *executionMutation) (ClaimedWork, error) {
 		if workerID == uuid.Nil {
-			return OwnedWork{}, errors.New("worker identity is required")
+			return ClaimedWork{}, errors.New("worker identity is required")
 		}
 		if err := executionpolicy.ValidateLeaseDuration(leaseDuration); err != nil {
-			return OwnedWork{}, err
+			return ClaimedWork{}, err
 		}
 		q := executiondb.New()
 		_, err := q.ReadExecutionRuntime(
@@ -42,28 +40,28 @@ func (h *Handle) Claim(
 			executiondb.ReadExecutionRuntimeParams{AgentID: h.route.AgentID},
 		)
 		if err == nil {
-			return OwnedWork{}, storeerr.ErrAgentNotAdvanceable
+			return ClaimedWork{}, storeerr.ErrAgentNotAdvanceable
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return OwnedWork{}, err
+			return ClaimedWork{}, err
 		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
-			return OwnedWork{}, err
+			return ClaimedWork{}, err
 		}
 		if snapshot.Selection.Work == WorkNone {
 			m.dirty = true
-			return OwnedWork{Selection: snapshot.Selection}, nil
+			return ClaimedWork{Selection: snapshot.Selection}, nil
 		}
-		result := OwnedWork{}
+		result := ClaimedWork{}
 		if snapshot.Selection.Work == WorkInput {
 			result.Admission, err = h.admitInputs(ctx, m, snapshot.Selection.Admission)
 			if err != nil {
-				return OwnedWork{}, err
+				return ClaimedWork{}, err
 			}
 			snapshot, err = h.LoadExecution(ctx)
 			if err != nil {
-				return OwnedWork{}, err
+				return ClaimedWork{}, err
 			}
 		}
 		result.Selection = snapshot.Selection
@@ -80,7 +78,7 @@ func (h *Handle) Claim(
 			},
 		)
 		if err != nil {
-			return OwnedWork{}, err
+			return ClaimedWork{}, err
 		}
 		h.unit.runtimeLocked = true
 		h.lockedRuntimeID = result.RuntimeID
@@ -88,80 +86,8 @@ func (h *Handle) Claim(
 		if err = q.ConsumeExecutionWakeup(ctx,
 			h.unit.DB(),
 			executiondb.ConsumeExecutionWakeupParams{AgentID: h.route.AgentID}); err != nil {
-			return OwnedWork{}, err
+			return ClaimedWork{}, err
 		}
-		return result, nil
-	})
-}
-
-func (h *Handle) Advance(
-	ctx context.Context,
-	runtimeID uuid.UUID,
-	allowModelWork, prepareModel bool,
-) (OwnedWork, error) {
-	return executeCommand(ctx, h, func(m *executionMutation) (OwnedWork, error) {
-		runtime, err := h.lockRuntime(ctx, runtimeID, false)
-		if err != nil {
-			return OwnedWork{}, err
-		}
-		if runtime.CancelRequestedAt != nil || !runtime.LeaseExpiresAt.After(runtime.DatabaseNow) {
-			return OwnedWork{}, storeerr.ErrRuntimeLockInactive
-		}
-		retained, err := executiondb.New().
-			ExecutionRetainedRuntimeWork(ctx,
-				h.unit.DB(),
-				executiondb.ExecutionRetainedRuntimeWorkParams{AgentID: h.route.AgentID,
-					RuntimeID: &runtimeID})
-		if err != nil {
-			return OwnedWork{}, err
-		}
-		if storeutil.ValueOrZero(retained) {
-			if err = h.releaseRuntime(ctx, m, runtime, false); err != nil {
-				return OwnedWork{}, err
-			}
-			return OwnedWork{Released: true}, nil
-		}
-		snapshot, err := h.LoadExecution(ctx)
-		if err != nil {
-			return OwnedWork{}, err
-		}
-		result := OwnedWork{RuntimeID: runtimeID}
-		if !allowModelWork && (snapshot.Selection.Work == WorkModel || snapshot.Selection.Work == WorkInput) {
-			if err = h.releaseRuntime(ctx, m, runtime, false); err != nil {
-				return OwnedWork{}, err
-			}
-			return OwnedWork{Released: true}, nil
-		}
-		if snapshot.Selection.Work == WorkInput {
-			result.Admission, err = h.admitInputs(ctx, m, snapshot.Selection.Admission)
-			if err != nil {
-				return OwnedWork{}, err
-			}
-			snapshot, err = h.LoadExecution(ctx)
-			if err != nil {
-				return OwnedWork{}, err
-			}
-		}
-		result.Selection = snapshot.Selection
-		if snapshot.Selection.Work == WorkNone {
-			if err = h.releaseRuntime(ctx, m, runtime, false); err != nil {
-				return OwnedWork{}, err
-			}
-			result.RuntimeID = uuid.Nil
-			result.Released = true
-			return result, nil
-		}
-		if prepareModel && snapshot.Selection.Work == WorkModel &&
-			snapshot.Selection.Model.Kind != ModelResume {
-			result.Model, err = h.PrepareModel(
-				ctx,
-				PrepareModelInput{RuntimeLockID: runtimeID, Selected: *snapshot.Selection.Model},
-			)
-			if err != nil {
-				return OwnedWork{}, err
-			}
-		}
-		m.dirty = true
 		return result, nil
 	})
 }

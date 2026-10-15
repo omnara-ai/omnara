@@ -102,9 +102,7 @@ func TestExecutionDurableProcessCustody(t *testing.T) {
 				require.False(t, late.Matches)
 				require.True(t, late.Published)
 			case "terminal", "terminal-null":
-				work, err := h.Advance(t.Context(), lease, true, true)
-				require.NoError(t, err)
-				require.True(t, work.Released)
+				require.NoError(t, h.Release(t.Context(), lease))
 				_, err = u.DB().
 					Exec(t.Context(),
 						`UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),exit_code=0 WHERE id=$1`,

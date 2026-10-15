@@ -208,10 +208,8 @@ func TestArchiveAgentStopsAdmittedTurnBeforeFirstAttempt(t *testing.T) {
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, "archive_admitted")
 	ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
-	_, continued, err := f.Store.Execution().AdvanceOwnedAgentWork(ctx, ownedAdvanceInput(f, true))
-	require.NoError(t, err)
-	require.True(t, continued)
-	_, _, err = f.Store.Execution().ArchiveAgent(ctx, testProjectID, f.AgentID, userPrincipal(f.UserID))
+	reclaimAgentWork(t, ctx, &f)
+	_, _, err := f.Store.Execution().ArchiveAgent(ctx, testProjectID, f.AgentID, userPrincipal(f.UserID))
 	require.NoError(t, err)
 	var stops int
 	require.NoError(t,
