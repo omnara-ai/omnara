@@ -509,7 +509,7 @@ func TestDirectReadWaitYieldsToNewerAcceptedAction(t *testing.T) {
 		})
 	}
 
-	// The server cancelled this read's turn and has already offered a stop,
+	// The server canceled this read's turn and has already offered a stop,
 	// which it does only once no earlier action is still accepted.
 	accept(readActionID, daemonprotocol.ProcessActionRead, 1, `{"wait_ms":300000}`)
 	select {

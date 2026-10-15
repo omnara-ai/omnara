@@ -1211,7 +1211,7 @@ func (t *daemonSocketTransport) runAcceptedRead(
 // newerProcessActionOffered reports whether the server has offered an action
 // after seq for the process. The server offers a process's next action only
 // once none before it is still accepted, so a newer offer means the server has
-// already settled the action at seq (for example, by cancelling the turn) and
+// already settled the action at seq (for example, by canceling the turn) and
 // a read still waiting on it would only hold up the newer action.
 func (t *daemonSocketTransport) newerProcessActionOffered(
 	processID string,
