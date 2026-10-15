@@ -232,12 +232,13 @@ func PrepareForSend(
 	}
 	applyRequestInputMeasurement(ctx, &prepared, client, input)
 	usable := window.UsableInputTokens()
-	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
-		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
+	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 {
+		remaining := max(window.OutputReserveTokens,
+			capabilities.ContextWindowTokens-window.SafetyMarginTokens-prepared.InputTokenEstimate)
 		if remaining < input.Policy.MaxOutputTokens {
-			// The reduced allowance leaves exactly this much room for input. Check
-			// the final body too in case an adapter changes its input projection.
-			usable = prepared.InputTokenEstimate
+			if prepared.InputTokenEstimate <= usable {
+				usable = prepared.InputTokenEstimate
+			}
 			input.Policy.MaxOutputTokens = remaining
 			prepared, err = prepareRequest(ctx, client, input)
 			if err != nil {
