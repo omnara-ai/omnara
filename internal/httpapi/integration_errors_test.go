@@ -48,7 +48,7 @@ func TestIntegrationCredentialFailureDiagnosticsDoNotLogSecrets(t *testing.T) {
 			ctx := logpkg.WithLogger(t.Context(), slog.New(slog.NewJSONHandler(&output, nil)))
 			event := logpkg.NewEvent(ctx, "http.request")
 			ctx = logpkg.WithEvent(ctx, event)
-			logIntegrationCredentialError(ctx, tc.name, tc.err)
+			logIntegrationError(ctx, tc.name, tc.err)
 			event.Done(ctx)
 			require.Contains(t, output.String(), tc.want)
 			for _, secret := range []string{"private-key", "webhook-secret", "token", "manifest-code", "provider-body"} {

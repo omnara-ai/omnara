@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -10,8 +11,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -385,6 +388,104 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 				t.Fatalf("credential leak: %s", w.Body.String())
 			}
 		})
+	}
+}
+
+func TestGitHubHTTPIntakeTelemetrySeparatesCallerCancellationFromFailure(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name          string
+		callerCancels bool
+		status        float64
+		level         string
+		errorMessage  any
+	}{
+		{name: "caller cancellation", callerCancels: true, status: 499, level: "info"},
+		{
+			name: "storage failure", status: http.StatusServiceUnavailable, level: "error",
+			errorMessage: "GitHub intake: unclassified error (*errors.errorString)",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			f.commit = func(commitCtx context.Context) error {
+				if tc.callerCancels {
+					cancel()
+					return commitCtx.Err()
+				}
+				return errors.New("private-key webhook-secret")
+			}
+			events, logger := newRequestEventCapture()
+			handler := requestEvents(logger, nil, nil)(
+				&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations})
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, githubIntakeRequest(t, f, githubIntakeBody).WithContext(ctx))
+			lines := bytes.Split(bytes.TrimSpace(events.Bytes()), []byte("\n"))
+			event := decodeRequestEvent(t, bytes.NewBuffer(lines[len(lines)-1]))
+			if w.Code != http.StatusServiceUnavailable || event["http.status_code"] != tc.status ||
+				event["level"] != tc.level || event["error.message"] != tc.errorMessage {
+				t.Fatalf("response=%d event=%+v", w.Code, event)
+			}
+			if strings.Contains(events.String(), "webhook-secret") || strings.Contains(events.String(), "private-key") {
+				t.Fatalf("credential leak: %s", events.String())
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPIntakeClosesConnectionAfterAbandoningSlowBody(t *testing.T) {
+	t.Parallel()
+	f := newGitHubIntakeFixture()
+	events, logger := newRequestEventCapture()
+	h := requestEvents(logger, nil, nil)(
+		&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations})
+	abandoned := make(chan struct{})
+	var served atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+		defer cancel()
+		h.ServeHTTP(w, r.WithContext(ctx))
+		if served.Add(1) == 1 {
+			close(abandoned)
+		}
+	}))
+	defer server.Close()
+	conn, err := net.Dial("tcp", server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	var slow bytes.Buffer
+	if err := githubIntakeRequest(t, f, githubIntakeBody).Write(&slow); err != nil {
+		t.Fatal(err)
+	}
+	const withheld = 16
+	if _, err := conn.Write(slow.Bytes()[:slow.Len()-withheld]); err != nil {
+		t.Fatal(err)
+	}
+	<-abandoned
+	slowBodyEvent := decodeRequestEvent(t, events)
+	_, _ = conn.Write(slow.Bytes()[slow.Len()-withheld:])
+	responses := bufio.NewReader(conn)
+	first, err := http.ReadResponse(responses, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBody, _ := io.ReadAll(first.Body)
+	if first.StatusCode != http.StatusBadRequest || !strings.Contains(string(firstBody), "invalid request body") {
+		t.Fatalf("slow body response: %d %s", first.StatusCode, firstBody)
+	}
+	_ = githubIntakeRequest(t, f, githubIntakeBody).Write(conn)
+	if second, err := http.ReadResponse(responses, nil); err == nil {
+		secondBody, _ := io.ReadAll(second.Body)
+		t.Fatalf("connection reused after an abandoned body: %d %s", second.StatusCode, secondBody)
+	}
+	message, _ := slowBodyEvent["error.message"].(string)
+	if !strings.HasSuffix(message, os.ErrDeadlineExceeded.Error()) {
+		t.Fatalf("slow body event: %+v", slowBodyEvent)
 	}
 }
 

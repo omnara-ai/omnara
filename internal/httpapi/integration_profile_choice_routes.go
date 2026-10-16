@@ -54,7 +54,7 @@ func (s *Server) slackProfileChoiceAction(
 	text := profileChoiceText(choice)
 	if err != nil {
 		if !unavailableChoiceError(err) {
-			writeIntegrationProviderError(w, err)
+			writeIntegrationProviderError(w, r, err)
 			return true
 		}
 		text = unavailableProfileChoice

@@ -12,7 +12,7 @@ import (
 
 // Credential workflows can return URLs, response bodies or database details containing
 // secrets. Log provider diagnostics and error types without arbitrary error text.
-func logIntegrationCredentialError(ctx context.Context, operation string, err error) {
+func logIntegrationError(ctx context.Context, operation string, err error) {
 	var githubErr *github.APIError
 	var discordErr *discord.APIError
 	var sqlErr interface{ SQLState() string }
@@ -29,7 +29,7 @@ func logIntegrationCredentialError(ctx context.Context, operation string, err er
 	case errors.As(err, &sqlErr):
 		diagnostic = fmt.Errorf("database error (SQLSTATE %s)", sqlErr.SQLState())
 	default:
-		diagnostic = fmt.Errorf("credential operation failed (%T)", err)
+		diagnostic = fmt.Errorf("unclassified error (%T)", err)
 	}
 	logpkg.Error(ctx, fmt.Errorf("%s: %w", operation, diagnostic))
 }
