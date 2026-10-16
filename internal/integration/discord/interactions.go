@@ -251,9 +251,7 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), InteractionTimeout)
 	defer cancel()
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(InteractionTimeout))
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, InteractionMaxBytes))
-	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 	if err != nil {
 		http.Error(w, "invalid interaction body", http.StatusBadRequest)
 		return

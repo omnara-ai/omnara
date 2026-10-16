@@ -145,6 +145,6 @@ func daemonGitCredentialsError(ctx context.Context, err error) error {
 		return apierror.FromCode(openapi.ErrorCodeConflict,
 			"Git credentials are unavailable; check the GitHub App and installation permissions")
 	}
-	logIntegrationCredentialError(ctx, "issue daemon Git credentials", err)
+	logIntegrationError(ctx, "issue daemon Git credentials", err)
 	return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "Git credentials are temporarily unavailable")
 }

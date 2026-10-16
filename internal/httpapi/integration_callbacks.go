@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func readIntegrationCallbackBody(
@@ -22,25 +24,23 @@ func readIntegrationCallbackBody(
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(deadline)
-	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-		} else {
-			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
-		}
-		return nil, false
+	if err == nil && int64(len(raw)) <= maxBodyBytes {
+		_ = controller.SetReadDeadline(time.Time{})
+		return raw, true
 	}
-	if int64(len(raw)) > maxBodyBytes {
+	w.Header().Set("Connection", "close")
+	var tooLarge *http.MaxBytesError
+	if err == nil || errors.As(err, &tooLarge) {
 		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
 		return nil, false
 	}
-	return raw, true
+	logpkg.Error(r.Context(), fmt.Errorf("read integration callback body: %w", err))
+	apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
+	return nil, false
 }
 
-func writeIntegrationProviderError(w http.ResponseWriter, err error) {
+func writeIntegrationProviderError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, storeerr.ErrNotFound):
 		apierror.Write(w, openapi.ErrorCodeNotFound)
@@ -49,6 +49,7 @@ func writeIntegrationProviderError(w http.ResponseWriter, err error) {
 	case errors.Is(err, storeerr.ErrConflict), errors.Is(err, storeerr.ErrIdempotencyConflict):
 		apierror.Write(w, openapi.ErrorCodeConflict)
 	default:
+		logIntegrationError(r.Context(), "integration callback", err)
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 	}
 }
