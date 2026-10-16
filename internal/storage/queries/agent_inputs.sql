@@ -49,3 +49,17 @@ WHERE input.project_id = sqlc.arg(project_id)
   )
 ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
+
+-- Wakeups exist only while no runtime lock is held, so updated_at marks when a
+-- backdated ready_at became claimable.
+-- name: SampleReadyAgentBacklog :one
+SELECT count(*)::bigint AS ready_count,
+  coalesce(EXTRACT(EPOCH FROM statement_timestamp() - min(greatest(wake.ready_at, wake.updated_at))), 0)::double precision
+    AS oldest_ready_age_seconds
+FROM agent_wakeups wake
+JOIN agents agent ON agent.id = wake.agent_id
+WHERE agent.state <> 'archived'
+  AND wake.ready_at <= statement_timestamp()
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = wake.agent_id
+  );

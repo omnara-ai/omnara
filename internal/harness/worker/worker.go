@@ -129,6 +129,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	defer func() { _ = controlSubscription.Unsubscribe() }()
 	slots := make(chan struct{}, w.capacity)
+	w.metrics.RecordSlots(w.capacity, func() int { return len(slots) })
 	var claimers, executions sync.WaitGroup
 	for range w.claimConcurrency {
 		claimers.Add(1)
@@ -271,6 +272,7 @@ func (w *Worker) executeClaimedWorkRecovering(
 	claim executionstore.ClaimedAgentWork,
 	now time.Time,
 ) (err error) {
+	defer w.metrics.StartExecution()()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicError("worker iteration", recovered)
