@@ -115,14 +115,14 @@ func readMachineFile(ctx context.Context, processID string, operation processcmd
 	}
 	defer func() { _ = file.Close() }()
 	// DetectContentType only inspects the first 512 bytes.
-	content, eof, err := readUpTo(file, nil, 512)
+	content, _, err := readUpTo(file, nil, 512)
 	if err != nil {
 		return nil, "", err
 	}
 	contentType := http.DetectContentType(content)
 	metadata := map[string]any{"path": operation.Path, "content_type": contentType, "size_bytes": info.Size()}
 	if slices.Contains(fileread.ViewableImageTypes(), contentType) {
-		if content, eof, err = readUpTo(file, content, daemonprotocol.MaxFileTransferBytes); err != nil {
+		if content, _, err = readUpTo(file, content, daemonprotocol.MaxFileTransferBytes); err != nil {
 			return nil, "", err
 		}
 		if fileread.IsViewableImage(contentType, content) {
@@ -139,6 +139,7 @@ func readMachineFile(ctx context.Context, processID string, operation processcmd
 	}
 	// Read only as far as the requested page needs, doubling the prefix until the page fits.
 	for target := machinePageReadBytes; ; target *= 2 {
+		var eof bool
 		if content, eof, err = readUpTo(file, content, min(target, daemonprotocol.MaxFileTransferBytes)); err != nil {
 			return nil, "", err
 		}

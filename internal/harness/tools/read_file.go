@@ -142,7 +142,9 @@ func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string
 	}, store.ID, relativePath)
 }
 
-func (e Executor) memoryReadNote(ctx context.Context, turn Turn, filePath string, file memorystore.File) (string, error) {
+func (e Executor) memoryReadNote(
+	ctx context.Context, turn Turn, filePath string, file memorystore.File,
+) (string, error) {
 	seen, found, err := e.Store.Memories().LastSeen(ctx, turn.AgentID, filePath)
 	if err != nil || !found || seen.Digest == file.Digest {
 		return "", err
