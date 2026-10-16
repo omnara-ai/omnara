@@ -45,7 +45,7 @@ export function SkillCard({
         </div>
         {actions && (
           // Revealed on hover where hovering is possible; always shown on touch screens.
-          <div className="[@media(hover:hover)]:not-group-hover/skill:not-group-focus-within/skill:not-has-[[aria-expanded=true]]:opacity-0 relative -my-1 -mr-2 shrink-0 transition-opacity">
+          <div className="relative -my-1 -mr-2 shrink-0 transition-opacity [@media(hover:hover)]:not-group-hover/skill:not-group-focus-within/skill:not-has-[[aria-expanded=true]]:opacity-0">
             {actions}
           </div>
         )}

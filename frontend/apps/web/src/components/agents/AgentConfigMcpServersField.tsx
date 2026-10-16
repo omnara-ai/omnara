@@ -301,7 +301,7 @@ function McpServerRow({
       onOpenChange={onExpandedChange}
       className="expanded-surface rounded-xl"
     >
-      <div className="flex items-center gap-2 py-2 pl-1 pr-2">
+      <div className="flex items-center gap-2 py-2 pr-2 pl-1">
         <CollapsibleTrigger asChild>
           <Button
             type="button"
@@ -343,7 +343,7 @@ function McpServerRow({
         </Button>
       </div>
       <CollapseBody open={expanded}>
-        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+        <div className="flex flex-col gap-4 px-3 pt-5 pb-5 sm:pl-11">
           {nameError && <FieldError>{nameError}</FieldError>}
           {registryServer ? (
             <p className="text-muted-foreground -mt-3 text-sm">
@@ -420,7 +420,7 @@ function McpServerRow({
               defaults={
                 <>
                   <Field className="w-36 shrink-0 items-center">
-                    <div className="type-label whitespace-nowrap text-center">
+                    <div className="type-label text-center whitespace-nowrap">
                       Default Permission
                     </div>
                     <div className="flex justify-center">
@@ -444,7 +444,7 @@ function McpServerRow({
                     </div>
                   </Field>
                   <Field className="w-36 shrink-0 items-center">
-                    <div className="type-label whitespace-nowrap text-center">
+                    <div className="type-label text-center whitespace-nowrap">
                       Default Visibility
                     </div>
                     <div className="flex justify-center">

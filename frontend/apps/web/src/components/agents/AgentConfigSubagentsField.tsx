@@ -187,7 +187,7 @@ function SubagentFields({
       onOpenChange={onExpandedChange}
       className="expanded-surface rounded-xl"
     >
-      <div className="flex flex-wrap items-center gap-2 py-2 pl-1 pr-2 sm:flex-nowrap">
+      <div className="flex flex-wrap items-center gap-2 py-2 pr-2 pl-1 sm:flex-nowrap">
         <CollapsibleTrigger asChild>
           <Button
             type="button"
@@ -242,7 +242,7 @@ function SubagentFields({
         </Button>
       </div>
       <CollapseBody open={expanded}>
-        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+        <div className="flex flex-col gap-4 px-3 pt-5 pb-5 sm:pl-11">
           {nameError && <FieldError>{nameError}</FieldError>}
           <Field>
             <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
@@ -325,9 +325,9 @@ function ProfileNameField({
     sort: 'name',
     pageSize: 25,
   })
-  const items = useInfiniteQueryItems(query).map(
-    (profile): ProfileOption => ({ name: profile.name }),
-  )
+  const items = useInfiniteQueryItems(query).map((profile): ProfileOption => ({
+    name: profile.name,
+  }))
   return (
     <ProfileNameCombobox
       id={id}

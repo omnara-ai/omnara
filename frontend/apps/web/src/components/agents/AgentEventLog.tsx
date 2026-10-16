@@ -81,10 +81,10 @@ function EventJson({ event }: { event: AgentEvent }) {
   const json = JSON.stringify(event, null, 2)
   return (
     <div className="relative">
-      <div className="absolute right-1 top-1">
+      <div className="absolute top-1 right-1">
         <CopyButton text={json} label="event JSON" />
       </div>
-      <pre className="code-highlight type-code whitespace-pre-wrap break-words pr-12">
+      <pre className="code-highlight type-code pr-12 break-words whitespace-pre-wrap">
         <Suspense fallback={json}>
           <Highlighted code={json} language="json" />
         </Suspense>
@@ -164,7 +164,7 @@ export function AgentEventLog({
       <MessageScrollerViewport>
         <MessageScrollerContent
           className={cn(
-            'mx-auto w-full max-w-5xl gap-0 px-4 pb-6 pt-2 sm:px-6',
+            'mx-auto w-full max-w-5xl gap-0 px-4 pt-2 pb-6 sm:px-6',
             showSendInputGuide && 'justify-center',
           )}
         >

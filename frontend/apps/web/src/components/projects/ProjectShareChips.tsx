@@ -71,7 +71,7 @@ export function ProjectShareChips({
             title={shareFailed ? `Sharing with ${name} failed` : undefined}
             data-failed={shareFailed || undefined}
             className={cn(
-              'bg-muted inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg pl-3 pr-2',
+              'bg-muted inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg pr-2 pl-3',
               shareFailed && 'bg-destructive/10 text-destructive ring-destructive/40 ring-1',
             )}
           >
@@ -113,7 +113,7 @@ export function ProjectShareChips({
       >
         <ComboboxPrimitive.Trigger
           aria-label="Add project"
-          className="text-muted-foreground hover:text-foreground hover:border-muted-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-lg border border-dashed px-3 outline-none transition-colors focus-visible:ring-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+          className="text-muted-foreground hover:text-foreground hover:border-muted-foreground focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-lg border border-dashed px-3 transition-colors outline-none focus-visible:ring-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
         >
           <Plus className="size-3.5" strokeWidth={2} />
           Project

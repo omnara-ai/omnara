@@ -1,12 +1,12 @@
 import type { Secret } from '@omnara/sdk'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { PillTabs } from '@/components/agents/PillTabs'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { NewSecretDialog } from '@/components/secrets/NewSecretDialog'
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -56,6 +56,7 @@ export function KeyValueEditor({
     ...textRows.map((row) => ({ kind: 'text' as const, ...row })),
     ...secretRows.map((row) => ({ kind: 'secret' as const, ...row })),
   ]
+  const titleId = useId()
   const [creatingSecretFor, setCreatingSecretFor] = useState<string | null>(null)
   const [createdSecrets, setCreatedSecrets] = useState<ReadonlyMap<string, Secret>>(new Map())
   function setKind(row: (typeof combinedRows)[number], kind: string, unset: boolean) {
@@ -83,9 +84,11 @@ export function KeyValueEditor({
     })
   }
   return (
-    <Field>
+    <Field aria-labelledby={titleId}>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>{label}</FieldLabel>
+        <div id={titleId} className="type-label">
+          {label}
+        </div>
         <Button
           type="button"
           size="sm"
@@ -100,7 +103,7 @@ export function KeyValueEditor({
         </Button>
       </div>
       <div className="overflow-hidden rounded-xl border">
-        <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border sm:after:block">
+        <div className="after:border-border/50 after:bg-muted/50 relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border after:shadow-xs sm:after:block">
           <Table className="block sm:table sm:table-fixed">
             <TableHeader className="hidden bg-transparent sm:table-header-group [&_tr]:border-0">
               <TableRow className="hover:bg-transparent">
@@ -117,7 +120,7 @@ export function KeyValueEditor({
                 <TableRow className="block sm:table-row">
                   <TableCell
                     colSpan={4}
-                    className="text-muted-foreground block whitespace-normal px-4 py-3 text-center sm:table-cell"
+                    className="text-muted-foreground block px-4 py-3 text-center whitespace-normal sm:table-cell"
                   >
                     No {label.toLowerCase()}
                   </TableCell>

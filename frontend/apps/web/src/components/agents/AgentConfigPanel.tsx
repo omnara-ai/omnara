@@ -206,7 +206,7 @@ function AgentConfigPanelEditor({
         </Button>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           {error.message && (
-            <p className="text-destructive whitespace-pre-wrap text-sm">{error.message}</p>
+            <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
           )}
           {canManage && editor.dirty && !updateConfig.isPending && (
             <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onDiscard}>

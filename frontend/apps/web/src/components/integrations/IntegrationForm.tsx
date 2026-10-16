@@ -83,7 +83,7 @@ export function IntegrationForm({
           )}
         </div>
         {error && (
-          <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+          <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
             {error}
           </p>
         )}

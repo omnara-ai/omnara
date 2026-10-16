@@ -163,7 +163,7 @@ export function ConnectMachineDialog({
                 </FieldDescription>
               </Field>
               {state.error && (
-                <p className="text-destructive whitespace-pre-wrap text-sm">{state.error}</p>
+                <p className="text-destructive text-sm whitespace-pre-wrap">{state.error}</p>
               )}
               <DialogFooter>
                 <Button
@@ -182,7 +182,7 @@ export function ConnectMachineDialog({
               <div id={`${idPrefix}-command`} className="type-label">
                 Install command
               </div>
-              <pre className="bg-muted max-h-56 min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
+              <pre className="bg-muted max-h-56 min-w-0 overflow-y-auto rounded-md p-3 font-mono text-xs break-all whitespace-pre-wrap">
                 {installCommand}
               </pre>
               <FieldDescription>
@@ -205,7 +205,7 @@ export function ConnectMachineDialog({
               <div id={`${idPrefix}-token`} className="type-label">
                 Machine token
               </div>
-              <pre className="bg-muted min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
+              <pre className="bg-muted min-w-0 overflow-y-auto rounded-md p-3 font-mono text-xs break-all whitespace-pre-wrap">
                 {state.machineToken}
               </pre>
               <FieldDescription>Shown once.</FieldDescription>

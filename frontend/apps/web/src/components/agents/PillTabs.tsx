@@ -16,7 +16,7 @@ export function PillTabs<T extends string>({
           key={tab.value}
           type="button"
           className={cn(
-            'h-10 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors sm:h-auto sm:py-1',
+            'h-10 shrink-0 rounded-md px-3 text-sm font-medium whitespace-nowrap transition-colors sm:h-auto sm:py-1',
             value === tab.value
               ? 'bg-background text-foreground'
               : 'text-muted-foreground hover:text-foreground',

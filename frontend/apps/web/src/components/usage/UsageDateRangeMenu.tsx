@@ -99,7 +99,7 @@ export function UsageDateRangeMenu({
             <Calendar
               mode="range"
               numberOfMonths={2}
-              defaultMonth={value.from ?? new Date()}
+              defaultMonth={value.from}
               selected={selectedRange}
               onSelect={(range) => {
                 onChange(range?.from ? usageDateRange(range.from, range.to) : allTimeUsageRange)

@@ -36,14 +36,14 @@ function ComboboxInput({
       <ComboboxPrimitive.Input
         onKeyDown={keepSelectionOnEscape(onKeyDown)}
         className={cn(
-          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 text-base md:text-sm',
+          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 text-base md:text-sm pointer-coarse:text-base',
           showTrigger ? 'pr-9' : 'pr-3',
           className,
         )}
         {...props}
       />
       {showTrigger && (
-        <ComboboxPrimitive.Trigger className="text-muted-foreground absolute right-2 top-2.5">
+        <ComboboxPrimitive.Trigger className="text-muted-foreground absolute top-2.5 right-2">
           <ChevronsUpDownIcon className="size-4" />
         </ComboboxPrimitive.Trigger>
       )}
@@ -61,7 +61,7 @@ function ComboboxTrigger({
       <ComboboxPrimitive.Trigger
         className={cn(
           textFieldVariants(),
-          'control-transition hover:bg-(--secondary-hover) data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+          'control-transition data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base hover:bg-(--secondary-hover) disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
           className,
         )}
         {...props}
@@ -96,7 +96,7 @@ function ComboboxChipsInput({
     <ComboboxPrimitive.Input
       onKeyDown={keepSelectionOnEscape(onKeyDown)}
       className={cn(
-        'placeholder:text-muted-foreground pointer-coarse:text-base h-6 min-w-28 flex-1 bg-transparent px-1 text-base focus-visible:outline-none md:text-sm',
+        'placeholder:text-muted-foreground h-6 min-w-28 flex-1 bg-transparent px-1 text-base focus-visible:outline-none md:text-sm pointer-coarse:text-base',
         className,
       )}
       {...props}
@@ -117,7 +117,7 @@ function ComboboxChip({
     <OverflowTooltip>
       <ComboboxPrimitive.Chip
         className={cn(
-          'bg-muted text-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm border pl-2 pr-1 text-xs font-medium',
+          'bg-muted text-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm border pr-1 pl-2 text-xs font-medium',
           className,
         )}
         {...props}
@@ -175,7 +175,7 @@ function ComboboxItem({
     <OverflowTooltip>
       <ComboboxPrimitive.Item
         className={cn(
-          'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+          'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-2 pr-8 pl-2 text-sm outline-hidden data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
           className,
         )}
         {...props}

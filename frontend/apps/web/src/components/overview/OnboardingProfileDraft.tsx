@@ -104,7 +104,7 @@ export function ProfileDraftStep({
               disabled={submitting}
               className={cn(
                 'flex flex-col gap-2 rounded-xl border p-4 text-left transition-all sm:min-h-36 sm:p-6',
-                'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-[3px]',
+                'focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
                 selected
                   ? 'border-primary/40 from-primary/[0.06] via-primary/[0.02] bg-linear-to-br to-transparent'
                   : 'border-border bg-card hover:bg-muted/50',

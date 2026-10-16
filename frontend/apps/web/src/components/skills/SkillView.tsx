@@ -160,7 +160,7 @@ function SkillPage({
         </div>
       </header>
       {draft.error && (
-        <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+        <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
           {draft.error}
         </p>
       )}

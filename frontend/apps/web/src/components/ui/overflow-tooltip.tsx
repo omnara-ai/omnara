@@ -46,7 +46,7 @@ export function OverflowTooltip({ children }: { children: ReactElement }) {
       >
         <TooltipTarget>{children}</TooltipTarget>
       </TooltipTrigger>
-      <TooltipContent className="wrap-break-word max-w-[min(28rem,calc(100vw-2rem))] whitespace-pre-wrap text-left">
+      <TooltipContent className="max-w-[min(28rem,calc(100vw-2rem))] text-left wrap-break-word whitespace-pre-wrap">
         <span>{text}</span>
       </TooltipContent>
     </Tooltip>

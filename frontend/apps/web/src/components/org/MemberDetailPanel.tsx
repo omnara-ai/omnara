@@ -31,7 +31,7 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
       <dl className="grid gap-y-3 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-2">
         <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">User ID</dt>
-          <dd className="break-all font-mono text-xs leading-5">{member.user_id}</dd>
+          <dd className="font-mono text-xs leading-5 break-all">{member.user_id}</dd>
         </div>
         <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">Joined</dt>

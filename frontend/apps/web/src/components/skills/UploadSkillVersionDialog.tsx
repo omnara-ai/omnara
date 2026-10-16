@@ -107,7 +107,7 @@ function SkillUploadField({
         onSelect={onSelect}
       />
       {sourceError && (
-        <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+        <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
           {sourceError}
         </p>
       )}
@@ -175,7 +175,7 @@ export function UploadSkillVersionDialog({
               }}
             />
             {updateSkill.isError && (
-              <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+              <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
                 {errorMessage(updateSkill.error, 'Could not update skill')}
               </p>
             )}

@@ -249,7 +249,7 @@ export function AgentCardTime({
     <time
       dateTime={value}
       title={`${label} ${formatDateTime(value) ?? ''}`}
-      className="text-muted-foreground whitespace-nowrap text-xs tabular-nums"
+      className="text-muted-foreground text-xs whitespace-nowrap tabular-nums"
     >
       {status ?? formatTimeAgo(value)}
     </time>

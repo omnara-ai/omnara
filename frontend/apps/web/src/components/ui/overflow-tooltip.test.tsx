@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, onTestFinished } from 'vitest'
 
 import { OverflowTooltip } from '@/components/ui/overflow-tooltip'
 import { enableReactActEnvironment } from '@/test/react-act'
@@ -31,20 +31,17 @@ afterEach(() => {
     root.unmount()
   })
   container.remove()
-  vi.restoreAllMocks()
 })
 
 it('closes after a browser translator rewrites the tooltip text', () => {
-  const computedStyle = window.getComputedStyle.bind(window)
-  vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
-    const style = computedStyle(element, pseudoElement)
-    if (element instanceof HTMLElement && element.dataset.slot === 'tooltip-content') {
-      Object.defineProperty(style, 'animationName', {
-        configurable: true,
-        get: () => `tooltip-${element.dataset.state ?? 'open'}`,
-      })
-    }
-    return style
+  const animations = document.createElement('style')
+  animations.textContent = `
+    [data-slot='tooltip-content'] { animation-name: tooltip-open; }
+    [data-slot='tooltip-content'][data-state='closed'] { animation-name: tooltip-closed; }
+  `
+  document.head.append(animations)
+  onTestFinished(() => {
+    animations.remove()
   })
   act(() => {
     root.render(

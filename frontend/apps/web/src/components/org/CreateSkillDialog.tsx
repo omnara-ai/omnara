@@ -412,7 +412,7 @@ function CreateSkillSourceTabs({
           onSelect={onSelect}
         />
         {sourceError && (
-          <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+          <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
             {sourceError}
           </p>
         )}
@@ -429,7 +429,7 @@ function CreateSkillSourceTabs({
           />
         </Field>
         {draftError && (
-          <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+          <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
             {draftError}
           </p>
         )}

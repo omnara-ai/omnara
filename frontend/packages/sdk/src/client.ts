@@ -17,15 +17,7 @@ export interface OmnaraClientOptions {
 }
 
 type HttpMethod =
-  | 'connect'
-  | 'delete'
-  | 'get'
-  | 'head'
-  | 'options'
-  | 'patch'
-  | 'post'
-  | 'put'
-  | 'trace'
+  'connect' | 'delete' | 'get' | 'head' | 'options' | 'patch' | 'post' | 'put' | 'trace'
 
 const httpMethods = [
   'connect',

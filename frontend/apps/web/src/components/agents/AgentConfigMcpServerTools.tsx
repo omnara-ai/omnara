@@ -152,10 +152,10 @@ function ToolOverridePicker({
       filter={matchesToolSearch}
     >
       <div className="relative">
-        <SearchIcon className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+        <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
         <ComboboxPrimitive.Input
           id={inputId}
-          className="placeholder:text-muted-foreground pointer-coarse:text-base control-focus bg-background h-9 w-full rounded-md border pl-9 pr-3 text-base md:text-sm"
+          className="placeholder:text-muted-foreground control-focus bg-background h-9 w-full rounded-md border pr-3 pl-9 text-base md:text-sm pointer-coarse:text-base"
           placeholder="Add a tool override"
           onKeyDown={(event) => {
             if (event.key === 'Enter' && typedNameAddable) {

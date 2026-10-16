@@ -43,7 +43,7 @@ function composerPlaceholder(
 function ComposerNotice({ message, role }: { message: string | undefined; role?: 'alert' }) {
   if (!message) return null
   return (
-    <p role={role} className="text-destructive break-words px-2 pb-2 text-xs">
+    <p role={role} className="text-destructive px-2 pb-2 text-xs break-words">
       {message}
     </p>
   )

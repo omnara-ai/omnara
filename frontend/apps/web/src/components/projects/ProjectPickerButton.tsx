@@ -14,8 +14,7 @@ import { useProjectDirectory } from '@/hooks/use-project-directory'
 
 /** Project-scoped creation pages an org-wide button can lead to. */
 export type ProjectCreatePath =
-  | '/projects/$projectId/agents/new'
-  | '/projects/$projectId/integrations/new'
+  '/projects/$projectId/agents/new' | '/projects/$projectId/integrations/new'
 
 /**
  * Starts creating something that lives in a project from an org-wide page: links straight to

@@ -132,7 +132,7 @@ export function AgentView() {
     <SidebarProvider className="h-full min-h-0 overflow-hidden" style={agentSidebarStyle}>
       <MessageScrollerProvider key={agentId} autoScroll>
         <div
-          className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden"
+          className="mx-auto flex h-full w-full max-w-5xl min-w-0 flex-1 flex-col overflow-hidden"
           style={{ contain: 'paint' }}
         >
           <header className="shrink-0 pb-4">

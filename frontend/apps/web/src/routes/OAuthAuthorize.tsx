@@ -163,7 +163,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-1 sm:grid-cols-[8rem_1fr]">
       <div className="text-muted-foreground">{label}</div>
-      <div className="break-all font-medium">{value}</div>
+      <div className="font-medium break-all">{value}</div>
     </div>
   )
 }

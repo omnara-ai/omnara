@@ -6,7 +6,7 @@ export type StepStatus = 'done' | 'active' | 'upcoming'
 
 export function OnboardingSteps({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex flex-col gap-6 pb-8 pt-2 sm:gap-12 sm:pb-12 sm:pt-4">
+    <div className="relative flex flex-col gap-6 pt-2 pb-8 sm:gap-12 sm:pt-4 sm:pb-12">
       {children}
     </div>
   )
@@ -124,14 +124,14 @@ export function OnboardingStep({
         className={cn(
           'relative flex transition-opacity duration-500 sm:pl-3',
           status === 'done' && 'sm:my-6',
-          status === 'upcoming' && 'pointer-events-none select-none opacity-40',
+          status === 'upcoming' && 'pointer-events-none opacity-40 select-none',
         )}
       >
         {nextStatus && <StepRail status={status} nextStatus={nextStatus} />}
         <span
           aria-hidden="true"
           className={cn(
-            'bg-background absolute -left-12 top-[9px] hidden size-[11px] rounded-full border-2 transition-colors duration-500 sm:block',
+            'bg-background absolute top-[9px] -left-12 hidden size-[11px] rounded-full border-2 transition-colors duration-500 sm:block',
             status === 'done' && 'border-primary/80',
             status === 'active' && 'border-foreground',
             status === 'upcoming' && 'border-muted-foreground',

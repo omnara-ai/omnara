@@ -28,7 +28,7 @@ export function IntegrationCatalog({ orgId, projectId }: { orgId: string; projec
             key={definition.integration_kind}
             to="/projects/$projectId/integrations/new/$integrationKind"
             params={{ projectId, integrationKind: definition.integration_kind }}
-            className="hover:bg-muted/40 focus-visible:ring-ring flex flex-col gap-3 rounded-lg border p-5 transition-colors focus-visible:outline-none focus-visible:ring-2"
+            className="hover:bg-muted/40 focus-visible:ring-ring flex flex-col gap-3 rounded-lg border p-5 transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
