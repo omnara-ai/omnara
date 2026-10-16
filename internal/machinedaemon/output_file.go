@@ -630,7 +630,7 @@ func readProcessOutputRange(
 
 func processOutputText(data []byte) string {
 	return strings.ReplaceAll(
-		strings.ToValidUTF8(string(data), "?"),
+		strings.ToValidUTF8(string(data), processaction.InvalidUTF8Symbol),
 		"\x00",
 		processaction.NULSymbol,
 	)

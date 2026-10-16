@@ -20,14 +20,20 @@ const (
 	MaxWriteBytes           = 128 * 1024
 )
 
-// NULSymbol stands in for NUL bytes in process output, which Postgres cannot
-// store.
-const NULSymbol = "\u2400"
+// Process output replaces NUL bytes and invalid UTF-8, which Postgres cannot
+// store, with these symbols.
+const (
+	NULSymbol         = "\u2400"
+	InvalidUTF8Symbol = "\uFFFD"
+)
 
-// OutputRawBytes measures output in raw process bytes, counting each NULSymbol
-// as the one NUL byte it replaced.
+// OutputRawBytes measures output in raw process bytes, counting each
+// replacement symbol as one byte. A run of invalid bytes collapses into one
+// symbol, so this is a lower bound.
 func OutputRawBytes(output string) int {
-	return len(output) - (len(NULSymbol)-1)*strings.Count(output, NULSymbol)
+	return len(output) -
+		(len(NULSymbol)-1)*strings.Count(output, NULSymbol) -
+		(len(InvalidUTF8Symbol)-1)*strings.Count(output, InvalidUTF8Symbol)
 }
 
 type Kind string

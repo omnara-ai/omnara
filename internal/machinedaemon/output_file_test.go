@@ -118,7 +118,7 @@ func TestProcessOutputReplacesInvalidUTF8WithoutChangingByteCursors(
 	}
 	got, start, next, truncated, err := output.Slice(1, 2)
 	require.NoError(t, err)
-	if got != "?" || start != 1 || next != 3 || truncated {
+	if got != "\uFFFD" || start != 1 || next != 3 || truncated {
 		t.Fatalf(
 			"slice=%q start=%d next=%d truncated=%v, want replacement at byte cursors 1..3",
 			got,
@@ -149,7 +149,7 @@ func TestProcessOutputReplacesNULWithoutChangingByteCursors(t *testing.T) {
 	}
 	got, start, next, truncated, err = output.Slice(next, 64)
 	require.NoError(t, err)
-	if got != "?" || start != 6 || next != 7 || truncated {
+	if got != "\uFFFD" || start != 6 || next != 7 || truncated {
 		t.Fatalf(
 			"tail slice=%q start=%d next=%d truncated=%v",
 			got,

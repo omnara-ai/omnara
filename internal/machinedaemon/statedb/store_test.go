@@ -363,14 +363,24 @@ func TestMaximumProcessObservationFitsDaemonReportEnvelopes(t *testing.T) {
 	}
 }
 
-func TestFrozenOutputCapCountsNULSymbolsAsRawBytes(t *testing.T) {
+func TestFrozenOutputCapCountsReplacementSymbolsAsRawBytes(t *testing.T) {
 	t.Parallel()
 
-	report := func(nulBytes int) Report {
+	for _, symbol := range []string{
+		processaction.NULSymbol,
+		processaction.InvalidUTF8Symbol,
+	} {
+		testFrozenOutputCapCountsSymbolAsRawByte(t, symbol)
+	}
+}
+
+func testFrozenOutputCapCountsSymbolAsRawByte(t *testing.T, symbol string) {
+	t.Helper()
+	report := func(rawBytes int) Report {
 		result, err := json.Marshal(map[string]any{
-			"output":      strings.Repeat(processaction.NULSymbol, nulBytes),
+			"output":      strings.Repeat(symbol, rawBytes),
 			"cursor":      0,
-			"next_cursor": nulBytes,
+			"next_cursor": rawBytes,
 		})
 		require.NoError(t, err)
 		body, err := json.Marshal(daemonprotocol.ReportedEvent{
@@ -394,7 +404,7 @@ func TestFrozenOutputCapCountsNULSymbolsAsRawBytes(t *testing.T) {
 	if err := validateReport(
 		report(processaction.MaxObservationBytes + 1),
 	); err == nil || !strings.Contains(err.Error(), "frozen process output") {
-		t.Fatalf("oversized NUL output error = %v", err)
+		t.Fatalf("oversized %q output error = %v", symbol, err)
 	}
 }
 

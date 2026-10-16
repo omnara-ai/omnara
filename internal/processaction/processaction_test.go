@@ -102,3 +102,17 @@ func TestDecodeEmptyPayload(t *testing.T) {
 		})
 	}
 }
+
+func TestOutputRawBytesCountsReplacementSymbolsAsOneByte(t *testing.T) {
+	t.Parallel()
+	for output, want := range map[string]int{
+		"":                          0,
+		"plain":                     5,
+		NULSymbol + "a" + NULSymbol: 3,
+		InvalidUTF8Symbol + "é":     3,
+	} {
+		if got := OutputRawBytes(output); got != want {
+			t.Fatalf("OutputRawBytes(%q) = %d, want %d", output, got, want)
+		}
+	}
+}
