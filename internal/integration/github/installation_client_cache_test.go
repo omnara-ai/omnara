@@ -32,7 +32,7 @@ func TestInstallationClientCacheIdentityAndReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	if _, err := first.InstallationGitCredentials(ctx); err != nil {
+	if _, err := first.InstallationGitCredentials(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 	cancel()
@@ -40,7 +40,7 @@ func TestInstallationClientCacheIdentityAndReuse(t *testing.T) {
 	if err != nil || second != first || second.beforeRequest != nil {
 		t.Fatalf("client was not reused without a request authority closure: %v", err)
 	}
-	if _, err := second.InstallationGitCredentials(t.Context()); err != nil || calls.Load() != 1 {
+	if _, err := second.InstallationGitCredentials(t.Context(), true); err != nil || calls.Load() != 1 {
 		t.Fatalf("new request did not reuse credentials after original context ended: %v", err)
 	}
 	for _, dimension := range []string{"secret", "version", "installation", "app"} {
@@ -61,7 +61,7 @@ func TestInstallationClientCacheIdentityAndReuse(t *testing.T) {
 				t.Fatalf("client reused across %s: %v", dimension, err)
 			}
 			before := calls.Load()
-			if _, err := client.InstallationGitCredentials(t.Context()); err != nil || calls.Load() != before+1 {
+			if _, err := client.InstallationGitCredentials(t.Context(), true); err != nil || calls.Load() != before+1 {
 				t.Fatalf("credential reused across %s: %v", dimension, err)
 			}
 		})
@@ -116,7 +116,7 @@ func TestInstallationClientCacheConcurrentRequests(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			result, err := client.InstallationGitCredentials(t.Context())
+			result, err := client.InstallationGitCredentials(t.Context(), true)
 			if err != nil || result.Token != "shared-credential" {
 				t.Errorf("shared client did not issue credentials: %v", err)
 			}

@@ -58,7 +58,7 @@ not narrow the installation access granted through [Git credentials](#git-creden
 1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
    if agents will comment, and **Issues: Read-only** for incoming PR conversation
-   comments. For private clone/fetch, also request **Contents: Read-only**.
+   comments. For Git credentials, also request **Contents: Read & write**.
 2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
@@ -203,18 +203,18 @@ profile takes precedence. Subagents do not inherit this capability, including
 from their selected profile. Configure machine access separately and run ordinary
 Git commands with HTTPS repository URLs.
 
-Credentials inherit **all repositories and permissions granted to the connected
-installation**, including API access. There are no repository or permission
+Credentials inherit **all repositories granted to the connected installation**.
+They are read-only unless **Let agents push code** (`code_write`) is enabled on
+the integration. There are no repository or permission
 filters in this config. The assigned PR and `launcher.repository_id` do not narrow
 these credentials. Existing PR tools retain their assigned-PR restrictions.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
-New Apps registered through Omnara request **Contents: Read-only** for private
-clone/fetch. For an existing App, add Contents permission in GitHub App settings
-and have the installation owner approve it. Push requires **Contents: Read &
-write** and remains subject to GitHub's repository rules; workflow-file changes
-can also require **Workflows** permission. Omnara does not request these write
-permissions automatically. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
+Apps registered through Omnara get **Contents: Read & write**. If an App only
+has **Read-only**, its Git credentials fail while **Let agents push code** is
+enabled; grant **Read & write** in the App's settings and have the installation
+owner approve it. Pushes remain subject to GitHub's repository rules and can't
+change files under `.github/workflows`. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
 
 Git credentials require an up-to-date `omnarad` on every machine. Omnara does not
 enforce a minimum daemon version for this feature. Older daemons ignore the

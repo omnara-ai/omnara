@@ -24,6 +24,7 @@ type daemonGitCredentialsAuthority struct {
 	CredentialVersionID uuid.UUID
 	AppID               int64
 	InstallationID      int64
+	CodeWrite           bool
 }
 
 func (s strictOpenAPIServer) GetDaemonGitCredentials(
@@ -64,7 +65,7 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 	if err != nil {
 		return nil, daemonGitCredentialsError(ctx, err)
 	}
-	result, err := client.InstallationGitCredentials(ctx)
+	result, err := client.InstallationGitCredentials(ctx, authority.CodeWrite)
 	if err != nil {
 		return nil, daemonGitCredentialsError(ctx, err)
 	}
@@ -111,6 +112,10 @@ func (s *Server) daemonGitCredentialsAuthority(
 	if err != nil || installationID <= 0 {
 		return daemonGitCredentialsAuthority{}, storeerr.ErrNotFound
 	}
+	settings, err := integrationdefinition.ReadGitHubSettings(integration.Settings)
+	if err != nil {
+		return daemonGitCredentialsAuthority{}, err
+	}
 	access, err := s.store.Secrets().GetProjectAvailableSecret(
 		ctx, scope.OrgID, process.ProjectID, integration.CredentialSecretID,
 	)
@@ -123,6 +128,7 @@ func (s *Server) daemonGitCredentialsAuthority(
 	return daemonGitCredentialsAuthority{
 		Process: process, CredentialSecretID: integration.CredentialSecretID,
 		CredentialVersionID: access.Secret.CurrentVersionID, AppID: appID, InstallationID: installationID,
+		CodeWrite: settings.CodeWrite,
 	}, nil
 }
 

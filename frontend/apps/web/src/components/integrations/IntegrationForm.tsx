@@ -1,5 +1,7 @@
+import { useId } from 'react'
+
 import { Button } from '@/components/ui/button'
-import { FieldGroup } from '@/components/ui/field'
+import { CheckboxField, FieldGroup } from '@/components/ui/field'
 
 import { IntegrationLauncherFields } from './IntegrationFormFields'
 import {
@@ -35,6 +37,7 @@ export function IntegrationForm({
       canEdit,
       defaultLauncherEnabled,
     })
+  const id = useId()
   const missingProfile =
     integrationKind === 'github_pr' && values.launcher && values.profileIds.length === 0
   return (
@@ -60,6 +63,24 @@ export function IntegrationForm({
             onChange={change}
             disabled={!canEdit || busy || stale}
           />
+          {integrationKind === 'github_pr' && (
+            <div role="group" aria-labelledby={`${id}-label`} className="flex flex-col gap-3">
+              <span id={`${id}-label`} className="type-label">
+                Git credentials
+              </span>
+              <CheckboxField
+                className="items-start"
+                inputClassName="mt-0.5"
+                label="Let agents push code"
+                description="Without this, agents can clone but not push."
+                checked={values.codeWrite}
+                disabled={!canEdit || busy || stale}
+                onChange={(event) => {
+                  change({ codeWrite: event.target.checked })
+                }}
+              />
+            </div>
+          )}
         </div>
         {error && (
           <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">

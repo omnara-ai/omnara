@@ -70,6 +70,20 @@ describe('integration settings editor', () => {
       },
     })
   })
+  it('reads, keeps, and clears GitHub code write access', () => {
+    const saved = integrationFixture({
+      integration_kind: 'github_pr',
+      settings: { launcher: { profile: first, trigger: 'mention' }, code_write: true },
+    })
+    const values = integrationFormValues('github_pr', saved)
+    expect(values.codeWrite).toBe(true)
+    expect(integrationFormRequest('github_pr', { ...values, trigger: 'both' }, saved)).toEqual({
+      settings: { launcher: { profile: first, trigger: 'both' }, code_write: true },
+    })
+    expect(integrationFormRequest('github_pr', { ...values, codeWrite: false }, saved)).toEqual({
+      settings: { launcher: { profile: first, trigger: 'mention' } },
+    })
+  })
   it('allows a disabled GitHub launcher and validates single-profile selection', () => {
     const saved = integrationFixture({ integration_kind: 'github_pr' })
     const values = integrationFormValues('github_pr', saved)

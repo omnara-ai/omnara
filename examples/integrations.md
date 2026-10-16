@@ -145,11 +145,13 @@ comments, and its questions wait in the Omnara console.
 
    ```sh
    npx omnara integrations create --name <name> --integration-kind github_pr \
-     --settings '{"launcher":{"trigger":"mention","profile":"<agent-profile-id>"}}' --json
+     --settings '{"launcher":{"trigger":"mention","profile":"<agent-profile-id>"},"code_write":true}' --json
    ```
 
    `"mention"` starts the agent only when someone mentions the App. `"both"`
    also starts one for every new pull request, so ask before using it.
+   `"code_write": true` lets the agent push; add it when reusing an
+   integration that lacks it.
    `npx omnara integrations update <integration-id> --settings '...'` changes
    it later and replaces the whole `settings` object.
 2. Registering the App needs the browser. The user opens
@@ -162,17 +164,7 @@ comments, and its questions wait in the Omnara console.
    agent works on, and select **Connect integration**. An organization's
    owners may need to approve the installation. A `disconnected` integration
    resumes on this page, which shows what's left.
-3. *In the provider:* Omnara registers the App with read-only access to code.
-   For the agent to push to a pull request's branch, the user opens the App's
-   settings on GitHub (**Settings** → **Developer settings** → **GitHub Apps**
-   → the App → **Edit**, under the organization's settings if it owns the
-   App), sets **Permissions & events** → **Repository permissions** →
-   **Contents** to **Read and write**, and saves. Pushes fail until whoever
-   installed the App accepts the change. On the App's **General** page, they
-   also check that **Webhook URL** is
-   `https://app.omnara.com/api/integrations/github/events`, and correct it if
-   not; otherwise mentions don't reach Omnara.
-4. The user mentions `@<app-slug>` in a comment on an open pull request.
+3. The user mentions `@<app-slug>` in a comment on an open pull request.
 
 ## Scheduled runs in a channel
 
