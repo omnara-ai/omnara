@@ -150,13 +150,6 @@ func main() {
 		runDiscordRuntimeMetricsLoop(ctx, logger, store.Integrations(),
 			discordRuntimeRecorder)
 	}()
-	agentBacklogDone := make(chan struct{})
-	go func() {
-		defer close(agentBacklogDone)
-		runAgentBacklogMetricsLoop(ctx, logger, store.Execution().SampleReadyAgentBacklog,
-			metrics.NewAgentBacklogRecorder(metricSet))
-	}()
-
 	machineLoopDone := make(chan struct{})
 	go func() {
 		defer close(machineLoopDone)
@@ -257,7 +250,6 @@ func main() {
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-discordRuntimeDone
-	<-agentBacklogDone
 	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)

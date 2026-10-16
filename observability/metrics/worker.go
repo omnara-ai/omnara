@@ -150,7 +150,7 @@ func NewAgentBacklogRecorder(set *Set) *AgentBacklogRecorder {
 		ready: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace, Subsystem: "agent", Name: "ready_backlog",
 			Help: "Cluster-wide due agent wakeups for non-archived agents without a runtime lock. " +
-				"Sampled by maintenance; use max across replicas, never sum. NaN before a sample or on failure.",
+				"Sampled by each worker; use max across workers, never sum. NaN before a sample or on failure.",
 		}),
 		oldestReadyAge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace, Subsystem: "agent", Name: "oldest_ready_age_seconds",

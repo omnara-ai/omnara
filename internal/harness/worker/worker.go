@@ -46,6 +46,7 @@ type Store interface {
 
 type Worker struct {
 	metrics                  *metrics.WorkerRecorder
+	backlog                  *backlogSampler
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
@@ -62,8 +63,12 @@ type Worker struct {
 }
 
 type Options struct {
-	Metrics                  *metrics.WorkerRecorder
-	Log                      *slog.Logger
+	Metrics *metrics.WorkerRecorder
+	Log     *slog.Logger
+	// SampleReadyBacklog and BacklogMetrics enable the global ready agent
+	// backlog sample; every worker exports its own copy.
+	SampleReadyBacklog       func(context.Context) (executionstore.ReadyAgentBacklog, error)
+	BacklogMetrics           *metrics.AgentBacklogRecorder
 	RuntimeLockLeaseDuration time.Duration
 	Capacity                 int
 	ClaimConcurrency         int
@@ -108,6 +113,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 	}
 	return &Worker{
 		metrics:                  opts.Metrics,
+		backlog:                  newBacklogSampler(opts.SampleReadyBacklog, opts.BacklogMetrics, log),
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -156,8 +162,11 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 	idleDelay := minIdleClaimDelay
 	failures := 0
 	for {
+		w.backlog.sampleIfDue(ctx)
 		select {
 		case slots <- struct{}{}:
+		case <-w.backlog.due():
+			continue
 		case <-ctx.Done():
 			return
 		}

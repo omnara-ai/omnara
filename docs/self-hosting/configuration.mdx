@@ -49,14 +49,14 @@ executing). Graph cluster utilization as
 `omnara_worker_execution_duration_seconds` and `omnara_worker_executions_total` break
 execution time and throughput down by `kind` (`model`, `tool`) and `outcome`.
 
-Maintenance samples the agent backlog about every 15 seconds:
+Each worker samples the agent backlog about every 15 seconds, including while every slot is busy:
 `omnara_agent_ready_backlog` counts due wakeups for non-archived agents without a runtime
 lock, and `omnara_agent_oldest_ready_age_seconds` is how long the oldest one has been
 claimable (zero when empty). A wakeup becomes claimable at its ready time or when its
 agent's previous runtime lock was released, whichever is later. Both report `NaN` before
 the first sample or after a failed one; check
-`omnara_agent_backlog_sample_last_success_timestamp_seconds` for freshness. Use the maximum
-across maintenance replicas rather than summing. `omnara_worker_ready_to_claim_seconds`
+`omnara_agent_backlog_sample_last_success_timestamp_seconds` for freshness. Every worker
+observes the same global backlog, so use the maximum across workers rather than summing. `omnara_worker_ready_to_claim_seconds`
 measures the same claimable-to-claimed delay for work that was claimed.
 
 Alert on sustained `omnara_agent_oldest_ready_age_seconds` with a fresh sample. High

@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
@@ -73,5 +76,76 @@ func requireWorkerMetrics(t *testing.T, set *metrics.Set, want ...string) {
 		if !strings.Contains(body, line) {
 			t.Fatalf("missing %q in:\n%s", line, body)
 		}
+	}
+}
+
+func TestClaimLoopSamplesBacklogOncePerIntervalWhileSlotsAreBusy(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		set := metrics.New()
+		var samples atomic.Int32
+		executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 1)}
+		worker := NewWorker(&dispatchStore{}, executor, Options{
+			Metrics:        metrics.NewWorkerRecorder(set),
+			BacklogMetrics: metrics.NewAgentBacklogRecorder(set),
+			SampleReadyBacklog: func(ctx context.Context) (executionstore.ReadyAgentBacklog, error) {
+				if _, ok := ctx.Deadline(); !ok {
+					t.Error("backlog sample requires a deadline")
+				}
+				samples.Add(1)
+				return executionstore.ReadyAgentBacklog{Ready: 4, OldestReadyAge: 9 * time.Second}, nil
+			},
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: time.Hour,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		runDone := make(chan error, 1)
+		go func() { runDone <- worker.Run(ctx) }()
+		<-executor.started
+		synctest.Wait()
+		if got := samples.Load(); got != 1 {
+			t.Fatalf("samples at start = %d, want 1", got)
+		}
+		requireWorkerMetrics(t, set,
+			"omnara_worker_slots_used 1",
+			"omnara_agent_ready_backlog 4",
+			"omnara_agent_oldest_ready_age_seconds 9",
+		)
+		time.Sleep(backlogSampleInterval * 85 / 100) //nolint:omnaralint // Advance synctest's virtual clock.
+		synctest.Wait()
+		if got := samples.Load(); got != 1 {
+			t.Fatalf("samples before interval = %d, want 1", got)
+		}
+		time.Sleep(backlogSampleInterval * 30 / 100) //nolint:omnaralint // Advance synctest's virtual clock.
+		synctest.Wait()
+		if got := samples.Load(); got != 2 {
+			t.Fatalf("samples after interval with every slot busy = %d, want 2", got)
+		}
+		cancel()
+		if err := <-runDone; !errors.Is(err, context.Canceled) {
+			t.Fatalf("run error = %v, want context canceled", err)
+		}
+	})
+}
+
+func TestBacklogSamplerRecoversPanics(t *testing.T) {
+	set := metrics.New()
+	calls := 0
+	sampler := newBacklogSampler(func(context.Context) (executionstore.ReadyAgentBacklog, error) {
+		calls++
+		panic("test failure")
+	}, metrics.NewAgentBacklogRecorder(set), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sampler.sampleIfDue(t.Context())
+	sampler.sampleIfDue(t.Context())
+	if calls != 1 {
+		t.Fatalf("samples = %d, want 1 per interval", calls)
+	}
+	requireWorkerMetrics(t, set, "omnara_agent_ready_backlog NaN")
+	var disabled *backlogSampler
+	disabled.sampleIfDue(t.Context())
+	if disabled.due() != nil {
+		t.Fatal("disabled sampler must never be due")
 	}
 }
