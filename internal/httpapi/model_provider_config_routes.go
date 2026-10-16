@@ -836,10 +836,6 @@ func (s strictOpenAPIServer) CreateProjectModelGrant(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
-	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == uuid.Nil {
-		return nil, apierror.FromCode(openapigen.ErrorCodeForbidden, "authenticated user principal is required")
-	}
 	body := *request.Body
 	configuredModelID, err := publicid.Decode(publicid.KindConfiguredModel, body.ConfiguredModelId)
 	if err != nil {
