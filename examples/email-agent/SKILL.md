@@ -138,9 +138,9 @@ alternatives rather than the whole list. The choice gives
 ## 5. Create the agent profile
 
 1. Copy `agent.yaml` from this folder to `./email-agent.yaml` in the current
-   directory. If this folder isn't available locally, download
-   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/email-agent/agent.yaml
-   instead.
+   directory. If this folder isn't available locally, download `agent.yaml`
+   from the same place you read this file, usually
+   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/email-agent/agent.yaml.
 2. In the copy, replace every placeholder:
 
    | Placeholder | Value |
@@ -182,9 +182,9 @@ nothing to install or build.
 
 1. Copy `function/handler.js` from this folder to
    `./email-agent-handler.js`. If this folder isn't available locally,
-   download
-   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/email-agent/function/handler.js
-   instead.
+   download `function/handler.js` from the same place you read this file,
+   usually
+   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/email-agent/function/handler.js.
 2. Check whether it's already deployed:
    `npx primitive@latest functions list --json`, looking for the name
    `omnara-email-agent`.
