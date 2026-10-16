@@ -38,7 +38,7 @@
     "@clack/prompts": "^1.7.0",
     "@tanstack/react-query": "^5.101.0",
     "commander": "^14.0.0",
-    "ink": "^7.1.1",
+    "ink": "^8.0.0",
     "react": "^19.2.8",
     "tar": "^7.5.22",
     "yaml": "^2.9.0",
