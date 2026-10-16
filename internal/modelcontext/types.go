@@ -21,7 +21,6 @@ type BuildInput struct {
 	CheckpointOverride         *CheckpointRef
 	MediaProjector             MediaProjector
 	TextAttachmentBudgetTokens int
-	ContextData                *executionstore.ModelContextData
 }
 
 type Bundle struct {

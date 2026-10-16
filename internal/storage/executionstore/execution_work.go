@@ -83,17 +83,13 @@ func shapePreparedModel(
 	if err != nil {
 		return PreparedNormalModelCall{}, err
 	}
-	result := PreparedNormalModelCall{
+	return PreparedNormalModelCall{
 		Claim: ModelCallClaim{Context: record, Created: prepared.Created, Claimed: prepared.Claimed},
 		Snapshot: AgentConfigSnapshotRecord{
 			AgentConfig:        agentConfigRecordFromSQLC(config),
 			InputEventSequence: record.InputEventSequence,
 		},
-	}
-	if prepared.Claimed {
-		result.ContextData, err = loadModelContextDataTx(ctx, q, record)
-	}
-	return result, err
+	}, nil
 }
 
 func shapeAdmission(
