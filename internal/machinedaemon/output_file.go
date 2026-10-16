@@ -621,11 +621,19 @@ func readProcessOutputRange(
 	}
 	next := start + readLength
 	truncated = truncated || next < endOffset
-	return strings.ToValidUTF8(string(data), "?"),
+	return processOutputText(data),
 		start,
 		next,
 		truncated,
 		nil
+}
+
+func processOutputText(data []byte) string {
+	return strings.ReplaceAll(
+		strings.ToValidUTF8(string(data), processaction.InvalidUTF8Symbol),
+		"\x00",
+		processaction.NULSymbol,
+	)
 }
 
 func decodeProcessOutputHeader(

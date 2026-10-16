@@ -363,6 +363,51 @@ func TestMaximumProcessObservationFitsDaemonReportEnvelopes(t *testing.T) {
 	}
 }
 
+func TestFrozenOutputCapCountsReplacementSymbolsAsRawBytes(t *testing.T) {
+	t.Parallel()
+
+	for _, symbol := range []string{
+		processaction.NULSymbol,
+		processaction.InvalidUTF8Symbol,
+	} {
+		testFrozenOutputCapCountsSymbolAsRawByte(t, symbol)
+	}
+}
+
+func testFrozenOutputCapCountsSymbolAsRawByte(t *testing.T, symbol string) {
+	t.Helper()
+	report := func(rawBytes int) Report {
+		result, err := json.Marshal(map[string]any{
+			"output":      strings.Repeat(symbol, rawBytes),
+			"cursor":      0,
+			"next_cursor": rawBytes,
+		})
+		require.NoError(t, err)
+		body, err := json.Marshal(daemonprotocol.ReportedEvent{
+			Type:            "process_action_applied",
+			ProcessID:       "prc_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ProcessActionID: "pac_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Result:          result,
+		})
+		require.NoError(t, err)
+		return Report{
+			ID:        newReportID(),
+			ProcessID: "prc_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ActionID:  "pac_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Kind:      ReportActionTerminal,
+			Body:      body,
+		}
+	}
+	maximum := report(processaction.MaxObservationBytes)
+	require.NoError(t, validateReport(maximum))
+	require.NoError(t, validateReportWireEnvelope(maximum))
+	if err := validateReport(
+		report(processaction.MaxObservationBytes + 1),
+	); err == nil || !strings.Contains(err.Error(), "frozen process output") {
+		t.Fatalf("oversized %q output error = %v", symbol, err)
+	}
+}
+
 func TestApplyOnceUsesOnePreEffectBoundaryAndSequenceFrontier(
 	t *testing.T,
 ) {

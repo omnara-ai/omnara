@@ -118,9 +118,40 @@ func TestProcessOutputReplacesInvalidUTF8WithoutChangingByteCursors(
 	}
 	got, start, next, truncated, err := output.Slice(1, 2)
 	require.NoError(t, err)
-	if got != "?" || start != 1 || next != 3 || truncated {
+	if got != "\uFFFD" || start != 1 || next != 3 || truncated {
 		t.Fatalf(
 			"slice=%q start=%d next=%d truncated=%v, want replacement at byte cursors 1..3",
+			got,
+			start,
+			next,
+			truncated,
+		)
+	}
+}
+
+func TestProcessOutputReplacesNULWithoutChangingByteCursors(t *testing.T) {
+	t.Parallel()
+
+	output := newTestProcessOutput(t)
+	if _, err := output.Write([]byte("a\x00b\x00\x00c\xff")); err != nil {
+		t.Fatalf("write NUL output: %v", err)
+	}
+	got, start, next, truncated, err := output.Slice(1, 5)
+	require.NoError(t, err)
+	if got != "␀b␀␀c" || start != 1 || next != 6 || !truncated {
+		t.Fatalf(
+			"slice=%q start=%d next=%d truncated=%v, want NULs replaced at byte cursors 1..6",
+			got,
+			start,
+			next,
+			truncated,
+		)
+	}
+	got, start, next, truncated, err = output.Slice(next, 64)
+	require.NoError(t, err)
+	if got != "\uFFFD" || start != 6 || next != 7 || truncated {
+		t.Fatalf(
+			"tail slice=%q start=%d next=%d truncated=%v",
 			got,
 			start,
 			next,

@@ -1293,15 +1293,58 @@ func (t *daemonSocketTransport) reportDirectRead(
 	if err != nil {
 		return err
 	}
-	ack, err := t.SendReport(ctx, statedb.Report{
+	report := statedb.Report{
 		ID:        uuid.NewString(),
 		ProcessID: accepted.processID,
 		ActionID:  accepted.action.ID,
 		Kind:      statedb.ReportActionTerminal,
 		Body:      body,
-	})
-	if err != nil {
-		return err
+	}
+	var ack daemonReportAck
+	delay := directReadReportRetryDelay
+	for attempt := 1; ; attempt++ {
+		ack, err = t.SendReport(ctx, report)
+		if err != nil {
+			return err
+		}
+		if !storageUnavailableAck(ack) || attempt == directReadReportAttempts {
+			break
+		}
+		if err := sleepContext(ctx, delay); err != nil {
+			return err
+		}
+		delay *= 2
+	}
+	if eventType == daemonprotocol.EventProcessActionApplied {
+		var reason string
+		var cause error
+		switch {
+		case ack.status == daemonprotocol.AckStatusPermanentReject:
+			reason = daemonprotocol.ProcessActionReasonInvalidReadObservation
+			cause = fmt.Errorf("the server rejected the process read observation (%s)", ack.code)
+		case storageUnavailableAck(ack):
+			reason = daemonprotocol.ProcessActionReasonStorageUnavailable
+			cause = fmt.Errorf(
+				"server storage remained unavailable after %d attempts to report the process read",
+				directReadReportAttempts,
+			)
+		}
+		if cause != nil {
+			t.client.log.Warn(
+				"process read report rejected; failing the read",
+				"process_id",
+				accepted.processID,
+				"process_action_id",
+				accepted.action.ID,
+				"ack_status",
+				ack.status,
+				"error_code",
+				ack.code,
+				"error",
+				ack.err,
+			)
+			return t.reportDirectReadFailure(ctx, accepted, reason, cause)
+		}
 	}
 	switch ack.status {
 	case daemonprotocol.AckStatusCommitted,
@@ -1341,6 +1384,15 @@ func (t *daemonSocketTransport) reportDirectRead(
 			accepted.action.Seq,
 		)
 	})
+}
+
+const directReadReportAttempts = 6
+
+var directReadReportRetryDelay = time.Second
+
+func storageUnavailableAck(ack daemonReportAck) bool {
+	return ack.status == daemonprotocol.AckStatusTransientError &&
+		ack.code == daemonprotocol.ErrorCodeStorageUnavailable
 }
 
 func (t *daemonSocketTransport) waitActionReleased(

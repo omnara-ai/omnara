@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -18,6 +19,19 @@ const (
 	DefaultObservationBytes = 8 * 1024
 	MaxWriteBytes           = 128 * 1024
 )
+
+// Process output replaces NUL bytes and invalid UTF-8, which Postgres cannot
+// store, with these symbols.
+const (
+	NULSymbol         = "\u2400"
+	InvalidUTF8Symbol = "\uFFFD"
+)
+
+func MinOutputRawBytes(output string) int {
+	return len(output) -
+		(len(NULSymbol)-1)*strings.Count(output, NULSymbol) -
+		(len(InvalidUTF8Symbol)-1)*strings.Count(output, InvalidUTF8Symbol)
+}
 
 type Kind string
 

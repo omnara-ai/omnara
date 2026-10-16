@@ -10,12 +10,22 @@ import (
 	"unicode/utf8"
 )
 
+// ErrInvalidText matches the errors Text and JSONStrings return for text that
+// Postgres cannot store.
+var ErrInvalidText = errors.New("text cannot be stored")
+
+type invalidTextError string
+
+func (err invalidTextError) Error() string { return string(err) }
+
+func (invalidTextError) Is(target error) bool { return target == ErrInvalidText }
+
 func Text(value string) error {
 	if !utf8.ValidString(value) {
-		return errors.New("contains invalid UTF-8")
+		return invalidTextError("contains invalid UTF-8")
 	}
 	if strings.IndexByte(value, 0) >= 0 {
-		return errors.New("contains U+0000")
+		return invalidTextError("contains U+0000")
 	}
 	return nil
 }
