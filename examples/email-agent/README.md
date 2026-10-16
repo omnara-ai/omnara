@@ -40,6 +40,24 @@ email's ID. The agent, defined in [agent.yaml](agent.yaml), reads the thread
 with Primitive's MCP tools, decides whether to answer, and replies. Primitive
 keeps the thread together, so replies come back to the same conversation.
 
+```mermaid
+flowchart TD
+    A[Email arrives at your Primitive domain] --> B{Signed by Primitive?}
+    B -- no --> X1[Rejected]
+    B -- yes --> C{Spam, automated, or sender not allowed?}
+    C -- yes --> X2[Skipped and logged]
+    C -- no --> D[For each address it was delivered to]
+    D --> E{Is that address an agent?}
+    E -- no --> X3[Ignored]
+    E -- yes --> F{How is the agent on the email?}
+    F -- To or Bcc --> W[Wake the agent]
+    F -- Cc --> G{Tagged in the new text?}
+    G -- yes --> W
+    G -- no --> X4[Stays quiet]
+    W --> H[The thread's Omnara conversation gets the email ID]
+    H --> I[The agent reads the thread and decides whether to reply]
+```
+
 The defaults are open so you can try it right away:
 
 | When an email... | The agent |
@@ -49,6 +67,20 @@ The defaults are open so you can try it right away:
 | Has it in Cc without a mention | Stays out of it |
 | Bccs it | Wakes and replies privately to the sender |
 | Is automated (auto-replies, mailing lists, bulk, no-reply senders), spam, or sent by the agent itself | Ignores it |
+
+A tag is `@assistant` or the agent's full address in the text the sender just
+wrote. Quoted earlier messages don't count, and `@assistant2` doesn't match.
+For example:
+
+| What happens | Result |
+| --- | --- |
+| Dana emails `assistant@…` a question | Wakes in a new conversation and replies to Dana |
+| Dana replies in that thread | Wakes in the same conversation |
+| Dana emails Bob with the agent in Cc: "Looping in our assistant." | Stays quiet: no tag |
+| Bob replies: "@assistant can you pull the Q3 numbers?" | Wakes and replies to Dana and Bob |
+| Dana replies "Thanks!", quoting Bob's `@assistant` line | Stays quiet: the tag is only in quoted text |
+| With a second agent named `sales`, one email goes to both | Both wake, each in its own conversation |
+| Dana forwards an email to `assistant@…` | Wakes and replies to Dana, not the original sender |
 
 Anyone can email it, and it replies on its own. You can limit senders to an
 allowlist that also checks DMARC, change how Cc works, or add more agents,
