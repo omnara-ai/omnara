@@ -48,7 +48,6 @@ func (e AgentExecutor) executeModelStep(
 	ctx context.Context, input ModelWorkExecution, builder modelcontext.Builder, resolver model.Resolver,
 ) (modelStep, error) {
 	var snapshot executionstore.AgentConfigSnapshotRecord
-	var contextData *executionstore.ModelContextData
 	var claim executionstore.ModelCallClaim
 	var err error
 	if input.Kind == executionstore.ModelWorkResume {
@@ -88,7 +87,7 @@ func (e AgentExecutor) executeModelStep(
 			SourceModelOutputID:      input.SourceModelOutputID,
 		})
 		err = prepareErr
-		claim, snapshot, contextData = prepared.Claim, prepared.Snapshot, prepared.ContextData
+		claim, snapshot = prepared.Claim, prepared.Snapshot
 	}
 	if err != nil {
 		return modelStep{}, err
@@ -183,7 +182,6 @@ func (e AgentExecutor) executeModelStep(
 		AgentConfigSnapshot:        &snapshot,
 		MediaProjector:             model.MediaProjectorForClient(client),
 		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
-		ContextData:                contextData,
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -218,21 +216,14 @@ func (e AgentExecutor) executeModelStep(
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
 
-	policy := model.RequestPolicyFromCapabilities(capabilities)
-	if contextData != nil {
-		policy.ProviderReplayCutoffEventSequence = max(policy.ProviderReplayCutoffEventSequence,
-			contextData.ProviderReplayCutoffEventSequence)
-	} else {
-		policy, err = modelretry.RequestPolicyForModelCall(
-			ctx,
-			e.Store.Execution(),
-			input.ProjectID,
-			input.AgentID,
-			claim.Context.ID,
-			model.RequestPolicyFromCapabilities(capabilities),
-		)
-	}
-
+	policy, err := modelretry.RequestPolicyForModelCall(
+		ctx,
+		e.Store.Execution(),
+		input.ProjectID,
+		input.AgentID,
+		claim.Context.ID,
+		model.RequestPolicyFromCapabilities(capabilities),
+	)
 	if err != nil {
 		return e.recordNormalPreSendFailure(
 			ctx, input, claim, resolved, err,

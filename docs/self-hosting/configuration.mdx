@@ -38,7 +38,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 
 Alert on these counters:
 
-- `increase(omnara_maintenance_job_items_total{job="execution_head_drift",outcome="mismatch"}[1h]) > 0`: an agent's stored execution state disagrees with its history.
+- `increase(omnara_maintenance_job_items_total{outcome="mismatch"}[1h]) > 0`: an agent's stored execution state disagrees with its history.
 - `increase(omnara_worker_claim_deferrals_total[15m]) > 0`: a worker could not claim an agent and retried it a minute later. Worker error logs name the agent.
 
 ### Integration inbox operation

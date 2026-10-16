@@ -18,9 +18,8 @@ type PrepareNormalModelCallInput struct {
 }
 
 type PreparedNormalModelCall struct {
-	Claim       ModelCallClaim
-	Snapshot    AgentConfigSnapshotRecord
-	ContextData *ModelContextData
+	Claim    ModelCallClaim
+	Snapshot AgentConfigSnapshotRecord
 }
 
 func (s *Store) PrepareNormalModelCall(
