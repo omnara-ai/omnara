@@ -1303,6 +1303,34 @@ func (t *daemonSocketTransport) reportDirectRead(
 	if err != nil {
 		return err
 	}
+	rejected := ack.status == daemonprotocol.AckStatusPermanentReject ||
+		(ack.status == daemonprotocol.AckStatusTransientError &&
+			ack.code == daemonprotocol.ErrorCodeStorageUnavailable)
+	if rejected && eventType == daemonprotocol.EventProcessActionApplied {
+		// Fail only this read; resending the same observation would never land.
+		t.client.log.Warn(
+			"process read report rejected; failing the read",
+			"process_id",
+			accepted.processID,
+			"process_action_id",
+			accepted.action.ID,
+			"ack_status",
+			ack.status,
+			"error_code",
+			ack.code,
+			"error",
+			ack.err,
+		)
+		return t.reportDirectReadFailure(
+			ctx,
+			accepted,
+			daemonprotocol.ProcessActionReasonInvalidReadObservation,
+			fmt.Errorf(
+				"the server rejected the process read observation (%s)",
+				ack.code,
+			),
+		)
+	}
 	switch ack.status {
 	case daemonprotocol.AckStatusCommitted,
 		daemonprotocol.AckStatusCleanupOnly:

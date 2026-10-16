@@ -621,11 +621,17 @@ func readProcessOutputRange(
 	}
 	next := start + readLength
 	truncated = truncated || next < endOffset
-	return strings.ToValidUTF8(string(data), "?"),
+	return processOutputText(data),
 		start,
 		next,
 		truncated,
 		nil
+}
+
+// processOutputText makes output storable server-side. Replacements are one
+// byte so the text never outgrows its byte-cursor span.
+func processOutputText(data []byte) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(string(data), "?"), "\x00", "?")
 }
 
 func decodeProcessOutputHeader(

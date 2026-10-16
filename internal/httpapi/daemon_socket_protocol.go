@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -73,6 +74,7 @@ func daemonReportErrorPermanent(err error) bool {
 		return false
 	}
 	if errors.Is(err, errDaemonReportValidation) ||
+		errors.Is(err, dbsafe.ErrInvalidText) ||
 		errors.Is(err, storeerr.ErrProcessExecutionNotGranted) ||
 		errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		return true

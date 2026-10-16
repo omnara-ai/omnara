@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -511,6 +512,25 @@ func TestDaemonReportConstraintErrorsArePermanentRejects(t *testing.T) {
 				)
 			}
 		})
+	}
+
+	invalidText := storeerr.InvalidRequest(fmt.Errorf(
+		"tool result content block 0: %w",
+		dbsafe.Text("before\x00after"),
+	))
+	if got := daemonAckStatus(invalidText); got != daemonprotocol.AckStatusPermanentReject {
+		t.Fatalf(
+			"invalid text ack status = %q, want %q",
+			got,
+			daemonprotocol.AckStatusPermanentReject,
+		)
+	}
+	if got := daemonErrorCode(invalidText); got != daemonprotocol.ErrorCodeValidationFailed {
+		t.Fatalf(
+			"invalid text error code = %q, want %q",
+			got,
+			daemonprotocol.ErrorCodeValidationFailed,
+		)
 	}
 
 	transient := &pgconn.PgError{Code: "40001"}

@@ -163,6 +163,8 @@ func (c *Client) Run(ctx context.Context) error {
 			runtime.ID,
 			"retry_after",
 			retryDelay,
+			"error",
+			err,
 		)
 		if err := sleepContext(ctx, retryDelay); err != nil {
 			return err
