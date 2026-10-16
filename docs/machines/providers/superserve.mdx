@@ -1,0 +1,57 @@
+---
+title: Superserve
+description: Firecracker microVMs for AI agents that boot in under 50 ms from a template you build once
+icon: "/logo/providers/superserve.svg"
+---
+
+[Superserve](https://superserve.ai) runs each machine in its own Firecracker microVM with its own kernel, filesystem, and network namespace. Sandboxes boot from a template in under 50 ms, so there's no image pull or package install when an agent needs a machine. Connect your Superserve team with a custom pool.
+
+## Why Superserve
+
+- **A VM boundary for every agent.** Each machine is a Firecracker microVM, not a shared container, so AI-generated code runs isolated from your infrastructure and from other machines.
+- **Ready in under 50 ms.** Templates are snapshots of a built filesystem. Every machine launches from one already prepared, with nothing to install at run time.
+- **Omnara's tools, baked in.** `superserve/omnara` is Ubuntu 24.04 with the same development tools as Omnara's [default machine environment](/machines/pools#default-machine-environment), at 2 vCPU and 4 GiB. For your own stack, build a [template](https://docs.superserve.ai/templates/create) from any OCI image plus build steps once, and every machine starts from it.
+- **Network controls and secrets.** Superserve can restrict each sandbox's egress to the hosts you allow and logs every outbound connection. Its [secrets](https://docs.superserve.ai/secrets/overview) feature attaches real credentials to outbound requests so the machine only ever holds a stand-in token.
+
+## Set up a Superserve pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Superserve console](https://console.superserve.ai), open **API keys** and create a key. Store the key as an org-owned [secret](/organization/secrets) in Omnara. The key selects the team and the region.
+  </Step>
+  <Step title="Choose a template">
+    Leave the template empty to use `superserve/omnara`, which gives each machine 2 vCPU, 4 GiB of memory, and an 8 GiB disk with the [default machine environment](/machines/pools#default-machine-environment) preinstalled: Python, Node.js, Go, PostgreSQL, Redis, `gh`, `rg`, PDF tools, and Playwright with headless Chromium. For pools that only run shell commands, `superserve/base` is Ubuntu 24.04 with `curl` and `git` at 1 vCPU and 1 GiB.
+
+    For your own tools, build a [Superserve template](https://docs.superserve.ai/templates/create) from a linux/amd64 OCI image that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements), and use its name, such as `acme/agent-box`. Leave `startCmd` out of the template, since Omnara starts its own daemon. A template sets each machine's vCPU, memory, and disk; sandboxes can't override them.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Superserve**. Enter the credential, the template (or leave it empty), the CPU and memory maximums, and capacity limits. The maximums must be at least the template's size.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the startup script. Omnara passes the machine's environment to the daemon when it starts it, rather than storing it on the sandbox.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "superserve-pool",
+  "provider": "superserve",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "template": "acme/agent-box" // optional
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 4096,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `template` is optional. Omit it to use `superserve/omnara`, or set the name or ID of a [Superserve system template](https://docs.superserve.ai/templates/overview#system-templates) or a template your team owns. The template sets each machine's size, so CPU and memory defaults are optional, and the maximums must be at least the template's size.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).
