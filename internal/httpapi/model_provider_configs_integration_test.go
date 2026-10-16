@@ -831,6 +831,78 @@ model:
 	}
 }
 
+func TestCreateProjectModelGrantWithOrgAPIKey(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "model-grant-api-key")
+	other := bootstrapPublicHTTPProject(t, handler, "model-grant-other-org")
+	provider, err := project.Store.Models().GetModelProviderConfigByName(ctx, project.OrgUUID, "openai-prod")
+	if err != nil {
+		t.Fatalf("load model provider: %v", err)
+	}
+	providerID, err := publicid.Encode(publicid.KindModelProviderConfig, provider.ID)
+	if err != nil {
+		t.Fatalf("encode model provider id: %v", err)
+	}
+
+	for _, test := range []struct {
+		name        string
+		orgRole     string
+		projectRole string
+		otherOrg    bool
+		wantStatus  int
+	}{
+		{name: "org-admin", orgRole: "admin", wantStatus: http.StatusCreated},
+		{name: "project-admin", orgRole: "member", projectRole: "admin", wantStatus: http.StatusCreated},
+		{name: "developer", orgRole: "member", projectRole: "developer", wantStatus: http.StatusForbidden},
+		{name: "viewer", orgRole: "member", projectRole: "viewer", wantStatus: http.StatusForbidden},
+		{name: "no-project-access", orgRole: "member", wantStatus: http.StatusNotFound},
+		{name: "other-org-admin", orgRole: "admin", otherOrg: true, wantStatus: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			keyOwner := project
+			if test.otherOrg {
+				keyOwner = other
+			}
+			keysPath := "/api/v1/orgs/" + keyOwner.OrgID + "/api-keys"
+			created := requestJSONWithHeaders(
+				t, handler, http.MethodPost, keysPath,
+				`{"name":"`+test.name+`","org_role":"`+test.orgRole+`"}`, "",
+				http.StatusCreated, keyOwner.adminBrowserAuthHeaders(),
+			)
+			token := testutil.RequireType[string](t, created["token"])
+			if test.projectRole != "" {
+				key := testutil.RequireType[map[string]any](t, created["api_key"])
+				keyID := testutil.RequireType[string](t, key["id"])
+				requestJSONWithHeaders(
+					t, handler, http.MethodPut, keysPath+"/"+keyID+"/projects/"+project.ProjectID,
+					`{"role":"`+test.projectRole+`"}`, "", http.StatusOK, project.adminBrowserAuthHeaders(),
+				)
+			}
+			model := requestJSONWithHeaders(
+				t, handler, http.MethodPost,
+				"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerID+"/models",
+				`{"name":"`+test.name+`","provider_model_slug":"gpt-test","context_window_tokens":128000}`,
+				"", http.StatusCreated, authHeaders(project.AdminToken),
+			)
+			modelID := testutil.RequireType[string](t, model["id"])
+			response := requestJSONWithHeaders(
+				t, handler, http.MethodPost, project.ProjectPath+"/model-grants",
+				`{"configured_model_id":"`+modelID+`"}`, "", test.wantStatus, authHeaders(token),
+			)
+			if test.wantStatus == http.StatusCreated {
+				grant := testutil.RequireType[map[string]any](t, response["grant"])
+				if grant["configured_model_id"] != modelID || grant["project_id"] != project.ProjectID {
+					t.Fatalf("unexpected model grant: %+v", grant)
+				}
+			}
+		})
+	}
+}
+
 func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

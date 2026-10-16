@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -43,8 +44,9 @@ import (
 )
 
 const (
-	integrationHTTPClientTimeout = 5 * time.Minute
-	cronTriggerFireInterval      = 30 * time.Second
+	integrationHTTPClientTimeout  = 5 * time.Minute
+	cronTriggerFireInterval       = 30 * time.Second
+	workerCapacityPerDBConnection = 8
 )
 
 func main() {
@@ -68,6 +70,7 @@ func main() {
 	db, err := storage.Open(
 		context.Background(),
 		cfg.DatabaseURL,
+		storage.WithDefaultMaxConns(workerDatabaseMaxConns(cfg.WorkerCapacity)),
 		storage.WithDefaultApplicationName("omnara-worker"),
 		storage.WithQueryTracer(metrics.NewDBRecorder(metricSet, metrics.SubsystemDB)),
 	)
@@ -403,6 +406,11 @@ func main() {
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func workerDatabaseMaxConns(capacity int) int32 {
+	maxConns := max(storage.DefaultMaxConns, 1+(capacity-1)/workerCapacityPerDBConnection)
+	return int32(min(math.MaxInt32, maxConns))
 }
 
 func runBatchLoop(ctx context.Context, interval time.Duration, tick func() (batchFull bool)) {

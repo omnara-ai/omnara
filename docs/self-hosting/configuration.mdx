@@ -45,8 +45,8 @@ Alert on these counters:
 
 Inbox concurrency is independent of agent-turn concurrency. All worker activity
 shares the database pool; raising inbox capacity does not raise its connection
-limit. Start with the default pool of 10 maximum connections and measure queue
-lag and database contention before increasing concurrency or replica counts.
+limit. Measure queue lag and database contention before increasing concurrency
+or replica counts.
 
 Workers sample `omnara_integration_inbox_oldest_ready_lag_seconds` about every 30 seconds,
 including while every consumer is busy. This measures time since `next_attempt_at`
@@ -125,11 +125,13 @@ fresh requests; previously failed work remains terminal.
 | `OMNARA_MIGRATIONS_DIR` | Directory containing schema migrations; used only by `cmd/migrate` | `migrations` | No |
 | `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration) | `30m` | No |
 
-PostgreSQL 18 or newer is required. The API, worker, and maintenance services
-default to a pool of 1–10 connections, a 30-minute idle timeout, a 30-minute
-connection lifetime, and five minutes of lifetime jitter. Override these with
-`pool_*` settings in `OMNARA_DATABASE_URL`, and budget connections across all
-service replicas.
+PostgreSQL 18 or newer is required. API and maintenance pools default to a maximum
+of 10 connections per process. Worker pools default to
+`max(10, ceil(OMNARA_WORKER_CAPACITY / 8))` maximum connections (256 capacity gives
+32 connections). All three default to a minimum of 1 connection, a 30-minute idle
+timeout, a 30-minute connection lifetime, and five minutes of lifetime jitter.
+Explicit `pool_*` settings in `OMNARA_DATABASE_URL` override these defaults. Budget
+connections across all service replicas.
 
 Direct PostgreSQL, RDS Proxy, and PgBouncer session pooling work with these
 settings. PgBouncer transaction pooling requires `max_prepared_statements > 0`;

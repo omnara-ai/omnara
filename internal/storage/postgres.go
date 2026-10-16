@@ -10,10 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type OpenOption func(*pgxpool.Config)
+const DefaultMaxConns = 10
+
+type OpenOption func(*pgxpool.Config, map[string]string)
 
 func WithQueryTracer(tracer pgx.QueryTracer) OpenOption {
-	return func(cfg *pgxpool.Config) {
+	return func(cfg *pgxpool.Config, _ map[string]string) {
 		if tracer == nil {
 			return
 		}
@@ -26,7 +28,7 @@ func WithQueryTracer(tracer pgx.QueryTracer) OpenOption {
 }
 
 func WithDefaultApplicationName(name string) OpenOption {
-	return func(cfg *pgxpool.Config) {
+	return func(cfg *pgxpool.Config, _ map[string]string) {
 		if name == "" {
 			return
 		}
@@ -39,13 +41,18 @@ func WithDefaultApplicationName(name string) OpenOption {
 	}
 }
 
+func WithDefaultMaxConns(maxConns int32) OpenOption {
+	return func(cfg *pgxpool.Config, explicit map[string]string) {
+		if _, ok := explicit["pool_max_conns"]; !ok {
+			cfg.MaxConns = maxConns
+		}
+	}
+}
+
 func Open(ctx context.Context, databaseURL string, opts ...OpenOption) (*pgxpool.Pool, error) {
-	cfg, err := parsePoolConfig(databaseURL)
+	cfg, err := parsePoolConfig(databaseURL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
-	}
-	for _, opt := range opts {
-		opt(cfg)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -59,7 +66,7 @@ func Open(ctx context.Context, databaseURL string, opts ...OpenOption) (*pgxpool
 	return pool, nil
 }
 
-func parsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
+func parsePoolConfig(databaseURL string, opts ...OpenOption) (*pgxpool.Config, error) {
 	// pgxpool strips pool_* settings; raw parsing preserves whether they were explicit.
 	raw, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
@@ -70,7 +77,7 @@ func parsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
 		return nil, err
 	}
 	if _, ok := raw.Config.RuntimeParams["pool_max_conns"]; !ok {
-		cfg.MaxConns = 10
+		cfg.MaxConns = DefaultMaxConns
 	}
 	if _, ok := raw.Config.RuntimeParams["pool_min_conns"]; !ok {
 		cfg.MinConns = 1
@@ -83,6 +90,9 @@ func parsePoolConfig(databaseURL string) (*pgxpool.Config, error) {
 	}
 	if _, ok := raw.Config.RuntimeParams["pool_max_conn_lifetime_jitter"]; !ok {
 		cfg.MaxConnLifetimeJitter = 5 * time.Minute
+	}
+	for _, opt := range opts {
+		opt(cfg, raw.Config.RuntimeParams)
 	}
 	return cfg, nil
 }

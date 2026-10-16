@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -8,24 +9,35 @@ import (
 const testDatabaseURL = "postgres://user:password@database.invalid/omnara"
 
 func TestParsePoolConfigUsesOmnaraDefaultsWhenOmitted(t *testing.T) {
-	cfg, err := parsePoolConfig(testDatabaseURL)
-	if err != nil {
-		t.Fatalf("parse pool config: %v", err)
-	}
-	if cfg.MaxConns != 10 {
-		t.Fatalf("max conns = %d, want 10", cfg.MaxConns)
-	}
-	if cfg.MinConns != 1 {
-		t.Fatalf("min conns = %d, want 1", cfg.MinConns)
-	}
-	if cfg.MaxConnLifetime != 30*time.Minute {
-		t.Fatalf("max connection lifetime = %s, want 30m", cfg.MaxConnLifetime)
-	}
-	if cfg.MaxConnIdleTime != 30*time.Minute {
-		t.Fatalf("max connection idle time = %s, want 30m", cfg.MaxConnIdleTime)
-	}
-	if cfg.MaxConnLifetimeJitter != 5*time.Minute {
-		t.Fatalf("max connection lifetime jitter = %s, want 5m", cfg.MaxConnLifetimeJitter)
+	for _, test := range []struct {
+		name string
+		opts []OpenOption
+		want int32
+	}{
+		{name: "default", want: 10},
+		{name: "custom maximum", opts: []OpenOption{WithDefaultMaxConns(32)}, want: 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := parsePoolConfig(testDatabaseURL, test.opts...)
+			if err != nil {
+				t.Fatalf("parse pool config: %v", err)
+			}
+			if cfg.MaxConns != test.want {
+				t.Fatalf("max conns = %d, want %d", cfg.MaxConns, test.want)
+			}
+			if cfg.MinConns != 1 {
+				t.Fatalf("min conns = %d, want 1", cfg.MinConns)
+			}
+			if cfg.MaxConnLifetime != 30*time.Minute {
+				t.Fatalf("max connection lifetime = %s, want 30m", cfg.MaxConnLifetime)
+			}
+			if cfg.MaxConnIdleTime != 30*time.Minute {
+				t.Fatalf("max connection idle time = %s, want 30m", cfg.MaxConnIdleTime)
+			}
+			if cfg.MaxConnLifetimeJitter != 5*time.Minute {
+				t.Fatalf("max connection lifetime jitter = %s, want 5m", cfg.MaxConnLifetimeJitter)
+			}
+		})
 	}
 }
 
@@ -48,7 +60,7 @@ func TestParsePoolConfigPreservesExplicitSettings(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := parsePoolConfig(test.databaseURL)
+			cfg, err := parsePoolConfig(test.databaseURL, WithDefaultMaxConns(32))
 			if err != nil {
 				t.Fatalf("parse pool config: %v", err)
 			}
@@ -68,6 +80,35 @@ func TestParsePoolConfigPreservesExplicitSettings(t *testing.T) {
 				t.Fatalf("max connection lifetime jitter = %s, want 6m", cfg.MaxConnLifetimeJitter)
 			}
 		})
+	}
+}
+
+func TestDefaultMaxConnsHonorsExplicitConfiguration(t *testing.T) {
+	for _, format := range []struct {
+		name string
+		dsn  string
+		sep  string
+	}{
+		{name: "URL", dsn: testDatabaseURL, sep: "?"},
+		{name: "keyword DSN", dsn: "host=database.invalid user=user password=password dbname=omnara", sep: " "},
+	} {
+		for _, explicit := range []int32{0, 4, 10, 64} {
+			t.Run(fmt.Sprintf("%s/max=%d", format.name, explicit), func(t *testing.T) {
+				dsn := format.dsn
+				want := int32(32)
+				if explicit != 0 {
+					dsn += fmt.Sprintf("%spool_max_conns=%d", format.sep, explicit)
+					want = explicit
+				}
+				cfg, err := parsePoolConfig(dsn, WithDefaultMaxConns(32))
+				if err != nil {
+					t.Fatalf("parse pool config: %v", err)
+				}
+				if cfg.MaxConns != want {
+					t.Fatalf("max conns = %d, want %d", cfg.MaxConns, want)
+				}
+			})
+		}
 	}
 }
 
@@ -91,11 +132,10 @@ func TestDefaultApplicationNameHonorsExplicitConfiguration(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := parsePoolConfig(test.databaseURL)
+			cfg, err := parsePoolConfig(test.databaseURL, WithDefaultApplicationName("omnara-test"))
 			if err != nil {
 				t.Fatalf("parse pool config: %v", err)
 			}
-			WithDefaultApplicationName("omnara-test")(cfg)
 			if got := cfg.ConnConfig.Config.RuntimeParams["application_name"]; got != test.want {
 				t.Fatalf("application name = %q, want %q", got, test.want)
 			}
