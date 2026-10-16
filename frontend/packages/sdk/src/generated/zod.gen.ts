@@ -315,6 +315,9 @@ export const zPersonalAccessTokenId = z.string().regex(/^pat_[a-z2-7]{26}$/);
 
 export const zOrgApiKeyId = z.string().regex(/^oak_[a-z2-7]{26}$/);
 
+/**
+ * Project ID (proj_...).
+ */
 export const zProjectId = z.string().regex(/^proj_[a-z2-7]{26}$/);
 
 export const zMcpoAuthFlowId = z.string().regex(/^moaf_[a-z2-7]{26}$/);
@@ -325,6 +328,9 @@ export const zActorId = z.string().regex(/^actr_[a-z2-7]{26}$/);
 
 export const zAgentId = z.string().regex(/^agt_[a-z2-7]{26}$/);
 
+/**
+ * Agent config ID (acfg_...).
+ */
 export const zAgentConfigId = z.string().regex(/^acfg_[a-z2-7]{26}$/);
 
 export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
@@ -359,12 +365,18 @@ export const zConfiguredModelRevisionId = z.string().regex(/^mrev_[a-z2-7]{26}$/
 
 export const zProjectModelGrantId = z.string().regex(/^pmog_[a-z2-7]{26}$/);
 
+/**
+ * Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+ */
 export const zModelApiFormat = z.enum([
     'openai-responses',
     'openai-chat-completions',
     'anthropic-messages'
 ]);
 
+/**
+ * How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+ */
 export const zModelProviderAuthKind = z.enum([
     'bearer_token',
     'api_key_header',
@@ -373,6 +385,9 @@ export const zModelProviderAuthKind = z.enum([
 
 export const zModelProviderAuthKindResponse = z.string();
 
+/**
+ * Provider-specific flavor of the API format: default, openrouter, or bedrock.
+ */
 export const zModelProviderApiVariant = z.enum([
     'default',
     'openrouter',
@@ -501,8 +516,14 @@ export const zProjectModelGrantEffectiveReasoning = z.object({
     supported_reasoning_efforts: z.array(z.string())
 });
 
+/**
+ * Machine pool ID (mpo_...).
+ */
 export const zMachinePoolId = z.string().regex(/^mpo_[a-z2-7]{26}$/);
 
+/**
+ * Machine ID (mch_...).
+ */
 export const zMachineId = z.string().regex(/^mch_[a-z2-7]{26}$/);
 
 export const zProjectMachineGrantId = z.string().regex(/^pmg_[a-z2-7]{26}$/);
@@ -519,6 +540,9 @@ export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
 
 export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
 
+/**
+ * Secret ID (sec_...).
+ */
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 /**
@@ -2109,6 +2133,9 @@ export const zUserSecretOwnerInput = z.object({
     kind: z.enum(['user'])
 });
 
+/**
+ * Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
+ */
 export const zSecretOwnerInput = z.discriminatedUnion('kind', [
     zOrgSecretOwnerInput.extend({ kind: z.literal('org') }),
     zProjectSecretOwnerInput.extend({ kind: z.literal('project') }),
@@ -2186,6 +2213,9 @@ export const zGitHubAppCredentialsSecretMaterial = z.object({
     webhook_secret: z.string().min(1)
 });
 
+/**
+ * The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
+ */
 export const zSecretMaterial = z.discriminatedUnion('kind', [
     zGenericSecretMaterial.extend({ kind: z.literal('generic') }),
     zOAuthTokenSetSecretMaterial.extend({ kind: z.literal('oauth_token_set') }),
@@ -2417,6 +2447,9 @@ export const zCreateMachinePoolRequestBase = z.object({
     metadata: zMachineMetadata.optional()
 });
 
+/**
+ * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
+ */
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
@@ -3195,6 +3228,9 @@ export const zIntegrationCronTriggerTarget = z.object({
     settings: z.record(z.string(), z.unknown())
 });
 
+/**
+ * What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
+ */
 export const zCronTriggerTarget = z.discriminatedUnion('type', [
     zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
     zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') }),

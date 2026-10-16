@@ -399,7 +399,7 @@ export const listOrgAgentProfiles = <ThrowOnError extends boolean = true>(option
 /**
  * List visible projects
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects the caller can access in the organization, newest first, with the caller's permissions on each.
  */
 export const listVisibleProjects = <ThrowOnError extends boolean = true>(options: Options<ListVisibleProjectsData, ThrowOnError>): RequestResult<ListVisibleProjectsResponses, ListVisibleProjectsErrors, ThrowOnError> => (options.client ?? client).get<ListVisibleProjectsResponses, ListVisibleProjectsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListVisibleProjectsResponse),
@@ -418,6 +418,8 @@ export const listVisibleProjects = <ThrowOnError extends boolean = true>(options
 
 /**
  * Create project
+ *
+ * Creates a project, makes the caller its admin, and returns it. The new project has no grants to organization models, machines, skills, or secrets.
  */
 export const createProject = <ThrowOnError extends boolean = true>(options: Options<CreateProjectData, ThrowOnError>): RequestResult<CreateProjectResponses, CreateProjectErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectResponses, CreateProjectErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectResponse),
@@ -921,6 +923,8 @@ export const deleteSkill = <ThrowOnError extends boolean = true>(options: Option
 
 /**
  * Get skill through ownership authority
+ *
+ * Returns one skill with its latest SKILL.md text and file listing.
  */
 export const getSkill = <ThrowOnError extends boolean = true>(options: Options<GetSkillData, ThrowOnError>): RequestResult<GetSkillResponses, GetSkillErrors, ThrowOnError> => (options.client ?? client).get<GetSkillResponses, GetSkillErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetSkillResponse),
@@ -969,7 +973,7 @@ export const updateSkill = <ThrowOnError extends boolean = true>(options: Option
 /**
  * List skill grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a skill is shared with, one grant per project, most recently shared first by default.
  */
 export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Options<ListSkillGrantsData, ThrowOnError>): RequestResult<ListSkillGrantsResponses, ListSkillGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListSkillGrantsResponses, ListSkillGrantsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListSkillGrantsResponse2),
@@ -988,6 +992,8 @@ export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Op
 
 /**
  * Create skill grant
+ *
+ * Shares a skill with another project so its agent configs can attach it, and returns the grant; ownership doesn't change.
  */
 export const createSkillGrant = <ThrowOnError extends boolean = true>(options: Options<CreateSkillGrantData, ThrowOnError>): RequestResult<CreateSkillGrantResponses, CreateSkillGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateSkillGrantResponses, CreateSkillGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateSkillGrantResponse),
@@ -1295,6 +1301,8 @@ export const listSecrets = <ThrowOnError extends boolean = true>(options: Option
 
 /**
  * Create secret
+ *
+ * Creates an encrypted secret holding one credential and returns its metadata; the value is never returned. owner sets whether the organization, a project, or the caller owns it.
  */
 export const createSecret = <ThrowOnError extends boolean = true>(options: Options<CreateSecretData, ThrowOnError>): RequestResult<CreateSecretResponses, CreateSecretErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretResponses, CreateSecretErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateSecretResponse),
@@ -1371,6 +1379,8 @@ export const deleteSecret = <ThrowOnError extends boolean = true>(options: Optio
 
 /**
  * Get secret through ownership authority
+ *
+ * Returns a secret's owner, kind, name, and current version; the secret value is never returned.
  */
 export const getSecret = <ThrowOnError extends boolean = true>(options: Options<GetSecretData, ThrowOnError>): RequestResult<GetSecretResponses, GetSecretErrors, ThrowOnError> => (options.client ?? client).get<GetSecretResponses, GetSecretErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetSecretResponse),
@@ -1389,6 +1399,8 @@ export const getSecret = <ThrowOnError extends boolean = true>(options: Options<
 
 /**
  * Update secret metadata
+ *
+ * Renames a secret or replaces its metadata, and returns the updated secret without its value. The value, kind, and owner can't be changed here. References use the secret ID, so renaming doesn't break them.
  */
 export const updateSecret = <ThrowOnError extends boolean = true>(options: Options<UpdateSecretData, ThrowOnError>): RequestResult<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError> => (options.client ?? client).patch<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateSecretResponse),
@@ -1442,7 +1454,7 @@ export const createSecretVersion = <ThrowOnError extends boolean = true>(options
 /**
  * List secret grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a secret is shared with, one grant per project, most recently shared first by default.
  */
 export const listSecretGrants = <ThrowOnError extends boolean = true>(options: Options<ListSecretGrantsData, ThrowOnError>): RequestResult<ListSecretGrantsResponses, ListSecretGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListSecretGrantsResponses, ListSecretGrantsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListSecretGrantsResponse2),
@@ -1461,6 +1473,8 @@ export const listSecretGrants = <ThrowOnError extends boolean = true>(options: O
 
 /**
  * Create secret grant
+ *
+ * Shares a secret with another project so that project's resources can use it, and returns the grant; ownership doesn't change.
  */
 export const createSecretGrant = <ThrowOnError extends boolean = true>(options: Options<CreateSecretGrantData, ThrowOnError>): RequestResult<CreateSecretGrantResponses, CreateSecretGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretGrantResponses, CreateSecretGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateSecretGrantResponse),
@@ -1539,6 +1553,8 @@ export const resolveAgentConfigTools = <ThrowOnError extends boolean = true>(opt
 
 /**
  * Create agent config
+ *
+ * Compiles and saves an immutable agent config (instruction, model, tools, machine_sources, and more) from YAML or JSON and returns it. Sending the same source again returns the existing config, as long as its names still resolve to the same resources.
  */
 export const createAgentConfig = <ThrowOnError extends boolean = true>(options: Options<CreateAgentConfigData, ThrowOnError>): RequestResult<CreateAgentConfigResponses, CreateAgentConfigErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentConfigResponses, CreateAgentConfigErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateAgentConfigResponse),
@@ -1565,6 +1581,8 @@ export const createAgentConfig = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Get tool catalog
+ *
+ * Lists the built-in tools agent configs can use, with each tool's description and permission settings, plus the permission modes for custom and MCP tools.
  */
 export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Options<GetToolCatalogData, ThrowOnError>): RequestResult<GetToolCatalogResponses, GetToolCatalogErrors, ThrowOnError> => (options?.client ?? client).get<GetToolCatalogResponses, GetToolCatalogErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetToolCatalogResponse),
@@ -1631,6 +1649,8 @@ export const listMcpServerTools = <ThrowOnError extends boolean = true>(options:
 
 /**
  * Get agent config
+ *
+ * Returns one agent config: its compiled definition with names resolved to IDs, and its source if it was saved with one. Configs Omnara derives on its own, such as those for subagents and integration launches, have no source.
  */
 export const getAgentConfig = <ThrowOnError extends boolean = true>(options: Options<GetAgentConfigData, ThrowOnError>): RequestResult<GetAgentConfigResponses, GetAgentConfigErrors, ThrowOnError> => (options.client ?? client).get<GetAgentConfigResponses, GetAgentConfigErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetAgentConfigResponse),
@@ -1670,7 +1690,7 @@ export const getAgentConfigGeneratedSource = <ThrowOnError extends boolean = tru
 /**
  * List agent profiles
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agent profiles, newest first by default, filterable by name. Items include a summary of each profile's current config, not its full compiled definition.
  */
 export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: Options<ListAgentProfilesData, ThrowOnError>): RequestResult<ListAgentProfilesResponses, ListAgentProfilesErrors, ThrowOnError> => (options.client ?? client).get<ListAgentProfilesResponses, ListAgentProfilesErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListAgentProfilesResponse2),
@@ -1689,6 +1709,8 @@ export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Create agent profile
+ *
+ * Creates a named profile that points at an agent config and returns the profile with its current config.
  */
 export const createAgentProfile = <ThrowOnError extends boolean = true>(options: Options<CreateAgentProfileData, ThrowOnError>): RequestResult<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateAgentProfileResponse),
@@ -1739,6 +1761,8 @@ export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options:
 
 /**
  * Get agent profile
+ *
+ * Returns one agent profile with its current config, current_config_id, and current_generation.
  */
 export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Options<GetAgentProfileData, ThrowOnError>): RequestResult<GetAgentProfileResponses, GetAgentProfileErrors, ThrowOnError> => (options.client ?? client).get<GetAgentProfileResponses, GetAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetAgentProfileResponse),
@@ -1757,6 +1781,8 @@ export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Op
 
 /**
  * Rename agent profile
+ *
+ * Renames an agent profile without changing its config. Agents and cron triggers reference the profile by ID and keep working, but configs that name the profile under subagents must use the new name the next time they're compiled.
  */
 export const renameAgentProfile = <ThrowOnError extends boolean = true>(options: Options<RenameAgentProfileData, ThrowOnError>): RequestResult<RenameAgentProfileResponses, RenameAgentProfileErrors, ThrowOnError> => (options.client ?? client).patch<RenameAgentProfileResponses, RenameAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zRenameAgentProfileResponse),
@@ -1803,6 +1829,8 @@ export const getAgentProfileUsage = <ThrowOnError extends boolean = true>(option
 
 /**
  * Update agent profile
+ *
+ * Points a profile at a different agent config. Existing agents keep their current config; agents launched from the profile afterward use the new one. Fails with 409 unless expected_current_config_id matches the profile's current config.
  */
 export const updateAgentProfile = <ThrowOnError extends boolean = true>(options: Options<UpdateAgentProfileData, ThrowOnError>): RequestResult<UpdateAgentProfileResponses, UpdateAgentProfileErrors, ThrowOnError> => (options.client ?? client).post<UpdateAgentProfileResponses, UpdateAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateAgentProfileResponse),
@@ -1926,7 +1954,7 @@ export const inspectIntegrationGitHubInstallations = <ThrowOnError extends boole
 /**
  * List cron triggers
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's cron triggers, newest first by default, filterable by name, agent, profile, or integration. Each item includes its schedule and next_fire_at.
  */
 export const listCronTriggers = <ThrowOnError extends boolean = true>(options: Options<ListCronTriggersData, ThrowOnError>): RequestResult<ListCronTriggersResponses, ListCronTriggersErrors, ThrowOnError> => (options.client ?? client).get<ListCronTriggersResponses, ListCronTriggersErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListCronTriggersResponse2),
@@ -1973,6 +2001,8 @@ export const createCronTrigger = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Delete cron trigger
+ *
+ * Deletes a cron trigger so it never fires again; there is no undo. Agents it already launched keep running.
  */
 export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: Options<DeleteCronTriggerData, ThrowOnError>): RequestResult<DeleteCronTriggerResponses, DeleteCronTriggerErrors, ThrowOnError> => (options.client ?? client).delete<DeleteCronTriggerResponses, DeleteCronTriggerErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteCronTriggerResponse),
@@ -1995,6 +2025,8 @@ export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Get cron trigger
+ *
+ * Returns one cron trigger: its target, schedule, timezone, message template, enabled flag, and firing state (last_fired_at, next_fire_at, and any failure since the last successful firing).
  */
 export const getCronTrigger = <ThrowOnError extends boolean = true>(options: Options<GetCronTriggerData, ThrowOnError>): RequestResult<GetCronTriggerResponses, GetCronTriggerErrors, ThrowOnError> => (options.client ?? client).get<GetCronTriggerResponses, GetCronTriggerErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetCronTriggerResponse),
@@ -2042,7 +2074,7 @@ export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: 
 /**
  * List agents
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
  */
 export const listAgents = <ThrowOnError extends boolean = true>(options: Options<ListAgentsData, ThrowOnError>): RequestResult<ListAgentsResponses, ListAgentsErrors, ThrowOnError> => (options.client ?? client).get<ListAgentsResponses, ListAgentsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListAgentsResponse2),
@@ -2089,6 +2121,8 @@ export const createAgent = <ThrowOnError extends boolean = true>(options: Option
 
 /**
  * Get agent
+ *
+ * Returns one agent's state, model, profile, current config ID, activity (running, waiting_on_interaction, idle, or archived), attached machines, and MCP connection states. The conversation isn't included.
  */
 export const getAgent = <ThrowOnError extends boolean = true>(options: Options<GetAgentData, ThrowOnError>): RequestResult<GetAgentResponses, GetAgentErrors, ThrowOnError> => (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetAgentResponse2),
@@ -2151,6 +2185,8 @@ export const archiveAgent = <ThrowOnError extends boolean = true>(options: Optio
 
 /**
  * Update agent config
+ *
+ * Replaces an active agent's config without restarting its conversation and returns the new agent_config. Model, instruction, and tool changes apply at the agent's next model call; machine changes apply immediately, stopping processes on removed machines and deleting the agent's machines from removed pools. Send the complete config, not a patch.
  */
 export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: Options<UpdateAgentConfigData, ThrowOnError>): RequestResult<UpdateAgentConfigResponses, UpdateAgentConfigErrors, ThrowOnError> => (options.client ?? client).post<UpdateAgentConfigResponses, UpdateAgentConfigErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateAgentConfigResponse2),
@@ -2177,6 +2213,8 @@ export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Create agent input
+ *
+ * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call.
  */
 export const createAgentInput = <ThrowOnError extends boolean = true>(options: Options<CreateAgentInputData, ThrowOnError>): RequestResult<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateAgentInputResponse),
@@ -2329,6 +2367,8 @@ export const streamEvents = <ThrowOnError extends boolean = true>(options: Optio
 
 /**
  * Cancel agent
+ *
+ * Stops the agent's current turn: cancels its unfinished tool calls and open interactions, stops processes whose run_command hasn't returned yet, and discards pending steering messages. The agent stays active and keeps its queued messages, and processes whose run_command already returned keep running. Returns affected false and changes nothing when no turn is in progress.
  */
 export const cancelAgent = <ThrowOnError extends boolean = true>(options: Options<CancelAgentData, ThrowOnError>): RequestResult<CancelAgentResponses, CancelAgentErrors, ThrowOnError> => (options.client ?? client).post<CancelAgentResponses, CancelAgentErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCancelAgentResponse2),
@@ -2356,7 +2396,7 @@ export const cancelAgent = <ThrowOnError extends boolean = true>(options: Option
 /**
  * List agent interactions
  *
- * Items are ordered by created_at ascending, then id ascending.
+ * Lists an agent's permission prompts and ask_question questions, oldest first, with each one's form and answers. state filters by open, resolved, or canceled.
  */
 export const listAgentInteractions = <ThrowOnError extends boolean = true>(options: Options<ListAgentInteractionsData, ThrowOnError>): RequestResult<ListAgentInteractionsResponses, ListAgentInteractionsErrors, ThrowOnError> => (options.client ?? client).get<ListAgentInteractionsResponses, ListAgentInteractionsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListAgentInteractionsResponse2),
@@ -2375,6 +2415,8 @@ export const listAgentInteractions = <ThrowOnError extends boolean = true>(optio
 
 /**
  * Resolve agent interaction
+ *
+ * Answers an open permission prompt or question so the paused agent resumes, and returns the resolved interaction. Send one answer per question with zero-based option_indices; permission prompts use 0 for Allow and 1 for Deny.
  */
 export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(options: Options<ResolveAgentInteractionData, ThrowOnError>): RequestResult<ResolveAgentInteractionResponses, ResolveAgentInteractionErrors, ThrowOnError> => (options.client ?? client).post<ResolveAgentInteractionResponses, ResolveAgentInteractionErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zResolveAgentInteractionResponse),
@@ -2593,6 +2635,8 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
 
 /**
  * Create project machine grant
+ *
+ * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404.
  */
 export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachineGrantData, ThrowOnError>): RequestResult<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachineGrantResponse2),
@@ -2748,7 +2792,7 @@ export const getActor = <ThrowOnError extends boolean = true>(options: Options<G
 /**
  * List visible machines
  *
- * Items are ordered by machine created_at descending, then machine id descending.
+ * Lists the machines the caller can see, both BYO and pooled, newest first by default, with each one's connection state. Items are summaries without execution defaults or metadata.
  */
 export const listVisibleMachines = <ThrowOnError extends boolean = true>(options: Options<ListVisibleMachinesData, ThrowOnError>): RequestResult<ListVisibleMachinesResponses, ListVisibleMachinesErrors, ThrowOnError> => (options.client ?? client).get<ListVisibleMachinesResponses, ListVisibleMachinesErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListVisibleMachinesResponse2),
@@ -2793,6 +2837,8 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
 
 /**
  * Connect a BYO machine
+ *
+ * Registers a machine you run yourself and returns its daemon token for installing omnarad on it; the token is shown only in this response. The machine stays offline until its daemon connects. project_ids grants it to those projects in the same call, and their agent configs reference it by display_name.
  */
 export const connectByoMachine = <ThrowOnError extends boolean = true>(options: Options<ConnectByoMachineData, ThrowOnError>): RequestResult<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError> => (options.client ?? client).post<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zConnectByoMachineResponse2),
@@ -2843,6 +2889,8 @@ export const deleteMachine = <ThrowOnError extends boolean = true>(options: Opti
 
 /**
  * Get machine
+ *
+ * Returns one active machine's full record: connection state, execution defaults (secret IDs only, never values), metadata, and the latest failure report. Machines in other lifecycle states, such as pool machines still provisioning, aren't returned.
  */
 export const getMachine = <ThrowOnError extends boolean = true>(options: Options<GetMachineData, ThrowOnError>): RequestResult<GetMachineResponses, GetMachineErrors, ThrowOnError> => (options.client ?? client).get<GetMachineResponses, GetMachineErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetMachineResponse),
@@ -2861,6 +2909,8 @@ export const getMachine = <ThrowOnError extends boolean = true>(options: Options
 
 /**
  * Update machine execution defaults
+ *
+ * Updates a machine's execution defaults: working directory, environment variables, and secret environment variables. env and secret_env replace the whole map, and changes apply to processes started afterward.
  */
 export const updateMachine = <ThrowOnError extends boolean = true>(options: Options<UpdateMachineData, ThrowOnError>): RequestResult<UpdateMachineResponses, UpdateMachineErrors, ThrowOnError> => (options.client ?? client).patch<UpdateMachineResponses, UpdateMachineErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateMachineResponse),
@@ -2959,6 +3009,8 @@ export const deleteModelProviderConfig = <ThrowOnError extends boolean = true>(o
 
 /**
  * Get model provider config
+ *
+ * Returns one model provider config's stored settings; secret values are never returned. The provider isn't contacted, so the response doesn't list its models.
  */
 export const getModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<GetModelProviderConfigData, ThrowOnError>): RequestResult<GetModelProviderConfigResponses, GetModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).get<GetModelProviderConfigResponses, GetModelProviderConfigErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetModelProviderConfigResponse),
@@ -2977,6 +3029,8 @@ export const getModelProviderConfig = <ThrowOnError extends boolean = true>(opti
 
 /**
  * Update model provider config
+ *
+ * Updates a model provider config's connection settings, such as its credential and headers, and returns the updated config; omitted fields keep their values. The credential secret is checked to exist and match auth_kind, but the provider isn't contacted, so a credential the provider rejects isn't caught here.
  */
 export const updateModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<UpdateModelProviderConfigData, ThrowOnError>): RequestResult<UpdateModelProviderConfigResponses, UpdateModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).put<UpdateModelProviderConfigResponses, UpdateModelProviderConfigErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateModelProviderConfigResponse),
@@ -3024,7 +3078,7 @@ export const getModelCatalog = <ThrowOnError extends boolean = true>(options: Op
 /**
  * List configured models
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the models configured under one model provider config, newest first, with each model's slug, token limits, and reasoning support.
  */
 export const listConfiguredModels = <ThrowOnError extends boolean = true>(options: Options<ListConfiguredModelsData, ThrowOnError>): RequestResult<ListConfiguredModelsResponses, ListConfiguredModelsErrors, ThrowOnError> => (options.client ?? client).get<ListConfiguredModelsResponses, ListConfiguredModelsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListConfiguredModelsResponse),
@@ -3043,6 +3097,8 @@ export const listConfiguredModels = <ThrowOnError extends boolean = true>(option
 
 /**
  * Create configured model
+ *
+ * Adds a provider model to this provider config under the name agent configs use as model.name, and returns it. The model slug isn't checked against the provider's catalog, and no project can use the model yet.
  */
 export const createConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<CreateConfiguredModelData, ThrowOnError>): RequestResult<CreateConfiguredModelResponses, CreateConfiguredModelErrors, ThrowOnError> => (options.client ?? client).post<CreateConfiguredModelResponses, CreateConfiguredModelErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateConfiguredModelResponse),
@@ -3093,6 +3149,8 @@ export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(optio
 
 /**
  * Update configured model
+ *
+ * Updates a configured model's settings and returns the updated model; omitted fields keep their values. Agents already using the model pick up the change on their next model call. The update isn't checked against project grants or agent configs, so lowering a limit below their overrides or turning off tools or reasoning they rely on makes those agents' next model call fail.
  */
 export const updateConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<UpdateConfiguredModelData, ThrowOnError>): RequestResult<UpdateConfiguredModelResponses, UpdateConfiguredModelErrors, ThrowOnError> => (options.client ?? client).put<UpdateConfiguredModelResponses, UpdateConfiguredModelErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateConfiguredModelResponse),
@@ -3120,7 +3178,7 @@ export const updateConfiguredModel = <ThrowOnError extends boolean = true>(optio
 /**
  * List project model grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the configured models a project can use, most recently granted first by default, with each grant's overrides and the model's name and provider config.
  */
 export const listProjectModelGrants = <ThrowOnError extends boolean = true>(options: Options<ListProjectModelGrantsData, ThrowOnError>): RequestResult<ListProjectModelGrantsResponses, ListProjectModelGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectModelGrantsResponses, ListProjectModelGrantsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListProjectModelGrantsResponse2),
@@ -3139,6 +3197,8 @@ export const listProjectModelGrants = <ThrowOnError extends boolean = true>(opti
 
 /**
  * Create project model grant
+ *
+ * Lets a project's agent configs use a configured model and returns the new grant. Optional overrides can narrow the model for that project (lower token limits, tools or reasoning turned off, fewer reasoning efforts or modalities) and set its per-request defaults within those limits.
  */
 export const createProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectModelGrantData, ThrowOnError>): RequestResult<CreateProjectModelGrantResponses, CreateProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectModelGrantResponses, CreateProjectModelGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectModelGrantResponse),
@@ -3190,7 +3250,7 @@ export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(opt
 /**
  * Update project model grant
  *
- * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. The grant is live policy: agents already using the model re-apply the updated overrides on their next model call, against the configured-model revision each agent pinned at launch. Updates are validated against the configured model's current revision only, so an update can make an agent pinned to an older, incompatible revision fail its next model call.
+ * Updates the project's overrides for the configured model. Omitted fields keep their current values; null, or [] for supported_reasoning_efforts, input_modalities, and output_modalities, clears an override so the project inherits from the configured model. Agents already using the model apply the updated overrides on their next model call. Updates are validated against the configured model's current revision but not against agent configs, so narrowing below a config's model settings, such as its context_window_tokens or reasoning effort, makes that agent's next model call fail.
  */
 export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<UpdateProjectModelGrantData, ThrowOnError>): RequestResult<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).patch<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateProjectModelGrantResponse),
@@ -3315,6 +3375,8 @@ export const deleteMachinePool = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * Get machine pool
+ *
+ * Returns one machine pool's configuration and current usage: provider, default machine settings, CPU, memory, and machine-count limits, and idle deletion policy.
  */
 export const getMachinePool = <ThrowOnError extends boolean = true>(options: Options<GetMachinePoolData, ThrowOnError>): RequestResult<GetMachinePoolResponses, GetMachinePoolErrors, ThrowOnError> => (options.client ?? client).get<GetMachinePoolResponses, GetMachinePoolErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetMachinePoolResponse),
@@ -3362,7 +3424,7 @@ export const updateMachinePool = <ThrowOnError extends boolean = true>(options: 
 /**
  * List project machine pool grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the machine pools a project can create machines from, one grant per pool, most recently granted first by default.
  */
 export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true>(options: Options<ListProjectMachinePoolGrantsData, ThrowOnError>): RequestResult<ListProjectMachinePoolGrantsResponses, ListProjectMachinePoolGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectMachinePoolGrantsResponses, ListProjectMachinePoolGrantsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListProjectMachinePoolGrantsResponse2),
@@ -3381,6 +3443,8 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
 
 /**
  * Create project machine pool grant
+ *
+ * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call.
  */
 export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachinePoolGrantData, ThrowOnError>): RequestResult<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachinePoolGrantResponse),
@@ -3431,6 +3495,8 @@ export const deleteProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
 
 /**
  * Get project machine pool grant
+ *
+ * Returns one project's grant for a machine pool, with the defaults and limits it sets on top of the pool's own. Null fields set no override, so the pool's value applies.
  */
 export const getProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<GetProjectMachinePoolGrantData, ThrowOnError>): RequestResult<GetProjectMachinePoolGrantResponses, GetProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).get<GetProjectMachinePoolGrantResponses, GetProjectMachinePoolGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetProjectMachinePoolGrantResponse),
