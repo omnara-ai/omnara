@@ -1,12 +1,12 @@
 import type { Secret } from '@omnara/sdk'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { PillTabs } from '@/components/agents/PillTabs'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { NewSecretDialog } from '@/components/secrets/NewSecretDialog'
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -56,6 +56,7 @@ export function KeyValueEditor({
     ...textRows.map((row) => ({ kind: 'text' as const, ...row })),
     ...secretRows.map((row) => ({ kind: 'secret' as const, ...row })),
   ]
+  const titleId = useId()
   const [creatingSecretFor, setCreatingSecretFor] = useState<string | null>(null)
   const [createdSecrets, setCreatedSecrets] = useState<ReadonlyMap<string, Secret>>(new Map())
   function setKind(row: (typeof combinedRows)[number], kind: string, unset: boolean) {
@@ -83,9 +84,11 @@ export function KeyValueEditor({
     })
   }
   return (
-    <Field>
+    <Field aria-labelledby={titleId}>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>{label}</FieldLabel>
+        <div id={titleId} className="type-label">
+          {label}
+        </div>
         <Button
           type="button"
           size="sm"
