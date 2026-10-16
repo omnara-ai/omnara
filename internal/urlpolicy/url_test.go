@@ -20,6 +20,8 @@ func TestRequireHTTPSOrLoopback(t *testing.T) {
 		{name: "missing hostname", rawURL: "https://:443/token", wantErr: true},
 		{name: "user information", rawURL: "https://user:secret@auth.example.com/token", wantErr: true},
 		{name: "fragment", rawURL: "https://auth.example.com/token#fragment", wantErr: true},
+		{name: "empty port", rawURL: "https://auth.example.com:/token", wantErr: true},
+		{name: "out of range port", rawURL: "https://auth.example.com:65536/token", wantErr: true},
 		{name: "unsupported scheme", rawURL: "ftp://auth.example.com/token", wantErr: true},
 	}
 	for _, test := range tests {
