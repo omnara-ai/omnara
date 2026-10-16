@@ -46,6 +46,26 @@ func TestCanonicalProcessReadResultValidatesSkippedOutput(t *testing.T) {
 			wantAdvance: 6,
 		},
 		{
+			name:    "NUL symbols count as one raw byte",
+			payload: json.RawMessage(`{"cursor":4,"max_bytes":3}`),
+			observation: `{"process_id":"` + publicProcessID +
+				`","output":"a\u2400b","cursor":4,"next_cursor":7,"truncated":true}`,
+		},
+		{
+			name:    "NUL symbols cannot hide output beyond the span",
+			payload: json.RawMessage(`{"cursor":4,"max_bytes":3}`),
+			observation: `{"process_id":"` + publicProcessID +
+				`","output":"a\u2400b\u2400","cursor":4,"next_cursor":7,"truncated":true}`,
+			wantError: true,
+		},
+		{
+			name:    "output beyond the span",
+			payload: json.RawMessage(`{"cursor":4,"max_bytes":3}`),
+			observation: `{"process_id":"` + publicProcessID +
+				`","output":"abcd","cursor":4,"next_cursor":7,"truncated":true}`,
+			wantError: true,
+		},
+		{
 			name:    "explicit read after retained prefix was dropped",
 			payload: json.RawMessage(`{"cursor":4}`),
 			observation: `{"process_id":"` + publicProcessID +
@@ -76,5 +96,31 @@ func TestCanonicalProcessReadResultValidatesSkippedOutput(t *testing.T) {
 				t.Fatalf("cursor advance = %v, want %d", advance, test.wantAdvance)
 			}
 		})
+	}
+}
+
+func TestObservationNextCursorMeasuresNULSymbolsAsRawBytes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		output    string
+		wantError bool
+	}{
+		{output: `\u2400\u2400\u2400`},
+		{output: `\u2400\u2400\u2400\u2400`, wantError: true},
+		{output: `abcd`, wantError: true},
+	} {
+		next, ok, err := ObservationNextCursor(json.RawMessage(
+			`{"output":"` + test.output + `","cursor":0,"next_cursor":3}`,
+		))
+		if test.wantError {
+			if err == nil {
+				t.Fatalf("output %s: want span error", test.output)
+			}
+			continue
+		}
+		if err != nil || !ok || next != 3 {
+			t.Fatalf("output %s: next=%d ok=%t err=%v", test.output, next, ok, err)
+		}
 	}
 }

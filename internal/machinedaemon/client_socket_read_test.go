@@ -179,7 +179,7 @@ func TestDirectReadRejectedObservationFailsOnlyTheRead(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(applied.Event.Result, &observed))
 			if applied.Event.Type != daemonprotocol.EventProcessActionApplied ||
-				observed.Output != "bin?ary" ||
+				observed.Output != "bin␀ary" ||
 				observed.NextCursor != 7 {
 				t.Fatalf("applied read report = %+v %+v", applied.Event, observed)
 			}

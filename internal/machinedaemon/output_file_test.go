@@ -138,7 +138,7 @@ func TestProcessOutputReplacesNULWithoutChangingByteCursors(t *testing.T) {
 	}
 	got, start, next, truncated, err := output.Slice(1, 5)
 	require.NoError(t, err)
-	if got != "?b??c" || start != 1 || next != 6 || !truncated {
+	if got != "␀b␀␀c" || start != 1 || next != 6 || !truncated {
 		t.Fatalf(
 			"slice=%q start=%d next=%d truncated=%v, want NULs replaced at byte cursors 1..6",
 			got,

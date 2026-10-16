@@ -82,9 +82,10 @@ func Read(
 	}
 	span := *observed.NextCursor - *observed.Cursor
 	maxBytes := payload.ObservationBytes()
+	outputBytes := processaction.OutputRawBytes(*observed.Output)
 	if span > int64(maxBytes) ||
-		len([]byte(*observed.Output)) > maxBytes ||
-		int64(len([]byte(*observed.Output))) > span ||
+		outputBytes > maxBytes ||
+		int64(outputBytes) > span ||
 		(span > 0 && *observed.Output == "") {
 		return nil, nil, errors.New("read observation exceeds its requested range")
 	}
@@ -287,7 +288,7 @@ func ObservationNextCursor(
 		)
 	}
 	span := *observed.NextCursor - *observed.Cursor
-	outputBytes := len([]byte(*observed.Output))
+	outputBytes := processaction.OutputRawBytes(*observed.Output)
 	if span > int64(processaction.MaxObservationBytes) ||
 		outputBytes > processaction.MaxObservationBytes ||
 		int64(outputBytes) > span ||

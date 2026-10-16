@@ -300,10 +300,10 @@ func validateReport(report Report) error {
 		return fmt.Errorf("decode frozen report result: %w", err)
 	}
 	if observation.Output != nil &&
-		len([]byte(*observation.Output)) > processaction.MaxObservationBytes {
+		processaction.OutputRawBytes(*observation.Output) > processaction.MaxObservationBytes {
 		return fmt.Errorf(
 			"frozen process output is %d bytes; maximum is %d",
-			len([]byte(*observation.Output)),
+			processaction.OutputRawBytes(*observation.Output),
 			processaction.MaxObservationBytes,
 		)
 	}

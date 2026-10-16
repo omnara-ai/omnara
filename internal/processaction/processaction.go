@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -18,6 +19,16 @@ const (
 	DefaultObservationBytes = 8 * 1024
 	MaxWriteBytes           = 128 * 1024
 )
+
+// NULSymbol stands in for NUL bytes in process output, which Postgres cannot
+// store.
+const NULSymbol = "\u2400"
+
+// OutputRawBytes measures output in raw process bytes, counting each NULSymbol
+// as the one NUL byte it replaced.
+func OutputRawBytes(output string) int {
+	return len(output) - (len(NULSymbol)-1)*strings.Count(output, NULSymbol)
+}
 
 type Kind string
 
