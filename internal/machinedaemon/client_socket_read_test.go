@@ -126,20 +126,40 @@ func TestDirectReadReturnsRetainedTerminalOutputWithoutLocalState(t *testing.T) 
 }
 
 func TestDirectReadRejectedObservationFailsOnlyTheRead(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		status daemonprotocol.AckStatus
-		code   string
-	}{
-		{
-			name:   "permanent",
-			status: daemonprotocol.AckStatusPermanentReject,
-			code:   daemonprotocol.ErrorCodeValidationFailed,
-		},
-		{
-			name:   "storage unavailable",
+	directReadReportRetryDelay = time.Millisecond
+	t.Cleanup(func() { directReadReportRetryDelay = time.Second })
+	storageUnavailable := []daemonReportAck{}
+	for range directReadReportAttempts {
+		storageUnavailable = append(storageUnavailable, daemonReportAck{
 			status: daemonprotocol.AckStatusTransientError,
 			code:   daemonprotocol.ErrorCodeStorageUnavailable,
+		})
+	}
+	for _, test := range []struct {
+		name       string
+		acks       []daemonReportAck
+		wantReason string
+	}{
+		{
+			name: "permanent",
+			acks: []daemonReportAck{{
+				status: daemonprotocol.AckStatusPermanentReject,
+				code:   daemonprotocol.ErrorCodeValidationFailed,
+			}},
+			wantReason: daemonprotocol.ProcessActionReasonInvalidReadObservation,
+		},
+		{
+			name: "storage recovers",
+			acks: []daemonReportAck{
+				storageUnavailable[0],
+				storageUnavailable[0],
+				{status: daemonprotocol.AckStatusCommitted},
+			},
+		},
+		{
+			name:       "storage stays unavailable",
+			acks:       storageUnavailable,
+			wantReason: daemonprotocol.ProcessActionReasonStorageUnavailable,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -172,33 +192,36 @@ func TestDirectReadRejectedObservationFailsOnlyTheRead(t *testing.T) {
 					},
 				})
 			}()
-			applied := waitForDirectReadReport(t, ctx, transport)
-			var observed struct {
-				Output     string `json:"output"`
-				NextCursor int64  `json:"next_cursor"`
+			for _, ack := range test.acks {
+				applied := waitForDirectReadReport(t, ctx, transport)
+				var observed struct {
+					Output     string `json:"output"`
+					NextCursor int64  `json:"next_cursor"`
+				}
+				require.NoError(t, json.Unmarshal(applied.Event.Result, &observed))
+				if applied.Event.Type != daemonprotocol.EventProcessActionApplied ||
+					observed.Output != "bin␀ary\uFFFD" ||
+					observed.NextCursor != 9 {
+					t.Fatalf("applied read report = %+v %+v", applied.Event, observed)
+				}
+				transport.ackReport(daemonprotocol.Message{
+					Type:      "report_ack",
+					ReportID:  applied.ReportID,
+					AckStatus: ack.status,
+					ErrorCode: ack.code,
+					Error:     "rejected",
+				})
 			}
-			require.NoError(t, json.Unmarshal(applied.Event.Result, &observed))
-			if applied.Event.Type != daemonprotocol.EventProcessActionApplied ||
-				observed.Output != "bin␀ary\uFFFD" ||
-				observed.NextCursor != 9 {
-				t.Fatalf("applied read report = %+v %+v", applied.Event, observed)
-			}
-			transport.ackReport(daemonprotocol.Message{
-				Type:      "report_ack",
-				ReportID:  applied.ReportID,
-				AckStatus: test.status,
-				ErrorCode: test.code,
-				Error:     "rejected",
-			})
 
-			failed := waitForDirectReadReport(t, ctx, transport)
-			if failed.Event.Type != daemonprotocol.EventProcessActionFailed ||
-				failed.Event.StateReasonCode !=
-					daemonprotocol.ProcessActionReasonInvalidReadObservation ||
-				len(failed.Event.Result) != 0 {
-				t.Fatalf("fallback read report = %+v", failed.Event)
+			if test.wantReason != "" {
+				failed := waitForDirectReadReport(t, ctx, transport)
+				if failed.Event.Type != daemonprotocol.EventProcessActionFailed ||
+					failed.Event.StateReasonCode != test.wantReason ||
+					len(failed.Event.Result) != 0 {
+					t.Fatalf("fallback read report = %+v", failed.Event)
+				}
+				ackDirectReadReport(transport, failed)
 			}
-			ackDirectReadReport(transport, failed)
 			select {
 			case err := <-readDone:
 				require.NoError(t, err)

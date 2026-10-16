@@ -27,10 +27,7 @@ const (
 	InvalidUTF8Symbol = "\uFFFD"
 )
 
-// OutputRawBytes measures output in raw process bytes, counting each
-// replacement symbol as one byte. A run of invalid bytes collapses into one
-// symbol, so this is a lower bound.
-func OutputRawBytes(output string) int {
+func MinOutputRawBytes(output string) int {
 	return len(output) -
 		(len(NULSymbol)-1)*strings.Count(output, NULSymbol) -
 		(len(InvalidUTF8Symbol)-1)*strings.Count(output, InvalidUTF8Symbol)

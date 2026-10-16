@@ -538,6 +538,7 @@ const (
 	ProcessActionReasonProcessNotRunning      = "process_not_running"
 	ProcessActionReasonInvalidReadObservation = "invalid_read_observation"
 	ProcessActionReasonReadInterrupted        = "read_interrupted"
+	ProcessActionReasonStorageUnavailable     = "storage_unavailable"
 )
 
 type ProcessPhase string

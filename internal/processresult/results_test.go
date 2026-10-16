@@ -65,6 +65,13 @@ func TestCanonicalProcessReadResultValidatesSkippedOutput(t *testing.T) {
 			wantError: true,
 		},
 		{
+			name:    "NUL output",
+			payload: json.RawMessage(`{"cursor":4,"max_bytes":3}`),
+			observation: `{"process_id":"` + publicProcessID +
+				`","output":"a\u0000b","cursor":4,"next_cursor":7,"truncated":true}`,
+			wantError: true,
+		},
+		{
 			name:    "output beyond the span",
 			payload: json.RawMessage(`{"cursor":4,"max_bytes":3}`),
 			observation: `{"process_id":"` + publicProcessID +

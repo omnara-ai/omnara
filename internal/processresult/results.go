@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -66,6 +67,9 @@ func Read(
 		observed.Truncated == nil {
 		return nil, nil, errors.New("read observation is incomplete")
 	}
+	if err := dbsafe.Text(*observed.Output); err != nil {
+		return nil, nil, fmt.Errorf("read observation output %w", err)
+	}
 	publicProcessID := publicID(publicid.KindProcess, process.ID)
 	if observed.ProcessID != publicProcessID {
 		return nil, nil, errors.New("read observation names a different process")
@@ -82,7 +86,7 @@ func Read(
 	}
 	span := *observed.NextCursor - *observed.Cursor
 	maxBytes := payload.ObservationBytes()
-	outputBytes := processaction.OutputRawBytes(*observed.Output)
+	outputBytes := processaction.MinOutputRawBytes(*observed.Output)
 	if span > int64(maxBytes) ||
 		outputBytes > maxBytes ||
 		int64(outputBytes) > span ||
@@ -288,7 +292,7 @@ func ObservationNextCursor(
 		)
 	}
 	span := *observed.NextCursor - *observed.Cursor
-	outputBytes := processaction.OutputRawBytes(*observed.Output)
+	outputBytes := processaction.MinOutputRawBytes(*observed.Output)
 	if span > int64(processaction.MaxObservationBytes) ||
 		outputBytes > processaction.MaxObservationBytes ||
 		int64(outputBytes) > span ||
