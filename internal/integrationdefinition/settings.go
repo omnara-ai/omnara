@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
@@ -14,6 +15,7 @@ const MaxSettingsBytes = 128 * 1024
 
 type SettingsDefinition struct {
 	InputSchema      json.RawMessage
+	SchemaComponent  string
 	Description      string
 	ValidateSettings func(json.RawMessage) error
 }
@@ -55,8 +57,19 @@ func ValidateSettings(kind Kind, raw json.RawMessage) (json.RawMessage, error) {
 	return jsoncanonical.Normalize(raw)
 }
 
+func (s SettingsDefinition) Schema() (json.RawMessage, error) {
+	if s.SchemaComponent == "" {
+		return s.InputSchema, nil
+	}
+	return openapispec.ComponentJSONSchema(s.SchemaComponent)
+}
+
 func (s SettingsDefinition) Validate(raw json.RawMessage) error {
-	if err := jsonschema.Validate(s.InputSchema, raw); err != nil {
+	schema, err := s.Schema()
+	if err != nil {
+		return err
+	}
+	if err := jsonschema.Validate(schema, raw); err != nil {
 		return err
 	}
 	if s.ValidateSettings != nil {

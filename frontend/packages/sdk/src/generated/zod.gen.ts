@@ -3280,9 +3280,32 @@ export const zListCronTriggersResponse = z.object({
 });
 
 /**
- * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
  */
 export const zIntegrationSettings = z.record(z.string(), z.unknown());
+
+export const zGitHubIntegrationLauncher = z.object({
+    profile: zAgentProfileId,
+    trigger: z.enum([
+        'mention',
+        'pull_request_opened',
+        'both'
+    ]),
+    repository_id: z.string().regex(/^[1-9][0-9]*$/).optional()
+});
+
+export const zGitHubIntegrationSettings = z.object({
+    launcher: zGitHubIntegrationLauncher.optional(),
+    code_write: z.boolean().optional()
+});
+
+export const zChatIntegrationLauncher = z.object({
+    profiles: z.array(zAgentProfileId).min(1).max(16)
+});
+
+export const zChatIntegrationSettings = z.object({
+    launcher: zChatIntegrationLauncher.optional()
+});
 
 /**
  * Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.

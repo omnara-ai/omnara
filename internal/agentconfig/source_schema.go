@@ -9,12 +9,15 @@ import (
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
 )
 
 const MaxMachineCwdLength = 4096
+
+const OpenAPIDefinitionComponent = "AgentConfigDefinition"
 
 type SourceFormat string
 
@@ -361,5 +364,5 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 }
 
 func SourceJSONSchema() ([]byte, error) {
-	return specJSONSchema(OpenAPIDefinitionComponent)
+	return openapispec.ComponentJSONSchema(OpenAPIDefinitionComponent)
 }

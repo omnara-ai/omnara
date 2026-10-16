@@ -16491,7 +16491,57 @@ components:
     IntegrationSettings:
       type: object
       additionalProperties: true
-      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+    GitHubIntegrationSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        launcher:
+          $ref: '#/components/schemas/GitHubIntegrationLauncher'
+        code_write:
+          type: boolean
+          title: Let agents push code
+          description: 'Git credentials can push. Off by default: read-only.'
+      x-go-type: json.RawMessage
+    GitHubIntegrationLauncher:
+      type: object
+      additionalProperties: false
+      required: [profile, trigger]
+      properties:
+        profile:
+          $ref: '#/components/schemas/AgentProfileID'
+        trigger:
+          type: string
+          enum: [mention, pull_request_opened, both]
+          title: Start agents
+        repository_id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+          title: Repository ID
+          description: 'Optional: restrict launches to this repository.'
+      x-go-type: json.RawMessage
+    ChatIntegrationSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        launcher:
+          $ref: '#/components/schemas/ChatIntegrationLauncher'
+      x-go-type: json.RawMessage
+    ChatIntegrationLauncher:
+      type: object
+      additionalProperties: false
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AgentProfileID'
+          title: Profiles
+          description: One profile launches immediately; several offer a choice of exactly one.
+      x-go-type: json.RawMessage
     UpdateIntegrationRequest:
       type: object
       additionalProperties: false

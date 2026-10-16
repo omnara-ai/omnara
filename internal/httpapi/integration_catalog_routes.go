@@ -73,7 +73,11 @@ func integrationCapabilitiesResponse(id integrationdefinition.Kind) (openapi.Int
 		result.InteractionHandler = &entry
 	}
 	if settings := definition.Settings; settings != nil {
-		entry, err := integrationCapabilityResponse(settings.InputSchema, settings.Description)
+		schema, err := settings.Schema()
+		if err != nil {
+			return result, err
+		}
+		entry, err := integrationCapabilityResponse(schema, settings.Description)
 		if err != nil {
 			return result, err
 		}

@@ -4388,10 +4388,47 @@ export type ListProjectMembershipGrantsResponse = {
 export type IntegrationId = string;
 
 /**
- * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
  */
 export type IntegrationSettings = {
     [key: string]: unknown;
+};
+
+export type GitHubIntegrationSettings = {
+    launcher?: GitHubIntegrationLauncher;
+    /**
+     * Let agents push code
+     *
+     * Git credentials can push. Off by default: read-only.
+     */
+    code_write?: boolean;
+};
+
+export type GitHubIntegrationLauncher = {
+    profile: AgentProfileId;
+    /**
+     * Start agents
+     */
+    trigger: 'mention' | 'pull_request_opened' | 'both';
+    /**
+     * Repository ID
+     *
+     * Optional: restrict launches to this repository.
+     */
+    repository_id?: string;
+};
+
+export type ChatIntegrationSettings = {
+    launcher?: ChatIntegrationLauncher;
+};
+
+export type ChatIntegrationLauncher = {
+    /**
+     * Profiles
+     *
+     * One profile launches immediately; several offer a choice of exactly one.
+     */
+    profiles: Array<AgentProfileId>;
 };
 
 /**

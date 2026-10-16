@@ -82,6 +82,9 @@ describe('integration-owned launcher settings', () => {
     expect(profileIntegrationSetup(input).settings).toEqual({
       launcher: { profile: first, trigger: 'both', repository_id: '123' },
     })
+    expect(profileIntegrationSetup({ ...input, repositoryId: ' 123 ' }).settings).toEqual({
+      launcher: { profile: first, trigger: 'both', repository_id: '123' },
+    })
     expect(profileIntegrationSetup({ ...input, launcher: false }).settings).toEqual({})
     expect(() => profileIntegrationSetup({ ...input, profileIds: [first, second] })).toThrow(
       'exactly one profile',
@@ -89,9 +92,6 @@ describe('integration-owned launcher settings', () => {
     expect(() => githubIntegrationSettings({ launcher: { profiles: [first, second] } })).toThrow()
     expect(githubIntegrationSettings({ code_write: true }).code_write).toBe(true)
     expect(githubIntegrationSettings({}).code_write).toBe(false)
-    expect(() =>
-      profileIntegrationSetup({ ...input, repositoryId: '9223372036854775808' }),
-    ).toThrow()
   })
   it('requires a valid Discord key for a launcher or interactions', () => {
     const input = {

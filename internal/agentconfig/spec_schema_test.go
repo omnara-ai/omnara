@@ -7,13 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func TestSpecSchemaMatchesGoConstants(t *testing.T) {
-	raw, err := specJSONSchema(OpenAPIDefinitionComponent)
+	raw, err := openapispec.ComponentJSONSchema(OpenAPIDefinitionComponent)
 	if err != nil {
 		t.Fatalf("load definition schema: %v", err)
 	}
