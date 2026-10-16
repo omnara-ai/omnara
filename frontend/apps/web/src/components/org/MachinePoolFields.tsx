@@ -294,7 +294,7 @@ function MachinePoolConnectionStatus({ connection }: { connection: MachinePoolCo
           {connection.details && (
             <details className="text-muted-foreground text-sm">
               <summary>Details</summary>
-              <p className="break-words font-mono text-xs">{connection.details}</p>
+              <p className="font-mono text-xs break-words">{connection.details}</p>
             </details>
           )}
         </>

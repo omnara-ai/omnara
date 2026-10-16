@@ -58,7 +58,7 @@ function JsonValue({ value }: { value: unknown }) {
 function AssistantMarkdown({ children }: { children: string }) {
   return (
     <Streamdown
-      className="type-body-small leading-prose max-w-3xl text-pretty py-0.5"
+      className="type-body-small leading-prose max-w-3xl py-0.5 text-pretty"
       components={{
         a: ({ children: linkChildren, ...props }) => (
           <a {...props} target="_blank" rel="noreferrer">
@@ -173,7 +173,7 @@ export function AgentChatMessage({
                   <Brain className="size-3.5" /> Reasoning
                   <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/reasoning:rotate-90" />
                 </CollapsibleTrigger>
-                <CollapsibleContent className="text-muted-foreground mt-2 whitespace-pre-wrap border-l pl-3 text-sm">
+                <CollapsibleContent className="text-muted-foreground mt-2 border-l pl-3 text-sm whitespace-pre-wrap">
                   {part.text}
                 </CollapsibleContent>
               </Collapsible>

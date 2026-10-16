@@ -101,7 +101,7 @@ export function AgentConfigMcpSecretCombobox({
                 key={action.label}
                 type="button"
                 disabled={action.disabled}
-                className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none disabled:opacity-50"
+                className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pr-8 pl-2 text-sm outline-none disabled:opacity-50"
                 onClick={action.onSelect}
               >
                 {action.icon}

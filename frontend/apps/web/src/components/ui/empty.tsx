@@ -7,7 +7,7 @@ function Empty({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="empty"
       className={cn(
-        'rounded-card flex min-w-0 flex-1 flex-col items-center justify-center gap-6 text-balance border-dashed p-6 text-center md:p-12',
+        'rounded-card flex min-w-0 flex-1 flex-col items-center justify-center gap-6 border-dashed p-6 text-center text-balance md:p-12',
         className,
       )}
       {...props}
@@ -77,7 +77,7 @@ function EmptyContent({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="empty-content"
       className={cn(
-        'flex w-full min-w-0 max-w-sm flex-col items-center gap-4 text-balance text-sm',
+        'flex w-full max-w-sm min-w-0 flex-col items-center gap-4 text-sm text-balance',
         className,
       )}
       {...props}

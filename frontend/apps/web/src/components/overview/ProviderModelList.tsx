@@ -158,7 +158,7 @@ function ModelRow({
             {formatCount(model.context_window_tokens)} ctx
           </span>
           <ModelPricingSummary
-            className="text-muted-foreground shrink-0 whitespace-nowrap text-xs tabular-nums max-md:ml-auto"
+            className="text-muted-foreground shrink-0 text-xs whitespace-nowrap tabular-nums max-md:ml-auto"
             pricing={modelPricing}
           />
         </button>
@@ -187,7 +187,7 @@ function ModelRow({
         />
       </div>
       {open && (
-        <div id={detailsId} className="py-2 pl-8 pr-2">
+        <div id={detailsId} className="py-2 pr-2 pl-8">
           <DetailList
             items={[
               { label: 'ID', value: model.id, mono: true },

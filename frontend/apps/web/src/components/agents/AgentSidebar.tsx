@@ -492,7 +492,7 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
         </TooltipContent>
       </Tooltip>
       {connection.state === 'failed' && connection.initialize_error && (
-        <p role="alert" className="text-destructive mt-1 line-clamp-4 break-words text-xs">
+        <p role="alert" className="text-destructive mt-1 line-clamp-4 text-xs break-words">
           {connection.initialize_error}
         </p>
       )}

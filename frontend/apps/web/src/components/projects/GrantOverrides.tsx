@@ -7,7 +7,7 @@ export function OverrideChip({ count, className }: { count: number; className?: 
   return (
     <span
       className={cn(
-        'border-primary/30 bg-primary/5 text-primary shrink-0 rounded-full border px-1.5 text-[11px] font-medium tabular-nums leading-4',
+        'border-primary/30 bg-primary/5 text-primary shrink-0 rounded-full border px-1.5 text-[11px] leading-4 font-medium tabular-nums',
         className,
       )}
     >

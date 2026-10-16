@@ -118,7 +118,7 @@ export function CronTriggersListContent({
                     <TooltipContent
                       side="bottom"
                       align="start"
-                      className="max-w-sm whitespace-pre-wrap px-4 py-2 text-left text-sm leading-relaxed"
+                      className="max-w-sm px-4 py-2 text-left text-sm leading-relaxed whitespace-pre-wrap"
                     >
                       {trigger.message_template ?? 'Scheduled integration action'}
                     </TooltipContent>
@@ -133,7 +133,7 @@ export function CronTriggersListContent({
                   {trigger.next_fire_at && <span>{nextFireLabel(trigger.next_fire_at)}</span>}
                 </p>
                 {trigger.target.type === 'integration' && (
-                  <p className="text-muted-foreground break-words text-xs">
+                  <p className="text-muted-foreground text-xs break-words">
                     {integrationRunLabel(trigger)}
                     {trigger.last_run && (
                       <>
@@ -146,7 +146,7 @@ export function CronTriggersListContent({
                   </p>
                 )}
                 {trigger.failure_report && (
-                  <p className="text-destructive break-words text-xs">
+                  <p className="text-destructive text-xs break-words">
                     Failed {formatDateTime(trigger.failure_report.failed_at)}:{' '}
                     {trigger.failure_report.message} ·{' '}
                     {trigger.failure_report.will_retry ? 'will retry' : 'will not retry'}

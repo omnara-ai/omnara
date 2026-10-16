@@ -127,7 +127,7 @@ function UnitInputField({
           required
           value={value}
           aria-invalid={shownError !== undefined || undefined}
-          className="pr-14 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          className="[appearance:textfield] pr-14 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           onChange={(event) => {
             onValueChange(event.target.value)
           }}
@@ -168,7 +168,7 @@ function MaxMachinesField({
           required
           value={value}
           aria-invalid={shownError !== undefined || undefined}
-          className="pr-20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          className="[appearance:textfield] pr-20 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           onChange={(event) => {
             onValueChange(event.target.value)
           }}

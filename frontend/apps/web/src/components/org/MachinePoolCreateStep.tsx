@@ -66,7 +66,7 @@ export function MachinePoolCreateStep({
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent className="collapsible-animate-height">
-          <div className="flex flex-col gap-4 px-4 pb-5 pt-1 sm:px-5">{children}</div>
+          <div className="flex flex-col gap-4 px-4 pt-1 pb-5 sm:px-5">{children}</div>
         </CollapsibleContent>
       </section>
     </Collapsible>

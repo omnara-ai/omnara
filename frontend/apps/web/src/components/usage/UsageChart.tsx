@@ -66,7 +66,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
   return (
     <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-3">
       <div aria-hidden="true" className={cn('flex items-center justify-center', plotHeightClass)}>
-        <span className="text-muted-foreground rotate-180 whitespace-nowrap text-xs [writing-mode:vertical-rl]">
+        <span className="text-muted-foreground rotate-180 text-xs whitespace-nowrap [writing-mode:vertical-rl]">
           {axisTitles[data.measure]}
         </span>
       </div>
@@ -76,7 +76,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
           .map((tick) => (
             <span
               key={tick}
-              className="text-muted-foreground absolute right-0 translate-y-1/2 text-xs tabular-nums leading-none"
+              className="text-muted-foreground absolute right-0 translate-y-1/2 text-xs leading-none tabular-nums"
               style={{ bottom: share(tick) }}
             >
               {formatUsageAxisValue(data.measure, tick)}
@@ -148,7 +148,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
             <span
               key={column.start.toISOString()}
               className={cn(
-                'text-muted-foreground absolute top-3 whitespace-nowrap text-xs tabular-nums leading-none',
+                'text-muted-foreground absolute top-3 text-xs leading-none whitespace-nowrap tabular-nums',
                 index === count - 1 ? '-translate-x-full' : '-translate-x-1/2',
                 !compactLabelled.has(index) && 'max-sm:hidden',
                 !labelled.has(index) && 'sm:hidden',

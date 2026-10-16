@@ -301,9 +301,11 @@ function machineSourceDraft(
     machineCpu: countDraft(isPool ? entry.machine_cpu : undefined),
     machineMemoryGb: memoryGbDraft(isPool ? entry.machine_memory_mb : undefined),
     providerOptions: providerOverlay.options,
-    envRows: Object.entries(entry.env_overlay ?? {}).map(
-      ([key, value]): TextRow => ({ id: crypto.randomUUID(), key, value }),
-    ),
+    envRows: Object.entries(entry.env_overlay ?? {}).map(([key, value]): TextRow => ({
+      id: crypto.randomUUID(),
+      key,
+      value,
+    })),
     secretEnvRows: Object.entries(entry.secret_env_overlay ?? {}).map(
       ([key, secretId]): SecretRow => ({ id: crypto.randomUUID(), key, secretId }),
     ),

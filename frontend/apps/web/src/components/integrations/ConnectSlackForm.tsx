@@ -154,7 +154,7 @@ export function ConnectSlackForm({
               <SlackSetupFields form={form} existingApp={existingApp} />
             </div>
             {error && (
-              <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+              <p role="alert" className="text-destructive text-sm whitespace-pre-wrap">
                 {error}
               </p>
             )}
@@ -402,7 +402,7 @@ function SlackAppUrls() {
       hint="Configure these URLs and bot events in your Slack app before authorizing."
     >
       {publicURL ? (
-        <div className="text-muted-foreground flex flex-col gap-2 break-all text-sm">
+        <div className="text-muted-foreground flex flex-col gap-2 text-sm break-all">
           <p>
             OAuth redirect: <code>{publicURL}/api/integrations/oauth/callback</code>
           </p>

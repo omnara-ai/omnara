@@ -41,7 +41,7 @@ export function ConfiguredModelPickerHeader({
           Choose models from {provider?.name ?? 'the provider'} to configure.
         </DialogDescription>
       </DialogHeader>
-      <div className="-mx-4 -mt-4 flex items-center gap-2 border-b py-3 pl-4 pr-12 sm:-mx-6 sm:-mt-6 sm:py-4 sm:pl-6 sm:pr-14">
+      <div className="-mx-4 -mt-4 flex items-center gap-2 border-b py-3 pr-12 pl-4 sm:-mx-6 sm:-mt-6 sm:py-4 sm:pr-14 sm:pl-6">
         {providers.length > 1 ? (
           <Select value={providerId} disabled={disabled} onValueChange={onProviderChange}>
             <SelectTrigger

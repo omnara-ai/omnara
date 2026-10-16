@@ -212,7 +212,7 @@ function RegistryResultsList({
       id={listId}
       role="listbox"
       aria-label="MCP registry results"
-      className="bg-popover text-popover-foreground absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-md border p-1 shadow-md"
+      className="bg-popover text-popover-foreground absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border p-1 shadow-md"
     >
       <div className="text-muted-foreground border-b px-2 py-1.5 text-xs">
         Searching the MCP registry by name, description, and URL. Select a server to fill in its

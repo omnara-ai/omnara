@@ -90,7 +90,7 @@ export function AgentProfileConfigEditor({
           </p>
         )}
         {error.message && (
-          <p className="text-destructive whitespace-pre-wrap text-sm">{error.message}</p>
+          <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
         )}
         {canManage && (
           <div className="flex items-center justify-end gap-2">

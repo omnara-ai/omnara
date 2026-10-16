@@ -244,7 +244,7 @@ function IntegrationCard({
 
 function IntegrationStatus({ integration }: { integration: Integration }) {
   return (
-    <span className="text-muted-foreground whitespace-nowrap text-xs">
+    <span className="text-muted-foreground text-xs whitespace-nowrap">
       {integrationStatusLabel(integration)}
     </span>
   )

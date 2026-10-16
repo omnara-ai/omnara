@@ -45,7 +45,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed left-[50%] top-[50%] z-50 flex max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col shadow-[0_24px_64px_-16px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] duration-[var(--duration-panel)] sm:max-w-lg',
+          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed top-[50%] left-[50%] z-50 flex max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col shadow-[0_24px_64px_-16px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] duration-[var(--duration-panel)] sm:max-w-lg',
           className,
         )}
         onSubmit={(event) => {
@@ -61,7 +61,7 @@ function DialogContent({
               {children}
             </div>
             {showCloseButton && (
-              <DialogPrimitive.Close className="control-focus data-[state=open]:bg-accent data-[state=open]:text-muted-foreground rounded-xs [&_svg:not([class*='size-'])]:size-4.5 absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0">
+              <DialogPrimitive.Close className="control-focus data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4.5">
                 <XIcon />
                 <span className="sr-only">Close</span>
               </DialogPrimitive.Close>

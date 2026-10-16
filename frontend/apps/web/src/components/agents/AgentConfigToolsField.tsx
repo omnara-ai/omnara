@@ -202,7 +202,7 @@ function AgentConfigIncludedTools({
         </CollapsibleTrigger>
         <TooltipContent
           side="right"
-          className="max-w-xs text-wrap px-4 py-2 text-left text-sm leading-relaxed"
+          className="max-w-xs px-4 py-2 text-left text-sm leading-relaxed text-wrap"
         >
           Tools added automatically based on the agent&apos;s configuration.
         </TooltipContent>

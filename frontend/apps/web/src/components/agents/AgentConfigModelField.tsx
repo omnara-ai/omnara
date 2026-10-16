@@ -43,7 +43,7 @@ const ModelCombobox = createResourceCombobox<ModelChoice>({
       <span className="truncate">{model.name}</span>
       <span className="text-muted-foreground flex min-w-0 items-baseline gap-3 text-xs">
         <span className="truncate">{model.provider_config}</span>
-        <span className="in-data-highlighted:inline ml-auto hidden shrink-0 tabular-nums">
+        <span className="ml-auto hidden shrink-0 tabular-nums in-data-highlighted:inline">
           <ModelPricingSummary pricing={model.pricing} /> per 1M tokens
         </span>
       </span>
@@ -158,7 +158,7 @@ function EffortSelect({
         aria-label="Reasoning effort"
         title="Reasoning effort"
         aria-invalid={invalid ? true : undefined}
-        className="w-38 -ml-px shrink-0 rounded-l-none focus-visible:z-10"
+        className="-ml-px w-38 shrink-0 rounded-l-none focus-visible:z-10"
       >
         <span className="flex min-w-0 items-center gap-2">
           <Brain className="size-4" />

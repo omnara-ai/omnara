@@ -190,7 +190,7 @@ function InteractionFormCard({
     <Card className="border-primary/35 bg-primary/[0.04] min-w-0 gap-3 shadow-none">
       <CardHeader className="min-w-0 gap-1">
         {isPermission ? (
-          <CardTitle className="wrap-anywhere text-link flex flex-wrap items-center gap-2 text-sm">
+          <CardTitle className="text-link flex flex-wrap items-center gap-2 text-sm wrap-anywhere">
             <KeyRound className="size-4 shrink-0" />
             {toolName == null ? (
               interaction.request.title
@@ -204,7 +204,7 @@ function InteractionFormCard({
             )}
           </CardTitle>
         ) : (
-          <CardTitle className="wrap-anywhere text-primary flex items-center gap-2 text-sm">
+          <CardTitle className="text-primary flex items-center gap-2 text-sm wrap-anywhere">
             <MessageCircleQuestion className="size-4 shrink-0" />
             {interaction.request.title}
           </CardTitle>
@@ -212,14 +212,14 @@ function InteractionFormCard({
       </CardHeader>
       <CardContent className="grid min-w-0 gap-4">
         {subagentLabel != null && (
-          <p className="text-muted-foreground wrap-anywhere text-xs">{subagentLabel}</p>
+          <p className="text-muted-foreground text-xs wrap-anywhere">{subagentLabel}</p>
         )}
         {contextItems.length > 0 && (
           <dl className="bg-background grid min-w-0 gap-2 rounded-md border p-3 text-xs">
             {contextItems.map(({ item, key }) => (
               <div key={key} className="grid min-w-0 gap-1">
-                <dt className="text-muted-foreground wrap-anywhere font-medium">{item.label}</dt>
-                <dd className="wrap-anywhere whitespace-pre-wrap font-mono">{item.value}</dd>
+                <dt className="text-muted-foreground font-medium wrap-anywhere">{item.label}</dt>
+                <dd className="font-mono wrap-anywhere whitespace-pre-wrap">{item.value}</dd>
               </div>
             ))}
           </dl>
@@ -246,7 +246,7 @@ function InteractionFormCard({
               <fieldset key={questionIndex} className="grid min-w-0 gap-3">
                 <legend
                   className={cn(
-                    'wrap-anywhere mb-3 text-sm font-medium',
+                    'mb-3 text-sm font-medium wrap-anywhere',
                     isPermission && 'sr-only',
                   )}
                 >
@@ -259,7 +259,7 @@ function InteractionFormCard({
                       type="button"
                       size="sm"
                       variant={optionIndexSet.has(optionIndex) ? 'default' : 'outline'}
-                      className="wrap-anywhere h-auto min-h-8 max-w-full whitespace-normal text-left"
+                      className="h-auto min-h-8 max-w-full text-left wrap-anywhere whitespace-normal"
                       disabled={!canOperate || pending}
                       onClick={() => {
                         const nextOptionIndices =
@@ -366,7 +366,7 @@ export function AgentInteractions({
   if (interactions.length === 0 && loadError == null) return null
   return (
     <section
-      className="grid max-h-[40svh] min-w-0 gap-3 overflow-y-auto overflow-x-hidden pr-1"
+      className="grid max-h-[40svh] min-w-0 gap-3 overflow-x-hidden overflow-y-auto pr-1"
       aria-label="Agent requests"
     >
       {loadError != null && (

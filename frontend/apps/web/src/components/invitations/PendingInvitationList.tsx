@@ -109,10 +109,10 @@ export function PendingInvitationList({
               </span>
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="flex min-w-0 flex-col">
-                  <span className="truncate font-medium leading-5">{invitation.org_name}</span>
+                  <span className="truncate leading-5 font-medium">{invitation.org_name}</span>
                   <button
                     type="button"
-                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -ml-1 flex w-fit min-w-0 max-w-full items-center gap-1 rounded px-1 text-left text-xs leading-4 transition-colors focus-visible:outline-none focus-visible:ring-2"
+                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -ml-1 flex w-fit max-w-full min-w-0 items-center gap-1 rounded px-1 text-left text-xs leading-4 transition-colors focus-visible:ring-2 focus-visible:outline-none"
                     aria-label={
                       copiedInvitationID === invitation.id
                         ? `Copied organization ID ${invitation.org_id}`

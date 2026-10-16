@@ -146,9 +146,7 @@ function invalidateSkillLists(queryClient: QueryClient, orgID: string) {
 }
 
 export type SkillUpload =
-  | { phase: 'uploading' }
-  | { phase: 'created'; skill: Skill }
-  | { phase: 'failed'; error: unknown }
+  { phase: 'uploading' } | { phase: 'created'; skill: Skill } | { phase: 'failed'; error: unknown }
 
 export interface CreateSkillsRequest {
   owner: SkillOwnerInput

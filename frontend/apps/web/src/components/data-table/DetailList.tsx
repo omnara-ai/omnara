@@ -20,7 +20,7 @@ export function DetailList({ items }: { items: DetailItem[] }) {
       {visible.map((item) => (
         <div key={item.label} className="col-span-2 grid grid-cols-subgrid">
           <dt className="text-muted-foreground">{item.label}</dt>
-          <dd className={item.mono ? 'break-all font-mono text-xs leading-5' : 'break-words'}>
+          <dd className={item.mono ? 'font-mono text-xs leading-5 break-all' : 'break-words'}>
             {item.value}
           </dd>
         </div>

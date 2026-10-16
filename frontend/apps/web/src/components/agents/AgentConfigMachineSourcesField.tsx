@@ -126,7 +126,7 @@ export function AgentConfigMachineSourcesField({
                 grant={resolvedGrants.get(source.id) ?? null}
                 enabled={!expandedIds.has(source.id)}
               >
-                <div className="flex items-center gap-2 py-2 pl-1 pr-2">
+                <div className="flex items-center gap-2 py-2 pr-2 pl-1">
                   <CollapsibleTrigger asChild>
                     <Button
                       type="button"
@@ -273,7 +273,7 @@ export function AgentConfigMachineSourcesField({
                 </div>
               </SourceRowTooltip>
               <CollapseBody open={expandedIds.has(source.id)}>
-                <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+                <div className="flex flex-col gap-4 px-3 pt-5 pb-5 sm:pl-11">
                   <SourceResourceFields
                     source={source}
                     onChange={(patch) => {

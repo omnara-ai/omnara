@@ -98,7 +98,7 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="type-title break-words">{store.name}</h1>
-          <p className="text-muted-foreground mt-1 line-clamp-2 max-w-2xl break-words text-sm">
+          <p className="text-muted-foreground mt-1 line-clamp-2 max-w-2xl text-sm break-words">
             {store.description || 'Files shared with agents in this project.'}
           </p>
           {store.agent_access === 'read' && (
@@ -213,7 +213,7 @@ function DirectoryBrowser({
   return (
     <aside
       aria-label="Store files"
-      className="bg-muted/20 max-h-[35vh] overflow-y-auto border-b md:max-h-[75vh] md:border-b-0 md:border-r"
+      className="bg-muted/20 max-h-[35vh] overflow-y-auto border-b md:max-h-[75vh] md:border-r md:border-b-0"
     >
       <DirectoryEntries
         limitDirectoryRequests={limitDirectoryRequests}

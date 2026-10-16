@@ -32,7 +32,7 @@ export function AgentConversation({
           if (event.deltaY >= 0) event.stopPropagation()
         }}
       >
-        <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 pb-2 pt-6 sm:px-6">
+        <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 pt-6 pb-2 sm:px-6">
           {chat.historyStatus === 'pending' ? (
             <div className="space-y-6 py-4">
               <Skeleton className="h-20 w-2/3" />

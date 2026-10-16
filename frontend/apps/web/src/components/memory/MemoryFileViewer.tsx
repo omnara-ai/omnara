@@ -135,7 +135,7 @@ function FileContent({
     <div className="flex min-w-0 flex-col gap-4 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="break-all font-medium">{path}</h2>
+          <h2 className="font-medium break-all">{path}</h2>
           <p className="text-muted-foreground text-xs">
             {attachmentSize(preview.bytes.byteLength)}
             {dirty ? ' · Unsaved changes' : ''}

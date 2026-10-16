@@ -86,7 +86,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground absolute right-8 top-1 size-8"
+              className="text-muted-foreground absolute top-1 right-8 size-8"
               aria-label={`Clear ${config.itemLabel(value)}`}
               disabled={disabled}
               onClick={() => {

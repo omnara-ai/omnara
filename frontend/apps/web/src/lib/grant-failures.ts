@@ -6,8 +6,7 @@ import { ApiError } from '@omnara/sdk'
  * project grants never creates a duplicate.
  */
 export type RetryGrantsPhase<T> =
-  | { kind: 'form'; error: string }
-  | { kind: 'retry-grants'; created: T; error: string }
+  { kind: 'form'; error: string } | { kind: 'retry-grants'; created: T; error: string }
 
 export interface GrantFailures {
   /** Project IDs whose grant was rejected, in selection order. */

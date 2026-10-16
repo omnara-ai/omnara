@@ -29,7 +29,7 @@ function GrantAction({ label, onOpen }: { label: string; onOpen: () => void }): 
   return (
     <button
       type="button"
-      className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
+      className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pr-8 pl-2 text-sm outline-none"
       onClick={onOpen}
     >
       <PlusIcon className="size-4" />

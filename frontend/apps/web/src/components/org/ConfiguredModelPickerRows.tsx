@@ -19,7 +19,7 @@ function PickerCheckbox({ className, ...props }: ComponentProps<'input'>) {
       <input
         type="checkbox"
         className={cn(
-          'border-input peer size-4 cursor-pointer appearance-none rounded-[4px] border bg-transparent outline-none transition-colors',
+          'border-input peer size-4 cursor-pointer appearance-none rounded-[4px] border bg-transparent transition-colors outline-none',
           'checked:border-primary checked:bg-primary disabled:cursor-not-allowed disabled:opacity-50',
           'focus-visible:ring-ring/50 focus-visible:ring-2',
           className,
@@ -127,7 +127,7 @@ export function SelectedModelRow({
         </Button>
       </div>
       {expanded && (
-        <div className="flex flex-col gap-2 pl-10 pr-3">
+        <div className="flex flex-col gap-2 pr-3 pl-10">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <DraftInput
               ref={nameRef}

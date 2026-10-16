@@ -236,7 +236,7 @@ export function CreateMachinePoolDialog({
               isProjectEligible={(project) => project.access.can_manage_access}
             />
             <div className="ml-auto flex items-center gap-3">
-              <span className="text-muted-foreground whitespace-nowrap text-sm">
+              <span className="text-muted-foreground text-sm whitespace-nowrap">
                 Step {current + 1} of {machinePoolCreateSteps.length}
               </span>
               <div className="flex gap-2">

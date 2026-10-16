@@ -172,7 +172,7 @@ function Code({
   return (
     <pre
       className={cn(
-        'code-highlight overflow-x-auto whitespace-pre px-4 py-4 font-mono text-[12.5px] leading-[1.8] sm:px-6 sm:py-5',
+        'code-highlight overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-[1.8] whitespace-pre sm:px-6 sm:py-5',
         emphasis ? 'text-foreground font-medium' : 'text-foreground/85',
         className,
       )}
@@ -204,7 +204,7 @@ export function CodeBlock({
   return (
     <div className={cn(codePanelClass, className)}>
       <CodePanelRing />
-      <div className="absolute right-2.5 top-2">
+      <div className="absolute top-2 right-2.5">
         <CopyButton text={content.copy} label={label} />
       </div>
       <div className="pr-12 sm:pr-14">
@@ -232,7 +232,7 @@ export function CodeTabsBlock({
     <div className={cn(codePanelClass, className)}>
       <CodePanelRing />
       <Tabs value={value} onValueChange={setValue}>
-        <div className="flex flex-col items-stretch gap-2 py-2 pl-2.5 pr-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-stretch gap-2 py-2 pr-2.5 pl-2.5 sm:flex-row sm:items-center sm:justify-between">
           <TabsList
             variant="line"
             aria-label={label}
@@ -262,7 +262,7 @@ export function CodeTabsBlock({
                 <Code
                   content={active.content}
                   emphasis={active.emphasis}
-                  className="pb-4 pt-1 sm:pb-5 sm:pt-1"
+                  className="pt-1 pb-4 sm:pt-1 sm:pb-5"
                 />
               </TabsContent>
             )}

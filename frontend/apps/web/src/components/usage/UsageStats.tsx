@@ -14,7 +14,7 @@ export function UsageStats({ stats }: { stats: UsageStat[] }) {
       {stats.map((stat) => (
         <div key={stat.label} className="bg-card flex min-w-0 flex-col gap-1 px-4 py-3">
           <dt className="text-muted-foreground truncate text-xs">{stat.label}</dt>
-          <dd className="truncate text-xl font-semibold tabular-nums tracking-tight">
+          <dd className="truncate text-xl font-semibold tracking-tight tabular-nums">
             {stat.value}
           </dd>
         </div>

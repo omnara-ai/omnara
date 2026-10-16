@@ -34,7 +34,7 @@ export function ModelProviderTypeSelect({
       <SelectTrigger
         id="mp-provider"
         aria-label="Provider"
-        className="bg-muted/30 hover:border-foreground/25 data-[state=open]:border-primary data-[state=open]:ring-primary/20 w-full gap-3 rounded-xl py-2.5 pl-2.5 pr-3.5 data-[size=default]:h-auto data-[state=open]:ring-[3px] *:data-[slot=select-value]:line-clamp-none"
+        className="bg-muted/30 hover:border-foreground/25 data-[state=open]:border-primary data-[state=open]:ring-primary/20 w-full gap-3 rounded-xl py-2.5 pr-3.5 pl-2.5 data-[size=default]:h-auto *:data-[slot=select-value]:line-clamp-none data-[state=open]:ring-[3px]"
       >
         <SelectValue>
           <ProviderOptionContent option={selected} />

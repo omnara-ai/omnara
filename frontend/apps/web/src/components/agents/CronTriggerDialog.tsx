@@ -317,7 +317,7 @@ function CronTriggerFormDialog({
                 )}
               </form.Field>
             )}
-            {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
+            {error && <p className="text-destructive text-sm whitespace-pre-wrap">{error}</p>}
             <DialogFooter>
               <form.Subscribe
                 selector={(state) =>
