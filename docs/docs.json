@@ -96,6 +96,7 @@
               "examples/slack-coding-agent",
               "examples/pr-review-agent",
               "examples/browser-agent",
+              "examples/email-agent",
               "examples/video-generation-agent"
             ]
           },
