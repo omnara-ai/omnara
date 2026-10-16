@@ -35,7 +35,8 @@ const onlineFleetWithStaleLeaseStatistics = `
 INSERT INTO orgs(id, name, created_at, updated_at)
 SELECT md5('fleet-org-' || n)::uuid, 'fleet-org-' || n, statement_timestamp(), statement_timestamp()
 FROM generate_series(1, %[1]d) n;
-INSERT INTO machines(id, org_id, source_kind, display_name, provider, lifecycle_state, lifecycle_changed_at, created_at, updated_at)
+INSERT INTO machines(id, org_id, source_kind, display_name, provider, lifecycle_state, lifecycle_changed_at,
+                     created_at, updated_at)
 SELECT md5('fleet-machine-' || n)::uuid, md5('fleet-org-' || n)::uuid, 'byo', 'fleet-machine', 'byo', 'active',
        statement_timestamp(), statement_timestamp(), statement_timestamp()
 FROM generate_series(1, %[1]d) n;
@@ -50,9 +51,11 @@ SELECT md5('fleet-runtime-' || n)::uuid, md5('fleet-org-' || n)::uuid, md5('flee
        statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours',
        statement_timestamp() - interval '1 hour' + n * interval '1 second', statement_timestamp()
 FROM generate_series(1, %[1]d) n;
-INSERT INTO daemon_runtimes(org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state, state_reason_code,
+INSERT INTO daemon_runtimes(org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state,
+                            state_reason_code,
                             created_at, last_seen_at, lease_expires_at, ended_at, updated_at)
-SELECT md5('fleet-org-' || n)::uuid, md5('fleet-machine-' || n)::uuid, md5('fleet-token-' || n)::uuid, gen_random_uuid(),
+SELECT md5('fleet-org-' || n)::uuid, md5('fleet-machine-' || n)::uuid, md5('fleet-token-' || n)::uuid,
+       gen_random_uuid(),
        '1.0.0', 'ended', 'daemon_runtime_replaced', statement_timestamp() - interval '3 days',
        statement_timestamp() - interval '3 days', statement_timestamp() - interval '3 days' + interval '2 minutes',
        statement_timestamp() - interval '3 days' + interval '1 minute', statement_timestamp()
@@ -70,7 +73,8 @@ WHERE id = md5('fleet-runtime-' || n)::uuid;`
 
 const machineConnectionCases = `
 CREATE TEMP TABLE connection_cases(
-  name, pool, lifecycle_state, asleep, runtime_state, runtime_reason, lease_live, token_revoked, runtime_current, expected
+  name, pool, lifecycle_state, asleep, runtime_state, runtime_reason, lease_live, token_revoked, runtime_current,
+  expected
 ) ON COMMIT DROP AS VALUES
   ('online', false, 'active', false, 'active', NULL, true, false, true, 'online'),
   ('online_asleep', false, 'active', true, 'active', NULL, true, false, true, 'online'),
@@ -86,11 +90,14 @@ CREATE TEMP TABLE connection_cases(
   ('pool_online', true, 'active', false, 'active', NULL, true, false, true, 'online');
 INSERT INTO orgs(id, name, created_at, updated_at)
 VALUES (md5('connection-org')::uuid, 'connection-org', statement_timestamp(), statement_timestamp());
-INSERT INTO machine_pools(id, org_id, name, management_kind, provider, provider_auth_env_var, max_total_machines, created_at, updated_at)
+INSERT INTO machine_pools(id, org_id, name, management_kind, provider, provider_auth_env_var, max_total_machines,
+                           created_at, updated_at)
 VALUES (md5('connection-pool')::uuid, md5('connection-org')::uuid, 'connection-pool', 'cluster', 'test.provider',
         'TEST_PROVIDER_TOKEN', 100, statement_timestamp(), statement_timestamp());
-INSERT INTO machines(id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state, lifecycle_changed_at,
-                     provider_resource_id, cpu, memory_mb, provider_options, next_reconcile_after, asleep_since, deleted_at,
+INSERT INTO machines(id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
+                     lifecycle_changed_at,
+                     provider_resource_id, cpu, memory_mb, provider_options, next_reconcile_after, asleep_since,
+                     deleted_at,
                      created_at, updated_at)
 SELECT md5('connection-machine-' || name)::uuid, md5('connection-org')::uuid,
        CASE WHEN pool THEN md5('connection-pool')::uuid END,
@@ -114,7 +121,8 @@ SELECT md5('connection-runtime-' || name)::uuid, md5('connection-org')::uuid, md
        md5('connection-token-' || name)::uuid, md5('connection-instance-' || name)::uuid, '1.0.0', runtime_state,
        runtime_reason, statement_timestamp() - interval '2 hours',
        CASE WHEN lease_live THEN statement_timestamp() ELSE statement_timestamp() - interval '2 hours' END,
-       CASE WHEN lease_live THEN statement_timestamp() + interval '1 hour' ELSE statement_timestamp() - interval '1 hour' END,
+       CASE WHEN lease_live THEN statement_timestamp() + interval '1 hour'
+            ELSE statement_timestamp() - interval '1 hour' END,
        CASE WHEN runtime_state = 'ended' THEN statement_timestamp() - interval '1 hour' END,
        statement_timestamp()
 FROM connection_cases
@@ -158,6 +166,7 @@ JOIN machine_connection_states state ON state.org_id = md5('connection-org')::uu
 		return nil
 	})
 	require.NoError(t, err)
+	require.NoError(t, rows.Err())
 	require.Len(t, expected, 12)
 	require.Equal(t, expected, actual)
 	var online, differences int
