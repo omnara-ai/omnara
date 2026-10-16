@@ -618,12 +618,7 @@ WHERE org_id = sqlc.arg(org_id)
   AND asleep_since IS NOT NULL;
 
 -- name: GetMachineWakeState :one
-SELECT EXISTS (
-         SELECT 1
-         FROM online_daemon_runtimes runtime
-         WHERE runtime.org_id = machine.org_id
-           AND runtime.machine_id = machine.id
-       ) AS online,
+SELECT (connection.connection_state = 'online')::boolean AS online,
        (machine.asleep_since IS NOT NULL)::boolean AS asleep,
        pool.runtime_protection_enabled,
        machine.wake_attempt_expires_at,
@@ -635,6 +630,8 @@ FROM machines machine
 JOIN machine_pools pool ON pool.org_id = machine.org_id
   AND pool.id = machine.machine_pool_id
   AND pool.deleted_at IS NULL
+JOIN machine_connection_states connection ON connection.org_id = machine.org_id
+  AND connection.machine_id = machine.id
 WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.id = sqlc.arg(machine_id)
   AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
