@@ -56,6 +56,11 @@ each with its own address, profile, and role. SKILL.md lists every setting.
 
 Things to know:
 
+- **Anyone can wake it.** Every email that addresses the agent runs it, so
+  anyone who has the address can use it. To limit it to your team, ask your
+  coding agent to set `ALLOWED_SENDERS`, for example `@yourcompany.com`.
+  Senders must then also pass DMARC for their domain, so forged mail is
+  rejected.
 - **Primitive's sending rules.** New Primitive accounts can send to their own
   domains and to anyone who has emailed them first. Replying to whoever wrote
   always works. A reply-all that includes someone who has never written in,

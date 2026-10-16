@@ -290,6 +290,8 @@ Primitive, so it must be a domain that doesn't already receive mail elsewhere.
 Summarize what you created: the secret, the profile, the Omnara org key, the
 Primitive function, and the agent's address. Then tell the user:
 
+- **Who can wake it:** anyone who emails the address. To limit it to their
+  team, set `ALLOWED_SENDERS` (step 9), for example `@yourcompany.com`.
 - **Change anything:** ask a coding agent with this skill. It reuses the
   secret, updates the profile in place, and redeploys the function.
 - **Remove it:** `npx primitive@latest functions route-unset --id <function-id>`
