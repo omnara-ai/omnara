@@ -97,19 +97,13 @@ mcp:
     auth:
       type: bearer          # Primitive accepts the API key as a bearer token
       secret_id: "{{PRIMITIVE_KEY_SECRET_ID}}"
-    default_enabled: false  # expose only the mail tools below; domain, route, and endpoint admin stay off
+    default_enabled: false  # only the tools below; listing or searching the whole inbox stays off
     permission:
       mode: always_allow    # mail arrives with no one watching, so the agent sends without asking
     tools:
       getConversation:
         enabled: true
       getEmail:
-        enabled: true
-      getThread:
-        enabled: true
-      searchEmails:
-        enabled: true
-      getSentEmail:
         enabled: true
       replyToEmail:
         enabled: true

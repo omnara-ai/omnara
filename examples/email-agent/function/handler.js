@@ -65,12 +65,12 @@ export async function handleEmail(request, env, send = fetch) {
   if (spamScore >= config.maxSpamScore) return skipped(label, `spam score ${spamScore}`)
   if (config.skipAutomated && isAutomated(email, sender, headers)) return skipped(label, 'automated mail')
   if (config.allowedSenders.length > 0) {
-    const allowed = senderAllowed(email, sender, config.allowedSenders)
-    if (allowed === 'retry') {
+    const rejection = senderRejection(email, sender, config.allowedSenders)
+    if (rejection === 'retry') {
       console.log(`${label}: DMARC check failed temporarily, asking Primitive to retry`)
       return new Response('sender check failed, retry', { status: 503 })
     }
-    if (allowed === 'no') return skipped(label, 'sender not in ALLOWED_SENDERS')
+    if (rejection) return skipped(label, rejection)
   }
 
   const to = addresses(email.parsed.to_addresses, headers.get('to') ?? email.headers.to)
@@ -227,26 +227,31 @@ function isAutomated(email, sender, headers) {
 
 // An allowlisted sender must also pass DMARC as its own domain, so a forged
 // From header (or an allowlisted address hidden in a display name) is refused.
-/** @param {Email} email @param {string} sender @param {string[]} entries */
-function senderAllowed(email, sender, entries) {
-  if (email.auth.dmarc === 'temperror') return 'retry'
+/**
+ * @param {Email} email @param {string} sender @param {string[]} entries
+ * @returns {string | undefined} why the sender is refused, 'retry', or undefined when allowed
+ */
+function senderRejection(email, sender, entries) {
   const domain = sender.slice(sender.lastIndexOf('@') + 1)
-  const fromAddresses = email.headers.from
-    .replace(/"[^"]*"/g, '')
-    .match(/[^\s<>,;:"']+@[^\s<>,;:"']+/g)
-  if (
-    email.auth.dmarc !== 'pass' ||
-    email.auth.dmarcFromDomain?.toLowerCase() !== domain ||
-    fromAddresses?.length !== 1
-  ) {
-    return 'no'
-  }
   const listed = entries.some((entry) =>
     entry.startsWith('@') || !entry.includes('@')
       ? entry.replace(/^@/, '') === domain
       : entry === sender,
   )
-  return listed ? 'yes' : 'no'
+  if (!listed) return 'sender not in ALLOWED_SENDERS'
+  if (email.auth.dmarc === 'temperror') return 'retry'
+  if (email.auth.dmarc !== 'pass') {
+    return `sender is listed but didn't pass DMARC (dmarc: ${email.auth.dmarc})`
+  }
+  const dmarcDomain = email.auth.dmarcFromDomain?.toLowerCase()
+  if (dmarcDomain !== domain) {
+    return `sender is listed but DMARC passed for ${dmarcDomain ?? 'no domain'}, not ${domain}`
+  }
+  const fromAddresses = email.headers.from
+    .replace(/"[^"]*"/g, '')
+    .match(/[^\s<>,;:"']+@[^\s<>,;:"']+/g)
+  if (fromAddresses?.length !== 1) return 'sender is listed but From has more than one address'
+  return undefined
 }
 
 // Header names from the raw message, for the headers the parsed payload
@@ -318,8 +323,6 @@ function omnaraClient(env, send) {
  */
 async function wake(omnara, email, address, profileID, inclusion, sender) {
   const thread = email.thread_id ?? email.id
-  /** @type {{ current_config_id: string }} */
-  const profile = await omnara('GET', `/agent-profiles/${profileID}`)
   const subject = (email.headers.subject ?? '').replace(/^\s*((re|fwd?|aw|sv)\s*:\s*)+/i, '')
   const name = cleanName(`${address.split('@')[0]}: ${subject || `email from ${sender}`}`, 64)
   /** @param {string} key @returns {Promise<{ id: string, state: string }>} */
@@ -328,7 +331,7 @@ async function wake(omnara, email, address, profileID, inclusion, sender) {
     const response = await omnara(
       'POST',
       '/agents',
-      { profile: profileID, config: profile.current_config_id, ...(name && { name }) },
+      { profile: profileID, ...(name && { name }) },
       key,
     )
     return response.agent

@@ -34,9 +34,6 @@ function omnara(options: { archived?: Set<string>; fail?: boolean } = {}) {
     }
     calls.push(call)
     if (options.fail) return new Response('boom', { status: 503 })
-    if (call.path.startsWith('/agent-profiles/')) {
-      return Response.json({ id: call.path.split('/')[2], current_config_id: 'acfg_1' })
-    }
     if (call.path === '/agents') {
       if (!agents.has(call.key!)) agents.set(call.key!, `agt_${agents.size + 1}`)
       const id = agents.get(call.key!)!
@@ -186,9 +183,12 @@ test('mail to the agent starts a thread conversation and delivers the email', as
   const { status, body } = await deliver(received(), send)
   assert.equal(status, 200)
   assert.deepEqual(body, { woke: [agent] })
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}`),
+    ['POST /agents', 'POST /agents/agt_1/inputs'],
+  )
   assert.deepEqual(launches(calls)[0].body, {
     profile: 'aprf_assistant',
-    config: 'acfg_1',
     name: 'assistant: Q3 numbers',
   })
   const [input] = inputs(calls)
@@ -298,20 +298,41 @@ test('ALLOWED_SENDERS admits only authenticated senders on the list', async () =
   await deliver(received({ dmarc: { pass: true, domain: 'example.com' } }), trusted.send, allowed)
   assert.equal(inputs(trusted.calls).length, 1)
 
-  const unauthenticated = omnara()
-  assert.deepEqual((await deliver(received(), unauthenticated.send, allowed)).body, {
+  const refusals: [Message, string][] = [
+    [{}, "sender is listed but didn't pass DMARC (dmarc: none)"],
+    [
+      { dmarc: { pass: true, domain: 'mailer.test' } },
+      'sender is listed but DMARC passed for mailer.test, not example.com',
+    ],
+    [
+      { from: 'Dana <dana@example.com>, eve@evil.test', dmarc: { pass: true, domain: 'example.com' } },
+      'sender is listed but From has more than one address',
+    ],
+    [{ from: 'eve@evil.test', dmarc: { pass: true, domain: 'evil.test' } }, 'sender not in ALLOWED_SENDERS'],
+    [
+      { from: '"ops@partner.test" <eve@evil.test>', dmarc: { pass: true, domain: 'evil.test' } },
+      'sender not in ALLOWED_SENDERS',
+    ],
+    [
+      { from: 'ops@partner.test <eve@evil.test>', dmarc: { pass: true, domain: 'evil.test' } },
+      'sender not in ALLOWED_SENDERS',
+    ],
+  ]
+  for (const [message, reason] of refusals) {
+    const refused = omnara()
+    assert.deepEqual((await deliver(received(message), refused.send, allowed)).body, { skipped: reason })
+    assert.equal(refused.calls.length, 0, reason)
+  }
+
+  const temporary = (from: string) => {
+    const event = received({ from })
+    event.email.auth.dmarc = 'temperror'
+    return event
+  }
+  assert.equal((await deliver(temporary('dana@example.com'), omnara().send, allowed)).status, 503)
+  assert.deepEqual((await deliver(temporary('eve@evil.test'), omnara().send, allowed)).body, {
     skipped: 'sender not in ALLOWED_SENDERS',
   })
-
-  for (const from of [
-    'eve@evil.test',
-    '"ops@partner.test" <eve@evil.test>',
-    'ops@partner.test <eve@evil.test>',
-  ]) {
-    const outsider = omnara()
-    await deliver(received({ from, dmarc: { pass: true, domain: 'evil.test' } }), outsider.send, allowed)
-    assert.equal(outsider.calls.length, 0, from)
-  }
 
   const exact = omnara()
   await deliver(

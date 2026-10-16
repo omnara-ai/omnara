@@ -224,9 +224,16 @@ nothing to install or build.
    `https://app.omnara.com/projects/<project-id>/agents`. The mail calls show
    up as `mcp__primitive__…` tools, and the reply lands in the user's inbox.
    Replying to it continues the same conversation.
-3. Then show off tagging: have the user email someone else with the agent in
-   Cc and `@<agent-name>` in the body. The agent wakes because it's mentioned
-   and replies to the thread. A Cc without the mention doesn't wake it.
+3. Then show off tagging with a coworker, or a second address of the user's:
+   1. The user emails them with the agent in Cc and no tag. The agent stays
+      quiet, since a Cc without a mention doesn't wake it.
+   2. The coworker replies to everyone with `@<agent-name>` and a question.
+      The agent wakes because it's mentioned and replies to both of them.
+
+   Keep this order. A new Primitive account can only email people who have
+   emailed it, and by the time the agent replies, both of them have. If the
+   user tagged it in the first email, the coworker hadn't written in yet, so
+   the agent could reply only to the user.
 
 If nothing arrives, check the function's logs with
 `npx primitive@latest functions logs --id <function-id>`. Each email logs
