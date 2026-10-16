@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -208,11 +209,13 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 		if err := u.LockAgentRefs(ctx, u.expanded.agents, nil); err != nil {
 			return AgentRoute{}, err
 		}
-		if _, err := dbsqlc.New(u.DB()).LockClaimableAgentWakeup(ctx,
-			dbsqlc.LockClaimableAgentWakeupParams{AgentID: u.expanded.claimed}); err != nil {
+		wakeup, err := dbsqlc.New(u.DB()).LockClaimableAgentWakeup(ctx,
+			dbsqlc.LockClaimableAgentWakeupParams{AgentID: u.expanded.claimed})
+		if err != nil {
 			return AgentRoute{}, err
 		}
 		u.claimedAgent = u.expanded.claimed
+		u.claimTiming = ClaimTiming{ClaimableAt: wakeup.ClaimableAt, ClaimedAt: wakeup.ClaimedAt}
 		return u.handles[u.claimedAgent].route, nil
 	}
 	wakeup, err := dbsqlc.New(u.DB()).ClaimNextAgentWakeup(ctx)
@@ -225,8 +228,17 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 		u.handles[route.AgentID] = &Handle{unit: u, route: route}
 	}
 	u.claimedAgent = route.AgentID
+	u.claimTiming = ClaimTiming{ClaimableAt: wakeup.ClaimableAt, ClaimedAt: wakeup.ClaimedAt}
 	return route, nil
 }
+
+// ClaimTiming holds DB-clock timestamps for the wakeup claimed by ClaimAgent.
+type ClaimTiming struct {
+	ClaimableAt time.Time
+	ClaimedAt   time.Time
+}
+
+func (u *Unit) ClaimTiming() ClaimTiming { return u.claimTiming }
 
 func (u *Unit) CreatedAgent(projectID, agentID, parentID uuid.UUID) error {
 	if err := u.active(); err != nil {

@@ -248,13 +248,15 @@ func TestUnitExpandedClaimKeepsOriginalAgent(t *testing.T) {
 	cell, pool := unitTestCell(t, nil)
 	project, org, first, other, parent := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	_, err := pool.Exec(ctx, `
-CREATE TABLE agent_wakeups(agent_id uuid PRIMARY KEY, ready_at timestamptz NOT NULL);
+CREATE TABLE agent_wakeups(agent_id uuid PRIMARY KEY, ready_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE agent_runtime_locks(agent_id uuid PRIMARY KEY);`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
 SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first, other, parent})
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO agent_wakeups VALUES($1,now()-interval '1 day'),($2,now())`, first, other)
+	_, err = pool.Exec(ctx, `INSERT INTO agent_wakeups(agent_id,ready_at)
+VALUES($1,now()-interval '1 day'),($2,now())`, first, other)
 	require.NoError(t, err)
 	attempts := 0
 	route, err := Retry(ctx, "expand claim", func(ctx context.Context) (AgentRoute, error) {
@@ -268,6 +270,9 @@ SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first,
 		if err != nil {
 			return route, err
 		}
+		timing := u.ClaimTiming()
+		require.False(t, timing.ClaimableAt.IsZero())
+		require.False(t, timing.ClaimedAt.Before(timing.ClaimableAt))
 		if _, missing := u.Handle(project, parent); missing != nil {
 			require.NoError(t, u.Rollback(ctx))
 			_, err = pool.Exec(ctx, `UPDATE agent_wakeups SET ready_at='epoch' WHERE agent_id=$1`, other)

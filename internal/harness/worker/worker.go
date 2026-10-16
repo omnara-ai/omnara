@@ -129,6 +129,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	defer func() { _ = controlSubscription.Unsubscribe() }()
 	slots := make(chan struct{}, w.capacity)
+	w.metrics.RecordSlots(w.capacity, func() int { return len(slots) })
 	var claimers, executions sync.WaitGroup
 	for range w.claimConcurrency {
 		claimers.Add(1)
@@ -174,7 +175,7 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 			go func() {
 				defer executions.Done()
 				defer func() { <-slots }()
-				err := w.executeClaimedWorkRecovering(loopCtx, claim, now)
+				err := w.executeClaimedWorkObserved(ctx, loopCtx, claim, now)
 				w.finishLoop(ctx, loopCtx, event, true, err)
 				w.throttleAfterExecution(ctx, err)
 			}()
@@ -263,7 +264,20 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 	if err != nil {
 		return executionstore.ClaimedAgentWork{}, false, err
 	}
+	if handled {
+		w.metrics.RecordReadyToClaim(claim.ReadyAt, claim.ClaimedAt)
+	}
 	return claim, handled, nil
+}
+
+func (w *Worker) executeClaimedWorkObserved(
+	ctx, loopCtx context.Context,
+	claim executionstore.ClaimedAgentWork,
+	now time.Time,
+) (err error) {
+	finish := w.metrics.StartExecution(workerExecutionKind(claim.Kind))
+	defer func() { finish(workerExecutionOutcome(ctx, err)) }()
+	return w.executeClaimedWorkRecovering(loopCtx, claim, now)
 }
 
 func (w *Worker) executeClaimedWorkRecovering(
@@ -720,6 +734,30 @@ func isRecoverableRunOnceError(err error) bool {
 		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
 		errors.Is(err, storeerr.ErrStateTransitionConflict)
+}
+
+func workerExecutionKind(kind executionstore.AgentWorkKind) metrics.WorkerExecutionKind {
+	switch kind {
+	case executionstore.AgentWorkModel:
+		return metrics.WorkerExecutionKindModel
+	case executionstore.AgentWorkTool:
+		return metrics.WorkerExecutionKindTool
+	default:
+		return metrics.WorkerExecutionKindOther
+	}
+}
+
+func workerExecutionOutcome(ctx context.Context, err error) metrics.WorkerExecutionOutcome {
+	switch {
+	case err == nil:
+		return metrics.WorkerExecutionOutcomeSuccess
+	case isRecoverableRunOnceError(err):
+		return metrics.WorkerExecutionOutcomeRecoverable
+	case ctx.Err() != nil && errutil.OnlyMatches(err, context.Canceled):
+		return metrics.WorkerExecutionOutcomeCanceled
+	default:
+		return metrics.WorkerExecutionOutcomeError
+	}
 }
 
 func runtimeExecutionError(err error, active *activeRuntime) error {
