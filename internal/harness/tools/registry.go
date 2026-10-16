@@ -170,24 +170,9 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 func builtInToolRegistrations() []toolRegistration {
 	registrations := interactionToolRegistrations()
 	return append(registrations, []toolRegistration{
-		{
-			name:                   toolcatalog.ToolNameReadFile,
-			semanticInputValidator: validateReadFileInput,
-			handler:                toolHandler{Async: runReadFileAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameWriteFile,
-			semanticInputValidator: validateWriteFileInput,
-			handler:                toolHandler{Async: runWriteFileAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameSearchFiles,
-			semanticInputValidator: validateSearchFilesInput,
-			handler:                toolHandler{Async: runSearchFilesAsync},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
-		},
+		machineFileTool(toolcatalog.ToolNameReadFile, runReadFileAsync, machineReadFile),
+		machineFileTool(toolcatalog.ToolNameWriteFile, runWriteFileAsync, machineWriteFile),
+		machineFileTool(toolcatalog.ToolNameSearchFiles, runSearchFilesAsync, machineSearchFiles),
 		{
 			name:                   toolcatalog.ToolNameRunCommand,
 			semanticInputValidator: validateRunCommandInput,
@@ -255,12 +240,7 @@ func builtInToolRegistrations() []toolRegistration {
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
-		{
-			name:                   toolcatalog.ToolNameListFiles,
-			semanticInputValidator: validateListFiles,
-			handler:                toolHandler{Async: runListFiles},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
-		},
+		machineFileTool(toolcatalog.ToolNameListFiles, runListFiles, machineListFiles),
 		{
 			name:                   toolcatalog.ToolNameListMachines,
 			semanticInputValidator: validateListMachinesInput,

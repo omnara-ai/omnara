@@ -258,7 +258,7 @@ func TestFileTransferRequiresResultPipe(t *testing.T) {
 		command.Env = append(os.Environ(), "OMNARA_FILE_TRANSFER_TEST=1")
 		command.ExtraFiles = extraFiles
 		output, err := command.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "file transfer requires a result pipe") {
+		if err == nil || !strings.Contains(string(output), "file process requires a result pipe") {
 			t.Fatalf("err=%v output=%s", err, output)
 		}
 	}

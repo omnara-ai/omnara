@@ -65,7 +65,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 		outcome := "succeeded"
 		var result json.RawMessage
 		if input.Started {
-			if row.ExecutionSpec.FileTransfer != nil {
+			if row.ExecutionSpec.HasFileResult() {
 				return ExternalCompletion{}, storeerr.ErrInvalidToolCallDisposition
 			}
 			if row.State != "running" && call.State != "completed" {
@@ -98,7 +98,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 		}
 		parts := []Content{{Kind: "structured_data", Data: result}}
 		if input.Content != nil {
-			if row.ExecutionSpec.FileTransfer == nil || input.Started ||
+			if !row.ExecutionSpec.HasFileResult() || input.Started ||
 				input.Outcome != "succeeded" && input.Outcome != "failed" {
 				return ExternalCompletion{}, storeerr.ErrInvalidToolCallDisposition
 			}

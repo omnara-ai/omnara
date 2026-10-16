@@ -81,6 +81,13 @@ func (s *Store) GetDaemonFileProcessScope(
 		return DaemonFileProcessScope{}, false, err
 	}
 	transfer := record.ExecutionSpec.FileTransfer
+	if read := record.ExecutionSpec.File; read != nil && record.ExecutionSpec.Kind == processcmd.KindFileRead {
+		// Machine reads upload images as artifacts for the model to view.
+		transfer = &processcmd.FileTransfer{
+			Direction: processcmd.FileTransferUpload, LocalPath: read.Path,
+			Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+		}
+	}
 	if transfer == nil || transfer.Direction != direction {
 		return DaemonFileProcessScope{}, false, nil
 	}

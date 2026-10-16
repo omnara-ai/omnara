@@ -27,6 +27,7 @@ func encodeForDaemon(daemonVersion string, message Message) ([]byte, error) {
 		offer.Payload = payload
 		message.ActionOffer = &offer
 	}
+	message.ProcessOffer = withoutUnsupportedFileOperation(daemonVersion, message.ProcessOffer)
 	return json.Marshal(message)
 }
 

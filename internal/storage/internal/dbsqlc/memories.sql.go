@@ -8,6 +8,7 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -120,6 +121,39 @@ func (q *Queries) GetAgentMemoryConfig(ctx context.Context, arg GetAgentMemoryCo
 	var memory_stores json.RawMessage
 	err := row.Scan(&memory_stores)
 	return memory_stores, err
+}
+
+const getAgentMemoryFileLastSeen = `-- name: GetAgentMemoryFileLastSeen :one
+SELECT (block.structured_data->>'digest')::text AS digest, result.completed_at
+FROM tool_calls call
+JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
+JOIN content_blocks block ON block.agent_id = result.agent_id AND block.owner_tool_call_result_id = result.id
+WHERE call.agent_id = $1
+  AND call.type = 'built_in'
+  AND call.name IN ('read_file', 'write_file')
+  AND call.input->>'path' = $2::text
+  AND result.outcome = 'succeeded'
+  AND block.block_kind = 'structured_data'
+  AND block.structured_data->>'digest' IS NOT NULL
+ORDER BY result.completed_at DESC, result.id DESC
+LIMIT 1
+`
+
+type GetAgentMemoryFileLastSeenParams struct {
+	AgentID uuid.UUID
+	Path    string
+}
+
+type GetAgentMemoryFileLastSeenRow struct {
+	Digest      string
+	CompletedAt time.Time
+}
+
+func (q *Queries) GetAgentMemoryFileLastSeen(ctx context.Context, arg GetAgentMemoryFileLastSeenParams) (GetAgentMemoryFileLastSeenRow, error) {
+	row := q.db.QueryRow(ctx, getAgentMemoryFileLastSeen, arg.AgentID, arg.Path)
+	var i GetAgentMemoryFileLastSeenRow
+	err := row.Scan(&i.Digest, &i.CompletedAt)
+	return i, err
 }
 
 const getMemoryStore = `-- name: GetMemoryStore :one

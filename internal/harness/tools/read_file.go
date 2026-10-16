@@ -1,45 +1,32 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"net/http"
 	"path"
 	"strings"
-	"unicode/utf8"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/fileread"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	_ "golang.org/x/image/webp"
 )
 
 type readFileRequest struct {
-	Path           string  `json:"path"`
-	OffsetLine     *int    `json:"offset_line,omitempty"`
-	LimitLines     *int    `json:"limit_lines,omitempty"`
-	OffsetChar     *int    `json:"offset_char,omitempty"`
-	LimitChars     *int    `json:"limit_chars,omitempty"`
-	ExpectedDigest *string `json:"expected_digest,omitempty"`
-}
+	Path      string          `json:"path"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
+	fileread.Paging
 
-func validateReadFileInput(raw json.RawMessage) error {
-	_, err := resolveReadFileRequest(raw)
-	return err
+	machineID uuid.UUID
 }
 
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
@@ -47,49 +34,33 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
 		return readFileRequest{}, fmt.Errorf("parse read_file request: %w", err)
 	}
-	if err := validateFilePath(input.Path); err != nil {
+	machineID, err := resolveOptionalMachineID(input.MachineID)
+	if err != nil {
 		return readFileRequest{}, err
 	}
-	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
+	input.machineID = machineID
+	if onMachine(input.Path, machineID) {
+		if err := validateMachinePath(input.Path); err != nil {
 			return readFileRequest{}, err
 		}
+	} else if err := validateFilePath(input.Path); err != nil {
+		return readFileRequest{}, err
 	}
-	charMode := input.OffsetChar != nil || input.LimitChars != nil
-	lineMode := input.OffsetLine != nil || input.LimitLines != nil
-	if charMode && lineMode {
-		return readFileRequest{}, errors.New(
-			"character paging cannot be combined with line paging",
-		)
-	}
-	if charMode {
-		if input.OffsetChar == nil {
-			value := 0
-			input.OffsetChar = &value
-		}
-		if input.LimitChars == nil {
-			value := toolcatalog.ReadFileDefaultChars
-			input.LimitChars = &value
-		}
-		if *input.OffsetChar < 0 || *input.LimitChars < 1 ||
-			*input.LimitChars > toolcatalog.ReadFileMaxChars {
-			return readFileRequest{}, errors.New("invalid file character range")
-		}
-	} else {
-		if input.OffsetLine == nil {
-			value := 1
-			input.OffsetLine = &value
-		}
-		if input.LimitLines == nil {
-			value := toolcatalog.ReadFileDefaultLines
-			input.LimitLines = &value
-		}
-		if *input.OffsetLine < 1 || *input.LimitLines < 1 ||
-			*input.LimitLines > toolcatalog.ReadFileMaxLines {
-			return readFileRequest{}, errors.New("invalid file line range")
-		}
+	input.Paging, err = input.Paging.Normalize()
+	if err != nil {
+		return readFileRequest{}, err
 	}
 	return input, nil
+}
+
+func machineReadFile(raw json.RawMessage) (machineFileCall, bool, error) {
+	input, err := resolveReadFileRequest(raw)
+	if err != nil || !onMachine(input.Path, input.machineID) {
+		return machineFileCall{}, false, err
+	}
+	return machineFileCall{machineID: input.machineID, kind: processcmd.KindFileRead, operation: processcmd.FileOperation{
+		Path: input.Path, Paging: input.Paging,
+	}}, true, nil
 }
 
 func runReadFileAsync(
@@ -101,11 +72,15 @@ func runReadFileAsync(
 		return nil, err
 	}
 	var content []byte
-	var digest, contentType string
+	var digest, contentType, note string
 	var artifactID uuid.UUID
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
-		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
+		file, err := call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
 		if err != nil {
+			return nil, err
+		}
+		digest, content = file.Digest, file.Content
+		if note, err = call.Executor.memoryReadNote(ctx, call.Turn, input.Path, file); err != nil {
 			return nil, err
 		}
 		contentType = http.DetectContentType(content)
@@ -121,11 +96,7 @@ func runReadFileAsync(
 		}
 		digest, contentType = record.Digest, record.ContentType
 	}
-	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
-		return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
-			errors.New("file digest mismatch; restart the read"))
-	}
-	if isViewableImage(contentType, content) {
+	if fileread.IsViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
 			artifact, err := call.Executor.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 				ProjectID:      call.Turn.ProjectID,
@@ -141,37 +112,61 @@ func runReadFileAsync(
 			}
 			artifactID = artifact.ID
 		}
-		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
+		return completeImageRead(input.Path, contentType, digest, len(content), artifactID, note)
 	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return nil, errors.New(
-			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
-		)
-	}
-	var result map[string]any
-	if input.OffsetChar != nil {
-		result = readFileChars(content, input.Path, *input.OffsetChar, *input.LimitChars)
-	} else {
-		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
+	result, err := input.Page(content, input.Path)
+	if err != nil {
+		return nil, err
 	}
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
 	result["digest"] = digest
-	return completeFileTool(result)
+	part, err := structuredToolResultPart(result)
+	if err != nil {
+		return nil, err
+	}
+	return completeFileRead(note, part), nil
 }
 
-func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
+func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (memorystore.File, error) {
 	name, relativePath, err := memorystore.ParsePath(filePath)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
 	store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
-	return e.Store.Memories().Read(ctx, memorystore.Scope{
+	return e.Store.Memories().ReadFile(ctx, memorystore.Scope{
 		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
 	}, store.ID, relativePath)
+}
+
+func (e Executor) memoryReadNote(
+	ctx context.Context, turn Turn, filePath string, file memorystore.File,
+) (string, error) {
+	seen, found, err := e.Store.Memories().LastSeen(ctx, turn.AgentID, filePath)
+	if err != nil || !found || seen.Digest == file.Digest {
+		return "", err
+	}
+	updated, last := memoryChangeTimes(file.ModifiedAt, seen.At)
+	return fmt.Sprintf("note: %s was updated at %s since your last read at %s", filePath, updated, last), nil
+}
+
+func memoryChangeTimes(updated, seen time.Time) (string, string) {
+	const layout = "2006-01-02 15:04:05 UTC"
+	updated, seen = updated.UTC(), seen.UTC()
+	if updated.Format(time.DateOnly) == seen.Format(time.DateOnly) {
+		return updated.Format(layout), seen.Format(time.TimeOnly + " UTC")
+	}
+	return updated.Format(layout), seen.Format(layout)
+}
+
+func completeFileRead(note string, parts ...toolResultPart) asyncPhaseResult {
+	if note != "" {
+		parts = append([]toolResultPart{textToolResultPart(note)}, parts...)
+	}
+	return completeAsynchronously(newToolResultContent(parts...))
 }
 
 func loadArtifactContent(
@@ -212,20 +207,13 @@ func loadArtifactContent(
 	return content, record, nil
 }
 
-func isViewableImage(contentType string, content []byte) bool {
-	if kind, _ := modelcontext.AttachmentKindForMediaType(contentType); kind != modelcontext.AttachmentKindImage {
-		return false
-	}
-	_, format, err := image.DecodeConfig(bytes.NewReader(content))
-	return err == nil && "image/"+format == contentType
-}
-
 func completeImageRead(
 	path string,
 	contentType string,
 	digest string,
 	sizeBytes int,
 	artifactID uuid.UUID,
+	note string,
 ) (asyncPhaseResult, error) {
 	metadata, err := structuredToolResultPart(map[string]any{
 		"path":         path,
@@ -240,88 +228,7 @@ func completeImageRead(
 	if err != nil {
 		return nil, err
 	}
-	return completeAsynchronously(newToolResultContent(metadata, media)), nil
-}
-
-func readFileChars(
-	content []byte,
-	path string,
-	offset, limit int,
-) map[string]any {
-	start, position := 0, 0
-	for position < offset && start < len(content) {
-		_, size := utf8.DecodeRune(content[start:])
-		start += size
-		position++
-	}
-	end, count := start, 0
-	for count < limit && end < len(content) {
-		_, size := utf8.DecodeRune(content[end:])
-		if end-start+size > toolcatalog.FilePageBytes {
-			break
-		}
-		end += size
-		count++
-	}
-	result := map[string]any{
-		"path":        path,
-		"content":     string(content[start:end]),
-		"offset_char": position,
-		"bytes_read":  end - start,
-		"has_more":    end < len(content),
-	}
-	if end < len(content) {
-		result["next_offset_char"] = position + count
-	}
-	return result
-}
-
-func readFileLines(content []byte, path string, offsetLine, limitLines int) map[string]any {
-	start, lineNumber := 0, 1
-	for lineNumber < offsetLine && start < len(content) {
-		next := bytes.IndexByte(content[start:], '\n')
-		if next < 0 {
-			start = len(content)
-			break
-		}
-		start += next + 1
-		lineNumber++
-	}
-	end, count := start, 0
-	for end < len(content) && count < limitLines {
-		length := bytes.IndexByte(content[end:], '\n')
-		if length < 0 {
-			length = len(content) - end
-		} else {
-			length++
-		}
-		if end-start+length > toolcatalog.FilePageBytes {
-			break
-		}
-		end += length
-		count++
-	}
-	result := map[string]any{
-		"path":        path,
-		"offset_line": offsetLine,
-		"lines_read":  count,
-	}
-	if count == 0 && start < len(content) {
-		chunk := content[start:min(start+toolcatalog.FilePageBytes+utf8.UTFMax, len(content))]
-		end = start + len(textutil.TruncateBytes(string(chunk), toolcatalog.FilePageBytes))
-		result["notice"] = "The requested line exceeds one page; continue in character mode."
-	}
-	result["content"] = string(content[start:end])
-	result["bytes_read"] = end - start
-	result["has_more"] = end < len(content)
-	if end < len(content) {
-		if count == 0 {
-			result["next_offset_char"] = utf8.RuneCount(content[:end])
-		} else {
-			result["next_offset_line"] = offsetLine + count
-		}
-	}
-	return result
+	return completeFileRead(note, metadata, media), nil
 }
 
 func completeFileTool(value any) (asyncPhaseResult, error) {

@@ -20,7 +20,7 @@ const (
 	fileSearchUnavailableMessage = "file search is unavailable on this worker; " +
 		"ask the operator to enable file-tool support"
 	scriptEditUnavailableMessage = "scripted editing is unavailable on this worker; " +
-		"use write_file with content and expected_digest to replace the file, or ask the operator to enable file-tool support"
+		"use write_file with content to replace the file, or ask the operator to enable file-tool support"
 )
 
 func sandboxSetupFailed(err error, stderr []byte) bool {

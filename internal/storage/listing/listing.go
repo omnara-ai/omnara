@@ -1,6 +1,12 @@
 package listing
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,4 +81,37 @@ type FileEntry struct {
 type FileListResult struct {
 	Entries []FileEntry
 	Next    Cursor
+}
+
+type FileCursor struct {
+	Version int       `json:"v"`
+	Scope   string    `json:"scope"`
+	Key     string    `json:"key"`
+	ID      uuid.UUID `json:"id"`
+}
+
+const FileCursorVersion = 1
+
+func FileCursorScope(parts ...string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(parts, "/"))))
+}
+
+func (c FileCursor) Encode() (string, error) {
+	var payload bytes.Buffer
+	encoder := json.NewEncoder(&payload)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(c); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload.Bytes()), nil
+}
+
+func DecodeFileCursor(raw string) (FileCursor, bool) {
+	var cursor FileCursor
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || json.Unmarshal(payload, &cursor) != nil ||
+		cursor.Version != FileCursorVersion || cursor.Scope == "" {
+		return FileCursor{}, false
+	}
+	return cursor, true
 }

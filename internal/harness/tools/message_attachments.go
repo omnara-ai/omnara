@@ -15,7 +15,9 @@ func (e Executor) loadMessageAttachment(ctx context.Context, turn Turn, filePath
 	var content []byte
 	var err error
 	if strings.HasPrefix(filePath, memorystore.Root+"/") {
-		_, content, err = e.readMemoryFile(ctx, turn, filePath)
+		var file memorystore.File
+		file, err = e.readMemoryFile(ctx, turn, filePath)
+		content = file.Content
 		filename = path.Base(filePath)
 	} else {
 		artifactID, parseErr := resolveArtifactPath(filePath)

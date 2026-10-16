@@ -86,50 +86,21 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	if err != nil || first != blobstore.ContentDigest([]byte("é😀")) {
 		t.Fatalf("create: %s, %v", first, err)
 	}
-	request := map[string]any{"path": path, "content": " tail", "append": true, "expected_digest": first}
-	second, err := write(request)
+	second, err := write(map[string]any{"path": path, "content": " tail", "append": true, "force": true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	check("é😀 tail")
-	if _, err := write(request); !errors.Is(err, storeerr.ErrConflict) ||
-		!strings.Contains(err.Error(), "memory changed;") {
-		t.Fatalf("append replay: %v", err)
-	}
-	for _, test := range []struct {
-		input   map[string]any
-		message string
-		code    string
-	}{
-		{
-			map[string]any{"path": path, "content": "stale", "expected_digest": first},
-			"memory changed;", "file_content_conflict",
-		},
-		{map[string]any{"path": path, "script": "d", "expected_digest": first}, "memory changed;", "file_content_conflict"},
-		{map[string]any{"path": path, "content": "unguarded"}, "expected_digest is required", "expected_digest_required"},
-		{
-			map[string]any{"path": path, "content": "tail", "append": true},
-			"expected_digest is required", "expected_digest_required",
-		},
-		{map[string]any{"path": path, "script": "d"}, "expected_digest is required", "expected_digest_required"},
-		{
-			map[string]any{"path": "/memory/engineering/missing.txt", "content": "x", "expected_digest": first},
-			"memory file does not exist", "file_content_conflict",
-		},
+	for _, input := range []map[string]any{
+		{"path": path, "content": "unguarded"},
+		{"path": path, "content": "tail", "append": true},
+		{"path": path, "script": "d"},
 	} {
-		if _, err := write(test.input); !errors.Is(err, storeerr.ErrConflict) ||
-			!strings.Contains(err.Error(), test.message) || strings.Contains(err.Error(), "resource conflict") ||
-			storeerr.FileErrorCode(err) != test.code {
-			t.Fatalf("write %v: %v; want conflict containing %q", test.input, err, test.message)
+		if _, err := write(input); !errors.Is(err, storeerr.ErrConflict) ||
+			err.Error() != path+" exists but you have not read it; read it before writing" ||
+			storeerr.FileErrorCode(err) != "file_content_conflict" {
+			t.Fatalf("unread write %v: %v", input, err)
 		}
-	}
-	if _, err := write(map[string]any{
-		"path": "/memory/engineering/missing.txt", "content": "x", "append": true, "expected_digest": first,
-	}); !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("append to missing file with digest: %v; want not found", err)
-	}
-	if _, _, err := memories.Read(ctx, scope, store.ID, "missing.txt"); !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("append created missing file: %v", err)
 	}
 	check("é😀 tail")
 	if digest, err := write(map[string]any{"path": path, "content": "é😀 tail"}); err != nil || digest != second {
@@ -138,36 +109,30 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	results := make(chan error, 2)
 	for _, suffix := range []string{"A", "B"} {
 		go func() {
-			_, err := write(map[string]any{"path": path, "content": suffix, "append": true, "expected_digest": second})
+			_, err := write(map[string]any{"path": path, "content": suffix, "append": true, "force": true})
 			results <- err
 		}()
 	}
-	wins, conflicts := 0, 0
+	wins := 0
 	for range 2 {
 		switch err := <-results; {
 		case err == nil:
 			wins++
-		case errors.Is(err, storeerr.ErrConflict):
-			conflicts++
-		default:
+		case !errors.Is(err, storeerr.ErrConflict):
 			t.Fatal(err)
 		}
 	}
-	if wins != 1 || conflicts != 1 {
-		t.Fatalf("parallel appends: %d wins, %d conflicts", wins, conflicts)
-	}
-	digest, content, err := memories.Read(ctx, scope, store.ID, "nested/note.txt")
-	if err != nil || (string(content) != "é😀 tailA" && string(content) != "é😀 tailB") {
-		t.Fatalf("parallel append content: %q, %v", content, err)
+	_, content, err := memories.Read(ctx, scope, store.ID, "nested/note.txt")
+	if err != nil || len(content) != len("é😀 tail")+wins || wins == 0 {
+		t.Fatalf("parallel append content: %q, %d wins, %v", content, wins, err)
 	}
 	if runtime.GOOS == "linux" {
-		digest, err = write(map[string]any{"path": path, "script": "s/tail[AB]/done/", "expected_digest": digest})
-		if err != nil {
+		if _, err := write(map[string]any{"path": path, "script": "s/tail[AB]+/done/", "force": true}); err != nil {
 			t.Fatal(err)
 		}
 		check("é😀 done")
 		for _, script := range []string{"s/[//", "r /etc/passwd", "s/done/secret/e", "s/done/\\x00/", "s/done/\\xFF/", "Q1"} {
-			if _, err := write(map[string]any{"path": path, "script": script, "expected_digest": digest}); err == nil {
+			if _, err := write(map[string]any{"path": path, "script": script, "force": true}); err == nil {
 				t.Fatalf("invalid script accepted: %q", script)
 			}
 			check("é😀 done")
@@ -187,7 +152,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	}
 	for _, name := range []string{private.Name, "nonexistent"} {
 		_, err := write(map[string]any{
-			"path": "/memory/" + name + "/note.txt", "content": "x", "append": true, "expected_digest": digest,
+			"path": "/memory/" + name + "/note.txt", "content": "x", "append": true, "force": true,
 		})
 		if !storeerr.IsNotFound(err) || err.Error() != "memory store is unavailable: not found" ||
 			storeerr.FileErrorCode(err) != "" {
@@ -196,7 +161,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	}
 	call.Turn.AgentID = fixture.Agent.ID
 	if _, err := write(map[string]any{
-		"path": path, "content": "x", "expected_digest": digest,
+		"path": path, "content": "x", "force": true,
 	}); !errors.Is(err, storeerr.ErrConflict) || storeerr.FileErrorCode(err) != "file_read_only" ||
 		!strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment write: %v", err)
@@ -207,7 +172,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := write(map[string]any{
-		"path": path, "content": "x", "expected_digest": digest,
+		"path": path, "content": "x", "force": true,
 	}); !errors.Is(err, storeerr.ErrConflict) || storeerr.FileErrorCode(err) != "file_read_only" {
 		t.Fatalf("read-only store write: %v", err)
 	}

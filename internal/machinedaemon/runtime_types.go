@@ -206,6 +206,7 @@ type processRuntime struct {
 
 type localProcessRunner struct {
 	fileTransfer        *processcmd.FileTransfer
+	fileOperation       []byte
 	transferReader      *os.File
 	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd

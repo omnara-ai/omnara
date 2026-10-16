@@ -79,8 +79,14 @@ func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.Fil
 	if info.Size() > 0 {
 		body = io.NewSectionReader(file, 0, info.Size())
 	}
-	query := "?filename=" + url.QueryEscape(filepath.Base(path))
-	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, body, info.Size())
+	return postTransferFile(ctx, processID, filepath.Base(path), body, info.Size())
+}
+
+func postTransferFile(
+	ctx context.Context, processID, filename string, body io.Reader, size int64,
+) (daemonprotocol.FileTransferResult, error) {
+	query := "?filename=" + url.QueryEscape(filename)
+	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, body, size)
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, err
 	}

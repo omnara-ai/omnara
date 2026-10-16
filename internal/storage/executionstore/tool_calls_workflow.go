@@ -66,19 +66,14 @@ func fileTransferToolResultContentParts(
 	parts := []map[string]any{{"type": "structured_data", "value": metadata}}
 	if direction == processcmd.FileTransferUpload {
 		if transfer.Target.Artifact != nil {
-			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
-				ProjectID:      process.ProjectID,
-				AgentID:        process.AgentID,
-				IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
-			})
-			if errors.Is(err, pgx.ErrNoRows) {
+			artifact, path, found, err := loadUploadedArtifact(ctx, qtx, process)
+			if err != nil {
+				return "", nil, err
+			}
+			if !found {
 				return failedFileTransferToolResultContentParts(result,
 					daemonprotocol.FileTransferError{Message: "upload completed without an artifact"})
 			}
-			if err != nil {
-				return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
-			}
-			path := toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID)
 			if metadata.Path != path || metadata.Digest != artifact.Digest {
 				return failedFileTransferToolResultContentParts(result, invalidMetadata)
 			}
@@ -102,6 +97,74 @@ func fileTransferToolResultContentParts(
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
 
+func fileOperationToolResultContentParts(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+	result json.RawMessage,
+) (ToolResultOutcome, json.RawMessage, error) {
+	if process.State != ProcessStateExited || process.ExitCode == nil || *process.ExitCode != 0 {
+		contentParts, err := ToolResultContentParts(result)
+		return ToolResultOutcomeFailed, contentParts, err
+	}
+	var observed struct {
+		File *daemonprotocol.FileOperationResult `json:"file_operation"`
+	}
+	var value map[string]any
+	if json.Unmarshal(result, &observed) != nil || observed.File == nil || observed.File.Validate() != nil ||
+		observed.File.Error == nil && json.Unmarshal(observed.File.Value, &value) != nil {
+		return failedFileTransferToolResultContentParts(result, daemonprotocol.FileTransferError{
+			Message: "file operation completed without a valid result",
+		})
+	}
+	machineID := publicResourceID(publicid.KindMachine, process.MachineID)
+	if failure := observed.File.Error; failure != nil {
+		value = map[string]any{"path": process.ExecutionSpec.File.Path, "machine_id": machineID,
+			"error": failure.Message, "error_code": failure.Code}
+		contentParts, err := marshalJSON([]map[string]any{{"type": "structured_data", "value": value}})
+		return ToolResultOutcomeFailed, contentParts, err
+	}
+	value["machine_id"] = machineID
+	parts := []map[string]any{{"type": "structured_data", "value": value}}
+	if observed.File.Artifact != "" {
+		artifact, path, found, err := loadUploadedArtifact(ctx, qtx, process)
+		if err != nil {
+			return "", nil, err
+		}
+		if !found {
+			return failedFileTransferToolResultContentParts(result,
+				daemonprotocol.FileTransferError{Message: "image read completed without an artifact"})
+		}
+		if process.ExecutionSpec.Kind != processcmd.KindFileRead || observed.File.Artifact != path {
+			return failedFileTransferToolResultContentParts(result,
+				daemonprotocol.FileTransferError{Message: "image read completed with mismatched artifact metadata"})
+		}
+		parts = append(parts, map[string]any{"type": "media_ref", "artifact_id": artifact.ID.String()})
+	}
+	contentParts, err := marshalJSON(parts)
+	return ToolResultOutcomeSucceeded, contentParts, err
+}
+
+// loadUploadedArtifact returns the artifact a process's nested upload created and its /artifacts path.
+func loadUploadedArtifact(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+) (dbsqlc.GetArtifactByIdempotencyKeyRow, string, bool, error) {
+	artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+		ProjectID:      process.ProjectID,
+		AgentID:        process.AgentID,
+		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return artifact, "", false, nil
+	}
+	if err != nil {
+		return artifact, "", false, fmt.Errorf("load uploaded artifact: %w", err)
+	}
+	return artifact, toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID), true, nil
+}
+
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
@@ -115,6 +178,7 @@ func failedFileTransferToolResultContentParts(
 		return "", nil, fmt.Errorf("decode file transfer result: %w", err)
 	}
 	delete(value, "file_transfer")
+	delete(value, "file_operation")
 	value["error"] = failure.Message
 	if failure.Code != "" {
 		value["error_code"] = failure.Code

@@ -24,6 +24,10 @@ func TestExecutionSpec(t *testing.T) {
 			Direction: FileTransferUpload, LocalPath: "notes",
 			Target: FileTarget{Memory: &MemoryTarget{StoreID: uuid.New(), Path: "nested/notes.md"}},
 		}),
+		ForFileOperation(KindFileRead, FileOperation{Path: "~/shot.png"}),
+		ForFileOperation(KindFileWrite, FileOperation{Path: "notes.md", Content: new(string), Append: true}),
+		ForFileOperation(KindFileList, FileOperation{Path: "src/**/*.go", Limit: 50, After: "src/a.go"}),
+		ForFileOperation(KindFileSearch, FileOperation{Path: "*.md", Args: []string{"-e", "x"}, Limit: 20}),
 	} {
 		require.NoError(t, spec.Validate())
 		body, err := json.Marshal(spec)
@@ -65,6 +69,14 @@ func TestExecutionSpecRejectsInvalidOperations(t *testing.T) {
 		"missing store": ForFileTransfer(FileTransfer{
 			Direction: FileTransferUpload, LocalPath: "file", Target: FileTarget{Memory: &MemoryTarget{Path: "file"}},
 		}),
+		"missing file operation": {Kind: KindFileRead},
+		"file operation with shell": {
+			Kind: KindFileList, File: &FileOperation{Path: "*"}, Shell: &ShellCommand{Command: "ls"},
+		},
+		"empty file path":     ForFileOperation(KindFileRead, FileOperation{}),
+		"write without text":  ForFileOperation(KindFileWrite, FileOperation{Path: "file"}),
+		"read with content":   ForFileOperation(KindFileRead, FileOperation{Path: "file", Content: new(string)}),
+		"search without args": ForFileOperation(KindFileSearch, FileOperation{Path: "file"}),
 	} {
 		t.Run(name, func(t *testing.T) { require.Error(t, spec.Validate()) })
 	}

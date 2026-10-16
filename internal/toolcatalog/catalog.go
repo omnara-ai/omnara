@@ -63,15 +63,19 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
-	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
+	writeFileToolDescription = "Create or edit a text file in memory or on an attached machine. " +
+		"Read a memory file before changing it; the write fails if it changed since your last read. " +
+		"Returns path, plus digest for memory files."
+	readFileToolDescription = "Read a text or image file stored in Omnara or on an attached machine. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
+		"Read machine files such as screenshots directly; upload_file is not needed to view them. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
-		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text in Omnara files. " +
+		"For large files, call again with the next position returned in the result. " +
+		"Memory reads include a note when the file changed since your last read."
+	searchFilesToolDescription = "Search text in Omnara files or files on an attached machine. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use read_file to read more around a match."
-	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
+	listFilesToolDescription = "List files and directories in Omnara or on an attached machine matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
 		"Returns path and digest."
@@ -271,12 +275,14 @@ func buildDefaultCatalog() (Catalog, error) {
 			"pattern": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Pattern under literal /memory or /artifacts. Memory patterns match paths: " +
+				"description": "Path or glob on the machine, relative to its working directory (~ is the user's home), " +
+					"or a pattern under literal /memory or /artifacts. Memory patterns match paths: " +
 					"/memory/* lists attached stores; /memory/** lists recursively. " +
 					"Artifact patterns match filenames, which can repeat, and return /artifacts/<artifact_id> paths for read/download. " +
 					"An exact artifact ID selects one artifact; wildcards match filenames, not IDs. " +
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
+			"machine_id": machineFileID("listing"),
 			"cursor": map[string]any{
 				"type": "string", "maxLength": ListFilesMaxCursorLength,
 				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
@@ -547,6 +553,13 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
+func machineFileID(verb string) map[string]any {
+	return map[string]any{
+		"type":        "string",
+		"description": "Public machine_id (mch_...) returned by list_machines. Omit when " + verb + " artifacts or memory.",
+	}
+}
+
 func readFileTool() (Entry, error) {
 	return toolEntry(
 		ToolNameReadFile,
@@ -554,16 +567,12 @@ func readFileTool() (Entry, error) {
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
+				"type":      "string",
+				"minLength": 1,
+				"description": "Path on the machine, relative to its working directory (~ is the user's home), " +
+					"at most 10 MiB; or /artifacts/<artifact_id> or /memory/<store>/<file>.",
 			},
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
-					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
-			},
+			"machine_id": machineFileID("reading"),
 			"offset_line": map[string]any{
 				"type":    "integer",
 				"minimum": 1,
@@ -601,27 +610,29 @@ func writeFileTool() (Entry, error) {
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"pattern":     "^/memory/[^/]+/.+$",
-				"description": "Exact /memory/<store>/<file> destination. Requires write access.",
+				"type":      "string",
+				"minLength": 1,
+				"description": "Path on the machine, relative to its working directory (~ is the user's home); " +
+					"missing parent directories are created. Or /memory/<store>/<file>, which requires write access.",
 			},
+			"machine_id": machineFileID("writing"),
 			"content": map[string]any{
 				"type":        "string",
-				"description": "UTF-8 text to create or replace the file with, at most 10 MiB, without NUL bytes. Empty text is allowed. Supply exactly one of content or script.",
+				"description": "UTF-8 text to create or replace the file with, at most 10 MiB (512 KiB on machines), without NUL bytes. Empty text is allowed. Supply exactly one of content or script.",
 			},
 			"script": map[string]any{
 				"type":        "string",
-				"description": "GNU sed script using extended regex, at most 64 KiB, to transform an existing text file. File reads, file writes, and command execution are disabled. Output must be UTF-8 without NUL bytes, at most 10 MiB.",
+				"description": "Memory files only. GNU sed script using extended regex, at most 64 KiB, to transform an existing text file. File reads, file writes, and command execution are disabled. Output must be UTF-8 without NUL bytes, at most 10 MiB.",
 			},
 			"append": map[string]any{
 				"type":        "boolean",
 				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
 			},
-			"expected_digest": map[string]any{
-				"type":        "string",
-				"pattern":     fileDigestPattern,
-				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
+			"force": map[string]any{
+				"type": "boolean",
+				"description": "Memory files only. Overwrite even if the file changed since you last read it, " +
+					"or was never read. Use only after a conflict when replacing the latest content is intended. " +
+					"Defaults to false.",
 			},
 		},
 	)
@@ -634,10 +645,13 @@ func searchFilesTool() (Entry, error) {
 		[]string{"path", "args"},
 		map[string]any{
 			"path": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported.",
+				"type":      "string",
+				"minLength": 1,
+				"description": "File or glob on the machine, relative to its working directory (~ is the user's home); " +
+					"binary files are skipped. Or /artifacts/<artifact_id>, or a /memory/<store>/<file> path or glob, " +
+					"which follows list_files rules and only searches attached stores.",
 			},
+			"machine_id": machineFileID("searching"),
 			"args": map[string]any{
 				"type":        "array",
 				"minItems":    1,
