@@ -72,7 +72,7 @@ export function IntegrationForm({
                 className="items-start"
                 inputClassName="mt-0.5"
                 label="Let agents push code"
-                description="Without this, agents can clone but not push. Requires Contents write access on the GitHub App."
+                description="Without this, agents can clone but not push."
                 checked={values.codeWrite}
                 disabled={!canEdit || busy || stale}
                 onChange={(event) => {

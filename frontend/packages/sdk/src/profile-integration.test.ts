@@ -87,6 +87,8 @@ describe('integration-owned launcher settings', () => {
       'exactly one profile',
     )
     expect(() => githubIntegrationSettings({ launcher: { profiles: [first, second] } })).toThrow()
+    expect(githubIntegrationSettings({ code_write: true }).code_write).toBe(true)
+    expect(githubIntegrationSettings({}).code_write).toBe(false)
     expect(() =>
       profileIntegrationSetup({ ...input, repositoryId: '9223372036854775808' }),
     ).toThrow()

@@ -34,12 +34,12 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 	if err := ctx.Err(); err != nil {
 		return InstallationCredentials{}, err
 	}
-	index := 0
+	permission := "read"
 	if write {
-		index = 1
+		permission = "write"
 	}
-	if c.gitCredentials[index].ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
-		return c.gitCredentials[index], nil
+	if cached := c.gitCredentials[permission]; cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
+		return cached, nil
 	}
 	jwt, err := c.appJWT()
 	if err != nil {
@@ -49,10 +49,7 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 		InstallationCredentials
 		Permissions map[string]string `json:"permissions"`
 	}
-	var input any
-	if !write {
-		input = map[string]map[string]string{"permissions": {"contents": "read", "metadata": "read"}}
-	}
+	input := map[string]map[string]string{"permissions": {"contents": permission, "metadata": "read"}}
 	path := "/app/installations/" + strconv.FormatInt(c.installationID, 10) + "/access_tokens"
 	if _, err := c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false); err != nil {
 		return InstallationCredentials{}, err
@@ -72,6 +69,6 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 		_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", result.Token, jsonMediaType, nil, true)
 		return InstallationCredentials{}, ErrContentsPermissionRequired
 	}
-	c.gitCredentials[index] = result.InstallationCredentials
-	return c.gitCredentials[index], nil
+	c.gitCredentials[permission] = result.InstallationCredentials
+	return result.InstallationCredentials, nil
 }

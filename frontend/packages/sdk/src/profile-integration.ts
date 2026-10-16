@@ -41,6 +41,7 @@ export function githubIntegrationSettings(settings: IntegrationSettings) {
   return {
     launcher:
       settings.launcher === undefined ? undefined : githubLauncherSchema.parse(settings.launcher),
+    code_write: settings.code_write === true,
   }
 }
 

@@ -27,7 +27,7 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 			now := time.Now().UTC().Truncate(time.Second)
 			var clock atomic.Int64
 			clock.Store(now.Unix())
-			var full, scoped atomic.Int32
+			var git, scoped atomic.Int32
 			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/app/installations/456/access_tokens" ||
 					!strings.HasPrefix(r.Header.Get("Authorization"), "Bearer eyJ") {
@@ -39,16 +39,19 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 					return
 				}
 				expires := time.Unix(clock.Load(), 0).Add(time.Hour)
-				if len(body) == 0 {
-					gitCredentialResponse(w, fmt.Sprintf("full-%d", full.Add(1)), permission, expires)
-					return
-				}
 				var input struct {
 					RepositoryIDs []int64           `json:"repository_ids"`
 					Permissions   map[string]string `json:"permissions"`
 				}
-				if json.Unmarshal(body, &input) != nil || len(input.RepositoryIDs) != 1 ||
-					input.RepositoryIDs[0] != 789 || len(input.Permissions) != 2 ||
+				if json.Unmarshal(body, &input) != nil {
+					t.Error("invalid token request body")
+					return
+				}
+				if input.RepositoryIDs == nil {
+					gitCredentialResponse(w, fmt.Sprintf("git-%d", git.Add(1)), permission, expires)
+					return
+				}
+				if len(input.RepositoryIDs) != 1 || input.RepositoryIDs[0] != 789 || len(input.Permissions) != 2 ||
 					input.Permissions["metadata"] != "read" {
 					t.Error("PR token restrictions changed")
 				}
@@ -58,7 +61,7 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 			})
 			client.now = func() time.Time { return time.Unix(clock.Load(), 0) }
 			first, err := client.InstallationGitCredentials(t.Context(), true)
-			if err != nil || first.Token != "full-1" || !first.ExpiresAt.Equal(now.Add(time.Hour)) {
+			if err != nil || first.Token != "git-1" || !first.ExpiresAt.Equal(now.Add(time.Hour)) {
 				t.Fatalf("initial credential issuance failed: %v", err)
 			}
 			for _, write := range []bool{false, true} {
@@ -68,12 +71,12 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 			}
 			clock.Store(now.Add(44*time.Minute + 59*time.Second).Unix())
 			cached, err := client.InstallationGitCredentials(t.Context(), true)
-			if err != nil || cached != first || full.Load() != 1 {
+			if err != nil || cached != first || git.Load() != 1 {
 				t.Fatalf("credential cache miss before refresh margin: %v", err)
 			}
 			clock.Store(now.Add(45 * time.Minute).Unix())
 			refreshed, err := client.InstallationGitCredentials(t.Context(), true)
-			if err != nil || refreshed.Token != "full-2" || full.Load() != 2 {
+			if err != nil || refreshed.Token != "git-2" || git.Load() != 2 {
 				t.Fatalf("credential was not refreshed at the 15-minute margin: %v", err)
 			}
 			for _, write := range []bool{false, true} {
@@ -91,23 +94,27 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 }
 
 func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
-	var full, readOnly atomic.Int32
+	var readOnly, writable atomic.Int32
 	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		if len(body) == 0 {
-			gitCredentialResponse(w, fmt.Sprintf("full-%d", full.Add(1)), "write", time.Now().Add(time.Hour))
-			return
-		}
 		var input map[string]map[string]string
-		if json.Unmarshal(body, &input) != nil || len(input) != 1 || len(input["permissions"]) != 2 ||
-			input["permissions"]["contents"] != "read" || input["permissions"]["metadata"] != "read" {
-			t.Errorf("read-only Git credentials requested %s", body)
+		var contents string
+		if json.Unmarshal(body, &input) == nil && len(input) == 1 && len(input["permissions"]) == 2 &&
+			input["permissions"]["metadata"] == "read" {
+			contents = input["permissions"]["contents"]
 		}
-		gitCredentialResponse(w, fmt.Sprintf("read-%d", readOnly.Add(1)), "read", time.Now().Add(time.Hour))
+		switch contents {
+		case "read":
+			gitCredentialResponse(w, fmt.Sprintf("read-%d", readOnly.Add(1)), "read", time.Now().Add(time.Hour))
+		case "write":
+			gitCredentialResponse(w, fmt.Sprintf("write-%d", writable.Add(1)), "write", time.Now().Add(time.Hour))
+		default:
+			t.Errorf("Git credentials requested %s", body)
+		}
 	})
 	for range 2 {
 		read, err := client.InstallationGitCredentials(t.Context(), false)
@@ -115,11 +122,11 @@ func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
 			t.Fatalf("read-only credentials were not issued: %v", err)
 		}
 		write, err := client.InstallationGitCredentials(t.Context(), true)
-		if err != nil || write.Token != "full-1" {
+		if err != nil || write.Token != "write-1" {
 			t.Fatalf("write credentials were not issued: %v", err)
 		}
 	}
-	if full.Load() != 1 || readOnly.Load() != 1 {
+	if readOnly.Load() != 1 || writable.Load() != 1 {
 		t.Fatal("read-only and write credentials must be cached separately")
 	}
 }
@@ -214,7 +221,7 @@ func TestInstallationGitCredentialsRevokesMissingContents(t *testing.T) {
 			})
 			result, err := client.InstallationGitCredentials(t.Context(), true)
 			if !errors.Is(err, ErrContentsPermissionRequired) || result != (InstallationCredentials{}) ||
-				client.gitCredentials != [2]InstallationCredentials{} {
+				len(client.gitCredentials) != 0 {
 				t.Fatalf("cleanup changed the permission error or retained the rejected token: %v", err)
 			}
 			if minted.Load() != 1 || revoked.Load() != 1 {
@@ -289,6 +296,7 @@ func TestInstallationGitCredentialsRefreshCancellation(t *testing.T) {
 			started, release := make(chan struct{}), make(chan struct{})
 			var calls atomic.Int32
 			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
 				if calls.Add(1) == 1 {
 					close(started)
 					select {

@@ -102,7 +102,7 @@ func newChatLauncher(provider Provider) *LauncherDefinition {
 }
 
 var githubSettings = &SettingsDefinition{
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened","both"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}},"code_write":{"type":"boolean","title":"Let agents push code","description":"Git credentials can push when the GitHub App has Contents write access. Off by default: read-only."}}}`),
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened","both"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}},"code_write":{"type":"boolean","title":"Let agents push code","description":"Git credentials can push. Off by default: read-only."}}}`),
 	Description: "Launch on PR openings, mentions, or both, from someone with repository write access.",
 	ValidateSettings: func(raw json.RawMessage) error {
 		settings, err := ReadGitHubSettings(raw)

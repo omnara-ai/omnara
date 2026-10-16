@@ -43,7 +43,7 @@ type Client struct {
 	sharedTokens   *installationTokenCache
 	tokenIdentity  installationTokenIdentity
 	gitTokenGate   chan struct{}
-	gitCredentials [2]InstallationCredentials
+	gitCredentials map[string]InstallationCredentials
 }
 
 type appClient struct {
@@ -73,7 +73,7 @@ func NewClient(config Config) (*Client, error) {
 	}
 	client := &Client{
 		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
-		gitTokenGate: make(chan struct{}, 1),
+		gitTokenGate: make(chan struct{}, 1), gitCredentials: map[string]InstallationCredentials{},
 	}
 	if shareTokens {
 		client.sharedTokens, err = sharedInstallationTokens()

@@ -393,20 +393,29 @@ func TestDaemonGitCredentialsRotationCannotFallBackToCachedTokenWithoutContentsP
 func TestDaemonGitCredentialsReadOnlyUnlessIntegrationAllowsCodeWrite(t *testing.T) {
 	t.Parallel()
 	f := newDaemonGitCredentialsFixture(t)
+	setSettings := func(settings string) {
+		t.Helper()
+		_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
+			integrationstore.SaveIntegrationInput{
+				OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,
+				IntegrationKind: f.integration.IntegrationKind, Settings: json.RawMessage(settings),
+			})
+		require.NoError(t, err)
+	}
 	f.accept(t, f.process)
 	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	requested, _ := f.mintBody.Load().(string)
 	require.JSONEq(t, `{"permissions":{"contents":"read","metadata":"read"}}`, requested)
-	_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
-		integrationstore.SaveIntegrationInput{
-			OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,
-			IntegrationKind: f.integration.IntegrationKind, Settings: json.RawMessage(`{"code_write":true}`),
-		})
-	require.NoError(t, err)
+	setSettings(`{"code_write":true}`)
 	f.contentsPermission = "write"
 	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
-	require.Empty(t, f.mintBody.Load(), "code_write requests the installation's full permissions")
+	requested, _ = f.mintBody.Load().(string)
+	require.JSONEq(t, `{"permissions":{"contents":"write","metadata":"read"}}`, requested)
 	require.EqualValues(t, 2, f.minted.Load(), "read-only and write credentials are cached separately")
+	setSettings(`{}`)
+	readOnly := f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
+	require.Contains(t, readOnly.Body.String(), "git-installation-token-1")
+	require.EqualValues(t, 2, f.minted.Load(), "turning code_write off reuses the read-only credential")
 }
 
 func TestDaemonGitCredentialsProviderFailureStatusAndRedaction(t *testing.T) {

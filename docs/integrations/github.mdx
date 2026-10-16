@@ -205,16 +205,16 @@ Git commands with HTTPS repository URLs.
 
 Credentials inherit **all repositories granted to the connected installation**.
 They are read-only unless **Let agents push code** (`code_write`) is enabled on
-the integration; then they also inherit the installation's permissions, including API access.
-There are no repository or permission
+the integration. There are no repository or permission
 filters in this config. The assigned PR and `launcher.repository_id` do not narrow
 these credentials. Existing PR tools retain their assigned-PR restrictions.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
-New Apps registered through Omnara request **Contents: Read & write**. For an existing App, add Contents permission in GitHub App settings
-and have the installation owner approve it. Push requires **Contents: Read &
-write** and remains subject to GitHub's repository rules; workflow-file changes
-can also require **Workflows** permission. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
+Apps registered through Omnara get **Contents: Read & write**. If an App only
+has **Read-only**, its Git credentials fail while **Let agents push code** is
+enabled; grant **Read & write** in the App's settings and have the installation
+owner approve it. Pushes remain subject to GitHub's repository rules and can't
+change files under `.github/workflows`. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
 
 Git credentials require an up-to-date `omnarad` on every machine. Omnara does not
 enforce a minimum daemon version for this feature. Older daemons ignore the

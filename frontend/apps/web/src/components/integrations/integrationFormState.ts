@@ -30,7 +30,7 @@ export function integrationFormValues(
     profileIds: profileIntegrationProfiles(integration),
     repositoryId: github?.launcher?.repository_id ?? '',
     trigger: github?.launcher?.trigger ?? (integrationKind === 'github_pr' ? 'both' : 'mention'),
-    codeWrite: integration.settings.code_write === true,
+    codeWrite: github?.code_write ?? false,
   }
 }
 
