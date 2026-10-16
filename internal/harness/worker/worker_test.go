@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -521,7 +522,7 @@ func TestClaimLoopDoesNotClaimAfterCancellation(t *testing.T) {
 	cancel()
 	for range 200 {
 		var executions sync.WaitGroup
-		worker.claimLoop(ctx, make(chan struct{}, 1), &executions)
+		worker.claimLoop(ctx, context.Background(), make(chan struct{}, 1), &executions)
 		executions.Wait()
 	}
 	if got := claims.Load(); got != 0 {
@@ -839,7 +840,7 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 
 func runClaimLoop(ctx context.Context, worker *Worker) {
 	var executions sync.WaitGroup
-	worker.claimLoop(ctx, make(chan struct{}, worker.capacity), &executions)
+	worker.claimLoop(ctx, ctx, make(chan struct{}, worker.capacity), &executions)
 	executions.Wait()
 }
 
@@ -858,10 +859,14 @@ type noopSubscription struct{}
 func (noopSubscription) Unsubscribe() error { return nil }
 
 type dispatchStore struct {
-	claimDelay   time.Duration
-	activeClaims atomic.Int32
-	maxClaims    atomic.Int32
-	claims       atomic.Int32
+	claimDelay     time.Duration
+	leaseBudgetAge time.Duration
+	activeClaims   atomic.Int32
+	maxClaims      atomic.Int32
+	claims         atomic.Int32
+	renewals       atomic.Int32
+	releases       atomic.Int32
+	renewed        chan struct{}
 }
 
 func (s *dispatchStore) ClaimNextAgentWork(
@@ -890,18 +895,26 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	}, true, nil
 }
 
-func (*dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+func (s *dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+	s.releases.Add(1)
 	return nil
 }
 
-func (*dispatchStore) RenewAgentRuntimeLock(
+func (s *dispatchStore) RenewAgentRuntimeLock(
 	_ context.Context,
 	_, _, runtimeID uuid.UUID,
 	_ time.Duration,
 ) (executionstore.AgentRuntimeLockRenewal, error) {
+	s.renewals.Add(1)
+	if s.renewed != nil {
+		select {
+		case s.renewed <- struct{}{}:
+		default:
+		}
+	}
 	return executionstore.AgentRuntimeLockRenewal{
 		RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: runtimeID},
-		LocalLeaseBudgetStartedAt: time.Now(),
+		LocalLeaseBudgetStartedAt: time.Now().Add(-s.leaseBudgetAge),
 	}, nil
 }
 
@@ -911,6 +924,7 @@ type holdingModelExecutor struct {
 	maxActive atomic.Int32
 	release   chan struct{}
 	started   chan struct{}
+	finished  chan error
 }
 
 func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
@@ -919,12 +933,33 @@ func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.Mo
 		e.started <- struct{}{}
 	}
 	defer e.active.Add(-1)
+	var err error
 	select {
 	case <-e.release:
-		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		err = ctx.Err()
 	}
+	if e.finished != nil {
+		e.finished <- err
+	}
+	return err
+}
+
+type logLineSignal struct {
+	message []byte
+	seen    chan struct{}
+	once    sync.Once
+}
+
+func newLogLineSignal(message string) *logLineSignal {
+	return &logLineSignal{message: []byte(message), seen: make(chan struct{})}
+}
+
+func (s *logLineSignal) Write(line []byte) (int, error) {
+	if bytes.Contains(line, s.message) {
+		s.once.Do(func() { close(s.seen) })
+	}
+	return len(line), nil
 }
 
 func raiseMax(target *atomic.Int32, value int32) {
@@ -950,7 +985,7 @@ func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) 
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(ctx) }()
+	go func() { runDone <- worker.Run(ctx, nil) }()
 
 	defer cancel()
 	for range capacity {
@@ -987,6 +1022,151 @@ func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) 
 	}
 	if got := executor.maxActive.Load(); got > capacity {
 		t.Fatalf("max concurrent executions = %d, want at most %d", got, capacity)
+	}
+}
+
+func TestWorkerDrainStopsClaimingAndFinishesInFlightWork(t *testing.T) {
+	const capacity = 2
+	const leaseDuration = time.Minute
+	store := &dispatchStore{
+		leaseBudgetAge: leaseDuration - leaseDuration/3 - 100*time.Millisecond,
+		renewed:        make(chan struct{}, 64),
+	}
+	executor := &holdingModelExecutor{
+		release:  make(chan struct{}),
+		started:  make(chan struct{}, capacity+1),
+		finished: make(chan error, capacity+1),
+	}
+	stoppedClaiming := newLogLineSignal("worker stopped claiming")
+	worker := NewWorker(store, executor, Options{
+		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+		RuntimeLockLeaseDuration: leaseDuration,
+		Capacity:                 capacity,
+		ClaimConcurrency:         1,
+		DrainTimeout:             time.Minute,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	drain := make(chan struct{})
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(ctx, drain) }()
+	for range capacity {
+		select {
+		case <-executor.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("worker did not fill its slots")
+		}
+	}
+
+	close(drain)
+	select {
+	case <-stoppedClaiming.seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not stop claiming after drain started")
+	}
+	renewalsAtDrain := store.renewals.Load()
+	renewalDeadline := time.After(2 * time.Second)
+	for store.renewals.Load() < renewalsAtDrain+capacity {
+		select {
+		case <-store.renewed:
+		case <-renewalDeadline:
+			t.Fatal("runtime leases stopped renewing while draining")
+		}
+	}
+	for range capacity {
+		executor.release <- struct{}{}
+	}
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("run error = %v, want nil after drain", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not return after in-flight work finished")
+	}
+	for range capacity {
+		if err := <-executor.finished; err != nil {
+			t.Fatalf("in-flight work ended with %v, want completion", err)
+		}
+	}
+	if got := store.claims.Load(); got != capacity {
+		t.Fatalf("claims = %d, want %d", got, capacity)
+	}
+	if got := store.releases.Load(); got != capacity {
+		t.Fatalf("released runtimes = %d, want %d", got, capacity)
+	}
+}
+
+func TestWorkerDrainCancelsInFlightWorkAtDeadlineOrAbort(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		drainTimeout time.Duration
+		abort        bool
+		wantRunErr   error
+	}{
+		{name: "drain deadline", drainTimeout: 100 * time.Millisecond},
+		{name: "abort while draining", drainTimeout: time.Hour, abort: true, wantRunErr: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &dispatchStore{}
+			executor := &holdingModelExecutor{
+				release:  make(chan struct{}),
+				started:  make(chan struct{}, 2),
+				finished: make(chan error, 2),
+			}
+			stoppedClaiming := newLogLineSignal("worker stopped claiming")
+			worker := NewWorker(store, executor, Options{
+				Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+				RuntimeLockLeaseDuration: time.Minute,
+				Capacity:                 1,
+				DrainTimeout:             test.drainTimeout,
+				ControlSubscriber:        noopControlSubscriber{},
+			})
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			drain := make(chan struct{})
+			runDone := make(chan error, 1)
+			go func() { runDone <- worker.Run(ctx, drain) }()
+			select {
+			case <-executor.started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("worker did not start work")
+			}
+
+			drainStarted := time.Now()
+			close(drain)
+			select {
+			case <-stoppedClaiming.seen:
+			case <-time.After(2 * time.Second):
+				t.Fatal("worker did not start draining")
+			}
+			if test.abort {
+				cancel()
+			}
+			select {
+			case err := <-executor.finished:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("in-flight work ended with %v, want cancellation", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("in-flight work was not canceled")
+			}
+			if !test.abort && time.Since(drainStarted) < test.drainTimeout {
+				t.Fatal("in-flight work was canceled before the drain deadline")
+			}
+			select {
+			case err := <-runDone:
+				if !errors.Is(err, test.wantRunErr) {
+					t.Fatalf("run error = %v, want %v", err, test.wantRunErr)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("worker did not return after canceling in-flight work")
+			}
+			if got := store.releases.Load(); got != 1 {
+				t.Fatalf("released runtimes = %d, want 1", got)
+			}
+		})
 	}
 }
 

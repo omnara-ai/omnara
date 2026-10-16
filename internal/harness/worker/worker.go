@@ -54,6 +54,7 @@ type Worker struct {
 	runtimeLockLeaseDuration time.Duration
 	capacity                 int
 	claimConcurrency         int
+	drainTimeout             time.Duration
 	executionFailures        atomic.Int64
 	asyncToolLimiter         *tools.AsyncExecutionLimiter
 	activeMu                 sync.Mutex
@@ -68,6 +69,7 @@ type Options struct {
 	Capacity                 int
 	ClaimConcurrency         int
 	AsyncToolCapacity        int
+	DrainTimeout             time.Duration
 	ControlSubscriber        notifications.WorkerControlSubscriber
 }
 
@@ -116,18 +118,23 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		runtimeLockLeaseDuration: opts.RuntimeLockLeaseDuration,
 		capacity:                 opts.Capacity,
 		claimConcurrency:         min(opts.ClaimConcurrency, opts.Capacity),
+		drainTimeout:             opts.DrainTimeout,
 		asyncToolLimiter:         tools.NewAsyncExecutionLimiter(opts.AsyncToolCapacity),
 		active:                   make(map[uuid.UUID]*activeRuntime),
 	}
 }
 
-func (w *Worker) Run(ctx context.Context) error {
+func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
 	ctx = logpkg.WithLogger(ctx, w.log)
 	controlSubscription, err := w.subscribeWorkerControl(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = controlSubscription.Unsubscribe() }()
+	executionCtx, cancelExecutions := context.WithCancel(ctx)
+	defer cancelExecutions()
+	claimCtx, stopClaiming := context.WithCancel(executionCtx)
+	defer stopClaiming()
 	slots := make(chan struct{}, w.capacity)
 	w.metrics.RecordSlots(w.capacity, func() int { return len(slots) })
 	var claimers, executions sync.WaitGroup
@@ -135,11 +142,24 @@ func (w *Worker) Run(ctx context.Context) error {
 		claimers.Add(1)
 		go func() {
 			defer claimers.Done()
-			w.claimLoop(ctx, slots, &executions)
+			w.claimLoop(claimCtx, executionCtx, slots, &executions)
 		}()
 	}
-	<-ctx.Done()
+	select {
+	case <-drain:
+		drainDeadline := time.AfterFunc(w.drainTimeout, func() {
+			w.log.WarnContext(ctx, "worker drain deadline reached; canceling in-flight agent work")
+			cancelExecutions()
+		})
+		defer drainDeadline.Stop()
+	case <-ctx.Done():
+	}
+	stopClaiming()
 	claimers.Wait()
+	if ctx.Err() == nil {
+		w.log.InfoContext(ctx, "worker stopped claiming; draining in-flight agent work",
+			"drain_timeout", w.drainTimeout.String())
+	}
 	executions.Wait()
 	w.retained.Wait()
 	return ctx.Err()
@@ -152,20 +172,24 @@ func (w *Worker) subscribeWorkerControl(ctx context.Context) (notifications.Subs
 	return w.controlSubscriber.SubscribeWorkerControl(ctx, w.workerProcessID, w.handleWorkerControl)
 }
 
-func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions *sync.WaitGroup) {
+func (w *Worker) claimLoop(
+	claimCtx, executionCtx context.Context,
+	slots chan struct{},
+	executions *sync.WaitGroup,
+) {
 	idleDelay := minIdleClaimDelay
 	failures := 0
 	for {
 		select {
 		case slots <- struct{}{}:
-		case <-ctx.Done():
+		case <-claimCtx.Done():
 			return
 		}
-		if ctx.Err() != nil {
+		if claimCtx.Err() != nil {
 			<-slots
 			return
 		}
-		loopCtx, event := logent.WorkerLoop(ctx, w.workerProcessID)
+		loopCtx, event := logent.WorkerLoop(executionCtx, w.workerProcessID)
 		now := time.Now().UTC()
 		claim, handled, err := w.claimNext(loopCtx)
 		if err == nil && handled && claim.Kind != executionstore.AgentWorkNone {
@@ -176,14 +200,14 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 				defer executions.Done()
 				defer func() { <-slots }()
 				err := w.executeClaimedWorkRecovering(loopCtx, claim, now)
-				w.finishLoop(ctx, loopCtx, event, true, err)
-				w.throttleAfterExecution(ctx, err)
+				w.finishLoop(executionCtx, loopCtx, event, true, err)
+				w.throttleAfterExecution(claimCtx, err)
 			}()
 			continue
 		}
 		<-slots
-		w.finishLoop(ctx, loopCtx, event, handled, err)
-		if ctx.Err() != nil {
+		w.finishLoop(executionCtx, loopCtx, event, handled, err)
+		if claimCtx.Err() != nil {
 			return
 		}
 		var delay time.Duration
@@ -209,7 +233,7 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 			delay = idleDelay
 			idleDelay = min(idleDelay*2, maxIdleClaimDelay)
 		}
-		if !waitForDelay(ctx, delay) {
+		if !waitForDelay(claimCtx, delay) {
 			return
 		}
 	}

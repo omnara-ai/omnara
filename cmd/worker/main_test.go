@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"math"
+	"os"
 	"strconv"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestWorkerDatabaseMaxConns(t *testing.T) {
@@ -31,4 +35,34 @@ func TestWorkerDatabaseMaxConns(t *testing.T) {
 	if strconv.IntSize == 64 && workerDatabaseMaxConns(math.MaxInt) != math.MaxInt32 {
 		t.Fatal("max conns should be capped at the pool's int32 limit")
 	}
+}
+
+func TestCancelOnSignalsDrainsOnFirstSignalAndAbortsOnSecond(t *testing.T) {
+	signals := make(chan os.Signal)
+	drainCtx, drain := context.WithCancel(t.Context())
+	defer drain()
+	abortCtx, abort := context.WithCancel(t.Context())
+	defer abort()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cancelOnSignals(signals, abortCtx.Done(), drain, abort)
+	}()
+
+	signals <- syscall.SIGTERM
+	select {
+	case <-drainCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("first signal did not start draining")
+	}
+	if abortCtx.Err() != nil {
+		t.Fatal("first signal aborted in-flight work")
+	}
+	signals <- syscall.SIGTERM
+	select {
+	case <-abortCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("second signal did not abort in-flight work")
+	}
+	<-done
 }

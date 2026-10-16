@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -397,7 +398,7 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	)
 	errs := make(chan error, 1)
 	go func() {
-		err := worker.Run(ctx)
+		err := worker.Run(ctx, nil)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errs <- err
 			return
@@ -568,7 +569,7 @@ func TestWorkerConcurrentRuntimesShareRouteAndCancelIndependently(t *testing.T) 
 	})
 	runDone := make(chan error, 1)
 	go func() {
-		err := worker.Run(ctx)
+		err := worker.Run(ctx, nil)
 		if errors.Is(err, context.Canceled) {
 			err = nil
 		}
@@ -697,7 +698,7 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 		},
 	)
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(ctx) }()
+	go func() { runDone <- worker.Run(ctx, nil) }()
 
 	for attempt := 1; attempt <= 2; attempt++ {
 		select {
@@ -825,7 +826,7 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	)
 	errs := make(chan error, 1)
 	go func() {
-		err := runningWorker.Run(ctx)
+		err := runningWorker.Run(ctx, nil)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errs <- err
 			return
@@ -941,6 +942,65 @@ func TestWorkerRunOnceUsesRealKernelExecutor(t *testing.T) {
 	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "kernel path complete")
 	assertCompletedModelContext(t, ctx, pool, agentID, outputID)
 	assertModelOutputUsage(t, ctx, pool, agentID, outputID, 11, 4, 3, 4, 7, 2, 18)
+}
+
+func TestWorkerDrainCommitsInFlightModelResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := openWorkerIntegrationDB(t, ctx)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+	now := time.Date(2026, 5, 16, 21, 30, 0, 0, time.UTC)
+	agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
+	inputID := createWorkerInput(t, ctx, store, agentID, userID, "finish while the worker drains", now.Add(time.Second))
+
+	modelClient := drainingModelClient{
+		fixedModelClient: fixedModelClient{providerModelSlug: "worker-kernel-test", text: "finished while draining"},
+		responding:       make(chan struct{}, 1),
+		release:          make(chan struct{}),
+	}
+	stoppedClaiming := newLogLineSignal("worker stopped claiming")
+	worker := NewWorker(store.Execution(), kernel.AgentExecutor{
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
+	}, Options{
+		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+		RuntimeLockLeaseDuration: 15 * time.Second,
+		Capacity:                 1,
+		DrainTimeout:             time.Minute,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	drain := make(chan struct{})
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(ctx, drain) }()
+	select {
+	case <-modelClient.responding:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not start the model call")
+	}
+
+	close(drain)
+	select {
+	case <-stoppedClaiming.seen:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop claiming after drain started")
+	}
+	close(modelClient.release)
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("run error = %v, want nil after drain", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not finish draining")
+	}
+	assertAgentInputAdmitted(t, ctx, pool, agentID, inputID)
+	waitNoRuntimeLock(t, ctx, pool, agentID)
+	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "finished while draining")
+	assertCompletedModelContext(t, ctx, pool, agentID, outputID)
 }
 
 func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) {
@@ -1680,6 +1740,25 @@ func (c fixedModelClient) Respond(_ context.Context, _ model.Request) (model.Res
 		StopReason: model.StopReasonEndTurn,
 		Usage:      c.usage,
 	}, nil
+}
+
+type drainingModelClient struct {
+	fixedModelClient
+	responding chan struct{}
+	release    chan struct{}
+}
+
+func (c drainingModelClient) Respond(ctx context.Context, request model.Request) (model.Response, error) {
+	select {
+	case c.responding <- struct{}{}:
+	default:
+	}
+	select {
+	case <-c.release:
+		return c.fixedModelClient.Respond(ctx, request)
+	case <-ctx.Done():
+		return model.Response{}, ctx.Err()
+	}
 }
 
 type sequenceModelClient struct {

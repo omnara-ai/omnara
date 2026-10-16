@@ -32,6 +32,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
+| `OMNARA_WORKER_DRAIN_TIMEOUT` | On the first SIGTERM or SIGINT, the worker stops claiming agent work and lets in-flight work finish for up to this long before canceling it; a second signal cancels immediately. `0s` cancels at once. Set the orchestrator's stop timeout above it (ECS `stopTimeout`, Compose `stop_grace_period`, Kubernetes `terminationGracePeriodSeconds`) | `25s` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
 
 ### Monitoring agent execution

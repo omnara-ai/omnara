@@ -71,6 +71,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 			cfg.WorkerBackgroundToolCapacity,
 		)
 	}
+	if cfg.WorkerDrainTimeout != 25*time.Second {
+		t.Fatalf("expected default worker drain timeout 25s, got %s", cfg.WorkerDrainTimeout)
+	}
 	if cfg.DaemonSocketFallbackDrainInterval != defaultDaemonSocketFallbackDrainInterval {
 		t.Fatalf("expected default daemon socket fallback drain interval, got %s", cfg.DaemonSocketFallbackDrainInterval)
 	}
@@ -1168,6 +1171,39 @@ func TestValidateWorkerLoadsExplicitBackgroundToolCapacity(t *testing.T) {
 	}
 	if cfg.WorkerBackgroundToolCapacity != 16 {
 		t.Fatalf("unexpected background tool capacity: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerLoadsExplicitDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "45s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker: %v", err)
+	}
+	if cfg.WorkerDrainTimeout != 45*time.Second {
+		t.Fatalf("unexpected worker drain timeout: %s", cfg.WorkerDrainTimeout)
+	}
+}
+
+func TestValidateWorkerRejectsInvalidDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "100")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected unparseable worker drain timeout error")
+	}
+
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "-1s")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected negative worker drain timeout error")
 	}
 }
 

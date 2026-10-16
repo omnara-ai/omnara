@@ -81,8 +81,14 @@ func main() {
 	defer db.Close()
 	metricSet.MustRegister(metrics.NewDBPoolCollector(db))
 
-	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	signalCtx, cancelOnSignal := context.WithCancel(context.Background())
+	defer cancelOnSignal()
+	executionCtx, abortExecutions := context.WithCancel(context.Background())
+	defer abortExecutions()
+	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
 
@@ -174,7 +180,7 @@ func main() {
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
-		ctx,
+		executionCtx,
 		log,
 		cfg.WorkerBackgroundToolCapacity,
 		metricSet,
@@ -249,11 +255,12 @@ func main() {
 		Capacity:          cfg.WorkerCapacity,
 		ClaimConcurrency:  cfg.WorkerClaimConcurrency,
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
+		DrainTimeout:      cfg.WorkerDrainTimeout,
 		ControlSubscriber: redisBus,
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(ctx)
+		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -405,6 +412,17 @@ func main() {
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func cancelOnSignals(signals <-chan os.Signal, done <-chan struct{}, cancels ...context.CancelFunc) {
+	for _, cancel := range cancels {
+		select {
+		case <-signals:
+			cancel()
+		case <-done:
+			return
+		}
 	}
 }
 
