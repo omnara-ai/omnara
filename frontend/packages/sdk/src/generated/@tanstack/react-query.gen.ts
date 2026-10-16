@@ -543,7 +543,7 @@ export const listVisibleProjectsQueryKey = (options: Options<ListVisibleProjects
 /**
  * List visible projects
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects the caller can access in the organization, newest first, with the caller's permissions on each.
  */
 export const listVisibleProjectsOptions = (options: Options<ListVisibleProjectsData>) => queryOptions<ListVisibleProjectsResponse, ListVisibleProjectsError, ListVisibleProjectsResponse, ReturnType<typeof listVisibleProjectsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -563,7 +563,7 @@ export const listVisibleProjectsInfiniteQueryKey = (options: Options<ListVisible
 /**
  * List visible projects
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects the caller can access in the organization, newest first, with the caller's permissions on each.
  */
 export const listVisibleProjectsInfiniteOptions = (options: Options<ListVisibleProjectsData>) => {
     const opts = infiniteQueryOptions<ListVisibleProjectsResponse, ListVisibleProjectsError, InfiniteData<ListVisibleProjectsResponse>, QueryKey<Options<ListVisibleProjectsData>>, string | Pick<QueryKey<Options<ListVisibleProjectsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -592,6 +592,8 @@ export const listVisibleProjectsInfiniteOptions = (options: Options<ListVisibleP
 
 /**
  * Create project
+ *
+ * Creates a project, makes the caller its admin, and returns it. The new project has no grants to organization models, machines, skills, or secrets.
  */
 export const createProjectMutation = (options?: Partial<Options<CreateProjectData>>): UseMutationOptions<CreateProjectResponse, CreateProjectError, Options<CreateProjectData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectResponse, CreateProjectError, Options<CreateProjectData>> = {
@@ -1157,6 +1159,8 @@ export const getSkillQueryKey = (options: Options<GetSkillData>) => createQueryK
 
 /**
  * Get skill through ownership authority
+ *
+ * Returns one skill with its latest SKILL.md text and file listing.
  */
 export const getSkillOptions = (options: Options<GetSkillData>) => queryOptions<GetSkillResponse, GetSkillError, GetSkillResponse, ReturnType<typeof getSkillQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1195,7 +1199,7 @@ export const listSkillGrantsQueryKey = (options: Options<ListSkillGrantsData>) =
 /**
  * List skill grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a skill is shared with, one grant per project, most recently shared first by default.
  */
 export const listSkillGrantsOptions = (options: Options<ListSkillGrantsData>) => queryOptions<ListSkillGrantsResponse2, ListSkillGrantsError, ListSkillGrantsResponse2, ReturnType<typeof listSkillGrantsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1215,7 +1219,7 @@ export const listSkillGrantsInfiniteQueryKey = (options: Options<ListSkillGrants
 /**
  * List skill grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a skill is shared with, one grant per project, most recently shared first by default.
  */
 export const listSkillGrantsInfiniteOptions = (options: Options<ListSkillGrantsData>) => {
     const opts = infiniteQueryOptions<ListSkillGrantsResponse2, ListSkillGrantsError, InfiniteData<ListSkillGrantsResponse2>, QueryKey<Options<ListSkillGrantsData>>, string | Pick<QueryKey<Options<ListSkillGrantsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -1244,6 +1248,8 @@ export const listSkillGrantsInfiniteOptions = (options: Options<ListSkillGrantsD
 
 /**
  * Create skill grant
+ *
+ * Shares a skill with another project so its agent configs can attach it, and returns the grant; ownership doesn't change.
  */
 export const createSkillGrantMutation = (options?: Partial<Options<CreateSkillGrantData>>): UseMutationOptions<CreateSkillGrantResponse, CreateSkillGrantError, Options<CreateSkillGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateSkillGrantResponse, CreateSkillGrantError, Options<CreateSkillGrantData>> = {
@@ -1657,6 +1663,8 @@ export const listSecretsInfiniteOptions = (options: Options<ListSecretsData>) =>
 
 /**
  * Create secret
+ *
+ * Creates an encrypted secret holding one credential and returns its metadata; the value is never returned. owner sets whether the organization, a project, or the caller owns it.
  */
 export const createSecretMutation = (options?: Partial<Options<CreateSecretData>>): UseMutationOptions<CreateSecretResponse, CreateSecretError, Options<CreateSecretData>> => {
     const mutationOptions: UseMutationOptions<CreateSecretResponse, CreateSecretError, Options<CreateSecretData>> = {
@@ -1712,6 +1720,8 @@ export const getSecretQueryKey = (options: Options<GetSecretData>) => createQuer
 
 /**
  * Get secret through ownership authority
+ *
+ * Returns a secret's owner, kind, name, and current version; the secret value is never returned.
  */
 export const getSecretOptions = (options: Options<GetSecretData>) => queryOptions<GetSecretResponse, GetSecretError, GetSecretResponse, ReturnType<typeof getSecretQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1728,6 +1738,8 @@ export const getSecretOptions = (options: Options<GetSecretData>) => queryOption
 
 /**
  * Update secret metadata
+ *
+ * Renames a secret or replaces its metadata, and returns the updated secret without its value. The value, kind, and owner can't be changed here. References use the secret ID, so renaming doesn't break them.
  */
 export const updateSecretMutation = (options?: Partial<Options<UpdateSecretData>>): UseMutationOptions<UpdateSecretResponse, UpdateSecretError, Options<UpdateSecretData>> => {
     const mutationOptions: UseMutationOptions<UpdateSecretResponse, UpdateSecretError, Options<UpdateSecretData>> = {
@@ -1765,7 +1777,7 @@ export const listSecretGrantsQueryKey = (options: Options<ListSecretGrantsData>)
 /**
  * List secret grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a secret is shared with, one grant per project, most recently shared first by default.
  */
 export const listSecretGrantsOptions = (options: Options<ListSecretGrantsData>) => queryOptions<ListSecretGrantsResponse2, ListSecretGrantsError, ListSecretGrantsResponse2, ReturnType<typeof listSecretGrantsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1785,7 +1797,7 @@ export const listSecretGrantsInfiniteQueryKey = (options: Options<ListSecretGran
 /**
  * List secret grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the projects a secret is shared with, one grant per project, most recently shared first by default.
  */
 export const listSecretGrantsInfiniteOptions = (options: Options<ListSecretGrantsData>) => {
     const opts = infiniteQueryOptions<ListSecretGrantsResponse2, ListSecretGrantsError, InfiniteData<ListSecretGrantsResponse2>, QueryKey<Options<ListSecretGrantsData>>, string | Pick<QueryKey<Options<ListSecretGrantsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -1814,6 +1826,8 @@ export const listSecretGrantsInfiniteOptions = (options: Options<ListSecretGrant
 
 /**
  * Create secret grant
+ *
+ * Shares a secret with another project so that project's resources can use it, and returns the grant; ownership doesn't change.
  */
 export const createSecretGrantMutation = (options?: Partial<Options<CreateSecretGrantData>>): UseMutationOptions<CreateSecretGrantResponse, CreateSecretGrantError, Options<CreateSecretGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateSecretGrantResponse, CreateSecretGrantError, Options<CreateSecretGrantData>> = {
@@ -1869,6 +1883,8 @@ export const resolveAgentConfigToolsMutation = (options?: Partial<Options<Resolv
 
 /**
  * Create agent config
+ *
+ * Compiles and saves an immutable agent config (instruction, model, tools, machine_sources, and more) from YAML or JSON and returns it. Sending the same source again returns the existing config, as long as its names still resolve to the same resources.
  */
 export const createAgentConfigMutation = (options?: Partial<Options<CreateAgentConfigData>>): UseMutationOptions<CreateAgentConfigResponse, CreateAgentConfigError, Options<CreateAgentConfigData>> => {
     const mutationOptions: UseMutationOptions<CreateAgentConfigResponse, CreateAgentConfigError, Options<CreateAgentConfigData>> = {
@@ -1888,6 +1904,8 @@ export const getToolCatalogQueryKey = (options?: Options<GetToolCatalogData>) =>
 
 /**
  * Get tool catalog
+ *
+ * Lists the built-in tools agent configs can use, with each tool's description and permission settings, plus the permission modes for custom and MCP tools.
  */
 export const getToolCatalogOptions = (options?: Options<GetToolCatalogData>) => queryOptions<GetToolCatalogResponse, GetToolCatalogError, GetToolCatalogResponse, ReturnType<typeof getToolCatalogQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1977,6 +1995,8 @@ export const getAgentConfigQueryKey = (options: Options<GetAgentConfigData>) => 
 
 /**
  * Get agent config
+ *
+ * Returns one agent config: its compiled definition with names resolved to IDs, and its source if it was saved with one. Configs Omnara derives on its own, such as those for subagents and integration launches, have no source.
  */
 export const getAgentConfigOptions = (options: Options<GetAgentConfigData>) => queryOptions<GetAgentConfigResponse, GetAgentConfigError, GetAgentConfigResponse, ReturnType<typeof getAgentConfigQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2016,7 +2036,7 @@ export const listAgentProfilesQueryKey = (options: Options<ListAgentProfilesData
 /**
  * List agent profiles
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agent profiles, newest first by default, filterable by name. Items include a summary of each profile's current config, not its full compiled definition.
  */
 export const listAgentProfilesOptions = (options: Options<ListAgentProfilesData>) => queryOptions<ListAgentProfilesResponse2, ListAgentProfilesError, ListAgentProfilesResponse2, ReturnType<typeof listAgentProfilesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2036,7 +2056,7 @@ export const listAgentProfilesInfiniteQueryKey = (options: Options<ListAgentProf
 /**
  * List agent profiles
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agent profiles, newest first by default, filterable by name. Items include a summary of each profile's current config, not its full compiled definition.
  */
 export const listAgentProfilesInfiniteOptions = (options: Options<ListAgentProfilesData>) => {
     const opts = infiniteQueryOptions<ListAgentProfilesResponse2, ListAgentProfilesError, InfiniteData<ListAgentProfilesResponse2>, QueryKey<Options<ListAgentProfilesData>>, string | Pick<QueryKey<Options<ListAgentProfilesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2065,6 +2085,8 @@ export const listAgentProfilesInfiniteOptions = (options: Options<ListAgentProfi
 
 /**
  * Create agent profile
+ *
+ * Creates a named profile that points at an agent config and returns the profile with its current config.
  */
 export const createAgentProfileMutation = (options?: Partial<Options<CreateAgentProfileData>>): UseMutationOptions<CreateAgentProfileResponse, CreateAgentProfileError, Options<CreateAgentProfileData>> => {
     const mutationOptions: UseMutationOptions<CreateAgentProfileResponse, CreateAgentProfileError, Options<CreateAgentProfileData>> = {
@@ -2103,6 +2125,8 @@ export const getAgentProfileQueryKey = (options: Options<GetAgentProfileData>) =
 
 /**
  * Get agent profile
+ *
+ * Returns one agent profile with its current config, current_config_id, and current_generation.
  */
 export const getAgentProfileOptions = (options: Options<GetAgentProfileData>) => queryOptions<GetAgentProfileResponse, GetAgentProfileError, GetAgentProfileResponse, ReturnType<typeof getAgentProfileQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2119,6 +2143,8 @@ export const getAgentProfileOptions = (options: Options<GetAgentProfileData>) =>
 
 /**
  * Rename agent profile
+ *
+ * Renames an agent profile without changing its config. Agents and cron triggers reference the profile by ID and keep working, but configs that name the profile under subagents must use the new name the next time they're compiled.
  */
 export const renameAgentProfileMutation = (options?: Partial<Options<RenameAgentProfileData>>): UseMutationOptions<RenameAgentProfileResponse, RenameAgentProfileError, Options<RenameAgentProfileData>> => {
     const mutationOptions: UseMutationOptions<RenameAgentProfileResponse, RenameAgentProfileError, Options<RenameAgentProfileData>> = {
@@ -2156,6 +2182,8 @@ export const getAgentProfileUsageOptions = (options: Options<GetAgentProfileUsag
 
 /**
  * Update agent profile
+ *
+ * Points a profile at a different agent config. Existing agents keep their current config; agents launched from the profile afterward use the new one. Fails with 409 unless expected_current_config_id matches the profile's current config.
  */
 export const updateAgentProfileMutation = (options?: Partial<Options<UpdateAgentProfileData>>): UseMutationOptions<UpdateAgentProfileResponse, UpdateAgentProfileError, Options<UpdateAgentProfileData>> => {
     const mutationOptions: UseMutationOptions<UpdateAgentProfileResponse, UpdateAgentProfileError, Options<UpdateAgentProfileData>> = {
@@ -2252,7 +2280,7 @@ export const listCronTriggersQueryKey = (options: Options<ListCronTriggersData>)
 /**
  * List cron triggers
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's cron triggers, newest first by default, filterable by name, agent, profile, or integration. Each item includes its schedule and next_fire_at.
  */
 export const listCronTriggersOptions = (options: Options<ListCronTriggersData>) => queryOptions<ListCronTriggersResponse2, ListCronTriggersError, ListCronTriggersResponse2, ReturnType<typeof listCronTriggersQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2272,7 +2300,7 @@ export const listCronTriggersInfiniteQueryKey = (options: Options<ListCronTrigge
 /**
  * List cron triggers
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's cron triggers, newest first by default, filterable by name, agent, profile, or integration. Each item includes its schedule and next_fire_at.
  */
 export const listCronTriggersInfiniteOptions = (options: Options<ListCronTriggersData>) => {
     const opts = infiniteQueryOptions<ListCronTriggersResponse2, ListCronTriggersError, InfiniteData<ListCronTriggersResponse2>, QueryKey<Options<ListCronTriggersData>>, string | Pick<QueryKey<Options<ListCronTriggersData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2320,6 +2348,8 @@ export const createCronTriggerMutation = (options?: Partial<Options<CreateCronTr
 
 /**
  * Delete cron trigger
+ *
+ * Deletes a cron trigger so it never fires again; there is no undo. Agents it already launched keep running.
  */
 export const deleteCronTriggerMutation = (options?: Partial<Options<DeleteCronTriggerData>>): UseMutationOptions<DeleteCronTriggerResponse, DeleteCronTriggerError, Options<DeleteCronTriggerData>> => {
     const mutationOptions: UseMutationOptions<DeleteCronTriggerResponse, DeleteCronTriggerError, Options<DeleteCronTriggerData>> = {
@@ -2339,6 +2369,8 @@ export const getCronTriggerQueryKey = (options: Options<GetCronTriggerData>) => 
 
 /**
  * Get cron trigger
+ *
+ * Returns one cron trigger: its target, schedule, timezone, message template, enabled flag, and firing state (last_fired_at, next_fire_at, and any failure since the last successful firing).
  */
 export const getCronTriggerOptions = (options: Options<GetCronTriggerData>) => queryOptions<GetCronTriggerResponse, GetCronTriggerError, GetCronTriggerResponse, ReturnType<typeof getCronTriggerQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2377,7 +2409,7 @@ export const listAgentsQueryKey = (options: Options<ListAgentsData>) => createQu
 /**
  * List agents
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
  */
 export const listAgentsOptions = (options: Options<ListAgentsData>) => queryOptions<ListAgentsResponse2, ListAgentsError, ListAgentsResponse2, ReturnType<typeof listAgentsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2397,7 +2429,7 @@ export const listAgentsInfiniteQueryKey = (options: Options<ListAgentsData>): Qu
 /**
  * List agents
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
  */
 export const listAgentsInfiniteOptions = (options: Options<ListAgentsData>) => {
     const opts = infiniteQueryOptions<ListAgentsResponse2, ListAgentsError, InfiniteData<ListAgentsResponse2>, QueryKey<Options<ListAgentsData>>, string | Pick<QueryKey<Options<ListAgentsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2447,6 +2479,8 @@ export const getAgentQueryKey = (options: Options<GetAgentData>) => createQueryK
 
 /**
  * Get agent
+ *
+ * Returns one agent's state, model, profile, current config ID, activity (running, waiting_on_interaction, idle, or archived), attached machines, and MCP connection states. The conversation isn't included.
  */
 export const getAgentOptions = (options: Options<GetAgentData>) => queryOptions<GetAgentResponse2, GetAgentError, GetAgentResponse2, ReturnType<typeof getAgentQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2502,6 +2536,8 @@ export const archiveAgentMutation = (options?: Partial<Options<ArchiveAgentData>
 
 /**
  * Update agent config
+ *
+ * Replaces an active agent's config without restarting its conversation and returns the new agent_config. Model, instruction, and tool changes apply at the agent's next model call; machine changes apply immediately, stopping processes on removed machines and deleting the agent's machines from removed pools. Send the complete config, not a patch.
  */
 export const updateAgentConfigMutation = (options?: Partial<Options<UpdateAgentConfigData>>): UseMutationOptions<UpdateAgentConfigResponse2, UpdateAgentConfigError, Options<UpdateAgentConfigData>> => {
     const mutationOptions: UseMutationOptions<UpdateAgentConfigResponse2, UpdateAgentConfigError, Options<UpdateAgentConfigData>> = {
@@ -2519,6 +2555,8 @@ export const updateAgentConfigMutation = (options?: Partial<Options<UpdateAgentC
 
 /**
  * Create agent input
+ *
+ * Sends a message to an agent and returns the stored input. Queued messages (the default) wait until the agent is ready for new work; steering messages reach it at its next model call.
  */
 export const createAgentInputMutation = (options?: Partial<Options<CreateAgentInputData>>): UseMutationOptions<CreateAgentInputResponse, CreateAgentInputError, Options<CreateAgentInputData>> => {
     const mutationOptions: UseMutationOptions<CreateAgentInputResponse, CreateAgentInputError, Options<CreateAgentInputData>> = {
@@ -2667,6 +2705,8 @@ export const listEventsOptions = (options: Options<ListEventsData>) => queryOpti
 
 /**
  * Cancel agent
+ *
+ * Stops the agent's current turn: cancels its unfinished tool calls and open interactions, stops processes whose run_command hasn't returned yet, and discards pending steering messages. The agent stays active and keeps its queued messages, and processes whose run_command already returned keep running. Returns affected false and changes nothing when no turn is in progress.
  */
 export const cancelAgentMutation = (options?: Partial<Options<CancelAgentData>>): UseMutationOptions<CancelAgentResponse2, CancelAgentError, Options<CancelAgentData>> => {
     const mutationOptions: UseMutationOptions<CancelAgentResponse2, CancelAgentError, Options<CancelAgentData>> = {
@@ -2687,7 +2727,7 @@ export const listAgentInteractionsQueryKey = (options: Options<ListAgentInteract
 /**
  * List agent interactions
  *
- * Items are ordered by created_at ascending, then id ascending.
+ * Lists an agent's permission prompts and ask_question questions, oldest first, with each one's form and answers. state filters by open, resolved, or canceled.
  */
 export const listAgentInteractionsOptions = (options: Options<ListAgentInteractionsData>) => queryOptions<ListAgentInteractionsResponse2, ListAgentInteractionsError, ListAgentInteractionsResponse2, ReturnType<typeof listAgentInteractionsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2707,7 +2747,7 @@ export const listAgentInteractionsInfiniteQueryKey = (options: Options<ListAgent
 /**
  * List agent interactions
  *
- * Items are ordered by created_at ascending, then id ascending.
+ * Lists an agent's permission prompts and ask_question questions, oldest first, with each one's form and answers. state filters by open, resolved, or canceled.
  */
 export const listAgentInteractionsInfiniteOptions = (options: Options<ListAgentInteractionsData>) => {
     const opts = infiniteQueryOptions<ListAgentInteractionsResponse2, ListAgentInteractionsError, InfiniteData<ListAgentInteractionsResponse2>, QueryKey<Options<ListAgentInteractionsData>>, string | Pick<QueryKey<Options<ListAgentInteractionsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2736,6 +2776,8 @@ export const listAgentInteractionsInfiniteOptions = (options: Options<ListAgentI
 
 /**
  * Resolve agent interaction
+ *
+ * Answers an open permission prompt or question so the paused agent resumes, and returns the resolved interaction. Send one answer per question with zero-based option_indices; permission prompts use 0 for Allow and 1 for Deny.
  */
 export const resolveAgentInteractionMutation = (options?: Partial<Options<ResolveAgentInteractionData>>): UseMutationOptions<ResolveAgentInteractionResponse, ResolveAgentInteractionError, Options<ResolveAgentInteractionData>> => {
     const mutationOptions: UseMutationOptions<ResolveAgentInteractionResponse, ResolveAgentInteractionError, Options<ResolveAgentInteractionData>> = {
@@ -3013,6 +3055,8 @@ export const listProjectMachineGrantsInfiniteOptions = (options: Options<ListPro
 
 /**
  * Create project machine grant
+ *
+ * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404.
  */
 export const createProjectMachineGrantMutation = (options?: Partial<Options<CreateProjectMachineGrantData>>): UseMutationOptions<CreateProjectMachineGrantResponse2, CreateProjectMachineGrantError, Options<CreateProjectMachineGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectMachineGrantResponse2, CreateProjectMachineGrantError, Options<CreateProjectMachineGrantData>> = {
@@ -3211,7 +3255,7 @@ export const listVisibleMachinesQueryKey = (options: Options<ListVisibleMachines
 /**
  * List visible machines
  *
- * Items are ordered by machine created_at descending, then machine id descending.
+ * Lists the machines the caller can see, both BYO and pooled, newest first by default, with each one's connection state. Items are summaries without execution defaults or metadata.
  */
 export const listVisibleMachinesOptions = (options: Options<ListVisibleMachinesData>) => queryOptions<ListVisibleMachinesResponse2, ListVisibleMachinesError, ListVisibleMachinesResponse2, ReturnType<typeof listVisibleMachinesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3231,7 +3275,7 @@ export const listVisibleMachinesInfiniteQueryKey = (options: Options<ListVisible
 /**
  * List visible machines
  *
- * Items are ordered by machine created_at descending, then machine id descending.
+ * Lists the machines the caller can see, both BYO and pooled, newest first by default, with each one's connection state. Items are summaries without execution defaults or metadata.
  */
 export const listVisibleMachinesInfiniteOptions = (options: Options<ListVisibleMachinesData>) => {
     const opts = infiniteQueryOptions<ListVisibleMachinesResponse2, ListVisibleMachinesError, InfiniteData<ListVisibleMachinesResponse2>, QueryKey<Options<ListVisibleMachinesData>>, string | Pick<QueryKey<Options<ListVisibleMachinesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3277,6 +3321,8 @@ export const createMachineMutation = (options?: Partial<Options<CreateMachineDat
 
 /**
  * Connect a BYO machine
+ *
+ * Registers a machine you run yourself and returns its daemon token for installing omnarad on it; the token is shown only in this response. The machine stays offline until its daemon connects. project_ids grants it to those projects in the same call, and their agent configs reference it by display_name.
  */
 export const connectByoMachineMutation = (options?: Partial<Options<ConnectByoMachineData>>): UseMutationOptions<ConnectByoMachineResponse2, ConnectByoMachineError, Options<ConnectByoMachineData>> => {
     const mutationOptions: UseMutationOptions<ConnectByoMachineResponse2, ConnectByoMachineError, Options<ConnectByoMachineData>> = {
@@ -3315,6 +3361,8 @@ export const getMachineQueryKey = (options: Options<GetMachineData>) => createQu
 
 /**
  * Get machine
+ *
+ * Returns one active machine's full record: connection state, execution defaults (secret IDs only, never values), metadata, and the latest failure report. Machines in other lifecycle states, such as pool machines still provisioning, aren't returned.
  */
 export const getMachineOptions = (options: Options<GetMachineData>) => queryOptions<GetMachineResponse, GetMachineError, GetMachineResponse, ReturnType<typeof getMachineQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3331,6 +3379,8 @@ export const getMachineOptions = (options: Options<GetMachineData>) => queryOpti
 
 /**
  * Update machine execution defaults
+ *
+ * Updates a machine's execution defaults: working directory, environment variables, and secret environment variables. env and secret_env replace the whole map, and changes apply to processes started afterward.
  */
 export const updateMachineMutation = (options?: Partial<Options<UpdateMachineData>>): UseMutationOptions<UpdateMachineResponse, UpdateMachineError, Options<UpdateMachineData>> => {
     const mutationOptions: UseMutationOptions<UpdateMachineResponse, UpdateMachineError, Options<UpdateMachineData>> = {
@@ -3440,6 +3490,8 @@ export const getModelProviderConfigQueryKey = (options: Options<GetModelProvider
 
 /**
  * Get model provider config
+ *
+ * Returns one model provider config's stored settings; secret values are never returned. The provider isn't contacted, so the response doesn't list its models.
  */
 export const getModelProviderConfigOptions = (options: Options<GetModelProviderConfigData>) => queryOptions<GetModelProviderConfigResponse, GetModelProviderConfigError, GetModelProviderConfigResponse, ReturnType<typeof getModelProviderConfigQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3456,6 +3508,8 @@ export const getModelProviderConfigOptions = (options: Options<GetModelProviderC
 
 /**
  * Update model provider config
+ *
+ * Updates a model provider config's connection settings, such as its credential and headers, and returns the updated config; omitted fields keep their values. The credential secret is checked to exist and match auth_kind, but the provider isn't contacted, so a credential the provider rejects isn't caught here.
  */
 export const updateModelProviderConfigMutation = (options?: Partial<Options<UpdateModelProviderConfigData>>): UseMutationOptions<UpdateModelProviderConfigResponse, UpdateModelProviderConfigError, Options<UpdateModelProviderConfigData>> => {
     const mutationOptions: UseMutationOptions<UpdateModelProviderConfigResponse, UpdateModelProviderConfigError, Options<UpdateModelProviderConfigData>> = {
@@ -3496,7 +3550,7 @@ export const listConfiguredModelsQueryKey = (options: Options<ListConfiguredMode
 /**
  * List configured models
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the models configured under one model provider config, newest first, with each model's slug, token limits, and reasoning support.
  */
 export const listConfiguredModelsOptions = (options: Options<ListConfiguredModelsData>) => queryOptions<ListConfiguredModelsResponse, ListConfiguredModelsError, ListConfiguredModelsResponse, ReturnType<typeof listConfiguredModelsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3516,7 +3570,7 @@ export const listConfiguredModelsInfiniteQueryKey = (options: Options<ListConfig
 /**
  * List configured models
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the models configured under one model provider config, newest first, with each model's slug, token limits, and reasoning support.
  */
 export const listConfiguredModelsInfiniteOptions = (options: Options<ListConfiguredModelsData>) => {
     const opts = infiniteQueryOptions<ListConfiguredModelsResponse, ListConfiguredModelsError, InfiniteData<ListConfiguredModelsResponse>, QueryKey<Options<ListConfiguredModelsData>>, string | Pick<QueryKey<Options<ListConfiguredModelsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3545,6 +3599,8 @@ export const listConfiguredModelsInfiniteOptions = (options: Options<ListConfigu
 
 /**
  * Create configured model
+ *
+ * Adds a provider model to this provider config under the name agent configs use as model.name, and returns it. The model slug isn't checked against the provider's catalog, and no project can use the model yet.
  */
 export const createConfiguredModelMutation = (options?: Partial<Options<CreateConfiguredModelData>>): UseMutationOptions<CreateConfiguredModelResponse, CreateConfiguredModelError, Options<CreateConfiguredModelData>> => {
     const mutationOptions: UseMutationOptions<CreateConfiguredModelResponse, CreateConfiguredModelError, Options<CreateConfiguredModelData>> = {
@@ -3581,6 +3637,8 @@ export const deleteConfiguredModelMutation = (options?: Partial<Options<DeleteCo
 
 /**
  * Update configured model
+ *
+ * Updates a configured model's settings and returns the updated model; omitted fields keep their values. Agents already using the model pick up the change on their next model call. The update isn't checked against project grants or agent configs, so lowering a limit below their overrides or turning off tools or reasoning they rely on makes those agents' next model call fail.
  */
 export const updateConfiguredModelMutation = (options?: Partial<Options<UpdateConfiguredModelData>>): UseMutationOptions<UpdateConfiguredModelResponse, UpdateConfiguredModelError, Options<UpdateConfiguredModelData>> => {
     const mutationOptions: UseMutationOptions<UpdateConfiguredModelResponse, UpdateConfiguredModelError, Options<UpdateConfiguredModelData>> = {
@@ -3601,7 +3659,7 @@ export const listProjectModelGrantsQueryKey = (options: Options<ListProjectModel
 /**
  * List project model grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the configured models a project can use, most recently granted first by default, with each grant's overrides and the model's name and provider config.
  */
 export const listProjectModelGrantsOptions = (options: Options<ListProjectModelGrantsData>) => queryOptions<ListProjectModelGrantsResponse2, ListProjectModelGrantsError, ListProjectModelGrantsResponse2, ReturnType<typeof listProjectModelGrantsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3621,7 +3679,7 @@ export const listProjectModelGrantsInfiniteQueryKey = (options: Options<ListProj
 /**
  * List project model grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the configured models a project can use, most recently granted first by default, with each grant's overrides and the model's name and provider config.
  */
 export const listProjectModelGrantsInfiniteOptions = (options: Options<ListProjectModelGrantsData>) => {
     const opts = infiniteQueryOptions<ListProjectModelGrantsResponse2, ListProjectModelGrantsError, InfiniteData<ListProjectModelGrantsResponse2>, QueryKey<Options<ListProjectModelGrantsData>>, string | Pick<QueryKey<Options<ListProjectModelGrantsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3650,6 +3708,8 @@ export const listProjectModelGrantsInfiniteOptions = (options: Options<ListProje
 
 /**
  * Create project model grant
+ *
+ * Lets a project's agent configs use a configured model and returns the new grant. Optional overrides can narrow the model for that project (lower token limits, tools or reasoning turned off, fewer reasoning efforts or modalities) and set its per-request defaults within those limits.
  */
 export const createProjectModelGrantMutation = (options?: Partial<Options<CreateProjectModelGrantData>>): UseMutationOptions<CreateProjectModelGrantResponse, CreateProjectModelGrantError, Options<CreateProjectModelGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectModelGrantResponse, CreateProjectModelGrantError, Options<CreateProjectModelGrantData>> = {
@@ -3687,7 +3747,7 @@ export const deleteProjectModelGrantMutation = (options?: Partial<Options<Delete
 /**
  * Update project model grant
  *
- * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. The grant is live policy: agents already using the model re-apply the updated overrides on their next model call, against the configured-model revision each agent pinned at launch. Updates are validated against the configured model's current revision only, so an update can make an agent pinned to an older, incompatible revision fail its next model call.
+ * Updates the project's overrides for the configured model. Omitted fields keep their current values; null, or [] for supported_reasoning_efforts, input_modalities, and output_modalities, clears an override so the project inherits from the configured model. Agents already using the model apply the updated overrides on their next model call. Updates are validated against the configured model's current revision but not against agent configs, so narrowing below a config's model settings, such as its context_window_tokens or reasoning effort, makes that agent's next model call fail.
  */
 export const updateProjectModelGrantMutation = (options?: Partial<Options<UpdateProjectModelGrantData>>): UseMutationOptions<UpdateProjectModelGrantResponse, UpdateProjectModelGrantError, Options<UpdateProjectModelGrantData>> => {
     const mutationOptions: UseMutationOptions<UpdateProjectModelGrantResponse, UpdateProjectModelGrantError, Options<UpdateProjectModelGrantData>> = {
@@ -3814,6 +3874,8 @@ export const getMachinePoolQueryKey = (options: Options<GetMachinePoolData>) => 
 
 /**
  * Get machine pool
+ *
+ * Returns one machine pool's configuration and current usage: provider, default machine settings, CPU, memory, and machine-count limits, and idle deletion policy.
  */
 export const getMachinePoolOptions = (options: Options<GetMachinePoolData>) => queryOptions<GetMachinePoolResponse, GetMachinePoolError, GetMachinePoolResponse, ReturnType<typeof getMachinePoolQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3852,7 +3914,7 @@ export const listProjectMachinePoolGrantsQueryKey = (options: Options<ListProjec
 /**
  * List project machine pool grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the machine pools a project can create machines from, one grant per pool, most recently granted first by default.
  */
 export const listProjectMachinePoolGrantsOptions = (options: Options<ListProjectMachinePoolGrantsData>) => queryOptions<ListProjectMachinePoolGrantsResponse2, ListProjectMachinePoolGrantsError, ListProjectMachinePoolGrantsResponse2, ReturnType<typeof listProjectMachinePoolGrantsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -3872,7 +3934,7 @@ export const listProjectMachinePoolGrantsInfiniteQueryKey = (options: Options<Li
 /**
  * List project machine pool grants
  *
- * Items are ordered by created_at descending, then id descending.
+ * Lists the machine pools a project can create machines from, one grant per pool, most recently granted first by default.
  */
 export const listProjectMachinePoolGrantsInfiniteOptions = (options: Options<ListProjectMachinePoolGrantsData>) => {
     const opts = infiniteQueryOptions<ListProjectMachinePoolGrantsResponse2, ListProjectMachinePoolGrantsError, InfiniteData<ListProjectMachinePoolGrantsResponse2>, QueryKey<Options<ListProjectMachinePoolGrantsData>>, string | Pick<QueryKey<Options<ListProjectMachinePoolGrantsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -3901,6 +3963,8 @@ export const listProjectMachinePoolGrantsInfiniteOptions = (options: Options<Lis
 
 /**
  * Create project machine pool grant
+ *
+ * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call.
  */
 export const createProjectMachinePoolGrantMutation = (options?: Partial<Options<CreateProjectMachinePoolGrantData>>): UseMutationOptions<CreateProjectMachinePoolGrantResponse, CreateProjectMachinePoolGrantError, Options<CreateProjectMachinePoolGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectMachinePoolGrantResponse, CreateProjectMachinePoolGrantError, Options<CreateProjectMachinePoolGrantData>> = {
@@ -3939,6 +4003,8 @@ export const getProjectMachinePoolGrantQueryKey = (options: Options<GetProjectMa
 
 /**
  * Get project machine pool grant
+ *
+ * Returns one project's grant for a machine pool, with the defaults and limits it sets on top of the pool's own. Null fields set no override, so the pool's value applies.
  */
 export const getProjectMachinePoolGrantOptions = (options: Options<GetProjectMachinePoolGrantData>) => queryOptions<GetProjectMachinePoolGrantResponse, GetProjectMachinePoolGrantError, GetProjectMachinePoolGrantResponse, ReturnType<typeof getProjectMachinePoolGrantQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

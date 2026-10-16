@@ -313,6 +313,9 @@ export type PersonalAccessTokenId = string;
 
 export type OrgApiKeyId = string;
 
+/**
+ * Project ID (proj_...).
+ */
 export type ProjectId = string;
 
 export type McpoAuthFlowId = string;
@@ -323,6 +326,9 @@ export type ActorId = string;
 
 export type AgentId = string;
 
+/**
+ * Agent config ID (acfg_...).
+ */
 export type AgentConfigId = string;
 
 export type AgentProfileId = string;
@@ -357,12 +363,21 @@ export type ConfiguredModelRevisionId = string;
 
 export type ProjectModelGrantId = string;
 
+/**
+ * Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+ */
 export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'anthropic-messages';
 
+/**
+ * How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+ */
 export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
 
 export type ModelProviderAuthKindResponse = string;
 
+/**
+ * Provider-specific flavor of the API format: default, openrouter, or bedrock.
+ */
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
 export type ModelProviderApiVariantResponse = string;
@@ -384,6 +399,9 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
  */
 export type CreateModelProviderConfigRequest = {
     name: ResourceName;
+    /**
+     * Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
+     */
     preset?: 'openai' | 'openrouter' | 'anthropic';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
@@ -920,8 +938,14 @@ export type ConfiguredModelSummary = {
     updated_at: Timestamp;
 };
 
+/**
+ * Machine pool ID (mpo_...).
+ */
 export type MachinePoolId = string;
 
+/**
+ * Machine ID (mch_...).
+ */
 export type MachineId = string;
 
 export type ProjectMachineGrantId = string;
@@ -938,6 +962,9 @@ export type SkillGrantId = string;
 
 export type MemoryStoreId = string;
 
+/**
+ * Secret ID (sec_...).
+ */
 export type SecretId = string;
 
 export type SecretGrantId = string;
@@ -1318,6 +1345,9 @@ export type ResolvedAgentConfigTool = {
  */
 export type CreateAgentConfigRequest = {
     source: AgentConfigSourceInput;
+    /**
+     * Format of source: yaml or json.
+     */
     source_format: 'yaml' | 'json';
 };
 
@@ -1331,6 +1361,9 @@ export type AgentConfigSourceInput = string | AgentConfigDefinition;
  */
 export type UpdateAgentConfigRequest = {
     source: AgentConfigSourceInput;
+    /**
+     * Format of source: yaml or json.
+     */
     source_format: 'yaml' | 'json';
     expected_current_config_id?: AgentConfigId;
 };
@@ -1881,6 +1914,9 @@ export type IntegrationCronTriggerTarget = {
     };
 };
 
+/**
+ * What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
+ */
 export type CronTriggerTarget = ({
     type: 'agent';
 } & AgentCronTriggerTarget) | ({
@@ -1927,6 +1963,9 @@ export type CreateCronTriggerRequest = {
     cron: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
+    /**
+     * Whether the trigger fires on schedule; false pauses it.
+     */
     enabled?: boolean;
 };
 
@@ -1939,6 +1978,9 @@ export type UpdateCronTriggerRequest = {
     cron?: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
+    /**
+     * Whether the trigger fires on schedule; false pauses it.
+     */
     enabled?: boolean;
 };
 
@@ -2993,6 +3035,9 @@ export type UserSecretOwnerInput = {
     kind: 'user';
 };
 
+/**
+ * Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
+ */
 export type SecretOwnerInput = ({
     kind: 'org';
 } & OrgSecretOwnerInput) | ({
@@ -3072,6 +3117,9 @@ export type GitHubAppCredentialsSecretMaterial = {
     webhook_secret: string;
 };
 
+/**
+ * The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
+ */
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
@@ -3301,6 +3349,9 @@ export type Artifact = {
     created_at: Timestamp;
 };
 
+/**
+ * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
+ */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     provider: 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
@@ -3391,8 +3442,17 @@ export type CreateMachinePoolRequestBase = {
 
 export type UpdateMachinePoolRequest = {
     name?: ResourceName;
+    /**
+     * Optional description of the pool.
+     */
     description?: string;
+    /**
+     * Default CPU count for new machines in the pool.
+     */
     default_machine_cpu?: number | null;
+    /**
+     * Default memory in MB for new machines in the pool.
+     */
     default_machine_memory_mb?: number | null;
     /**
      * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
@@ -3406,10 +3466,19 @@ export type UpdateMachinePoolRequest = {
     default_machine_secret_env?: {
         [key: string]: SecretId;
     };
+    /**
+     * Provider-specific options applied to new machines in the pool.
+     */
     default_machine_provider_options?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on machines created from the pool after this change.
+     */
     default_cwd?: string;
+    /**
+     * Provider-specific settings for the pool.
+     */
     provider_config?: {
         [key: string]: unknown;
     };
@@ -3418,12 +3487,33 @@ export type UpdateMachinePoolRequest = {
      * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
      */
     runtime_protection_enabled?: boolean;
+    /**
+     * Maximum number of live machines in the pool.
+     */
     max_total_machines?: number;
+    /**
+     * Maximum total CPU across the pool's live machines.
+     */
     max_total_cpu?: number | null;
+    /**
+     * Maximum total memory in MB across the pool's live machines.
+     */
     max_total_memory_mb?: number | null;
+    /**
+     * Smallest CPU count a single machine in the pool can use.
+     */
     min_machine_cpu?: number | null;
+    /**
+     * Smallest memory in MB a single machine in the pool can use.
+     */
     min_machine_memory_mb?: number | null;
+    /**
+     * Largest CPU count a single machine in the pool can use.
+     */
     max_machine_cpu?: number | null;
+    /**
+     * Largest memory in MB a single machine in the pool can use.
+     */
     max_machine_memory_mb?: number | null;
     /**
      * Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
@@ -3552,15 +3642,30 @@ export type CreateMachineRequest = {
 
 export type ConnectByoMachineRequest = {
     display_name: ResourceName;
+    /**
+     * Optional description of the machine.
+     */
     description?: string;
+    /**
+     * Default working directory for processes started on the machine.
+     */
     cwd?: string;
+    /**
+     * Environment variables set for processes started on the machine.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
     metadata?: MachineMetadata;
+    /**
+     * Projects to grant the machine to in the same call (up to 100).
+     */
     project_ids?: Array<ProjectId>;
     /**
      * Optional daemon token name. Omitted values default to daemon.
@@ -3579,10 +3684,19 @@ export type ConnectByoMachineResponse = {
 };
 
 export type UpdateMachineRequest = {
+    /**
+     * Default working directory for processes started on the machine.
+     */
     cwd?: string;
+    /**
+     * Environment variables set for processes started on the machine.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
@@ -3644,6 +3758,9 @@ export type ProjectMachineGrant = {
 
 export type CreateProjectMachineGrantRequest = {
     machine_id: MachineId;
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
     metadata?: Metadata;
 };
@@ -3705,8 +3822,17 @@ export type ProjectMachinePoolGrant = {
 
 export type CreateProjectMachinePoolGrantRequest = {
     machine_pool_id: MachinePoolId;
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
+    /**
+     * Default CPU count for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_cpu?: number;
+    /**
+     * Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_memory_mb?: number;
     /**
      * Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
@@ -3720,16 +3846,43 @@ export type CreateProjectMachinePoolGrantRequest = {
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Provider-specific options layered over the pool's provider options for this project's machines.
+     */
     default_machine_provider_options_overlay?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on this project's machines from the pool.
+     */
     default_cwd?: string;
+    /**
+     * Maximum number of live machines this project can have from the pool.
+     */
     max_total_machines?: number;
+    /**
+     * Maximum total CPU across this project's live machines from the pool.
+     */
     max_total_cpu?: number;
+    /**
+     * Maximum total memory in MB across this project's live machines from the pool.
+     */
     max_total_memory_mb?: number;
+    /**
+     * Smallest CPU count one of this project's machines can request.
+     */
     min_machine_cpu?: number;
+    /**
+     * Smallest memory in MB one of this project's machines can request.
+     */
     min_machine_memory_mb?: number;
+    /**
+     * Largest CPU count one of this project's machines can request.
+     */
     max_machine_cpu?: number;
+    /**
+     * Largest memory in MB one of this project's machines can request.
+     */
     max_machine_memory_mb?: number;
     /**
      * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
@@ -3742,25 +3895,67 @@ export type CreateProjectMachinePoolGrantRequest = {
  * Update a project machine pool grant. Omitted fields keep their current values. Null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present; send an empty object to clear them.
  */
 export type UpdateProjectMachinePoolGrantRequest = {
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
+    /**
+     * Default CPU count for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_cpu?: number | null;
+    /**
+     * Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_memory_mb?: number | null;
+    /**
+     * Env overlay merged over the pool's default_machine_env for machines this project creates from the pool afterward; a null entry removes the key.
+     */
     default_machine_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Secret env overlay merged over the pool's default_machine_secret_env for machines this project creates from the pool afterward; a null entry removes the key.
+     */
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Provider-specific options layered over the pool's provider options for this project's machines.
+     */
     default_machine_provider_options_overlay?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on this project's machines created from the pool after this change.
+     */
     default_cwd?: string;
+    /**
+     * Maximum number of live machines this project can have from the pool.
+     */
     max_total_machines?: number | null;
+    /**
+     * Maximum total CPU across this project's live machines from the pool.
+     */
     max_total_cpu?: number | null;
+    /**
+     * Maximum total memory in MB across this project's live machines from the pool.
+     */
     max_total_memory_mb?: number | null;
+    /**
+     * Smallest CPU count one of this project's machines can request.
+     */
     min_machine_cpu?: number | null;
+    /**
+     * Smallest memory in MB one of this project's machines can request.
+     */
     min_machine_memory_mb?: number | null;
+    /**
+     * Largest CPU count one of this project's machines can request.
+     */
     max_machine_cpu?: number | null;
+    /**
+     * Largest memory in MB one of this project's machines can request.
+     */
     max_machine_memory_mb?: number | null;
     /**
      * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
@@ -4621,6 +4816,9 @@ export type CreatePersonalAccessTokenResponse2 = CreatePersonalAccessTokenRespon
 export type RevokePersonalAccessTokenData = {
     body?: never;
     path: {
+        /**
+         * Personal access token ID (pat_...).
+         */
         tokenID: string;
     };
     query?: never;
@@ -4936,6 +5134,9 @@ export type CreateOrganizationResponse2 = CreateOrganizationResponses[keyof Crea
 export type DeleteOrganizationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -5199,6 +5400,9 @@ export type ListPendingInvitationsResponse = ListPendingInvitationsResponses[key
 export type AcceptInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -5266,6 +5470,9 @@ export type AcceptInvitationResponse = AcceptInvitationResponses[keyof AcceptInv
 export type DeclineInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -5333,6 +5540,9 @@ export type DeclineInvitationResponse = DeclineInvitationResponses[keyof Decline
 export type GetOrgOverviewData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: never;
@@ -5396,6 +5606,9 @@ export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOvervie
 export type GetOrgUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -5472,6 +5685,9 @@ export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponse
 export type GetOrgUsageTimeseriesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -5576,6 +5792,9 @@ export type GetOrgUsageTimeseriesResponse = GetOrgUsageTimeseriesResponses[keyof
 export type ListOrgAgentsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -5673,6 +5892,9 @@ export type ListOrgAgentsResponse = ListOrgAgentsResponses[keyof ListOrgAgentsRe
 export type ListOrgAgentProfilesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -5758,6 +5980,9 @@ export type ListOrgAgentProfilesResponse = ListOrgAgentProfilesResponses[keyof L
 export type ListVisibleProjectsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -5840,6 +6065,9 @@ export type CreateProjectData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -5911,7 +6139,13 @@ export type CreateProjectResponse = CreateProjectResponses[keyof CreateProjectRe
 export type DeleteProjectData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -5979,7 +6213,13 @@ export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectRe
 export type GetProjectUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -6048,6 +6288,9 @@ export type GetProjectUsageResponse = GetProjectUsageResponses[keyof GetProjectU
 export type ListOrgMembersData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -6125,7 +6368,13 @@ export type ListOrgMembersResponse2 = ListOrgMembersResponses[keyof ListOrgMembe
 export type RemoveOrgMemberData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -6193,7 +6442,13 @@ export type RemoveOrgMemberResponse = RemoveOrgMemberResponses[keyof RemoveOrgMe
 export type UpdateOrgMemberData = {
     body: UpdateOrgMemberRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -6261,7 +6516,13 @@ export type UpdateOrgMemberResponse = UpdateOrgMemberResponses[keyof UpdateOrgMe
 export type ListMemberProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -6325,8 +6586,17 @@ export type ListMemberProjectAccessResponse = ListMemberProjectAccessResponses[k
 export type RemoveMemberProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -6390,8 +6660,17 @@ export type RemoveMemberProjectAccessResponse = RemoveMemberProjectAccessRespons
 export type SetMemberProjectAccessData = {
     body: SetProjectMembershipRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -6459,6 +6738,9 @@ export type SetMemberProjectAccessResponse = SetMemberProjectAccessResponses[key
 export type ListOrgApiKeysData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -6531,6 +6813,9 @@ export type ListOrgApiKeysResponse2 = ListOrgApiKeysResponses[keyof ListOrgApiKe
 export type CreateOrgApiKeyData = {
     body: CreateOrgApiKeyRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -6598,7 +6883,13 @@ export type CreateOrgApiKeyResponse2 = CreateOrgApiKeyResponses[keyof CreateOrgA
 export type GetOrgApiKeyData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -6662,7 +6953,13 @@ export type GetOrgApiKeyResponse = GetOrgApiKeyResponses[keyof GetOrgApiKeyRespo
 export type UpdateOrgApiKeyData = {
     body: UpdateOrgApiKeyRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -6730,7 +7027,13 @@ export type UpdateOrgApiKeyResponse = UpdateOrgApiKeyResponses[keyof UpdateOrgAp
 export type RevokeOrgApiKeyData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -6794,7 +7097,13 @@ export type RevokeOrgApiKeyResponse = RevokeOrgApiKeyResponses[keyof RevokeOrgAp
 export type ListOrgApiKeyProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -6858,8 +7167,17 @@ export type ListOrgApiKeyProjectAccessResponse = ListOrgApiKeyProjectAccessRespo
 export type RemoveOrgApiKeyProjectRoleData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -6927,8 +7245,17 @@ export type RemoveOrgApiKeyProjectRoleResponse = RemoveOrgApiKeyProjectRoleRespo
 export type SetOrgApiKeyProjectRoleData = {
     body: SetProjectMembershipRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -6996,6 +7323,9 @@ export type SetOrgApiKeyProjectRoleResponse = SetOrgApiKeyProjectRoleResponses[k
 export type ListOrgInvitationsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -7072,6 +7402,9 @@ export type ListOrgInvitationsResponse2 = ListOrgInvitationsResponses[keyof List
 export type CreateOrgInvitationData = {
     body: CreateOrgInvitationRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -7139,7 +7472,13 @@ export type CreateOrgInvitationResponse = CreateOrgInvitationResponses[keyof Cre
 export type DeleteOrgInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -7207,6 +7546,9 @@ export type DeleteOrgInvitationResponse = DeleteOrgInvitationResponses[keyof Del
 export type ListSkillsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -7296,6 +7638,9 @@ export type ListSkillsResponse2 = ListSkillsResponses[keyof ListSkillsResponses]
 export type CreateSkillData = {
     body: CreateSkillRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -7371,7 +7716,13 @@ export type CreateSkillResponse = CreateSkillResponses[keyof CreateSkillResponse
 export type DeleteSkillData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -7443,7 +7794,13 @@ export type DeleteSkillResponse = DeleteSkillResponses[keyof DeleteSkillResponse
 export type GetSkillData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -7511,7 +7868,13 @@ export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
 export type UpdateSkillData = {
     body: UpdateSkillRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -7587,7 +7950,13 @@ export type UpdateSkillResponse = UpdateSkillResponses[keyof UpdateSkillResponse
 export type ListSkillGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
     };
     query?: {
@@ -7669,7 +8038,13 @@ export type ListSkillGrantsResponse2 = ListSkillGrantsResponses[keyof ListSkillG
 export type CreateSkillGrantData = {
     body: SkillGrantCreateRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
     };
     query?: never;
@@ -7741,8 +8116,17 @@ export type CreateSkillGrantResponse = CreateSkillGrantResponses[keyof CreateSki
 export type DeleteSkillGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
+        /**
+         * Skill grant ID (skg_...).
+         */
         grantID: SkillGrantId;
     };
     query?: never;
@@ -7810,7 +8194,13 @@ export type DeleteSkillGrantResponse = DeleteSkillGrantResponses[keyof DeleteSki
 export type ListProjectAvailableSkillsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -7900,6 +8290,9 @@ export type ListProjectAvailableSkillsResponse = ListProjectAvailableSkillsRespo
 export type ListOrgMemoryStoresData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -7976,7 +8369,13 @@ export type ListOrgMemoryStoresResponse = ListOrgMemoryStoresResponses[keyof Lis
 export type ListMemoryStoresData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -8061,7 +8460,13 @@ export type ListMemoryStoresResponse = ListMemoryStoresResponses[keyof ListMemor
 export type CreateMemoryStoreData = {
     body: CreateMemoryStore;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -8133,8 +8538,17 @@ export type CreateMemoryStoreResponse = CreateMemoryStoreResponses[keyof CreateM
 export type DeleteMemoryStoreData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query?: never;
@@ -8206,8 +8620,17 @@ export type DeleteMemoryStoreResponse = DeleteMemoryStoreResponses[keyof DeleteM
 export type GetMemoryStoreData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query?: never;
@@ -8279,8 +8702,17 @@ export type GetMemoryStoreResponse = GetMemoryStoreResponses[keyof GetMemoryStor
 export type UpdateMemoryStoreData = {
     body: UpdateMemoryStore;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query?: never;
@@ -8352,8 +8784,17 @@ export type UpdateMemoryStoreResponse = UpdateMemoryStoreResponses[keyof UpdateM
 export type ListMemoryFilesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query?: {
@@ -8438,8 +8879,17 @@ export type ListMemoryFilesResponse = ListMemoryFilesResponses[keyof ListMemoryF
 export type DeleteMemoryFileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query: {
@@ -8520,8 +8970,17 @@ export type DeleteMemoryFileResponse = DeleteMemoryFileResponses[keyof DeleteMem
 export type DownloadMemoryFileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query: {
@@ -8598,8 +9057,17 @@ export type DownloadMemoryFileResponse = DownloadMemoryFileResponses[keyof Downl
 export type WriteMemoryFileData = {
     body?: Blob | File;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
         memoryStoreID: MemoryStoreId;
     };
     query: {
@@ -8684,6 +9152,9 @@ export type WriteMemoryFileResponse = WriteMemoryFileResponses[keyof WriteMemory
 export type ListSecretsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -8787,6 +9258,9 @@ export type ListSecretsResponse2 = ListSecretsResponses[keyof ListSecretsRespons
 export type CreateSecretData = {
     body: CreateSecretRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -8858,6 +9332,9 @@ export type CreateSecretResponse = CreateSecretResponses[keyof CreateSecretRespo
 export type StartSecretMcpoAuthData = {
     body: McpoAuthStartRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -8937,7 +9414,13 @@ export type StartSecretMcpoAuthResponse = StartSecretMcpoAuthResponses[keyof Sta
 export type DeleteSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -9009,7 +9492,13 @@ export type DeleteSecretResponse = DeleteSecretResponses[keyof DeleteSecretRespo
 export type GetSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -9077,7 +9566,13 @@ export type GetSecretResponse = GetSecretResponses[keyof GetSecretResponses];
 export type UpdateSecretData = {
     body: UpdateSecretRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -9149,7 +9644,13 @@ export type UpdateSecretResponse = UpdateSecretResponses[keyof UpdateSecretRespo
 export type CreateSecretVersionData = {
     body: SecretVersionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -9221,7 +9722,13 @@ export type CreateSecretVersionResponse = CreateSecretVersionResponses[keyof Cre
 export type ListSecretGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: {
@@ -9303,7 +9810,13 @@ export type ListSecretGrantsResponse2 = ListSecretGrantsResponses[keyof ListSecr
 export type CreateSecretGrantData = {
     body: SecretGrantCreateRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -9375,8 +9888,17 @@ export type CreateSecretGrantResponse = CreateSecretGrantResponses[keyof CreateS
 export type DeleteSecretGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
+        /**
+         * Secret grant ID (sgr_...).
+         */
         grantID: string;
     };
     query?: never;
@@ -9444,7 +9966,13 @@ export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteS
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -9498,7 +10026,13 @@ export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[k
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -9697,7 +10231,13 @@ export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServe
 export type ListMcpServerToolsData = {
     body: McpServerToolsRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -9777,8 +10317,17 @@ export type ListMcpServerToolsResponse = ListMcpServerToolsResponses[keyof ListM
 export type GetAgentConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent config ID (acfg_...).
+         */
         agentConfigID: string;
     };
     query?: never;
@@ -9846,8 +10395,17 @@ export type GetAgentConfigResponse = GetAgentConfigResponses[keyof GetAgentConfi
 export type GetAgentConfigGeneratedSourceData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent config ID (acfg_...).
+         */
         agentConfigID: string;
     };
     query?: {
@@ -9920,7 +10478,13 @@ export type GetAgentConfigGeneratedSourceResponse = GetAgentConfigGeneratedSourc
 export type ListAgentProfilesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -10012,7 +10576,13 @@ export type CreateAgentProfileData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -10084,8 +10654,17 @@ export type CreateAgentProfileResponse = CreateAgentProfileResponses[keyof Creat
 export type DeleteAgentProfileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -10153,8 +10732,17 @@ export type DeleteAgentProfileResponse = DeleteAgentProfileResponses[keyof Delet
 export type GetAgentProfileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -10222,8 +10810,17 @@ export type GetAgentProfileResponse = GetAgentProfileResponses[keyof GetAgentPro
 export type RenameAgentProfileData = {
     body: RenameAgentProfileRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -10291,8 +10888,17 @@ export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof Renam
 export type GetAgentProfileUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: AgentProfileId;
     };
     query?: {
@@ -10371,8 +10977,17 @@ export type UpdateAgentProfileData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -10440,8 +11055,17 @@ export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof Updat
 export type CreateIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -10509,8 +11133,17 @@ export type CreateIntegrationOAuthSetupResponse = CreateIntegrationOAuthSetupRes
 export type CreateIntegrationSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -10578,8 +11211,17 @@ export type CreateIntegrationSlackSetupResponse = CreateIntegrationSlackSetupRes
 export type CreateIntegrationGitHubSetupData = {
     body: CreateGitHubSetupRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -10647,8 +11289,17 @@ export type CreateIntegrationGitHubSetupResponse = CreateIntegrationGitHubSetupR
 export type InspectIntegrationGitHubInstallationsData = {
     body: InspectGitHubInstallationsRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -10716,7 +11367,13 @@ export type InspectIntegrationGitHubInstallationsResponse = InspectIntegrationGi
 export type ListCronTriggersData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -10812,7 +11469,13 @@ export type CreateCronTriggerData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -10884,8 +11547,17 @@ export type CreateCronTriggerResponse = CreateCronTriggerResponses[keyof CreateC
 export type DeleteCronTriggerData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -10949,8 +11621,17 @@ export type DeleteCronTriggerResponse = DeleteCronTriggerResponses[keyof DeleteC
 export type GetCronTriggerData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -11014,8 +11695,17 @@ export type GetCronTriggerResponse = GetCronTriggerResponses[keyof GetCronTrigge
 export type UpdateCronTriggerData = {
     body: UpdateCronTriggerRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -11083,7 +11773,13 @@ export type UpdateCronTriggerResponse = UpdateCronTriggerResponses[keyof UpdateC
 export type ListAgentsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -11187,7 +11883,13 @@ export type CreateAgentData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -11259,8 +11961,17 @@ export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponse
 export type GetAgentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -11328,8 +12039,17 @@ export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
 export type GetAgentUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: AgentId;
     };
     query?: {
@@ -11402,8 +12122,17 @@ export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageRe
 export type ArchiveAgentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -11473,8 +12202,17 @@ export type UpdateAgentConfigData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -11548,8 +12286,17 @@ export type CreateAgentInputData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -11621,8 +12368,17 @@ export type CreateAgentInputResponse = CreateAgentInputResponses[keyof CreateAge
 export type ListToolCallsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -11701,9 +12457,21 @@ export type ListToolCallsResponse2 = ListToolCallsResponses[keyof ListToolCallsR
 export type SubmitToolCallResultData = {
     body: SubmitToolCallResultRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Tool call ID (tcl_...).
+         */
         toolCallID: ToolCallId;
     };
     query?: never;
@@ -11771,8 +12539,17 @@ export type SubmitToolCallResultResponse2 = SubmitToolCallResultResponses[keyof 
 export type ListTurnsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -11845,9 +12622,21 @@ export type ListTurnsResponse = ListTurnsResponses[keyof ListTurnsResponses];
 export type ListTurnEventsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Turn ID (trn_...).
+         */
         turnID: string;
     };
     query?: {
@@ -11920,8 +12709,17 @@ export type ListTurnEventsResponse2 = ListTurnEventsResponses[keyof ListTurnEven
 export type ListEventsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -12001,8 +12799,17 @@ export type StreamEventsData = {
         'Last-Event-ID'?: number;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -12072,8 +12879,17 @@ export type StreamEventsResponse = StreamEventsResponses[keyof StreamEventsRespo
 export type CancelAgentData = {
     body?: CancelAgentRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -12141,8 +12957,17 @@ export type CancelAgentResponse2 = CancelAgentResponses[keyof CancelAgentRespons
 export type ListAgentInteractionsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -12224,9 +13049,21 @@ export type ListAgentInteractionsResponse2 = ListAgentInteractionsResponses[keyo
 export type ResolveAgentInteractionData = {
     body: ResolveAgentInteractionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Interaction ID (int_...).
+         */
         interactionID: string;
     };
     query?: never;
@@ -12294,8 +13131,17 @@ export type ResolveAgentInteractionResponse = ResolveAgentInteractionResponses[k
 export type ListQueuedBacklogInputsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -12372,9 +13218,21 @@ export type ListQueuedBacklogInputsResponse = ListQueuedBacklogInputsResponses[k
 export type CancelQueuedBacklogInputData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -12442,9 +13300,21 @@ export type CancelQueuedBacklogInputResponse = CancelQueuedBacklogInputResponses
 export type MoveQueuedBacklogInputData = {
     body: MoveQueuedBacklogInputRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -12512,9 +13382,21 @@ export type MoveQueuedBacklogInputResponse = MoveQueuedBacklogInputResponses[key
 export type PromoteQueuedInputToSteeringData = {
     body?: PromoteQueuedInputToSteeringRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -12582,9 +13464,21 @@ export type PromoteQueuedInputToSteeringResponse = PromoteQueuedInputToSteeringR
 export type DemoteSteeringInputToQueuedData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -12652,9 +13546,21 @@ export type DemoteSteeringInputToQueuedResponse = DemoteSteeringInputToQueuedRes
 export type GetArtifactData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Artifact ID (art_...).
+         */
         artifactID: string;
     };
     query?: never;
@@ -12722,9 +13628,21 @@ export type GetArtifactResponse = GetArtifactResponses[keyof GetArtifactResponse
 export type GetArtifactContentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Artifact ID (art_...).
+         */
         artifactID: string;
     };
     query?: never;
@@ -12792,7 +13710,13 @@ export type GetArtifactContentResponse = GetArtifactContentResponses[keyof GetAr
 export type ListVisibleProjectMachinesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -12882,7 +13806,13 @@ export type ListVisibleProjectMachinesResponse = ListVisibleProjectMachinesRespo
 export type ListProjectMachineGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -12970,7 +13900,13 @@ export type CreateProjectMachineGrantData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -13042,8 +13978,17 @@ export type CreateProjectMachineGrantResponse2 = CreateProjectMachineGrantRespon
 export type DeleteProjectMachineGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine grant ID (pmg_...).
+         */
         grantID: string;
     };
     query?: never;
@@ -13111,7 +14056,13 @@ export type DeleteProjectMachineGrantResponse = DeleteProjectMachineGrantRespons
 export type ListProjectAvailableSecretsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -13211,8 +14162,17 @@ export type ListProjectAvailableSecretsResponse = ListProjectAvailableSecretsRes
 export type GetProjectAvailableSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -13280,7 +14240,13 @@ export type GetProjectAvailableSecretResponse = GetProjectAvailableSecretRespons
 export type ListActorsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -13360,7 +14326,13 @@ export type ListActorsResponse2 = ListActorsResponses[keyof ListActorsResponses]
 export type PutActorData = {
     body: ExternalActorParams;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -13428,8 +14400,17 @@ export type PutActorResponse = PutActorResponses[keyof PutActorResponses];
 export type GetActorData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Actor ID (actr_...).
+         */
         actorID: string;
     };
     query?: never;
@@ -13497,6 +14478,9 @@ export type GetActorResponse = GetActorResponses[keyof GetActorResponses];
 export type ListVisibleMachinesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -13592,6 +14576,9 @@ export type CreateMachineData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -13663,6 +14650,9 @@ export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineRe
 export type ConnectByoMachineData = {
     body: ConnectByoMachineRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: never;
@@ -13734,7 +14724,13 @@ export type ConnectByoMachineResponse2 = ConnectByoMachineResponses[keyof Connec
 export type DeleteMachineData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -13798,7 +14794,13 @@ export type DeleteMachineResponse = DeleteMachineResponses[keyof DeleteMachineRe
 export type GetMachineData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -13866,7 +14868,13 @@ export type GetMachineResponse = GetMachineResponses[keyof GetMachineResponses];
 export type UpdateMachineData = {
     body: UpdateMachineRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -13934,6 +14942,9 @@ export type UpdateMachineResponse = UpdateMachineResponses[keyof UpdateMachineRe
 export type ListModelProviderConfigsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -14015,6 +15026,9 @@ export type ListModelProviderConfigsResponse = ListModelProviderConfigsResponses
 export type CreateModelProviderConfigData = {
     body: CreateModelProviderConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -14082,7 +15096,13 @@ export type CreateModelProviderConfigResponse2 = CreateModelProviderConfigRespon
 export type DeleteModelProviderConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -14150,7 +15170,13 @@ export type DeleteModelProviderConfigResponse = DeleteModelProviderConfigRespons
 export type GetModelProviderConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -14218,7 +15244,13 @@ export type GetModelProviderConfigResponse = GetModelProviderConfigResponses[key
 export type UpdateModelProviderConfigData = {
     body: UpdateModelProviderConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -14286,7 +15318,13 @@ export type UpdateModelProviderConfigResponse = UpdateModelProviderConfigRespons
 export type GetModelCatalogData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: ModelProviderConfigId;
     };
     query?: never;
@@ -14354,7 +15392,13 @@ export type GetModelCatalogResponse = GetModelCatalogResponses[keyof GetModelCat
 export type ListConfiguredModelsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: {
@@ -14431,7 +15475,13 @@ export type ListConfiguredModelsResponse = ListConfiguredModelsResponses[keyof L
 export type CreateConfiguredModelData = {
     body: CreateConfiguredModelRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -14499,8 +15549,17 @@ export type CreateConfiguredModelResponse = CreateConfiguredModelResponses[keyof
 export type DeleteConfiguredModelData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
+        /**
+         * Configured model ID (mdl_...).
+         */
         configuredModelID: string;
     };
     query?: never;
@@ -14568,8 +15627,17 @@ export type DeleteConfiguredModelResponse = DeleteConfiguredModelResponses[keyof
 export type UpdateConfiguredModelData = {
     body: UpdateConfiguredModelRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
+        /**
+         * Configured model ID (mdl_...).
+         */
         configuredModelID: string;
     };
     query?: never;
@@ -14637,7 +15705,13 @@ export type UpdateConfiguredModelResponse = UpdateConfiguredModelResponses[keyof
 export type ListProjectModelGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -14719,7 +15793,13 @@ export type ListProjectModelGrantsResponse2 = ListProjectModelGrantsResponses[ke
 export type CreateProjectModelGrantData = {
     body: CreateProjectModelGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -14787,8 +15867,17 @@ export type CreateProjectModelGrantResponse = CreateProjectModelGrantResponses[k
 export type DeleteProjectModelGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project model grant ID (pmog_...).
+         */
         modelGrantID: string;
     };
     query?: never;
@@ -14856,8 +15945,17 @@ export type DeleteProjectModelGrantResponse = DeleteProjectModelGrantResponses[k
 export type UpdateProjectModelGrantData = {
     body: UpdateProjectModelGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project model grant ID (pmog_...).
+         */
         modelGrantID: string;
     };
     query?: never;
@@ -14925,6 +16023,9 @@ export type UpdateProjectModelGrantResponse = UpdateProjectModelGrantResponses[k
 export type ListMachinePoolsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -15006,6 +16107,9 @@ export type ListMachinePoolsResponse2 = ListMachinePoolsResponses[keyof ListMach
 export type CreateMachinePoolData = {
     body: CreateMachinePoolRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -15077,6 +16181,9 @@ export type CreateMachinePoolResponse = CreateMachinePoolResponses[keyof CreateM
 export type CheckMachinePoolConnectionData = {
     body: CheckMachinePoolConnectionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -15148,7 +16255,13 @@ export type CheckMachinePoolConnectionResponse = CheckMachinePoolConnectionRespo
 export type DeleteMachinePoolData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -15216,7 +16329,13 @@ export type DeleteMachinePoolResponse = DeleteMachinePoolResponses[keyof DeleteM
 export type GetMachinePoolData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -15284,7 +16403,13 @@ export type GetMachinePoolResponse = GetMachinePoolResponses[keyof GetMachinePoo
 export type UpdateMachinePoolData = {
     body: UpdateMachinePoolRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -15352,7 +16477,13 @@ export type UpdateMachinePoolResponse = UpdateMachinePoolResponses[keyof UpdateM
 export type ListProjectMachinePoolGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -15444,7 +16575,13 @@ export type CreateProjectMachinePoolGrantData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -15516,8 +16653,17 @@ export type CreateProjectMachinePoolGrantResponse = CreateProjectMachinePoolGran
 export type DeleteProjectMachinePoolGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -15585,8 +16731,17 @@ export type DeleteProjectMachinePoolGrantResponse = DeleteProjectMachinePoolGran
 export type GetProjectMachinePoolGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -15654,8 +16809,17 @@ export type GetProjectMachinePoolGrantResponse = GetProjectMachinePoolGrantRespo
 export type UpdateProjectMachinePoolGrantData = {
     body: UpdateProjectMachinePoolGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -15723,7 +16887,13 @@ export type UpdateProjectMachinePoolGrantResponse = UpdateProjectMachinePoolGran
 export type ListByoMachineDaemonTokensData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: {
@@ -15800,7 +16970,13 @@ export type ListByoMachineDaemonTokensResponse = ListByoMachineDaemonTokensRespo
 export type CreateByoMachineDaemonTokenData = {
     body?: CreateMachineDaemonTokenRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -15868,8 +17044,17 @@ export type CreateByoMachineDaemonTokenResponse = CreateByoMachineDaemonTokenRes
 export type RevokeMachineDaemonTokenData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
+        /**
+         * Machine daemon token ID (mdt_...).
+         */
         tokenID: string;
     };
     query?: never;
@@ -16006,6 +17191,9 @@ export type RegisterMachineDaemonRuntimeResponse = RegisterMachineDaemonRuntimeR
 export type SocketMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -16068,6 +17256,9 @@ export type SocketMachineDaemonRuntimeError = SocketMachineDaemonRuntimeErrors[k
 export type EndMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -16139,6 +17330,9 @@ export type EndMachineDaemonRuntimeResponse = EndMachineDaemonRuntimeResponses[k
 export type SleepMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -16210,6 +17404,9 @@ export type SleepMachineDaemonRuntimeResponse = SleepMachineDaemonRuntimeRespons
 export type GetDaemonGitCredentialsData = {
     body?: never;
     path: {
+        /**
+         * Process ID (prc_...).
+         */
         processID: ProcessId;
     };
     query?: never;
@@ -16272,6 +17469,9 @@ export type GetDaemonGitCredentialsResponse = GetDaemonGitCredentialsResponses[k
 export type GetDaemonSkillArchiveData = {
     body?: never;
     path: {
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query: {
@@ -16339,6 +17539,9 @@ export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof
 export type DownloadDaemonFileData = {
     body?: never;
     path: {
+        /**
+         * Process ID (prc_...).
+         */
         processID: ProcessId;
     };
     query?: never;
@@ -16410,6 +17613,9 @@ export type DownloadDaemonFileResponse = DownloadDaemonFileResponses[keyof Downl
 export type UploadDaemonFileData = {
     body?: Blob | File;
     path: {
+        /**
+         * Process ID (prc_...).
+         */
         processID: ProcessId;
     };
     query?: {
@@ -16490,6 +17696,9 @@ export type UploadDaemonFileResponse = UploadDaemonFileResponses[keyof UploadDae
 export type ListOrgIntegrationsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -16562,7 +17771,13 @@ export type ListOrgIntegrationsResponse = ListOrgIntegrationsResponses[keyof Lis
 export type ListIntegrationsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -16635,7 +17850,13 @@ export type ListIntegrationsResponse2 = ListIntegrationsResponses[keyof ListInte
 export type CreateIntegrationData = {
     body: CreateIntegrationRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -16699,8 +17920,17 @@ export type CreateIntegrationResponse = CreateIntegrationResponses[keyof CreateI
 export type DeleteIntegrationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -16764,8 +17994,17 @@ export type DeleteIntegrationResponse = DeleteIntegrationResponses[keyof DeleteI
 export type GetIntegrationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -16829,8 +18068,17 @@ export type GetIntegrationResponse = GetIntegrationResponses[keyof GetIntegratio
 export type UpdateIntegrationData = {
     body: UpdateIntegrationRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -16894,8 +18142,17 @@ export type UpdateIntegrationResponse = UpdateIntegrationResponses[keyof UpdateI
 export type ListIntegrationSubscriptionsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: {
@@ -16968,8 +18225,17 @@ export type ListIntegrationSubscriptionsResponse2 = ListIntegrationSubscriptions
 export type CreateIntegrationSubscriptionData = {
     body: CreateIntegrationSubscriptionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -17033,9 +18299,21 @@ export type CreateIntegrationSubscriptionResponse = CreateIntegrationSubscriptio
 export type DeleteIntegrationSubscriptionData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
+        /**
+         * Integration subscription ID (isub_...).
+         */
         subscriptionID: IntegrationSubscriptionId;
     };
     query?: never;
@@ -17099,8 +18377,17 @@ export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptio
 export type ConfigureIntegrationData = {
     body: ConfigureIntegrationRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -17168,8 +18455,17 @@ export type ConfigureIntegrationResponse = ConfigureIntegrationResponses[keyof C
 export type DisconnectIntegrationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
         integrationID: IntegrationId;
     };
     query?: never;
@@ -17237,7 +18533,13 @@ export type DisconnectIntegrationResponse = DisconnectIntegrationResponses[keyof
 export type ListIntegrationDefinitionsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;

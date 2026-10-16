@@ -149,6 +149,7 @@ paths:
     parameters:
       - name: tokenID
         in: path
+        description: Personal access token ID (pat_...).
         required: true
         schema:
           type: string
@@ -351,6 +352,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -485,6 +487,7 @@ paths:
     parameters:
       - name: invitationID
         in: path
+        description: Organization invitation ID (oinv_...).
         required: true
         schema:
           type: string
@@ -524,6 +527,7 @@ paths:
     parameters:
       - name: invitationID
         in: path
+        description: Organization invitation ID (oinv_...).
         required: true
         schema:
           type: string
@@ -563,6 +567,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -600,6 +605,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -641,6 +647,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -753,6 +760,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -820,6 +828,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -866,6 +875,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -874,6 +884,9 @@ paths:
       operationId: createProject
       tags: [Organizations and Projects]
       summary: Create project
+      description: >-
+        Creates a project, makes the caller its admin, and returns it. The new project has no grants
+        to organization models, machines, skills, or secrets.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -919,7 +932,9 @@ paths:
       operationId: listVisibleProjects
       tags: [Organizations and Projects]
       summary: List visible projects
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the projects the caller can access in the organization, newest first, with the
+        caller's permissions on each.
       parameters:
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
@@ -950,12 +965,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -998,11 +1015,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -1040,6 +1059,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -1082,12 +1102,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: userID
         in: path
+        description: User ID (usr_...).
         required: true
         schema:
           type: string
@@ -1166,12 +1188,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: userID
         in: path
+        description: User ID (usr_...).
         required: true
         schema:
           type: string
@@ -1209,18 +1233,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: userID
         in: path
+        description: User ID (usr_...).
         required: true
         schema:
           type: string
           pattern: '^usr_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -1295,6 +1322,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -1369,12 +1397,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: keyID
         in: path
+        description: Org API key ID (oak_...).
         required: true
         schema:
           type: string
@@ -1445,12 +1475,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: keyID
         in: path
+        description: Org API key ID (oak_...).
         required: true
         schema:
           type: string
@@ -1488,12 +1520,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: keyID
         in: path
+        description: Org API key ID (oak_...).
         required: true
         schema:
           type: string
@@ -1531,18 +1565,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: keyID
         in: path
+        description: Org API key ID (oak_...).
         required: true
         schema:
           type: string
           pattern: '^oak_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -1614,6 +1651,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -1692,12 +1730,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: invitationID
         in: path
+        description: Organization invitation ID (oinv_...).
         required: true
         schema:
           type: string
@@ -1734,6 +1774,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -1832,12 +1873,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: skillID
         in: path
+        description: Skill ID (skl_...).
         required: true
         schema:
           type: string
@@ -1846,6 +1889,8 @@ paths:
       operationId: getSkill
       tags: [Skills]
       summary: Get skill through ownership authority
+      description: >-
+        Returns one skill with its latest SKILL.md text and file listing.
       responses:
         '200':
           description: Visible skill metadata, instructions, and archive file listing.
@@ -1956,12 +2001,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: skillID
         in: path
+        description: Skill ID (skl_...).
         required: true
         schema:
           $ref: '#/components/schemas/SkillID'
@@ -1969,7 +2016,9 @@ paths:
       operationId: listSkillGrants
       tags: [Skills]
       summary: List skill grants
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the projects a skill is shared with, one grant per project, most recently shared first
+        by default.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: sort
@@ -1999,6 +2048,9 @@ paths:
       operationId: createSkillGrant
       tags: [Skills]
       summary: Create skill grant
+      description: >-
+        Shares a skill with another project so its agent configs can attach it, and returns the
+        grant; ownership doesn't change.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2031,17 +2083,20 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: skillID
         in: path
+        description: Skill ID (skl_...).
         required: true
         schema:
           $ref: '#/components/schemas/SkillID'
       - name: grantID
         in: path
+        description: Skill grant ID (skg_...).
         required: true
         schema:
           $ref: '#/components/schemas/SkillGrantID'
@@ -2073,12 +2128,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -2118,6 +2175,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: "#/components/schemas/OrganizationID"
@@ -2161,11 +2219,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: "#/components/schemas/OrganizationID"
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: "#/components/schemas/ProjectID"
@@ -2250,16 +2310,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: "#/components/schemas/OrganizationID"
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: "#/components/schemas/ProjectID"
       - name: memoryStoreID
         in: path
+        description: Memory store ID (mst_...).
         required: true
         schema:
           $ref: "#/components/schemas/MemoryStoreID"
@@ -2370,16 +2433,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: memoryStoreID
         in: path
+        description: Memory store ID (mst_...).
         required: true
         schema:
           $ref: '#/components/schemas/MemoryStoreID'
@@ -2429,16 +2495,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: memoryStoreID
         in: path
+        description: Memory store ID (mst_...).
         required: true
         schema:
           $ref: '#/components/schemas/MemoryStoreID'
@@ -2607,6 +2676,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -2650,6 +2720,9 @@ paths:
       operationId: createSecret
       tags: [Secrets]
       summary: Create secret
+      description: >-
+        Creates an encrypted secret holding one credential and returns its metadata; the value is
+        never returned. owner sets whether the organization, a project, or the caller owns it.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2682,6 +2755,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -2724,12 +2798,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: secretID
         in: path
+        description: Secret ID (sec_...).
         required: true
         schema:
           type: string
@@ -2738,6 +2814,9 @@ paths:
       operationId: getSecret
       tags: [Secrets]
       summary: Get secret through ownership authority
+      description: >-
+        Returns a secret's owner, kind, name, and current version; the secret value is never
+        returned.
       responses:
         '200':
           description: Secret.
@@ -2759,6 +2838,10 @@ paths:
       operationId: updateSecret
       tags: [Secrets]
       summary: Update secret metadata
+      description: >-
+        Renames a secret or replaces its metadata, and returns the updated secret without its value.
+        The value, kind, and owner can't be changed here. References use the secret ID, so renaming
+        doesn't break them.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2817,12 +2900,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: secretID
         in: path
+        description: Secret ID (sec_...).
         required: true
         schema:
           type: string
@@ -2863,12 +2948,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: secretID
         in: path
+        description: Secret ID (sec_...).
         required: true
         schema:
           type: string
@@ -2877,7 +2964,9 @@ paths:
       operationId: listSecretGrants
       tags: [Secrets]
       summary: List secret grants
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the projects a secret is shared with, one grant per project, most recently shared
+        first by default.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: sort
@@ -2907,6 +2996,9 @@ paths:
       operationId: createSecretGrant
       tags: [Secrets]
       summary: Create secret grant
+      description: >-
+        Shares a secret with another project so that project's resources can use it, and returns the
+        grant; ownership doesn't change.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2939,18 +3031,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: secretID
         in: path
+        description: Secret ID (sec_...).
         required: true
         schema:
           type: string
           pattern: '^sec_[a-z2-7]{26}$'
       - name: grantID
         in: path
+        description: Secret grant ID (sgr_...).
         required: true
         schema:
           type: string
@@ -2983,11 +3078,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -3035,12 +3132,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -3049,6 +3148,10 @@ paths:
       operationId: createAgentConfig
       tags: [Configs and Profiles]
       summary: Create agent config
+      description: >-
+        Compiles and saves an immutable agent config (instruction, model, tools, machine_sources,
+        and more) from YAML or JSON and returns it. Sending the same source again returns the
+        existing config, as long as its names still resolve to the same resources.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3093,6 +3196,9 @@ paths:
       operationId: getToolCatalog
       tags: [Configs and Profiles]
       summary: Get tool catalog
+      description: >-
+        Lists the built-in tools agent configs can use, with each tool's description and permission
+        settings, plus the permission modes for custom and MCP tools.
       responses:
         '200':
           description: Built-in tools and permission modes available to agent configs.
@@ -3156,11 +3262,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -3220,18 +3328,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentConfigID
         in: path
+        description: Agent config ID (acfg_...).
         required: true
         schema:
           type: string
@@ -3240,6 +3351,10 @@ paths:
       operationId: getAgentConfig
       tags: [Configs and Profiles]
       summary: Get agent config
+      description: >-
+        Returns one agent config: its compiled definition with names resolved to IDs, and its source
+        if it was saved with one. Configs Omnara derives on its own, such as those for subagents and
+        integration launches, have no source.
       responses:
         '200':
           description: Agent config.
@@ -3267,18 +3382,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentConfigID
         in: path
+        description: Agent config ID (acfg_...).
         required: true
         schema:
           type: string
@@ -3326,12 +3444,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -3340,6 +3460,9 @@ paths:
       operationId: createAgentProfile
       tags: [Configs and Profiles]
       summary: Create agent profile
+      description: >-
+        Creates a named profile that points at an agent config and returns the profile with its
+        current config.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3385,7 +3508,9 @@ paths:
       operationId: listAgentProfiles
       tags: [Configs and Profiles]
       summary: List agent profiles
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the project's agent profiles, newest first by default, filterable by name. Items
+        include a summary of each profile's current config, not its full compiled definition.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/AgentProfileIncludeStats'
@@ -3421,18 +3546,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentProfileID
         in: path
+        description: Agent profile ID (aprf_...).
         required: true
         schema:
           type: string
@@ -3441,6 +3569,9 @@ paths:
       operationId: getAgentProfile
       tags: [Configs and Profiles]
       summary: Get agent profile
+      description: >-
+        Returns one agent profile with its current config, current_config_id, and
+        current_generation.
       responses:
         '200':
           description: Agent profile.
@@ -3468,6 +3599,10 @@ paths:
       operationId: renameAgentProfile
       tags: [Configs and Profiles]
       summary: Rename agent profile
+      description: >-
+        Renames an agent profile without changing its config. Agents and cron triggers reference the
+        profile by ID and keep working, but configs that name the profile under subagents must use
+        the new name the next time they're compiled.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3538,16 +3673,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: agentProfileID
         in: path
+        description: Agent profile ID (aprf_...).
         required: true
         schema:
           $ref: '#/components/schemas/AgentProfileID'
@@ -3594,18 +3732,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentProfileID
         in: path
+        description: Agent profile ID (aprf_...).
         required: true
         schema:
           type: string
@@ -3614,6 +3755,10 @@ paths:
       operationId: updateAgentProfile
       tags: [Configs and Profiles]
       summary: Update agent profile
+      description: >-
+        Points a profile at a different agent config. Existing agents keep their current config;
+        agents launched from the profile afterward use the new one. Fails with 409 unless
+        expected_current_config_id matches the profile's current config.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -3653,16 +3798,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -3709,16 +3857,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -3765,16 +3916,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -3820,16 +3974,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -3875,12 +4032,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -3941,7 +4100,9 @@ paths:
       operationId: listCronTriggers
       tags: [Configs and Profiles]
       summary: List cron triggers
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the project's cron triggers, newest first by default, filterable by name, agent,
+        profile, or integration. Each item includes its schedule and next_fire_at.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: agent_id
@@ -3990,18 +4151,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: cronTriggerID
         in: path
+        description: Cron trigger ID (cron_...).
         required: true
         schema:
           $ref: '#/components/schemas/CronTriggerID'
@@ -4009,6 +4173,10 @@ paths:
       operationId: getCronTrigger
       tags: [Configs and Profiles]
       summary: Get cron trigger
+      description: >-
+        Returns one cron trigger: its target, schedule, timezone, message template, enabled flag,
+        and firing state (last_fired_at, next_fire_at, and any failure since the last successful
+        firing).
       responses:
         '200':
           description: Cron trigger.
@@ -4074,6 +4242,9 @@ paths:
       operationId: deleteCronTrigger
       tags: [Configs and Profiles]
       summary: Delete cron trigger
+      description: >-
+        Deletes a cron trigger so it never fires again; there is no undo. Agents it already launched
+        keep running.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4099,12 +4270,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -4169,7 +4342,9 @@ paths:
       operationId: listAgents
       tags: [Agents]
       summary: List agents
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the project's agents with their current activity, newest first by default. Archived
+        agents and subagents are excluded unless requested.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: agent_profile_id
@@ -4226,18 +4401,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4246,6 +4424,10 @@ paths:
       operationId: getAgent
       tags: [Agents]
       summary: Get agent
+      description: >-
+        Returns one agent's state, model, profile, current config ID, activity (running,
+        waiting_on_interaction, idle, or archived), attached machines, and MCP connection states.
+        The conversation isn't included.
       responses:
         '200':
           description: Agent.
@@ -4273,16 +4455,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           $ref: '#/components/schemas/AgentID'
@@ -4328,18 +4513,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4384,18 +4572,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4404,6 +4595,11 @@ paths:
       operationId: updateAgentConfig
       tags: [Agents]
       summary: Update agent config
+      description: >-
+        Replaces an active agent's config without restarting its conversation and returns the new
+        agent_config. Model, instruction, and tool changes apply at the agent's next model call;
+        machine changes apply immediately, stopping processes on removed machines and deleting the
+        agent's machines from removed pools. Send the complete config, not a patch.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4443,18 +4639,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4463,6 +4662,9 @@ paths:
       operationId: createAgentInput
       tags: [Agents]
       summary: Create agent input
+      description: >-
+        Sends a message to an agent and returns the stored input. Queued messages (the default) wait
+        until the agent is ready for new work; steering messages reach it at its next model call.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4508,18 +4710,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4575,24 +4780,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: toolCallID
         in: path
+        description: Tool call ID (tcl_...).
         required: true
         schema:
           $ref: '#/components/schemas/ToolCallID'
@@ -4641,18 +4850,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4706,24 +4918,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: turnID
         in: path
+        description: Turn ID (trn_...).
         required: true
         schema:
           type: string
@@ -4777,18 +4993,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4856,18 +5075,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4943,18 +5165,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -4963,6 +5188,12 @@ paths:
       operationId: cancelAgent
       tags: [Agents]
       summary: Cancel agent
+      description: >-
+        Stops the agent's current turn: cancels its unfinished tool calls and open interactions,
+        stops processes whose run_command hasn't returned yet, and discards pending steering
+        messages. The agent stays active and keeps its queued messages, and processes whose
+        run_command already returned keep running. Returns affected false and changes nothing when
+        no turn is in progress.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5000,18 +5231,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -5020,7 +5254,9 @@ paths:
       operationId: listAgentInteractions
       tags: [Interactions]
       summary: List agent interactions
-      description: Items are ordered by created_at ascending, then id ascending.
+      description: >-
+        Lists an agent's permission prompts and ask_question questions, oldest first, with each
+        one's form and answers. state filters by open, resolved, or canceled.
       parameters:
         - name: state
           in: query
@@ -5062,24 +5298,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: interactionID
         in: path
+        description: Interaction ID (int_...).
         required: true
         schema:
           type: string
@@ -5088,6 +5328,10 @@ paths:
       operationId: resolveAgentInteraction
       tags: [Interactions]
       summary: Resolve agent interaction
+      description: >-
+        Answers an open permission prompt or question so the paused agent resumes, and returns the
+        resolved interaction. Send one answer per question with zero-based option_indices;
+        permission prompts use 0 for Allow and 1 for Deny.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5125,18 +5369,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
@@ -5176,24 +5423,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: inputID
         in: path
+        description: Agent input ID (ain_...).
         required: true
         schema:
           type: string
@@ -5233,24 +5484,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: inputID
         in: path
+        description: Agent input ID (ain_...).
         required: true
         schema:
           type: string
@@ -5296,24 +5551,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: inputID
         in: path
+        description: Agent input ID (ain_...).
         required: true
         schema:
           type: string
@@ -5359,24 +5618,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: inputID
         in: path
+        description: Agent input ID (ain_...).
         required: true
         schema:
           type: string
@@ -5416,24 +5679,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: artifactID
         in: path
+        description: Artifact ID (art_...).
         required: true
         schema:
           type: string
@@ -5469,24 +5736,28 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: agentID
         in: path
+        description: Agent ID (agt_...).
         required: true
         schema:
           type: string
           pattern: '^agt_[a-z2-7]{26}$'
       - name: artifactID
         in: path
+        description: Artifact ID (art_...).
         required: true
         schema:
           type: string
@@ -5523,12 +5794,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -5580,12 +5853,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -5594,6 +5869,9 @@ paths:
       operationId: createProjectMachineGrant
       tags: [Machines]
       summary: Create project machine grant
+      description: >-
+        Lets a project's agent configs use one BYO machine by name and returns the grant with the
+        machine's record. Pooled machines can't be granted this way and return 404.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5675,18 +5953,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: grantID
         in: path
+        description: Project machine grant ID (pmg_...).
         required: true
         schema:
           type: string
@@ -5725,12 +6006,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -5773,18 +6056,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: secretID
         in: path
+        description: Secret ID (sec_...).
         required: true
         schema:
           type: string
@@ -5814,12 +6100,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -5900,18 +6188,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: actorID
         in: path
+        description: Actor ID (actr_...).
         required: true
         schema:
           type: string
@@ -5941,6 +6232,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -5994,7 +6286,9 @@ paths:
       operationId: listVisibleMachines
       tags: [Machines]
       summary: List visible machines
-      description: Items are ordered by machine created_at descending, then machine id descending.
+      description: >-
+        Lists the machines the caller can see, both BYO and pooled, newest first by default, with
+        each one's connection state. Items are summaries without execution defaults or metadata.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
@@ -6037,6 +6331,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -6044,6 +6339,11 @@ paths:
       operationId: connectBYOMachine
       tags: [Machines]
       summary: Connect a BYO machine
+      description: >-
+        Registers a machine you run yourself and returns its daemon token for installing omnarad on
+        it; the token is shown only in this response. The machine stays offline until its daemon
+        connects. project_ids grants it to those projects in the same call, and their agent configs
+        reference it by display_name.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6083,12 +6383,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: machineID
         in: path
+        description: Machine ID (mch_...).
         required: true
         schema:
           type: string
@@ -6097,6 +6399,10 @@ paths:
       operationId: getMachine
       tags: [Machines]
       summary: Get machine
+      description: >-
+        Returns one active machine's full record: connection state, execution defaults (secret IDs
+        only, never values), metadata, and the latest failure report. Machines in other lifecycle
+        states, such as pool machines still provisioning, aren't returned.
       responses:
         '200':
           description: Machine.
@@ -6124,6 +6430,10 @@ paths:
       operationId: updateMachine
       tags: [Machines]
       summary: Update machine execution defaults
+      description: >-
+        Updates a machine's execution defaults: working directory, environment variables, and secret
+        environment variables. env and secret_env replace the whole map, and changes apply to
+        processes started afterward.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6191,6 +6501,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -6273,12 +6584,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: modelProviderConfigID
         in: path
+        description: Model provider config ID (mpc_...).
         required: true
         schema:
           type: string
@@ -6287,6 +6600,9 @@ paths:
       operationId: getModelProviderConfig
       tags: [Models]
       summary: Get model provider config
+      description: >-
+        Returns one model provider config's stored settings; secret values are never returned. The
+        provider isn't contacted, so the response doesn't list its models.
       responses:
         '200':
           description: Route response.
@@ -6314,6 +6630,11 @@ paths:
       operationId: updateModelProviderConfig
       tags: [Models]
       summary: Update model provider config
+      description: >-
+        Updates a model provider config's connection settings, such as its credential and headers,
+        and returns the updated config; omitted fields keep their values. The credential secret is
+        checked to exist and match auth_kind, but the provider isn't contacted, so a credential the
+        provider rejects isn't caught here.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6381,11 +6702,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: modelProviderConfigID
         in: path
+        description: Model provider config ID (mpc_...).
         required: true
         schema:
           $ref: '#/components/schemas/ModelProviderConfigID'
@@ -6424,12 +6747,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: modelProviderConfigID
         in: path
+        description: Model provider config ID (mpc_...).
         required: true
         schema:
           type: string
@@ -6438,6 +6763,10 @@ paths:
       operationId: createConfiguredModel
       tags: [Models]
       summary: Create configured model
+      description: >-
+        Adds a provider model to this provider config under the name agent configs use as
+        model.name, and returns it. The model slug isn't checked against the provider's catalog, and
+        no project can use the model yet.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6475,7 +6804,9 @@ paths:
       operationId: listConfiguredModels
       tags: [Models]
       summary: List configured models
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the models configured under one model provider config, newest first, with each model's
+        slug, token limits, and reasoning support.
       parameters:
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
@@ -6506,18 +6837,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: modelProviderConfigID
         in: path
+        description: Model provider config ID (mpc_...).
         required: true
         schema:
           type: string
           pattern: '^mpc_[a-z2-7]{26}$'
       - name: configuredModelID
         in: path
+        description: Configured model ID (mdl_...).
         required: true
         schema:
           type: string
@@ -6526,6 +6860,12 @@ paths:
       operationId: updateConfiguredModel
       tags: [Models]
       summary: Update configured model
+      description: >-
+        Updates a configured model's settings and returns the updated model; omitted fields keep
+        their values. Agents already using the model pick up the change on their next model call.
+        The update isn't checked against project grants or agent configs, so lowering a limit below
+        their overrides or turning off tools or reasoning they rely on makes those agents' next
+        model call fail.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6593,12 +6933,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -6607,6 +6949,11 @@ paths:
       operationId: createProjectModelGrant
       tags: [Models]
       summary: Create project model grant
+      description: >-
+        Lets a project's agent configs use a configured model and returns the new grant. Optional
+        overrides can narrow the model for that project (lower token limits, tools or reasoning
+        turned off, fewer reasoning efforts or modalities) and set its per-request defaults within
+        those limits.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6644,7 +6991,9 @@ paths:
       operationId: listProjectModelGrants
       tags: [Models]
       summary: List project model grants
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the configured models a project can use, most recently granted first by default, with
+        each grant's overrides and the model's name and provider config.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: sort
@@ -6680,18 +7029,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: modelGrantID
         in: path
+        description: Project model grant ID (pmog_...).
         required: true
         schema:
           type: string
@@ -6733,11 +7085,12 @@ paths:
       summary: Update project model grant
       description: >-
         Updates the project's overrides for the configured model. Omitted fields keep their current
-        values; null clears an override so the project inherits from the configured model. The grant
-        is live policy: agents already using the model re-apply the updated overrides on their next
-        model call, against the configured-model revision each agent pinned at launch. Updates are
-        validated against the configured model's current revision only, so an update can make an
-        agent pinned to an older, incompatible revision fail its next model call.
+        values; null, or [] for supported_reasoning_efforts, input_modalities, and
+        output_modalities, clears an override so the project inherits from the configured model.
+        Agents already using the model apply the updated overrides on their next model call. Updates
+        are validated against the configured model's current revision but not against agent configs,
+        so narrowing below a config's model settings, such as its context_window_tokens or reasoning
+        effort, makes that agent's next model call fail.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6775,6 +7128,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -6862,6 +7216,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
@@ -6914,12 +7269,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: poolID
         in: path
+        description: Machine pool ID (mpo_...).
         required: true
         schema:
           type: string
@@ -6928,6 +7285,9 @@ paths:
       operationId: getMachinePool
       tags: [Machine Pools]
       summary: Get machine pool
+      description: >-
+        Returns one machine pool's configuration and current usage: provider, default machine
+        settings, CPU, memory, and machine-count limits, and idle deletion policy.
       responses:
         '200':
           description: Machine pool.
@@ -7029,12 +7389,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
@@ -7043,6 +7405,10 @@ paths:
       operationId: createProjectMachinePoolGrant
       tags: [Machine Pools]
       summary: Create project machine pool grant
+      description: >-
+        Lets a project create machines from a machine pool, optionally with its own defaults and
+        usage caps within the pool's limits, and returns the grant. No machines are created by this
+        call.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -7088,7 +7454,9 @@ paths:
       operationId: listProjectMachinePoolGrants
       tags: [Machine Pools]
       summary: List project machine pool grants
-      description: Items are ordered by created_at descending, then id descending.
+      description: >-
+        Lists the machine pools a project can create machines from, one grant per pool, most
+        recently granted first by default.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: machine_pool_id
@@ -7130,18 +7498,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
       - name: poolGrantID
         in: path
+        description: Project machine pool grant ID (pmpg_...).
         required: true
         schema:
           type: string
@@ -7181,6 +7552,9 @@ paths:
       operationId: getProjectMachinePoolGrant
       tags: [Machine Pools]
       summary: Get project machine pool grant
+      description: >-
+        Returns one project's grant for a machine pool, with the defaults and limits it sets on top
+        of the pool's own. Null fields set no override, so the pool's value applies.
       responses:
         '200':
           description: Project machine pool grant.
@@ -7250,12 +7624,14 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: machineID
         in: path
+        description: Machine ID (mch_...).
         required: true
         schema:
           type: string
@@ -7331,18 +7707,21 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
       - name: machineID
         in: path
+        description: Machine ID (mch_...).
         required: true
         schema:
           type: string
           pattern: '^mch_[a-z2-7]{26}$'
       - name: tokenID
         in: path
+        description: Machine daemon token ID (mdt_...).
         required: true
         schema:
           type: string
@@ -7421,6 +7800,7 @@ paths:
     parameters:
       - name: runtimeID
         in: path
+        description: Machine daemon runtime ID (drt_...).
         required: true
         schema:
           type: string
@@ -7457,6 +7837,7 @@ paths:
     parameters:
       - name: runtimeID
         in: path
+        description: Machine daemon runtime ID (drt_...).
         required: true
         schema:
           type: string
@@ -7497,6 +7878,7 @@ paths:
     parameters:
       - name: runtimeID
         in: path
+        description: Machine daemon runtime ID (drt_...).
         required: true
         schema:
           type: string
@@ -7546,6 +7928,7 @@ paths:
     parameters:
       - name: processID
         in: path
+        description: Process ID (prc_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProcessID'
@@ -7597,6 +7980,7 @@ paths:
     parameters:
       - name: skillID
         in: path
+        description: Skill ID (skl_...).
         required: true
         schema:
           type: string
@@ -7655,6 +8039,7 @@ paths:
     parameters:
       - name: processID
         in: path
+        description: Process ID (prc_...).
         required: true
         schema:
           $ref: "#/components/schemas/ProcessID"
@@ -7759,6 +8144,7 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
@@ -7797,11 +8183,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -7872,16 +8260,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -7978,16 +8369,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -8060,21 +8454,25 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
       - name: subscriptionID
         in: path
+        description: Integration subscription ID (isub_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationSubscriptionID'
@@ -8108,16 +8506,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -8163,16 +8564,19 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
       - name: integrationID
         in: path
+        description: Integration ID (itg_...).
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationID'
@@ -8211,11 +8615,13 @@ paths:
     parameters:
       - name: orgID
         in: path
+        description: Organization ID (org_...).
         required: true
         schema:
           $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
+        description: Project ID (proj_...).
         required: true
         schema:
           $ref: '#/components/schemas/ProjectID'
@@ -9233,6 +9639,7 @@ components:
       type: string
       pattern: '^oak_[a-z2-7]{26}$'
     ProjectID:
+      description: Project ID (proj_...).
       type: string
       pattern: '^proj_[a-z2-7]{26}$'
     MCPOAuthFlowID:
@@ -9248,6 +9655,7 @@ components:
       type: string
       pattern: '^agt_[a-z2-7]{26}$'
     AgentConfigID:
+      description: Agent config ID (acfg_...).
       type: string
       pattern: '^acfg_[a-z2-7]{26}$'
     AgentProfileID:
@@ -9299,6 +9707,9 @@ components:
       type: string
       pattern: '^pmog_[a-z2-7]{26}$'
     ModelAPIFormat:
+      description: >-
+        Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or
+        anthropic-messages.
       type: string
       enum: [openai-responses, openai-chat-completions, anthropic-messages]
       x-enum-varnames:
@@ -9306,6 +9717,8 @@ components:
         - ModelAPIFormatOpenaiChatCompletions
         - ModelAPIFormatAnthropicMessages
     ModelProviderAuthKind:
+      description: >-
+        How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
       type: string
       enum: [bearer_token, api_key_header, sigv4]
       x-enum-varnames:
@@ -9316,6 +9729,8 @@ components:
       type: string
       x-extensible-enum: [bearer_token, api_key_header, sigv4]
     ModelProviderAPIVariant:
+      description: >-
+        Provider-specific flavor of the API format: default, openrouter, or bedrock.
       type: string
       enum: [default, openrouter, bedrock]
     ModelProviderAPIVariantResponse:
@@ -9362,6 +9777,10 @@ components:
         name:
           $ref: '#/components/schemas/ResourceName'
         preset:
+          description: >-
+            Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format,
+            api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using
+            one.
           type: string
           enum: [openai, openrouter, anthropic]
         api_format:
@@ -10041,9 +10460,11 @@ components:
         updated_at:
           $ref: '#/components/schemas/Timestamp'
     MachinePoolID:
+      description: Machine pool ID (mpo_...).
       type: string
       pattern: '^mpo_[a-z2-7]{26}$'
     MachineID:
+      description: Machine ID (mch_...).
       type: string
       pattern: '^mch_[a-z2-7]{26}$'
     ProjectMachineGrantID:
@@ -10068,6 +10489,7 @@ components:
       type: string
       pattern: ^mst_[a-z2-7]{26}$
     SecretID:
+      description: Secret ID (sec_...).
       type: string
       pattern: '^sec_[a-z2-7]{26}$'
     SecretGrantID:
@@ -10800,6 +11222,8 @@ components:
         source:
           $ref: '#/components/schemas/AgentConfigSourceInput'
         source_format:
+          description: >-
+            Format of source: yaml or json.
           type: string
           enum: [yaml, json]
     AgentConfigSourceInput:
@@ -10824,6 +11248,8 @@ components:
         source:
           $ref: '#/components/schemas/AgentConfigSourceInput'
         source_format:
+          description: >-
+            Format of source: yaml or json.
           type: string
           enum: [yaml, json]
         expected_current_config_id:
@@ -11813,6 +12239,10 @@ components:
             Each accepted occurrence retains its own copy. Integration resource references
             are resolved when the integration handles the occurrence.
     CronTriggerTarget:
+      description: >-
+        What each firing does: type agent sends the message to an existing agent, type profile
+        launches a new agent from a profile, and type integration hands the firing to an
+        integration, such as a new Slack or Discord thread.
       oneOf:
         - $ref: '#/components/schemas/AgentCronTriggerTarget'
         - $ref: '#/components/schemas/AgentProfileCronTriggerTarget'
@@ -11881,6 +12311,7 @@ components:
         message_template:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
+          description: Whether the trigger fires on schedule; false pauses it.
           type: boolean
           default: true
     UpdateCronTriggerRequest:
@@ -11899,6 +12330,7 @@ components:
         message_template:
           $ref: '#/components/schemas/CronMessageTemplate'
         enabled:
+          description: Whether the trigger fires on schedule; false pauses it.
           type: boolean
     CronTriggerLastRunState:
       type: string
@@ -13688,6 +14120,9 @@ components:
           type: string
           enum: [user]
     SecretOwnerInput:
+      description: >-
+        Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or
+        {"kind":"user"}. The owner cannot change later.
       oneOf:
         - $ref: '#/components/schemas/OrgSecretOwnerInput'
         - $ref: '#/components/schemas/ProjectSecretOwnerInput'
@@ -13843,6 +14278,9 @@ components:
           type: string
           minLength: 1
     SecretMaterial:
+      description: >-
+        The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or
+        github_app_credentials.
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
@@ -14254,6 +14692,7 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     CreateMachinePoolRequest:
+      description: Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
       x-go-type: CreateMachinePoolRequestBase
       allOf:
         - $ref: '#/components/schemas/CreateMachinePoolRequestBase'
@@ -14447,13 +14886,16 @@ components:
         name:
           $ref: '#/components/schemas/ResourceName'
         description:
+          description: Optional description of the pool.
           type: string
         default_machine_cpu:
+          description: Default CPU count for new machines in the pool.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
+          description: Default memory in MB for new machines in the pool.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -14469,11 +14911,14 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         default_machine_provider_options:
+          description: Provider-specific options applied to new machines in the pool.
           type: object
           additionalProperties: true
         default_cwd:
+          description: Default working directory for processes on machines created from the pool after this change.
           type: string
         provider_config:
+          description: Provider-specific settings for the pool.
           type: object
           additionalProperties: true
         provider_auth_secret_id:
@@ -14482,36 +14927,43 @@ components:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
           type: boolean
         max_total_machines:
+          description: Maximum number of live machines in the pool.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
+          description: Maximum total CPU across the pool's live machines.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          description: Maximum total memory in MB across the pool's live machines.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
+          description: Smallest CPU count a single machine in the pool can use.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
+          description: Smallest memory in MB a single machine in the pool can use.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
+          description: Largest CPU count a single machine in the pool can use.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
+          description: Largest memory in MB a single machine in the pool can use.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -14783,20 +15235,25 @@ components:
         display_name:
           $ref: '#/components/schemas/ResourceName'
         description:
+          description: Optional description of the machine.
           type: string
         cwd:
+          description: Default working directory for processes started on the machine.
           type: string
         env:
+          description: Environment variables set for processes started on the machine.
           type: object
           additionalProperties:
             type: string
         secret_env:
+          description: Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
         project_ids:
+          description: Projects to grant the machine to in the same call (up to 100).
           type: array
           maxItems: 100
           uniqueItems: true
@@ -14828,12 +15285,15 @@ components:
       minProperties: 1
       properties:
         cwd:
+          description: Default working directory for processes started on the machine.
           type: string
         env:
+          description: Environment variables set for processes started on the machine.
           type: object
           additionalProperties:
             type: string
         secret_env:
+          description: Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
@@ -14953,6 +15413,7 @@ components:
         machine_id:
           $ref: '#/components/schemas/MachineID'
         description:
+          description: Optional note about this grant.
           type: string
         metadata:
           $ref: '#/components/schemas/Metadata'
@@ -15087,13 +15548,16 @@ components:
         machine_pool_id:
           $ref: '#/components/schemas/MachinePoolID'
         description:
+          description: Optional note about this grant.
           type: string
         default_machine_cpu:
+          description: Default CPU count for machines this project creates from the pool, overriding the pool's default.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
+          description: Default memory in MB for machines this project creates from the pool, overriding the pool's default.
           type: integer
           format: int32
           minimum: 1
@@ -15110,41 +15574,50 @@ components:
             type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
         default_machine_provider_options_overlay:
+          description: Provider-specific options layered over the pool's provider options for this project's machines.
           type: object
           additionalProperties: true
         default_cwd:
+          description: Default working directory for processes on this project's machines from the pool.
           type: string
         max_total_machines:
+          description: Maximum number of live machines this project can have from the pool.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
+          description: Maximum total CPU across this project's live machines from the pool.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          description: Maximum total memory in MB across this project's live machines from the pool.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
+          description: Smallest CPU count one of this project's machines can request.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
+          description: Smallest memory in MB one of this project's machines can request.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
+          description: Largest CPU count one of this project's machines can request.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
+          description: Largest memory in MB one of this project's machines can request.
           type: integer
           format: int32
           minimum: 1
@@ -15172,62 +15645,76 @@ components:
       minProperties: 1
       properties:
         description:
+          description: Optional note about this grant.
           type: string
         default_machine_cpu:
+          description: Default CPU count for machines this project creates from the pool, overriding the pool's default.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
+          description: Default memory in MB for machines this project creates from the pool, overriding the pool's default.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_env_overlay:
+          description: Env overlay merged over the pool's default_machine_env for machines this project creates from the pool afterward; a null entry removes the key.
           type: object
           additionalProperties:
             type: [string, "null"]
         default_machine_secret_env_overlay:
+          description: Secret env overlay merged over the pool's default_machine_secret_env for machines this project creates from the pool afterward; a null entry removes the key.
           type: object
           additionalProperties:
             type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
         default_machine_provider_options_overlay:
+          description: Provider-specific options layered over the pool's provider options for this project's machines.
           type: object
           additionalProperties: true
         default_cwd:
+          description: Default working directory for processes on this project's machines created from the pool after this change.
           type: string
         max_total_machines:
+          description: Maximum number of live machines this project can have from the pool.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
+          description: Maximum total CPU across this project's live machines from the pool.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          description: Maximum total memory in MB across this project's live machines from the pool.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
+          description: Smallest CPU count one of this project's machines can request.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
+          description: Smallest memory in MB one of this project's machines can request.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
+          description: Largest CPU count one of this project's machines can request.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
+          description: Largest memory in MB one of this project's machines can request.
           type: [integer, "null"]
           format: int32
           minimum: 1
