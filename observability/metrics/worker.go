@@ -8,33 +8,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type WorkerExecutionKind string
-
-const (
-	WorkerExecutionKindModel WorkerExecutionKind = "model"
-	WorkerExecutionKindTool  WorkerExecutionKind = "tool"
-	WorkerExecutionKindOther WorkerExecutionKind = "other"
-)
-
-type WorkerExecutionOutcome string
-
-const (
-	WorkerExecutionOutcomeSuccess     WorkerExecutionOutcome = "success"
-	WorkerExecutionOutcomeRecoverable WorkerExecutionOutcome = "recoverable"
-	WorkerExecutionOutcomeCanceled    WorkerExecutionOutcome = "canceled"
-	WorkerExecutionOutcomeError       WorkerExecutionOutcome = "error"
-)
-
-var workerExecutionBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800}
-
 type WorkerRecorder struct {
-	claimDeferrals    prometheus.Counter
-	capacity          prometheus.Gauge
-	slotsUsed         atomic.Pointer[func() int]
-	executionsActive  prometheus.Gauge
-	readyToClaim      prometheus.Histogram
-	executionsTotal   *prometheus.CounterVec
-	executionDuration *prometheus.HistogramVec
+	claimDeferrals   prometheus.Counter
+	capacity         prometheus.Gauge
+	slotsUsed        atomic.Pointer[func() int]
+	executionsActive prometheus.Gauge
 }
 
 func NewWorkerRecorder(set *Set) *WorkerRecorder {
@@ -53,22 +31,6 @@ func NewWorkerRecorder(set *Set) *WorkerRecorder {
 			Help: "Claimed model/tool work currently executing on this worker. " +
 				"Excludes slots reserved while claiming or backing off and retained async tool work.",
 		}),
-		readyToClaim: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: namespace, Subsystem: "worker", Name: "ready_to_claim_seconds",
-			Help: "DB-clock delay from an agent wakeup becoming claimable to its committed claim. " +
-				"Covers claimed work only; use omnara_agent_oldest_ready_age_seconds for work still waiting.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600},
-		}),
-		executionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Subsystem: "worker", Name: "executions_total",
-			Help: "Claimed agent work executions by kind and outcome.",
-		}, []string{"kind", "outcome"}),
-		executionDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: namespace, Subsystem: "worker", Name: "execution_duration_seconds",
-			Help: "Claimed agent work execution time, including runtime lock renewal and release; " +
-				"excludes scheduling delay and retained async tool work.",
-			Buckets: workerExecutionBuckets,
-		}, []string{"kind", "outcome"}),
 	}
 	slotsUsed := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: namespace, Subsystem: "worker", Name: "slots_used",
@@ -79,8 +41,7 @@ func NewWorkerRecorder(set *Set) *WorkerRecorder {
 		}
 		return 0
 	})
-	set.MustRegister(recorder.claimDeferrals, recorder.capacity, slotsUsed, recorder.executionsActive,
-		recorder.readyToClaim, recorder.executionsTotal, recorder.executionDuration)
+	set.MustRegister(recorder.claimDeferrals, recorder.capacity, slotsUsed, recorder.executionsActive)
 	return recorder
 }
 
@@ -100,37 +61,13 @@ func (r *WorkerRecorder) RecordSlots(capacity int, slotsUsed func() int) {
 	r.slotsUsed.Store(&slotsUsed)
 }
 
-func (r *WorkerRecorder) RecordReadyToClaim(readyAt, claimedAt time.Time) {
-	if r == nil || readyAt.IsZero() || claimedAt.IsZero() {
-		return
-	}
-	r.readyToClaim.Observe(math.Max(claimedAt.Sub(readyAt).Seconds(), 0))
-}
-
-// StartExecution marks claimed work as executing until the returned function
-// records its outcome. Call the returned function exactly once.
-func (r *WorkerRecorder) StartExecution(kind WorkerExecutionKind) func(WorkerExecutionOutcome) {
+// StartExecution marks claimed work as executing until the returned function is called.
+func (r *WorkerRecorder) StartExecution() (done func()) {
 	if r == nil {
-		return func(WorkerExecutionOutcome) {}
+		return func() {}
 	}
-	switch kind {
-	case WorkerExecutionKindModel, WorkerExecutionKindTool:
-	default:
-		kind = WorkerExecutionKindOther
-	}
-	started := time.Now()
 	r.executionsActive.Inc()
-	return func(outcome WorkerExecutionOutcome) {
-		r.executionsActive.Dec()
-		switch outcome {
-		case WorkerExecutionOutcomeSuccess, WorkerExecutionOutcomeRecoverable,
-			WorkerExecutionOutcomeCanceled, WorkerExecutionOutcomeError:
-		default:
-			outcome = WorkerExecutionOutcomeError
-		}
-		r.executionsTotal.WithLabelValues(string(kind), string(outcome)).Inc()
-		r.executionDuration.WithLabelValues(string(kind), string(outcome)).Observe(time.Since(started).Seconds())
-	}
+	return r.executionsActive.Dec
 }
 
 type AgentBacklogSample struct {
@@ -150,7 +87,7 @@ func NewAgentBacklogRecorder(set *Set) *AgentBacklogRecorder {
 		ready: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace, Subsystem: "agent", Name: "ready_backlog",
 			Help: "Cluster-wide due agent wakeups for non-archived agents without a runtime lock. " +
-				"Sampled by each worker; use max across workers, never sum. NaN before a sample or on failure.",
+				"Sampled by maintenance; use max across replicas, never sum. NaN before a sample or on failure.",
 		}),
 		oldestReadyAge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace, Subsystem: "agent", Name: "oldest_ready_age_seconds",

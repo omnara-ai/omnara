@@ -25,10 +25,7 @@ WITH locked_agent AS MATERIALIZED (
   LIMIT 1
 ),
 locked_wake AS MATERIALIZED (
-  SELECT wake.agent_id, agent.project_id, agent.root_agent_id,
-    -- Wakeups exist only while no runtime lock is held, so updated_at marks
-    -- when a backdated ready_at became claimable.
-    greatest(wake.ready_at, wake.updated_at)::timestamptz AS claimable_at
+  SELECT wake.agent_id, agent.project_id, agent.root_agent_id
   FROM agent_wakeups wake
   JOIN locked_agent agent ON agent.agent_id = wake.agent_id
   WHERE NOT EXISTS (
@@ -38,8 +35,7 @@ locked_wake AS MATERIALIZED (
     )
   FOR UPDATE OF wake
 )
-SELECT agent_id, project_id, root_agent_id, claimable_at,
-  statement_timestamp()::timestamptz AS claimed_at
+SELECT agent_id, project_id, root_agent_id
 FROM locked_wake
 `
 
@@ -47,20 +43,12 @@ type ClaimNextAgentWakeupRow struct {
 	AgentID     uuid.UUID
 	ProjectID   uuid.UUID
 	RootAgentID uuid.UUID
-	ClaimableAt time.Time
-	ClaimedAt   time.Time
 }
 
 func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeupRow, error) {
 	row := q.db.QueryRow(ctx, claimNextAgentWakeup)
 	var i ClaimNextAgentWakeupRow
-	err := row.Scan(
-		&i.AgentID,
-		&i.ProjectID,
-		&i.RootAgentID,
-		&i.ClaimableAt,
-		&i.ClaimedAt,
-	)
+	err := row.Scan(&i.AgentID, &i.ProjectID, &i.RootAgentID)
 	return i, err
 }
 
@@ -165,8 +153,7 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 }
 
 const lockClaimableAgentWakeup = `-- name: LockClaimableAgentWakeup :one
-SELECT wake.agent_id, greatest(wake.ready_at, wake.updated_at)::timestamptz AS claimable_at,
-  statement_timestamp()::timestamptz AS claimed_at
+SELECT wake.agent_id
 FROM agent_wakeups wake JOIN agents agent ON agent.id=wake.agent_id
 WHERE wake.agent_id=$1 AND agent.state<>'archived'
   AND wake.ready_at<=statement_timestamp()
@@ -178,17 +165,11 @@ type LockClaimableAgentWakeupParams struct {
 	AgentID uuid.UUID
 }
 
-type LockClaimableAgentWakeupRow struct {
-	AgentID     uuid.UUID
-	ClaimableAt time.Time
-	ClaimedAt   time.Time
-}
-
-func (q *Queries) LockClaimableAgentWakeup(ctx context.Context, arg LockClaimableAgentWakeupParams) (LockClaimableAgentWakeupRow, error) {
+func (q *Queries) LockClaimableAgentWakeup(ctx context.Context, arg LockClaimableAgentWakeupParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockClaimableAgentWakeup, arg.AgentID)
-	var i LockClaimableAgentWakeupRow
-	err := row.Scan(&i.AgentID, &i.ClaimableAt, &i.ClaimedAt)
-	return i, err
+	var agent_id uuid.UUID
+	err := row.Scan(&agent_id)
+	return agent_id, err
 }
 
 const sampleReadyAgentBacklog = `-- name: SampleReadyAgentBacklog :one
@@ -209,6 +190,8 @@ type SampleReadyAgentBacklogRow struct {
 	OldestReadyAgeSeconds float64
 }
 
+// Wakeups exist only while no runtime lock is held, so updated_at marks when a
+// backdated ready_at became claimable.
 func (q *Queries) SampleReadyAgentBacklog(ctx context.Context) (SampleReadyAgentBacklogRow, error) {
 	row := q.db.QueryRow(ctx, sampleReadyAgentBacklog)
 	var i SampleReadyAgentBacklogRow

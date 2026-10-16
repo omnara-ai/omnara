@@ -46,7 +46,6 @@ type Store interface {
 
 type Worker struct {
 	metrics                  *metrics.WorkerRecorder
-	backlog                  *backlogSampler
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
@@ -63,12 +62,8 @@ type Worker struct {
 }
 
 type Options struct {
-	Metrics *metrics.WorkerRecorder
-	Log     *slog.Logger
-	// SampleReadyBacklog and BacklogMetrics enable the global ready agent
-	// backlog sample; every worker exports its own copy.
-	SampleReadyBacklog       func(context.Context) (executionstore.ReadyAgentBacklog, error)
-	BacklogMetrics           *metrics.AgentBacklogRecorder
+	Metrics                  *metrics.WorkerRecorder
+	Log                      *slog.Logger
 	RuntimeLockLeaseDuration time.Duration
 	Capacity                 int
 	ClaimConcurrency         int
@@ -113,7 +108,6 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 	}
 	return &Worker{
 		metrics:                  opts.Metrics,
-		backlog:                  newBacklogSampler(opts.SampleReadyBacklog, opts.BacklogMetrics, log),
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -162,11 +156,8 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 	idleDelay := minIdleClaimDelay
 	failures := 0
 	for {
-		w.backlog.sampleIfDue(ctx)
 		select {
 		case slots <- struct{}{}:
-		case <-w.backlog.due():
-			continue
 		case <-ctx.Done():
 			return
 		}
@@ -184,7 +175,7 @@ func (w *Worker) claimLoop(ctx context.Context, slots chan struct{}, executions 
 			go func() {
 				defer executions.Done()
 				defer func() { <-slots }()
-				err := w.executeClaimedWorkObserved(ctx, loopCtx, claim, now)
+				err := w.executeClaimedWorkRecovering(loopCtx, claim, now)
 				w.finishLoop(ctx, loopCtx, event, true, err)
 				w.throttleAfterExecution(ctx, err)
 			}()
@@ -273,20 +264,7 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 	if err != nil {
 		return executionstore.ClaimedAgentWork{}, false, err
 	}
-	if handled {
-		w.metrics.RecordReadyToClaim(claim.ReadyAt, claim.ClaimedAt)
-	}
 	return claim, handled, nil
-}
-
-func (w *Worker) executeClaimedWorkObserved(
-	ctx, loopCtx context.Context,
-	claim executionstore.ClaimedAgentWork,
-	now time.Time,
-) (err error) {
-	finish := w.metrics.StartExecution(workerExecutionKind(claim.Kind))
-	defer func() { finish(workerExecutionOutcome(ctx, err)) }()
-	return w.executeClaimedWorkRecovering(loopCtx, claim, now)
 }
 
 func (w *Worker) executeClaimedWorkRecovering(
@@ -294,6 +272,7 @@ func (w *Worker) executeClaimedWorkRecovering(
 	claim executionstore.ClaimedAgentWork,
 	now time.Time,
 ) (err error) {
+	defer w.metrics.StartExecution()()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicError("worker iteration", recovered)
@@ -743,30 +722,6 @@ func isRecoverableRunOnceError(err error) bool {
 		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
 		errors.Is(err, storeerr.ErrStateTransitionConflict)
-}
-
-func workerExecutionKind(kind executionstore.AgentWorkKind) metrics.WorkerExecutionKind {
-	switch kind {
-	case executionstore.AgentWorkModel:
-		return metrics.WorkerExecutionKindModel
-	case executionstore.AgentWorkTool:
-		return metrics.WorkerExecutionKindTool
-	default:
-		return metrics.WorkerExecutionKindOther
-	}
-}
-
-func workerExecutionOutcome(ctx context.Context, err error) metrics.WorkerExecutionOutcome {
-	switch {
-	case err == nil:
-		return metrics.WorkerExecutionOutcomeSuccess
-	case isRecoverableRunOnceError(err):
-		return metrics.WorkerExecutionOutcomeRecoverable
-	case ctx.Err() != nil && errutil.OnlyMatches(err, context.Canceled):
-		return metrics.WorkerExecutionOutcomeCanceled
-	default:
-		return metrics.WorkerExecutionOutcomeError
-	}
 }
 
 func runtimeExecutionError(err error, active *activeRuntime) error {

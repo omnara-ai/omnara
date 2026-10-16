@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadyAgentBacklogAndClaimTimingUseClaimableTime(t *testing.T) {
+func TestReadyAgentBacklogUsesClaimableTime(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, "ready_backlog")
@@ -43,11 +43,6 @@ func TestReadyAgentBacklogAndClaimTimingUseClaimableTime(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, f.AgentID, work.AgentID)
-	require.False(t, work.ReadyAt.IsZero())
-	require.False(t, work.ClaimedAt.IsZero())
-	delay := work.ClaimedAt.Sub(work.ReadyAt)
-	require.GreaterOrEqual(t, delay, 10*time.Minute)
-	require.Less(t, delay, 11*time.Minute)
 
 	backlog, err = execution.SampleReadyAgentBacklog(ctx)
 	require.NoError(t, err)

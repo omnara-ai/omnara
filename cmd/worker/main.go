@@ -241,14 +241,12 @@ func main() {
 		StreamLog:       log,
 	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
-		Metrics:            metrics.NewWorkerRecorder(metricSet),
-		SampleReadyBacklog: store.Execution().SampleReadyAgentBacklog,
-		BacklogMetrics:     metrics.NewAgentBacklogRecorder(metricSet),
-		Log:                log,
-		Capacity:           cfg.WorkerCapacity,
-		ClaimConcurrency:   cfg.WorkerClaimConcurrency,
-		AsyncToolCapacity:  cfg.WorkerAsyncToolCapacity,
-		ControlSubscriber:  redisBus,
+		Metrics:           metrics.NewWorkerRecorder(metricSet),
+		Log:               log,
+		Capacity:          cfg.WorkerCapacity,
+		ClaimConcurrency:  cfg.WorkerClaimConcurrency,
+		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
+		ControlSubscriber: redisBus,
 	})
 	workerErr := make(chan error, 1)
 	go func() {

@@ -87,10 +87,6 @@ type ClaimedAgentWork struct {
 	RuntimeLock               AgentRuntimeLockRecord
 	Model                     ClaimedModelWork
 	Tool                      ClaimedToolWork
-	// ReadyAt and ClaimedAt are DB-clock times for when the wakeup became
-	// claimable and when this claim locked it.
-	ReadyAt   time.Time
-	ClaimedAt time.Time
 }
 
 type AdmittedAgentInputTurn struct {
@@ -148,8 +144,6 @@ func (s *Store) ClaimNextAgentWork(
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
 			claim.LocalLeaseBudgetStartedAt = started
-			timing := unit.ClaimTiming()
-			claim.ReadyAt, claim.ClaimedAt = timing.ClaimableAt, timing.ClaimedAt
 			if err = unit.Commit(ctx, "claim agent work"); err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}

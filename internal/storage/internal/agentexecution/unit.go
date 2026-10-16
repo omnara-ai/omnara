@@ -25,7 +25,6 @@ type Unit struct {
 	cell              *AgentCell
 	expanded          retryPlan
 	claimedAgent      uuid.UUID
-	claimTiming       ClaimTiming
 	tx                pgx.Tx
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle

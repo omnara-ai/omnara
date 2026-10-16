@@ -877,10 +877,7 @@ func (s *dispatchStore) ClaimNextAgentWork(
 		return executionstore.ClaimedAgentWork{}, false, ctx.Err()
 	}
 	s.claims.Add(1)
-	claimedAt := time.Now()
 	return executionstore.ClaimedAgentWork{
-		ReadyAt:     claimedAt.Add(-time.Second),
-		ClaimedAt:   claimedAt,
 		ProjectID:   uuid.New(),
 		AgentID:     uuid.New(),
 		Kind:        executionstore.AgentWorkModel,

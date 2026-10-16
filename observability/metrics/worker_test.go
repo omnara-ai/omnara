@@ -23,8 +23,7 @@ func TestWorkerRecorder(t *testing.T) {
 	var absent *WorkerRecorder
 	absent.RecordClaimDeferral()
 	absent.RecordSlots(4, func() int { return 1 })
-	absent.RecordReadyToClaim(time.Now(), time.Now())
-	absent.StartExecution(WorkerExecutionKindModel)(WorkerExecutionOutcomeSuccess)
+	absent.StartExecution()()
 }
 
 func TestWorkerRecorderSlots(t *testing.T) {
@@ -42,33 +41,14 @@ func TestWorkerRecorderSlots(t *testing.T) {
 	require.Contains(t, scrapeMetrics(t, set), "omnara_worker_slots_used 5")
 }
 
-func TestWorkerRecorderExecutionsBoundLabels(t *testing.T) {
+func TestWorkerRecorderExecutionsActive(t *testing.T) {
 	set := New()
 	recorder := NewWorkerRecorder(set)
-	finishModel := recorder.StartExecution(WorkerExecutionKindModel)
-	finishUnknown := recorder.StartExecution(WorkerExecutionKind("agent-123"))
+	first, second := recorder.StartExecution(), recorder.StartExecution()
 	require.Contains(t, scrapeMetrics(t, set), "omnara_worker_executions_active 2")
-	finishModel(WorkerExecutionOutcomeRecoverable)
-	finishUnknown(WorkerExecutionOutcome("org-456"))
-	body := scrapeMetrics(t, set)
-	require.Contains(t, body, "omnara_worker_executions_active 0")
-	require.Contains(t, body, `omnara_worker_executions_total{kind="model",outcome="recoverable"} 1`)
-	require.Contains(t, body, `omnara_worker_executions_total{kind="other",outcome="error"} 1`)
-	require.Contains(t, body, `omnara_worker_execution_duration_seconds_count{kind="other",outcome="error"} 1`)
-	require.NotContains(t, body, "agent-123")
-	require.NotContains(t, body, "org-456")
-}
-
-func TestWorkerRecorderReadyToClaim(t *testing.T) {
-	set := New()
-	recorder := NewWorkerRecorder(set)
-	claimedAt := time.Now()
-	recorder.RecordReadyToClaim(claimedAt.Add(-3*time.Second), claimedAt)
-	recorder.RecordReadyToClaim(claimedAt.Add(time.Second), claimedAt)
-	recorder.RecordReadyToClaim(time.Time{}, claimedAt)
-	body := scrapeMetrics(t, set)
-	require.Contains(t, body, "omnara_worker_ready_to_claim_seconds_count 2")
-	require.Contains(t, body, "omnara_worker_ready_to_claim_seconds_sum 3")
+	first()
+	second()
+	require.Contains(t, scrapeMetrics(t, set), "omnara_worker_executions_active 0")
 }
 
 func TestAgentBacklogDistinguishesEmptyFailedAndStaleSamples(t *testing.T) {
