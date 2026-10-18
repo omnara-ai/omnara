@@ -174,8 +174,7 @@ func (q *Queries) GetAgentMachineBindingByMachine(ctx context.Context, arg GetAg
 const getToolCallAgentConfigID = `-- name: GetToolCallAgentConfigID :one
 SELECT context.agent_config_id
 FROM tool_call_read_projection tool_call
-JOIN model_call_contexts context ON context.project_id = tool_call.project_id
-  AND context.agent_id = tool_call.agent_id
+JOIN model_call_contexts context ON context.agent_id = tool_call.agent_id
   AND context.id = tool_call.model_call_context_id
 WHERE tool_call.project_id = $1
   AND tool_call.agent_id = $2

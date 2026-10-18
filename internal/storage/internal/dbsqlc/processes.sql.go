@@ -563,10 +563,10 @@ JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
   AND binding.state = 'attached'
 JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
   AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
-JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
-  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-JOIN model_call_contexts context ON context.project_id = process.project_id
-  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id
+  AND context.id = output.model_call_context_id
 JOIN agent_configs original_config ON original_config.project_id = process.project_id
   AND original_config.id = context.agent_config_id
 JOIN agent_configs current_config ON current_config.project_id = process.project_id
