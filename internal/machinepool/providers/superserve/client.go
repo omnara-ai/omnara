@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
@@ -77,6 +78,7 @@ type sandbox struct {
 	Status      sandboxStatus     `json:"status"`
 	VCPUCount   int               `json:"vcpu_count"`
 	MemoryMiB   int               `json:"memory_mib"`
+	CreatedAt   time.Time         `json:"created_at"`
 	Metadata    map[string]string `json:"metadata"`
 	AccessToken string            `json:"access_token"`
 	RoutingHint string            `json:"routing_hint"`

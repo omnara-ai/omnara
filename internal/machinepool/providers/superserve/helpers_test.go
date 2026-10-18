@@ -121,6 +121,7 @@ type fakeAPI struct {
 
 	deleteCalls int
 	deletedID   string
+	deletedIDs  []string
 	deleteErr   error
 
 	execCalls    int
@@ -241,6 +242,7 @@ func (a *fakeAPI) ActivateSandbox(_ context.Context, id string) (sandbox, error)
 func (a *fakeAPI) DeleteSandbox(_ context.Context, id string) error {
 	a.deleteCalls++
 	a.deletedID = id
+	a.deletedIDs = append(a.deletedIDs, id)
 	return a.deleteErr
 }
 

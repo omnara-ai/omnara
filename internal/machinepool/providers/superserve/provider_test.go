@@ -481,18 +481,52 @@ func TestSuperserveProvisionMachineRefusesForeignAndMismatchedSandboxes(t *testi
 	}
 }
 
-func TestSuperserveProvisionMachineRefusesDuplicateOwnedSandboxes(t *testing.T) {
+// A create whose outcome was lost, followed by a retry whose list missed the
+// first sandbox, leaves two sandboxes with the same ownership. The newest is
+// kept and the rest are deleted, so provisioning and deletion both converge.
+func TestSuperserveProvisionMachineKeepsTheNewestDuplicateOwnedSandbox(t *testing.T) {
 	api := newFakeAPI()
 	installationID := uuid.New()
 	machineID := uuid.New()
-	api.sandboxes = []sandbox{
-		ownedSandbox(t, "sb-1", sandboxStatusActive, installationID, machineID),
-		ownedSandbox(t, "sb-2", sandboxStatusPaused, installationID, machineID),
-	}
+	base := time.Date(2026, time.October, 17, 12, 0, 0, 0, time.UTC)
+	older := ownedSandbox(t, "sb-older", sandboxStatusActive, installationID, machineID)
+	older.CreatedAt = base
+	newer := ownedSandbox(t, "sb-newer", sandboxStatusPaused, installationID, machineID)
+	newer.CreatedAt = base.Add(time.Minute)
+	api.sandboxes = []sandbox{older, newer}
+	api.created = newer
+
 	result, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-	if err == nil || !strings.Contains(err.Error(), "multiple") || result.ProviderResourceID != "" ||
-		api.createCalls != 0 {
-		t.Fatalf("result = %+v error = %v create calls = %d", result, err, api.createCalls)
+	if err != nil || result.ProviderResourceID != "sb-newer" || api.createCalls != 0 ||
+		!slices.Equal(api.deletedIDs, []string{"sb-older"}) || api.execCalls != 1 {
+		t.Fatalf(
+			"result = %+v error = %v create calls = %d deleted = %v exec calls = %d, want the newest adopted",
+			result, err, api.createCalls, api.deletedIDs, api.execCalls,
+		)
+	}
+
+	// Equal creation times fall back to the ID so every retry picks the same one.
+	api = newFakeAPI()
+	tied := []sandbox{
+		ownedSandbox(t, "sb-a", sandboxStatusActive, installationID, machineID),
+		ownedSandbox(t, "sb-b", sandboxStatusActive, installationID, machineID),
+	}
+	api.sandboxes = tied
+	api.created = tied[1]
+	result, err = provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
+	if err != nil || result.ProviderResourceID != "sb-b" || !slices.Equal(api.deletedIDs, []string{"sb-a"}) {
+		t.Fatalf("result = %+v error = %v deleted = %v, want the tie broken by id", result, err, api.deletedIDs)
+	}
+
+	// A duplicate that cannot be deleted keeps the machine retrying rather than
+	// adopting one of two live sandboxes.
+	api = newFakeAPI()
+	api.sandboxes = tied
+	api.deleteErr = errors.New("delete denied")
+	result, err = provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
+	if err == nil || !strings.Contains(err.Error(), "delete denied") || result.ProviderResourceID != "" ||
+		api.createCalls != 0 || api.execCalls != 0 {
+		t.Fatalf("result = %+v error = %v create calls = %d exec calls = %d", result, err, api.createCalls, api.execCalls)
 	}
 }
 
@@ -616,6 +650,17 @@ func TestSuperserveDeleteMachine(t *testing.T) {
 	api.sandboxes = []sandbox{ownedSandbox(t, "sb-replacement", sandboxStatusActive, installationID, machineID)}
 	if err := deleteMachine(api, "sb-stale"); err != nil || api.deletedID != "sb-replacement" {
 		t.Fatalf("delete by ownership fallback error = %v deleted %q", err, api.deletedID)
+	}
+
+	api = newFakeAPI()
+	api.getFound = false
+	api.sandboxes = []sandbox{
+		ownedSandbox(t, "sb-dup-1", sandboxStatusActive, installationID, machineID),
+		ownedSandbox(t, "sb-dup-2", sandboxStatusPaused, installationID, machineID),
+	}
+	err := deleteMachine(api, "sb-stale")
+	if err != nil || !slices.Equal(api.deletedIDs, []string{"sb-dup-1", "sb-dup-2"}) {
+		t.Fatalf("delete with duplicate owned sandboxes error = %v deleted %v, want both removed", err, api.deletedIDs)
 	}
 
 	api = newFakeAPI()

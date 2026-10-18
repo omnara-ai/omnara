@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -388,6 +389,13 @@ func ownedBy(current sandbox, installationID, machineID uuid.UUID) bool {
 		current.Metadata[machineLabel] == metadata[machineLabel]
 }
 
+// findOwned returns the sandbox that carries this machine's ownership
+// metadata. A machine owns at most one sandbox, but a create whose outcome was
+// lost can leave a second one behind when the retry's list missed the first.
+// Sandbox names are not unique on Superserve, so nothing stops that upstream.
+// Keeping both would fail every later provision and delete, so the newest is
+// kept, since it is the one most likely recorded for the machine, and the rest
+// are deleted.
 func (p *provider) findOwned(
 	ctx context.Context,
 	installationID, machineID uuid.UUID,
@@ -400,7 +408,7 @@ func (p *provider) findOwned(
 	if err != nil {
 		return sandbox{}, false, err
 	}
-	var found sandbox
+	var owned []sandbox
 	for _, current := range sandboxes {
 		if current.Status == sandboxStatusDeleted || !ownedBy(current, installationID, machineID) {
 			continue
@@ -408,12 +416,31 @@ func (p *provider) findOwned(
 		if current.ID == "" {
 			return sandbox{}, false, errors.New("owned superserve sandbox is missing its id")
 		}
-		if found.ID != "" {
-			return sandbox{}, false, errors.New("multiple superserve sandboxes have the same Omnara ownership")
-		}
-		found = current
+		owned = append(owned, current)
 	}
-	return found, found.ID != "", nil
+	if len(owned) == 0 {
+		return sandbox{}, false, nil
+	}
+	slices.SortFunc(owned, newestSandboxFirst)
+	for _, duplicate := range owned[1:] {
+		if err := p.api.DeleteSandbox(ctx, duplicate.ID); err != nil {
+			return sandbox{}, false, fmt.Errorf(
+				"delete duplicate superserve sandbox %q owned by the same machine: %w",
+				duplicate.ID,
+				err,
+			)
+		}
+	}
+	return owned[0], true, nil
+}
+
+// newestSandboxFirst orders by creation time, newest first, and breaks ties
+// by ID so that every retry settles on the same survivor.
+func newestSandboxFirst(a, b sandbox) int {
+	if c := b.CreatedAt.Compare(a.CreatedAt); c != 0 {
+		return c
+	}
+	return strings.Compare(b.ID, a.ID)
 }
 
 func (p *provider) InspectMachine(
