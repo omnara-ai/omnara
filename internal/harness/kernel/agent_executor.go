@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -102,7 +103,7 @@ func (e AgentExecutor) notifyModelFailure(ctx context.Context, input ModelWorkEx
 	if e.OnModelFailure == nil || ctx.Err() != nil {
 		return
 	}
-	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	postCtx, cancel := cleanup.Detach(ctx, 10*time.Second)
 	defer cancel()
 	if err := e.OnModelFailure(postCtx, input.ProjectID, input.AgentID, input.RuntimeLockID); err != nil {
 		log := e.StreamLog

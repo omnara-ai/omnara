@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -20,6 +21,8 @@ import (
 )
 
 var ErrBlobStoreNotConfigured = errors.New("blob store is not configured")
+
+const uploadedArtifactCleanupTimeout = 10 * time.Second
 
 type ArtifactRecord struct {
 	ID             uuid.UUID `json:"id"`
@@ -101,7 +104,9 @@ func (s *Store) CreateArtifact(
 	record, err := s.createArtifactRecord(ctx, artifactID, input)
 	// The transaction has committed or rolled back before external cleanup starts.
 	if !record.Created || errors.Is(err, pgx.ErrTxCommitRollback) {
-		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
+		cleanupCtx, cancelCleanup := cleanup.Detach(ctx, uploadedArtifactCleanupTimeout)
+		cleanupErr := s.blobs.DeleteBlob(cleanupCtx, artifactKey)
+		cancelCleanup()
 		if err != nil && cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
 		} else if cleanupErr != nil {

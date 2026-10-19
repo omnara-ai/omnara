@@ -110,17 +110,6 @@ func integrationProviderFixture(
 	return pool, store, ids, integration.ID
 }
 
-type integrationWorkerFailureConsumer struct {
-	integrationWorkerConsumerFunc
-	finalize func(context.Context, uuid.UUID, uuid.UUID) error
-}
-
-func (c integrationWorkerFailureConsumer) FinalizeFailure(
-	ctx context.Context, project, receipt uuid.UUID, _ error,
-) error {
-	return c.finalize(ctx, project, receipt)
-}
-
 func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	pool, store, ids, integrationSetup := integrationWorkerFixture(t)
 	inbox := store.Integrations()

@@ -15,6 +15,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/eventwebhook"
@@ -94,6 +95,8 @@ func main() {
 	cleanupCtx, abortCleanup := cancelAfterDone(executionCtx, workerShutdownCleanupBudget)
 	defer abortCleanup()
 	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
+	ctx = cleanup.WithLifetime(ctx, cleanupCtx)
+	executionCtx = cleanup.WithLifetime(executionCtx, cleanupCtx)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -262,7 +265,7 @@ func main() {
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), ctx.Done())
+		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})

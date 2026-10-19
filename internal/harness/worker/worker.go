@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
@@ -492,7 +493,7 @@ func (w *Worker) finalizeContext(parent context.Context) (context.Context, conte
 	if timeout > 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	return tools.DetachForCleanup(parent, timeout)
+	return cleanup.Detach(parent, timeout)
 }
 
 func (w *Worker) startRuntimeRenewal(

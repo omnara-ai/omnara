@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -1131,7 +1132,7 @@ func TestAsyncFailurePersistenceEndsWithCleanupLifetime(t *testing.T) {
 	scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
 	started := make(chan struct{})
 	result, err := (Executor{Store: fixture.Store}).dispatchToolHandler(
-		WithAsyncExecutionScope(WithCleanupLifetime(executionCtx, cleanupCtx), scope),
+		WithAsyncExecutionScope(cleanup.WithLifetime(executionCtx, cleanupCtx), scope),
 		fixture.turn(),
 		call,
 		fixture.toolCallID(t, ctx, call.ID),

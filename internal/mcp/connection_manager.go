@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
@@ -559,7 +560,11 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 	lease secretstore.OAuthRefreshLeaseRecord,
 	timeout time.Duration,
 ) (string, uuid.UUID, error) {
-	defer func() { _ = m.Secrets.ReleaseProjectOAuthRefreshLease(context.WithoutCancel(callerCtx), lease) }()
+	defer func() {
+		releaseCtx, cancelRelease := cleanup.Detach(callerCtx, oauthRefreshOwnerHeadroom)
+		defer cancelRelease()
+		_ = m.Secrets.ReleaseProjectOAuthRefreshLease(releaseCtx, lease)
+	}()
 	if timeout <= 0 {
 		return "", uuid.Nil, fmt.Errorf(
 			"%w: mcp oauth refresh lease for %q has insufficient remaining time",
@@ -570,7 +575,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 	if err := callerCtx.Err(); err != nil {
 		return "", uuid.Nil, err
 	}
-	leaseOwnerCtx, cancel := context.WithTimeout(context.WithoutCancel(callerCtx), timeout)
+	leaseOwnerCtx, cancel := cleanup.Detach(callerCtx, timeout)
 	defer cancel()
 	secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 		leaseOwnerCtx,

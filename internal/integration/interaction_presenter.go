@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
@@ -317,7 +318,7 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	if err != nil {
 		return err
 	}
-	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	receiptCtx, cancel := cleanup.Detach(ctx, 5*time.Second)
 	defer cancel()
 	input := executionstore.RecordInteractionPresentationReceiptInput{
 		ProjectID: projectID, AgentID: agentID, ID: id, Destination: *destination, Receipt: raw,

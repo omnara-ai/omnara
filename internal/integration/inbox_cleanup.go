@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const integrationInboxArtifactCleanupTimeout = 30 * time.Second
+
 type IntegrationInboxCleanupReader interface {
 	GetIntegrationInbox(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationInboxRecord, error)
 }
@@ -38,7 +40,7 @@ func CleanupTerminalIntegrationInboxArtifacts(
 	if projectID == uuid.Nil || receiptID == uuid.Nil || inbox == nil || artifacts == nil {
 		return storeerr.InvalidRequest(errors.New("project, receipt, inbox reader and artifact cleaner are required"))
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, integrationInboxArtifactCleanupTimeout)
 	defer cancel()
 	receipt, err := inbox.GetIntegrationInbox(ctx, projectID, receiptID)
 	if err != nil {

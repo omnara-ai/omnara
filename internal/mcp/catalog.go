@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	mlog "github.com/omnara-ai/omnara/observability/wideevent"
@@ -31,7 +32,7 @@ const (
 var errNoMutualProtocolVersion = errors.New("mcp: server supports no protocol version this client speaks")
 
 func failureRecordContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), catalogRefreshOwnerHeadroom)
+	return cleanup.Detach(ctx, catalogRefreshOwnerHeadroom)
 }
 
 type serverProbe struct {
@@ -346,12 +347,9 @@ func (m Manager) refreshCatalogUntil(
 		}
 		if acquired {
 			if refreshed(current) {
-				_ = m.Execution.ReleaseMCPServerCatalogRefreshLease(
-					context.WithoutCancel(ctx),
-					identity.OrgID,
-					current.ID,
-					owner,
-				)
+				releaseCtx, cancelRelease := cleanup.Detach(ctx, catalogRefreshOwnerHeadroom)
+				_ = m.Execution.ReleaseMCPServerCatalogRefreshLease(releaseCtx, identity.OrgID, current.ID, owner)
+				cancelRelease()
 				return current, nil
 			}
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - catalogRefreshOwnerHeadroom
@@ -397,12 +395,9 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	fetch catalogFetch,
 ) (executionstore.MCPServerCatalogRecord, error) {
 	defer func() {
-		_ = m.Execution.ReleaseMCPServerCatalogRefreshLease(
-			context.WithoutCancel(callerCtx),
-			identity.OrgID,
-			current.ID,
-			owner,
-		)
+		releaseCtx, cancelRelease := cleanup.Detach(callerCtx, catalogRefreshOwnerHeadroom)
+		defer cancelRelease()
+		_ = m.Execution.ReleaseMCPServerCatalogRefreshLease(releaseCtx, identity.OrgID, current.ID, owner)
 	}()
 	if timeout <= 0 {
 		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
@@ -414,7 +409,7 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	if err := callerCtx.Err(); err != nil {
 		return executionstore.MCPServerCatalogRecord{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(callerCtx), timeout)
+	ctx, cancel := cleanup.Detach(callerCtx, timeout)
 	defer cancel()
 	contents, err := fetch(ctx, current)
 	if errors.Is(err, ErrSessionExpired) {

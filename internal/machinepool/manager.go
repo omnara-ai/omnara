@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -86,10 +87,7 @@ func (m Manager) StartLaunchProvisioning(
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(
-			context.WithoutCancel(parent),
-			DefaultImmediateProvisioningTimeout,
-		)
+		ctx, cancel := cleanup.Detach(parent, DefaultImmediateProvisioningTimeout)
 		defer cancel()
 		for _, machineID := range machineIDs {
 			if err := m.ProvisionMachine(ctx, orgID, machineID); err != nil {

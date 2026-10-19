@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -27,7 +28,9 @@ type recordingBlobStore struct {
 	putKeys             []string
 	deleteKeys          []string
 	deleteContextErrors []error
+	deleteBounded       []bool
 	deleteErr           error
+	holdDeleteUntilDone bool
 	content             map[string][]byte
 	afterPut            func()
 	beforeDelete        func()
@@ -63,6 +66,11 @@ func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
 	if s.beforeDelete != nil {
 		s.beforeDelete()
 	}
+	if s.holdDeleteUntilDone {
+		<-ctx.Done()
+	}
+	_, bounded := ctx.Deadline()
+	s.deleteBounded = append(s.deleteBounded, bounded)
 	s.deleteKeys = append(s.deleteKeys, key)
 	s.deleteContextErrors = append(s.deleteContextErrors, ctx.Err())
 	if s.deleteErr != nil {
@@ -249,8 +257,49 @@ func TestCreateArtifactCleanupSurvivesRequestCancellation(t *testing.T) {
 	if len(blobs.deleteKeys) != 1 {
 		t.Fatalf("deleted blobs = %v, want one", blobs.deleteKeys)
 	}
-	if len(blobs.deleteContextErrors) != 1 || blobs.deleteContextErrors[0] != nil {
-		t.Fatalf("delete context errors = %v, want [nil]", blobs.deleteContextErrors)
+	if len(blobs.deleteContextErrors) != 1 || blobs.deleteContextErrors[0] != nil || !blobs.deleteBounded[0] {
+		t.Fatalf("delete context errors = %v bounded = %v, want a live bounded context",
+			blobs.deleteContextErrors, blobs.deleteBounded)
+	}
+}
+
+func TestCreateArtifactCleanupEndsWithCleanupLifetime(t *testing.T) {
+	t.Parallel()
+	setupCtx := context.Background()
+	pool := openIntegrationDB(t, setupCtx)
+	seedMigratedDB(t, setupCtx, pool)
+	blobs := newRecordingBlobStore()
+	blobs.holdDeleteUntilDone = true
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	agentID := mustCreateAgent(t, setupCtx, store)
+	lifetime, endLifetime := context.WithCancel(setupCtx)
+	defer endLifetime()
+	ctx, cancel := context.WithCancel(cleanup.WithLifetime(setupCtx, lifetime))
+	defer cancel()
+	blobs.afterPut = cancel
+	blobs.beforeDelete = endLifetime
+
+	created := make(chan error, 1)
+	go func() {
+		_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+			ProjectID:   testProjectID,
+			AgentID:     agentID,
+			ContentType: "image/png",
+			Content:     []byte("png bytes"),
+		})
+		created <- err
+	}()
+	select {
+	case err := <-created:
+		if err == nil {
+			t.Fatal("expected create artifact to fail after request cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("uploaded blob cleanup outlived the cleanup lifetime")
+	}
+	if len(blobs.deleteKeys) != 1 || !errors.Is(blobs.deleteContextErrors[0], context.Canceled) {
+		t.Fatalf("deleted blobs = %v with context errors %v, want one ended by the lifetime",
+			blobs.deleteKeys, blobs.deleteContextErrors)
 	}
 }
 

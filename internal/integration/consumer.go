@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -147,8 +148,10 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 			if !integrationInboxPlanHasArtifacts(plan) {
 				return
 			}
+			cleanupCtx, cancelCleanup := cleanup.Detach(ctx, integrationInboxArtifactCleanupTimeout)
+			defer cancelCleanup()
 			if err := CleanupTerminalIntegrationInboxArtifacts(
-				context.WithoutCancel(ctx), c.inbox, artifacts, lease.ProjectID, lease.ReceiptID,
+				cleanupCtx, c.inbox, artifacts, lease.ProjectID, lease.ReceiptID,
 			); err != nil {
 				log.WarnContext(ctx, "Integration inbox artifact cleanup failed",
 					"receipt_id", lease.ReceiptID, "integration_id", receipt.IntegrationID, "error", err)

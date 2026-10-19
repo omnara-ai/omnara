@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
@@ -937,17 +938,29 @@ func (s *dispatchStore) ReleaseAgentRuntimeLock(ctx context.Context, _, _, runti
 
 func requireEachRuntimeReleasedOnce(t *testing.T, store *dispatchStore, runtimeIDs ...uuid.UUID) {
 	t.Helper()
+	requireRuntimesReleasedOnce(t, store, len(runtimeIDs))
+	store.releaseMu.Lock()
+	defer store.releaseMu.Unlock()
+	for _, runtimeID := range runtimeIDs {
+		if store.released[runtimeID] != 1 {
+			t.Fatalf("released runtimes = %v, want each of %v once", store.released, runtimeIDs)
+		}
+	}
+}
+
+func requireRuntimesReleasedOnce(t *testing.T, store *dispatchStore, want int) {
+	t.Helper()
 	if got := store.invalidReleases.Load(); got != 0 {
 		t.Fatalf("%d runtime releases ran without a live bounded context", got)
 	}
 	store.releaseMu.Lock()
 	defer store.releaseMu.Unlock()
-	if len(store.released) != len(runtimeIDs) {
-		t.Fatalf("released runtimes = %v, want each of %v once", store.released, runtimeIDs)
+	if len(store.released) != want {
+		t.Fatalf("released runtimes = %v, want %d released once each", store.released, want)
 	}
-	for _, runtimeID := range runtimeIDs {
-		if store.released[runtimeID] != 1 {
-			t.Fatalf("released runtimes = %v, want each of %v once", store.released, runtimeIDs)
+	for runtimeID, count := range store.released {
+		if count != 1 {
+			t.Fatalf("runtime %s released %d times, want once", runtimeID, count)
 		}
 	}
 }
@@ -1033,7 +1046,7 @@ func (e *shutdownProbeExecutor) work(ctx context.Context, retained bool) error {
 	case <-ctx.Done():
 	}
 	outcome.err = ctx.Err()
-	cleanupCtx, cancelCleanup := tools.DetachForCleanup(ctx, time.Minute)
+	cleanupCtx, cancelCleanup := cleanup.Detach(ctx, time.Minute)
 	defer cancelCleanup()
 	_, bounded := cleanupCtx.Deadline()
 	outcome.liveCleanupContext = bounded && cleanupCtx.Err() == nil
@@ -1263,7 +1276,7 @@ func TestWorkerDrainDeadlineUnblocksBackgroundSubmissionsAndReleasesEachRuntimeO
 	})
 	drain := make(chan struct{})
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	go func() { runDone <- worker.Run(cleanup.WithLifetime(executionCtx, cleanupCtx), drain) }()
 	runtimeIDs := receiveRuntimeIDs(t, executor.started, 2)
 	waitForBackgroundSubmissionsInFlight(t, metricSet, len(runtimeIDs))
 
@@ -1312,7 +1325,7 @@ func TestWorkerCleanupLifetimeBoundsRuntimeRelease(t *testing.T) {
 	defer endCleanup()
 	drain := make(chan struct{})
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	go func() { runDone <- worker.Run(cleanup.WithLifetime(executionCtx, cleanupCtx), drain) }()
 	select {
 	case <-executor.started:
 	case <-time.After(2 * time.Second):
@@ -1391,13 +1404,7 @@ func TestWorkerDrainInterruptsPendingClaim(t *testing.T) {
 			if got := int32(len(executor.started)); got != test.wantClaims {
 				t.Fatalf("executions = %d, want %d", got, test.wantClaims)
 			}
-			store.releaseMu.Lock()
-			released := len(store.released)
-			store.releaseMu.Unlock()
-			if int32(released) != test.wantClaims || store.invalidReleases.Load() != 0 {
-				t.Fatalf("released runtimes = %d invalid=%d, want %d", released,
-					store.invalidReleases.Load(), test.wantClaims)
-			}
+			requireRuntimesReleasedOnce(t, store, int(test.wantClaims))
 		})
 	}
 }
