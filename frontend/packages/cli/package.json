@@ -47,7 +47,7 @@
   "devDependencies": {
     "@omnara/react": "workspace:*",
     "@omnara/sdk": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.2.17",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
