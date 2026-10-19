@@ -129,6 +129,26 @@ func TestWatchShutdownExitsOnlyWhenShutdownOverrunsItsBound(t *testing.T) {
 			}
 		})
 	})
+	t.Run("blocked log output", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			unblock := make(chan struct{})
+			defer close(unblock)
+			started, finished := make(chan struct{}), make(chan struct{})
+			defer close(finished)
+			exitCodes := make(chan int, 1)
+			go watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(blockingWriter{unblock}, nil)),
+				func(code int) { exitCodes <- code })
+
+			close(started)
+			startedAt := time.Now()
+			if code := <-exitCodes; code == 0 {
+				t.Fatal("watchdog exited with code 0")
+			}
+			if elapsed := time.Since(startedAt); elapsed != bound+watchdogLogGrace {
+				t.Fatalf("watchdog exited after %s, want %s", elapsed, bound+watchdogLogGrace)
+			}
+		})
+	})
 	t.Run("shutdown finishes in time", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			started, finished := make(chan struct{}), make(chan struct{})
@@ -149,4 +169,11 @@ func TestWatchShutdownExitsOnlyWhenShutdownOverrunsItsBound(t *testing.T) {
 			}
 		})
 	})
+}
+
+type blockingWriter struct{ unblock <-chan struct{} }
+
+func (w blockingWriter) Write(p []byte) (int, error) {
+	<-w.unblock
+	return len(p), nil
 }

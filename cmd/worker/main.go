@@ -48,6 +48,7 @@ const (
 	cronTriggerFireInterval       = 30 * time.Second
 	workerCapacityPerDBConnection = 8
 	workerShutdownCleanupBudget   = 5 * time.Second
+	watchdogLogGrace              = 100 * time.Millisecond
 	workerShutdownExitMargin      = 2 * time.Second
 )
 
@@ -452,7 +453,15 @@ func watchShutdown(
 	select {
 	case <-finished:
 	case <-timer.C:
-		log.Warn("worker shutdown exceeded its bound; exiting", "bound", bound.String())
+		logged := make(chan struct{})
+		go func() {
+			defer close(logged)
+			log.Warn("worker shutdown exceeded its bound; exiting", "bound", bound.String())
+		}()
+		select {
+		case <-logged:
+		case <-time.After(watchdogLogGrace):
+		}
 		exit(1)
 	}
 }
