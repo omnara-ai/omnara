@@ -36,13 +36,20 @@ func GeneratedQuery(t testing.TB, path, name string) string {
 }
 
 type PlanNode struct {
-	Relation string     `json:"Relation Name"`
-	Index    string     `json:"Index Name"`
-	Type     string     `json:"Node Type"`
-	Rows     float64    `json:"Actual Rows"`
-	Hit      int        `json:"Shared Hit Blocks"`
-	Read     int        `json:"Shared Read Blocks"`
-	Plans    []PlanNode `json:"Plans"`
+	Relation              string     `json:"Relation Name"`
+	Index                 string     `json:"Index Name"`
+	Type                  string     `json:"Node Type"`
+	Rows                  float64    `json:"Actual Rows"`
+	Loops                 float64    `json:"Actual Loops"`
+	RemovedByFilter       float64    `json:"Rows Removed by Filter"`
+	RemovedByIndexRecheck float64    `json:"Rows Removed by Index Recheck"`
+	Hit                   int        `json:"Shared Hit Blocks"`
+	Read                  int        `json:"Shared Read Blocks"`
+	Plans                 []PlanNode `json:"Plans"`
+}
+
+func (p PlanNode) RowsVisited() float64 {
+	return p.Loops * (p.Rows + p.RemovedByFilter + p.RemovedByIndexRecheck)
 }
 
 func ReadPlan(t testing.TB, raw []byte) PlanNode {
