@@ -91,6 +91,7 @@ export {
   useInspectIntegrationGitHubInstallations,
   useIntegration,
   useIntegrationDefinitions,
+  useIntegrationGitHubRepositories,
   useIntegrations,
   useOrgIntegrations,
   useUpdateIntegration,

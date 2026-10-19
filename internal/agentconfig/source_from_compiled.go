@@ -107,7 +107,10 @@ func SourceFromCompiled(compiled Compiled, names SourceNames) (AgentConfigSource
 		source.InteractionHandlers[name] = AgentConfigIntegrationCapabilitySource{}
 	}
 	if compiled.GitCredentials != nil {
-		source.GitCredentials = &GitCredentialsSource{Integration: compiled.GitCredentials.Integration}
+		source.GitCredentials = &GitCredentialsSource{
+			Integration:   compiled.GitCredentials.Integration,
+			RepositoryIDs: compiled.GitCredentials.RepositoryIDs, ReadOnly: compiled.GitCredentials.ReadOnly,
+		}
 	}
 	for _, skill := range compiled.Skills {
 		source.Skills = append(source.Skills, try(publicid.Encode(publicid.KindSkill, skill.ID)))

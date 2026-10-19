@@ -105,7 +105,7 @@ mcp:
     url: https://example.com/search
 interaction_handlers:
   engineering-team: {}
-git_credentials: {integration: reviews}
+git_credentials: {integration: reviews, repository_ids: [123], read_only: true}
 skills: [`+testMachineSourcePublicID(t, publicid.KindSkill, "test-skill")+`]
 subagents:
   helper:

@@ -145,8 +145,8 @@ export function AgentConfigBasicForm({
               <AgentConfigGitCredentialsField
                 orgId={orgId}
                 projectId={projectId}
-                integration={form.gitCredentialsIntegration}
-                onIntegrationChange={form.setGitCredentialsIntegration}
+                value={form.gitCredentials}
+                onChange={form.setGitCredentials}
               />
             </CollapsibleContent>
           </Collapsible>

@@ -56,6 +56,12 @@ func newDaemonGitCredentialsFixture(t *testing.T) *daemonGitCredentialsFixture {
 			return &http.Response{StatusCode: http.StatusNoContent, Header: http.Header{},
 				Body: http.NoBody, Request: r}, nil
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/installation/repositories" &&
+			strings.HasPrefix(r.Header.Get("Authorization"), "Bearer git-installation-token-") {
+			body := `{"total_count":2,"repositories":[{"id":1,"name":"app"},{"id":2,"name":"docs"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+		}
 		var body []byte
 		if r.Body != nil {
 			var err error
@@ -416,6 +422,46 @@ func TestDaemonGitCredentialsReadOnlyUnlessIntegrationAllowsCodeWrite(t *testing
 	readOnly := f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	require.Contains(t, readOnly.Body.String(), "git-installation-token-1")
 	require.EqualValues(t, 2, f.minted.Load(), "turning code_write off reuses the read-only credential")
+}
+
+func TestDaemonGitCredentialsHonorAgentRepositoriesAndReadOnly(t *testing.T) {
+	t.Parallel()
+	f := newDaemonGitCredentialsFixture(t)
+	_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
+		integrationstore.SaveIntegrationInput{
+			OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,
+			IntegrationKind: f.integration.IntegrationKind, Settings: json.RawMessage(`{"code_write":true}`),
+		})
+	require.NoError(t, err)
+	limited := func(repositoryIDs ...int64) executionstore.AgentConfigRecord {
+		return f.config(t, &agentconfig.GitCredentialsCompiled{
+			Integration: f.integration.Name, IntegrationID: f.integration.ID, RepositoryIDs: repositoryIDs, ReadOnly: true,
+		}, "")
+	}
+	process := f.launchProcess(t, limited(1, 2))
+	f.accept(t, process)
+	f.request(t, process.Token, process.ProcessID, http.StatusOK)
+	requested, _ := f.mintBody.Load().(string)
+	require.JSONEq(t, `{"permissions":{"contents":"read","metadata":"read"},"repository_ids":[1,2]}`, requested)
+	f.changeConfig(t, process, limited(1))
+	f.request(t, process.Token, process.ProcessID, http.StatusNotFound)
+	require.EqualValues(t, 1, f.minted.Load(), "changed Git credentials settings revoke running processes")
+}
+
+func TestListIntegrationGitHubRepositories(t *testing.T) {
+	t.Parallel()
+	f := newDaemonGitCredentialsFixture(t)
+	path := strings.TrimSuffix(integrationSetupPath(t, f.project, f.integration), "/setup") + "/github-repositories"
+	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK,
+		authHeaders(f.project.AdminToken))
+	require.Equal(t, map[string]any{"repositories": []any{
+		map[string]any{"id": float64(1), "name": "app"}, map[string]any{"id": float64(2), "name": "docs"},
+	}}, listed)
+	_, err := f.project.Store.Integrations().DisconnectIntegration(t.Context(),
+		integrationstore.DisconnectIntegrationInput{ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID})
+	require.NoError(t, err)
+	requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusNotFound,
+		authHeaders(f.project.AdminToken))
 }
 
 func TestDaemonGitCredentialsProviderFailureStatusAndRedaction(t *testing.T) {

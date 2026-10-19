@@ -50,6 +50,14 @@ export type AgentConfigDefinitionEventWebhook = {
  */
 export type AgentConfigDefinitionGitCredentials = {
     integration: string;
+    /**
+     * GitHub repository IDs the credentials can access. Defaults to every repository the installation can access.
+     */
+    repository_ids?: Array<number>;
+    /**
+     * Prevents pushing, even if the integration allows it.
+     */
+    read_only?: boolean;
 };
 
 /**
@@ -1294,6 +1302,11 @@ export type GitHubSetupInstallation = {
     settings_url: string;
 };
 
+export type GitHubRepository = {
+    id: number;
+    name: string;
+};
+
 export type CreateSlackSetupRequest = {
     app_name: string;
     app_configuration_token: string;
@@ -1708,11 +1721,13 @@ export type CompiledIntegrationCapability = {
 };
 
 /**
- * Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+ * Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
  */
 export type CompiledGitCredentials = {
     integration: IntegrationName;
     integration_id: IntegrationId;
+    repository_ids?: Array<number>;
+    read_only?: boolean;
 };
 
 export type CompiledMcpServer = {
@@ -17819,6 +17834,10 @@ export type ListIntegrationsData = {
     };
     query?: {
         /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
          * Maximum number of items to return in one page.
          */
         limit?: number;
@@ -18566,6 +18585,86 @@ export type DisconnectIntegrationResponses = {
 };
 
 export type DisconnectIntegrationResponse = DisconnectIntegrationResponses[keyof DisconnectIntegrationResponses];
+
+export type ListIntegrationGitHubRepositoriesData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories';
+};
+
+export type ListIntegrationGitHubRepositoriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationGitHubRepositoriesError = ListIntegrationGitHubRepositoriesErrors[keyof ListIntegrationGitHubRepositoriesErrors];
+
+export type ListIntegrationGitHubRepositoriesResponses = {
+    /**
+     * Repositories.
+     */
+    200: {
+        repositories: Array<GitHubRepository>;
+    };
+};
+
+export type ListIntegrationGitHubRepositoriesResponse = ListIntegrationGitHubRepositoriesResponses[keyof ListIntegrationGitHubRepositoriesResponses];
 
 export type ListIntegrationDefinitionsData = {
     body?: never;

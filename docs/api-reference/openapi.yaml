@@ -7940,8 +7940,8 @@ paths:
       description: >-
         Requires machine daemon authentication and an active, execution-granted process
         on that machine. The process's original config and the agent's current config must
-        enable Git credentials for the same pinned integration. Credentials inherit the
-        connected GitHub installation's full access and are reauthorized on every request.
+        have the same Git credentials settings. Credentials are limited to those settings'
+        repositories and permission and are reauthorized on every request.
       security:
         - machineDaemonAuth: []
       responses:
@@ -8198,6 +8198,7 @@ paths:
       tags: [Integrations]
       summary: List project integrations
       parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -8595,6 +8596,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: integrationID
+        in: path
+        description: Integration ID (itg_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationID'
+    get:
+      operationId: listIntegrationGitHubRepositories
+      tags: [Integrations]
+      summary: List repositories a GitHub integration can access
+      description: Returns up to 1,000 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+      responses:
+        '200':
+          description: Repositories.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [repositories]
+                properties:
+                  repositories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GitHubRepository'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9052,6 +9108,18 @@ components:
         integration:
           type: string
           pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
+        repository_ids:
+          description: GitHub repository IDs the credentials can access. Defaults to every repository the installation can access.
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+        read_only:
+          description: Prevents pushing, even if the integration allows it.
+          type: boolean
       x-go-type: json.RawMessage
     AgentConfigDefinitionInteractionHandler:
       description: Enables an integration's interaction handler. Takes no settings.
@@ -11113,6 +11181,16 @@ components:
         settings_url:
           type: string
           format: uri
+    GitHubRepository:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
     CreateSlackSetupRequest:
       type: object
       additionalProperties: false
@@ -11834,7 +11912,7 @@ components:
     CompiledGitCredentials:
       type: object
       additionalProperties: false
-      description: Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+      description: Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
       required: [integration, integration_id]
       properties:
         integration:
@@ -11844,6 +11922,15 @@ components:
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
+        repository_ids:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            type: integer
+            format: int64
+        read_only:
+          type: boolean
+          x-go-type-skip-optional-pointer: true
     CompiledMCPServer:
       type: object
       additionalProperties: false

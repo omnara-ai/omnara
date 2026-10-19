@@ -17,6 +17,7 @@ import {
   listAgentsQueryKey,
   listCronTriggersQueryKey,
   listIntegrationDefinitionsOptions,
+  listIntegrationGitHubRepositoriesOptions,
   listIntegrationsInfiniteOptions,
   listIntegrationsQueryKey,
   listOrgAgentsQueryKey,
@@ -43,6 +44,21 @@ export function useIntegration(orgID: string, projectID: string, integrationID: 
     enabled: integrationID !== '',
     // OAuth setup and settings can change in another tab, even while this read is fresh.
     refetchOnWindowFocus: 'always',
+  })
+}
+
+export function useIntegrationGitHubRepositories(
+  orgID: string,
+  projectID: string,
+  integrationID: string,
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...listIntegrationGitHubRepositoriesOptions({
+      path: { orgID, projectID, integrationID },
+      client,
+    }),
+    enabled: integrationID !== '',
   })
 }
 

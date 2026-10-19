@@ -65,6 +65,7 @@ const (
 	operationCreateIntegrationSlackSetup           operationID = "CreateIntegrationSlackSetup"
 	operationCreateIntegrationGitHubSetup          operationID = "CreateIntegrationGitHubSetup"
 	operationInspectIntegrationGitHubInstallations operationID = "InspectIntegrationGitHubInstallations"
+	operationListIntegrationGitHubRepositories     operationID = "ListIntegrationGitHubRepositories"
 )
 
 const (
@@ -275,6 +276,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationCreateIntegrationSlackSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateIntegrationGitHubSetup: browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationInspectIntegrationGitHubInstallations: browserSessionPolicy(
+		projectScope(identitystore.ProjectActionManage),
+	),
+	operationListIntegrationGitHubRepositories: accountPolicy(
 		projectScope(identitystore.ProjectActionManage),
 	),
 	operationGetCurrentUser:    userPolicy(noScope()),

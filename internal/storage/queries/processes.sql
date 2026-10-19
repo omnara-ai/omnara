@@ -393,10 +393,7 @@ WHERE process.org_id = sqlc.arg(org_id)
 
 -- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
-                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
-       coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
-                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS current_integration_id
+       (original_config.compiled_definition->'git_credentials')::jsonb AS git_credentials
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -424,7 +421,8 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.id = sqlc.arg(process_id)
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
-  AND process.state IN ('starting', 'running');
+  AND process.state IN ('starting', 'running')
+  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials';
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec

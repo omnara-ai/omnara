@@ -587,18 +587,16 @@ model:
 
   it('writes and clears git credentials', () => {
     const draft = mustDeserialize(minimalYaml)
-    expect(draft.gitCredentialsIntegration).toBe('')
+    expect(draft.gitCredentials).toBeUndefined()
 
-    const withCredentials = applyToSource(minimalYaml, {
-      ...draft,
-      gitCredentialsIntegration: 'reviews',
-    })
-    expect(parse(withCredentials)).toMatchObject({ git_credentials: { integration: 'reviews' } })
-    expect(mustDeserialize(withCredentials).gitCredentialsIntegration).toBe('reviews')
+    const gitCredentials = { integration: 'reviews', repository_ids: [123], read_only: true }
+    const withCredentials = applyToSource(minimalYaml, { ...draft, gitCredentials })
+    expect(parse(withCredentials)).toMatchObject({ git_credentials: gitCredentials })
+    expect(mustDeserialize(withCredentials).gitCredentials).toEqual(gitCredentials)
 
     const cleared = applyToSource(withCredentials, {
       ...mustDeserialize(withCredentials),
-      gitCredentialsIntegration: '',
+      gitCredentials: undefined,
     })
     expect(parse(cleared)).toEqual(parse(minimalYaml))
   })

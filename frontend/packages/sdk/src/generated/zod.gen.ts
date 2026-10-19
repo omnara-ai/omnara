@@ -18,7 +18,9 @@ export const zAgentConfigDefinitionEventWebhook = z.object({
  * Integration whose git credentials the agent's machines use.
  */
 export const zAgentConfigDefinitionGitCredentials = z.object({
-    integration: z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/)
+    integration: z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/),
+    repository_ids: z.array(z.int().gte(1)).min(1).max(500).optional(),
+    read_only: z.boolean().optional()
 });
 
 /**
@@ -951,6 +953,11 @@ export const zGitHubInstallations = z.object({
     install_url: z.url(),
     installations: z.array(zGitHubSetupInstallation),
     next_page: z.int().gte(1).lte(1000).optional()
+});
+
+export const zGitHubRepository = z.object({
+    id: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    name: z.string()
 });
 
 export const zSlackSetupIcon = z.object({
@@ -3328,11 +3335,13 @@ export const zIntegrationRuntimeFailure = z.object({
 export const zIntegrationName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/);
 
 /**
- * Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+ * Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
  */
 export const zCompiledGitCredentials = z.object({
     integration: zIntegrationName,
-    integration_id: zIntegrationId
+    integration_id: zIntegrationId,
+    repository_ids: z.array(z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })).optional(),
+    read_only: z.boolean().optional()
 });
 
 /**
@@ -5902,6 +5911,7 @@ export const zListIntegrationsPath = z.object({
 });
 
 export const zListIntegrationsQuery = z.object({
+    name: z.string().min(1).max(200).optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
@@ -6022,6 +6032,19 @@ export const zDisconnectIntegrationPath = z.object({
  * Integration setup.
  */
 export const zDisconnectIntegrationResponse = zIntegration;
+
+export const zListIntegrationGitHubRepositoriesPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId
+});
+
+/**
+ * Repositories.
+ */
+export const zListIntegrationGitHubRepositoriesResponse = z.object({
+    repositories: z.array(zGitHubRepository)
+});
 
 export const zListIntegrationDefinitionsPath = z.object({
     orgID: zOrganizationId,
