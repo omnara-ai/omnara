@@ -2444,6 +2444,27 @@ func (q *Queries) LockMachinePoolForUpdate(ctx context.Context, arg LockMachineP
 	return i, err
 }
 
+const lockMachinePoolKeyShared = `-- name: LockMachinePoolKeyShared :exec
+SELECT pool.id
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+WHERE machine.org_id = $1
+  AND machine.id = $2
+FOR KEY SHARE OF pool
+`
+
+type LockMachinePoolKeySharedParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+}
+
+// @sqlc-vet-disable machine-pools-deleted-at machines-deleted-at
+func (q *Queries) LockMachinePoolKeyShared(ctx context.Context, arg LockMachinePoolKeySharedParams) error {
+	_, err := q.db.Exec(ctx, lockMachinePoolKeyShared, arg.OrgID, arg.MachineID)
+	return err
+}
+
 const lockPoolMachineDeletionAttemptForLifecycle = `-- name: LockPoolMachineDeletionAttemptForLifecycle :one
 SELECT id, machine_pool_id
 FROM machines

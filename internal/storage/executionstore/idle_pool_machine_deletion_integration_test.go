@@ -787,14 +787,9 @@ func TestExpiredIdlePoolMachineClaimRechecksPolicyAfterLockWait(t *testing.T) {
 		"-- name: LockMachineForLifecycle",
 		blockingPID,
 	)
-	thirty := 30
-	if _, err := fixture.Store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: fixture.OrgID,
-		ID:    fixture.PoolID,
-		DeleteAfterIdleMinutes: patch.NullableInt{
-			Set: true, Value: &thirty,
-		},
-	}); err != nil {
+	if _, err := blockingTx.Exec(ctx, `
+UPDATE machine_pools SET delete_after_idle_minutes = 30 WHERE org_id = $1 AND id = $2
+`, fixture.OrgID, fixture.PoolID); err != nil {
 		t.Fatalf("change idle policy while claim waits: %v", err)
 	}
 	if err := blockingTx.Commit(ctx); err != nil {

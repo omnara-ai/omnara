@@ -145,6 +145,16 @@ WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
 FOR UPDATE;
 
+-- name: LockMachinePoolKeyShared :exec
+-- @sqlc-vet-disable machine-pools-deleted-at machines-deleted-at
+SELECT pool.id
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(machine_id)
+FOR KEY SHARE OF pool;
+
 -- name: GetMachinePoolUsage :one
 SELECT count(*)::integer AS active_machines,
        coalesce(sum(cpu), 0)::bigint AS active_cpu,

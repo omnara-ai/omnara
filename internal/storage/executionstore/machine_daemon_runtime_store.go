@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -68,6 +69,13 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 			tx := unit.DB()
 			txNotifications := unit.Notifications()
 			qtx := dbsqlc.New(tx)
+			if err := lifecyclelock.MachinePoolKeyShared(
+				ctx,
+				tx,
+				lifecyclelock.MachineRef{OrgID: input.OrgID, MachineID: input.MachineID},
+			); err != nil {
+				return DaemonRuntimeRegistrationRecord{}, err
+			}
 			machine, err := qtx.LockMachineForRuntimeRegistration(
 				ctx,
 				dbsqlc.LockMachineForRuntimeRegistrationParams{

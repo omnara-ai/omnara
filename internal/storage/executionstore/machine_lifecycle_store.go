@@ -663,6 +663,13 @@ func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 			tx := unit.DB()
 			txNotifications := unit.Notifications()
 			qtx := dbsqlc.New(tx)
+			if err := lifecyclelock.MachinePoolKeyShared(
+				ctx,
+				tx,
+				lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID},
+			); err != nil {
+				return transactionResult{}, err
+			}
 			if _, err := qtx.LockMachineForLifecycle(
 				ctx,
 				dbsqlc.LockMachineForLifecycleParams{OrgID: orgID, ID: machineID},
@@ -733,6 +740,13 @@ func (s *Store) ClaimPoolMachineDeletion(
 			tx := unit.DB()
 			txNotifications := unit.Notifications()
 			qtx := dbsqlc.New(tx)
+			if err := lifecyclelock.MachinePoolKeyShared(
+				ctx,
+				tx,
+				lifecyclelock.MachineRef{OrgID: input.OrgID, MachineID: input.MachineID},
+			); err != nil {
+				return transactionResult{}, err
+			}
 			if _, err := qtx.LockMachineForLifecycle(
 				ctx,
 				dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},

@@ -2044,3 +2044,178 @@ func assertPoolMachineRevokedAfterConcurrentCreate(
 		t.Fatalf("create-machine tool call state = %q, want completed", toolCall.State)
 	}
 }
+
+type poolMachineWriterFixture struct {
+	pool      *pgxpool.Pool
+	store     *Store
+	machineID uuid.UUID
+	poolID    uuid.UUID
+	write     func(context.Context) error
+	pausedAt  string
+}
+
+func TestPoolMachineWritersLockPoolBeforeMachine(t *testing.T) {
+	t.Parallel()
+	registration := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
+		fixture := newProviderRuntimeStorageFixture(t, ctx, seed, true)
+		machine := fixture.insertInactiveMachine(t, ctx, seed)
+		return poolMachineWriterFixture{
+			pool:      fixture.pool,
+			store:     fixture.store,
+			machineID: machine.machineID,
+			poolID:    fixture.machinePool.ID,
+			write: func(ctx context.Context) error {
+				_, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
+					ctx,
+					executionstore.RegisterDaemonRuntimeInput{
+						OrgID:            testOrgID,
+						MachineID:        machine.machineID,
+						DaemonTokenID:    machine.tokenID,
+						DaemonInstanceID: uuid.New(),
+						DaemonVersion:    "1.0.0",
+						LeaseTimeout:     time.Minute,
+					},
+				)
+				return err
+			},
+			pausedAt: "InsertDaemonRuntime",
+		}
+	}
+	deletionClaim := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
+		fixture := newProviderRuntimeStorageFixture(t, ctx, seed, true)
+		machine := fixture.insertInactiveMachine(t, ctx, seed)
+		var lifecycleVersion int64
+		if err := fixture.pool.QueryRow(ctx, `
+UPDATE machines
+SET current_daemon_runtime_id = NULL
+WHERE org_id = $1 AND id = $2
+RETURNING lifecycle_version
+`, testOrgID, machine.machineID).Scan(&lifecycleVersion); err != nil {
+			t.Fatalf("detach stale pool machine runtime: %v", err)
+		}
+		return poolMachineWriterFixture{
+			pool:      fixture.pool,
+			store:     fixture.store,
+			machineID: machine.machineID,
+			poolID:    fixture.machinePool.ID,
+			write: func(ctx context.Context) error {
+				_, claimed, err := fixture.store.Execution().ClaimPoolMachineDeletion(
+					ctx,
+					executionstore.MachineDeletingInput{
+						OrgID:                    testOrgID,
+						MachineID:                machine.machineID,
+						LifecycleReasonCode:      "test_cleanup",
+						LifecycleReasonMessage:   "test cleanup",
+						ExpectedLifecycleVersion: lifecycleVersion,
+					},
+				)
+				if err == nil && !claimed {
+					return errors.New("pool machine deletion was not claimed")
+				}
+				return err
+			},
+			pausedAt: "RevokeMachineDaemonTokensForMachine",
+		}
+	}
+	idleDeletionClaim := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
+		five := 5
+		fixture := newIdlePoolMachineFixture(t, ctx, seed, idlePoolMachinePolicy{PoolMinutes: &five})
+		backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
+		return poolMachineWriterFixture{
+			pool:      fixture.Store.pool,
+			store:     fixture.Store,
+			machineID: fixture.MachineID,
+			poolID:    fixture.PoolID,
+			write: func(ctx context.Context) error {
+				_, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
+					ctx,
+					testOrgID,
+					fixture.MachineID,
+				)
+				if err == nil && !claimed {
+					return errors.New("idle pool machine deletion was not claimed")
+				}
+				return err
+			},
+			pausedAt: "RevokeMachineDaemonTokensForMachine",
+		}
+	}
+	wake := func(ctx context.Context, fixture poolMachineWriterFixture) error {
+		disposition, err := fixture.store.Execution().IntegrationBeginMachineWakeOnce(
+			ctx,
+			testOrgID,
+			fixture.machineID,
+			fixture.poolID,
+			time.Minute,
+		)
+		if err == nil && disposition != executionstore.MachineWakeOnline {
+			return fmt.Errorf("wake disposition = %v, want online after registration", disposition)
+		}
+		return err
+	}
+	poolDeletion := func(ctx context.Context, fixture poolMachineWriterFixture) error {
+		_, err := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(ctx, testOrgID, fixture.poolID)
+		return err
+	}
+	for _, test := range []struct {
+		name          string
+		machineWriter func(*testing.T, context.Context, string) poolMachineWriterFixture
+		poolWriter    func(context.Context, poolMachineWriterFixture) error
+		poolWaitsOn   string
+	}{
+		{
+			name:          "registration-wake",
+			machineWriter: registration,
+			poolWriter:    wake,
+			poolWaitsOn:   "LockMachinePoolForLifecycle",
+		},
+		{
+			name:          "registration-pool-deletion",
+			machineWriter: registration,
+			poolWriter:    poolDeletion,
+			poolWaitsOn:   "LockMachinePoolForUpdate",
+		},
+		{
+			name:          "deletion-claim-pool-deletion",
+			machineWriter: deletionClaim,
+			poolWriter:    poolDeletion,
+			poolWaitsOn:   "LockMachinePoolForUpdate",
+		},
+		{
+			name:          "idle-deletion-claim-pool-deletion",
+			machineWriter: idleDeletionClaim,
+			poolWriter:    poolDeletion,
+			poolWaitsOn:   "LockMachinePoolForUpdate",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := test.machineWriter(t, ctx, test.name)
+
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+			if _, err := controlTx.Exec(
+				ctx,
+				`SELECT id FROM machine_daemon_tokens WHERE org_id = $1 AND machine_id = $2 FOR UPDATE`,
+				testOrgID,
+				fixture.machineID,
+			); err != nil {
+				t.Fatalf("lock machine daemon tokens: %v", err)
+			}
+			machineDone := integrationdb.RunAsyncError(func() error { return fixture.write(ctx) })
+			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, fixture.pausedAt, 1)
+			poolDone := integrationdb.RunAsyncError(func() error { return test.poolWriter(ctx, fixture) })
+			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, test.poolWaitsOn, 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release machine daemon tokens: %v", err)
+			}
+
+			if err := integrationdb.Await(t, machineDone, "machine writer"); err != nil {
+				t.Fatalf("machine writer: %v", err)
+			}
+			if err := integrationdb.Await(t, poolDone, "pool writer"); err != nil {
+				t.Fatalf("pool writer after machine writer: %v", err)
+			}
+		})
+	}
+}
