@@ -200,6 +200,27 @@ func TestInstallationRepositoriesPaginatesUpToLimit(t *testing.T) {
 	}
 }
 
+func TestInstallationRepositoriesRejectsInvalidPages(t *testing.T) {
+	for _, page := range []string{
+		`{}`, `{"repositories":[{"id":0,"name":"app"}]}`, `{"repositories":[{"id":1,"name":".."}]}`,
+	} {
+		t.Run(page, func(t *testing.T) {
+			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/app/installations/456/access_tokens" {
+					gitCredentialResponse(w, "git-token", "read", time.Now().Add(time.Hour))
+					return
+				}
+				fmt.Fprint(w, page)
+			})
+			var apiErr *APIError
+			if _, err := client.InstallationRepositories(t.Context()); !errors.As(err, &apiErr) ||
+				apiErr.Code != InvalidResponse {
+				t.Fatalf("invalid repository page accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestInstallationGitCredentialsInvalidResponsesAndRecovery(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	for _, tc := range []struct {

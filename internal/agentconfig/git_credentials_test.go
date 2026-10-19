@@ -50,6 +50,12 @@ func TestGitCredentialsCompileAndReferenceIndependently(t *testing.T) {
 	}
 }
 
+func TestGitCredentialsRepositoryIDsCompileSorted(t *testing.T) {
+	result := compileIntegrationTest(t,
+		"git_credentials: {integration: reviews, repository_ids: [2, 1]}", gitCredentialsTestOptions(t))
+	require.Equal(t, []int64{1, 2}, result.Compiled.GitCredentials.RepositoryIDs)
+}
+
 func TestGitCredentialsSourceRequiresValidGitHubReference(t *testing.T) {
 	for _, source := range []string{
 		"null",

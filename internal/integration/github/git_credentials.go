@@ -24,7 +24,8 @@ type InstallationCredentials struct {
 }
 
 // InstallationGitCredentials requires caller-owned live authorization checks
-// before and after every call, including cache hits.
+// before and after every call, including cache hits, when the caller hands out
+// the credentials.
 func (c *Client) InstallationGitCredentials(
 	ctx context.Context, write bool, repositoryIDs []int64,
 ) (InstallationCredentials, error) {
@@ -101,6 +102,14 @@ func (c *Client) InstallationRepositories(ctx context.Context) ([]Repository, er
 		header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
 		if err != nil {
 			return nil, err
+		}
+		if listing.Repositories == nil || len(listing.Repositories) > 100 {
+			return nil, &APIError{Code: InvalidResponse}
+		}
+		for _, repository := range listing.Repositories {
+			if repository.ID <= 0 || !validRepositorySegment(repository.Name) {
+				return nil, &APIError{Code: InvalidResponse}
+			}
 		}
 		repositories = append(repositories, listing.Repositories...)
 		page, err = c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")

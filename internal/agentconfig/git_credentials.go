@@ -1,6 +1,8 @@
 package agentconfig
 
 import (
+	"slices"
+
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -34,6 +36,6 @@ func compileGitCredentials(source GitCredentialsSource, opts CompileOptions) (Gi
 	}
 	return GitCredentialsCompiled{
 		Integration: source.Integration, IntegrationID: integration.IntegrationID,
-		RepositoryIDs: source.RepositoryIDs, ReadOnly: source.ReadOnly,
+		RepositoryIDs: slices.Sorted(slices.Values(source.RepositoryIDs)), ReadOnly: source.ReadOnly,
 	}, nil
 }
