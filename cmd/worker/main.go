@@ -15,7 +15,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/eventwebhook"
@@ -49,9 +48,12 @@ const (
 	cronTriggerFireInterval       = 30 * time.Second
 	workerCapacityPerDBConnection = 8
 	workerShutdownCleanupBudget   = 5 * time.Second
+	workerShutdownExitMargin      = 2 * time.Second
 )
 
 func main() {
+	shutdownFinished := make(chan struct{})
+	defer close(shutdownFinished)
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 
 	cfg, err := config.Load()
@@ -95,8 +97,13 @@ func main() {
 	cleanupCtx, abortCleanup := cancelAfterDone(executionCtx, workerShutdownCleanupBudget)
 	defer abortCleanup()
 	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
-	ctx = cleanup.WithLifetime(ctx, cleanupCtx)
-	executionCtx = cleanup.WithLifetime(executionCtx, cleanupCtx)
+	go watchShutdown(
+		ctx.Done(),
+		shutdownFinished,
+		cfg.WorkerDrainTimeout+workerShutdownCleanupBudget+workerShutdownExitMargin,
+		log,
+		os.Exit,
+	)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -265,7 +272,7 @@ func main() {
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
+		workerErr <- kernelWorker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -426,6 +433,27 @@ func cancelAfterDone(parent context.Context, delay time.Duration) (context.Conte
 	return ctx, func() {
 		stopWaiting()
 		cancel()
+	}
+}
+
+func watchShutdown(
+	started, finished <-chan struct{},
+	bound time.Duration,
+	log *slog.Logger,
+	exit func(int),
+) {
+	select {
+	case <-started:
+	case <-finished:
+		return
+	}
+	timer := time.NewTimer(bound)
+	defer timer.Stop()
+	select {
+	case <-finished:
+	case <-timer.C:
+		log.Warn("worker shutdown exceeded its bound; exiting", "bound", bound.String())
+		exit(1)
 	}
 }
 

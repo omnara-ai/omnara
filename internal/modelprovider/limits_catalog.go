@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
@@ -127,7 +126,7 @@ func (c *LimitsCatalog) snapshot(ctx context.Context) map[string]catalogLimits {
 }
 
 func (c *LimitsCatalog) fetch(ctx context.Context) (map[string]catalogLimits, error) {
-	ctx, cancel := cleanup.Detach(ctx, catalogRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), catalogRequestTimeout)
 	defer cancel()
 	catalogEntries, err := fetchModelEntries(
 		ctx, c.client, c.baseURL, "/models", "model limits catalog",

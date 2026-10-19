@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
@@ -103,17 +102,6 @@ func (f integrationWorkerConsumerFunc) Consume(
 	return f(ctx, lease)
 }
 
-type integrationWorkerFailureConsumer struct {
-	integrationWorkerConsumerFunc
-	finalize func(context.Context, uuid.UUID, uuid.UUID) error
-}
-
-func (c integrationWorkerFailureConsumer) FinalizeFailure(
-	ctx context.Context, project, receipt uuid.UUID, _ error,
-) error {
-	return c.finalize(ctx, project, receipt)
-}
-
 type integrationWorkerTestStore struct {
 	mu sync.Mutex
 	IntegrationInboxSchedulerStore
@@ -195,42 +183,6 @@ func (s *integrationWorkerTestStore) ClaimIntegrationInbox(
 		AttemptCount:  1,
 		ClaimToken:    uuid.New(),
 	}, true, nil
-}
-
-func TestIntegrationInboxFailureCleanupEndsWithCleanupLifetime(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const budget = 3 * time.Second
-		lifetime, endLifetime := context.WithTimeout(t.Context(), budget)
-		defer endLifetime()
-		workCtx, stopWork := context.WithCancel(cleanup.WithLifetime(t.Context(), lifetime))
-		defer stopWork()
-		store := &integrationWorkerTestStore{}
-		finalizing := false
-		worker := NewIntegrationInboxWorker(store, integrationWorkerFailureConsumer{
-			integrationWorkerConsumerFunc: func(
-				context.Context, integrationstore.IntegrationInboxLease,
-			) ([]IntegrationRecipientAdmission, error) {
-				stopWork()
-				return nil, ErrIntegrationInboundPermanent
-			},
-			finalize: func(ctx context.Context, _, _ uuid.UUID) error {
-				finalizing = true
-				<-ctx.Done()
-				return ctx.Err()
-			},
-		}, IntegrationInboxWorkerOptions{Log: slog.New(slog.NewJSONHandler(io.Discard, nil))})
-		receipt := integrationstore.IntegrationInboxRecord{
-			ID: uuid.New(), ProjectID: uuid.New(), IntegrationID: uuid.New(), ClaimToken: uuid.New(),
-			AttemptCount: 1, CreatedAt: time.Now(),
-		}
-		started := time.Now()
-
-		err := worker.consume(workCtx, receipt)
-		require.ErrorIs(t, err, ErrIntegrationInboundPermanent)
-		require.Len(t, store.retried, 1, "the failure was not recorded after the receipt context ended")
-		require.True(t, finalizing, "the failed receipt was not finalized")
-		require.Equal(t, budget, time.Since(started), "failure cleanup outlived the cleanup lifetime")
-	})
 }
 
 func TestIntegrationInboxWorkerRotatesIntegrationsBeforeRevisitingHotIntegration(t *testing.T) {

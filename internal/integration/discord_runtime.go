@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -162,7 +161,7 @@ func (r *DiscordRuntime) run(
 			}
 			log.Warn("Discord connection stopped", attrs...)
 		}
-		releaseCtx, releaseCancel := cleanup.Detach(parent, 5*time.Second)
+		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 		defer releaseCancel()
 		if err := r.Integrations.ReleaseIntegrationRuntime(
 			releaseCtx,

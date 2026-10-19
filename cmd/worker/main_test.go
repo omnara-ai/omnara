@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"log/slog"
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -93,4 +98,55 @@ func TestCancelAfterDoneStartsDelayWhenParentEnds(t *testing.T) {
 	if delayed.Err() == nil {
 		t.Fatal("cancel did not end the context at once")
 	}
+}
+
+func TestWatchShutdownExitsOnlyWhenShutdownOverrunsItsBound(t *testing.T) {
+	const bound = 27 * time.Second
+	t.Run("shutdown hangs", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			var logs bytes.Buffer
+			started, finished := make(chan struct{}), make(chan struct{})
+			defer close(finished)
+			exitCodes := make(chan int, 1)
+			go watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(&logs, nil)),
+				func(code int) { exitCodes <- code })
+
+			<-time.After(time.Hour)
+			synctest.Wait()
+			if len(exitCodes) != 0 {
+				t.Fatal("watchdog exited before shutdown started")
+			}
+			close(started)
+			startedAt := time.Now()
+			if code := <-exitCodes; code == 0 {
+				t.Fatal("watchdog exited with code 0")
+			}
+			if elapsed := time.Since(startedAt); elapsed != bound {
+				t.Fatalf("watchdog exited after %s, want %s", elapsed, bound)
+			}
+			if !strings.Contains(logs.String(), "worker shutdown exceeded its bound") {
+				t.Fatalf("watchdog did not log the overrun: %s", logs.String())
+			}
+		})
+	})
+	t.Run("shutdown finishes in time", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			started, finished := make(chan struct{}), make(chan struct{})
+			exitCodes := make(chan int, 1)
+			watching := make(chan struct{})
+			go func() {
+				defer close(watching)
+				watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(io.Discard, nil)),
+					func(code int) { exitCodes <- code })
+			}()
+
+			close(started)
+			<-time.After(bound - time.Second)
+			close(finished)
+			<-watching
+			if len(exitCodes) != 0 {
+				t.Fatal("watchdog exited although shutdown finished within its bound")
+			}
+		})
+	})
 }

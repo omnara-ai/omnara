@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
@@ -1046,7 +1045,7 @@ func (e *shutdownProbeExecutor) work(ctx context.Context, retained bool) error {
 	case <-ctx.Done():
 	}
 	outcome.err = ctx.Err()
-	cleanupCtx, cancelCleanup := cleanup.Detach(ctx, time.Minute)
+	cleanupCtx, cancelCleanup := tools.DetachForCleanup(ctx, time.Minute)
 	defer cancelCleanup()
 	_, bounded := cleanupCtx.Deadline()
 	outcome.liveCleanupContext = bounded && cleanupCtx.Err() == nil
@@ -1276,7 +1275,7 @@ func TestWorkerDrainDeadlineUnblocksBackgroundSubmissionsAndReleasesEachRuntimeO
 	})
 	drain := make(chan struct{})
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(cleanup.WithLifetime(executionCtx, cleanupCtx), drain) }()
+	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
 	runtimeIDs := receiveRuntimeIDs(t, executor.started, 2)
 	waitForBackgroundSubmissionsInFlight(t, metricSet, len(runtimeIDs))
 
@@ -1325,7 +1324,7 @@ func TestWorkerCleanupLifetimeBoundsRuntimeRelease(t *testing.T) {
 	defer endCleanup()
 	drain := make(chan struct{})
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(cleanup.WithLifetime(executionCtx, cleanupCtx), drain) }()
+	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
 	select {
 	case <-executor.started:
 	case <-time.After(2 * time.Second):

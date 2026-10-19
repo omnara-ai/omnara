@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanup"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/observability/metrics"
@@ -293,7 +292,7 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 	terminal := errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrIntegrationInboundPermanent) ||
 		errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
-		retryCtx, retryCancel := cleanup.Detach(ctx, 5*time.Second)
+		retryCtx, retryCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer retryCancel()
 		retryErr := w.inbox.WithIntegrationInboxLease(
 			retryCtx,
@@ -320,7 +319,7 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 		if finalizer, ok := w.consumer.(interface {
 			FinalizeFailure(context.Context, uuid.UUID, uuid.UUID, error) error
 		}); ok {
-			finalCtx, finalCancel := cleanup.Detach(ctx, 40*time.Second)
+			finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
 			if finalErr := finalizer.FinalizeFailure(finalCtx, receipt.ProjectID, receipt.ID, err); finalErr != nil {
 				w.options.Log.WarnContext(ctx, "finalize failed integration inbox", "receipt_id", receipt.ID, "error", finalErr)
 			}
