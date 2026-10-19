@@ -24,13 +24,17 @@ type backgroundTask struct {
 }
 
 type BackgroundExecutionRunner struct {
-	log       *slog.Logger
-	queue     chan backgroundTask
-	stopTasks context.CancelFunc
-	shutdown  chan struct{}
-	stopOnce  sync.Once
-	workers   sync.WaitGroup
-	metrics   *metrics.BackgroundExecutionRecorder
+	log        *slog.Logger
+	queue      chan backgroundTask
+	canceled   <-chan struct{}
+	stopTasks  context.CancelFunc
+	closing    chan struct{}
+	idle       chan struct{}
+	mu         sync.Mutex
+	closed     bool
+	unfinished int
+	workers    sync.WaitGroup
+	metrics    *metrics.BackgroundExecutionRecorder
 }
 
 func NewBackgroundExecutionRunner(
@@ -52,8 +56,10 @@ func NewBackgroundExecutionRunner(
 	runner := &BackgroundExecutionRunner{
 		log:       log,
 		queue:     make(chan backgroundTask, capacity),
+		canceled:  ctx.Done(),
 		stopTasks: stopTasks,
-		shutdown:  make(chan struct{}),
+		closing:   make(chan struct{}),
+		idle:      make(chan struct{}),
 	}
 	if metricSet != nil {
 		runner.metrics = metrics.NewBackgroundExecutionRecorder(metricSet, capacity, func() int { return len(runner.queue) })
@@ -62,18 +68,6 @@ func NewBackgroundExecutionRunner(
 	for range capacity {
 		go runner.runWorker(taskCtx)
 	}
-	select {
-	case <-ctx.Done():
-		runner.beginShutdown()
-	default:
-		go func() {
-			select {
-			case <-ctx.Done():
-				runner.beginShutdown()
-			case <-runner.shutdown:
-			}
-		}()
-	}
 	return runner, nil
 }
 
@@ -81,35 +75,20 @@ func (r *BackgroundExecutionRunner) Submit(
 	label string,
 	task func(context.Context) error,
 ) bool {
-	if r == nil || task == nil {
-		return false
-	}
-	started := time.Now()
-	r.metrics.StartSubmission()
-	result := metrics.BackgroundSubmissionShutdown
-	defer func() { r.metrics.RecordSubmission(result, time.Since(started)) }()
-	select {
-	case <-r.shutdown:
-		return false
-	default:
-	}
-	select {
-	case <-r.shutdown:
-		return false
-	case r.queue <- backgroundTask{label: label, run: task, submittedAt: started}:
-		select {
-		case <-r.shutdown:
-			return false
-		default:
-			result = metrics.BackgroundSubmissionAccepted
-			return true
-		}
-	}
+	return r.submit(label, task, true)
 }
 
 func (r *BackgroundExecutionRunner) TrySubmit(
 	label string,
 	task func(context.Context) error,
+) bool {
+	return r.submit(label, task, false)
+}
+
+func (r *BackgroundExecutionRunner) submit(
+	label string,
+	task func(context.Context) error,
+	waitForCapacity bool,
 ) bool {
 	if r == nil || task == nil {
 		return false
@@ -118,20 +97,65 @@ func (r *BackgroundExecutionRunner) TrySubmit(
 	r.metrics.StartSubmission()
 	result := metrics.BackgroundSubmissionShutdown
 	defer func() { r.metrics.RecordSubmission(result, time.Since(started)) }()
-	select {
-	case <-r.shutdown:
+	if !r.reserve() {
 		return false
-	case r.queue <- backgroundTask{label: label, run: task, submittedAt: started}:
+	}
+	queued := backgroundTask{label: label, run: task, submittedAt: started}
+	if waitForCapacity {
 		select {
-		case <-r.shutdown:
-			return false
-		default:
+		case r.queue <- queued:
 			result = metrics.BackgroundSubmissionAccepted
 			return true
+		case <-r.closing:
+		case <-r.canceled:
 		}
-	default:
-		result = metrics.BackgroundSubmissionFull
+	} else {
+		select {
+		case r.queue <- queued:
+			result = metrics.BackgroundSubmissionAccepted
+			return true
+		default:
+			result = metrics.BackgroundSubmissionFull
+		}
+	}
+	r.finish()
+	return false
+}
+
+func (r *BackgroundExecutionRunner) reserve() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	select {
+	case <-r.canceled:
 		return false
+	default:
+	}
+	if r.closed {
+		return false
+	}
+	r.unfinished++
+	return true
+}
+
+func (r *BackgroundExecutionRunner) finish() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.unfinished--
+	if r.closed && r.unfinished == 0 {
+		close(r.idle)
+	}
+}
+
+func (r *BackgroundExecutionRunner) stopAccepting() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
+	r.closed = true
+	close(r.closing)
+	if r.unfinished == 0 {
+		close(r.idle)
 	}
 }
 
@@ -147,6 +171,7 @@ func (r *BackgroundExecutionRunner) runWorker(ctx context.Context) {
 			}
 			r.metrics.RecordStart(time.Since(task.submittedAt))
 			r.runTask(ctx, task)
+			r.finish()
 		}
 	}
 }
@@ -169,17 +194,15 @@ func (r *BackgroundExecutionRunner) runTask(ctx context.Context, task background
 	}
 }
 
-func (r *BackgroundExecutionRunner) beginShutdown() {
-	r.stopOnce.Do(func() {
-		close(r.shutdown)
-		r.stopTasks()
-	})
-}
-
 func (r *BackgroundExecutionRunner) Shutdown() {
 	if r == nil {
 		return
 	}
-	r.beginShutdown()
+	r.stopAccepting()
+	select {
+	case <-r.idle:
+	case <-r.canceled:
+	}
+	r.stopTasks()
 	r.workers.Wait()
 }

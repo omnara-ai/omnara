@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,7 +22,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	"github.com/stretchr/testify/require"
 )
 
 type renewalDeadlineStore struct {
@@ -859,14 +864,20 @@ type noopSubscription struct{}
 func (noopSubscription) Unsubscribe() error { return nil }
 
 type dispatchStore struct {
-	claimDelay     time.Duration
-	leaseBudgetAge time.Duration
-	activeClaims   atomic.Int32
-	maxClaims      atomic.Int32
-	claims         atomic.Int32
-	renewals       atomic.Int32
-	releases       atomic.Int32
-	renewed        chan struct{}
+	claimDelay       time.Duration
+	leaseBudgetAge   time.Duration
+	leaseAfterCancel bool
+	holdReleases     bool
+	activeClaims     atomic.Int32
+	maxClaims        atomic.Int32
+	claims           atomic.Int32
+	renewals         atomic.Int32
+	invalidReleases  atomic.Int32
+	claiming         chan struct{}
+	renewed          chan struct{}
+	releasing        chan struct{}
+	releaseMu        sync.Mutex
+	released         map[uuid.UUID]int
 }
 
 func (s *dispatchStore) ClaimNextAgentWork(
@@ -876,10 +887,18 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	active := s.activeClaims.Add(1)
 	defer s.activeClaims.Add(-1)
 	raiseMax(&s.maxClaims, active)
+	if s.claiming != nil {
+		select {
+		case s.claiming <- struct{}{}:
+		default:
+		}
+	}
 	select {
 	case <-time.After(s.claimDelay):
 	case <-ctx.Done():
-		return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+		if !s.leaseAfterCancel {
+			return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+		}
 	}
 	s.claims.Add(1)
 	return executionstore.ClaimedAgentWork{
@@ -895,9 +914,42 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	}, true, nil
 }
 
-func (s *dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
-	s.releases.Add(1)
+func (s *dispatchStore) ReleaseAgentRuntimeLock(ctx context.Context, _, _, runtimeID uuid.UUID) error {
+	if _, bounded := ctx.Deadline(); !bounded || ctx.Err() != nil {
+		s.invalidReleases.Add(1)
+		return errors.New("runtime release needs a live bounded context")
+	}
+	s.releaseMu.Lock()
+	if s.released == nil {
+		s.released = make(map[uuid.UUID]int)
+	}
+	s.released[runtimeID]++
+	s.releaseMu.Unlock()
+	if s.releasing != nil {
+		s.releasing <- struct{}{}
+	}
+	if s.holdReleases {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
+}
+
+func requireEachRuntimeReleasedOnce(t *testing.T, store *dispatchStore, runtimeIDs ...uuid.UUID) {
+	t.Helper()
+	if got := store.invalidReleases.Load(); got != 0 {
+		t.Fatalf("%d runtime releases ran without a live bounded context", got)
+	}
+	store.releaseMu.Lock()
+	defer store.releaseMu.Unlock()
+	if len(store.released) != len(runtimeIDs) {
+		t.Fatalf("released runtimes = %v, want each of %v once", store.released, runtimeIDs)
+	}
+	for _, runtimeID := range runtimeIDs {
+		if store.released[runtimeID] != 1 {
+			t.Fatalf("released runtimes = %v, want each of %v once", store.released, runtimeIDs)
+		}
+	}
 }
 
 func (s *dispatchStore) RenewAgentRuntimeLock(
@@ -924,7 +976,6 @@ type holdingModelExecutor struct {
 	maxActive atomic.Int32
 	release   chan struct{}
 	started   chan struct{}
-	finished  chan error
 }
 
 func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
@@ -933,16 +984,101 @@ func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.Mo
 		e.started <- struct{}{}
 	}
 	defer e.active.Add(-1)
-	var err error
+	select {
+	case <-e.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type shutdownProbeExecutor struct {
+	modelWorkOnlyExecutor
+	calls      atomic.Int32
+	background tools.BackgroundRunner
+	release    chan struct{}
+	started    chan uuid.UUID
+	finished   chan shutdownProbeOutcome
+}
+
+type shutdownProbeOutcome struct {
+	retained           bool
+	submitted          bool
+	err                error
+	liveCleanupContext bool
+}
+
+func (e *shutdownProbeExecutor) ExecuteModelWork(ctx context.Context, input kernel.ModelWorkExecution) error {
+	if e.calls.Add(1) > 1 {
+		e.started <- input.RuntimeLockID
+		return e.work(ctx, false)
+	}
+	reservation, err := tools.ReserveAsyncExecution(ctx)
+	if err != nil {
+		return err
+	}
+	reservation.Start()
+	go func() { reservation.Done(e.work(ctx, true)) }()
+	e.started <- input.RuntimeLockID
+	return nil
+}
+
+func (e *shutdownProbeExecutor) work(ctx context.Context, retained bool) error {
+	outcome := shutdownProbeOutcome{retained: retained}
+	if e.background != nil {
+		outcome.submitted = e.background.Submit("probe", func(context.Context) error { return nil })
+	}
 	select {
 	case <-e.release:
 	case <-ctx.Done():
-		err = ctx.Err()
 	}
-	if e.finished != nil {
-		e.finished <- err
+	outcome.err = ctx.Err()
+	cleanupCtx, cancelCleanup := tools.DetachForCleanup(ctx, time.Minute)
+	defer cancelCleanup()
+	_, bounded := cleanupCtx.Deadline()
+	outcome.liveCleanupContext = bounded && cleanupCtx.Err() == nil
+	e.finished <- outcome
+	return outcome.err
+}
+
+func receiveRuntimeIDs(t *testing.T, started <-chan uuid.UUID, count int) []uuid.UUID {
+	t.Helper()
+	runtimeIDs := make([]uuid.UUID, 0, count)
+	for range count {
+		select {
+		case runtimeID := <-started:
+			runtimeIDs = append(runtimeIDs, runtimeID)
+		case <-time.After(2 * time.Second):
+			t.Fatal("worker did not start its work")
+		}
 	}
-	return err
+	return runtimeIDs
+}
+
+func receiveShutdownProbeOutcomes(t *testing.T, finished <-chan shutdownProbeOutcome) []shutdownProbeOutcome {
+	t.Helper()
+	outcomes := make([]shutdownProbeOutcome, 0, 2)
+	for range 2 {
+		select {
+		case outcome := <-finished:
+			outcomes = append(outcomes, outcome)
+		case <-time.After(2 * time.Second):
+			t.Fatal("in-flight work did not finish")
+		}
+	}
+	if outcomes[0].retained == outcomes[1].retained {
+		t.Fatalf("outcomes = %+v, want one retained async and one turn execution", outcomes)
+	}
+	return outcomes
+}
+
+func waitForLogLine(t *testing.T, signal *logLineSignal) {
+	t.Helper()
+	select {
+	case <-signal.seen:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("log line %q was not written", signal.message)
+	}
 }
 
 type logLineSignal struct {
@@ -1026,24 +1162,22 @@ func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) 
 }
 
 func TestWorkerDrainStopsClaimingAndFinishesInFlightWork(t *testing.T) {
-	const capacity = 2
 	const leaseDuration = time.Minute
 	store := &dispatchStore{
 		leaseBudgetAge: leaseDuration - leaseDuration/3 - 100*time.Millisecond,
 		renewed:        make(chan struct{}, 64),
 	}
-	executor := &holdingModelExecutor{
+	executor := &shutdownProbeExecutor{
 		release:  make(chan struct{}),
-		started:  make(chan struct{}, capacity+1),
-		finished: make(chan error, capacity+1),
+		started:  make(chan uuid.UUID, 3),
+		finished: make(chan shutdownProbeOutcome, 3),
 	}
 	stoppedClaiming := newLogLineSignal("worker stopped claiming")
 	worker := NewWorker(store, executor, Options{
 		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
 		RuntimeLockLeaseDuration: leaseDuration,
-		Capacity:                 capacity,
+		Capacity:                 1,
 		ClaimConcurrency:         1,
-		DrainTimeout:             time.Minute,
 		ControlSubscriber:        noopControlSubscriber{},
 	})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1051,31 +1185,24 @@ func TestWorkerDrainStopsClaimingAndFinishesInFlightWork(t *testing.T) {
 	drain := make(chan struct{})
 	runDone := make(chan error, 1)
 	go func() { runDone <- worker.Run(ctx, drain) }()
-	for range capacity {
-		select {
-		case <-executor.started:
-		case <-time.After(2 * time.Second):
-			t.Fatal("worker did not fill its slots")
-		}
-	}
+	runtimeIDs := receiveRuntimeIDs(t, executor.started, 2)
 
 	close(drain)
-	select {
-	case <-stoppedClaiming.seen:
-	case <-time.After(2 * time.Second):
-		t.Fatal("worker did not stop claiming after drain started")
-	}
+	waitForLogLine(t, stoppedClaiming)
 	renewalsAtDrain := store.renewals.Load()
 	renewalDeadline := time.After(2 * time.Second)
-	for store.renewals.Load() < renewalsAtDrain+capacity {
+	for store.renewals.Load() < renewalsAtDrain+int32(len(runtimeIDs)) {
 		select {
 		case <-store.renewed:
 		case <-renewalDeadline:
 			t.Fatal("runtime leases stopped renewing while draining")
 		}
 	}
-	for range capacity {
-		executor.release <- struct{}{}
+	close(executor.release)
+	for _, outcome := range receiveShutdownProbeOutcomes(t, executor.finished) {
+		if outcome.err != nil {
+			t.Fatalf("in-flight work %+v ended with %v, want completion", outcome, outcome.err)
+		}
 	}
 	select {
 	case err := <-runDone:
@@ -1085,42 +1212,157 @@ func TestWorkerDrainStopsClaimingAndFinishesInFlightWork(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not return after in-flight work finished")
 	}
-	for range capacity {
-		if err := <-executor.finished; err != nil {
-			t.Fatalf("in-flight work ended with %v, want completion", err)
+	if got := store.claims.Load(); got != int32(len(runtimeIDs)) {
+		t.Fatalf("claims = %d, want %d", got, len(runtimeIDs))
+	}
+	requireEachRuntimeReleasedOnce(t, store, runtimeIDs...)
+}
+
+func TestWorkerDrainDeadlineUnblocksBackgroundSubmissionsAndReleasesEachRuntimeOnce(t *testing.T) {
+	executionCtx, reachDeadline := context.WithCancel(t.Context())
+	defer reachDeadline()
+	cleanupCtx, endCleanup := context.WithCancel(t.Context())
+	defer endCleanup()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	metricSet := metrics.New()
+	background, err := tools.NewBackgroundExecutionRunner(executionCtx, log, 1, metricSet)
+	if err != nil {
+		t.Fatalf("new background runner: %v", err)
+	}
+	defer background.Shutdown()
+	occupied := make(chan struct{})
+	if !background.Submit("occupied", func(ctx context.Context) error {
+		close(occupied)
+		<-ctx.Done()
+		return ctx.Err()
+	}) {
+		t.Fatal("occupying background task was rejected")
+	}
+	<-occupied
+	queuedRan := make(chan struct{})
+	if !background.Submit("queued", func(context.Context) error {
+		close(queuedRan)
+		return nil
+	}) {
+		t.Fatal("queued background task was rejected")
+	}
+
+	store := &dispatchStore{}
+	executor := &shutdownProbeExecutor{
+		background: background,
+		started:    make(chan uuid.UUID, 3),
+		finished:   make(chan shutdownProbeOutcome, 3),
+	}
+	stoppedClaiming := newLogLineSignal("worker stopped claiming")
+	worker := NewWorker(store, executor, Options{
+		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 1,
+		ClaimConcurrency:         1,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	drain := make(chan struct{})
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	runtimeIDs := receiveRuntimeIDs(t, executor.started, 2)
+	waitForBackgroundSubmissionsInFlight(t, metricSet, len(runtimeIDs))
+
+	close(drain)
+	waitForLogLine(t, stoppedClaiming)
+	select {
+	case err := <-runDone:
+		t.Fatalf("worker returned %v while work waited on background capacity", err)
+	default:
+	}
+	reachDeadline()
+	for _, outcome := range receiveShutdownProbeOutcomes(t, executor.finished) {
+		if !errors.Is(outcome.err, context.Canceled) || outcome.submitted || !outcome.liveCleanupContext {
+			t.Fatalf("in-flight work at the deadline = %+v, want canceled, rejected, with live cleanup", outcome)
 		}
 	}
-	if got := store.claims.Load(); got != capacity {
-		t.Fatalf("claims = %d, want %d", got, capacity)
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run error = %v, want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not return after the drain deadline")
 	}
-	if got := store.releases.Load(); got != capacity {
-		t.Fatalf("released runtimes = %d, want %d", got, capacity)
+	requireEachRuntimeReleasedOnce(t, store, runtimeIDs...)
+	select {
+	case <-queuedRan:
+		t.Fatal("queued background work ran after the drain deadline")
+	default:
 	}
 }
 
-func TestWorkerDrainCancelsInFlightWorkAtDeadlineOrAbort(t *testing.T) {
+func TestWorkerCleanupLifetimeBoundsRuntimeRelease(t *testing.T) {
+	store := &dispatchStore{holdReleases: true, releasing: make(chan struct{}, 1)}
+	executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
+	stoppedClaiming := newLogLineSignal("worker stopped claiming")
+	worker := NewWorker(store, executor, Options{
+		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 1,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	executionCtx, reachDeadline := context.WithCancel(t.Context())
+	defer reachDeadline()
+	cleanupCtx, endCleanup := context.WithCancel(t.Context())
+	defer endCleanup()
+	drain := make(chan struct{})
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	select {
+	case <-executor.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not start work")
+	}
+	close(drain)
+	waitForLogLine(t, stoppedClaiming)
+	reachDeadline()
+	select {
+	case <-store.releasing:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not release the canceled runtime")
+	}
+	if got := store.invalidReleases.Load(); got != 0 {
+		t.Fatalf("%d runtime releases ran without a live bounded context", got)
+	}
+
+	endCleanup()
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run error = %v, want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runtime release outlived the cleanup lifetime")
+	}
+}
+
+func TestWorkerDrainInterruptsPendingClaim(t *testing.T) {
 	for _, test := range []struct {
-		name         string
-		drainTimeout time.Duration
-		abort        bool
-		wantRunErr   error
+		name             string
+		leaseAfterCancel bool
+		wantClaims       int32
 	}{
-		{name: "drain deadline", drainTimeout: 100 * time.Millisecond},
-		{name: "abort while draining", drainTimeout: time.Hour, abort: true, wantRunErr: context.Canceled},
+		{name: "claim canceled"},
+		{name: "lease returned as drain begins", leaseAfterCancel: true, wantClaims: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store := &dispatchStore{}
-			executor := &holdingModelExecutor{
-				release:  make(chan struct{}),
-				started:  make(chan struct{}, 2),
-				finished: make(chan error, 2),
+			store := &dispatchStore{
+				claimDelay:       time.Hour,
+				leaseAfterCancel: test.leaseAfterCancel,
+				claiming:         make(chan struct{}, 1),
 			}
-			stoppedClaiming := newLogLineSignal("worker stopped claiming")
+			executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
+			close(executor.release)
 			worker := NewWorker(store, executor, Options{
-				Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
+				Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
 				RuntimeLockLeaseDuration: time.Minute,
 				Capacity:                 1,
-				DrainTimeout:             test.drainTimeout,
+				ClaimConcurrency:         1,
 				ControlSubscriber:        noopControlSubscriber{},
 			})
 			ctx, cancel := context.WithCancel(t.Context())
@@ -1129,45 +1371,45 @@ func TestWorkerDrainCancelsInFlightWorkAtDeadlineOrAbort(t *testing.T) {
 			runDone := make(chan error, 1)
 			go func() { runDone <- worker.Run(ctx, drain) }()
 			select {
-			case <-executor.started:
+			case <-store.claiming:
 			case <-time.After(2 * time.Second):
-				t.Fatal("worker did not start work")
+				t.Fatal("worker did not start claiming")
 			}
 
-			drainStarted := time.Now()
 			close(drain)
 			select {
-			case <-stoppedClaiming.seen:
-			case <-time.After(2 * time.Second):
-				t.Fatal("worker did not start draining")
-			}
-			if test.abort {
-				cancel()
-			}
-			select {
-			case err := <-executor.finished:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("in-flight work ended with %v, want cancellation", err)
-				}
-			case <-time.After(2 * time.Second):
-				t.Fatal("in-flight work was not canceled")
-			}
-			if !test.abort && time.Since(drainStarted) < test.drainTimeout {
-				t.Fatal("in-flight work was canceled before the drain deadline")
-			}
-			select {
 			case err := <-runDone:
-				if !errors.Is(err, test.wantRunErr) {
-					t.Fatalf("run error = %v, want %v", err, test.wantRunErr)
+				if err != nil {
+					t.Fatalf("run error = %v, want nil after drain", err)
 				}
 			case <-time.After(2 * time.Second):
-				t.Fatal("worker did not return after canceling in-flight work")
+				t.Fatal("drain did not interrupt the pending claim")
 			}
-			if got := store.releases.Load(); got != 1 {
-				t.Fatalf("released runtimes = %d, want 1", got)
+			if got := store.claims.Load(); got != test.wantClaims {
+				t.Fatalf("claims = %d, want %d", got, test.wantClaims)
+			}
+			if got := int32(len(executor.started)); got != test.wantClaims {
+				t.Fatalf("executions = %d, want %d", got, test.wantClaims)
+			}
+			store.releaseMu.Lock()
+			released := len(store.released)
+			store.releaseMu.Unlock()
+			if int32(released) != test.wantClaims || store.invalidReleases.Load() != 0 {
+				t.Fatalf("released runtimes = %d invalid=%d, want %d", released,
+					store.invalidReleases.Load(), test.wantClaims)
 			}
 		})
 	}
+}
+
+func waitForBackgroundSubmissionsInFlight(t *testing.T, set *metrics.Set, want int) {
+	t.Helper()
+	line := fmt.Sprintf("omnara_background_execution_submissions_in_flight %d\n", want)
+	require.Eventually(t, func() bool {
+		response := httptest.NewRecorder()
+		set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+		return strings.Contains(response.Body.String(), line)
+	}, 2*time.Second, time.Millisecond, "background submissions never blocked on the full queue")
 }
 
 func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {

@@ -66,3 +66,31 @@ func TestCancelOnSignalsDrainsOnFirstSignalAndAbortsOnSecond(t *testing.T) {
 	}
 	<-done
 }
+
+func TestCancelAfterDoneStartsDelayWhenParentEnds(t *testing.T) {
+	parent, endParent := context.WithCancel(t.Context())
+	defer endParent()
+	prompt, stopPrompt := cancelAfterDone(parent, 0)
+	defer stopPrompt()
+	delayed, stopDelayed := cancelAfterDone(parent, time.Hour)
+	defer stopDelayed()
+	select {
+	case <-prompt.Done():
+		t.Fatal("context ended before its parent")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	endParent()
+	select {
+	case <-prompt.Done():
+	case <-time.After(time.Second):
+		t.Fatal("context did not end after its parent and delay")
+	}
+	if delayed.Err() != nil {
+		t.Fatal("context ended before its delay elapsed")
+	}
+	stopDelayed()
+	if delayed.Err() == nil {
+		t.Fatal("cancel did not end the context at once")
+	}
+}

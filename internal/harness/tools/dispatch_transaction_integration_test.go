@@ -1119,6 +1119,63 @@ func TestAsyncPanicFailsOnlyItsToolAndReleasesCapacity(t *testing.T) {
 	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 1)
 }
 
+func TestAsyncFailurePersistenceEndsWithCleanupLifetime(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "async-cleanup-lifetime")
+	call := fixture.recordToolCall(t, ctx, "call_async_cleanup_lifetime", "list_processes", `{}`,
+		fixture.Now.Add(20*time.Second))
+	executionCtx, reachDeadline := context.WithCancel(ctx)
+	defer reachDeadline()
+	cleanupCtx, endCleanup := context.WithCancel(ctx)
+	defer endCleanup()
+	scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
+	started := make(chan struct{})
+	result, err := (Executor{Store: fixture.Store}).dispatchToolHandler(
+		WithAsyncExecutionScope(WithCleanupLifetime(executionCtx, cleanupCtx), scope),
+		fixture.turn(),
+		call,
+		fixture.toolCallID(t, ctx, call.ID),
+		toolHandler{Async: func(ctx context.Context, _ asyncToolContext) (asyncPhaseResult, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}},
+	)
+	require.NoError(t, err)
+	require.IsType(t, toolDispatchAwaiting{}, result)
+	scope.Seal()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("async tool did not start")
+	}
+	blocker, err := fixture.Pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = blocker.Rollback(ctx) }()
+	var blockerPID int
+	require.NoError(t, blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID))
+	_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, fixture.Agent.ID)
+	require.NoError(t, err)
+
+	reachDeadline()
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := fixture.Pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`, blockerPID,
+		).Scan(&waiting)
+		return err == nil && waiting > 0
+	}, 5*time.Second, 10*time.Millisecond, "interrupted tool result persistence did not wait on the agent lock")
+	endCleanup()
+	select {
+	case <-scope.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("async failure persistence outlived the cleanup lifetime")
+	}
+	require.Error(t, scope.Err())
+	require.NoError(t, blocker.Rollback(ctx))
+	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 0)
+}
+
 func createDispatchTestInteraction(
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {

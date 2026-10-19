@@ -40,7 +40,7 @@ const (
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
 const defaultMigrationTimeout = 30 * time.Minute
-const defaultWorkerDrainTimeout = 25 * time.Second
+const defaultWorkerDrainTimeout = 20 * time.Second
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"

@@ -970,7 +970,6 @@ func TestWorkerDrainCommitsInFlightModelResult(t *testing.T) {
 		Log:                      slog.New(slog.NewTextHandler(stoppedClaiming, nil)),
 		RuntimeLockLeaseDuration: 15 * time.Second,
 		Capacity:                 1,
-		DrainTimeout:             time.Minute,
 		ControlSubscriber:        noopControlSubscriber{},
 	})
 	drain := make(chan struct{})

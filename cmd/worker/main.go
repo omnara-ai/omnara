@@ -47,6 +47,7 @@ const (
 	integrationHTTPClientTimeout  = 5 * time.Minute
 	cronTriggerFireInterval       = 30 * time.Second
 	workerCapacityPerDBConnection = 8
+	workerShutdownCleanupBudget   = 5 * time.Second
 )
 
 func main() {
@@ -86,11 +87,13 @@ func main() {
 	defer signal.Stop(signals)
 	signalCtx, cancelOnSignal := context.WithCancel(context.Background())
 	defer cancelOnSignal()
-	executionCtx, abortExecutions := context.WithCancel(context.Background())
-	defer abortExecutions()
-	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
+	executionCtx, abortExecutions := cancelAfterDone(ctx, cfg.WorkerDrainTimeout)
+	defer abortExecutions()
+	cleanupCtx, abortCleanup := cancelAfterDone(executionCtx, workerShutdownCleanupBudget)
+	defer abortCleanup()
+	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -255,12 +258,11 @@ func main() {
 		Capacity:          cfg.WorkerCapacity,
 		ClaimConcurrency:  cfg.WorkerClaimConcurrency,
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
-		DrainTimeout:      cfg.WorkerDrainTimeout,
 		ControlSubscriber: redisBus,
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
+		workerErr <- kernelWorker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -412,6 +414,15 @@ func main() {
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func cancelAfterDone(parent context.Context, delay time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	stopWaiting := context.AfterFunc(parent, func() { time.AfterFunc(delay, cancel) })
+	return ctx, func() {
+		stopWaiting()
+		cancel()
 	}
 }
 

@@ -71,8 +71,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 			cfg.WorkerBackgroundToolCapacity,
 		)
 	}
-	if cfg.WorkerDrainTimeout != 25*time.Second {
-		t.Fatalf("expected default worker drain timeout 25s, got %s", cfg.WorkerDrainTimeout)
+	if cfg.WorkerDrainTimeout != 20*time.Second {
+		t.Fatalf("expected default worker drain timeout 20s, got %s", cfg.WorkerDrainTimeout)
 	}
 	if cfg.DaemonSocketFallbackDrainInterval != defaultDaemonSocketFallbackDrainInterval {
 		t.Fatalf("expected default daemon socket fallback drain interval, got %s", cfg.DaemonSocketFallbackDrainInterval)

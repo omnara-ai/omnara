@@ -54,7 +54,6 @@ type Worker struct {
 	runtimeLockLeaseDuration time.Duration
 	capacity                 int
 	claimConcurrency         int
-	drainTimeout             time.Duration
 	executionFailures        atomic.Int64
 	asyncToolLimiter         *tools.AsyncExecutionLimiter
 	activeMu                 sync.Mutex
@@ -69,7 +68,6 @@ type Options struct {
 	Capacity                 int
 	ClaimConcurrency         int
 	AsyncToolCapacity        int
-	DrainTimeout             time.Duration
 	ControlSubscriber        notifications.WorkerControlSubscriber
 }
 
@@ -118,7 +116,6 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		runtimeLockLeaseDuration: opts.RuntimeLockLeaseDuration,
 		capacity:                 opts.Capacity,
 		claimConcurrency:         min(opts.ClaimConcurrency, opts.Capacity),
-		drainTimeout:             opts.DrainTimeout,
 		asyncToolLimiter:         tools.NewAsyncExecutionLimiter(opts.AsyncToolCapacity),
 		active:                   make(map[uuid.UUID]*activeRuntime),
 	}
@@ -131,9 +128,7 @@ func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
 		return err
 	}
 	defer func() { _ = controlSubscription.Unsubscribe() }()
-	executionCtx, cancelExecutions := context.WithCancel(ctx)
-	defer cancelExecutions()
-	claimCtx, stopClaiming := context.WithCancel(executionCtx)
+	claimCtx, stopClaiming := context.WithCancel(ctx)
 	defer stopClaiming()
 	slots := make(chan struct{}, w.capacity)
 	w.metrics.RecordSlots(w.capacity, func() int { return len(slots) })
@@ -142,23 +137,21 @@ func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
 		claimers.Add(1)
 		go func() {
 			defer claimers.Done()
-			w.claimLoop(claimCtx, executionCtx, slots, &executions)
+			w.claimLoop(claimCtx, ctx, slots, &executions)
 		}()
 	}
 	select {
 	case <-drain:
-		drainDeadline := time.AfterFunc(w.drainTimeout, func() {
-			w.log.WarnContext(ctx, "worker drain deadline reached; canceling in-flight agent work")
-			cancelExecutions()
-		})
-		defer drainDeadline.Stop()
 	case <-ctx.Done():
 	}
 	stopClaiming()
 	claimers.Wait()
 	if ctx.Err() == nil {
-		w.log.InfoContext(ctx, "worker stopped claiming; draining in-flight agent work",
-			"drain_timeout", w.drainTimeout.String())
+		w.log.InfoContext(ctx, "worker stopped claiming; draining in-flight agent work")
+		stopDrainWarning := context.AfterFunc(ctx, func() {
+			w.log.WarnContext(ctx, "worker drain interrupted; canceling in-flight agent work")
+		})
+		defer stopDrainWarning()
 	}
 	executions.Wait()
 	w.retained.Wait()
@@ -191,7 +184,7 @@ func (w *Worker) claimLoop(
 		}
 		loopCtx, event := logent.WorkerLoop(executionCtx, w.workerProcessID)
 		now := time.Now().UTC()
-		claim, handled, err := w.claimNext(loopCtx)
+		claim, handled, err := w.claimNextUntil(claimCtx, loopCtx)
 		if err == nil && handled && claim.Kind != executionstore.AgentWorkNone {
 			failures = 0
 			idleDelay = minIdleClaimDelay
@@ -206,7 +199,7 @@ func (w *Worker) claimLoop(
 			continue
 		}
 		<-slots
-		w.finishLoop(executionCtx, loopCtx, event, handled, err)
+		w.finishLoop(claimCtx, loopCtx, event, handled, err)
 		if claimCtx.Err() != nil {
 			return
 		}
@@ -261,6 +254,16 @@ func (w *Worker) throttleAfterExecution(ctx context.Context, err error) {
 	default:
 		waitForDelay(ctx, runLoopRetryDelay(int(w.executionFailures.Add(1)-1)))
 	}
+}
+
+func (w *Worker) claimNextUntil(
+	stop, ctx context.Context,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	claimCtx, cancelClaim := context.WithCancel(ctx)
+	defer cancelClaim()
+	stopWatching := context.AfterFunc(stop, cancelClaim)
+	defer stopWatching()
+	return w.claimNext(claimCtx)
 }
 
 func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAgentWork, handled bool, err error) {
@@ -489,7 +492,7 @@ func (w *Worker) finalizeContext(parent context.Context) (context.Context, conte
 	if timeout > 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	return context.WithTimeout(context.WithoutCancel(parent), timeout)
+	return tools.DetachForCleanup(parent, timeout)
 }
 
 func (w *Worker) startRuntimeRenewal(
