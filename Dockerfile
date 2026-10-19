@@ -56,6 +56,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/o
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35 AS runtime
 WORKDIR /app
+COPY --chmod=0444 certs/rds-global-bundle.pem /etc/ssl/rds-global-bundle.pem
 
 FROM runtime AS api
 COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
@@ -74,6 +75,7 @@ RUN sh /src/chroot-sandbox/install.sh /src/omnara-chroot-sandbox /out
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS worker
 WORKDIR /app
+COPY --chmod=0444 certs/rds-global-bundle.pem /etc/ssl/rds-global-bundle.pem
 COPY --from=file-tools /usr/bin/rg /usr/local/bin/
 COPY --from=file-tools /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/
 COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
