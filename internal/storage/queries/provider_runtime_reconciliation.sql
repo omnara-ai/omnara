@@ -230,7 +230,7 @@ RETURNING machine.id,
     THEN true ELSE false
   END AS wake_attempt_cleared;
 
--- name: LockProviderRuntimeProtectionPool :one
+-- name: GetProviderRuntimeProtectionPool :one
 SELECT pool.id
 FROM machine_pools pool
 WHERE pool.org_id = sqlc.arg(org_id)
@@ -241,8 +241,7 @@ WHERE pool.org_id = sqlc.arg(org_id)
   AND pool.management_kind = sqlc.arg(management_kind)
   AND pool.provider_config = sqlc.arg(provider_config)::jsonb
   AND pool.provider_auth_secret_id IS NOT DISTINCT FROM sqlc.narg(provider_auth_secret_id)::uuid
-  AND pool.provider_auth_env_var = sqlc.arg(provider_auth_env_var)
-FOR NO KEY UPDATE OF pool;
+  AND pool.provider_auth_env_var = sqlc.arg(provider_auth_env_var);
 
 -- name: LockProviderRuntimeCredential :one
 SELECT credential.id

@@ -2127,31 +2127,6 @@ func TestPoolLocksDoNotBlockDaemonRegistration(t *testing.T) {
 				return err
 			},
 		},
-		{
-			name: "provider-runtime-protection",
-			lock: func(
-				t *testing.T,
-				ctx context.Context,
-				fixture providerRuntimeStorageFixture,
-				machine providerRuntimeMachine,
-				tx pgx.Tx,
-			) error {
-				candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
-				_, err := dbsqlc.New(tx).LockProviderRuntimeProtectionPool(
-					ctx,
-					dbsqlc.LockProviderRuntimeProtectionPoolParams{
-						OrgID:                candidate.OrgID,
-						MachinePoolID:        candidate.MachinePoolID,
-						Provider:             candidate.Provider,
-						ManagementKind:       string(candidate.ManagementKind),
-						ProviderConfig:       candidate.ProviderConfig,
-						ProviderAuthSecretID: &candidate.ProviderAuthSecretID,
-						ProviderAuthEnvVar:   candidate.ProviderAuthEnvVar,
-					},
-				)
-				return err
-			},
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

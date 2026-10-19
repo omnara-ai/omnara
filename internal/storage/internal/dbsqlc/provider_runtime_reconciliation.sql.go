@@ -422,6 +422,45 @@ func (q *Queries) ClaimProviderRuntimeTerminatedDeletion(ctx context.Context, ar
 	return i, err
 }
 
+const getProviderRuntimeProtectionPool = `-- name: GetProviderRuntimeProtectionPool :one
+SELECT pool.id
+FROM machine_pools pool
+WHERE pool.org_id = $1
+  AND pool.id = $2
+  AND pool.deleted_at IS NULL
+  AND pool.runtime_protection_enabled
+  AND pool.provider = $3
+  AND pool.management_kind = $4
+  AND pool.provider_config = $5::jsonb
+  AND pool.provider_auth_secret_id IS NOT DISTINCT FROM $6::uuid
+  AND pool.provider_auth_env_var = $7
+`
+
+type GetProviderRuntimeProtectionPoolParams struct {
+	OrgID                uuid.UUID
+	MachinePoolID        uuid.UUID
+	Provider             string
+	ManagementKind       string
+	ProviderConfig       json.RawMessage
+	ProviderAuthSecretID *uuid.UUID
+	ProviderAuthEnvVar   string
+}
+
+func (q *Queries) GetProviderRuntimeProtectionPool(ctx context.Context, arg GetProviderRuntimeProtectionPoolParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getProviderRuntimeProtectionPool,
+		arg.OrgID,
+		arg.MachinePoolID,
+		arg.Provider,
+		arg.ManagementKind,
+		arg.ProviderConfig,
+		arg.ProviderAuthSecretID,
+		arg.ProviderAuthEnvVar,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listDueProviderRuntimeMismatches = `-- name: ListDueProviderRuntimeMismatches :many
 SELECT scope.scope_key,
        machine.org_id,
@@ -743,46 +782,6 @@ type LockProviderRuntimeCredentialParams struct {
 
 func (q *Queries) LockProviderRuntimeCredential(ctx context.Context, arg LockProviderRuntimeCredentialParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockProviderRuntimeCredential, arg.OrgID, arg.ProviderAuthSecretID, arg.ProviderAuthVersionID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
-const lockProviderRuntimeProtectionPool = `-- name: LockProviderRuntimeProtectionPool :one
-SELECT pool.id
-FROM machine_pools pool
-WHERE pool.org_id = $1
-  AND pool.id = $2
-  AND pool.deleted_at IS NULL
-  AND pool.runtime_protection_enabled
-  AND pool.provider = $3
-  AND pool.management_kind = $4
-  AND pool.provider_config = $5::jsonb
-  AND pool.provider_auth_secret_id IS NOT DISTINCT FROM $6::uuid
-  AND pool.provider_auth_env_var = $7
-FOR NO KEY UPDATE OF pool
-`
-
-type LockProviderRuntimeProtectionPoolParams struct {
-	OrgID                uuid.UUID
-	MachinePoolID        uuid.UUID
-	Provider             string
-	ManagementKind       string
-	ProviderConfig       json.RawMessage
-	ProviderAuthSecretID *uuid.UUID
-	ProviderAuthEnvVar   string
-}
-
-func (q *Queries) LockProviderRuntimeProtectionPool(ctx context.Context, arg LockProviderRuntimeProtectionPoolParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockProviderRuntimeProtectionPool,
-		arg.OrgID,
-		arg.MachinePoolID,
-		arg.Provider,
-		arg.ManagementKind,
-		arg.ProviderConfig,
-		arg.ProviderAuthSecretID,
-		arg.ProviderAuthEnvVar,
-	)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
