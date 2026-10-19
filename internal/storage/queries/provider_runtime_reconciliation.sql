@@ -242,7 +242,7 @@ WHERE pool.org_id = sqlc.arg(org_id)
   AND pool.provider_config = sqlc.arg(provider_config)::jsonb
   AND pool.provider_auth_secret_id IS NOT DISTINCT FROM sqlc.narg(provider_auth_secret_id)::uuid
   AND pool.provider_auth_env_var = sqlc.arg(provider_auth_env_var)
-FOR UPDATE OF pool;
+FOR NO KEY UPDATE OF pool;
 
 -- name: LockProviderRuntimeCredential :one
 SELECT credential.id

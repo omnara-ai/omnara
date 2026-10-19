@@ -216,16 +216,6 @@ func Pools(ctx context.Context, tx dbsqlc.DBTX, refs []PoolRef) error {
 	return nil
 }
 
-func MachinePoolKeyShared(ctx context.Context, tx dbsqlc.DBTX, ref MachineRef) error {
-	if err := dbsqlc.New(tx).LockMachinePoolKeyShared(
-		ctx,
-		dbsqlc.LockMachinePoolKeySharedParams{OrgID: ref.OrgID, MachineID: ref.MachineID},
-	); err != nil {
-		return fmt.Errorf("lock machine pool key shared: %w", err)
-	}
-	return nil
-}
-
 func PoolGrants(ctx context.Context, tx dbsqlc.DBTX, grantIDs []uuid.UUID) error {
 	q := dbsqlc.New(tx)
 	for _, grantID := range orderedIDs(grantIDs) {

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -2045,26 +2047,135 @@ func assertPoolMachineRevokedAfterConcurrentCreate(
 	}
 }
 
-type poolMachineWriterFixture struct {
-	pool      *pgxpool.Pool
-	store     *Store
-	machineID uuid.UUID
-	poolID    uuid.UUID
-	write     func(context.Context) error
-	pausedAt  string
-}
-
-func TestPoolMachineWritersLockPoolBeforeMachine(t *testing.T) {
+func TestPoolLocksDoNotBlockDaemonRegistration(t *testing.T) {
 	t.Parallel()
-	registration := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
-		fixture := newProviderRuntimeStorageFixture(t, ctx, seed, true)
-		machine := fixture.insertInactiveMachine(t, ctx, seed)
-		return poolMachineWriterFixture{
-			pool:      fixture.pool,
-			store:     fixture.store,
-			machineID: machine.machineID,
-			poolID:    fixture.machinePool.ID,
-			write: func(ctx context.Context) error {
+	for _, test := range []struct {
+		name string
+		lock func(*testing.T, context.Context, providerRuntimeStorageFixture, providerRuntimeMachine, pgx.Tx) error
+	}{
+		{
+			name: "lifecycle",
+			lock: func(
+				_ *testing.T,
+				ctx context.Context,
+				fixture providerRuntimeStorageFixture,
+				_ providerRuntimeMachine,
+				tx pgx.Tx,
+			) error {
+				_, err := dbsqlc.New(tx).LockMachinePoolForLifecycle(
+					ctx,
+					dbsqlc.LockMachinePoolForLifecycleParams{OrgID: testOrgID, ID: fixture.machinePool.ID},
+				)
+				return err
+			},
+		},
+		{
+			name: "update",
+			lock: func(
+				_ *testing.T,
+				ctx context.Context,
+				fixture providerRuntimeStorageFixture,
+				_ providerRuntimeMachine,
+				tx pgx.Tx,
+			) error {
+				_, err := dbsqlc.New(tx).LockMachinePoolForUpdate(
+					ctx,
+					dbsqlc.LockMachinePoolForUpdateParams{OrgID: testOrgID, ID: fixture.machinePool.ID},
+				)
+				return err
+			},
+		},
+		{
+			name: "pool-machine-grant",
+			lock: func(
+				t *testing.T,
+				ctx context.Context,
+				fixture providerRuntimeStorageFixture,
+				machine providerRuntimeMachine,
+				tx pgx.Tx,
+			) error {
+				poolGrant, err := fixture.store.Execution().CreateProjectMachinePoolGrant(
+					ctx,
+					executionstore.CreateProjectMachinePoolGrantInput{
+						OrgID:          testOrgID,
+						ProjectID:      testProjectID,
+						MachinePoolID:  fixture.machinePool.ID,
+						IdempotencyKey: "pool-lock-registration-" + uuid.NewString(),
+					},
+				)
+				if err != nil {
+					t.Fatalf("create project pool grant: %v", err)
+				}
+				if _, err := fixture.store.q.UpsertProjectMachineGrant(
+					ctx,
+					dbsqlc.UpsertProjectMachineGrantParams{
+						OrgID:                     testOrgID,
+						ProjectID:                 testProjectID,
+						MachineID:                 machine.machineID,
+						SourceKind:                string(executionstore.ProjectMachineGrantSourceKindPool),
+						ProjectMachinePoolGrantID: &poolGrant.ID,
+						Description:               poolGrant.Description,
+						Metadata:                  json.RawMessage(`{}`),
+					},
+				); err != nil {
+					t.Fatalf("create generated machine grant: %v", err)
+				}
+				_, err = dbsqlc.New(tx).LockPoolMachineGrant(
+					ctx,
+					dbsqlc.LockPoolMachineGrantParams{OrgID: testOrgID, MachineID: machine.machineID},
+				)
+				return err
+			},
+		},
+		{
+			name: "provider-runtime-protection",
+			lock: func(
+				t *testing.T,
+				ctx context.Context,
+				fixture providerRuntimeStorageFixture,
+				machine providerRuntimeMachine,
+				tx pgx.Tx,
+			) error {
+				candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
+				_, err := dbsqlc.New(tx).LockProviderRuntimeProtectionPool(
+					ctx,
+					dbsqlc.LockProviderRuntimeProtectionPoolParams{
+						OrgID:                candidate.OrgID,
+						MachinePoolID:        candidate.MachinePoolID,
+						Provider:             candidate.Provider,
+						ManagementKind:       string(candidate.ManagementKind),
+						ProviderConfig:       candidate.ProviderConfig,
+						ProviderAuthSecretID: &candidate.ProviderAuthSecretID,
+						ProviderAuthEnvVar:   candidate.ProviderAuthEnvVar,
+					},
+				)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := newProviderRuntimeStorageFixture(t, ctx, "pool-lock-"+test.name, true)
+			machine := fixture.insertInactiveMachine(t, ctx, test.name)
+
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+			if err := test.lock(t, ctx, fixture, machine, controlTx); err != nil {
+				t.Fatalf("lock machine pool: %v", err)
+			}
+			probeTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+			_, err := probeTx.Exec(
+				ctx,
+				`SELECT id FROM machine_pools WHERE org_id = $1 AND id = $2 FOR NO KEY UPDATE NOWAIT`,
+				testOrgID,
+				fixture.machinePool.ID,
+			)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "55P03" {
+				t.Fatalf("pool lock probe error = %v, want 55P03 while the pool is locked", err)
+			}
+
+			registered := integrationdb.RunAsyncError(func() error {
 				_, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
 					ctx,
 					executionstore.RegisterDaemonRuntimeInput{
@@ -2077,144 +2188,9 @@ func TestPoolMachineWritersLockPoolBeforeMachine(t *testing.T) {
 					},
 				)
 				return err
-			},
-			pausedAt: "InsertDaemonRuntime",
-		}
-	}
-	deletionClaim := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
-		fixture := newProviderRuntimeStorageFixture(t, ctx, seed, true)
-		machine := fixture.insertInactiveMachine(t, ctx, seed)
-		var lifecycleVersion int64
-		if err := fixture.pool.QueryRow(ctx, `
-UPDATE machines
-SET current_daemon_runtime_id = NULL
-WHERE org_id = $1 AND id = $2
-RETURNING lifecycle_version
-`, testOrgID, machine.machineID).Scan(&lifecycleVersion); err != nil {
-			t.Fatalf("detach stale pool machine runtime: %v", err)
-		}
-		return poolMachineWriterFixture{
-			pool:      fixture.pool,
-			store:     fixture.store,
-			machineID: machine.machineID,
-			poolID:    fixture.machinePool.ID,
-			write: func(ctx context.Context) error {
-				_, claimed, err := fixture.store.Execution().ClaimPoolMachineDeletion(
-					ctx,
-					executionstore.MachineDeletingInput{
-						OrgID:                    testOrgID,
-						MachineID:                machine.machineID,
-						LifecycleReasonCode:      "test_cleanup",
-						LifecycleReasonMessage:   "test cleanup",
-						ExpectedLifecycleVersion: lifecycleVersion,
-					},
-				)
-				if err == nil && !claimed {
-					return errors.New("pool machine deletion was not claimed")
-				}
-				return err
-			},
-			pausedAt: "RevokeMachineDaemonTokensForMachine",
-		}
-	}
-	idleDeletionClaim := func(t *testing.T, ctx context.Context, seed string) poolMachineWriterFixture {
-		five := 5
-		fixture := newIdlePoolMachineFixture(t, ctx, seed, idlePoolMachinePolicy{PoolMinutes: &five})
-		backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
-		return poolMachineWriterFixture{
-			pool:      fixture.Store.pool,
-			store:     fixture.Store,
-			machineID: fixture.MachineID,
-			poolID:    fixture.PoolID,
-			write: func(ctx context.Context) error {
-				_, claimed, err := fixture.Store.Execution().ClaimExpiredIdlePoolMachineDeletion(
-					ctx,
-					testOrgID,
-					fixture.MachineID,
-				)
-				if err == nil && !claimed {
-					return errors.New("idle pool machine deletion was not claimed")
-				}
-				return err
-			},
-			pausedAt: "RevokeMachineDaemonTokensForMachine",
-		}
-	}
-	wake := func(ctx context.Context, fixture poolMachineWriterFixture) error {
-		disposition, err := fixture.store.Execution().IntegrationBeginMachineWakeOnce(
-			ctx,
-			testOrgID,
-			fixture.machineID,
-			fixture.poolID,
-			time.Minute,
-		)
-		if err == nil && disposition != executionstore.MachineWakeOnline {
-			return fmt.Errorf("wake disposition = %v, want online after registration", disposition)
-		}
-		return err
-	}
-	poolDeletion := func(ctx context.Context, fixture poolMachineWriterFixture) error {
-		_, err := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(ctx, testOrgID, fixture.poolID)
-		return err
-	}
-	for _, test := range []struct {
-		name          string
-		machineWriter func(*testing.T, context.Context, string) poolMachineWriterFixture
-		poolWriter    func(context.Context, poolMachineWriterFixture) error
-		poolWaitsOn   string
-	}{
-		{
-			name:          "registration-wake",
-			machineWriter: registration,
-			poolWriter:    wake,
-			poolWaitsOn:   "LockMachinePoolForLifecycle",
-		},
-		{
-			name:          "registration-pool-deletion",
-			machineWriter: registration,
-			poolWriter:    poolDeletion,
-			poolWaitsOn:   "LockMachinePoolForUpdate",
-		},
-		{
-			name:          "deletion-claim-pool-deletion",
-			machineWriter: deletionClaim,
-			poolWriter:    poolDeletion,
-			poolWaitsOn:   "LockMachinePoolForUpdate",
-		},
-		{
-			name:          "idle-deletion-claim-pool-deletion",
-			machineWriter: idleDeletionClaim,
-			poolWriter:    poolDeletion,
-			poolWaitsOn:   "LockMachinePoolForUpdate",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-			fixture := test.machineWriter(t, ctx, test.name)
-
-			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
-			if _, err := controlTx.Exec(
-				ctx,
-				`SELECT id FROM machine_daemon_tokens WHERE org_id = $1 AND machine_id = $2 FOR UPDATE`,
-				testOrgID,
-				fixture.machineID,
-			); err != nil {
-				t.Fatalf("lock machine daemon tokens: %v", err)
-			}
-			machineDone := integrationdb.RunAsyncError(func() error { return fixture.write(ctx) })
-			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, fixture.pausedAt, 1)
-			poolDone := integrationdb.RunAsyncError(func() error { return test.poolWriter(ctx, fixture) })
-			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, test.poolWaitsOn, 1)
-			if err := controlTx.Commit(ctx); err != nil {
-				t.Fatalf("release machine daemon tokens: %v", err)
-			}
-
-			if err := integrationdb.Await(t, machineDone, "machine writer"); err != nil {
-				t.Fatalf("machine writer: %v", err)
-			}
-			if err := integrationdb.Await(t, poolDone, "pool writer"); err != nil {
-				t.Fatalf("pool writer after machine writer: %v", err)
+			})
+			if err := integrationdb.Await(t, registered, "daemon registration while the pool is locked"); err != nil {
+				t.Fatalf("register daemon while the pool is locked: %v", err)
 			}
 		})
 	}

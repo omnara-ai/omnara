@@ -760,7 +760,7 @@ WHERE pool.org_id = $1
   AND pool.provider_config = $5::jsonb
   AND pool.provider_auth_secret_id IS NOT DISTINCT FROM $6::uuid
   AND pool.provider_auth_env_var = $7
-FOR UPDATE OF pool
+FOR NO KEY UPDATE OF pool
 `
 
 type LockProviderRuntimeProtectionPoolParams struct {
