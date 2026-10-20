@@ -15,6 +15,7 @@ import (
 
 type ReceiveContentInput struct {
 	capacityExempt      bool
+	Prepare             func(context.Context) (uuid.UUID, []Content, error)
 	ActorID             uuid.UUID
 	IntegrationTargetID uuid.UUID
 	DeliveryMode        string
@@ -25,7 +26,8 @@ type ReceiveContentInput struct {
 }
 
 type ReceivedContent struct {
-	ID uuid.UUID
+	ID       uuid.UUID
+	Replayed bool
 }
 
 type AdmittedContent struct {
@@ -52,9 +54,16 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 				Scope:   storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey),
 			})
 			if err == nil {
-				return ReceivedContent{ID: id}, nil
+				return ReceivedContent{ID: id, Replayed: true}, nil
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
+				return ReceivedContent{}, err
+			}
+		}
+		if input.Prepare != nil {
+			var err error
+			input.ActorID, input.Content, err = input.Prepare(ctx)
+			if err != nil {
 				return ReceivedContent{}, err
 			}
 		}

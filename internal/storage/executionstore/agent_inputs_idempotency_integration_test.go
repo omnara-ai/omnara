@@ -6,10 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -523,5 +526,66 @@ func TestCreateAgentContentInputAllowsUnattributedInput(t *testing.T) {
 	}
 	if input.ActorID != uuid.Nil {
 		t.Fatalf("unattributed content input producer actor = %v, want nil", input.ActorID)
+	}
+}
+
+func TestCreateAgentContentInputValidatesScopeBeforeContent(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	agentID := mustCreateAgent(t, ctx, store)
+	for _, input := range []executionstore.CreateAgentContentInputInput{
+		{ProjectID: testProjectID, AgentID: uuid.New(), ContentBlocks: json.RawMessage(`invalid`)},
+		{ProjectID: uuid.New(), AgentID: agentID, ContentBlocks: json.RawMessage(`invalid`)},
+	} {
+		_, _, _, err := store.Execution().CreateAgentContentInput(ctx, input)
+		require.ErrorIs(t, err, storeerr.ErrNotFound)
+	}
+	input := executionstore.CreateAgentContentInputInput{
+		ProjectID: testProjectID, AgentID: agentID, IdempotencyKey: "validate-replay",
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"original"}]`),
+	}
+	_, _, _, err := store.Execution().CreateAgentContentInput(ctx, input)
+	require.NoError(t, err)
+	input.ContentBlocks = json.RawMessage(`invalid`)
+	_, _, _, err = store.Execution().CreateAgentContentInput(ctx, input)
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+}
+
+func TestCreateAgentContentInputChecksIdempotencyOnce(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	agentID := mustCreateAgent(t, ctx, newIntegrationStore(pool))
+	var lookups, exists atomic.Int64
+	config := pool.Config()
+	config.ConnConfig.Tracer = &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		if strings.Contains(sql, "-- name: FindExecutionInput ") ||
+			strings.Contains(sql, "-- name: GetAgentInputByIdempotency ") {
+			lookups.Add(1)
+		}
+		if strings.Contains(sql, "-- name: AgentExistsInProject ") {
+			exists.Add(1)
+		}
+	}}
+	traced, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	defer traced.Close()
+	store := newIntegrationStore(traced)
+	input := executionstore.CreateAgentContentInputInput{
+		ProjectID: testProjectID, AgentID: agentID, IdempotencyKey: "one-lookup",
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"original"}]`),
+	}
+	for _, wantCreated := range []bool{true, false} {
+		lookups.Store(0)
+		exists.Store(0)
+		_, _, created, err := store.Execution().CreateAgentContentInput(ctx, input)
+		require.NoError(t, err)
+		require.Equal(t, wantCreated, created)
+		require.Equal(t, int64(1), lookups.Load())
+		require.Zero(t, exists.Load())
 	}
 }
