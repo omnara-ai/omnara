@@ -55,7 +55,11 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 			return cloneExecutionSnapshot(*m.loaded), nil
 		}
 	}
-	snapshot, err := loadExecution(ctx, h.unit.DB(), route, head)
+	var known []executiondb.LoadExecutionContextsRow
+	if m != nil {
+		known = m.knownContexts
+	}
+	snapshot, err := loadExecution(ctx, h.unit.DB(), route, head, known...)
 	if err == nil {
 		if m == nil {
 			m = &executionMutation{}

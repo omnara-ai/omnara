@@ -15,6 +15,7 @@ import (
 )
 
 type CompleteToolCallInput struct {
+	prepared           *preparedToolResult
 	requireRuntime     bool
 	Authorize          bool
 	ProjectID          uuid.UUID
@@ -148,6 +149,10 @@ func (s *Store) CompleteToolCall(
 		return ToolCallRecord{}, err
 	}
 	input.ResultContentParts = parts
+	input.prepared, err = prepareToolCompletion(parts)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
 	return agentexecution.Retry(ctx,
 		"complete_tool_call",
 		func(ctx context.Context) (ToolCallRecord, error) {
@@ -219,6 +224,32 @@ func (s *Store) RequeueRuntimeToolCall(ctx context.Context, input RequeueRuntime
 	return err
 }
 
+type preparedToolResult struct {
+	parts     []agentexecution.Content
+	content   agentexecution.PreparedContent
+	canonical json.RawMessage
+}
+
+func prepareToolCompletion(raw json.RawMessage) (*preparedToolResult, error) {
+	blocks, err := parseToolResultContentBlocks(raw)
+	if err != nil {
+		return nil, err
+	}
+	parts, err := executionContent(blocks)
+	if err != nil {
+		return nil, err
+	}
+	content, err := agentexecution.PrepareContent("tool_call_result", parts)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := marshalToolResultContentBlocks(blocks)
+	if err != nil {
+		return nil, err
+	}
+	return &preparedToolResult{parts: parts, content: content, canonical: canonical}, nil
+}
+
 func completeExecutionTool(
 	ctx context.Context,
 	unit *agentexecution.Unit,
@@ -239,17 +270,16 @@ func completeExecutionTool(
 			}
 		}
 	}
-	blocks, err := parseToolResultContentBlocks(input.ResultContentParts)
-	if err != nil {
-		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
-	}
-	parts, err := executionContent(blocks)
-	if err != nil {
-		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+	prepared := input.prepared
+	if prepared == nil {
+		prepared, err = prepareToolCompletion(input.ResultContentParts)
+		if err != nil {
+			return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+		}
 	}
 	completed, err := h.CompleteTool(ctx, agentexecution.ToolCompletion{
 		Authorize: input.Authorize, ToolRef: agentexecution.ToolRef{ID: input.ID, RuntimeLockID: input.RuntimeLockID},
-		Outcome: string(input.Outcome), Content: parts,
+		Outcome: string(input.Outcome), Content: prepared.parts, Prepared: &prepared.content,
 	})
 	if err != nil {
 		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
@@ -258,11 +288,7 @@ func completeExecutionTool(
 		record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
 		return record, completed, err
 	}
-	canonical, err := marshalToolResultContentBlocks(blocks)
-	if err != nil {
-		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
-	}
-	completed.Projection.ResultContentParts = canonical
+	completed.Projection.ResultContentParts = prepared.canonical
 	return toolCallRecordFromGetSQLC(completed.Projection), completed, nil
 }
 

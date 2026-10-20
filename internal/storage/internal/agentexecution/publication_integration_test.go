@@ -3,10 +3,15 @@
 package agentexecution_test
 
 import (
+	"context"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/stretchr/testify/require"
@@ -46,7 +51,7 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 			require.NoError(t, err)
 			expectedStatements, expectedRoundTrips := 2, 2
 			if step == "tool" {
-				expectedStatements, expectedRoundTrips = 4, 3
+				expectedStatements, expectedRoundTrips = 3, 3
 			}
 			require.Equal(t, expectedStatements, statements)
 			require.Equal(t, expectedRoundTrips, roundTrips)
@@ -147,4 +152,118 @@ func TestExecutionPublicationFailureRollsBack(t *testing.T) {
 			Scan(&exists),
 	)
 	require.False(t, exists)
+}
+
+type publicationCollector struct {
+	intents []notifications.PostCommitIntent
+}
+
+func (p *publicationCollector) PublishPostCommit(_ context.Context, intent notifications.PostCommitIntent) {
+	p.intents = append(p.intents, intent)
+}
+
+func TestUnchangedToolReadinessPreservesNotificationsAndWebhooks(t *testing.T) {
+	f, a := stepFixture(t)
+	u, _, work, prepared := claimPreparedStep(t, f)
+	require.NoError(t, u.Commit(t.Context(), "prepare"))
+	u, h := f.handle(t, a)
+	output, err := h.AcceptOutput(t.Context(), stepToolOutput(prepared, work.RuntimeID, 1))
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(t.Context(), "output"))
+	u, h = f.handle(t, a)
+	trace, err := agentexecution.TraceExecutionCommand(u, func() error {
+		work, err = h.Claim(t.Context(), uuid.New(), time.Minute)
+		if err != nil {
+			return err
+		}
+		return u.Commit(t.Context(), "claim tools")
+	})
+	require.NoError(t, err)
+	for _, statement := range trace {
+		require.NotContains(t, statement.Query.SQL, "name: PublishExecution")
+	}
+	var before, after []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT to_jsonb(h) FROM agent_execution_state h WHERE agent_id=$1`, a).Scan(&before))
+	collector := &publicationCollector{}
+	u, err = agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, collector, nil))
+	require.NoError(t, err)
+	defer func() { _ = u.Rollback(t.Context()) }()
+	h, err = agentexecution.LockTestAgent(t.Context(), u, f.project, a, nil)
+	require.NoError(t, err)
+	trace, err = agentexecution.TraceExecutionCommand(u, func() error {
+		_, err := h.AuthorizeTool(t.Context(), agentexecution.ToolRef{ID: output.Tools[0].ID, RuntimeLockID: work.RuntimeID})
+		if err != nil {
+			return err
+		}
+		require.Empty(t, collector.intents)
+		return u.Commit(t.Context(), "authorize")
+	})
+	require.NoError(t, err)
+	for _, statement := range trace {
+		require.NotContains(t, statement.Query.SQL, "name: PublishExecution")
+		require.NotContains(t, statement.Query.SQL, "name: LoadExecutionFacts")
+		require.NotContains(t, statement.Query.SQL, "name: LoadExecutionContexts")
+	}
+	require.Equal(t, []notifications.PostCommitIntent{
+		notifications.ToolCallUpdatedCommitted{AgentID: a, ToolCallID: output.Tools[0].ID, State: "ready"},
+	}, collector.intents)
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT to_jsonb(h) FROM agent_execution_state h WHERE agent_id=$1`, a).Scan(&after))
+	require.JSONEq(t, string(before), string(after))
+	var states []string
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT array_agg(tool_state ORDER BY created_at,id) FROM event_webhook_deliveries WHERE tool_call_id=$1`,
+		output.Tools[0].ID).Scan(&states))
+	require.Equal(t, []string{"awaiting_authorization", "ready"}, states)
+}
+
+func TestCompletedToolBatchFactsMatchReconstruction(t *testing.T) {
+	for _, size := range []int{1, 2} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			f, a := stepFixture(t)
+			u, _, work, prepared := claimPreparedStep(t, f)
+			require.NoError(t, u.Commit(t.Context(), "prepare"))
+			u, h := f.handle(t, a)
+			output, err := h.AcceptOutput(t.Context(), stepToolOutput(prepared, work.RuntimeID, size))
+			require.NoError(t, err)
+			require.NoError(t, u.Commit(t.Context(), "output"))
+			u, h = f.handle(t, a)
+			tools, err := h.Claim(t.Context(), uuid.New(), time.Minute)
+			require.NoError(t, err)
+			require.NoError(t, u.Commit(t.Context(), "claim tools"))
+			u, h = f.handle(t, a)
+			for _, call := range output.Tools {
+				_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
+					ToolRef:   agentexecution.ToolRef{ID: call.ID, RuntimeLockID: tools.RuntimeID},
+					Authorize: true, Outcome: "succeeded",
+				})
+				require.NoError(t, err)
+			}
+			finished, transferred, err := h.FinishToolBatch(t.Context(), tools.RuntimeID, output.ID)
+			require.NoError(t, err)
+			require.True(t, finished)
+			require.False(t, transferred)
+			trace, err := agentexecution.TraceExecutionCommand(u, func() error {
+				return u.Commit(t.Context(), "complete batch")
+			})
+			require.NoError(t, err)
+			facts := 0
+			for _, statement := range trace {
+				require.NotContains(t, statement.Query.SQL, "name: LoadExecutionContexts")
+				if strings.Contains(statement.Query.SQL, "name: LoadExecutionFacts") {
+					facts++
+					require.NotNil(t, statement.Query.Arguments[1])
+				}
+			}
+			require.Equal(t, 1, facts)
+			u, h = f.handle(t, a)
+			rebuilt, err := h.ReconstructExecution(t.Context())
+			require.NoError(t, err)
+			var ready time.Time
+			require.NoError(t, u.DB().QueryRow(t.Context(),
+				`SELECT logical_ready_at FROM agent_execution_state WHERE agent_id=$1`, a).Scan(&ready))
+			require.Equal(t, rebuilt.Head.LogicalReadyAt, &ready)
+		})
+	}
 }

@@ -19,9 +19,9 @@ import (
 
 func TestModelAndListAgentsCommitCount(t *testing.T) {
 	for _, merged := range []bool{false, true} {
-		name := "before"
+		name := "separate_transactions"
 		if merged {
-			name = "after"
+			name = "merged_transactions"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
@@ -75,7 +75,7 @@ subagents:
 			t.Logf("%s: %d explicit commits for one model step", name, trace.Commits.Load())
 			modelStatements := trace.Statements.Load()
 			if merged {
-				require.EqualValues(t, 51, modelStatements, "merged model statement count at b09b5e608")
+				require.EqualValues(t, 50, modelStatements, "merged model statement count")
 			}
 			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			claim, found, err = counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
@@ -104,7 +104,7 @@ subagents:
 			t.Logf("%s: %d explicit commits for one model step plus list_agents", name, trace.Commits.Load())
 			toolStatements := trace.Statements.Load() - modelStatements
 			if merged {
-				require.EqualValues(t, 37, toolStatements, "merged list_agents statement count at b09b5e608")
+				require.EqualValues(t, 35, toolStatements, "merged list_agents statement count")
 			}
 			t.Logf("%s: %d statements for list_agents step", name, toolStatements)
 			var results, wakes int

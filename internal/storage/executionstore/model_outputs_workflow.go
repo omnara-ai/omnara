@@ -67,6 +67,7 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	ctx context.Context,
 	input RecordModelOutputAndCompleteContextInput,
 ) (events.Event, error) {
+	prepared := agentexecution.PrepareOutput(executionOutput(input, nil))
 	return agentexecution.Retry(ctx,
 		"record_model_output_and_complete_context",
 		func(ctx context.Context) (events.Event,
@@ -77,7 +78,7 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 				return events.Event{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
-			result, err := h.AcceptOutput(ctx, executionOutput(input, nil))
+			result, err := h.AcceptOutput(ctx, prepared)
 			if err != nil {
 				return events.Event{}, err
 			}
@@ -101,6 +102,11 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 	ctx context.Context,
 	input RecordToolCallSourceAndCompleteContextInput,
 ) (events.Event, []ToolCallRecord, error) {
+	prepared := agentexecution.PrepareOutput(executionOutput(RecordModelOutputAndCompleteContextInput{
+		FinishClaim: input.FinishClaim,
+		ProjectID:   input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+		ModelCallContextID: input.ModelCallContextID, ProviderRequestID: input.ProviderRequestID,
+		ProviderResponse: input.ProviderResponse}, input.ToolCallBindings))
 	type executionResult struct {
 		event events.Event
 		tools []ToolCallRecord
@@ -116,11 +122,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 				return executionResult{events.Event{}, nil}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
-			result, err := h.AcceptOutput(ctx, executionOutput(RecordModelOutputAndCompleteContextInput{
-				FinishClaim: input.FinishClaim,
-				ProjectID:   input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
-				ModelCallContextID: input.ModelCallContextID, ProviderRequestID: input.ProviderRequestID,
-				ProviderResponse: input.ProviderResponse}, input.ToolCallBindings))
+			result, err := h.AcceptOutput(ctx, prepared)
 			if err != nil {
 				return executionResult{events.Event{}, nil}, err
 			}

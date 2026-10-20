@@ -24,6 +24,7 @@ type ToolOwner struct {
 	ActionID      uuid.UUID
 }
 type ToolCompletion struct {
+	Prepared  *PreparedContent
 	Authorize bool
 	ToolRef
 	Outcome string
@@ -64,8 +65,6 @@ func (h *Handle) transitionTool(
 	}
 	if (row.State == "completed") != (state == "completed") || runnable(row.State) != runnable(state) {
 		m.changed()
-	} else {
-		m.dirty = true
 	}
 	return nil
 }
@@ -208,7 +207,7 @@ func (h *Handle) CompleteTool(ctx context.Context, input ToolCompletion) (Comple
 		if !allowed {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
-		return h.completeTool(ctx, m, row, input.Outcome, input.Content, input.RuntimeLockID, nil)
+		return h.completeTool(ctx, m, row, input.Outcome, input.Content, input.RuntimeLockID, nil, input.Prepared)
 	})
 }
 
@@ -239,6 +238,7 @@ func (h *Handle) completeTool(
 	content []Content,
 	fence uuid.UUID,
 	interaction *notifications.AgentInteractionUpdate,
+	prepared ...*PreparedContent,
 ) (CompletedTool, error) {
 	switch outcome {
 	case "succeeded", "failed", "denied", "canceled":
@@ -274,7 +274,16 @@ func (h *Handle) completeTool(
 		return CompletedTool{}, err
 	}
 	id := inserted.ID
-	if err = h.writeContent(ctx, "tool_call_result", id, content); err != nil {
+	var blocks PreparedContent
+	if len(prepared) > 0 && prepared[0] != nil {
+		blocks = *prepared[0]
+	} else {
+		blocks, err = PrepareContent("tool_call_result", content)
+	}
+	if err != nil {
+		return CompletedTool{}, err
+	}
+	if err = h.writePreparedContent(ctx, "tool_call_result", id, inserted.CompletedAt, blocks); err != nil {
 		return CompletedTool{}, err
 	}
 	event, err := q.AppendExecutionEvent(ctx, h.unit.DB(), executiondb.AppendExecutionEventParams{
@@ -284,6 +293,7 @@ func (h *Handle) completeTool(
 		TurnID:         &row.TurnID,
 		Kind:           "tool_result",
 		ResultID:       &id,
+		CreatedAt:      &inserted.CompletedAt,
 		IdempotencyKey: storeutil.TextFromEmpty("tool-call-result-authority:" + row.ID.String())})
 	if err != nil {
 		return CompletedTool{}, err
@@ -311,6 +321,15 @@ func (h *Handle) completeTool(
 			InteractionKind: i.InteractionKind,
 			State:           i.State,
 		}
+	}
+	if row.ModelOutputID == m.head.PendingToolOutputID {
+		m.knownContexts = []executiondb.LoadExecutionContextsRow{{ID: row.ContextID, AgentID: row.AgentID,
+			TurnID: row.TurnID, OperationKind: row.OperationKind, AttemptNumber: row.AttemptNumber,
+			InputEventSequence: row.InputEventSequence, SourceEventSequenceEnd: row.SourceEventSequenceEnd,
+			State: row.ContextState, RecoveryKind: row.RecoveryKind, RetryAt: row.RetryAt,
+			OpeningInputIds: row.OpeningInputIds, OpeningEventSequence: row.OpeningEventSequence,
+			OutputID: &row.ModelOutputID, OutputStopReason: &row.StopReason, OutputEventID: &row.SourceEventID,
+			OutputSequence: &row.SourceSequence, OutputCreatedAt: &row.OutputCreatedAt}}
 	}
 	h.unit.Notifications().AddAgentEvent(h.route.AgentID, event.Sequence, "tool_result")
 	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "completed", interaction)

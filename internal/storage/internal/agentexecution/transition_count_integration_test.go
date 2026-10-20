@@ -35,7 +35,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 			require.NoError(t, err)
 			prepared = prepareCommand(t, h, lease)
 		})
-		measured("accept_tools", 14, func(h *agentexecution.Handle) {
+		measured("accept_tools", 13, func(h *agentexecution.Handle) {
 			response := commandResponse(modelenvelope.StopReasonToolUse)
 			response.Normalized.Content = []modelenvelope.ResponsePart{{Type: "tool_call", ProviderCallID: "one", ToolName: "tool", ToolInput: json.RawMessage(`{}`)}}
 			var err error
@@ -47,7 +47,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 			_, err = h.LoadExecution(t.Context())
 			require.NoError(t, err)
 		})
-		measured("authorize", 7, func(h *agentexecution.Handle) {
+		measured("authorize", 6, func(h *agentexecution.Handle) {
 			_, err := h.AuthorizeTool(t.Context(), agentexecution.ToolRef{ID: output.Tools[0].ID, RuntimeLockID: lease})
 			require.NoError(t, err)
 		})
@@ -55,7 +55,7 @@ func TestExecutionTransitionStatementBounds(t *testing.T) {
 			_, err := h.RunTool(t.Context(), agentexecution.ToolRef{ID: output.Tools[0].ID, RuntimeLockID: lease})
 			require.NoError(t, err)
 		})
-		measured("complete_prepare", 18, func(h *agentexecution.Handle) {
+		measured("complete_prepare", 17, func(h *agentexecution.Handle) {
 			_, err := h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
 				ToolRef: agentexecution.ToolRef{ID: output.Tools[0].ID, RuntimeLockID: lease},
 				Outcome: "succeeded", Content: []agentexecution.Content{{Kind: "text", Text: "done"}},

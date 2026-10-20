@@ -219,11 +219,11 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	if err != nil {
 		return false, err
 	}
-	event, err := h.appendEvent(ctx, row.TurnID, "model_output", uuid.Nil, output.ID, uuid.Nil, false)
+	event, err := h.appendEvent(ctx, row.TurnID, "model_output", uuid.Nil, output.ID, uuid.Nil, false, output.CreatedAt)
 	if err != nil {
 		return false, err
 	}
-	if err = h.writeContent(ctx, "model_output", output.ID, parts); err != nil {
+	if err = h.writeContent(ctx, "model_output", output.ID, output.CreatedAt, parts); err != nil {
 		return false, err
 	}
 	if err = h.advanceTurn(ctx, event, true); err != nil {

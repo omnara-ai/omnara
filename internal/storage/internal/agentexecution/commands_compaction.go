@@ -275,7 +275,7 @@ func (h *Handle) PublishCheckpoint(
 			uuid.Nil,
 			uuid.Nil,
 			row.ID,
-			false,
+			false, row.CreatedAt,
 		)
 		if err != nil {
 			return PublishedCheckpoint{}, err

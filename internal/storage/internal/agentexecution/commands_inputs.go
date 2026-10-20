@@ -14,6 +14,7 @@ import (
 )
 
 type ReceiveContentInput struct {
+	Prepared            *PreparedContent
 	capacityExempt      bool
 	ActorID             uuid.UUID
 	IntegrationTargetID uuid.UUID
@@ -90,7 +91,16 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		if err = h.writeContent(ctx, "agent_input", row.ID, input.Content); err != nil {
+		var prepared PreparedContent
+		if input.Prepared != nil {
+			prepared = *input.Prepared
+		} else {
+			prepared, err = PrepareContent("agent_input", input.Content)
+		}
+		if err != nil {
+			return ReceivedContent{}, err
+		}
+		if err = h.writePreparedContent(ctx, "agent_input", row.ID, row.QueuedAt, prepared); err != nil {
 			return ReceivedContent{}, err
 		}
 		if m.loaded != nil {

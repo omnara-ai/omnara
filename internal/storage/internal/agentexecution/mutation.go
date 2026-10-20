@@ -12,6 +12,7 @@ import (
 )
 
 type executionMutation struct {
+	knownContexts    []executiondb.LoadExecutionContextsRow
 	head             ExecutionHead
 	insertHead       bool
 	dirty            bool
@@ -72,7 +73,7 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 		handles = append(handles, h)
 		if h.mutation.loaded == nil && h.mutation.selectionChanged {
 			reloaded = append(reloaded, h)
-			facts = append(facts, loads.queue(ctx, h.route, h.mutation.head))
+			facts = append(facts, loads.queue(ctx, h.route, h.mutation.head, h.mutation.knownContexts...))
 		}
 	}
 	if len(handles) == 0 {
@@ -128,6 +129,7 @@ func executeCommand[T any](
 }
 
 func (m *executionMutation) changed() {
+	m.knownContexts = nil
 	m.dirty = true
 	m.selectionChanged = true
 	m.loaded = nil

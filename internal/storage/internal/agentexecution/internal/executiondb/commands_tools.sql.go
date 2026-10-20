@@ -145,7 +145,9 @@ func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg In
 
 const readExecutionTool = `-- name: ReadExecutionTool :one
 SELECT c.id,c.agent_id,c.created_at,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
- m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
+ m.turn_id,m.id AS context_id,m.operation_kind,m.attempt_number,m.input_event_sequence,m.source_event_sequence_end,
+ m.state AS context_state,m.recovery_kind,m.retry_at,m.opening_input_ids,m.opening_event_sequence,
+ o.stop_reason,o.created_at AS output_created_at,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
@@ -161,25 +163,36 @@ type ReadExecutionToolParams struct {
 }
 
 type ReadExecutionToolRow struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	CreatedAt      time.Time
-	ModelOutputID  uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           string
-	State          string
-	RuntimeLockID  *uuid.UUID
-	TurnID         uuid.UUID
-	ContextID      uuid.UUID
-	SourceEventID  uuid.UUID
-	SourceSequence int64
-	ResultID       *uuid.UUID
-	Outcome        *string
-	CompletedAt    *time.Time
-	ResultEventID  *uuid.UUID
-	ResultSequence *int64
+	ID                     uuid.UUID
+	AgentID                uuid.UUID
+	CreatedAt              time.Time
+	ModelOutputID          uuid.UUID
+	ProviderCallID         string
+	Name                   string
+	Input                  json.RawMessage
+	Type                   string
+	State                  string
+	RuntimeLockID          *uuid.UUID
+	TurnID                 uuid.UUID
+	ContextID              uuid.UUID
+	OperationKind          string
+	AttemptNumber          int32
+	InputEventSequence     int64
+	SourceEventSequenceEnd *int64
+	ContextState           string
+	RecoveryKind           *string
+	RetryAt                *time.Time
+	OpeningInputIds        []uuid.UUID
+	OpeningEventSequence   int64
+	StopReason             string
+	OutputCreatedAt        time.Time
+	SourceEventID          uuid.UUID
+	SourceSequence         int64
+	ResultID               *uuid.UUID
+	Outcome                *string
+	CompletedAt            *time.Time
+	ResultEventID          *uuid.UUID
+	ResultSequence         *int64
 }
 
 func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecutionToolParams) (ReadExecutionToolRow, error) {
@@ -198,6 +211,17 @@ func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecut
 		&i.RuntimeLockID,
 		&i.TurnID,
 		&i.ContextID,
+		&i.OperationKind,
+		&i.AttemptNumber,
+		&i.InputEventSequence,
+		&i.SourceEventSequenceEnd,
+		&i.ContextState,
+		&i.RecoveryKind,
+		&i.RetryAt,
+		&i.OpeningInputIds,
+		&i.OpeningEventSequence,
+		&i.StopReason,
+		&i.OutputCreatedAt,
 		&i.SourceEventID,
 		&i.SourceSequence,
 		&i.ResultID,

@@ -81,45 +81,6 @@ func (q *Queries) CreateExecutionOutput(ctx context.Context, db DBTX, arg Create
 	return i, err
 }
 
-const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :one
-INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-SELECT $1,$2,o.id,$3,$4,$5::jsonb,
- $6,'awaiting_authorization',o.created_at FROM model_outputs o
- WHERE o.agent_id=$2 AND o.id=$7
- RETURNING id,created_at,state
-`
-
-type CreateExecutionToolProposalParams struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           string
-	OutputID       uuid.UUID
-}
-
-type CreateExecutionToolProposalRow struct {
-	ID        uuid.UUID
-	CreatedAt time.Time
-	State     string
-}
-
-func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg CreateExecutionToolProposalParams) (CreateExecutionToolProposalRow, error) {
-	row := db.QueryRow(ctx, createExecutionToolProposal,
-		arg.ID,
-		arg.AgentID,
-		arg.ProviderCallID,
-		arg.Name,
-		arg.Input,
-		arg.Type,
-		arg.OutputID,
-	)
-	var i CreateExecutionToolProposalRow
-	err := row.Scan(&i.ID, &i.CreatedAt, &i.State)
-	return i, err
-}
-
 const findExecutionCheckpoint = `-- name: FindExecutionCheckpoint :one
 SELECT c.id,c.summary,c.summarized_through_event_sequence,e.id AS event_id,e.turn_id,e.sequence,e.created_at
 FROM context_checkpoints c JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id
@@ -154,88 +115,6 @@ func (q *Queries) FindExecutionCheckpoint(ctx context.Context, db DBTX, arg Find
 		&i.CreatedAt,
 	)
 	return i, err
-}
-
-const findExecutionOutput = `-- name: FindExecutionOutput :one
-SELECT o.id,o.served_provider_model_slug,o.stop_reason,o.provider_replay,e.id AS event_id,e.turn_id,e.sequence,e.created_at
-FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
-WHERE o.agent_id=$1 AND o.model_call_context_id=$2
-`
-
-type FindExecutionOutputParams struct {
-	AgentID   uuid.UUID
-	ContextID uuid.UUID
-}
-
-type FindExecutionOutputRow struct {
-	ID                      uuid.UUID
-	ServedProviderModelSlug string
-	StopReason              string
-	ProviderReplay          *json.RawMessage
-	EventID                 uuid.UUID
-	TurnID                  uuid.UUID
-	Sequence                int64
-	CreatedAt               time.Time
-}
-
-func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg FindExecutionOutputParams) (FindExecutionOutputRow, error) {
-	row := db.QueryRow(ctx, findExecutionOutput, arg.AgentID, arg.ContextID)
-	var i FindExecutionOutputRow
-	err := row.Scan(
-		&i.ID,
-		&i.ServedProviderModelSlug,
-		&i.StopReason,
-		&i.ProviderReplay,
-		&i.EventID,
-		&i.TurnID,
-		&i.Sequence,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const readExecutionProposals = `-- name: ReadExecutionProposals :many
-SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=$1 AND model_output_id=$2 ORDER BY provider_call_id
-`
-
-type ReadExecutionProposalsParams struct {
-	AgentID  uuid.UUID
-	OutputID uuid.UUID
-}
-
-type ReadExecutionProposalsRow struct {
-	ID             uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           string
-}
-
-func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg ReadExecutionProposalsParams) ([]ReadExecutionProposalsRow, error) {
-	rows, err := db.Query(ctx, readExecutionProposals, arg.AgentID, arg.OutputID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ReadExecutionProposalsRow{}
-	for rows.Next() {
-		var i ReadExecutionProposalsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProviderCallID,
-			&i.Name,
-			&i.Input,
-			&i.Type,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const validateExecutionCheckpoint = `-- name: ValidateExecutionCheckpoint :one

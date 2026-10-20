@@ -7,6 +7,7 @@ package executiondb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -17,6 +18,150 @@ import (
 var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
+
+const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :batchone
+INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT $1,$2,o.id,$3,$4,$5::jsonb,
+ $6,'awaiting_authorization',o.created_at FROM model_outputs o
+ WHERE o.agent_id=$2 AND o.id=$7
+ RETURNING id,created_at,state
+`
+
+type CreateExecutionToolProposalBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CreateExecutionToolProposalParams struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	OutputID       uuid.UUID
+}
+
+type CreateExecutionToolProposalRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+	State     string
+}
+
+func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg []CreateExecutionToolProposalParams) *CreateExecutionToolProposalBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.ProviderCallID,
+			a.Name,
+			a.Input,
+			a.Type,
+			a.OutputID,
+		}
+		batch.Queue(createExecutionToolProposal, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &CreateExecutionToolProposalBatchResults{br, len(arg), false}
+}
+
+func (b *CreateExecutionToolProposalBatchResults) QueryRow(f func(int, CreateExecutionToolProposalRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i CreateExecutionToolProposalRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.CreatedAt, &i.State)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *CreateExecutionToolProposalBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const findExecutionOutput = `-- name: FindExecutionOutput :batchone
+SELECT o.id,o.served_provider_model_slug,o.stop_reason,o.provider_replay,e.id AS event_id,e.turn_id,e.sequence,e.created_at
+FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
+WHERE o.agent_id=$1 AND o.model_call_context_id=$2
+`
+
+type FindExecutionOutputBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type FindExecutionOutputParams struct {
+	AgentID   uuid.UUID
+	ContextID uuid.UUID
+}
+
+type FindExecutionOutputRow struct {
+	ID                      uuid.UUID
+	ServedProviderModelSlug string
+	StopReason              string
+	ProviderReplay          *json.RawMessage
+	EventID                 uuid.UUID
+	TurnID                  uuid.UUID
+	Sequence                int64
+	CreatedAt               time.Time
+}
+
+func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg []FindExecutionOutputParams) *FindExecutionOutputBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ContextID,
+		}
+		batch.Queue(findExecutionOutput, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &FindExecutionOutputBatchResults{br, len(arg), false}
+}
+
+func (b *FindExecutionOutputBatchResults) QueryRow(f func(int, FindExecutionOutputRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i FindExecutionOutputRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(
+			&i.ID,
+			&i.ServedProviderModelSlug,
+			&i.StopReason,
+			&i.ProviderReplay,
+			&i.EventID,
+			&i.TurnID,
+			&i.Sequence,
+			&i.CreatedAt,
+		)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *FindExecutionOutputBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
 
 const loadExecutionContexts = `-- name: LoadExecutionContexts :batchmany
 WITH outputs AS (
@@ -590,6 +735,86 @@ func (b *PublishExecutionBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
 }
 
 func (b *PublishExecutionBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const readExecutionProposals = `-- name: ReadExecutionProposals :batchmany
+SELECT c.id,c.provider_call_id,c.name,c.input,c.type FROM tool_calls c
+WHERE c.agent_id=$1 AND c.model_output_id=(SELECT o.id FROM model_outputs o WHERE o.agent_id=$1
+ AND o.model_call_context_id=$2) ORDER BY c.provider_call_id
+`
+
+type ReadExecutionProposalsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type ReadExecutionProposalsParams struct {
+	AgentID   uuid.UUID
+	ContextID uuid.UUID
+}
+
+type ReadExecutionProposalsRow struct {
+	ID             uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+}
+
+func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg []ReadExecutionProposalsParams) *ReadExecutionProposalsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ContextID,
+		}
+		batch.Queue(readExecutionProposals, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &ReadExecutionProposalsBatchResults{br, len(arg), false}
+}
+
+func (b *ReadExecutionProposalsBatchResults) Query(f func(int, []ReadExecutionProposalsRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []ReadExecutionProposalsRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i ReadExecutionProposalsRow
+				if err := rows.Scan(
+					&i.ID,
+					&i.ProviderCallID,
+					&i.Name,
+					&i.Input,
+					&i.Type,
+				); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *ReadExecutionProposalsBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

@@ -85,7 +85,6 @@ func (h *Handle) Claim(
 		result.Runtime = RuntimeRecord(runtime)
 		h.unit.runtimeLocked = true
 		h.lockedRuntimeID = result.RuntimeID
-		m.dirty = true
 		if err = q.ConsumeExecutionWakeup(ctx,
 			h.unit.DB(),
 			executiondb.ConsumeExecutionWakeupParams{AgentID: h.route.AgentID}); err != nil {

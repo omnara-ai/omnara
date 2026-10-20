@@ -40,18 +40,16 @@ func (q *Queries) AdvanceExecutionTurn(ctx context.Context, db DBTX, arg Advance
 }
 
 const appendExecutionEvent = `-- name: AppendExecutionEvent :one
-WITH payload AS MATERIALIZED (
- SELECT agent_payload_created_at($11,$2,CASE WHEN $8::uuid IS NOT NULL THEN 'tool_call_result' ELSE $4 END,
- coalesce($5::uuid,$6::uuid,$7::uuid,$8::uuid),true) AS created_at
-), allocated AS (
- UPDATE agents SET next_event_sequence=next_event_sequence+1 WHERE id=$2
+WITH allocated AS (
+ UPDATE agents SET next_event_sequence=next_event_sequence+1
+ WHERE id=$2 AND project_id=$12
  RETURNING next_event_sequence-1 AS sequence
 )
 INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,agent_input_id,model_output_id,
  context_checkpoint_id,tool_call_result_id,is_opening_event,created_at,idempotency_key)
 SELECT $1,$2,$3,sequence,$4,$5,
- $6,$7,$8,$9,payload.created_at,
- $10 FROM allocated CROSS JOIN payload
+ $6,$7,$8,$9,coalesce($10::timestamptz,statement_timestamp()),
+ $11 FROM allocated
 RETURNING id,sequence,created_at
 `
 
@@ -65,6 +63,7 @@ type AppendExecutionEventParams struct {
 	CheckpointID   *uuid.UUID
 	ResultID       *uuid.UUID
 	Opening        bool
+	CreatedAt      *time.Time
 	IdempotencyKey *string
 	ProjectID      uuid.UUID
 }
@@ -86,6 +85,7 @@ func (q *Queries) AppendExecutionEvent(ctx context.Context, db DBTX, arg AppendE
 		arg.CheckpointID,
 		arg.ResultID,
 		arg.Opening,
+		arg.CreatedAt,
 		arg.IdempotencyKey,
 		arg.ProjectID,
 	)
@@ -94,53 +94,42 @@ func (q *Queries) AppendExecutionEvent(ctx context.Context, db DBTX, arg AppendE
 	return i, err
 }
 
-const insertExecutionContent = `-- name: InsertExecutionContent :exec
-WITH payload AS MATERIALIZED (
- SELECT agent_payload_created_at($14,$1,$2,
- coalesce($3::uuid,$4::uuid,$5::uuid),false) AS created_at
-)
+const insertExecutionContent = `-- name: InsertExecutionContent :execrows
 INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,
  ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
 SELECT $1,$2,$3,$4,$5,
- $6,$7,$8,$9::jsonb,$10,$11,
- $12,$13::jsonb,payload.created_at FROM payload
+ p.ordinal,p.kind,p.text,p.data::jsonb,p.artifact_id,p.tool_id,p.exclude,p.metadata,$6::timestamptz
+FROM jsonb_to_recordset($7::jsonb) AS p(ordinal integer,kind text,text text,data text,
+ artifact_id uuid,tool_id uuid,exclude boolean,metadata jsonb)
+WHERE EXISTS(SELECT 1 FROM agents WHERE id=$1 AND project_id=$8)
 `
 
 type InsertExecutionContentParams struct {
-	AgentID    uuid.UUID
-	OwnerKind  string
-	InputID    *uuid.UUID
-	OutputID   *uuid.UUID
-	ResultID   *uuid.UUID
-	Ordinal    int32
-	Kind       string
-	Text       *string
-	Data       *json.RawMessage
-	ArtifactID *uuid.UUID
-	ToolID     *uuid.UUID
-	Exclude    bool
-	Metadata   json.RawMessage
-	ProjectID  uuid.UUID
+	AgentID   uuid.UUID
+	OwnerKind string
+	InputID   *uuid.UUID
+	OutputID  *uuid.UUID
+	ResultID  *uuid.UUID
+	CreatedAt time.Time
+	Parts     json.RawMessage
+	ProjectID uuid.UUID
 }
 
-func (q *Queries) InsertExecutionContent(ctx context.Context, db DBTX, arg InsertExecutionContentParams) error {
-	_, err := db.Exec(ctx, insertExecutionContent,
+func (q *Queries) InsertExecutionContent(ctx context.Context, db DBTX, arg InsertExecutionContentParams) (int64, error) {
+	result, err := db.Exec(ctx, insertExecutionContent,
 		arg.AgentID,
 		arg.OwnerKind,
 		arg.InputID,
 		arg.OutputID,
 		arg.ResultID,
-		arg.Ordinal,
-		arg.Kind,
-		arg.Text,
-		arg.Data,
-		arg.ArtifactID,
-		arg.ToolID,
-		arg.Exclude,
-		arg.Metadata,
+		arg.CreatedAt,
+		arg.Parts,
 		arg.ProjectID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const openExecutionTurn = `-- name: OpenExecutionTurn :exec
