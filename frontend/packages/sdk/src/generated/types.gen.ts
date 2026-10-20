@@ -2205,13 +2205,25 @@ export type Agent = {
 
 export type AgentActivity = {
     /**
-     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived.
+     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; waiting_on_work while it is otherwise idle but background work will wake it, as listed in waiting_on; idle otherwise; and archived once the agent is archived.
      */
-    state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
+    state: 'running' | 'idle' | 'waiting_on_interaction' | 'waiting_on_work' | 'archived';
     /**
      * When the agent's latest event was recorded, or its creation time before any event.
      */
     last_activity_at: Timestamp;
+    /**
+     * Present when state is waiting_on_work.
+     */
+    waiting_on?: AgentWaitingOn;
+};
+
+/**
+ * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they stop counting an hour after they started. Subagents are active children that are still working.
+ */
+export type AgentWaitingOn = {
+    process_ids: Array<ProcessId>;
+    agent_ids: Array<AgentId>;
 };
 
 export type AgentModel = {

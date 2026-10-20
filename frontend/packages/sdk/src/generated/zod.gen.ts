@@ -1432,14 +1432,24 @@ export const zCronTriggerLastRun = z.object({
     failure_message: z.string().nullable()
 });
 
+/**
+ * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they stop counting an hour after they started. Subagents are active children that are still working.
+ */
+export const zAgentWaitingOn = z.object({
+    process_ids: z.array(zProcessId).max(20),
+    agent_ids: z.array(zAgentId).max(20)
+});
+
 export const zAgentActivity = z.object({
     state: z.enum([
         'running',
         'idle',
         'waiting_on_interaction',
+        'waiting_on_work',
         'archived'
     ]),
-    last_activity_at: zTimestamp
+    last_activity_at: zTimestamp,
+    waiting_on: zAgentWaitingOn.optional()
 });
 
 export const zAgentModel = z.object({

@@ -3,6 +3,7 @@ import type { Agent, AgentActivity } from '@omnara/sdk'
 const statusLabels: Record<AgentActivity['state'], string> = {
   running: 'Working',
   waiting_on_interaction: 'Waiting',
+  waiting_on_work: 'Background work',
   idle: 'Idle',
   archived: 'Archived',
 }
