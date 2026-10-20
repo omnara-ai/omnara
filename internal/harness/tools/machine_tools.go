@@ -296,7 +296,7 @@ func machineListPage(
 			if !fits {
 				if len(page.MachinePools) == 0 {
 					return failMachineTransaction("machine_pool_details_too_large", fmt.Errorf(
-						"details for machine pool %s exceed the list_machines size limit; call list_machines with cursor %q to continue",
+						"details for machine pool %s exceed the list_machines size limit; call list_machines with cursor \"%s\" to continue",
 						poolID, poolID,
 					), false)
 				}
@@ -325,7 +325,7 @@ func machineListPage(
 		if !fits {
 			if len(page.Machines) == 0 && len(page.MachinePools) == 0 {
 				return failMachineTransaction("machine_details_too_large", fmt.Errorf(
-					"details for machine %s exceed the list_machines size limit; use inspect_machine for details, or call list_machines with cursor %q to continue",
+					"details for machine %s exceed the list_machines size limit; use inspect_machine for details, or call list_machines with cursor \"%s\" to continue",
 					observation.MachineID, observation.MachineID,
 				), false)
 			}
@@ -608,7 +608,7 @@ func resolveMachineIDRequest(raw json.RawMessage, optional bool) (uuid.UUID, err
 	}
 	for field := range body {
 		if field != "machine_id" {
-			return uuid.Nil, fmt.Errorf("machine request has unsupported field %q", field)
+			return uuid.Nil, fmt.Errorf("machine request has unsupported field \"%s\"", field)
 		}
 	}
 	machineID, err := resolveOptionalMachineID(body["machine_id"])

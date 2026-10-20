@@ -130,7 +130,7 @@ func parseSearchArgs(args []string) (string, error) {
 				return mode, errors.New("context must be between 0 and 5 lines")
 			}
 		default:
-			return mode, fmt.Errorf("unsupported search argument %q; supply patterns with -e", arg)
+			return mode, fmt.Errorf("unsupported search argument \"%s\"; supply patterns with -e", arg)
 		}
 	}
 	if patterns == 0 || patternBytes > toolcatalog.SearchMaxPatternBytes {

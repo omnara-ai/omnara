@@ -272,14 +272,14 @@ func textFromPart(part map[string]json.RawMessage, partType string) string {
 	}
 	if partType == "structured_data" {
 		if value := part["value"]; len(value) != 0 {
-			return string(value)
+			return modelcontext.StructuredDataText(value)
 		}
 	}
 	switch partType {
 	case "status", "error", "summary", "agent_ref", "tool_call_ref", "tool_result_ref", "interaction_ref":
 		body, err := json.Marshal(map[string]any{"type": partType, "payload": part})
 		if err == nil {
-			return string(body)
+			return modelcontext.StructuredDataText(body)
 		}
 	}
 	return ""

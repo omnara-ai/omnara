@@ -138,7 +138,7 @@ func renderOpenAIContent(
 		}
 		if partType == "structured_data" {
 			if value := part["value"]; len(value) != 0 {
-				out = append(out, map[string]any{"type": textType, "text": string(value)})
+				out = append(out, map[string]any{"type": textType, "text": modelcontext.StructuredDataText(value)})
 			}
 			continue
 		}
@@ -148,7 +148,7 @@ func renderOpenAIContent(
 			if err != nil {
 				continue
 			}
-			out = append(out, map[string]any{"type": textType, "text": string(body)})
+			out = append(out, map[string]any{"type": textType, "text": modelcontext.StructuredDataText(body)})
 		}
 	}
 	return out

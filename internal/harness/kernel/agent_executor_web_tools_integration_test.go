@@ -110,8 +110,8 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing from completed tool calls: %v", providerCallID, partsByCall)
 		}
-		if !strings.Contains(resultParts, `"structured_data"`) || !strings.Contains(resultParts, `"text"`) {
-			t.Fatalf("%s content parts missing text/structured_data: %s", providerCallID, resultParts)
+		if !strings.Contains(resultParts, `"text"`) {
+			t.Fatalf("%s content parts missing text: %s", providerCallID, resultParts)
 		}
 		if strings.Contains(resultParts, kernelTestExaSecret) {
 			t.Fatalf("%s content parts leak the provider API key", providerCallID)
@@ -121,7 +121,11 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		!strings.Contains(searchParts, "Go Release Notes") {
 		t.Fatalf("search parts missing results: %s", searchParts)
 	}
-	if fetchParts := partsByCall["call_web_fetch"]; !strings.Contains(fetchParts, "fetched page body") {
+	if searchParts := partsByCall["call_web_search"]; strings.Contains(searchParts, `"structured_data"`) {
+		t.Fatalf("search parts duplicate results as structured_data: %s", searchParts)
+	}
+	if fetchParts := partsByCall["call_web_fetch"]; !strings.Contains(fetchParts, "fetched page body") ||
+		!strings.Contains(fetchParts, `"structured_data"`) {
 		t.Fatalf("fetch parts missing page content: %s", fetchParts)
 	}
 

@@ -57,7 +57,7 @@ func resolveWebFetchRequest(raw json.RawMessage) (resolvedWebFetchRequest, error
 			resolved.Format = *format
 		default:
 			return resolvedWebFetchRequest{}, fmt.Errorf(
-				"format must be markdown or text (got %q)",
+				"format must be markdown or text (got \"%s\")",
 				*format,
 			)
 		}
@@ -181,16 +181,9 @@ func webToolFailureContent(
 	code, message string,
 	retryable bool,
 ) (toolResultContent, error) {
-	structuredPart, err := structuredToolResultPart(map[string]any{
+	return structuredToolResultContent(map[string]any{
 		"error_code": code,
 		"error":      message,
 		"retryable":  retryable,
 	})
-	if err != nil {
-		return toolResultContent{}, err
-	}
-	return newToolResultContent(
-		textToolResultPart(message),
-		structuredPart,
-	), nil
 }

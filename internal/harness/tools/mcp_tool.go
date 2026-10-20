@@ -43,17 +43,17 @@ func (e Executor) dispatchMCPTool(
 ) (toolResultContent, error) {
 	serverKey, remoteName, ok := toolcatalog.SplitMCPRuntimeToolName(call.Name)
 	if !ok {
-		return toolResultContent{}, fmt.Errorf("invalid mcp tool name %q", call.Name)
+		return toolResultContent{}, fmt.Errorf("invalid mcp tool name \"%s\"", call.Name)
 	}
 	conn, found, err := e.Store.Execution().GetMCPConnection(ctx, turn.ProjectID, turn.AgentID, serverKey)
 	if err != nil {
 		return toolResultContent{}, err
 	}
 	if !found || conn.State != executionstore.MCPConnectionStateReady {
-		return toolResultContent{}, fmt.Errorf("mcp server %q is not ready", serverKey)
+		return toolResultContent{}, fmt.Errorf("mcp server \"%s\" is not ready", serverKey)
 	}
 	if e.MCP == nil {
-		return toolResultContent{}, fmt.Errorf("mcp client is required to call mcp tool %q", call.Name)
+		return toolResultContent{}, fmt.Errorf("mcp client is required to call mcp tool \"%s\"", call.Name)
 	}
 	server, err := e.runtimeMCPServerForTool(ctx, turn, serverKey)
 	if err != nil {
@@ -107,7 +107,7 @@ func (e Executor) runtimeMCPServerForTool(
 		}
 	}
 	return agentconfig.RuntimeMCPServer{}, fmt.Errorf(
-		"mcp server %q is not declared in model context config",
+		"mcp server \"%s\" is not declared in model context config",
 		serverKey,
 	)
 }
@@ -117,7 +117,7 @@ func mcpConnectionFailedToolResult(
 	cause error,
 ) (toolResultContent, error) {
 	message := fmt.Sprintf(
-		"MCP connection %q failed while refreshing before tool %q.",
+		"MCP connection \"%s\" failed while refreshing before tool \"%s\".",
 		serverKey,
 		remoteName,
 	)

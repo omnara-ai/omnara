@@ -166,7 +166,7 @@ func runGitHubTool(
 		}
 		result, err = client.Reply(ctx, providerScope, input.CommentID, input.Body)
 	default:
-		return nil, fmt.Errorf("unsupported GitHub tool %q", record.Name)
+		return nil, fmt.Errorf("unsupported GitHub tool \"%s\"", record.Name)
 	}
 	if err != nil {
 		return integrationToolFailure(err)

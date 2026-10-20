@@ -128,7 +128,7 @@ func (e Executor) integrationToolConversation(
 	}
 	if !found {
 		return integrationdefinition.Scope{}, integrationToolPreparationFailure(fmt.Errorf(
-			"integration %q has no assigned conversation for this agent; this tool requires an assigned conversation", access.Integration.Name,
+			"integration \"%s\" has no assigned conversation for this agent; this tool requires an assigned conversation", access.Integration.Name,
 		))
 	}
 	conversation, err := integrationdefinition.ParseConversation(access.Integration.Provider, address.Kind, address.Ref)

@@ -288,11 +288,11 @@ func toolCallMatches(record executionstore.ToolCallRecord, call model.ToolCall) 
 func toolAvailabilityError(name string, available map[string]ToolSpec, implemented bool) error {
 	if available != nil {
 		if _, enabled := available[name]; !enabled {
-			return fmt.Errorf("tool %q is not enabled for this agent config", name)
+			return fmt.Errorf("tool \"%s\" is not enabled for this agent config", name)
 		}
 	}
 	if implemented {
 		return nil
 	}
-	return fmt.Errorf("unsupported tool %q", name)
+	return fmt.Errorf("unsupported tool \"%s\"", name)
 }
