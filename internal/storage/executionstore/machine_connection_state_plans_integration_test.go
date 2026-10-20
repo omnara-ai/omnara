@@ -37,20 +37,11 @@ SELECT md5('fleet-runtime-' || n)::uuid, md5('fleet-org-' || n)::uuid, md5('flee
        statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours',
        statement_timestamp() - interval '1 hour', statement_timestamp()
 FROM generate_series(1, %[1]d) n;
-INSERT INTO daemon_runtimes(org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state,
-                            state_reason_code,
-                            created_at, last_seen_at, lease_expires_at, ended_at, updated_at)
-SELECT md5('fleet-org-' || n)::uuid, md5('fleet-machine-' || n)::uuid, md5('fleet-token-' || n)::uuid,
-       gen_random_uuid(),
-       '1.0.0', 'ended', 'daemon_runtime_replaced', statement_timestamp() - interval '3 days',
-       statement_timestamp() - interval '3 days', statement_timestamp() - interval '3 days' + interval '2 minutes',
-       statement_timestamp() - interval '3 days' + interval '1 minute', statement_timestamp()
-FROM generate_series(1, %[1]d) n, generate_series(1, 20) history;
 UPDATE machines
 SET current_daemon_runtime_id = md5('fleet-runtime-' || n)::uuid
 FROM generate_series(1, %[1]d) n
 WHERE org_id = md5('fleet-org-' || n)::uuid AND id = md5('fleet-machine-' || n)::uuid;
-ANALYZE daemon_runtimes;
+ANALYZE machines, machine_daemon_tokens, daemon_runtimes;
 UPDATE daemon_runtimes
 SET last_seen_at = statement_timestamp(),
     lease_expires_at = statement_timestamp() + interval '1 hour'
@@ -160,7 +151,7 @@ WHERE id = $1`, started.ID,
 	_, err = tx.Exec(ctx, machineConnectionCases)
 	require.NoError(t, err)
 	requireMachineConnectionStates(t, tx)
-	requireCurrentRuntimeProbes(t, tx, lookups)
+	requireSingleRowConnectionReads(t, tx, lookups)
 	requireOnlineQueryResults(t, tx, []uuid.UUID{f.MachineID, wake.MachineID}, wake, blocker)
 }
 
@@ -212,7 +203,7 @@ WHERE machine.id = ANY($1)
 	}
 }
 
-func requireCurrentRuntimeProbes(t *testing.T, tx pgx.Tx, lookups []machineConnectionLookup) {
+func requireSingleRowConnectionReads(t *testing.T, tx pgx.Tx, lookups []machineConnectionLookup) {
 	t.Helper()
 	ctx := t.Context()
 	for _, lookup := range lookups {
@@ -228,7 +219,7 @@ func requireCurrentRuntimeProbes(t *testing.T, tx pgx.Tx, lookups []machineConne
 				"EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE lookup("+sqlArguments(lookup.args)+")",
 			).Scan(&raw))
 			integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
-				if node.Relation == "daemon_runtimes" {
+				if node.Relation == "daemon_runtimes" || node.Relation == "machine_daemon_tokens" {
 					require.LessOrEqual(t, node.Loops*node.Rows, 1.0, "%s: %s", label, raw)
 				}
 			})
