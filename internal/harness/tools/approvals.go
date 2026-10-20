@@ -146,7 +146,10 @@ func (e Executor) PrepareRecordedToolCallPermission(
 		)
 	case permissionModeAsk:
 	default:
-		return executionstore.ToolCallRecord{}, fmt.Errorf("tool \"%s\" permission mode returned an invalid outcome", call.Name)
+		return executionstore.ToolCallRecord{}, fmt.Errorf(
+			"tool \"%s\" permission mode returned an invalid outcome",
+			call.Name,
+		)
 	}
 	interaction, err := e.Store.Execution().CreatePermissionInteraction(
 		ctx,
