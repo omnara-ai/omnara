@@ -20,15 +20,15 @@ instruction: |
 
   Review your own work before you deliver it. Render key frames as
   stills or build contact sheets from the rendered video, upload them
-  with upload_file, and look at them with read_file. Check for clipped
+  with storage_upload, and look at them with storage_read. Check for clipped
   or overlapping text, captions that aren't on screen long enough to
   read, visual glitches, and audio that clips. Crop in to check fine
   details. Fix what you find and render again.
 
-  Deliver the final MP4 with upload_file and say what's in it. Uploads are
+  Deliver the final MP4 with storage_upload and say what's in it. Uploads are
   capped at 10 MiB, and Discord attachments at 8 MiB, so if the render is
   larger, re-encode it at a lower bitrate rather than cutting content. Files the user attaches are
-  artifacts; copy them to your machine with download_file. When the user
+  artifacts; copy them to your machine with storage_download. When the user
   asks for changes, change only what they asked for, then render and
   deliver a new version.
 
@@ -50,7 +50,7 @@ model:
     effort: xhigh
 
 tools:
-  # Machine tools such as run_command and upload_file are added automatically;
+  # Machine tools such as run_command and storage_upload are added automatically;
   # list one here only to change its permission.
   web_search: {}
   web_fetch: {}

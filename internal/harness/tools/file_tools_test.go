@@ -113,13 +113,13 @@ func TestFileTransferApprovalPinsBindingAndInput(t *testing.T) {
 		tool  string
 		input string
 	}{
-		{name: "artifact upload", tool: "upload_file", input: `{"path":"/artifacts","source":"shot.png"}`},
-		{name: "artifact download", tool: "download_file",
+		{name: "artifact upload", tool: "storage_upload", input: `{"path":"/artifacts","source":"shot.png"}`},
+		{name: "artifact download", tool: "storage_download",
 			input: `{"path":"/artifacts/art_aaaaaaaaaaaaaaaaaaaaaaaaae","destination":"shot.png"}`},
-		{name: "memory upload", tool: "upload_file",
+		{name: "memory upload", tool: "storage_upload",
 			input: `{"path":"/memory/team/shot.png","source":"shot.png","expected_digest":"sha256:` +
 				strings.Repeat("a", 64) + `"}`},
-		{name: "memory download", tool: "download_file",
+		{name: "memory download", tool: "storage_download",
 			input: `{"path":"/memory/team/shot.png","destination":"shot.png"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,12 +192,14 @@ func TestFileTransferProcessInput(t *testing.T) {
 	for _, tc := range []struct {
 		direction processcmd.FileTransferDirection
 		timeout   int
+		view      bool
 	}{
-		{processcmd.FileTransferUpload, 30},
-		{processcmd.FileTransferDownload, 120},
+		{processcmd.FileTransferUpload, 30, false},
+		{processcmd.FileTransferUpload, 30, true},
+		{processcmd.FileTransferDownload, 120, false},
 	} {
 		remotePath := "/artifacts"
-		target := processcmd.ArtifactTarget{}
+		target := processcmd.ArtifactTarget{View: tc.view}
 		if tc.direction == processcmd.FileTransferDownload {
 			target.ID = uuid.New()
 			id, err := publicid.Encode(publicid.KindArtifact, target.ID)
@@ -206,7 +208,7 @@ func TestFileTransferProcessInput(t *testing.T) {
 			}
 			remotePath += "/" + id
 		}
-		input, err := fileTransferProcessInput(context.Background(), nil, tc.direction, localPath, remotePath, nil)
+		input, err := fileTransferProcessInput(context.Background(), nil, tc.direction, localPath, remotePath, nil, tc.view)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -221,9 +223,9 @@ func TestFileTransferProcessInput(t *testing.T) {
 }
 
 func TestMemoryUploadDigestValidation(t *testing.T) {
-	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameUploadFile)
+	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageUpload)
 	if err != nil || !ok {
-		t.Fatalf("upload_file registration: %v", err)
+		t.Fatalf("storage_upload registration: %v", err)
 	}
 	for _, expected := range []string{`""`, `null`, `"invalid"`, `123`, `"sha256:` + strings.Repeat("A", 64) + `"`} {
 		raw := json.RawMessage(`{"path":"/memory/team/file","source":"file","expected_digest":` + expected + `}`)
@@ -242,14 +244,22 @@ func TestMemoryUploadDigestValidation(t *testing.T) {
 	); err == nil {
 		t.Fatal("artifact accepted digest precondition")
 	}
+	if err := tool.validateInput(json.RawMessage(`{"path":"/artifacts","source":"shot.png","view":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tool.validateInput(
+		json.RawMessage(`{"path":"/memory/team/file","source":"file","view":true}`),
+	); err == nil {
+		t.Fatal("memory upload accepted view")
+	}
 	if err := validateListFiles(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
-		t.Fatal("list_files accepted malformed cursor")
+		t.Fatal("storage_list accepted malformed cursor")
 	}
 }
 
 func TestFileToolPaths(t *testing.T) {
 	for _, toolName := range []string{
-		toolcatalog.ToolNameUploadFile, toolcatalog.ToolNameDownloadFile, toolcatalog.ToolNameWriteFile,
+		toolcatalog.ToolNameStorageUpload, toolcatalog.ToolNameStorageDownload, toolcatalog.ToolNameStorageWrite,
 	} {
 		t.Run(toolName, func(t *testing.T) {
 			tool, ok, err := toolImplementationFor(toolName)
@@ -266,13 +276,13 @@ func TestFileToolPaths(t *testing.T) {
 				input := map[string]string{"path": path}
 				wantValid := false
 				switch toolName {
-				case toolcatalog.ToolNameUploadFile:
+				case toolcatalog.ToolNameStorageUpload:
 					input["source"] = "file.txt"
 					wantValid = path == toolcatalog.ArtifactVFSRoot
-				case toolcatalog.ToolNameDownloadFile:
+				case toolcatalog.ToolNameStorageDownload:
 					input["destination"] = "file.txt"
 					wantValid = path == artifactPath
-				case toolcatalog.ToolNameWriteFile:
+				case toolcatalog.ToolNameStorageWrite:
 					input["content"] = ""
 				}
 				wantValid = wantValid || path == "/memory/team/nested/note.md"

@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Files | `list_files`, `upload_file`, `download_file`, `read_file`, `search_files`, `write_file` |
+| Files | `storage_list`, `storage_upload`, `storage_download`, `storage_read`, `storage_search`, `storage_write` |
 | Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
@@ -169,9 +169,9 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 `path` addresses files stored in Omnara, not files on an attached machine. `/artifacts` is the destination for creating an artifact, `/artifacts/<artifact_id>` identifies an existing artifact, and `/memory/<store-name>/<file-path>` identifies a file in an [attached memory store](/agents/configuration#memory-stores).
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `list_files`, `read_file`, and `search_files` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `write_file`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Integration-contributed tools are compiled with the config too.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `storage_list`, `storage_read`, and `storage_search` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `storage_write`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Integration-contributed tools are compiled with the config too.
 
-### `list_files`
+### `storage_list`
 
 Lists matching files and directories without reading their contents.
 
@@ -185,25 +185,25 @@ Use `/artifacts/*` for the agent's artifacts, `/memory/*` for attached stores an
 
 Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths for reading or downloading. An exact `/artifacts/<artifact_id>` selects one artifact; wildcards match filenames, not IDs, and a filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. Continue with `next_cursor` until it is `null`; narrow the pattern if the listing exceeds its resource limit.
 
-### `upload_file`
+### `storage_upload`
 
-Use `upload_file` to copy a file from an attached machine into Omnara. Uploads to `/artifacts` create artifacts, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` or `/memory/<store-name>/<file-path>` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
+Use `storage_upload` to copy a file from an attached machine into Omnara. Uploads to `/artifacts` create artifacts, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` or `/memory/<store-name>/<file-path>` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
 
 Files may be up to 10 MiB. Artifacts must be non-empty; memory files may be empty. The upload process has a 30-second execution timeout.
 
-On success, an artifact appears in the conversation and the durable tool result contains its `path`, `digest`, and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver artifacts through an integration, use its qualified posting tool, such as `int__engineering__post_message`, and follow its attachment schema.
+On success, an artifact appears in the conversation and the durable tool result contains its `path`, `digest`, and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `storage_download`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context unless `view` is true and the file is a PNG, JPEG, GIF, or WebP image; set `view` to look at a screenshot or other image in the same call. Other files uploaded with `view` succeed with a note that they weren't shown. To deliver artifacts through an integration, use its qualified posting tool, such as `int__engineering__post_message`, and follow its attachment schema.
 
-A memory upload requires write access and returns its `path` and `digest`. Omit `expected_digest` to create a file, or pass its current digest to replace changed content. On conflict, read or download the latest file and reapply your changes before retrying. Uploading identical contents succeeds without changing the file, even with a stale digest. Artifacts do not accept `expected_digest`.
+A memory upload requires write access and returns its `path` and `digest`. Omit `expected_digest` to create a file, or pass its current digest to replace changed content. On conflict, read or download the latest file and reapply your changes before retrying. Uploading identical contents succeeds without changing the file, even with a stale digest. Artifacts do not accept `expected_digest`, and memory uploads do not accept `view`.
 
-### `download_file`
+### `storage_download`
 
-Use `download_file` to copy a file stored in Omnara to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
+Use `storage_download` to copy a file stored in Omnara to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
 Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads return the file's `digest` on completion; use it when uploading an edited memory file.
 
 The download process has a 120-second execution timeout.
 
-### `read_file`
+### `storage_read`
 
 Reads a text or image file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
 
@@ -216,13 +216,14 @@ Memory images are preserved as immutable artifacts when read and appear in the a
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
-| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
 
 Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
 
-### `write_file`
+If a memory file changed since the agent last read or wrote it, the result includes a note with the file's update time and the time of that read.
+
+### `storage_write`
 
 Creates or edits a memory text file in a writable store attached with `read_write` access. Returns `path` and `digest`.
 
@@ -232,11 +233,11 @@ Creates or edits a memory text file in a writable store attached with `read_writ
 | `content` | string | Text to create or replace the file with; empty text is allowed |
 | `script` | string | GNU sed script using extended regex, at most 64 KiB; transforms an existing file |
 | `append` | boolean | Append `content` exactly, without adding a newline; default false. Creates missing files. |
-| `expected_digest` | string | Current digest when changing an existing file; omit to create |
+| `force` | boolean | Overwrite even if the file changed since the agent's last read, or was never read; default false |
 
-Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Concurrent edits cause a conflict; read the file again before retrying.
+Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Changing an existing file requires the agent to have read or written it, and fails if the file changed since then; read the file again before retrying. Creating a file needs no prior read.
 
-### `search_files`
+### `storage_search`
 
 Searches text in one artifact or in memory files matching a path or glob. Binary files may be skipped when searching with a glob.
 
@@ -257,7 +258,7 @@ For `web_fetch`, `web_search`, `skill`, MCP tools, and custom tools, results con
 
 The overflow marker's `truncated` field describes the shortened inline preview. In `web_fetch` metadata, `truncated` reports whether the upstream extractor shortened the fetched content; it can be `false` even when the overflow marker is `true`.
 
-For example, a large `web_fetch` result provides an `/artifacts/<artifact_id>` path. The agent can search that path for a phrase with `search_files`, then read the surrounding lines with `read_file`. Visible overflow artifacts also appear as downloadable attachments in the conversation. Hidden results remain hidden.
+For example, a large `web_fetch` result provides an `/artifacts/<artifact_id>` path. The agent can search that path for a phrase with `storage_search`, then read the surrounding lines with `storage_read`. Visible overflow artifacts also appear as downloadable attachments in the conversation. Hidden results remain hidden.
 
 Explicitly disabling both retrieval tools does not disable overflow handling. The agent still receives the preview and path, but cannot use these tools to retrieve the saved content.
 

@@ -71,13 +71,13 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 		run         asyncToolHandler
 		offsetLine  int
 	}{
-		{"search_files", `{"path":"` + path + `","args":["-e","^TARGET"],"limit":20}`, runSearchFilesAsync, 1},
-		{"search_files", `{"path":"` + path + `","args":["-e","^TARGET"],"offset_line":21,"limit":20}`,
+		{"storage_search", `{"path":"` + path + `","args":["-e","^TARGET"],"limit":20}`, runSearchFilesAsync, 1},
+		{"storage_search", `{"path":"` + path + `","args":["-e","^TARGET"],"offset_line":21,"limit":20}`,
 			runSearchFilesAsync, 21},
-		{"read_file", `{"path":"` + path + `","offset_line":2,"limit_lines":1}`, runReadFileAsync, 0},
+		{"storage_read", `{"path":"` + path + `","offset_line":2,"limit_lines":1}`, runReadFileAsync, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if test.name == "search_files" {
+			if test.name == "storage_search" {
 				setupSandbox(t)
 			}
 			call.Call = model.ToolCall{Name: test.name, Input: json.RawMessage(test.input)}
@@ -99,7 +99,7 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 			if err := json.Unmarshal(raw, &content); err != nil {
 				t.Fatal(err)
 			}
-			if test.name == "search_files" && (content[0].Value.MatchCount < 1 || content[0].Value.MatchCount > 20 ||
+			if test.name == "storage_search" && (content[0].Value.MatchCount < 1 || content[0].Value.MatchCount > 20 ||
 				!content[0].Value.Truncated ||
 				len(content[0].Value.Lines) != content[0].Value.MatchCount ||
 				content[0].Value.Lines[0].LineNumber != test.offsetLine) {
@@ -110,7 +110,7 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 					t.Fatalf("search skipped or duplicated a line: %s", raw)
 				}
 			}
-			if test.name == "read_file" && content[0].Value.Content != "TARGET 0001 "+strings.Repeat("é", 30)+"\n" {
+			if test.name == "storage_read" && content[0].Value.Content != "TARGET 0001 "+strings.Repeat("é", 30)+"\n" {
 				t.Fatalf("read did not preserve original lines: %s", raw)
 			}
 		})

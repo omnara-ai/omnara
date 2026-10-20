@@ -52,12 +52,12 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		if err != nil {
 			return page{}, err
 		}
-		if err := validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw); err != nil {
+		if err := validateRegisteredToolInput(toolcatalog.ToolNameStorageList, raw); err != nil {
 			return page{}, err
 		}
 		local := call
 		local.Turn = turn
-		local.Call = model.ToolCall{Name: toolcatalog.ToolNameListFiles, Input: raw}
+		local.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageList, Input: raw}
 		result, err := runListFiles(ctx, local)
 		if err != nil {
 			return page{}, err

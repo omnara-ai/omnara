@@ -192,7 +192,7 @@ func (b Builder) resolveMedia(
 }
 
 func referenceLargeTextAttachments(bundle *Bundle, budgetTokens int) error {
-	if budgetTokens <= 0 || !callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameReadFile) {
+	if budgetTokens <= 0 || !callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameStorageRead) {
 		return nil
 	}
 	usedTokens := make(map[int]int64)
@@ -214,11 +214,11 @@ func referenceLargeTextAttachments(bundle *Bundle, budgetTokens int) error {
 		text := fmt.Sprintf(
 			"Attached file %q (%s, %d bytes) is available at %s. "+
 				"The full file is stored, but its contents are not included in this request. "+
-				"Use read_file to read it in sections.",
+				"Use storage_read to read it in sections.",
 			media.Filename, media.MediaType, media.SizeBytes, path,
 		)
-		if callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameSearchFiles) {
-			text += " Use search_files to find relevant sections."
+		if callableFileTool(bundle.ToolSpecs, toolcatalog.ToolNameStorageSearch) {
+			text += " Use storage_search to find relevant sections."
 		}
 		if err := replaceMediaOccurrenceWithText(bundle, occurrence.Ref, text); err != nil {
 			return fmt.Errorf("reference text attachment: %w", err)

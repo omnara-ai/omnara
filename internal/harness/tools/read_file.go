@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -22,19 +23,17 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	_ "golang.org/x/image/webp"
 )
 
 type readFileRequest struct {
-	Path           string  `json:"path"`
-	OffsetLine     *int    `json:"offset_line,omitempty"`
-	LimitLines     *int    `json:"limit_lines,omitempty"`
-	OffsetChar     *int    `json:"offset_char,omitempty"`
-	LimitChars     *int    `json:"limit_chars,omitempty"`
-	ExpectedDigest *string `json:"expected_digest,omitempty"`
+	Path       string `json:"path"`
+	OffsetLine *int   `json:"offset_line,omitempty"`
+	LimitLines *int   `json:"limit_lines,omitempty"`
+	OffsetChar *int   `json:"offset_char,omitempty"`
+	LimitChars *int   `json:"limit_chars,omitempty"`
 }
 
 func validateReadFileInput(raw json.RawMessage) error {
@@ -44,16 +43,11 @@ func validateReadFileInput(raw json.RawMessage) error {
 
 func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	var input readFileRequest
-	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
-		return readFileRequest{}, fmt.Errorf("parse read_file request: %w", err)
+	if err := decodeSingleStrictJSON(raw, &input, "storage_read request"); err != nil {
+		return readFileRequest{}, fmt.Errorf("parse storage_read request: %w", err)
 	}
 	if err := validateFilePath(input.Path); err != nil {
 		return readFileRequest{}, err
-	}
-	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-			return readFileRequest{}, err
-		}
 	}
 	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
@@ -101,11 +95,15 @@ func runReadFileAsync(
 		return nil, err
 	}
 	var content []byte
-	var digest, contentType string
+	var digest, contentType, note string
 	var artifactID uuid.UUID
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
-		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
+		file, err := call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
 		if err != nil {
+			return nil, err
+		}
+		digest, content = file.Digest, file.Content
+		if note, err = call.Executor.memoryReadNote(ctx, call.Turn, input.Path, file); err != nil {
 			return nil, err
 		}
 		contentType = http.DetectContentType(content)
@@ -120,10 +118,6 @@ func runReadFileAsync(
 			return nil, err
 		}
 		digest, contentType = record.Digest, record.ContentType
-	}
-	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
-		return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
-			errors.New("file digest mismatch; restart the read"))
 	}
 	if isViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
@@ -141,7 +135,7 @@ func runReadFileAsync(
 			}
 			artifactID = artifact.ID
 		}
-		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
+		return completeImageRead(input.Path, contentType, digest, len(content), artifactID, note)
 	}
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return nil, errors.New(
@@ -157,21 +151,52 @@ func runReadFileAsync(
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
 	result["digest"] = digest
-	return completeFileTool(result)
+	part, err := structuredToolResultPart(result)
+	if err != nil {
+		return nil, err
+	}
+	return completeFileRead(note, part), nil
 }
 
-func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (string, []byte, error) {
+func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (memorystore.File, error) {
 	name, relativePath, err := memorystore.ParsePath(filePath)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
 	store, err := e.Store.Memories().Resolve(ctx, turn.ProjectID, name)
 	if err != nil {
-		return "", nil, err
+		return memorystore.File{}, err
 	}
-	return e.Store.Memories().Read(ctx, memorystore.Scope{
+	return e.Store.Memories().ReadFile(ctx, memorystore.Scope{
 		OrgID: turn.OrgID, ProjectID: turn.ProjectID, AgentID: turn.AgentID,
 	}, store.ID, relativePath)
+}
+
+func (e Executor) memoryReadNote(
+	ctx context.Context, turn Turn, filePath string, file memorystore.File,
+) (string, error) {
+	seen, found, err := e.Store.Memories().LastSeen(ctx, turn.AgentID, filePath)
+	if err != nil || !found || seen.Digest == file.Digest {
+		return "", err
+	}
+	updated, last := memoryChangeTimes(file.ModifiedAt, seen.At)
+	return fmt.Sprintf("note: %s was updated at %s since your last read at %s", filePath, updated, last), nil
+}
+
+func memoryChangeTimes(updated, seen time.Time) (string, string) {
+	const layout = "2006-01-02 15:04:05 UTC"
+	updated, seen = updated.UTC(), seen.UTC()
+	if updated.Format(time.DateOnly) == seen.Format(time.DateOnly) {
+		return updated.Format(layout), seen.Format(time.TimeOnly + " UTC")
+	}
+	return updated.Format(layout), seen.Format(layout)
+}
+
+func completeFileRead(note string, parts ...toolResultPart) asyncPhaseResult {
+	if note != "" {
+		parts = append([]toolResultPart{textToolResultPart(note)}, parts...)
+	}
+	return completeAsynchronously(newToolResultContent(parts...))
 }
 
 func loadArtifactContent(
@@ -226,6 +251,7 @@ func completeImageRead(
 	digest string,
 	sizeBytes int,
 	artifactID uuid.UUID,
+	note string,
 ) (asyncPhaseResult, error) {
 	metadata, err := structuredToolResultPart(map[string]any{
 		"path":         path,
@@ -240,7 +266,7 @@ func completeImageRead(
 	if err != nil {
 		return nil, err
 	}
-	return completeAsynchronously(newToolResultContent(metadata, media)), nil
+	return completeFileRead(note, metadata, media), nil
 }
 
 func readFileChars(
@@ -352,6 +378,6 @@ func resolveArtifactPath(path string) (uuid.UUID, error) {
 		}
 	}
 	return uuid.Nil, errors.New(
-		"artifacts are read by ID; use list_files with /artifacts/<filename or glob>, then use a returned /artifacts/<artifact_id> path",
+		"artifacts are read by ID; use storage_list with /artifacts/<filename or glob>, then use a returned /artifacts/<artifact_id> path",
 	)
 }

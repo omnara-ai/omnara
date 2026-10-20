@@ -282,8 +282,8 @@ it('keeps included tools out of normal rows and preserves their overrides', asyn
     'delete_machine',
     'list_machines',
     'inspect_machine',
-    'upload_file',
-    'download_file',
+    'storage_upload',
+    'storage_download',
   ].map((name) => ({ name, permission: { mode: 'always_ask', parameters: {} } }))
   const machineCatalog = {
     ...catalog,

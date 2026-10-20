@@ -70,7 +70,7 @@ func TestListFilesLiteralRootValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw)
+		err = validateRegisteredToolInput(toolcatalog.ToolNameStorageList, raw)
 		valid := pattern == "/memory" || pattern == "/artifacts" ||
 			strings.HasPrefix(pattern, "/memory/") || strings.HasPrefix(pattern, "/artifacts/")
 		if valid && err != nil {

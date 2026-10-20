@@ -18,7 +18,7 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		Tools: map[string]agentconfig.ToolCompiled{
 			"spawn_agent": {Enabled: true},
 			"read_agent":  {Enabled: true},
-			"write_file":  {Enabled: true},
+			"storage_write":  {Enabled: true},
 			"skill":       {Enabled: false},
 		},
 		MemoryStores: []agentconfig.MemoryStoreCompiled{
@@ -49,7 +49,7 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		require.Empty(t, compiled.Subagents)
 		require.NotContains(t, compiled.Tools, "spawn_agent")
 		require.Equal(t, base.Tools["read_agent"], compiled.Tools["read_agent"])
-		require.Equal(t, base.Tools["write_file"], compiled.Tools["write_file"])
+		require.Equal(t, base.Tools["storage_write"], compiled.Tools["storage_write"])
 		require.Equal(t, base.Tools["skill"], compiled.Tools["skill"])
 	}
 }

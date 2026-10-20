@@ -128,7 +128,7 @@ git_credentials: {integration: reviews}`, opts)
 	)
 	require.Equal(t, gitID, result.Compiled.GitCredentials.IntegrationID)
 	require.Equal(t, publicidTestID(120), result.Compiled.InteractionHandlers["engineering-team"].IntegrationID)
-	for _, name := range []string{"list_files", "read_file", "search_files", "write_file", "tool_search"} {
+	for _, name := range []string{"storage_list", "storage_read", "storage_search", "storage_write", "tool_search"} {
 		require.True(t, result.Compiled.Tools[name].Enabled, name)
 	}
 	preview, err := ToolsFromSource(SourceFormatYAML, []byte(result.Source), opts)
@@ -279,7 +279,7 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	child := SubagentCompiledFrom(derived, derived.Subagents["worker"], SubagentDepth{})
 	require.Equal(t, base.MemoryStores, child.MemoryStores)
 	require.Len(t, child.Tools, 3)
-	for _, name := range []string{"list_files", "read_file", "search_files"} {
+	for _, name := range []string{"storage_list", "storage_read", "storage_search"} {
 		require.True(t, child.Tools[name].Enabled, name)
 	}
 	require.Empty(t, child.InteractionHandlers)
@@ -299,9 +299,9 @@ func TestIntegrationCompositionAddsRetrievalDefaultsWithoutOverridingPolicy(t *t
 	for _, source := range []string{
 		"",
 		`tools:
-  list_files: {enabled: false}
-  read_file: {enabled: false}
-  search_files: {permission: {mode: always_ask}}`,
+  storage_list: {enabled: false}
+  storage_read: {enabled: false}
+  storage_search: {permission: {mode: always_ask}}`,
 	} {
 		t.Run(source, func(t *testing.T) {
 			base := compileIntegrationTest(t, source, opts).Compiled
@@ -309,7 +309,7 @@ func TestIntegrationCompositionAddsRetrievalDefaultsWithoutOverridingPolicy(t *t
 				Tools: map[string]AgentConfigToolSource{"int__engineering-team__read": {}},
 			}, opts)
 			require.NoError(t, err)
-			for _, name := range []string{"list_files", "read_file", "search_files"} {
+			for _, name := range []string{"storage_list", "storage_read", "storage_search"} {
 				if configured, exists := base.Tools[name]; exists {
 					require.Equal(t, configured, derived.Tools[name], name)
 				} else {

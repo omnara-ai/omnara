@@ -13,15 +13,15 @@ import (
 func TestEditFileTextMissingExecutable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, err := editFileText(t.Context(), nil, "")
-	if !errors.Is(err, errFileToolUnavailable) || !strings.Contains(err.Error(), "use write_file with content") {
+	if !errors.Is(err, errFileToolUnavailable) || !strings.Contains(err.Error(), "use storage_write with content") {
 		t.Fatalf("missing executable: %v", err)
 	}
 }
 
 func TestWriteFileInput(t *testing.T) {
-	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameWriteFile)
+	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageWrite)
 	if err != nil || !ok {
-		t.Fatalf("write_file registration: %v", err)
+		t.Fatalf("storage_write registration: %v", err)
 	}
 	for _, test := range []struct {
 		input string
@@ -30,13 +30,13 @@ func TestWriteFileInput(t *testing.T) {
 		{`{"path":"/memory/notes/a.txt","content":""}`, true},
 		{`{"path":"/memory/notes/a.txt","content":"é😀","append":true}`, true},
 		{`{"path":"/memory/notes/a.txt","script":""}`, true},
-		{`{"path":"/memory/notes/a.txt","content":"x","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`, true},
+		{`{"path":"/memory/notes/a.txt","content":"x","force":true}`, true},
 		{`{"path":"/memory/notes/a.txt"}`, false},
 		{`{"path":"/memory/notes/a.txt","content":null}`, false},
 		{`{"path":"/memory/notes/a.txt","content":"","script":""}`, false},
 		{`{"path":"/memory/notes/a.txt","script":"d","append":true}`, false},
-		{`{"path":"/memory/notes/a.txt","content":"x","expected_digest":null}`, false},
-		{`{"path":"/memory/notes/a.txt","content":"x","expected_digest":"bad"}`, false},
+		{`{"path":"/memory/notes/a.txt","content":"x","force":"yes"}`, false},
+		{`{"path":"/memory/notes/a.txt","content":"x","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`, false},
 		{`{"path":"/memory/notes/a.txt","content":"\u0000"}`, false},
 		{`{"path":"/memory/notes/a.txt","script":"\u0000"}`, false},
 		{`{"path":"/artifacts","content":"x"}`, false},

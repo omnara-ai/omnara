@@ -66,7 +66,7 @@ func TestNormalCompletionExposesContextUsage(t *testing.T) {
 					{
 						Type:           modelenvelope.ResponsePartTypeToolCall,
 						ProviderCallID: "usage-call",
-						ToolName:       "read_file",
+						ToolName:       "storage_read",
 						ToolInput: json.RawMessage(
 							`{"path":"/artifacts/invalid"}`,
 						),

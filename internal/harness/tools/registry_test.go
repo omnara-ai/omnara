@@ -34,7 +34,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"run_command", "read_process", "upload_file", "download_file"},
+		[]string{"run_command", "read_process", "storage_upload", "storage_download"},
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
@@ -57,7 +57,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	add(
 		[]string{
 			"web_search", "web_fetch", "skill",
-			"list_files", "read_file", "write_file", "search_files",
+			"storage_list", "storage_read", "storage_write", "storage_search",
 		},
 		expectedTopology{async: true},
 	)
@@ -170,12 +170,12 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 func TestListFilesImplementationValidatorBinding(t *testing.T) {
 	for _, limit := range []int{-1, 0, 1, 100, 101} {
 		input := json.RawMessage(fmt.Sprintf(`{"pattern":"/memory/*","limit":%d}`, limit))
-		err := validateRegisteredToolInput("list_files", input)
+		err := validateRegisteredToolInput("storage_list", input)
 		if valid := limit >= 1 && limit <= 100; (err == nil) != valid {
 			t.Fatalf("limit %d: %v", limit, err)
 		}
 	}
-	if err := validateRegisteredToolInput("list_files", json.RawMessage(`{"pattern":"/memory/*"}`)); err != nil {
+	if err := validateRegisteredToolInput("storage_list", json.RawMessage(`{"pattern":"/memory/*"}`)); err != nil {
 		t.Fatalf("omitted limit rejected: %v", err)
 	}
 }

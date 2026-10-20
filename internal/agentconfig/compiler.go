@@ -385,7 +385,7 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	}
 	for _, store := range source.MemoryStores {
 		if store.Access == MemoryStoreAccessReadWrite {
-			names = append(names, toolcatalog.ToolNameWriteFile)
+			names = append(names, toolcatalog.ToolNameStorageWrite)
 			break
 		}
 	}
@@ -414,7 +414,7 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 }
 
 func fileRetrievalToolNames() []string {
-	return []string{toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles}
+	return []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageSearch}
 }
 
 func sourceDefersAnyTool(source AgentConfigSource) bool {

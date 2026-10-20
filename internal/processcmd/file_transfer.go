@@ -34,6 +34,8 @@ type MemoryTarget struct {
 
 type ArtifactTarget struct {
 	ID uuid.UUID `json:"id,omitzero"`
+	// View keeps an uploaded image in the model's context.
+	View bool `json:"view,omitempty"`
 }
 
 func (t FileTransfer) validateLocal() error {
@@ -60,6 +62,8 @@ func (t FileTransfer) validateTarget() error {
 		}
 	} else if (t.Direction == FileTransferDownload) != (t.Target.Artifact.ID != uuid.Nil) {
 		return errors.New("artifact uploads create a new artifact; downloads require an artifact id")
+	} else if t.Direction == FileTransferDownload && t.Target.Artifact.View {
+		return errors.New("only artifact uploads can be viewed")
 	}
 	return nil
 }

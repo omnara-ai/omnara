@@ -217,7 +217,7 @@ machine_sources:
         fi
 
 tools:
-  # Machine tools such as run_command and upload_file are added automatically;
+  # Machine tools such as run_command and storage_upload are added automatically;
   # list one here only to change its permission.
   ask_question: {}
   web_search: {}

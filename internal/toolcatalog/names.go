@@ -20,12 +20,12 @@ const (
 	ToolNameAskQuestion        = "ask_question"
 	ToolNameWebSearch          = "web_search"
 	ToolNameWebFetch           = "web_fetch"
-	ToolNameListFiles          = "list_files"
-	ToolNameWriteFile          = "write_file"
-	ToolNameReadFile           = "read_file"
-	ToolNameSearchFiles        = "search_files"
-	ToolNameUploadFile         = "upload_file"
-	ToolNameDownloadFile       = "download_file"
+	ToolNameStorageList        = "storage_list"
+	ToolNameStorageWrite       = "storage_write"
+	ToolNameStorageRead        = "storage_read"
+	ToolNameStorageSearch      = "storage_search"
+	ToolNameStorageUpload      = "storage_upload"
+	ToolNameStorageDownload    = "storage_download"
 	ToolNameSkill              = "skill"
 	ToolNameSpawnAgent         = "spawn_agent"
 	ToolNameReadAgent          = "read_agent"
@@ -49,8 +49,8 @@ func MachineToolNames() []string {
 		ToolNameListProcesses,
 		ToolNameListMachines,
 		ToolNameInspectMachine,
-		ToolNameUploadFile,
-		ToolNameDownloadFile,
+		ToolNameStorageUpload,
+		ToolNameStorageDownload,
 	}
 }
 
@@ -80,8 +80,8 @@ func implicit(name string) bool {
 	return UsesIntegrationToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
 		slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill ||
-		name == ToolNameListFiles || name == ToolNameReadFile || name == ToolNameSearchFiles ||
-		name == ToolNameWriteFile || name == ToolNameToolSearch
+		name == ToolNameStorageList || name == ToolNameStorageRead || name == ToolNameStorageSearch ||
+		name == ToolNameStorageWrite || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

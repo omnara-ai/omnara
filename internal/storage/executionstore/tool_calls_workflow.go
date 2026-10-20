@@ -82,8 +82,14 @@ func fileTransferToolResultContentParts(
 			if metadata.Path != path || metadata.Digest != artifact.Digest {
 				return failedFileTransferToolResultContentParts(result, invalidMetadata)
 			}
+			view := transfer.Target.Artifact.View
+			if view && !viewableImageTypes[artifact.ContentType] {
+				view = false
+				parts = append(parts, map[string]any{"type": "text", "text": fmt.Sprintf(
+					"not shown: %s is not a PNG, JPEG, GIF, or WebP image", artifact.ContentType)})
+			}
 			parts = append(parts, map[string]any{
-				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": true,
+				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": !view,
 			})
 		} else {
 			target := transfer.Target.Memory
@@ -101,6 +107,9 @@ func fileTransferToolResultContentParts(
 	contentParts, err := marshalJSON(parts)
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
+
+// viewableImageTypes matches the image types modelcontext sends to models inline.
+var viewableImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()

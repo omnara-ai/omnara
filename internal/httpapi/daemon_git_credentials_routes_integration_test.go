@@ -235,7 +235,7 @@ func TestDaemonGitCredentialsExcludeFileTransfers(t *testing.T) {
 	t.Parallel()
 	f := newDaemonGitCredentialsFixture(t)
 	transfer := f.launchProcessForTool(t, f.enabled, model.ToolCall{
-		ID: "upload", Name: toolcatalog.ToolNameUploadFile,
+		ID: "upload", Name: toolcatalog.ToolNameStorageUpload,
 		Input: json.RawMessage(`{"path":"/artifacts","source":"report.txt"}`),
 	}, processcmd.ForFileTransfer(processcmd.FileTransfer{
 		Direction: processcmd.FileTransferUpload, LocalPath: "report.txt",

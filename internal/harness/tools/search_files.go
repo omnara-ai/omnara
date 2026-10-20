@@ -51,7 +51,7 @@ func validateSearchFilesInput(raw json.RawMessage) error {
 
 func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) {
 	var input searchFilesRequest
-	if err := decodeSingleStrictJSON(raw, &input, "search_files request"); err != nil {
+	if err := decodeSingleStrictJSON(raw, &input, "storage_search request"); err != nil {
 		return input, err
 	}
 	var err error

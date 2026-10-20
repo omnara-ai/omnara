@@ -63,18 +63,21 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
-	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
+	writeFileToolDescription = "Create or edit a memory text file. " +
+		"Read a file before changing it; the write fails if it changed since your last read. " +
+		"Returns path and digest."
+	readFileToolDescription = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
-		"For large files, call again with the next position returned in the result."
+		"For large files, call again with the next position returned in the result. " +
+		"Memory reads include a note when the file changed since your last read."
 	searchFilesToolDescription = "Search text in Omnara files. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
-		"Narrow the query when truncated. Use read_file to read more around a match."
+		"Narrow the query when truncated. Use storage_read to read more around a match."
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Returns path and digest."
+		"Set view to also see an uploaded image, such as a screenshot. Returns path and digest."
 	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest."
 	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
@@ -263,8 +266,8 @@ func buildDefaultCatalog() (Catalog, error) {
 	); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameListFiles], err = toolEntry(
-		ToolNameListFiles,
+	if entries[ToolNameStorageList], err = toolEntry(
+		ToolNameStorageList,
 		listFilesToolDescription,
 		[]string{"pattern"},
 		map[string]any{
@@ -319,19 +322,19 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+	if entries[ToolNameStorageRead], err = readFileTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWriteFile], err = writeFileTool(); err != nil {
+	if entries[ToolNameStorageWrite], err = writeFileTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
+	if entries[ToolNameStorageSearch], err = searchFilesTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageUpload], err = uploadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameDownloadFile], err = downloadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageDownload], err = downloadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -549,7 +552,7 @@ func webFetchTool() (Entry, error) {
 
 func readFileTool() (Entry, error) {
 	return toolEntry(
-		ToolNameReadFile,
+		ToolNameStorageRead,
 		readFileToolDescription,
 		[]string{"path"},
 		map[string]any{
@@ -557,12 +560,6 @@ func readFileTool() (Entry, error) {
 				"type":        "string",
 				"minLength":   1,
 				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
-			},
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
-					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
 			},
 			"offset_line": map[string]any{
 				"type":    "integer",
@@ -596,7 +593,7 @@ func readFileTool() (Entry, error) {
 
 func writeFileTool() (Entry, error) {
 	return toolEntry(
-		ToolNameWriteFile,
+		ToolNameStorageWrite,
 		writeFileToolDescription,
 		[]string{"path"},
 		map[string]any{
@@ -618,10 +615,10 @@ func writeFileTool() (Entry, error) {
 				"type":        "boolean",
 				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
 			},
-			"expected_digest": map[string]any{
-				"type":        "string",
-				"pattern":     fileDigestPattern,
-				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
+			"force": map[string]any{
+				"type": "boolean",
+				"description": "Overwrite even if the file changed since you last read it, or was never read. " +
+					"Use only after a conflict when replacing the latest content is intended. Defaults to false.",
 			},
 		},
 	)
@@ -629,14 +626,14 @@ func writeFileTool() (Entry, error) {
 
 func searchFilesTool() (Entry, error) {
 	return toolEntry(
-		ToolNameSearchFiles,
+		ToolNameStorageSearch,
 		searchFilesToolDescription,
 		[]string{"path", "args"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported.",
+				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as storage_list and only search attached stores. Artifact globs are not supported.",
 			},
 			"args": map[string]any{
 				"type":        "array",
@@ -663,7 +660,7 @@ func searchFilesTool() (Entry, error) {
 
 func uploadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameUploadFile,
+		ToolNameStorageUpload,
 		uploadFileToolDescription,
 		[]string{"path", "source"},
 		map[string]any{
@@ -685,8 +682,13 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 			"expected_digest": map[string]any{
 				"type":    "string",
 				"pattern": fileDigestPattern,
-				"description": "To replace changed memory content, use digest from download_file. " +
+				"description": "To replace changed memory content, use digest from storage_download. " +
 					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
+			},
+			"view": map[string]any{
+				"type": "boolean",
+				"description": "Also return the uploaded file for you to view when it is a PNG, JPEG, GIF, or WebP image. " +
+					"Defaults to false. Artifacts only.",
 			},
 		},
 	)
@@ -694,7 +696,7 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 
 func downloadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameDownloadFile,
+		ToolNameStorageDownload,
 		downloadFileToolDescription,
 		[]string{"path", "destination"},
 		map[string]any{

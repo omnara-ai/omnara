@@ -181,7 +181,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 			t.Fatal(err)
 		}
 		direction := processcmd.FileTransferUpload
-		if tool == "download_file" {
+		if tool == "storage_download" {
 			direction = processcmd.FileTransferDownload
 		}
 		fixture := createDaemonProcessFixtureWithToolInputBuilder(
@@ -238,7 +238,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		}
 		return fixture
 	}
-	upload := makeFixture("memory-upload", "upload_file", nil)
+	upload := makeFixture("memory-upload", "storage_upload", nil)
 	call := func(f daemonProcessFixture, method string, content []byte, status int) map[string]any {
 		id, err := publicid.Encode(publicid.KindProcess, f.ProcessUUID)
 		if err != nil {
@@ -284,7 +284,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		t.Fatal("upload replay changed the path or digest")
 	}
 	call(upload, http.MethodGet, nil, http.StatusNotFound)
-	download := makeFixture("memory-download", "download_file", nil)
+	download := makeFixture("memory-download", "storage_download", nil)
 	read := call(download, http.MethodGet, content, http.StatusOK)
 	if read["digest"] != uploaded["digest"] {
 		t.Fatalf("download content or digest mismatch")
@@ -299,7 +299,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	if !ok {
 		t.Fatalf("upload response is missing a string digest: %v", uploaded)
 	}
-	replacement := makeFixture("memory-replacement", "upload_file", &digest)
+	replacement := makeFixture("memory-replacement", "storage_upload", &digest)
 	replaced := call(replacement, http.MethodPost, replacementContent, http.StatusCreated)
 	if replaced["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256(replacementContent)) {
 		t.Fatalf("incorrect replacement digest: %v", replaced)

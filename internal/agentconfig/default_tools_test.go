@@ -14,9 +14,9 @@ import (
 
 func TestDefaultMachineTools(t *testing.T) {
 	machineTools := []string{
-		"create_machine", "delete_machine", "download_file", "inspect_machine",
+		"create_machine", "delete_machine", "storage_download", "inspect_machine",
 		"list_machines", "list_processes", "read_process", "run_command",
-		"stop_process", "upload_file", "write_process",
+		"stop_process", "storage_upload", "write_process",
 	}
 	allDisabled := "tools:\n"
 	byoDisabled := "tools:\n"
@@ -72,9 +72,9 @@ func TestDefaultMachineTools(t *testing.T) {
 		{
 			name: "machines and skills", source: machine + "skills: [" + skillID + "]\n",
 			wantTools: []string{
-				"download_file", "inspect_machine",
+				"storage_download", "inspect_machine",
 				"list_machines", "list_processes", "read_process", "run_command", "skill",
-				"stop_process", "upload_file", "write_process",
+				"stop_process", "storage_upload", "write_process",
 			},
 		},
 	}
@@ -82,7 +82,7 @@ func TestDefaultMachineTools(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			wantTools := slices.Clone(test.wantTools)
 			if len(wantTools) > 0 {
-				wantTools = append(wantTools, "list_files", "read_file", "search_files")
+				wantTools = append(wantTools, "storage_list", "storage_read", "storage_search")
 				slices.Sort(wantTools)
 			}
 			for _, supportsTools := range []bool{true, false} {
@@ -136,13 +136,13 @@ func TestDefaultRetrievalTools(t *testing.T) {
 	}{
 		{"empty", "", nil},
 		{"disabled tool", "tools: {web_fetch: {enabled: false}}\n", nil},
-		{"enabled tool", "tools: {web_fetch: {}}\n", []string{"list_files", "read_file", "search_files", "web_fetch"}},
+		{"enabled tool", "tools: {web_fetch: {}}\n", []string{"storage_list", "storage_read", "storage_search", "web_fetch"}},
 		{"MCP default disabled", "mcp: {docs: {url: https://example.com/mcp, default_enabled: false}}\n",
-			[]string{"list_files", "read_file", "search_files"}},
-		{"retrieval disabled", "tools: {web_fetch: {}, list_files: {enabled: false}, " +
-			"read_file: {enabled: false}, search_files: {enabled: false}}\n",
+			[]string{"storage_list", "storage_read", "storage_search"}},
+		{"retrieval disabled", "tools: {web_fetch: {}, storage_list: {enabled: false}, " +
+			"storage_read: {enabled: false}, storage_search: {enabled: false}}\n",
 			[]string{"web_fetch"}},
-		{"one retrieval tool", "tools: {read_file: {}}\n", []string{"list_files", "read_file", "search_files"}},
+		{"one retrieval tool", "tools: {storage_read: {}}\n", []string{"storage_list", "storage_read", "storage_search"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.source)), CompileOptions{})
@@ -163,9 +163,9 @@ func TestDefaultRetrievalTools(t *testing.T) {
 func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	result, err := Compile(SourceFormatYAML, []byte(validAgentSource("tools: {web_fetch: {}}\n")), CompileOptions{})
 	require.NoError(t, err)
-	delete(result.Compiled.Tools, "list_files")
-	delete(result.Compiled.Tools, "read_file")
-	delete(result.Compiled.Tools, "search_files")
+	delete(result.Compiled.Tools, "storage_list")
+	delete(result.Compiled.Tools, "storage_read")
+	delete(result.Compiled.Tools, "storage_search")
 	encoded, err := EncodeCompiled(result.Compiled)
 	require.NoError(t, err)
 	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
@@ -184,9 +184,9 @@ func TestDefaultMemoryTools(t *testing.T) {
 		{"read write", "[{name: notes, access: read_write}]", true},
 		{"mixed", "[{name: reference, access: read}, {name: notes, access: read_write}]", true},
 	} {
-		defaults := []string{"list_files", "read_file", "search_files"}
+		defaults := []string{"storage_list", "storage_read", "storage_search"}
 		if attachment.writable {
-			defaults = append(defaults, "write_file")
+			defaults = append(defaults, "storage_write")
 		}
 		for _, test := range []struct {
 			name  string
@@ -194,15 +194,16 @@ func TestDefaultMemoryTools(t *testing.T) {
 			want  []string
 		}{
 			{"defaults", "", defaults},
-			{"write enabled", "tools: {write_file: {}}\n",
-				[]string{"list_files", "read_file", "search_files", "write_file"}},
-			{"write disabled", "tools: {write_file: {enabled: false}}\n", []string{"list_files", "read_file", "search_files"}},
-			{"list disabled", "tools: {list_files: {enabled: false}}\n", defaults[1:]},
-			{"all disabled", "tools: {list_files: {enabled: false}, read_file: {enabled: false}, " +
-				"search_files: {enabled: false}, write_file: {enabled: false}}\n", nil},
-			{"permissions", "tools: {list_files: {permission: {mode: always_ask}}, " +
-				"write_file: {permission: {mode: always_ask}}}\n",
-				[]string{"list_files", "read_file", "search_files", "write_file"}},
+			{"write enabled", "tools: {storage_write: {}}\n",
+				[]string{"storage_list", "storage_read", "storage_search", "storage_write"}},
+			{"write disabled", "tools: {storage_write: {enabled: false}}\n",
+				[]string{"storage_list", "storage_read", "storage_search"}},
+			{"list disabled", "tools: {storage_list: {enabled: false}}\n", defaults[1:]},
+			{"all disabled", "tools: {storage_list: {enabled: false}, storage_read: {enabled: false}, " +
+				"storage_search: {enabled: false}, storage_write: {enabled: false}}\n", nil},
+			{"permissions", "tools: {storage_list: {permission: {mode: always_ask}}, " +
+				"storage_write: {permission: {mode: always_ask}}}\n",
+				[]string{"storage_list", "storage_read", "storage_search", "storage_write"}},
 		} {
 			t.Run(attachment.name+"/"+test.name, func(t *testing.T) {
 				source := validAgentSource("memory_stores: " + attachment.stores + "\n" + test.tools)
@@ -219,7 +220,7 @@ func TestDefaultMemoryTools(t *testing.T) {
 				for _, tool := range contract.Tools {
 					names = append(names, tool.Name)
 					wantPermission := toolpermission.ModeAlwaysAllow
-					if test.name == "permissions" && (tool.Name == "list_files" || tool.Name == "write_file") {
+					if test.name == "permissions" && (tool.Name == "storage_list" || tool.Name == "storage_write") {
 						wantPermission = toolpermission.ModeAlwaysAsk
 					}
 					require.Equal(t, wantPermission, tool.Permission.Mode)

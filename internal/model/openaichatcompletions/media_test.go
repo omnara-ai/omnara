@@ -229,7 +229,7 @@ func TestProjectRenderedMediaOmitsHistoricalImagesAboveClaudeLimit(t *testing.T)
 		resolved[mediaTestImageID] = image
 		rendered := test.client.ProjectRenderedMedia(modelcontext.Bundle{
 			ToolResults: []modelcontext.ToolResultRef{{
-				Name:                "read_file",
+				Name:                "storage_read",
 				SourceEventSequence: 1,
 				ContentParts: json.RawMessage(
 					`[{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"}]`,

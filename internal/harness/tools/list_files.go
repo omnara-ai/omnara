@@ -66,7 +66,7 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 
 func validateListFiles(raw json.RawMessage) error {
 	var input listFilesRequest
-	if err := decodeSingleStrictJSON(raw, &input, "list_files request"); err != nil {
+	if err := decodeSingleStrictJSON(raw, &input, "storage_list request"); err != nil {
 		return err
 	}
 	if _, err := storage.CompileFilePattern(input.Pattern); err != nil {

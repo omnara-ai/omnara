@@ -335,8 +335,8 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
       respond: ({ body }) => {
         const source = z.string().parse(schemas.zResolveAgentConfigToolsRequest.parse(body).source)
         requests.push(source)
-        if (source === original) return previewResponse(['read_file'])
-        if (source === updated) return previewResponse(['read_file', 'run_command'])
+        if (source === original) return previewResponse(['storage_read'])
+        if (source === updated) return previewResponse(['storage_read', 'run_command'])
         if (source === failed && fail) {
           return jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
         }
@@ -346,27 +346,27 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
   ])
   await renderAndFlush(<ToolPreviewHarness source={original} />)
   await vi.waitFor(() => {
-    expect(container.textContent).toBe('read_file')
+    expect(container.textContent).toBe('storage_read')
   })
   await renderAndFlush(<ToolPreviewHarness source={failed} />)
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-status')).toBe('error')
   })
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   await renderAndFlush(<ToolPreviewHarness source={updated} />)
   await vi.waitFor(() => {
-    expect(container.textContent).toBe('read_file,run_command')
+    expect(container.textContent).toBe('storage_read,run_command')
   })
   fail = false
   await renderAndFlush(<ToolPreviewHarness source={failed} />)
   expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
-  expect(container.textContent).toBe('read_file,run_command')
+  expect(container.textContent).toBe('storage_read,run_command')
   await renderAndFlush(<ToolPreviewHarness source={original} />)
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   expect(requests.filter((source) => source === original)).toHaveLength(1)
   await renderAndFlush(<ToolPreviewHarness source={next} />)
   expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   await act(async () => {
     release(previewResponse([]))
     await pending

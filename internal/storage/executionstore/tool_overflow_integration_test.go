@@ -659,8 +659,8 @@ func TestToolOverflowExcludesBoundedAndControlTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{
-		"read_file", "search_files", "run_command", "read_process", "list_processes", "write_process", "stop_process",
-		"upload_file", "download_file", "list_files", "write_file",
+		"storage_read", "storage_search", "run_command", "read_process", "list_processes", "write_process", "stop_process",
+		"storage_upload", "storage_download", "storage_list", "storage_write",
 		"create_machine", "delete_machine", "inspect_machine", "set_interaction_handler",
 	} {
 		for _, outcome := range []executionstore.ToolResultOutcome{

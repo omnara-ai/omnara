@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -20,11 +21,11 @@ import (
 const maxWriteFileScriptBytes = 64 * 1024
 
 type writeFileRequest struct {
-	Path           string  `json:"path"`
-	Content        *string `json:"content,omitempty"`
-	Script         *string `json:"script,omitempty"`
-	Append         bool    `json:"append,omitempty"`
-	ExpectedDigest *string `json:"expected_digest,omitempty"`
+	Path    string  `json:"path"`
+	Content *string `json:"content,omitempty"`
+	Script  *string `json:"script,omitempty"`
+	Append  bool    `json:"append,omitempty"`
+	Force   bool    `json:"force,omitempty"`
 }
 
 func validateWriteFileInput(raw json.RawMessage) error {
@@ -34,7 +35,7 @@ func validateWriteFileInput(raw json.RawMessage) error {
 
 func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	var input writeFileRequest
-	if err := decodeSingleStrictJSON(raw, &input, "write_file request"); err != nil {
+	if err := decodeSingleStrictJSON(raw, &input, "storage_write request"); err != nil {
 		return input, err
 	}
 	if _, _, err := memorystore.ParsePath(input.Path); err != nil {
@@ -57,11 +58,6 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	if input.Script != nil && len(*input.Script) > maxWriteFileScriptBytes {
 		return input, errors.New("script must be at most 64 KiB")
 	}
-	if input.ExpectedDigest != nil {
-		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-			return input, err
-		}
-	}
 	return input, nil
 }
 
@@ -81,47 +77,71 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	scope := memorystore.Scope{
 		OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, AgentID: call.Turn.AgentID,
 	}
+	write := memorystore.WriteInput{Scope: scope, StoreID: store.ID, Path: path}
+	current, err := memories.ReadFile(ctx, scope, store.ID, path)
+	exists := err == nil
+	if errors.Is(err, storeerr.ErrNotFound) && input.Script == nil {
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	var content []byte
 	if input.Content != nil {
 		content = []byte(*input.Content)
 	}
-	if input.Append || input.Script != nil {
-		digest, current, err := memories.Read(ctx, scope, store.ID, path)
-		if errors.Is(err, storeerr.ErrNotFound) && input.Append && input.ExpectedDigest == nil {
-			current = nil
-		} else if err != nil {
-			return nil, err
-		} else if input.ExpectedDigest == nil {
-			return nil, storeerr.Tag(storeerr.ErrExpectedDigestRequired, storeerr.Tag(
-				&storeerr.FileContentConflictError{CurrentDigest: digest},
-				errors.New("expected_digest is required to change an existing file; read the file and retry with its digest"),
-			))
-		} else if *input.ExpectedDigest != digest {
-			return nil, storeerr.Tag(&storeerr.FileContentConflictError{CurrentDigest: digest},
-				errors.New("memory changed; retrieve the latest contents and retry"))
-		}
-		if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
-			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
-		}
-		if input.Append {
-			if len(current)+len(content) > daemonprotocol.MaxFileTransferBytes {
-				return nil, errors.New("memory content must be at most 10 MiB")
-			}
-			content = append(current, content...)
-		} else {
-			content, err = editFileText(ctx, current, *input.Script)
-			if err != nil {
+	if exists {
+		write.ExpectedDigest = &current.Digest
+		changes := input.Script != nil || input.Append || blobstore.ContentDigest(content) != current.Digest
+		if changes && !input.Force {
+			if err := checkMemoryFileSeen(ctx, call, input.Path, current); err != nil {
 				return nil, err
 			}
 		}
 	}
-	result, err := memories.Write(ctx, memorystore.WriteInput{
-		Scope: scope, StoreID: store.ID, Path: path, Content: content, ExpectedDigest: input.ExpectedDigest,
-	})
+	if input.Append || input.Script != nil {
+		if !utf8.Valid(current.Content) || bytes.IndexByte(current.Content, 0) >= 0 {
+			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
+		}
+		if input.Append {
+			if len(current.Content)+len(content) > daemonprotocol.MaxFileTransferBytes {
+				return nil, errors.New("memory content must be at most 10 MiB")
+			}
+			content = append(current.Content, content...)
+		} else if content, err = editFileText(ctx, current.Content, *input.Script); err != nil {
+			return nil, err
+		}
+	}
+	write.Content = content
+	result, err := memories.Write(ctx, write)
+	var conflict *storeerr.FileContentConflictError
+	if errors.As(err, &conflict) {
+		return nil, storeerr.Tag(&storeerr.FileContentConflictError{},
+			fmt.Errorf("%s changed while writing; read it again before writing", input.Path))
+	}
 	if err != nil {
 		return nil, err
 	}
 	return completeFileTool(map[string]any{"path": result.Path, "digest": result.Digest})
+}
+
+// checkMemoryFileSeen rejects changes to a file the agent has not read since its last change.
+func checkMemoryFileSeen(ctx context.Context, call asyncToolContext, path string, current memorystore.File) error {
+	seen, found, err := call.Executor.Store.Memories().LastSeen(ctx, call.Turn.AgentID, path)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return storeerr.Tag(&storeerr.FileContentConflictError{},
+			fmt.Errorf("%s exists but you have not read it; read it before writing", path))
+	}
+	if seen.Digest == current.Digest {
+		return nil
+	}
+	updated, last := memoryChangeTimes(current.ModifiedAt, seen.At)
+	return storeerr.Tag(&storeerr.FileContentConflictError{}, fmt.Errorf(
+		"%s was updated at %s after your last read at %s; read it again before writing", path, updated, last,
+	))
 }
 
 func editFileText(ctx context.Context, content []byte, script string) ([]byte, error) {

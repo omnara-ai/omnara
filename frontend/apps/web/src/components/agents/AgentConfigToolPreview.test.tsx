@@ -84,8 +84,8 @@ const includedCatalog: ToolCatalog = {
     'create_machine',
     'delete_machine',
     'skill',
-    'read_file',
-    'search_files',
+    'storage_read',
+    'storage_search',
     ...subagentToolNames,
   ].map((name) => ({
     name,
@@ -313,7 +313,7 @@ async function selectIncludedPermission(name: string, label: string) {
 it.each([
   { name: 'web_search', label: 'Always allow' },
   { name: 'run_command', label: 'Always ask' },
-  { name: 'read_file', label: 'Disabled' },
+  { name: 'storage_read', label: 'Disabled' },
 ])('keeps the builder stable while refreshing $name permissions', async ({ name, label }) => {
   let requests = 0
   let release: (response: Response) => void = () => undefined
@@ -331,7 +331,7 @@ it.each([
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: () => {
         requests += 1
-        return requests === 1 ? toolResponse(['run_command', 'read_file']) : pending
+        return requests === 1 ? toolResponse(['run_command', 'storage_read']) : pending
       },
     },
   ])
@@ -341,7 +341,7 @@ it.each([
   })
   clickLabel('Built-in tools')
   const trigger = builtInToolsTrigger()
-  const readFile = container.querySelector('[aria-label="read_file permission"]')
+  const readFile = container.querySelector('[aria-label="storage_read permission"]')
   const instruction = container.querySelector('textarea')
   const toolOrder = () =>
     [...container.querySelectorAll('[data-slot="collapsible-content"] [role="combobox"]')].map(
@@ -360,21 +360,21 @@ it.each([
   expect(builtInToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
   expect(trigger?.getAttribute('data-state')).toBe('open')
-  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('[aria-label="storage_read permission"]')).toBe(readFile)
   expect(container.querySelector('textarea')).toBe(instruction)
   expect(toolOrder()).toEqual(originalOrder)
   expect(container.textContent).not.toContain('Loading built-in tools')
   expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(label)
   await act(async () => {
-    release(toolResponse(['run_command', 'read_file', 'search_files']))
+    release(toolResponse(['run_command', 'storage_read', 'storage_search']))
     await pending
   })
   await vi.waitFor(() => {
-    expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="storage_search permission"]')).not.toBeNull()
   })
   expect(builtInToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
-  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('[aria-label="storage_read permission"]')).toBe(readFile)
   expect(submit).not.toHaveBeenCalled()
 })
 
@@ -384,7 +384,7 @@ it('clears the retained tool preview when switching projects', async () => {
     release = resolve
   })
   Providers = testProviders([
-    previewToolsRoute(() => ['read_file']),
+    previewToolsRoute(() => ['storage_read']),
     {
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-other/agent-configs/tools',
@@ -425,7 +425,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
           return jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
         }
         return toolResponse(
-          requests === 1 ? ['web_search', 'run_command', 'read_file'] : ['read_file'],
+          requests === 1 ? ['web_search', 'run_command', 'storage_read'] : ['storage_read'],
         )
       },
     },
@@ -436,7 +436,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   })
   clickLabel('Built-in tools')
   const trigger = builtInToolsTrigger()
-  const readFile = container.querySelector('[aria-label="read_file permission"]')
+  const readFile = container.querySelector('[aria-label="storage_read permission"]')
   click('[aria-label="Remove web_search"]')
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
   await vi.waitFor(() => {
@@ -446,7 +446,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   })
   expect(builtInToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
-  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('[aria-label="storage_read permission"]')).toBe(readFile)
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.web_search',
@@ -456,7 +456,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
     expect(container.querySelector('[role="alert"]')).toBeNull()
     expect(container.querySelector('[aria-label="run_command permission"]')).toBeNull()
   })
-  expect(container.querySelector('[aria-label="read_file permission"]')).toBe(readFile)
+  expect(container.querySelector('[aria-label="storage_read permission"]')).toBe(readFile)
 })
 
 it('does not offer the Slack tool when it is absent from the source', async () => {
@@ -622,7 +622,7 @@ function previewToolsRoute(names: () => string[]): FakeRoute {
 }
 
 it('displays retrieval defaults without changing source and saves only edited overrides', async () => {
-  Providers = testProviders([previewToolsRoute(() => ['read_file', 'search_files'])])
+  Providers = testProviders([previewToolsRoute(() => ['storage_read', 'storage_search'])])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
     expect(builtInToolsTrigger()).not.toBeNull()
@@ -630,20 +630,20 @@ it('displays retrieval defaults without changing source and saves only edited ov
   })
   expect(container.querySelector('output')?.textContent).toBe(includedSource)
   clickLabel('Built-in tools')
-  expect(container.querySelector('[aria-label="read_file permission"]')?.textContent).toBe(
+  expect(container.querySelector('[aria-label="storage_read permission"]')?.textContent).toBe(
     'Always allow',
   )
-  await selectIncludedPermission('read_file', 'Disabled')
+  await selectIncludedPermission('storage_read', 'Disabled')
   await vi.waitFor(() => {
-    expect(container.querySelector('[aria-label="search_files permission"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="storage_search permission"]')).not.toBeNull()
   })
-  await selectIncludedPermission('search_files', 'Always ask')
+  await selectIncludedPermission('storage_search', 'Always ask')
   await vi.waitFor(() => {
     const saved = container.querySelector('output')?.textContent ?? ''
-    expect(parse(saved)).toHaveProperty('tools.read_file.enabled', false)
-    expect(parse(saved)).toHaveProperty('tools.search_files.permission.mode', 'always_ask')
+    expect(parse(saved)).toHaveProperty('tools.storage_read.enabled', false)
+    expect(parse(saved)).toHaveProperty('tools.storage_search.permission.mode', 'always_ask')
     expect(
-      createBasicConfigSession(saved).initialDraft?.tools.find((tool) => tool.name === 'read_file')
+      createBasicConfigSession(saved).initialDraft?.tools.find((tool) => tool.name === 'storage_read')
         ?.enabled,
     ).toBe(false)
   })
@@ -652,11 +652,11 @@ it('displays retrieval defaults without changing source and saves only edited ov
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.read_file.enabled',
+    'tools.storage_read.enabled',
     false,
   )
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.search_files.permission.mode',
+    'tools.storage_search.permission.mode',
     'always_ask',
   )
 })

@@ -1053,7 +1053,7 @@ func TestAsyncFileFailureCodes(t *testing.T) {
 		t.Run(test.code, func(t *testing.T) {
 			ctx := t.Context()
 			fixture := newIntegrationToolFixture(t, ctx, test.code)
-			call := fixture.recordToolCall(t, ctx, "call_file_failure", "read_file",
+			call := fixture.recordToolCall(t, ctx, "call_file_failure", "storage_read",
 				`{"path":"/memory/notes/file.txt"}`, fixture.Now.Add(20*time.Second))
 			callID := fixture.toolCallID(t, ctx, call.ID)
 			dispatchTestAsyncHandler(t, ctx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, toolHandler{
@@ -1284,10 +1284,10 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 		name   string
 		memory bool
 	}{
-		{name: "upload_file"},
-		{name: "download_file"},
-		{name: "upload_file", memory: true},
-		{name: "download_file", memory: true},
+		{name: "storage_upload"},
+		{name: "storage_download"},
+		{name: "storage_upload", memory: true},
+		{name: "storage_download", memory: true},
 	} {
 		namespace := "/artifacts"
 		if tc.memory {
@@ -1320,7 +1320,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 				t.Fatal(err)
 			}
 			serverPath := "/artifacts"
-			if name == "download_file" {
+			if name == "storage_download" {
 				serverPath += "/" + artifactID
 			}
 			if tc.memory {
@@ -1328,7 +1328,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			}
 			inputFields := map[string]string{"path": serverPath, "machine_id": machineID}
 			source, destination := "report.pdf", serverPath
-			if name == "upload_file" {
+			if name == "storage_upload" {
 				inputFields["source"] = "report.pdf"
 			} else {
 				inputFields["destination"] = "report.pdf"
@@ -1336,7 +1336,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			}
 			if tc.memory {
 				delete(inputFields, "machine_id")
-				if name == "upload_file" {
+				if name == "storage_upload" {
 					inputFields["expected_digest"] = "sha256:" + strings.Repeat("a", 64)
 				}
 			}
@@ -1401,7 +1401,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 				t.Fatalf("load process found=%v err=%v", found, err)
 			}
 			direction, timeout := processcmd.FileTransferUpload, fileUploadProcessTimeoutSeconds
-			if name == "download_file" {
+			if name == "storage_download" {
 				direction, timeout = processcmd.FileTransferDownload, fileDownloadProcessTimeoutSeconds
 			}
 			transfer := process.ExecutionSpec.FileTransfer
@@ -1422,7 +1422,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 				if target == nil || target.Path != "report.pdf" {
 					t.Fatalf("memory target = %+v", target)
 				}
-				if name == "upload_file" &&
+				if name == "storage_upload" &&
 					(target.ExpectedDigest == nil || *target.ExpectedDigest != inputFields["expected_digest"]) {
 					t.Fatalf("expected digest was not saved: %+v", target)
 				}
@@ -1438,7 +1438,9 @@ SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err 
 				execution, err := fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
 					ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
 				}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-					prepared, err := fileTransferProcessInput(ctx, reader, direction, "report.pdf", serverPath, target.ExpectedDigest)
+					prepared, err := fileTransferProcessInput(
+						ctx, reader, direction, "report.pdf", serverPath, target.ExpectedDigest, false,
+					)
 					if err != nil {
 						return nil, err
 					}
@@ -1459,8 +1461,8 @@ SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err 
 
 func TestFileToolsUnavailableMemoryStoreFailsDispatch(t *testing.T) {
 	for _, tool := range []struct{ name, localField string }{
-		{"upload_file", "source"},
-		{"download_file", "destination"},
+		{"storage_upload", "source"},
+		{"storage_download", "destination"},
 	} {
 		for _, scenario := range []string{"missing", "unattached", "deleted"} {
 			t.Run(tool.name+"/"+scenario, func(t *testing.T) {

@@ -171,19 +171,19 @@ func builtInToolRegistrations() []toolRegistration {
 	registrations := interactionToolRegistrations()
 	return append(registrations, []toolRegistration{
 		{
-			name:                   toolcatalog.ToolNameReadFile,
+			name:                   toolcatalog.ToolNameStorageRead,
 			semanticInputValidator: validateReadFileInput,
 			handler:                toolHandler{Async: runReadFileAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameWriteFile,
+			name:                   toolcatalog.ToolNameStorageWrite,
 			semanticInputValidator: validateWriteFileInput,
 			handler:                toolHandler{Async: runWriteFileAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameSearchFiles,
+			name:                   toolcatalog.ToolNameStorageSearch,
 			semanticInputValidator: validateSearchFilesInput,
 			handler:                toolHandler{Async: runSearchFilesAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
@@ -195,13 +195,13 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(runCommandPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameUploadFile,
+			name:                   toolcatalog.ToolNameStorageUpload,
 			semanticInputValidator: validateUploadFileInput,
 			handler:                toolHandler{Transactional: runUploadFile, Background: wakeProcessTool},
 			permissionModes:        commonPermissionModeHandlers(uploadFilePermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameDownloadFile,
+			name:                   toolcatalog.ToolNameStorageDownload,
 			semanticInputValidator: validateDownloadFileInput,
 			handler:                toolHandler{Transactional: runDownloadFile, Background: wakeProcessTool},
 			permissionModes:        commonPermissionModeHandlers(downloadFilePermissionChallenge),
@@ -256,7 +256,7 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameListFiles,
+			name:                   toolcatalog.ToolNameStorageList,
 			semanticInputValidator: validateListFiles,
 			handler:                toolHandler{Async: runListFiles},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),

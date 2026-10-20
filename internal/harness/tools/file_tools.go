@@ -31,6 +31,7 @@ type uploadFileRequest struct {
 	Path           string          `json:"path"`
 	Source         string          `json:"source"`
 	MachineID      json.RawMessage `json:"machine_id,omitempty"`
+	View           bool            `json:"view,omitempty"`
 }
 
 type resolvedUploadFileRequest struct {
@@ -38,6 +39,7 @@ type resolvedUploadFileRequest struct {
 	Path           string
 	Source         string
 	MachineID      uuid.UUID
+	View           bool
 }
 
 type downloadFileRequest struct {
@@ -59,8 +61,8 @@ func validateUploadFileInput(input json.RawMessage) error {
 
 func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, error) {
 	var input uploadFileRequest
-	if err := decodeSingleStrictJSON(raw, &input, "upload_file request"); err != nil {
-		return resolvedUploadFileRequest{}, fmt.Errorf("parse upload_file request: %w", err)
+	if err := decodeSingleStrictJSON(raw, &input, "storage_upload request"); err != nil {
+		return resolvedUploadFileRequest{}, fmt.Errorf("parse storage_upload request: %w", err)
 	}
 	isMemory := strings.HasPrefix(input.Path, memorystore.Root+"/")
 	if isMemory {
@@ -74,6 +76,9 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 		}
 	} else if input.ExpectedDigest != nil {
 		return resolvedUploadFileRequest{}, errors.New("expected_digest only applies to memory")
+	}
+	if isMemory && input.View {
+		return resolvedUploadFileRequest{}, errors.New("view only applies to /artifacts uploads")
 	}
 	if !isMemory && input.Path != toolcatalog.ArtifactVFSRoot {
 		return resolvedUploadFileRequest{}, errors.New("upload path must be /artifacts")
@@ -90,6 +95,7 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 	}
 	return resolvedUploadFileRequest{
 		Path: input.Path, Source: input.Source, MachineID: machineID, ExpectedDigest: input.ExpectedDigest,
+		View: input.View,
 	}, nil
 }
 
@@ -100,8 +106,8 @@ func validateDownloadFileInput(input json.RawMessage) error {
 
 func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileRequest, error) {
 	var input downloadFileRequest
-	if err := decodeSingleStrictJSON(raw, &input, "download_file request"); err != nil {
-		return resolvedDownloadFileRequest{}, fmt.Errorf("parse download_file request: %w", err)
+	if err := decodeSingleStrictJSON(raw, &input, "storage_download request"); err != nil {
+		return resolvedDownloadFileRequest{}, fmt.Errorf("parse storage_download request: %w", err)
 	}
 	if err := validateFilePath(input.Path); err != nil {
 		return resolvedDownloadFileRequest{}, err
@@ -139,6 +145,7 @@ func runUploadFile(
 	}
 	processInput, err := fileTransferProcessInput(
 		ctx, call.Reader, processcmd.FileTransferUpload, resolved.Source, resolved.Path, resolved.ExpectedDigest,
+		resolved.View,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return failInTransaction(toolResultContent{}, err), nil
@@ -166,7 +173,7 @@ func runDownloadFile(
 		return nil, err
 	}
 	processInput, err := fileTransferProcessInput(
-		ctx, call.Reader, processcmd.FileTransferDownload, resolved.Destination, resolved.Path, nil,
+		ctx, call.Reader, processcmd.FileTransferDownload, resolved.Destination, resolved.Path, nil, false,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return failInTransaction(toolResultContent{}, err), nil
@@ -246,7 +253,7 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 
 func fileTransferProcessInput(
 	ctx context.Context, reader *executionstore.ToolCallReader,
-	direction processcmd.FileTransferDirection, localPath, remotePath string, expectedDigest *string,
+	direction processcmd.FileTransferDirection, localPath, remotePath string, expectedDigest *string, view bool,
 ) (executionstore.CreateProcessInput, error) {
 	transfer := processcmd.FileTransfer{Direction: direction, LocalPath: localPath}
 	if strings.HasPrefix(remotePath, memorystore.Root+"/") {
@@ -260,7 +267,7 @@ func fileTransferProcessInput(
 		}
 		transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: path, ExpectedDigest: expectedDigest}
 	} else {
-		target := &processcmd.ArtifactTarget{}
+		target := &processcmd.ArtifactTarget{View: view}
 		if direction == processcmd.FileTransferDownload {
 			id, err := resolveArtifactPath(remotePath)
 			if err != nil {

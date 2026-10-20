@@ -74,11 +74,11 @@ tools:
 	if contract.Model.ConfiguredModelID != uuid.Nil {
 		t.Fatalf("unexpected model contract: %+v", contract.Model)
 	}
-	if len(contract.Tools) != 4 || contract.Tools[2].Name != "run_command" ||
-		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 4 || contract.Tools[0].Name != "run_command" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected tool contract: %+v", contract.Tools)
 	}
-	assertRunCommandInputSchema(t, contract.Tools[2].InputSchema)
+	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
 }
 
 func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
@@ -1342,7 +1342,7 @@ tools:
 	if len(contract.Tools) != 4 {
 		t.Fatalf("runtime tools = %+v, want custom tool and three retrieval tools", contract.Tools)
 	}
-	runtimeTool := contract.Tools[1]
+	runtimeTool := contract.Tools[0]
 	if runtimeTool.Name != "lookup_customer" || runtimeTool.Type != toolcatalog.ToolTypeCustom ||
 		runtimeTool.Description != "Look up a customer by email." {
 		t.Fatalf("unexpected runtime custom tool: %+v", runtimeTool)
@@ -1786,8 +1786,8 @@ tools:
 		t.Fatalf("load explicit skill runtime contract: %v", err)
 	}
 	if len(contract.Tools) != 4 ||
-		contract.Tools[3].Name != "skill" ||
-		contract.Tools[3].Permission.Mode != toolpermission.ModeAlwaysAsk {
+		contract.Tools[0].Name != "skill" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected explicit skill runtime contract: %+v", contract)
 	}
 
@@ -1889,8 +1889,8 @@ skills:
 		t.Fatal("skill-only runtime contract must require model tool support")
 	}
 	if len(contract.Tools) != 4 ||
-		contract.Tools[3].Name != "skill" ||
-		contract.Tools[3].Permission.Mode != toolpermission.ModeAlwaysAllow {
+		contract.Tools[0].Name != "skill" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
@@ -2079,9 +2079,9 @@ func TestFileRetrievalHonorsExplicitConfiguration(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   web_fetch: {}
-  read_file:
+  storage_read:
     enabled: false
-  search_files:
+  storage_search:
     permission:
       mode: always_ask
 `)), CompileOptions{})
@@ -2094,10 +2094,10 @@ tools:
 	}
 	found := false
 	for _, tool := range contract.Tools {
-		if tool.Name == toolcatalog.ToolNameReadFile {
-			t.Fatal("disabled read_file was enabled")
+		if tool.Name == toolcatalog.ToolNameStorageRead {
+			t.Fatal("disabled storage_read was enabled")
 		}
-		if tool.Name == toolcatalog.ToolNameSearchFiles {
+		if tool.Name == toolcatalog.ToolNameStorageSearch {
 			found = true
 			if tool.Permission.Mode != toolpermission.ModeAlwaysAsk {
 				t.Fatal("search permission changed")
@@ -2105,7 +2105,7 @@ tools:
 		}
 	}
 	if !found {
-		t.Fatal("search_files missing")
+		t.Fatal("storage_search missing")
 	}
 }
 

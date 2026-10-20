@@ -3,6 +3,7 @@
 package executionstore_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1315,11 +1316,34 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 		skipStart         bool
 		exitCode          int
 		wantOutcome       executionstore.ToolResultOutcome
+		view              bool
+		contentType       string
 	}{
+		{
+			name:           "viewed_artifact",
+			artifactReport: "valid",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png","view":true}`),
+			createArtifact: true,
+			view:           true,
+			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name:           "viewed_non_image",
+			artifactReport: "valid",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png","view":true}`),
+			createArtifact: true,
+			view:           true,
+			contentType:    "image/svg+xml",
+			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
+		},
 		{
 			name:           "stored_artifact",
 			artifactReport: "valid",
-			toolName:       "upload_file",
+			toolName:       "storage_upload",
 			direction:      processcmd.FileTransferUpload,
 			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			createArtifact: true,
@@ -1329,37 +1353,39 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			name:           "missing_artifact",
 			artifactReport: "valid",
 			wantError:      "upload completed without an artifact",
-			toolName:       "upload_file",
+			toolName:       "storage_upload",
 			direction:      processcmd.FileTransferUpload,
 			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			wantOutcome:    executionstore.ToolResultOutcomeFailed,
 		},
 		{
-			name: "artifact_missing_metadata", toolName: "upload_file",
+			name: "artifact_missing_metadata", toolName: "storage_upload",
 			direction: processcmd.FileTransferUpload, createArtifact: true,
 			input:     json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 		{
-			name: "artifact_wrong_path", toolName: "upload_file", direction: processcmd.FileTransferUpload, createArtifact: true,
+			name: "artifact_wrong_path", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
 			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "wrong_path",
 			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 		{
-			name: "artifact_wrong_digest", toolName: "upload_file",
+			name: "artifact_wrong_digest", toolName: "storage_upload",
 			direction: processcmd.FileTransferUpload, createArtifact: true,
 			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "wrong_digest",
 			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 		{
-			name: "unrelated_artifact", toolName: "upload_file", direction: processcmd.FileTransferUpload, createArtifact: true,
+			name: "unrelated_artifact", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
 			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "valid",
 			unrelatedArtifact: true,
 			wantError:         "upload completed without an artifact", wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 		{
 			name:      "memory",
-			toolName:  "upload_file",
+			toolName:  "storage_upload",
 			direction: processcmd.FileTransferUpload,
 			input:     json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
 			terminalResult: mustTestRawJSON(t, map[string]any{
@@ -1372,7 +1398,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 		},
 		{
 			name:      "memory_failure",
-			toolName:  "upload_file",
+			toolName:  "storage_upload",
 			direction: processcmd.FileTransferUpload,
 			input:     json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
 			terminalResult: mustTestRawJSON(t, map[string]any{
@@ -1383,7 +1409,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 		{
-			name: "api_conflict", toolName: "upload_file", direction: processcmd.FileTransferUpload,
+			name: "api_conflict", toolName: "storage_upload", direction: processcmd.FileTransferUpload,
 			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
 			terminalResult: mustTestRawJSON(t, map[string]any{
 				"output": "truncated diagnostics", "cursor": 0, "next_cursor": 12345, "truncated": true,
@@ -1392,7 +1418,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			exitCode: 1, wantOutcome: executionstore.ToolResultOutcomeFailed, wantAPIError: json.RawMessage(conflict),
 		},
 		{
-			name: "memory_download", toolName: "download_file", direction: processcmd.FileTransferDownload,
+			name: "memory_download", toolName: "storage_download", direction: processcmd.FileTransferDownload,
 			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","destination":"screenshot.png"}`),
 			terminalResult: mustTestRawJSON(t, map[string]any{
 				"output": "warning: log truncated", "cursor": 0, "next_cursor": 12345,
@@ -1403,7 +1429,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			wantOutcome:  executionstore.ToolResultOutcomeSucceeded,
 		},
 		{
-			name: "fast_artifact_download", toolName: "download_file",
+			name: "fast_artifact_download", toolName: "storage_download",
 			direction: processcmd.FileTransferDownload, skipStart: true,
 			input: mustTestRawJSON(t, map[string]string{
 				"path": "/artifacts/" + publicResourceID(publicid.KindArtifact, uuid.New()), "destination": "screenshot.png",
@@ -1417,7 +1443,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			wantOutcome:  executionstore.ToolResultOutcomeSucceeded,
 		},
 		{
-			name: "download_failure", toolName: "download_file", direction: processcmd.FileTransferDownload,
+			name: "download_failure", toolName: "storage_download", direction: processcmd.FileTransferDownload,
 			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","destination":"screenshot.png"}`),
 			terminalResult: mustTestRawJSON(t, map[string]any{
 				"output": "permission denied\n", "cursor": 0, "next_cursor": len("permission denied\n"),
@@ -1468,7 +1494,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 				))
 				transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: storeID, Path: "screenshot.png"}
 			} else {
-				target := &processcmd.ArtifactTarget{}
+				target := &processcmd.ArtifactTarget{View: test.view}
 				if test.direction == processcmd.FileTransferDownload {
 					id, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(request.Path, "/artifacts/"))
 					if err != nil {
@@ -1558,6 +1584,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			filename := "screenshot.png"
 			sizeBytes := int64(2048)
 			digest := "sha256:" + strings.Repeat("a", 64)
+			contentType := cmp.Or(test.contentType, "image/png")
 			if test.createArtifact {
 				idempotencyKey := executionstore.UploadArtifactIdempotencyKey(toolCallID)
 				if test.unrelatedArtifact {
@@ -1567,7 +1594,7 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 					ID:             artifactID,
 					ProjectID:      testProjectID,
 					AgentID:        fixture.AgentID,
-					ContentType:    "image/png",
+					ContentType:    contentType,
 					Filename:       &filename,
 					Digest:         &digest,
 					SizeBytes:      &sizeBytes,
@@ -1637,11 +1664,24 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			)
 			if test.createArtifact && test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
-				wantContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
-						`","digest":"` + digest + `"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
-						`","exclude_from_model_context":true}]`,
-				)
+				metadataPart := `{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
+					`","digest":"` + digest + `"}}`
+				mediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() + `"}`
+				excludedMediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() +
+					`","exclude_from_model_context":true}`
+				wantExcluded := true
+				wantContent := []byte(`[` + metadataPart + `,` + excludedMediaPart + `]`)
+				wantModelContent := []byte(`[` + metadataPart + `]`)
+				switch test.name {
+				case "viewed_artifact":
+					wantExcluded = false
+					wantContent = []byte(`[` + metadataPart + `,` + mediaPart + `]`)
+					wantModelContent = wantContent
+				case "viewed_non_image":
+					notePart := `{"type":"text","text":"not shown: image/svg+xml is not a PNG, JPEG, GIF, or WebP image"}`
+					wantContent = []byte(`[` + metadataPart + `,` + notePart + `,` + excludedMediaPart + `]`)
+					wantModelContent = []byte(`[` + metadataPart + `,` + notePart + `]`)
+				}
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
 					t.Fatalf(
 						"GetToolCall content = %s, want %s",
@@ -1667,9 +1707,6 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 						wantContent,
 					)
 				}
-				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `","digest":"` + digest + `"}}]`,
-				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
 					t.Fatalf("upload model result = %+v, want %s", result, wantModelContent)
@@ -1692,7 +1729,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 					t.Fatalf("load upload artifact content block: %v", err)
 				}
 				if blockKind != "artifact" || storedArtifactID != artifactID ||
-					!excludeFromModelContext {
+					excludeFromModelContext != wantExcluded {
 					t.Fatalf(
 						"upload artifact block = kind=%s artifact=%s exclude_from_model_context=%t",
 						blockKind,

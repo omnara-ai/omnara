@@ -389,7 +389,7 @@ func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
 				{
 					Type:           "tool_call",
 					ProviderCallID: "call_second",
-					ToolName:       "read_file",
+					ToolName:       "storage_read",
 					ToolInput:      json.RawMessage(`{}`),
 				},
 			},

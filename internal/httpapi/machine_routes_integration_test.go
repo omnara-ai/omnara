@@ -3119,7 +3119,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 		primaryToolInputBuilder,
 	)
 	spec := processcmd.ForShell("echo ok", "sh", "pipe")
-	if toolName == "upload_file" || toolName == "download_file" {
+	if toolName == "storage_upload" || toolName == "storage_download" {
 		var input struct {
 			Path           string  `json:"path"`
 			Source         string  `json:"source"`
@@ -3130,7 +3130,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 			t.Fatal(err)
 		}
 		transfer := processcmd.FileTransfer{Direction: processcmd.FileTransferUpload, LocalPath: input.Source}
-		if toolName == "download_file" {
+		if toolName == "storage_download" {
 			transfer.Direction, transfer.LocalPath = processcmd.FileTransferDownload, input.Destination
 		}
 		if strings.HasPrefix(input.Path, "/memory/") {
@@ -3275,7 +3275,7 @@ func createHTTPProcessToolCallBatch(
 	modelContext := modelCall.Context
 	providerResponseID := "resp_" + name
 	primaryToolInput := json.RawMessage(`{}`)
-	if toolName == "upload_file" {
+	if toolName == "storage_upload" {
 		primaryToolInput = json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`)
 	}
 	if primaryToolInputBuilder != nil {

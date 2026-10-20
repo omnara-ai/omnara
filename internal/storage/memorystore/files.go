@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,20 +43,49 @@ type WriteResult struct {
 	Digest string
 }
 
+type FileView struct {
+	Digest string
+	At     time.Time
+}
+
+func (s *Store) LastSeen(ctx context.Context, agentID uuid.UUID, path string) (FileView, bool, error) {
+	row, err := s.q.GetAgentMemoryFileLastSeen(ctx, dbsqlc.GetAgentMemoryFileLastSeenParams{
+		AgentID: agentID, Path: path,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return FileView{}, false, nil
+	}
+	if err != nil {
+		return FileView{}, false, fmt.Errorf("load memory file history: %w", err)
+	}
+	return FileView{Digest: row.Digest, At: row.CompletedAt}, true, nil
+}
+
+type File struct {
+	Digest     string
+	Content    []byte
+	ModifiedAt time.Time
+}
+
 func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (string, []byte, error) {
+	file, err := s.ReadFile(ctx, scope, storeID, path)
+	return file.Digest, file.Content, err
+}
+
+func (s *Store) ReadFile(ctx context.Context, scope Scope, storeID uuid.UUID, path string) (File, error) {
 	if err := ValidatePath(path); err != nil {
-		return "", nil, storeerr.InvalidRequest(err)
+		return File{}, storeerr.InvalidRequest(err)
 	}
 	root, err := s.openStoreForRead(ctx, scope, storeID)
 	if err != nil {
-		return "", nil, fileReadError(err)
+		return File{}, fileReadError(err)
 	}
 	defer func() { _ = root.Close() }()
-	body, err := memoryops.Read(root, path)
+	body, modified, err := memoryops.ReadModified(root, path)
 	if err != nil {
-		return "", nil, fileReadError(err)
+		return File{}, fileReadError(err)
 	}
-	return blobstore.ContentDigest(body), body, nil
+	return File{Digest: blobstore.ContentDigest(body), Content: body, ModifiedAt: modified}, nil
 }
 
 func fileReadError(err error) error {
