@@ -35,6 +35,16 @@ type AgentExecutor struct {
 	OnModelFailure           func(ctx context.Context, projectID, agentID, runtimeLockID uuid.UUID) error
 }
 
+func (e AgentExecutor) ExecuteModelWorkStep(
+	ctx context.Context, input ModelWorkExecution,
+) (executionstore.StepDisposition, error) {
+	disposition := executionstore.StepRetained
+	input.finishClaim = true
+	input.disposition = &disposition
+	err := e.ExecuteModelWork(ctx, input)
+	return disposition, err
+}
+
 func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) error {
 	if e.Store == nil {
 		return errors.New("kernel store is required")
@@ -125,6 +135,15 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 			"model work organization, project, agent, turn, runtime lock, opening inputs, " +
 				"and opening event sequence are required",
 		)
+	}
+	if input.Prepared != nil {
+		record := input.Prepared.Claim.Context
+		if input.Kind == executionstore.ModelWorkResume || record.ID == uuid.Nil ||
+			record.OrgID != input.OrgID || record.ProjectID != input.ProjectID || record.AgentID != input.AgentID ||
+			record.RuntimeLockID != input.RuntimeLockID || record.AgentConfigID != input.Prepared.Snapshot.AgentConfig.ID ||
+			record.InputEventSequence != input.Prepared.Snapshot.InputEventSequence {
+			return errors.New("prepared model work does not match its claim")
+		}
 	}
 	switch input.Kind {
 	case executionstore.ModelWorkStart:

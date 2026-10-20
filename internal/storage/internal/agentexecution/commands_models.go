@@ -2,6 +2,7 @@ package agentexecution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -234,9 +235,13 @@ func (h *Handle) createAttempt(
 	if err := m.updated(snapshot); err != nil {
 		return PreparedModel{}, err
 	}
-	desired.Record = &dbsqlc.GetModelCallContextRow{ID: created.ID, OrgID: created.OrgID, ProjectID: created.ProjectID, AgentID: created.AgentID,
-		OperationKind: string(c.Operation), AttemptNumber: c.Attempt, AgentConfigID: desired.ConfigID, ConfiguredModelRevisionID: revision.CurrentRevisionID,
-		InputEventSequence: c.InputEventSequence, SourceEventSequenceEnd: optionalSequence(c.SourceEventSequenceEnd), RuntimeLockID: desired.RuntimeLockID, State: "started", CreatedAt: created.CreatedAt}
+	desired.Record = &dbsqlc.GetModelCallContextRow{
+		ID: created.ID, OrgID: created.OrgID, ProjectID: created.ProjectID, AgentID: created.AgentID,
+		OperationKind: string(c.Operation), AttemptNumber: c.Attempt, AgentConfigID: desired.ConfigID,
+		ConfiguredModelRevisionID: revision.CurrentRevisionID, InputEventSequence: c.InputEventSequence,
+		SourceEventSequenceEnd: optionalSequence(c.SourceEventSequenceEnd), RuntimeLockID: desired.RuntimeLockID,
+		State: "started", CreatedAt: created.CreatedAt, ErrorDetails: json.RawMessage(`{}`),
+	}
 	desired.RevisionID = revision.CurrentRevisionID
 	desired.Created = true
 	desired.Claimed = revision.Allowed

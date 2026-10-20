@@ -3,6 +3,7 @@
 package executionstore_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ func TestPrepareNormalModelCallRollbackAndReplay(t *testing.T) {
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, "prepare_rollback")
 	input := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
-	reclaimAgentWork(t, ctx, &f)
+	reclaimUnpreparedAgentWork(t, ctx, &f)
 	prepare := executionstore.PrepareNormalModelCallInput{
 		ProjectID:       testProjectID,
 		AgentID:         f.AgentID,
@@ -105,7 +106,7 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 			if initial {
 				first := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "first")
 				second := ownedInput(t, ctx, f, executionstore.DeliveryModeSteering, "second")
-				work = reclaimAgentWork(t, ctx, &f)
+				work = reclaimUnpreparedAgentWork(t, ctx, &f)
 				require.Equal(t, []uuid.UUID{first.ID, second.ID}, work.Model.InputIDs)
 				admitted := work.Model.AdmittedInputTurn
 				require.Len(t, admitted.Events, 2)
@@ -118,7 +119,7 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 			} else {
 				id := createToolCallForProcessTest(t, ctx, f, "tool", "read_process")
 				ownedCompleteTool(t, ctx, f, id)
-				work = reclaimAgentWork(t, ctx, &f)
+				work = reclaimUnpreparedAgentWork(t, ctx, &f)
 			}
 			input := executionstore.PrepareNormalModelCallInput{
 				ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
@@ -169,4 +170,14 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 			require.False(t, replay.Claim.Claimed)
 		})
 	}
+}
+
+func reclaimUnpreparedAgentWork(t *testing.T, ctx context.Context, f *processDaemonFixture) executionstore.ClaimedAgentWork {
+	t.Helper()
+	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+	work, found, err := f.Store.Execution().IntegrationClaimUnprepared(ctx, testClaimNextAgentWorkInput())
+	require.NoError(t, err)
+	require.True(t, found)
+	f.Lock = work.RuntimeLock
+	return work
 }

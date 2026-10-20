@@ -4,6 +4,8 @@ package agentexecution
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
+	"io"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -33,4 +35,26 @@ func LockTestAgent(
 func CapacityExemptForTest(input ReceiveContentInput) ReceiveContentInput {
 	input.capacityExempt = true
 	return input
+}
+
+func LoseTestCommitAcknowledgement(unit *Unit, committed bool) {
+	unit.tx = lostTestCommit{Tx: unit.tx, committed: committed}
+}
+
+type lostTestCommit struct {
+	pgx.Tx
+	committed bool
+}
+
+func (tx lostTestCommit) Commit(ctx context.Context) error {
+	if tx.committed {
+		if err := tx.Tx.Commit(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.Tx.Rollback(ctx); err != nil {
+			return err
+		}
+	}
+	return io.ErrUnexpectedEOF
 }

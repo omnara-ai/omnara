@@ -222,7 +222,9 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 	route := AgentRoute{ProjectID: wakeup.ProjectID,
 		AgentID: wakeup.AgentID, RootAgentID: wakeup.RootAgentID}
 	if u.handles[route.AgentID] == nil {
-		u.handles[route.AgentID] = &Handle{unit: u, route: route, identity: &dbsqlc.LockAgentInProjectRow{ID: route.AgentID, OrgID: wakeup.OrgID, State: wakeup.State}}
+		u.handles[route.AgentID] = &Handle{unit: u, route: route, identity: &dbsqlc.LockAgentInProjectRow{
+			ID: route.AgentID, OrgID: wakeup.OrgID, State: wakeup.State,
+		}}
 	}
 	u.claimedAgent = route.AgentID
 	return route, nil
@@ -279,4 +281,8 @@ func (u *Unit) PlanSubagentLaunch(ctx context.Context, projectID, parentID uuid.
 	root := plan.agents[0].RootAgentID
 	plan.agents = append(plan.agents, AgentRoute{ProjectID: projectID, AgentID: root, RootAgentID: root})
 	return plan, nil
+}
+
+func (u *Unit) PlanKnownAgents(routes []AgentRoute) MutationPlan {
+	return MutationPlan{unit: u, agents: slices.Clone(routes)}
 }

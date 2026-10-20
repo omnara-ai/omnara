@@ -8,6 +8,9 @@ import (
 )
 
 type ModelWorkExecution struct {
+	Completion               *executionstore.StepCompletion
+	finishClaim              bool
+	disposition              *executionstore.StepDisposition
 	Prepared                 *executionstore.PreparedNormalModelCall
 	RootAgentID              uuid.UUID
 	Kind                     executionstore.ModelWorkKind
@@ -25,6 +28,9 @@ type ModelWorkExecution struct {
 }
 
 type ToolWorkExecution struct {
+	Completion         *executionstore.StepCompletion
+	finishClaim        bool
+	disposition        *executionstore.StepDisposition
 	Prepared           *executionstore.PreparedToolWork
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID

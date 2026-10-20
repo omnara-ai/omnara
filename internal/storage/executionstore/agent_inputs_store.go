@@ -101,6 +101,12 @@ func (s *Store) ClaimNextAgentWork(
 	ctx context.Context,
 	input ClaimNextAgentWorkInput,
 ) (ClaimedAgentWork, bool, error) {
+	return s.claimNextAgentWork(ctx, input, true)
+}
+
+func (s *Store) claimNextAgentWork(
+	ctx context.Context, input ClaimNextAgentWorkInput, prepare bool,
+) (ClaimedAgentWork, bool, error) {
 	type executionResult struct {
 		work  ClaimedAgentWork
 		found bool
@@ -145,7 +151,7 @@ func (s *Store) ClaimNextAgentWork(
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
-			if claim.Kind == AgentWorkModel && claim.Model.Kind != ModelWorkResume {
+			if prepare && claim.Kind == AgentWorkModel && claim.Model.Kind != ModelWorkResume {
 				prepared, err := prepareExecutionModel(ctx, unit, PrepareNormalModelCallInput{
 					ProjectID: claim.ProjectID, AgentID: claim.AgentID, RuntimeLockID: claim.RuntimeLock.ID,
 					OpeningInputIDs: claim.Model.InputIDs, SourceModelCallContextID: claim.Model.SourceModelCallContextID,

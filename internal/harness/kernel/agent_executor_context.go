@@ -368,9 +368,13 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	input ModelWorkExecution,
 	step modelStep,
 ) (modelStep, error) {
+	finish := input.Completion.Begin()
+	finished := false
+	defer func() { finish(finished) }()
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
+			RootAgentID: input.RootAgentID, FinishClaim: input.finishClaim,
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
 			RuntimeLockID:      input.RuntimeLockID,
@@ -381,6 +385,10 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	)
 	if err != nil {
 		return modelStep{}, err
+	}
+	finished = input.finishClaim
+	if finished && input.disposition != nil {
+		*input.disposition = executionstore.StepFinished
 	}
 	step.State = modelStepDone
 	return step, nil

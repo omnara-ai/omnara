@@ -208,7 +208,8 @@ func (u *Unit) RenewRuntime(
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
 	}
-	return RuntimeRenewal{Runtime: RuntimeRecord(expires), LeaseExpiresAt: expires.LeaseExpiresAt, LocalStartedAt: started}, err
+	return RuntimeRenewal{Runtime: RuntimeRecord(expires),
+		LeaseExpiresAt: expires.LeaseExpiresAt, LocalStartedAt: started}, err
 }
 
 func (h *Handle) releaseRuntime(
@@ -365,4 +366,21 @@ func (h *Handle) releaseRuntime(
 	m.loaded.databaseNow = runtime.DatabaseNow
 	m.dirty = true
 	return m.selectLoaded()
+}
+
+func (h *Handle) finishRuntime(ctx context.Context, m *executionMutation, id uuid.UUID) error {
+	if h.lockedRuntimeID != id {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	n, err := executiondb.New().DeleteExecutionRuntime(ctx, h.unit.DB(), executiondb.DeleteExecutionRuntimeParams{
+		AgentID: h.route.AgentID, ID: id,
+	})
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	m.dirty = true
+	return nil
 }

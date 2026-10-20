@@ -18,6 +18,7 @@ type ToolProposal struct {
 	Type           string
 }
 type AcceptOutputInput struct {
+	FinishClaim   bool
 	RuntimeLockID uuid.UUID
 	ContextID     uuid.UUID
 	RequestID     string
@@ -101,9 +102,6 @@ func outputParts(
 
 func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (AcceptedOutput, error) {
-		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
-			return AcceptedOutput{}, err
-		}
 		q := executiondb.New()
 		source, err := q.ReadExecutionAttempt(
 			ctx,
@@ -119,11 +117,14 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if source.RuntimeLockID != input.RuntimeLockID {
 			return AcceptedOutput{}, storeerr.ErrRuntimeLockInactive
 		}
-		if source.State != "started" && source.State != "succeeded" {
-			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
-		}
 		if source.State == "succeeded" {
 			return h.replayOutput(ctx, source.ID, input.Tools)
+		}
+		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
+			return AcceptedOutput{}, err
+		}
+		if source.State != "started" {
+			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		if err := input.Response.Validate(); err != nil {
 			return AcceptedOutput{}, err
@@ -218,6 +219,11 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				strings.TrimSpace(input.Response.Text()),
 				"model_output:"+output.ID.String(),
 				uuid.Nil); err != nil {
+				return AcceptedOutput{}, err
+			}
+		}
+		if input.FinishClaim {
+			if err := h.finishRuntime(ctx, m, input.RuntimeLockID); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
@@ -335,4 +341,21 @@ func successfulInputFingerprint(response modelenvelope.ResponseEnvelope) string 
 		return ""
 	}
 	return response.InputFingerprint
+}
+
+func (h *Handle) ResolveOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, bool, error) {
+	source, err := executiondb.New().ReadExecutionAttempt(ctx, h.unit.DB(), executiondb.ReadExecutionAttemptParams{
+		AgentID: h.route.AgentID, ID: input.ContextID,
+	})
+	if err != nil {
+		return AcceptedOutput{}, false, err
+	}
+	if source.RuntimeLockID != input.RuntimeLockID {
+		return AcceptedOutput{}, false, storeerr.ErrRuntimeLockInactive
+	}
+	if source.State != "succeeded" || source.OperationKind != "normal" {
+		return AcceptedOutput{}, false, nil
+	}
+	result, err := h.replayOutput(ctx, source.ID, input.Tools)
+	return result, err == nil, err
 }

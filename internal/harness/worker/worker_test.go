@@ -1176,3 +1176,39 @@ func TestWorkerDrainInterruptsPendingClaimAndRunsItsLease(t *testing.T) {
 		}
 	})
 }
+
+type finishedModelStepExecutor struct {
+	fixedModelErrorExecutor
+	renewalCanceled atomic.Bool
+}
+
+func (e *finishedModelStepExecutor) ExecuteModelWorkStep(
+	ctx context.Context, input kernel.ModelWorkExecution,
+) (executionstore.StepDisposition, error) {
+	finish := input.Completion.Begin()
+	input.Completion.LeaseLost(func() { e.renewalCanceled.Store(true) })
+	finish(true)
+	return executionstore.StepFinished, ctx.Err()
+}
+
+func TestWorkerFinishedStepDoesNotReleaseAgainOrFailRenewal(t *testing.T) {
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			ProjectID: uuid.New(), AgentID: uuid.New(), Kind: executionstore.AgentWorkModel,
+			RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+			LocalLeaseBudgetStartedAt: time.Now(),
+		},
+		released: make(chan uuid.UUID, 1),
+	}
+	executor := &finishedModelStepExecutor{}
+	worker := NewWorker(store, executor, Options{RuntimeLockLeaseDuration: time.Minute, Capacity: 1})
+	worked, err := worker.RunOnce(t.Context())
+	require.NoError(t, err)
+	require.True(t, worked)
+	require.False(t, executor.renewalCanceled.Load())
+	select {
+	case <-store.released:
+		t.Fatal("finished step released twice")
+	default:
+	}
+}
