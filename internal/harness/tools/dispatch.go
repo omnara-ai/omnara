@@ -53,7 +53,8 @@ func (e Executor) dispatchToolHandler(
 	execution, err := e.Store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{
-			Authorize: turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
+			RequireCompletion: handler.completion != completionUnspecified,
+			Authorize:         turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
 			ProjectID:     turn.ProjectID,
 			AgentID:       turn.AgentID,
 			ToolCallID:    toolCallID,
@@ -533,6 +534,7 @@ func (e Executor) executeAsyncTool(
 }
 
 type toolHandler struct {
+	completion    toolCompletionCapability
 	Transactional transactionalToolHandler
 	Async         asyncToolHandler
 	Background    backgroundToolHandler

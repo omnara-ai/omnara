@@ -89,6 +89,7 @@ subagents:
 				))
 				require.EqualValues(t, 4, trace.commits.Load())
 			}
+			t.Logf("%s: %d explicit commits for one model step", name, trace.commits.Load())
 			claim, found, err = counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
 			require.NoError(t, err)
 			require.True(t, found)

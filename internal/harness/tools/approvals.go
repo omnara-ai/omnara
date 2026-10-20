@@ -16,8 +16,29 @@ import (
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
+type AuthorizationDisposition uint8
+
+const (
+	AuthorizationPersisted AuthorizationDisposition = iota
+	AuthorizationOnDispatch
+)
+
+type ToolPermissionPreparation struct {
+	Record        executionstore.ToolCallRecord
+	Authorization AuthorizationDisposition
+}
+
 func (e Executor) PrepareRecordedToolCallPermission(
 	ctx context.Context, turn Turn, proposal executionstore.ToolCallRecord,
+) (ToolPermissionPreparation, error) {
+	result := ToolPermissionPreparation{}
+	record, err := e.prepareRecordedToolCallPermission(ctx, turn, proposal, &result.Authorization)
+	result.Record = record
+	return result, err
+}
+
+func (e Executor) prepareRecordedToolCallPermission(
+	ctx context.Context, turn Turn, proposal executionstore.ToolCallRecord, disposition *AuthorizationDisposition,
 ) (executionstore.ToolCallRecord, error) {
 	if proposal.ProjectID != turn.ProjectID || proposal.AgentID != turn.AgentID ||
 		proposal.ModelCallContextID != turn.ModelCallContextID {
@@ -134,7 +155,9 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	}
 	switch modeResult.kind {
 	case permissionModeAllow:
-		if turn.MergeAuthorization && toolType == toolcatalog.ToolTypeBuiltIn && call.Name == toolcatalog.ToolNameListAgents {
+		if turn.MergeAuthorization && toolType == toolcatalog.ToolTypeBuiltIn &&
+			implementation.completion == completionBoundedDatabase {
+			*disposition = AuthorizationOnDispatch
 			return proposal, nil
 		}
 		return e.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{

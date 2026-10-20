@@ -384,3 +384,63 @@ func validateRegisteredToolInput(name string, input json.RawMessage) error {
 	}
 	return implementation.validateInput(input)
 }
+
+func TestDatabaseCompletionCapabilities(t *testing.T) {
+	expected := map[string]toolLockRequirements{
+		"list_agents": locksCallingAgent, "read_agent": locksCallingAgent,
+		"send_agent_message": locksAgentFamily, "list_processes": locksCallingAgent,
+		"list_machines": locksCallingAgent, "inspect_machine": locksCallingAgent,
+		"tool_search": locksCallingAgent, "list_interaction_handlers": locksCallingAgent,
+		"set_interaction_handler": locksResourcesBeforeAgents,
+	}
+	background := map[string]bool{"create_machine": true, "delete_machine": true, "spawn_agent": true, "stop_agent": true}
+	registry, err := buildToolImplementationRegistry()
+	require.NoError(t, err)
+	for name, implementation := range registry.tools {
+		want := completionUnspecified
+		if locks, ok := expected[name]; ok {
+			want = completionBoundedDatabase
+			require.Equal(t, locks, implementation.locks, name)
+		}
+		if background[name] {
+			want = completionDatabaseWithBackground
+			require.Equal(t, locksResourcesBeforeAgents, implementation.locks, name)
+		}
+		require.Equal(t, want, implementation.completion, name)
+		require.Equal(t, want, implementation.handler.completion, name)
+		require.NoError(t, validateCompletionCapability(implementation.toolRegistration), name)
+	}
+	catalog, err := toolcatalog.Default()
+	require.NoError(t, err)
+	for _, mode := range []string{
+		"async", "missing transaction", "background", "missing locks", "invalid locks", "missing background", "unknown",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			registrations := builtInToolRegistrations()
+			for i := range registrations {
+				r := &registrations[i]
+				if r.name != "list_agents" {
+					continue
+				}
+				switch mode {
+				case "async":
+					r.handler.Async = runReadFileAsync
+				case "missing transaction":
+					r.handler.Transactional = nil
+				case "background":
+					r.handler.Background = wakeProcessTool
+				case "missing locks":
+					r.locks = locksUnspecified
+				case "invalid locks":
+					r.locks = toolLockRequirements(255)
+				case "missing background":
+					r.completion = completionDatabaseWithBackground
+				case "unknown":
+					r.completion = toolCompletionCapability(255)
+				}
+			}
+			_, err := newToolImplementationRegistry(catalog, registrations)
+			require.Error(t, err)
+		})
+	}
+}

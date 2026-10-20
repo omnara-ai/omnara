@@ -22,6 +22,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/stretchr/testify/require"
 )
 
 type requeueingToolWorkExecutor struct {
@@ -161,6 +163,7 @@ func (e *requeueingToolWorkExecutor) Dispatch(
 	if _, err := e.Store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{
+			RootAgentID: turn.RootAgentID, Authorize: turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID,
 			ProjectID:     turn.ProjectID,
 			AgentID:       turn.AgentID,
 			ToolCallID:    record.ID,
@@ -1190,4 +1193,113 @@ ORDER BY block.ordinal ASC
 			t.Fatalf("block[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
+}
+
+type mixedBatchSearch struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *mixedBatchSearch) Search(ctx context.Context, _ webaccess.SearchRequest) (webaccess.SearchResponse, error) {
+	close(s.started)
+	select {
+	case <-ctx.Done():
+		return webaccess.SearchResponse{}, ctx.Err()
+	case <-s.release:
+		return webaccess.SearchResponse{Provider: "test"}, nil
+	}
+}
+
+func TestToolWorkMixedBatchRetainsAsyncAndDeferredOwnership(t *testing.T) {
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx)
+	profile := f.createConfigAndProfileBookmark(t, ctx, "Mixed Batch", "mixed-batch", `instruction: Use tools.
+model:
+  provider_config: openai-prod
+  name: mixed-batch
+subagents:
+  fork:
+    type: self
+tools:
+  list_processes:
+    type: built_in
+    permission:
+      mode: always_allow
+  web_search:
+    type: built_in
+    permission:
+      mode: always_allow
+  list_interaction_handlers:
+    type: built_in
+    permission:
+      mode: always_ask
+`)
+	launch, err := f.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: kernelTestProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
+		LaunchedBy: kernelTestUserPrincipal(kernelTestUserID), IdempotencyKey: "mixed-batch",
+	})
+	require.NoError(t, err)
+	input := f.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "use tools", f.Now)
+	modelClient := &sequenceKernelModel{providerModelSlug: "mixed-batch", responses: []model.Response{{
+		ID: "mixed-response", StopReason: model.StopReasonToolUse,
+		Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
+			{ID: "deferred", Name: "list_processes", Input: json.RawMessage(`{}`)},
+			{ID: "async", Name: "web_search", Input: json.RawMessage(`{"query":"test"}`)},
+			{ID: "database", Name: "list_agents", Input: json.RawMessage(`{}`)},
+			{ID: "permission", Name: "list_interaction_handlers", Input: json.RawMessage(`{}`)},
+		}),
+	}}}
+	search := &mixedBatchSearch{started: make(chan struct{}), release: make(chan struct{})}
+	executor := AgentExecutor{Store: f.Store, ModelResolver: liveTestModelResolver(f.Store, modelClient)}
+	require.NoError(t, executor.ExecuteModelWork(ctx, input))
+	work := nextToolWorkExecution(t, ctx, f, input)
+	work.RootAgentID = launch.Agent.ID
+	work.finishClaim = true
+	disposition := executionstore.StepRetained
+	work.disposition = &disposition
+	work.Completion = &executionstore.StepCompletion{}
+	scope := tools.NewAsyncExecutionScope(tools.NewAsyncExecutionLimiter(1))
+	coordinator := &requeueingToolWorkExecutor{
+		Executor:              tools.Executor{Store: f.Store, WebSearch: search},
+		requeueProviderCallID: "deferred", dispatches: make(map[string]int),
+	}
+	require.NoError(t, executor.executeToolWork(tools.WithAsyncExecutionScope(ctx, scope), work, coordinator))
+	scope.Seal()
+	select {
+	case <-search.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("async handler did not start")
+	}
+	require.Equal(t, executionstore.StepRetained, disposition)
+	require.True(t, scope.Started())
+	select {
+	case <-scope.Done():
+		t.Fatal("scope completed before async persistence")
+	default:
+	}
+	for provider, state := range map[string]string{
+		"deferred": "ready", "async": "running", "database": "completed", "permission": "awaiting_permission",
+	} {
+		var actual string
+		require.NoError(t, f.Pool.QueryRow(ctx,
+			`SELECT state FROM tool_calls WHERE agent_id=$1 AND provider_call_id=$2`, launch.Agent.ID, provider).Scan(&actual))
+		require.Equal(t, state, actual, provider)
+	}
+	_, err = f.Store.Execution().RenewAgentRuntimeLock(ctx, work.ProjectID, work.AgentID, work.RuntimeLockID, time.Minute)
+	require.NoError(t, err)
+	close(search.release)
+	select {
+	case <-scope.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("async persistence did not finish")
+	}
+	require.NoError(t, scope.Err())
+	var state string
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT state FROM tool_calls WHERE agent_id=$1 AND provider_call_id='async'`, launch.Agent.ID).Scan(&state))
+	require.Equal(t, "completed", state)
+	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, work.ProjectID, work.AgentID, work.RuntimeLockID))
+	claim := claimNextAgentWorkForKernelTest(t, ctx, f, work.AgentID, executionstore.AgentWorkTool)
+	require.Equal(t, "deferred", claim.Tool.Prepared.FirstCall.ProviderCallID)
+	require.Equal(t, 1, coordinator.dispatches["deferred"])
 }

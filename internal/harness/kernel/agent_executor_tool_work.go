@@ -31,7 +31,7 @@ type toolWorkExecutor interface {
 	FailRunnableToolCall(context.Context, tools.Turn, model.ToolCall, error) error
 	PrepareRecordedToolCallPermission(
 		context.Context, tools.Turn, executionstore.ToolCallRecord,
-	) (executionstore.ToolCallRecord, error)
+	) (tools.ToolPermissionPreparation, error)
 	DispatchRecordedToolCall(context.Context, tools.Turn, executionstore.ToolCallRecord) (tools.Result, error)
 }
 
@@ -109,18 +109,18 @@ func (e AgentExecutor) executeToolWork(
 		turn.AuthorizeOnDispatch = false
 		call := modelToolCallFromRecord(record)
 		if record.State == executionstore.ToolCallStateAwaitingAuthorization {
-			prepared, err := executor.PrepareRecordedToolCallPermission(ctx, turn, record)
+			preparation, err := executor.PrepareRecordedToolCallPermission(ctx, turn, record)
 			if err != nil {
 				return fmt.Errorf("prepare permission for tool %q: %w", call.ID, err)
 			}
+			prepared := preparation.Record
 			if prepared.ID == uuid.Nil {
 				prepared, err = e.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, record.ID)
 				if err != nil {
 					return err
 				}
 			}
-			if prepared.State == record.State && turn.MergeAuthorization &&
-				record.Name == toolcatalog.ToolNameListAgents && record.Type == toolcatalog.ToolTypeBuiltIn {
+			if preparation.Authorization == tools.AuthorizationOnDispatch {
 				turn.AuthorizeOnDispatch = true
 			} else if prepared.State == record.State {
 				if err := executor.FailRunnableToolCall(ctx, turn, call,
