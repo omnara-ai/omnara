@@ -166,7 +166,7 @@ func (h *Handle) admitInputs(
 		return result, nil
 	}
 	opening, err := q.CaptureExecutionOpening(ctx, h.unit.DB(), executiondb.CaptureExecutionOpeningParams{
-		AgentID: h.route.AgentID, ProjectID: h.route.ProjectID, TurnID: result.TurnID,
+		AgentID: h.route.AgentID, TurnID: result.TurnID,
 		Watermark: last.Sequence, StopSequence: m.head.StopSequence,
 	})
 	if err != nil {

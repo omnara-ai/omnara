@@ -10,13 +10,13 @@ WITH boundary AS MATERIALIZED (
     SELECT i.id,e.sequence,e.created_at FROM boundary b
     JOIN agent_events e ON e.agent_id=sqlc.arg(agent_id) AND e.is_opening_event
         AND e.sequence>b.sequence AND e.sequence<=sqlc.arg(watermark)
-    JOIN agent_inputs i ON i.project_id=sqlc.arg(project_id) AND i.agent_id=e.agent_id AND i.id=e.agent_input_id
+    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
         AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
 )
 SELECT id,sequence,created_at FROM unanswered
 UNION ALL
 SELECT i.id,e.sequence,e.created_at FROM agent_events e
-JOIN agent_inputs i ON i.project_id=sqlc.arg(project_id) AND i.agent_id=e.agent_id AND i.id=e.agent_input_id
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
     AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
 WHERE e.agent_id=sqlc.arg(agent_id) AND e.turn_id=sqlc.arg(turn_id) AND e.is_opening_event
   AND e.sequence<=sqlc.arg(watermark) AND NOT EXISTS(SELECT 1 FROM unanswered)
