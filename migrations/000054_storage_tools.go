@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"unicode/utf8"
 
 	"github.com/pressly/goose/v3"
 	"gopkg.in/yaml.v3"
@@ -55,40 +57,35 @@ func upStorageTools(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+type storageToolConfig struct {
+	id, projectID, hash        string
+	source, format, sourceHash sql.NullString
+	compiled                   []byte
+}
+
 func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `LOCK TABLE agent_configs IN ACCESS EXCLUSIVE MODE`); err != nil {
 		return err
 	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id::text, project_id::text, source, source_format, source_hash,
-		       definition::text, compiled_definition::text, effective_definition_hash
+		       compiled_definition::text, effective_definition_hash
 		FROM agent_configs ORDER BY id`)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
-	var updates []storedAgentConfig
-	seen := make(map[[4]string]string)
+	var updates []storageToolConfig
 	for rows.Next() {
-		var config storedAgentConfig
-		var projectID string
-		if err := rows.Scan(&config.id, &projectID, &config.source, &config.sourceFormat,
-			&config.sourceHash, &config.definition, &config.compiledDefinition,
-			&config.effectiveDefinitionHash); err != nil {
+		var config storageToolConfig
+		if err := rows.Scan(&config.id, &config.projectID, &config.source, &config.format,
+			&config.sourceHash, &config.compiled, &config.hash); err != nil {
 			return err
 		}
 		migrated, changed, err := migrateStorageToolConfig(config)
 		if err != nil {
 			return fmt.Errorf("migrate storage tools in config %s: %w", config.id, err)
 		}
-		key := [4]string{projectID, migrated.effectiveDefinitionHash, migrated.sourceFormat, migrated.sourceHash}
-		if previous, found := seen[key]; found {
-			return fmt.Errorf(
-				"storage tool migration makes configs %s and %s identical; resolve the collision before retrying",
-				previous, config.id,
-			)
-		}
-		seen[key] = config.id
 		if changed {
 			updates = append(updates, migrated)
 		}
@@ -106,58 +103,59 @@ func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	for _, config := range updates {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE agent_configs SET source = $2, source_hash = $3, definition = $4::jsonb,
-			    compiled_definition = $5::jsonb, effective_definition_hash = $6
-			WHERE id = $1::uuid`, config.id, config.source, config.sourceHash,
-			config.definition, config.compiledDefinition, config.effectiveDefinitionHash); err != nil {
-			return fmt.Errorf("update storage tools in config %s: %w", config.id, err)
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_configs SET source=$2, source_hash=$3,
+			compiled_definition=$4::jsonb, effective_definition_hash=$5 WHERE id=$1::uuid`,
+			config.id, config.source, config.sourceHash, config.compiled, config.hash); err != nil {
+			return fmt.Errorf(
+				"update storage tools in config %s (resolve duplicate configs before retrying if necessary): %w",
+				config.id, err,
+			)
 		}
 	}
 	_, err = tx.ExecContext(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
 	return err
 }
 
-func migrateStorageToolConfig(config storedAgentConfig) (storedAgentConfig, bool, error) {
-	definition, definitionChanged, err := renameStorageToolsJSON(config.definition)
-	if err != nil {
-		return config, false, err
-	}
-	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiledDefinition)
+// migrateStorageToolConfig renames the tools in a config's compiled definition and, when present,
+// its source. Compiled configs can include default storage tools that their source omits.
+func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool, error) {
+	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiled)
 	if err != nil {
 		return config, false, err
 	}
 	var source []byte
 	var sourceChanged bool
-	switch config.sourceFormat {
-	case "json":
-		source, sourceChanged, err = renameStorageToolsJSON([]byte(config.source))
-	case "yaml":
-		source, sourceChanged, err = renameStorageToolsYAML([]byte(config.source))
-	default:
-		err = fmt.Errorf("unsupported source format %q", config.sourceFormat)
+	if config.source.Valid {
+		switch config.format.String {
+		case "json":
+			source, sourceChanged, err = renameStorageToolsJSON([]byte(config.source.String))
+		case "yaml":
+			source, sourceChanged, err = renameStorageToolsYAML([]byte(config.source.String))
+		default:
+			err = fmt.Errorf("unsupported source format %q", config.format.String)
+		}
+		if err != nil {
+			return config, false, err
+		}
 	}
-	if err != nil {
-		return config, false, err
-	}
-	if !definitionChanged && !compiledChanged && !sourceChanged {
+	if !compiledChanged && !sourceChanged {
 		return config, false, nil
 	}
-	if !definitionChanged || !compiledChanged || !sourceChanged {
-		return config, false, errors.New("legacy storage tool names differ between config representations")
-	}
-	canonical, err := canonicalJSON(config.compiledDefinition)
+	oldHash, err := explicitDefaultToolsConfigHash(config.compiled)
 	if err != nil {
 		return config, false, err
 	}
-	if hashBytes([]byte(config.source)) != config.sourceHash || hashBytes(canonical) != config.effectiveDefinitionHash {
+	if oldHash != config.hash ||
+		(config.source.Valid && hashBytes([]byte(config.source.String)) != config.sourceHash.String) {
 		return config, false, errors.New("stored config hashes do not match content")
 	}
-	config.source = string(source)
-	config.sourceHash = hashBytes(source)
-	config.definition = definition
-	config.compiledDefinition = compiled
-	config.effectiveDefinitionHash = hashBytes(compiled)
+	config.compiled = compiled
+	if config.hash, err = explicitDefaultToolsConfigHash(compiled); err != nil {
+		return config, false, err
+	}
+	if sourceChanged {
+		config.source.String, config.sourceHash.String = string(source), hashBytes(source)
+	}
 	return config, true, nil
 }
 
@@ -191,6 +189,8 @@ func renameStorageToolsJSON(raw []byte) ([]byte, bool, error) {
 	return encoded, true, err
 }
 
+// renameStorageToolsYAML rewrites only the tool keys in place, because re-encoding the document can
+// change other values, such as folded block scalars with more-indented lines.
 func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 	beforeValue, err := decodeAgentConfigNameMigrationYAML(raw)
 	if err != nil {
@@ -208,15 +208,6 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 		return nil, false, errors.New("config must be an object")
 	}
 	root := document.Content[0]
-	if fileToolYAMLHasReferences(root) {
-		var value map[string]any
-		if err := root.Decode(&value); err != nil {
-			return nil, false, err
-		}
-		if err := root.Encode(value); err != nil {
-			return nil, false, err
-		}
-	}
 	var tools *yaml.Node
 	for i := 0; i < len(root.Content); i += 2 {
 		if root.Content[i].Value == "tools" {
@@ -229,48 +220,44 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 	if tools.Kind != yaml.MappingNode {
 		return nil, false, errors.New("tools must be a mapping")
 	}
-	changed := false
-	for _, names := range storageToolRenames {
-		oldIndex, newIndex := -1, -1
-		for i := 0; i < len(tools.Content); i += 2 {
-			switch tools.Content[i].Value {
-			case names[0]:
-				oldIndex = i
-			case names[1]:
-				newIndex = i
-			}
-		}
-		if oldIndex < 0 {
-			continue
-		}
-		if newIndex >= 0 {
-			var oldValue, newValue any
-			if err := tools.Content[oldIndex+1].Decode(&oldValue); err != nil {
-				return nil, false, err
-			}
-			if err := tools.Content[newIndex+1].Decode(&newValue); err != nil {
-				return nil, false, err
-			}
-			if !reflect.DeepEqual(oldValue, newValue) {
-				return nil, false, fmt.Errorf("tools %s and %s have different settings", names[0], names[1])
-			}
-			tools.Content = append(tools.Content[:oldIndex], tools.Content[oldIndex+2:]...)
-		} else {
-			tools.Content[oldIndex].Value = names[1]
-		}
-		changed = true
+	present := make(map[string]bool, len(tools.Content)/2)
+	for i := 0; i < len(tools.Content); i += 2 {
+		present[tools.Content[i].Value] = true
 	}
-	if !changed {
+	type keyEdit struct {
+		start, end int
+		name       string
+	}
+	var edits []keyEdit
+	for i := 0; i < len(tools.Content); i += 2 {
+		key := tools.Content[i]
+		for _, names := range storageToolRenames {
+			if key.Value != names[0] {
+				continue
+			}
+			if present[names[1]] {
+				return nil, false, fmt.Errorf("tools %s and %s are both set", names[0], names[1])
+			}
+			start, err := yamlNodeOffset(raw, key)
+			if err != nil {
+				return nil, false, err
+			}
+			if key.Style == yaml.DoubleQuotedStyle || key.Style == yaml.SingleQuotedStyle {
+				start++
+			}
+			end := start + len(names[0])
+			if end > len(raw) || string(raw[start:end]) != names[0] {
+				return nil, false, fmt.Errorf("tool key %s is not written literally", names[0])
+			}
+			edits = append(edits, keyEdit{start: start, end: end, name: names[1]})
+		}
+	}
+	if len(edits) == 0 {
 		return raw, false, nil
 	}
-	var encoded bytes.Buffer
-	encoder := yaml.NewEncoder(&encoded)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&document); err != nil {
-		return nil, false, err
-	}
-	if err := encoder.Close(); err != nil {
-		return nil, false, err
+	encoded := slices.Clone(raw)
+	for _, edit := range slices.Backward(edits) {
+		encoded = slices.Concat(encoded[:edit.start], []byte(edit.name), encoded[edit.end:])
 	}
 	expectedTools, _ := before["tools"].(map[string]any)
 	for _, names := range storageToolRenames {
@@ -279,12 +266,32 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 			delete(expectedTools, names[0])
 		}
 	}
-	after, err := decodeAgentConfigNameMigrationYAML(encoded.Bytes())
+	after, err := decodeAgentConfigNameMigrationYAML(encoded)
 	if err != nil {
 		return nil, false, fmt.Errorf("parse migrated source: %w", err)
 	}
 	if !reflect.DeepEqual(after, before) {
 		return nil, false, errors.New("renaming storage tools changed other source values")
 	}
-	return encoded.Bytes(), true, nil
+	return encoded, true, nil
+}
+
+// yamlNodeOffset converts a node's 1-based line and character column to a byte offset.
+func yamlNodeOffset(raw []byte, node *yaml.Node) (int, error) {
+	offset := 0
+	for line := 1; line < node.Line; line++ {
+		next := bytes.IndexByte(raw[offset:], '\n')
+		if next < 0 {
+			return 0, errors.New("yaml node line is out of range")
+		}
+		offset += next + 1
+	}
+	for column := 1; column < node.Column; column++ {
+		_, size := utf8.DecodeRune(raw[offset:])
+		if size == 0 || raw[offset] == '\n' {
+			return 0, errors.New("yaml node column is out of range")
+		}
+		offset += size
+	}
+	return offset, nil
 }

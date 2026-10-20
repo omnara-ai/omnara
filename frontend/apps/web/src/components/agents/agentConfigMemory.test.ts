@@ -84,7 +84,10 @@ interaction_handlers: {chat: {}}
         { name: 'unavailable', access: 'read' },
         { name: 'new-store', access: 'read_write' },
       ],
-      tools: { storage_write: { enabled: false }, storage_read: { permission: { mode: 'always_ask' } } },
+      tools: {
+        storage_write: { enabled: false },
+        storage_read: { permission: { mode: 'always_ask' } },
+      },
     })
     const next = createBasicConfigSession(updated)
     expect(next.initialDraft && next.apply(next.initialDraft)).toBe(updated)
@@ -100,7 +103,10 @@ interaction_handlers: {chat: {}}
     const updated: unknown = parse(session.apply({ ...draft, memoryStores: [] }))
     expect(updated).not.toHaveProperty('memory_stores')
     expect(updated).toMatchObject({
-      tools: { storage_write: { enabled: false }, storage_read: { permission: { mode: 'always_ask' } } },
+      tools: {
+        storage_write: { enabled: false },
+        storage_read: { permission: { mode: 'always_ask' } },
+      },
     })
   })
 })

@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,8 +58,14 @@ func releasedExecutionFixture(t *testing.T) executionFixture {
 		require.NoError(t, readErr)
 		files[entry.Name()] = &fstest.MapFile{Data: body, Mode: fs.FileMode(0600)}
 	}
+	var goMigrations []*goose.Migration
+	for _, migration := range schemamigrations.GoMigrations() {
+		if migration.Version <= 52 {
+			goMigrations = append(goMigrations, migration)
+		}
+	}
 	db := stdlib.OpenDBFromPool(pool)
-	require.NoError(t, dbmigrate.ApplyPostgres(ctx, db, files, schemamigrations.GoMigrations()...))
+	require.NoError(t, dbmigrate.ApplyPostgres(ctx, db, files, goMigrations...))
 	require.NoError(t, db.Close())
 	return seedExecutionFixture(t, pool)
 }

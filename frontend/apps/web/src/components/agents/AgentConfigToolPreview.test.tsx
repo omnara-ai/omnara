@@ -643,8 +643,9 @@ it('displays retrieval defaults without changing source and saves only edited ov
     expect(parse(saved)).toHaveProperty('tools.storage_read.enabled', false)
     expect(parse(saved)).toHaveProperty('tools.storage_search.permission.mode', 'always_ask')
     expect(
-      createBasicConfigSession(saved).initialDraft?.tools.find((tool) => tool.name === 'storage_read')
-        ?.enabled,
+      createBasicConfigSession(saved).initialDraft?.tools.find(
+        (tool) => tool.name === 'storage_read',
+      )?.enabled,
     ).toBe(false)
   })
   clickLabel('Remove web search')

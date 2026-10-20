@@ -16,10 +16,10 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		Instruction: "Help.",
 		Model:       agentconfig.ModelCompiled{ConfiguredModelID: uuid.New()},
 		Tools: map[string]agentconfig.ToolCompiled{
-			"spawn_agent": {Enabled: true},
-			"read_agent":  {Enabled: true},
-			"storage_write":  {Enabled: true},
-			"skill":       {Enabled: false},
+			"spawn_agent":   {Enabled: true},
+			"read_agent":    {Enabled: true},
+			"storage_write": {Enabled: true},
+			"skill":         {Enabled: false},
 		},
 		MemoryStores: []agentconfig.MemoryStoreCompiled{
 			{ID: uuid.New(), Access: "read"},
