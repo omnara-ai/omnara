@@ -540,10 +540,10 @@ func StopSubagentForToolCall(
 			return nil, storeerr.InvalidRequest(errors.New("target agent is not a subagent of this agent"))
 		}
 		call, err := getToolCallTx(ctx, tx.tx, tx.input.ProjectID, tx.input.AgentID, tx.input.ToolCallID)
-		if err != nil {
+		if err != nil && !errors.Is(err, storeerr.ErrNotFound) {
 			return nil, err
 		}
-		if call.State == ToolCallStateCompleted {
+		if err == nil && call.State == ToolCallStateCompleted {
 			_, err := tx.completeToolCall(ctx, completion)
 			return nil, err
 		}

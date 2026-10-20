@@ -160,7 +160,8 @@ func TestStopSubagentPlansCallerAndTreeBeforeMutation(t *testing.T) {
 				}
 				assertExecutionAgentOrder(t, f, first, second, func(ctx context.Context) error {
 					_, err := f.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
-						ProjectID: testProjectID, AgentID: parent, ToolCallID: uuid.New(), RuntimeLockID: uuid.New(),
+						RootAgentID: parent,
+						ProjectID:   testProjectID, AgentID: parent, ToolCallID: uuid.New(), RuntimeLockID: uuid.New(),
 					}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 						return executionstore.StopSubagentForToolCall(executionstore.StopSubagentInput{
 							TargetAgentID: child, Archive: archive,

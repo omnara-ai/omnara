@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -331,11 +332,11 @@ const (
 )
 
 func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, authorize bool) (ToolDispatch, error) {
-	state, err := executiondb.New().ReadExecutionToolDispatch(
+	state, stateErr := executiondb.New().ReadExecutionToolDispatch(
 		ctx, h.unit.DB(), executiondb.ReadExecutionToolDispatchParams{AgentID: h.route.AgentID, ID: ref.ID},
 	)
-	if err != nil {
-		return 0, err
+	if stateErr != nil && !errors.Is(stateErr, pgx.ErrNoRows) {
+		return 0, stateErr
 	}
 	if acceptExisting && state == "completed" {
 		return ToolDispatchCompleted, nil
@@ -352,6 +353,9 @@ func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, 
 	); err != nil {
 		return 0, err
 	}
+	if stateErr != nil {
+		return 0, stateErr
+	}
 	switch state {
 	case "ready":
 		return ToolDispatchReady, nil
@@ -360,10 +364,6 @@ func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, 
 	case "waiting":
 		if acceptExisting {
 			return ToolDispatchWaiting, nil
-		}
-	case "completed":
-		if acceptExisting {
-			return ToolDispatchCompleted, nil
 		}
 	}
 	return 0, storeerr.ErrIdempotencyConflict
