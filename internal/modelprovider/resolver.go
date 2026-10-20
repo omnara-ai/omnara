@@ -39,11 +39,18 @@ type OpenRouterAttribution struct {
 	AppCategories []string
 }
 
+const providerMaxIdleConnsPerHost = 1024
+
 var (
-	defaultHTTPTransport  = ssrf.NewTransport(ssrf.TransportOptions{DisableResponseHeaderTimeout: true})
-	loopbackHTTPTransport = ssrf.NewTransport(
-		ssrf.TransportOptions{AllowLoopback: true, DisableResponseHeaderTimeout: true},
-	)
+	defaultHTTPTransport = ssrf.NewTransport(ssrf.TransportOptions{
+		DisableResponseHeaderTimeout: true,
+		MaxIdleConnsPerHost:          providerMaxIdleConnsPerHost,
+	})
+	loopbackHTTPTransport = ssrf.NewTransport(ssrf.TransportOptions{
+		AllowLoopback:                true,
+		DisableResponseHeaderTimeout: true,
+		MaxIdleConnsPerHost:          providerMaxIdleConnsPerHost,
+	})
 )
 
 func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model.ResolvedClient, error) {
