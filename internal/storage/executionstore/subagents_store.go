@@ -27,6 +27,7 @@ const (
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
 	SubagentStateWaitingOnInteraction = "waiting_on_interaction"
+	SubagentStateWaitingOnWork        = "waiting_on_work"
 	SubagentStateArchived             = "archived"
 )
 
@@ -48,6 +49,22 @@ type SubagentStatus struct {
 	IsRunning         bool
 	HasOpenQuestion   bool
 	HasOpenPermission bool
+	WaitingOn         AgentWaitingOn
+}
+
+// AgentWaitingOn lists the background work that will wake an agent in the
+// waiting_on_work state: processes that notify on exit and working subagents.
+type AgentWaitingOn struct {
+	ProcessIDs  []uuid.UUID
+	SubagentIDs []uuid.UUID
+}
+
+func agentWaitingOn(processIDs, subagentIDs []uuid.UUID) AgentWaitingOn {
+	return AgentWaitingOn{ProcessIDs: processIDs, SubagentIDs: subagentIDs}
+}
+
+func (w AgentWaitingOn) Empty() bool {
+	return len(w.ProcessIDs) == 0 && len(w.SubagentIDs) == 0
 }
 
 func SubagentActorParams(orgID uuid.UUID, agent AgentRecord) (*ActorParams, error) {
@@ -237,25 +254,32 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		HasOpenQuestion:   row.HasOpenQuestion,
 		HasOpenPermission: row.HasOpenPermission,
 	}
-	status.State = agentActivityState(
+	status.State, status.WaitingOn = agentActivityState(
 		status.Archived,
 		status.HasOpenQuestion,
 		status.HasOpenPermission,
 		status.IsRunning,
+		agentWaitingOn(row.BackgroundProcessIds, row.WorkingSubagentIds),
 	)
 	return status
 }
 
-func agentActivityState(archived, hasOpenQuestion, hasOpenPermission, isRunning bool) string {
+// agentActivityState returns the state and, for waiting_on_work, what the agent waits on.
+func agentActivityState(
+	archived, hasOpenQuestion, hasOpenPermission, isRunning bool,
+	waitingOn AgentWaitingOn,
+) (string, AgentWaitingOn) {
 	switch {
 	case archived:
-		return SubagentStateArchived
+		return SubagentStateArchived, AgentWaitingOn{}
 	case hasOpenQuestion, hasOpenPermission:
-		return SubagentStateWaitingOnInteraction
+		return SubagentStateWaitingOnInteraction, AgentWaitingOn{}
 	case isRunning:
-		return SubagentStateRunning
+		return SubagentStateRunning, AgentWaitingOn{}
+	case !waitingOn.Empty():
+		return SubagentStateWaitingOnWork, waitingOn
 	default:
-		return SubagentStateIdle
+		return SubagentStateIdle, AgentWaitingOn{}
 	}
 }
 

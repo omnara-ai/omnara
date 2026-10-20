@@ -12649,13 +12649,38 @@ components:
           description: >-
             running while the agent has work in progress, which includes a
             custom tool call awaiting its result; waiting_on_interaction while
-            it has an open question or permission request; idle otherwise; and
-            archived once the agent is archived.
+            it has an open question or permission request; waiting_on_work
+            while it is otherwise idle but background work will wake it, as
+            listed in waiting_on; idle otherwise; and archived once the agent
+            is archived.
           type: string
-          enum: [running, idle, waiting_on_interaction, archived]
+          enum: [running, idle, waiting_on_interaction, waiting_on_work, archived]
         last_activity_at:
           description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
+        waiting_on:
+          description: Present when state is waiting_on_work.
+          $ref: '#/components/schemas/AgentWaitingOn'
+    AgentWaitingOn:
+      description: >-
+        Background work that will wake the agent, at most 20 of each kind.
+        Processes are commands the agent left running that send it a message
+        when they end; they stop counting an hour after they started.
+        Subagents are active children that are still working.
+      type: object
+      additionalProperties: false
+      required: [process_ids, agent_ids]
+      properties:
+        process_ids:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ProcessID'
+        agent_ids:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AgentID'
     AgentModel:
       type: object
       additionalProperties: false

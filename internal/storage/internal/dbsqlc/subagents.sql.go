@@ -56,6 +56,15 @@ SELECT EXISTS (
           WHERE wake.agent_id = subtree.id
         )
         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=subtree.id AND h.incomplete_tools)
+        OR EXISTS (
+          SELECT 1
+          FROM processes process
+          WHERE process.project_id = subtree.project_id
+            AND process.agent_id = subtree.id
+            AND process.state IN ('queued', 'starting', 'running')
+            AND process.notify_on_exit
+            AND process.created_at > coalesce($3::timestamptz, statement_timestamp()) - interval '1 hour'
+        )
     )
 )::boolean AS idle
 `
@@ -201,7 +210,44 @@ SELECT agent.id,
          )
          OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
          OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running
+       )::boolean AS is_running,
+       ARRAY(
+         SELECT process.id
+         FROM processes process
+         WHERE process.project_id = agent.project_id
+           AND process.agent_id = agent.id
+           AND process.state IN ('queued', 'starting', 'running')
+           AND process.notify_on_exit
+           AND process.created_at > statement_timestamp() - interval '1 hour'
+         ORDER BY process.created_at, process.id
+         LIMIT 20
+       )::uuid[] AS background_process_ids,
+       ARRAY(
+         SELECT child.id
+         FROM agents child
+         WHERE child.project_id = agent.project_id
+           AND child.parent_agent_id = agent.id
+           AND child.state = 'active'
+           AND (
+             EXISTS (SELECT 1 FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = child.id)
+             OR EXISTS (SELECT 1 FROM agent_wakeups wake WHERE wake.agent_id = child.id)
+             OR EXISTS (
+               SELECT 1 FROM agent_execution_state h
+               WHERE h.agent_id = child.id AND (h.logical_ready_at IS NOT NULL OR h.incomplete_tools)
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM processes process
+               WHERE process.project_id = child.project_id
+                 AND process.agent_id = child.id
+                 AND process.state IN ('queued', 'starting', 'running')
+                 AND process.notify_on_exit
+                 AND process.created_at > statement_timestamp() - interval '1 hour'
+             )
+           )
+         ORDER BY child.created_at, child.id
+         LIMIT 20
+       )::uuid[] AS working_subagent_ids
 FROM agents agent
 WHERE agent.project_id = ANY($1::uuid[])
   AND agent.id = ANY($2::uuid[])
@@ -213,12 +259,14 @@ type ListAgentActivityForAgentsParams struct {
 }
 
 type ListAgentActivityForAgentsRow struct {
-	ID                uuid.UUID
-	State             string
-	LastActivityAt    time.Time
-	HasOpenQuestion   bool
-	HasOpenPermission bool
-	IsRunning         bool
+	ID                   uuid.UUID
+	State                string
+	LastActivityAt       time.Time
+	HasOpenQuestion      bool
+	HasOpenPermission    bool
+	IsRunning            bool
+	BackgroundProcessIds []uuid.UUID
+	WorkingSubagentIds   []uuid.UUID
 }
 
 func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentActivityForAgentsParams) ([]ListAgentActivityForAgentsRow, error) {
@@ -237,6 +285,8 @@ func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentA
 			&i.HasOpenQuestion,
 			&i.HasOpenPermission,
 			&i.IsRunning,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}
@@ -427,7 +477,44 @@ SELECT agent.id,
          )
          OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
          OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running
+       )::boolean AS is_running,
+       ARRAY(
+         SELECT process.id
+         FROM processes process
+         WHERE process.project_id = agent.project_id
+           AND process.agent_id = agent.id
+           AND process.state IN ('queued', 'starting', 'running')
+           AND process.notify_on_exit
+           AND process.created_at > statement_timestamp() - interval '1 hour'
+         ORDER BY process.created_at, process.id
+         LIMIT 20
+       )::uuid[] AS background_process_ids,
+       ARRAY(
+         SELECT child.id
+         FROM agents child
+         WHERE child.project_id = agent.project_id
+           AND child.parent_agent_id = agent.id
+           AND child.state = 'active'
+           AND (
+             EXISTS (SELECT 1 FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = child.id)
+             OR EXISTS (SELECT 1 FROM agent_wakeups wake WHERE wake.agent_id = child.id)
+             OR EXISTS (
+               SELECT 1 FROM agent_execution_state h
+               WHERE h.agent_id = child.id AND (h.logical_ready_at IS NOT NULL OR h.incomplete_tools)
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM processes process
+               WHERE process.project_id = child.project_id
+                 AND process.agent_id = child.id
+                 AND process.state IN ('queued', 'starting', 'running')
+                 AND process.notify_on_exit
+                 AND process.created_at > statement_timestamp() - interval '1 hour'
+             )
+           )
+         ORDER BY child.created_at, child.id
+         LIMIT 20
+       )::uuid[] AS working_subagent_ids
 FROM agents agent
 WHERE agent.project_id = $1
   AND agent.parent_agent_id = $2
@@ -442,14 +529,16 @@ type ListChildAgentsParams struct {
 }
 
 type ListChildAgentsRow struct {
-	ID                uuid.UUID
-	Name              string
-	State             string
-	SubagentKey       string
-	LastActivityAt    time.Time
-	HasOpenQuestion   bool
-	HasOpenPermission bool
-	IsRunning         bool
+	ID                   uuid.UUID
+	Name                 string
+	State                string
+	SubagentKey          string
+	LastActivityAt       time.Time
+	HasOpenQuestion      bool
+	HasOpenPermission    bool
+	IsRunning            bool
+	BackgroundProcessIds []uuid.UUID
+	WorkingSubagentIds   []uuid.UUID
 }
 
 func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams) ([]ListChildAgentsRow, error) {
@@ -470,6 +559,8 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.HasOpenQuestion,
 			&i.HasOpenPermission,
 			&i.IsRunning,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}
@@ -493,7 +584,7 @@ WITH RECURSIVE candidate AS (
       WHERE event.agent_id = agent.id
       ORDER BY event.sequence DESC
       LIMIT 1
-    ), agent.created_at) < coalesce($2::timestamptz, statement_timestamp())
+    ), agent.created_at) < coalesce($1::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
 ), subtree AS (
   SELECT candidate.id AS root_id, candidate.project_id, candidate.id, 1 AS depth
@@ -524,15 +615,24 @@ WHERE NOT EXISTS (
         WHERE wake.agent_id = subtree.id
       )
       OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=subtree.id AND h.incomplete_tools)
+      OR EXISTS (
+        SELECT 1
+        FROM processes process
+        WHERE process.project_id = subtree.project_id
+          AND process.agent_id = subtree.id
+          AND process.state IN ('queued', 'starting', 'running')
+          AND process.notify_on_exit
+          AND process.created_at > coalesce($1::timestamptz, statement_timestamp()) - interval '1 hour'
+      )
     )
 )
 ORDER BY candidate.created_at, candidate.id
-LIMIT $1::integer
+LIMIT $2::integer
 `
 
 type ListIdleAgentsForArchiveParams struct {
-	RowLimit int32
 	AsOf     *time.Time
+	RowLimit int32
 }
 
 type ListIdleAgentsForArchiveRow struct {
@@ -541,7 +641,7 @@ type ListIdleAgentsForArchiveRow struct {
 }
 
 func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgentsForArchiveParams) ([]ListIdleAgentsForArchiveRow, error) {
-	rows, err := q.db.Query(ctx, listIdleAgentsForArchive, arg.RowLimit, arg.AsOf)
+	rows, err := q.db.Query(ctx, listIdleAgentsForArchive, arg.AsOf, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

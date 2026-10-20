@@ -90,6 +90,13 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 			return openapi.Agent{}, fmt.Errorf("invalid agent activity state %q", record.Activity.State)
 		}
 		response.Activity = &openapi.AgentActivity{State: state, LastActivityAt: record.Activity.LastActivityAt}
+		if !record.Activity.WaitingOn.Empty() {
+			waitingOn, err := publicAgentWaitingOn(record.Activity.WaitingOn)
+			if err != nil {
+				return openapi.Agent{}, err
+			}
+			response.Activity.WaitingOn = &waitingOn
+		}
 	}
 	if record.Model.ProviderConfig != "" && record.Model.Name != "" {
 		response.Model = &openapi.AgentModel{
@@ -301,4 +308,26 @@ func jsonMapOrFallback(raw json.RawMessage, fallback json.RawMessage) (map[strin
 		out = map[string]interface{}{}
 	}
 	return out, nil
+}
+
+func publicAgentWaitingOn(waitingOn executionstore.AgentWaitingOn) (openapi.AgentWaitingOn, error) {
+	result := openapi.AgentWaitingOn{
+		ProcessIds: make([]openapi.ProcessID, 0, len(waitingOn.ProcessIDs)),
+		AgentIds:   make([]openapi.AgentID, 0, len(waitingOn.SubagentIDs)),
+	}
+	for _, id := range waitingOn.ProcessIDs {
+		encoded, err := publicid.Encode(publicid.KindProcess, id)
+		if err != nil {
+			return openapi.AgentWaitingOn{}, err
+		}
+		result.ProcessIds = append(result.ProcessIds, encoded)
+	}
+	for _, id := range waitingOn.SubagentIDs {
+		encoded, err := publicid.Encode(publicid.KindAgent, id)
+		if err != nil {
+			return openapi.AgentWaitingOn{}, err
+		}
+		result.AgentIds = append(result.AgentIds, encoded)
+	}
+	return result, nil
 }
