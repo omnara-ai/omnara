@@ -827,13 +827,20 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	bridgeToken := "BRIDGE_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	rawPaddingToken := "RAW_PADDING_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	toolArgument := "COMPACTION_TOOL_FACT_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
+	firstTurnPaddingRepetitions := 150
+	if opts.ProviderConfig == "anthropic-prod" {
+		// Anthropic's measured usage for the opaque padding exceeds the initial
+		// estimate. Leave headroom to finish the tool exchange before compaction
+		// so the checkpoint can include the tool result, rather than retaining it.
+		firstTurnPaddingRepetitions = 75
+	}
 	firstPrompt := strings.Join([]string{
 		"The fictional project label for this conversation is " + projectLabel + ".",
 		"Call the " + toolName + " tool exactly once with name set to " + toolArgument + ".",
 		"The tool returns a generated sample identifier that does not appear elsewhere in this prompt.",
 		"Remember both the exact project label and generated sample identifier if the conversation is summarized or compacted.",
 		"After the tool returns, do not call another tool. Reply with exactly ACK_" + projectLabel + " and no other words.",
-		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 150),
+		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", firstTurnPaddingRepetitions),
 	}, "\n")
 	project.createInput(t, ctx, agentID, firstPrompt)
 	worker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
@@ -845,6 +852,16 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, "ACK_"+projectLabel, worker)
 	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
 	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
+	var earlyCheckpoints int
+	if err := env.db.QueryRow(ctx,
+		`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+		projectUUID, agentUUID,
+	).Scan(&earlyCheckpoints); err != nil {
+		t.Fatalf("query checkpoints before context pressure: %v", err)
+	}
+	if earlyCheckpoints != 0 {
+		t.Fatalf("compaction occurred before the complete tool turn: checkpoints=%d", earlyCheckpoints)
+	}
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
@@ -863,16 +880,26 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	project.createInput(t, ctx, agentID, secondPrompt)
 	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
-		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(
+		// Read output first so the evidence below cannot precede a newly completed turn.
+		latestOutput, err := latestModelOutputTextAfterSequence(
 			ctx,
-			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`,
-			projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken,
-		).
-			Scan(&checkpoints); err != nil {
+			env,
+			projectUUID,
+			agentUUID,
+			beforeBridgeSequence,
+		)
+		if err != nil {
 			return false, err.Error()
 		}
-		var err error
+		var checkpoints, matchingCheckpoints, compactedContexts, failedBudgetContexts int
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*), count(*) FILTER (WHERE strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+			projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken,
+		).
+			Scan(&checkpoints, &matchingCheckpoints); err != nil {
+			return false, err.Error()
+		}
 		compactedContexts, err = successfulContextsUsingSummaryCheckpoint(
 			ctx,
 			env,
@@ -900,20 +927,10 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 				maxCompactionRounds,
 			)
 		}
-		latestOutput, err := latestModelOutputTextAfterSequence(
-			ctx,
-			env,
-			projectUUID,
-			agentUUID,
-			beforeBridgeSequence,
-		)
-		if err != nil {
-			return false, err.Error()
-		}
 		outputMatches := strings.Contains(latestOutput, bridgeToken) &&
 			!strings.Contains(latestOutput, projectLabel) &&
 			!strings.Contains(latestOutput, sampleID)
-		if outputMatches && checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 {
+		if outputMatches && matchingCheckpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 {
 			return true, ""
 		}
 		var locks, wakeups int
@@ -929,9 +946,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
-		if checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 && locks == 0 && wakeups == 0 {
+		if latestOutput != "" && locks == 0 && wakeups == 0 {
 			t.Fatalf(
-				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q,%q",
+				"idle agent violated compaction bridge contract: checkpoints=%d matching_checkpoints=%d compacted_contexts=%d failed_budget_contexts=%d output=%q want_contains=%q want_excludes=%q,%q",
+				checkpoints,
+				matchingCheckpoints,
+				compactedContexts,
+				failedBudgetContexts,
 				latestOutput,
 				bridgeToken,
 				projectLabel,
@@ -939,6 +960,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			)
 		}
 		return false, "live compaction bridge not complete checkpoints=" + itoa(checkpoints) +
+			" matching_checkpoints=" + itoa(matchingCheckpoints) +
 			" compacted_contexts=" + itoa(compactedContexts) +
 			" failed_budget_contexts=" + itoa(failedBudgetContexts) +
 			" locks=" + itoa(locks) +
