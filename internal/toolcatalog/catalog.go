@@ -47,6 +47,7 @@ func IsPlatformManagedToolType(toolType string) bool {
 const (
 	runCommandToolDescription = "Run a daemon-backed shell command. Once the machine accepts the command, " +
 		"every result includes a process_id; quick commands also return terminal output. " +
+		"If the command is still running when this returns, you get a message when it exits. " +
 		"Use the process tools with that ID to inspect or control the process."
 	writeProcessToolDescription   = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
@@ -161,6 +162,11 @@ func buildDefaultCatalog() (Catalog, error) {
 				"enum": []string{"pipe", "pty"},
 				"description": "Process I/O transport. Omit for pipe. " +
 					"Use pty for interactive terminal programs or persistent shells.",
+			},
+			"detach": map[string]any{
+				"type": "boolean",
+				"description": "For long-lived processes such as servers: no message when it exits, " +
+					"and the agent is not treated as waiting on it. Defaults to false.",
 			},
 		},
 	)
