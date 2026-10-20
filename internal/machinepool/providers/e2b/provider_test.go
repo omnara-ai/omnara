@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
@@ -181,7 +182,8 @@ func TestLauncherGuardAllowsOneBootstrapAtATime(t *testing.T) {
 		require.Empty(t, output, lockPath)
 	}
 
-	race := func(lockPath string) int {
+	race := func(lockPath string) {
+		release := lockPath + ".release"
 		type result struct {
 			output string
 			err    error
@@ -189,24 +191,35 @@ func TestLauncherGuardAllowsOneBootstrapAtATime(t *testing.T) {
 		results := make(chan result, 4)
 		for range cap(results) {
 			go func() {
-				output, err := run(lockPath, "sleep 1;echo ran")
+				output, err := run(lockPath, "echo ran;while [ ! -e "+release+" ];do sleep 0.01;done")
 				results <- result{output: output, err: err}
 			}()
 		}
-		ran := 0
-		for range cap(results) {
-			current := <-results
-			require.NoError(t, current.err)
-			if current.output == "ran\n" {
-				ran++
+		next := func() result {
+			select {
+			case current := <-results:
+				require.NoError(t, current.err)
+				return current
+			case <-time.After(10 * time.Second):
+				require.FailNow(t, "a launcher did not exit")
+				return result{}
 			}
 		}
-		return ran
+		for range cap(results) - 1 {
+			require.Empty(t, next().output)
+		}
+		require.NoError(t, os.WriteFile(release, nil, 0o600))
+		require.Equal(t, "ran\n", next().output)
+		output, err := run(lockPath, "echo ran")
+		require.NoError(t, err)
+		require.Equal(t, "ran\n", output)
 	}
-	require.Equal(t, 1, race(filepath.Join(dir, "fresh")))
+	race(filepath.Join(dir, "fresh"))
+	exited = exec.CommandContext(t.Context(), "/bin/sh", "-c", "exit 0")
+	require.NoError(t, exited.Run())
 	recovering := filepath.Join(dir, "recovering")
-	require.NoError(t, os.Symlink(dead, recovering+".0"))
-	require.Equal(t, 1, race(recovering))
+	require.NoError(t, os.Symlink(strconv.Itoa(exited.Process.Pid), recovering+".0"))
+	race(recovering)
 }
 
 func TestRetriedStartIsGuardedWhenTheFirstWasNeverListed(t *testing.T) {
