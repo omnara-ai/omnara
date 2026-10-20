@@ -663,9 +663,8 @@ func assertReadProcessInputSchema(t *testing.T, raw json.RawMessage) {
 	if !ok || offsetByte.Type != "integer" || offsetByte.Minimum != 0 {
 		t.Fatalf("read_process offset_byte schema = %+v", offsetByte)
 	}
-	limitBytes := schema.Properties["limit_bytes"]
-	if limitBytes.Type != "integer" || limitBytes.Minimum != 1 || limitBytes.Maximum != processaction.MaxObservationBytes {
-		t.Fatalf("read_process limit_bytes schema = %+v", limitBytes)
+	if _, ok := schema.Properties["limit_bytes"]; ok {
+		t.Fatalf("read_process schema must not expose limit_bytes: %s", string(raw))
 	}
 	waitMS := schema.Properties["wait_ms"]
 	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
@@ -712,9 +711,11 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if got := schema.Properties["shell"].Enum; !sameStringSliceForAgentConfig(got, wantSelectors) {
 		t.Fatalf("shell selector enum = %v, want %v", got, wantSelectors)
 	}
-	waitMS := schema.Properties["wait_ms"]
-	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
-		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
+	if _, ok := schema.Properties["wait_ms"]; ok {
+		t.Fatalf("run_command schema must not expose wait_ms: %s", string(raw))
+	}
+	if detach := schema.Properties["detach"]; detach.Type != "boolean" {
+		t.Fatalf("run_command detach schema = %+v", detach)
 	}
 	if ioMode := schema.Properties["io_mode"]; ioMode.Type != "string" ||
 		!sameStringSliceForAgentConfig(ioMode.Enum, []string{"pipe", "pty"}) {

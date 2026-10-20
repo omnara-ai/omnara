@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
@@ -129,6 +130,17 @@ type ProcessAssignment struct {
 	PreparationError    string               `json:"preparation_error,omitempty"`
 	WaitMs              int                  `json:"wait_ms,omitempty"`
 	TimeoutSeconds      int                  `json:"timeout_seconds"`
+	OutputBytes         int                  `json:"output_bytes,omitempty"`
+	processaction.OutputWait
+}
+
+// outputBudget returns the most output bytes a result carries and how many of
+// them come from the start when output is longer.
+func (a ProcessAssignment) outputBudget() (int, int) {
+	if a.OutputBytes <= 0 {
+		return processaction.MaxObservationBytes, 0
+	}
+	return min(a.OutputBytes, processaction.MaxObservationBytes), a.HeadBytes
 }
 
 type Process struct {
@@ -436,6 +448,10 @@ func (r *localProcessRunner) Slice(
 		useCursor = *cursor
 	}
 	return r.output.Slice(useCursor, maxBytes)
+}
+
+func (r *localProcessRunner) Window(cursor int64, maxBytes, headBytes int) (outputWindow, error) {
+	return r.output.Window(cursor, maxBytes, headBytes)
 }
 
 func (r *localProcessRunner) waitOutputDrain() error {

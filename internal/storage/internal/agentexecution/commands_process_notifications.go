@@ -105,6 +105,7 @@ func (h *Handle) processNotificationActor(
 
 type processExitObservation struct {
 	Output     *string `json:"output"`
+	OutputTail string  `json:"output_tail"`
 	NextCursor *int64  `json:"next_cursor"`
 	Truncated  bool    `json:"truncated"`
 }
@@ -133,11 +134,15 @@ func renderProcessExit(
 	if output.NextCursor != nil {
 		fmt.Fprintf(&b, " Output: %s.", formatBytes(*output.NextCursor))
 	}
-	if output.Truncated {
+	text := *output.Output
+	if output.OutputTail != "" {
+		text = output.OutputTail
+	} else if output.Truncated {
 		b.WriteString(" Use read_process to read it.")
 		return b.String()
 	}
-	tail, complete := outputTail(*output.Output)
+	tail, complete := outputTail(text)
+	complete = complete && output.OutputTail == ""
 	if complete {
 		b.WriteString("\n\n")
 	} else {

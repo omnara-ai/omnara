@@ -79,20 +79,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 				return ExternalCompletion{}, storeerr.ErrStateTransitionConflict
 			}
 			input.Observed = processresult.NormalizeObservation(input.Observed)
-			outcome, result, err = processresult.Terminal(processFacts(row))
-			if err == nil && len(input.Observed) > 0 {
-				var body map[string]any
-				err = json.Unmarshal(input.Observed, &body)
-				if err == nil {
-					var base map[string]any
-					err = json.Unmarshal(result, &base)
-					if err == nil {
-						body["process_id"] = base["process_id"]
-						processresult.PublicOutputRange(body)
-						result, err = json.Marshal(body)
-					}
-				}
-			}
+			outcome, result, err = processresult.TerminalOutput(processFacts(row), input.Observed)
 		}
 		if err != nil {
 			return ExternalCompletion{}, err

@@ -645,23 +645,21 @@ func initialProcessObservation(
 ) (json.RawMessage, int64, time.Time, bool, error) {
 	wait := time.Duration(assignment.WaitMs) * time.Millisecond
 	deadline := time.Now().Add(wait)
-	cursor := int64(0)
+	maxBytes, headBytes := assignment.outputBudget()
+	settle := newOutputSettle(assignment.OutputWait)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, time.Time{}, false, err
 		}
-		output, start, next, truncated, observationErr := runner.Slice(
-			&cursor,
-			processaction.MaxObservationBytes,
-		)
+		window, observationErr := runner.Window(0, maxBytes, headBytes)
 		done := runner.hasTerminalResult()
-		if output != "" || done || observationErr != nil || wait <= 0 ||
+		if settle.ready(window) || done || observationErr != nil || wait <= 0 ||
 			!time.Now().Before(deadline) {
 			state := daemonprotocol.ProcessStateRunning
 			errorMessage := ""
 			var exitCode *int
 			if observationErr != nil {
-				truncated = true
+				window.Truncated = true
 				errorMessage = "process started, but its initial output could not be read: " +
 					observationErr.Error()
 			}
@@ -675,22 +673,59 @@ func initialProcessObservation(
 				errorMessage = processTerminalErrorMessage(exit)
 			}
 			result := map[string]any{
-				"output":      output,
-				"cursor":      start,
-				"next_cursor": next,
-				"truncated":   truncated,
+				"output":      window.Output,
+				"cursor":      window.Start,
+				"next_cursor": window.Next,
+				"truncated":   window.Truncated,
 				"done":        done,
 				"process_id":  assignment.ID,
 				"state":       state,
 				"exit_code":   exitCode,
 				"error":       errorMessage,
 			}
+			window.addTail(result)
 			body, err := marshalJSON(result)
-			return body, next, runner.sourceTimeNow(), done, err
+			return body, window.Next, runner.sourceTimeNow(), done, err
 		}
 		if err := sleepContext(ctx, 25*time.Millisecond); err != nil {
 			return nil, 0, time.Time{}, false, err
 		}
+	}
+}
+
+// outputSettle decides when a wait for process output has seen enough before
+// the process ends or the wait expires.
+type outputSettle struct {
+	wait       processaction.OutputWait
+	now        func() time.Time
+	lastNext   int64
+	lastGrowth time.Time
+}
+
+func newOutputSettle(wait processaction.OutputWait) *outputSettle {
+	return &outputSettle{wait: wait, now: time.Now, lastNext: -1}
+}
+
+// ready reports whether to return now: on the first output originally, or
+// with WaitForExit only once output has gone quiet for QuietMS.
+func (s *outputSettle) ready(window outputWindow) bool {
+	if !s.wait.WaitForExit {
+		return window.Output != ""
+	}
+	now := s.now()
+	if window.Next != s.lastNext {
+		s.lastNext = window.Next
+		s.lastGrowth = now
+	}
+	return s.wait.QuietMS > 0 && window.Next > window.Start &&
+		now.Sub(s.lastGrowth) >= time.Duration(s.wait.QuietMS)*time.Millisecond
+}
+
+func (w outputWindow) addTail(result map[string]any) {
+	if w.TailStart > 0 {
+		result["output_tail"] = w.Tail
+		result["omitted_cursor"] = w.HeadEnd
+		result["tail_cursor"] = w.TailStart
 	}
 }
 
@@ -739,7 +774,7 @@ func (s *runnerServerState) finishStartWithoutExactOutcome(
 		_ = s.autonomousStateWrite(ctx, func() error {
 			return s.processState.CloseActionAdmission(ctx)
 		})
-		result, exit := captureTerminalResult(nil, exit, nil)
+		result, exit := captureTerminalResult(nil, exit, nil, 0, 0)
 		report, err := s.processTerminalReport(exit, result, nil)
 		if err != nil {
 			return
@@ -816,7 +851,8 @@ func (s *runnerServerState) finishTerminalRunner(
 	} else if exit.EndedAt.IsZero() {
 		exit.EndedAt = runner.sourceTimeNow()
 	}
-	result, exit := captureTerminalResult(runner, exit, outputErr)
+	maxBytes, headBytes := s.assignment.outputBudget()
+	result, exit := captureTerminalResult(runner, exit, outputErr, maxBytes, headBytes)
 	runner.publishTerminalResult(exit)
 
 	if waitForStarted {
@@ -943,40 +979,35 @@ func captureTerminalResult(
 	runner *localProcessRunner,
 	exit processRunnerExit,
 	captureErr error,
+	maxBytes, headBytes int,
 ) (json.RawMessage, processRunnerExit) {
 	var (
 		fileTransfer *daemonprotocol.FileTransferResult
-		output       string
-		start        int64
-		next         int64
-		truncated    bool
+		window       outputWindow
 	)
 	if runner != nil {
 		fileTransfer = runner.captureFileTransferResult(&exit)
-		cursor := int64(0)
 		var readErr error
-		output, start, next, truncated, readErr = runner.Slice(
-			&cursor,
-			processaction.MaxObservationBytes,
-		)
+		window, readErr = runner.Window(0, maxBytes, headBytes)
 		if captureErr == nil {
 			captureErr = readErr
 		}
 	}
 	if captureErr != nil {
-		truncated = true
+		window.Truncated = true
 		recordOutputCaptureFailure(&exit, captureErr)
 	}
 	resultObject := map[string]any{
 		"state":       exit.State,
 		"exit_code":   exit.ExitCode,
-		"output":      output,
-		"cursor":      start,
-		"next_cursor": next,
-		"truncated":   truncated,
+		"output":      window.Output,
+		"cursor":      window.Start,
+		"next_cursor": window.Next,
+		"truncated":   window.Truncated,
 		"done":        true,
 		"error":       processTerminalErrorMessage(exit),
 	}
+	window.addTail(resultObject)
 	if fileTransfer != nil {
 		resultObject["file_transfer"] = fileTransfer
 	}

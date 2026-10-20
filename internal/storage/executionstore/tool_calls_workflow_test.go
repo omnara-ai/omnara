@@ -81,7 +81,9 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 	}
 	result, err := processresult.Started(
 		process.resultFacts(),
-		json.RawMessage(`{"state":"exited","command":"other","next_action":"stop","output":"ready"}`),
+		json.RawMessage(
+			`{"state":"exited","command":"other","next_action":"stop","output":"ready","cursor":0,"next_cursor":5}`,
+		),
 	)
 	if err != nil {
 		t.Fatalf("startedProcessToolResult: %v", err)
@@ -91,9 +93,10 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		t.Fatalf("decode started process result: %v", err)
 	}
 	if body["state"] != string(ProcessStateRunning) ||
-		body["command"] != process.ExecutionSpec.Shell.Command ||
-		body["next_action"] == "stop" ||
-		body["output"] != "ready" {
+		body["command"] != nil ||
+		body["next_action"] != nil ||
+		body["output"] != "ready" ||
+		body["next_offset_byte"] != float64(5) || body["next_cursor"] != nil {
 		t.Fatalf("started process result = %s", result)
 	}
 }

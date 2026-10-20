@@ -45,13 +45,14 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a daemon-backed shell command. Once the machine accepts the command, " +
-		"every result includes a process_id; quick commands also return terminal output. " +
-		"If the command is still running when this returns, you get a message when it exits. " +
-		"Use the process tools with that ID to inspect or control the process."
-	writeProcessToolDescription   = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
-	stopProcessToolDescription    = "Interrupt or terminate a running process."
-	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to 10 seconds for it to exit " +
+		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
+		"running and you get a message when it ends; use its process_id with the process tools to read " +
+		"output, send input, or stop it."
+	writeProcessToolDescription = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
+	stopProcessToolDescription  = "Interrupt or terminate a running process."
+	readProcessToolDescription  = "Read retained process output, optionally waiting for the process to end. " +
+		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
@@ -150,13 +151,6 @@ func buildDefaultCatalog() (Catalog, error) {
 				"type":        "string",
 				"description": "Working directory. Omit to use the assigned machine default; do not guess /.",
 			},
-			"wait_ms": map[string]any{
-				"type":    "integer",
-				"minimum": 1,
-				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "Maximum time to wait for initial output or command exit before yielding " +
-					"(up to 300000 ms). This is not a lifetime timeout.",
-			},
 			"io_mode": map[string]any{
 				"type": "string",
 				"enum": []string{"pipe", "pty"},
@@ -221,26 +215,16 @@ func buildDefaultCatalog() (Catalog, error) {
 		"offset_byte": map[string]any{
 			"type":    "integer",
 			"minimum": 0,
-			"description": "Starting byte position in the process output stream. " +
-				"To continue, use next_offset_byte from the previous run_command or read_process result. " +
-				"Omit to continue after the output returned by run_command or the last read_process call that omitted offset_byte.",
-		},
-		"limit_bytes": map[string]any{
-			"type":    "integer",
-			"minimum": 1,
-			"maximum": processaction.MaxObservationBytes,
-			"description": fmt.Sprintf(
-				"Maximum output bytes to return. Defaults to %d.",
-				processaction.DefaultObservationBytes,
-			),
+			"description": "Byte position to read from: next_offset_byte from an earlier result, or omitted_offset_byte " +
+				"to page through output a long result left out. Omit to continue after your last read.",
 		},
 		"wait_ms": map[string]any{
 			"type":    "integer",
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
-			"description": "When no output is immediately available, wait up to this long for output or process completion " +
-				"(up to 300000 ms; returns as soon as either arrives). When waiting on a long-running job, prefer one long wait " +
-				"over many short polls.",
+			"description": "Wait up to this long for the process to end before returning (up to 300000 ms). " +
+				"A pty program waiting at a prompt returns once its output goes quiet. Omit to return immediately. " +
+				"Prefer one long wait over repeated reads.",
 		},
 	}
 	if entries[ToolNameReadProcess], err = toolEntry(

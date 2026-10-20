@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -111,7 +112,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	}
 
 	input := json.RawMessage(
-		`{"command":"pwd","machine_id":"` + machinePublicIDForTest(t, agentBinding.MachineID) + `","wait_ms":750}`,
+		`{"command":"pwd","machine_id":"` + machinePublicIDForTest(t, agentBinding.MachineID) + `"}`,
 	)
 	toolCallID, lock, admitted, modelContext := createMachineToolCallForDirectStoreTest(
 		t,
@@ -139,7 +140,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 		if err != nil {
 			return false, err
 		}
-		if !found || process.State != executionstore.ProcessStateQueued || process.InitialWaitMS != 750 {
+		if !found || process.State != executionstore.ProcessStateQueued || process.InitialWaitMS != processaction.CommandWaitMilliseconds {
 			return false, storeerr.ErrNotFound
 		}
 		if orgID != toolsTestOrgID || machineID != binding.MachineID {

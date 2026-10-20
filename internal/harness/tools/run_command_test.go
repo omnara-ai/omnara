@@ -19,8 +19,8 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		input    json.RawMessage
 		command  string
 		selector processcmd.ShellSelector
-		waitMs   int
 		ioMode   processcmd.IOMode
+		detach   bool
 	}{
 		{
 			name:     "default",
@@ -31,10 +31,9 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:     "sh",
-			input:    json.RawMessage(`{"command":"echo ok","shell":"sh","wait_ms":5}`),
+			input:    json.RawMessage(`{"command":"echo ok","shell":"sh"}`),
 			command:  "echo ok",
 			selector: "sh",
-			waitMs:   5,
 			ioMode:   "pipe",
 		},
 		{
@@ -80,12 +79,12 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			ioMode:   "pty",
 		},
 		{
-			name:     "max wait",
-			input:    json.RawMessage(`{"command":"echo ok","wait_ms":300000}`),
-			command:  "echo ok",
+			name:     "detach",
+			input:    json.RawMessage(`{"command":"npm run dev","detach":true}`),
+			command:  "npm run dev",
 			selector: "default",
-			waitMs:   processaction.MaxWaitMilliseconds,
 			ioMode:   "pipe",
+			detach:   true,
 		},
 	}
 	for _, tc := range cases {
@@ -94,8 +93,9 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve run_command: %v", err)
 			}
-			if resolved.Command != tc.command || resolved.Selector != tc.selector || resolved.WaitMs != tc.waitMs ||
-				resolved.IOMode != tc.ioMode {
+			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
+				resolved.WaitMs != processaction.CommandWaitMilliseconds ||
+				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
 		})
@@ -147,10 +147,7 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 			raw:  json.RawMessage("{\"command\":\"echo ok\",\"cwd\":\"/tmp\\u0000x\"}"),
 			want: "cwd cannot contain NUL",
 		},
-		{name: "zero wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":0}`), want: "wait_ms must be positive"},
-		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
-		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
-		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
+		{name: "wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":5000}`), want: "unknown field"},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{
 			name: "unsupported io mode",

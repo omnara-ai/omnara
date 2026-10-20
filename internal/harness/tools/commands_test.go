@@ -181,40 +181,38 @@ func TestListProcessesRequestRejectsObservationFields(t *testing.T) {
 	}
 }
 
-func TestProcessObservationActionPayloadOmitsAbsentFields(t *testing.T) {
+func TestProcessObservationActionPayload(t *testing.T) {
 	t.Parallel()
 
 	offset := int64(0)
+	shellWait := processaction.OutputWait{WaitForExit: true, HeadBytes: processaction.AgentHeadBytes}
 	tests := []struct {
 		name    string
 		request processObservationRequest
+		wait    processaction.OutputWait
 		want    string
 	}{
 		{
-			name: "read preserves explicit zero offset without wait",
-			request: processObservationRequest{
-				OffsetByte: &offset,
-				LimitBytes: 4096,
-			},
-			want: `{"cursor":0,"max_bytes":4096}`,
+			name:    "read preserves explicit zero offset without wait",
+			request: processObservationRequest{OffsetByte: &offset},
+			want:    `{"cursor":0,"max_bytes":16384}`,
 		},
 		{
-			name: "wait includes only wait duration",
-			request: processObservationRequest{
-				WaitMS: 2000,
-			},
-			want: `{"wait_ms":2000}`,
+			name:    "wait waits for exit and keeps head and tail",
+			request: processObservationRequest{WaitMS: 2000},
+			wait:    shellWait,
+			want:    `{"max_bytes":16384,"wait_ms":2000,"wait_for_exit":true,"head_bytes":2048}`,
 		},
 		{
 			name:    "all optional fields absent",
 			request: processObservationRequest{},
-			want:    `{}`,
+			want:    `{"max_bytes":16384}`,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := processObservationActionPayload(test.request)
+			got, err := processObservationActionPayload(test.request, test.wait)
 			require.NoError(t, err)
 			if string(got) != test.want {
 				t.Fatalf("process observation payload = %s, want %s", got, test.want)
@@ -227,16 +225,10 @@ func TestProcessObserveRequestCapsObservationFields(t *testing.T) {
 	t.Parallel()
 
 	if _, err := resolveProcessObservationRequest(
-		json.RawMessage(`{"process_id":"prc","limit_bytes":65537}`),
+		json.RawMessage(`{"process_id":"prc","limit_bytes":64}`),
 		processObservationRead,
 	); err == nil {
-		t.Fatal("expected oversized limit_bytes to be rejected")
-	}
-	if _, err := resolveProcessObservationRequest(
-		json.RawMessage(`{"process_id":"prc","limit_bytes":null}`),
-		processObservationRead,
-	); err == nil {
-		t.Fatal("expected null limit_bytes to be rejected")
+		t.Fatal("expected removed limit_bytes field to be rejected")
 	}
 	if _, err := resolveProcessObservationRequest(
 		json.RawMessage(`{"process_id":"prc","wait_ms":null}`),
@@ -257,13 +249,13 @@ func TestProcessObserveRequestCapsObservationFields(t *testing.T) {
 		t.Fatal("expected legacy cursor field to be rejected")
 	}
 	read, err := resolveProcessObservationRequest(
-		json.RawMessage(`{"process_id":"prc","offset_byte":7,"limit_bytes":64}`),
+		json.RawMessage(`{"process_id":"prc","offset_byte":7}`),
 		processObservationRead,
 	)
 	if err != nil {
 		t.Fatalf("resolve read_process range: %v", err)
 	}
-	if read.OffsetByte == nil || *read.OffsetByte != 7 || read.LimitBytes != 64 {
+	if read.OffsetByte == nil || *read.OffsetByte != 7 {
 		t.Fatalf("read_process range = %+v", read)
 	}
 	if _, _, err := writeProcessPayload(

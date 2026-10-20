@@ -1,6 +1,10 @@
 package processcmd
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/omnara-ai/omnara/internal/processaction"
+)
 
 type ExecutionKind string
 
@@ -78,4 +82,18 @@ func (s ExecutionSpec) Label() string {
 		return s.FileTransfer.Label()
 	}
 	return ""
+}
+
+// AgentOutputWait is how agent-facing waits on a shell process behave: they
+// wait for exit, returning early for a pty program that goes quiet at a prompt,
+// and keep the start and end of long output. ok is false for other processes.
+func (s ExecutionSpec) AgentOutputWait() (processaction.OutputWait, bool) {
+	if s.Kind != KindShell || s.Shell == nil {
+		return processaction.OutputWait{}, false
+	}
+	wait := processaction.OutputWait{WaitForExit: true, HeadBytes: processaction.AgentHeadBytes}
+	if s.Shell.IOMode == IOModePTY {
+		wait.QuietMS = processaction.PTYQuietMilliseconds
+	}
+	return wait, true
 }

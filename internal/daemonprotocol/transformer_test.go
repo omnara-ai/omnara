@@ -86,3 +86,28 @@ func TestEncodeForDaemonLeavesOtherOffersUnchanged(t *testing.T) {
 		t.Fatalf("write action wait_ms = %v, want unchanged", got)
 	}
 }
+
+func TestEncodeForDaemonStripsOutputWaitForOlderDaemons(t *testing.T) {
+	read := actionOfferMessage(
+		ProcessActionRead,
+		`{"max_bytes":16384,"wait_ms":5000,"wait_for_exit":true,"quiet_ms":1000,"head_bytes":2048}`,
+	)
+	for _, version := range []string{"0.2.8", "0.2.5", ""} {
+		payload := encodedOfferPayload(t, version, read)
+		for _, name := range []string{"wait_for_exit", "quiet_ms", "head_bytes"} {
+			if _, ok := payload[name]; ok {
+				t.Fatalf("version %q kept %s: %v", version, name, payload)
+			}
+		}
+		if payload["max_bytes"] != float64(16384) || payload["wait_ms"] != float64(5000) {
+			t.Fatalf("version %q: other fields changed: %v", version, payload)
+		}
+	}
+	for _, version := range []string{processaction.OutputWindowDaemonVersion, daemonversion.Development} {
+		payload := encodedOfferPayload(t, version, read)
+		if payload["wait_for_exit"] != true || payload["quiet_ms"] != float64(1000) ||
+			payload["head_bytes"] != float64(2048) {
+			t.Fatalf("version %q dropped output wait: %v", version, payload)
+		}
+	}
+}
