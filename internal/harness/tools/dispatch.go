@@ -46,13 +46,11 @@ func (e Executor) dispatchToolHandler(
 			reservation.Done(nil)
 		}
 	}()
-	finish := turn.Completion.Begin()
-	finished := false
-	defer func() { finish(finished) }()
 	var phaseResult transactionalPhaseResult
 	execution, err := e.Store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{
+			Completion:        turn.Completion,
 			RequireCompletion: handler.completion != completionUnspecified,
 			Authorize:         turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
 			ProjectID:     turn.ProjectID,
@@ -152,7 +150,7 @@ func (e Executor) dispatchToolHandler(
 		}
 		return nil, err
 	}
-	finished = execution.StepDisposition == executionstore.StepFinished ||
+	finished := execution.StepDisposition == executionstore.StepFinished ||
 		execution.StepDisposition == executionstore.StepTransferred
 	if finished && turn.StepDisposition != nil {
 		*turn.StepDisposition = execution.StepDisposition

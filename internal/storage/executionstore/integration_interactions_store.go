@@ -146,13 +146,16 @@ func SetInteractionHandlerForToolCall(
 		if err != nil {
 			return nil, err
 		}
-		if call.State == ToolCallStateCompleted {
+		replay := func() (any, error) {
 			result, err := completion(selected)
 			if err != nil {
 				return nil, err
 			}
 			_, err = t.completeToolCall(ctx, result)
 			return nil, err
+		}
+		if call.State == ToolCallStateCompleted {
+			return replay()
 		}
 		var handler resolvedInteractionHandler
 		if selected.HandlerKey != "" {
@@ -202,8 +205,11 @@ func SetInteractionHandlerForToolCall(
 				)
 			}
 		}
-		if err := t.lockForMutation(ctx); err != nil {
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return nil, err
+		}
+		if t.disposition == ToolCallDispositionCompleted {
+			return replay()
 		}
 		previous, current, err := loadInteractionContract(ctx, t.q, t.input.ProjectID, t.input.AgentID)
 		if err != nil {

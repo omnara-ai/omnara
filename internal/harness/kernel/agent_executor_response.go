@@ -22,7 +22,7 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	specs []modelcontext.ToolSpec,
 	streamedToolCallIDs map[string]uuid.UUID,
 ) (events.Event, error) {
-	finish := input.Completion.Begin()
+	finish := input.Completion.Begin(ctx, input.finishClaim)
 	finished := false
 	defer func() { finish(finished) }()
 	bindings := toolCallBindings(envelope, specs, streamedToolCallIDs)

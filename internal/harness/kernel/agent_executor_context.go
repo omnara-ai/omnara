@@ -375,7 +375,7 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	input ModelWorkExecution,
 	step modelStep,
 ) (modelStep, error) {
-	finish := input.Completion.Begin()
+	finish := input.Completion.Begin(ctx, input.finishClaim)
 	finished := false
 	defer func() { finish(finished) }()
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(

@@ -16,6 +16,7 @@ import (
 )
 
 type ExecuteToolCallInput struct {
+	Completion        *StepCompletion
 	RequireCompletion bool
 	RootAgentID       uuid.UUID
 	Authorize         bool
@@ -168,6 +169,8 @@ func (s *Store) executeToolCallOnce(
 				}
 			}
 		}
+		finish := input.Completion.Begin(ctx, step != StepRetained)
+		finish(step != StepRetained)
 		return ExecuteToolCallResult{StepDisposition: step, Disposition: toolTx.disposition,
 			CommandResult: commandResult, Completed: toolTx.completed}, nil
 	}
@@ -188,6 +191,9 @@ func (s *Store) executeToolCallOnce(
 			}
 		}
 	}
+	finish := input.Completion.Begin(ctx, step != StepRetained)
+	finished := false
+	defer func() { finish(finished) }()
 	if err := unit.Commit(ctx, "execute tool call"); err != nil {
 		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied && toolTx.completed != nil {
 			resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
@@ -196,6 +202,7 @@ func (s *Store) executeToolCallOnce(
 				ProjectID: input.ProjectID, AgentID: input.AgentID, ToolCallID: input.ToolCallID,
 			})
 			if resolveErr == nil && receipt.ID == toolTx.completionID && receipt.Outcome == string(toolTx.completed.Outcome) {
+				finished = step != StepRetained
 				return ExecuteToolCallResult{StepDisposition: step, Disposition: toolTx.disposition, Applied: true,
 					CommandResult: commandResult, Completed: toolTx.completed}, nil
 			}
@@ -203,6 +210,7 @@ func (s *Store) executeToolCallOnce(
 		}
 		return ExecuteToolCallResult{}, err
 	}
+	finished = step != StepRetained
 	return ExecuteToolCallResult{
 		StepDisposition: step,
 		Disposition:     toolTx.disposition,

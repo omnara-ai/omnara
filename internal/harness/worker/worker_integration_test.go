@@ -31,12 +31,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
 var (
@@ -2959,4 +2961,125 @@ func TestWorkerShutdownBoundsUncertainResultResolution(t *testing.T) {
 	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
 	assertCompletedModelContext(t, ctx, pool, agentID, outputID)
 	waitNoRuntimeLock(t, ctx, pool, agentID)
+}
+
+type leaseLossSearch struct {
+	started chan context.Context
+}
+
+func (s *leaseLossSearch) Search(ctx context.Context, _ webaccess.SearchRequest) (webaccess.SearchResponse, error) {
+	s.started <- ctx
+	<-ctx.Done()
+	return webaccess.SearchResponse{}, ctx.Err()
+}
+
+type blockedFollowupTrace struct {
+	armed   atomic.Bool
+	blocked chan struct{}
+	unblock <-chan struct{}
+}
+
+func (tr *blockedFollowupTrace) TraceQueryStart(
+	ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData,
+) context.Context {
+	if strings.Contains(data.SQL, "name: ListActiveProcesses ") && tr.armed.CompareAndSwap(true, false) {
+		close(tr.blocked)
+		<-tr.unblock
+	}
+	return ctx
+}
+
+func (*blockedFollowupTrace) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+type exhaustedToolRenewalStore struct {
+	*executionstore.Store
+	mode      string
+	blocked   <-chan struct{}
+	exhausted chan struct{}
+}
+
+func (s *exhaustedToolRenewalStore) ClaimNextAgentWork(
+	ctx context.Context, input executionstore.ClaimNextAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	claim, found, err := s.Store.ClaimNextAgentWork(ctx, input)
+	claim.LocalLeaseBudgetStartedAt = time.Now().Add(-9 * time.Second)
+	return claim, found, err
+}
+
+func (s *exhaustedToolRenewalStore) RenewAgentRuntimeLock(
+	ctx context.Context, _, _, _ uuid.UUID, _ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	defer close(s.exhausted)
+	<-s.blocked
+	if s.mode == "inactive" {
+		return executionstore.AgentRuntimeLockRenewal{}, storeerr.ErrRuntimeLockInactive
+	}
+	<-ctx.Done()
+	return executionstore.AgentRuntimeLockRenewal{}, ctx.Err()
+}
+
+func TestWorkerLeaseLossCancelsAsyncToolDuringBlockedFollowup(t *testing.T) {
+	for _, mode := range []string{"timeout", "inactive"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			pool := openWorkerIntegrationDB(t, ctx)
+			blocked, unblock := make(chan struct{}), make(chan struct{})
+			defer close(unblock)
+			trace := &blockedFollowupTrace{blocked: blocked, unblock: unblock}
+			config := pool.Config()
+			config.ConnConfig.Tracer = trace
+			tracedPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			t.Cleanup(tracedPool.Close)
+			store := storage.NewStore(tracedPool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+			now := time.Now()
+			agentID, userID := createWorkerAgentWithTools(t, ctx, store, now, "web_search", "list_processes")
+			createWorkerInput(t, ctx, store, agentID, userID, "search then list processes", now)
+			client := &sequenceModelClient{providerModelSlug: "worker-kernel-test", responses: []model.Response{{
+				ID: "async-followup", StopReason: model.StopReasonToolUse,
+				Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
+					{ID: "async", Name: "web_search", Input: json.RawMessage(`{"query":"test"}`)},
+					{ID: "followup", Name: "list_processes", Input: json.RawMessage(`{}`)},
+				}),
+			}}}
+			search := &leaseLossSearch{started: make(chan context.Context, 1)}
+			executor := kernel.AgentExecutor{Store: store, ModelResolver: liveWorkerTestModelResolver(store, client),
+				ToolExecutor: tools.Executor{Store: store, WebSearch: search}}
+			modelWorker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: time.Minute, Capacity: 1})
+			worked, err := modelWorker.RunOnce(ctx)
+			require.NoError(t, err)
+			require.True(t, worked)
+			trace.armed.Store(true)
+			renewal := &exhaustedToolRenewalStore{Store: store.Execution(), mode: mode,
+				blocked: blocked, exhausted: make(chan struct{})}
+			worker := NewWorker(renewal, executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+			done := integrationdb.RunAsyncError(func() error { _, err := worker.RunOnce(ctx); return err })
+			var asyncCtx context.Context
+			select {
+			case asyncCtx = <-search.started:
+			case err := <-done:
+				t.Fatalf("worker returned before async tool started: %v", err)
+			case <-time.After(15 * time.Second):
+				t.Fatal("async tool did not start")
+			}
+			select {
+			case <-renewal.exhausted:
+			case <-time.After(15 * time.Second):
+				t.Fatal("renewal did not run out while the follow-up dispatch was blocked")
+			}
+			select {
+			case <-asyncCtx.Done():
+			case <-time.After(250 * time.Millisecond):
+				t.Fatal("lease loss did not promptly cancel the running async tool")
+			}
+			select {
+			case <-done:
+				t.Fatal("follow-up dispatch returned before its barrier was released")
+			default:
+			}
+			unblock <- struct{}{}
+			require.Error(t, integrationdb.Await(t, done, "worker after lease loss"))
+			worker.retained.Wait()
+		})
+	}
 }

@@ -549,21 +549,26 @@ func StopSubagentForToolCall(
 		}
 		var machines []MachineRecord
 		if input.Archive {
-			machines, err = archiveAgentTreeTx(
+			locked, err := lockAgentTreeTx(
 				ctx,
 				tx.unit,
 				tx.q,
 				child.ProjectID,
 				child.ID,
-				nil,
 			)
 			if err != nil {
 				return nil, err
 			}
+			if err := tx.lockOrAcceptExisting(ctx); err != nil {
+				return nil, err
+			}
+			if tx.disposition != ToolCallDispositionCompleted {
+				machines, err = archiveLockedAgentTreeTx(ctx, tx.unit, tx.q, locked, nil)
+				if err != nil {
+					return nil, err
+				}
+			}
 		} else if err := tx.cancelSubagent(ctx, child); err != nil {
-			return nil, err
-		}
-		if err := tx.lockForMutation(ctx); err != nil {
 			return nil, err
 		}
 		if _, err := tx.completeToolCall(ctx, completion); err != nil {
@@ -574,16 +579,24 @@ func StopSubagentForToolCall(
 }
 
 func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRecord) error {
-	if child.State != AgentStateActive {
-		return storeerr.InvalidRequest(errors.New("subagent is archived"))
-	}
 	if err := t.unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{
 		{ProjectID: child.ProjectID, AgentID: child.ID},
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
-	},
-		&agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
-			RuntimeLockID: t.input.RuntimeLockID}); err != nil {
+	}, nil); err != nil {
 		return err
+	}
+	if err := t.lockOrAcceptExisting(ctx); err != nil {
+		return err
+	}
+	if t.disposition == ToolCallDispositionCompleted {
+		return nil
+	}
+	child, err := loadAgentInProjectTx(ctx, t.tx, child.ProjectID, child.ID)
+	if err != nil {
+		return err
+	}
+	if child.State != AgentStateActive {
+		return storeerr.InvalidRequest(errors.New("subagent is archived"))
 	}
 	parent, err := loadAgentInProjectTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
 	if err != nil {

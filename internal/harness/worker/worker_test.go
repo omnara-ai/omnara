@@ -1185,7 +1185,7 @@ type finishedModelStepExecutor struct {
 func (e *finishedModelStepExecutor) ExecuteModelWorkStep(
 	ctx context.Context, input kernel.ModelWorkExecution,
 ) (executionstore.StepDisposition, error) {
-	finish := input.Completion.Begin()
+	finish := input.Completion.Begin(ctx, true)
 	input.Completion.LeaseLost(func() { e.renewalCanceled.Store(true) })
 	finish(true)
 	return executionstore.StepFinished, ctx.Err()
@@ -1266,7 +1266,7 @@ type delayedCompletionExecutor struct {
 func (e *delayedCompletionExecutor) ExecuteModelWorkStep(
 	ctx context.Context, input kernel.ModelWorkExecution,
 ) (executionstore.StepDisposition, error) {
-	finish := input.Completion.Begin()
+	finish := input.Completion.Begin(ctx, true)
 	e.started <- ctx
 	<-e.ack
 	finish(true)

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -2265,4 +2266,286 @@ func TestCommandToolAndGrantRevocationRespectResourceLockOrder(t *testing.T) {
 	require.NotErrorIs(t, outcome.Err, context.DeadlineExceeded)
 	require.NotErrorIs(t, outcome.Err, context.Canceled)
 	require.EqualValues(t, 1, attempts.Load(), "lock order must not require a deadlock retry")
+}
+
+type overlappingReplayTx struct {
+	pgx.Tx
+	query   string
+	armed   *atomic.Bool
+	read    chan error
+	proceed <-chan struct{}
+}
+
+func (tx overlappingReplayTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	row := tx.Tx.QueryRow(ctx, sql, args...)
+	if strings.Contains(sql, "name: "+tx.query+" ") && tx.armed.CompareAndSwap(true, false) {
+		return overlappingReplayRow{Row: row, done: ctx.Done(), contextErr: ctx.Err, read: tx.read, proceed: tx.proceed}
+	}
+	return row
+}
+
+type overlappingReplayRow struct {
+	pgx.Row
+	done       <-chan struct{}
+	contextErr func() error
+	read       chan error
+	proceed    <-chan struct{}
+}
+
+func (r overlappingReplayRow) Scan(dest ...any) error {
+	err := r.Row.Scan(dest...)
+	r.read <- err
+	select {
+	case <-r.proceed:
+		return err
+	case <-r.done:
+		return r.contextErr()
+	}
+}
+
+func assertOverlappingCommandReplay(
+	t *testing.T, store *Store, input executionstore.ExecuteToolCallInput,
+	plan executionstore.ToolCallPlan, query string, afterCommit func(),
+) executionstore.ExecuteToolCallResult {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	read, proceed := make(chan error, 1), make(chan struct{})
+	armed := &atomic.Bool{}
+	armed.Store(true)
+	store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+		return overlappingReplayTx{Tx: tx, query: query, armed: armed, read: read, proceed: proceed}
+	})
+	retry := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+		return store.Execution().ExecuteToolCall(ctx, input, plan)
+	})
+	select {
+	case err := <-read:
+		if query == "GetToolCall" {
+			require.NoError(t, err)
+		} else {
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+		}
+	case <-ctx.Done():
+		t.Fatal("retry did not read the incomplete command")
+	}
+	original, err := store.Execution().ExecuteToolCall(ctx, input, plan)
+	require.NoError(t, err)
+	if afterCommit != nil {
+		afterCommit()
+	}
+	var leaseExists bool
+	require.NoError(t, store.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM agent_runtime_locks WHERE id=$1)`, input.RuntimeLockID).Scan(&leaseExists))
+	require.False(t, leaseExists)
+	newer, err := store.Execution().AcquireAgentRuntimeLock(ctx, input.ProjectID, input.AgentID,
+		testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+	require.NoError(t, err)
+	close(proceed)
+	result := integrationdb.Await(t, retry, "overlapping command replay")
+	require.NoError(t, result.Err)
+	require.False(t, result.Value.Applied)
+	require.Equal(t, executionstore.ToolCallDispositionCompleted, result.Value.Disposition)
+	require.NotNil(t, result.Value.Completed)
+	if original.Completed != nil {
+		require.Equal(t, original.Completed.ID, result.Value.Completed.ID)
+		require.JSONEq(t, string(original.Completed.ResultContentParts), string(result.Value.Completed.ResultContentParts))
+	}
+	var results int
+	require.NoError(t, store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1`, input.ToolCallID).Scan(&results))
+	require.Equal(t, 1, results)
+	require.NoError(t, store.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM agent_runtime_locks WHERE id=$1)`, newer.ID).Scan(&leaseExists))
+	require.True(t, leaseExists)
+	return result.Value
+}
+
+func TestInteractionHandlerOverlappingReplay(t *testing.T) {
+	for _, key := range []string{"", "chat"} {
+		t.Run("handler_"+key, func(t *testing.T) {
+			f := newIntegrationInteractionFixture(t)
+			input := f.selectionCall(t)
+			input.RootAgentID = input.AgentID
+			require.NoError(t, f.store.pool.QueryRow(f.ctx,
+				`SELECT model_output_id FROM tool_calls WHERE id=$1`, input.ToolCallID).Scan(&input.BatchOutputID))
+			result := assertOverlappingCommandReplay(t, f.store, input, handlerSelectionPlan(key, `{}`), "GetToolCall", nil)
+			require.Equal(t, executionstore.StepFinished, result.StepDisposition)
+			selection, err := f.store.Execution().GetInteractionSelection(f.ctx, input.ProjectID, input.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, key, selection.HandlerKey)
+		})
+	}
+}
+
+func TestStopSubagentOverlappingReplay(t *testing.T) {
+	for _, archive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("archive_%t", archive), func(t *testing.T) {
+			ctx := t.Context()
+			f, parent, child := executionLockOrderAgents(t, true)
+			agent, err := f.Store.Execution().GetAgentInProject(ctx, testProjectID, parent)
+			require.NoError(t, err)
+			runtime, err := f.Store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, parent,
+				testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+			require.NoError(t, err)
+			calls := createReadyToolCallsForTest(t, ctx, f.Store, parent, f.UserID, agent.CurrentConfigID,
+				runtime, "overlapping-stop", []toolCallSpecForTest{{Label: "stop", Name: "stop_agent", Input: json.RawMessage(`{}`)}})
+			input := executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: parent,
+				RootAgentID: parent, RuntimeLockID: runtime.ID, ToolCallID: calls["stop"]}
+			require.NoError(t, f.Store.pool.QueryRow(ctx,
+				`SELECT model_output_id FROM tool_calls WHERE id=$1`, input.ToolCallID).Scan(&input.BatchOutputID))
+			completion := executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded,
+				ResultContentParts: json.RawMessage(`[{"type":"text","text":"stopped"}]`)}
+			plan := func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.StopSubagentForToolCall(executionstore.StopSubagentInput{
+					TargetAgentID: child, Archive: archive}, completion), nil
+			}
+			result := assertOverlappingCommandReplay(t, f.Store, input, plan, "GetToolCall", nil)
+			require.Equal(t, executionstore.StepFinished, result.StepDisposition)
+			completion.Outcome = executionstore.ToolResultOutcomeFailed
+			_, err = f.Store.Execution().ExecuteToolCall(ctx, input, plan)
+			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+		})
+	}
+}
+
+func TestStartProcessOverlappingReplay(t *testing.T) {
+	ctx := t.Context()
+	f := newProcessDaemonFixture(t, ctx, "overlapping-start")
+	toolID := createToolCallForProcessTest(t, ctx, f, "overlapping-start", "run_command")
+	input := executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+		RootAgentID: f.AgentID, RuntimeLockID: f.Lock.ID, ToolCallID: toolID}
+	command := executionstore.CreateProcessInput{AgentMachineBindingID: f.BindingID,
+		ExecutionSpec: processcmd.ForShell("cat", "sh", ""), Cwd: "/work"}
+	plan := func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		return executionstore.StartProcessForToolCall(command), nil
+	}
+	assertOverlappingCommandReplay(t, f.Store, input, plan, "GetProcessByToolCall", func() {
+		process, found, err := f.Store.Execution().GetProcessByToolCall(ctx, testProjectID, f.AgentID, toolID)
+		require.NoError(t, err)
+		require.True(t, found)
+		_, found, err = acceptDaemonProcessForTest(ctx, f.Store, f.OrgID, f.MachineID, f.RuntimeID, process.ID)
+		require.NoError(t, err)
+		require.True(t, found)
+		application, err := f.Store.Execution().MarkProcessStarted(ctx, executionstore.MarkProcessStartedInput{
+			ProjectID: testProjectID, AgentID: f.AgentID, ID: process.ID, Authority: f.authority(),
+			SourceStartedAt: f.Now.Add(time.Second), Result: json.RawMessage(`{"output":"ready","cursor":0,"next_cursor":5,"truncated":false}`),
+		})
+		require.NoError(t, err)
+		require.True(t, application.ToolResultCommitted)
+		require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+	})
+	command.ExecutionSpec = processcmd.ForShell("different", "sh", "")
+	_, err := f.Store.Execution().ExecuteToolCall(ctx, input, plan)
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+	var count int
+	require.NoError(t, f.Store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM processes WHERE tool_call_id=$1`, toolID).Scan(&count))
+	require.Equal(t, 1, count)
+}
+
+func TestProcessActionOverlappingReplay(t *testing.T) {
+	for _, stopped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("already_stopped_%t", stopped), func(t *testing.T) {
+			ctx := t.Context()
+			f := newProcessDaemonFixture(t, ctx, "overlapping-action")
+			process := startRunningProcessForReadTest(t, ctx, f, "overlapping-action", json.RawMessage(`{"output":"ready","cursor":0,"next_cursor":5,"truncated":false}`))
+			name := "read_process"
+			command := executionstore.CreateProcessActionInput{ProcessID: process.ID,
+				ActionKind: executionstore.ProcessActionKindRead, Payload: json.RawMessage(`{}`)}
+			completion := executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded,
+				ResultContentParts: json.RawMessage(`[{"type":"text","text":"already stopped"}]`)}
+			if stopped {
+				name = "stop_process"
+				command.ActionKind = executionstore.ProcessActionKindTerminate
+				_, err := f.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+					ProjectID: testProjectID, AgentID: f.AgentID, ID: process.ID, Authority: f.authority(),
+					State: executionstore.ProcessStateExited, ExitCode: new(0),
+					SourceEndedAt: f.Now.Add(3 * time.Second), Result: json.RawMessage(`{}`),
+				})
+				require.NoError(t, err)
+			}
+			toolID := createToolCallForProcessTest(t, ctx, f, "overlapping-action", name)
+			input := executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+				RootAgentID: f.AgentID, RuntimeLockID: f.Lock.ID, ToolCallID: toolID}
+			plan := func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				if stopped {
+					return executionstore.StopProcessForToolCall(command, completion), nil
+				}
+				return executionstore.CreateProcessActionForToolCall(command), nil
+			}
+			assertOverlappingCommandReplay(t, f.Store, input, plan, "GetProcessActionByToolCall", func() {
+				if !stopped {
+					action, found, err := f.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, f.AgentID, toolID)
+					require.NoError(t, err)
+					require.True(t, found)
+					_, found, err = f.Store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
+						Authority: f.authority(), ProcessID: process.ID, ID: action.ID,
+					})
+					require.NoError(t, err)
+					require.True(t, found)
+					applied, err := f.Store.Execution().ApplyDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, ProcessID: process.ID, ID: action.ID,
+						Authority: f.authority(), Result: json.RawMessage(fmt.Sprintf(
+							`{"process_id":%q,"output":"result","cursor":5,"next_cursor":11,"truncated":false}`,
+							publicResourceID(publicid.KindProcess, process.ID))),
+					})
+					require.NoError(t, err)
+					require.True(t, applied.ToolResultCommitted)
+				}
+				require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+			})
+			if stopped {
+				completion.Outcome = executionstore.ToolResultOutcomeFailed
+			} else {
+				command.Payload = json.RawMessage(`{"cursor":20}`)
+			}
+			_, err := f.Store.Execution().ExecuteToolCall(ctx, input, plan)
+			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+		})
+	}
+}
+
+func TestToolCompletionCoordinatesOnlyFinishedBatch(t *testing.T) {
+	for _, last := range []bool{false, true} {
+		t.Run(fmt.Sprintf("last_%t", last), func(t *testing.T) {
+			ctx := t.Context()
+			f := newProcessDaemonFixture(t, ctx, "completion-window")
+			ids := createToolCallBatchForProcessTest(t, ctx, f, "completion-window", []processToolCallBatchItem{
+				builtInProcessToolCallBatchItem("first", "list_processes"),
+				builtInProcessToolCallBatchItem("last", "list_processes"),
+			})
+			input := executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+				RootAgentID: f.AgentID, RuntimeLockID: f.Lock.ID, ToolCallID: ids[0]}
+			plan := func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.CompleteToolCallInExecution(executionstore.ToolCallCompletionInput{
+					Outcome:            executionstore.ToolResultOutcomeSucceeded,
+					ResultContentParts: json.RawMessage(`[{"type":"text","text":"done"}]`),
+				}), nil
+			}
+			if last {
+				_, err := f.Store.Execution().ExecuteToolCall(ctx, input, plan)
+				require.NoError(t, err)
+				input.ToolCallID = ids[1]
+			}
+			require.NoError(t, f.Store.pool.QueryRow(ctx,
+				`SELECT model_output_id FROM tool_calls WHERE id=$1`, input.ToolCallID).Scan(&input.BatchOutputID))
+			input.Completion = &executionstore.StepCompletion{}
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			var canceled atomic.Bool
+			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return stepFaultTx{Tx: tx, armed: armed, committed: true, after: func() {
+					input.Completion.LeaseLost(func() { canceled.Store(true) })
+					require.Equal(t, !last, canceled.Load(), "only a transaction finishing the claim may defer cancellation")
+				}}
+			})
+			result, err := f.Store.Execution().ExecuteToolCall(ctx, input, plan)
+			require.NoError(t, err)
+			require.True(t, result.Applied)
+			require.Equal(t, last, result.StepDisposition == executionstore.StepFinished)
+			input.Completion.LeaseLost(func() { canceled.Store(true) })
+			require.Equal(t, !last, canceled.Load())
+		})
+	}
 }

@@ -18,6 +18,38 @@ var ErrProcessMachineDeleted = storeerr.Tag(
 	errors.New("process machine was deleted"),
 )
 
+func (t *toolCallTransaction) replayProcessAction(
+	ctx context.Context, input CreateProcessActionInput,
+) (ProcessActionRecord, bool, error) {
+	projectID, agentID, toolCallID := t.input.ProjectID, t.input.AgentID, t.input.ToolCallID
+	replay, replayErr := t.q.GetProcessActionByToolCall(
+		ctx,
+		dbsqlc.GetProcessActionByToolCallParams{
+			ProjectID:  projectID,
+			AgentID:    agentID,
+			ToolCallID: toolCallID,
+		},
+	)
+	if replayErr == nil {
+		record := processActionRecordFromSQLC(replay)
+		if record.ProcessID != input.ProcessID || record.ActionKind != input.ActionKind ||
+			!sameJSON(record.Payload, input.Payload) ||
+			record.ToolCallID != toolCallID {
+			return ProcessActionRecord{}, false, storeerr.ErrIdempotencyConflict
+		}
+		t.hasDurableCompletionOwner = true
+		t.owner.ActionID = record.ID
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
+			return ProcessActionRecord{}, false, err
+		}
+		return record, true, nil
+	}
+	if !errors.Is(replayErr, pgx.ErrNoRows) {
+		return ProcessActionRecord{}, false, fmt.Errorf("load process action replay: %w", replayErr)
+	}
+	return ProcessActionRecord{}, false, nil
+}
+
 func (t *toolCallTransaction) createProcessAction(
 	ctx context.Context,
 	input CreateProcessActionInput,
@@ -33,30 +65,8 @@ func (t *toolCallTransaction) createProcessAction(
 	toolCallID := t.input.ToolCallID
 	runtimeLockID := t.input.RuntimeLockID
 	input.Payload = normalizedJSON(input.Payload)
-	replay, replayErr := t.q.GetProcessActionByToolCall(
-		ctx,
-		dbsqlc.GetProcessActionByToolCallParams{
-			ProjectID:  projectID,
-			AgentID:    agentID,
-			ToolCallID: toolCallID,
-		},
-	)
-	if replayErr == nil {
-		record := processActionRecordFromSQLC(replay)
-		if record.ProcessID != input.ProcessID || record.ActionKind != input.ActionKind ||
-			!sameJSON(record.Payload, input.Payload) ||
-			record.ToolCallID != toolCallID {
-			return ProcessActionRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		t.hasDurableCompletionOwner = true
-		t.owner.ActionID = record.ID
-		if err := t.lockOrAcceptExisting(ctx); err != nil {
-			return ProcessActionRecord{}, err
-		}
-		return record, nil
-	}
-	if !errors.Is(replayErr, pgx.ErrNoRows) {
-		return ProcessActionRecord{}, fmt.Errorf("load process action replay: %w", replayErr)
+	if record, found, err := t.replayProcessAction(ctx, input); err != nil || found {
+		return record, err
 	}
 	processRow, err := t.q.GetProcess(
 		ctx,
@@ -84,8 +94,20 @@ func (t *toolCallTransaction) createProcessAction(
 		}
 		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", err)
 	}
-	if err := t.lockForMutation(ctx); err != nil {
+	if _, err := lockExecution(ctx, t.unit, projectID, agentID, false, runtimeLockID); err != nil {
 		return ProcessActionRecord{}, err
+	}
+	if record, found, err := t.replayProcessAction(ctx, input); err != nil || found {
+		return record, err
+	}
+	if err := t.lockOrAcceptExisting(ctx); err != nil {
+		return ProcessActionRecord{}, err
+	}
+	if t.disposition == ToolCallDispositionCompleted && input.ActionKind == ProcessActionKindTerminate {
+		return ProcessActionRecord{}, storeerr.ErrProcessAlreadyStopped
+	}
+	if t.disposition != 0 {
+		return ProcessActionRecord{}, storeerr.ErrIdempotencyConflict
 	}
 	if _, err := t.q.LockProcessForActionCreation(
 		ctx,

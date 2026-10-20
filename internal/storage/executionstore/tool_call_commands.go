@@ -56,6 +56,9 @@ func StopProcessForToolCall(
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.createProcessAction(ctx, input)
 		if errors.Is(err, storeerr.ErrProcessAlreadyStopped) {
+			if tx.disposition == ToolCallDispositionCompleted {
+				return tx.completeToolCall(ctx, alreadyStoppedCompletion)
+			}
 			if err := tx.q.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
 				ProjectID: tx.input.ProjectID,
 				AgentID:   tx.input.AgentID,
