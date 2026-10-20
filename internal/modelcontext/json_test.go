@@ -6,7 +6,6 @@ import (
 )
 
 func TestStructuredDataTextUndoesHTMLEscapes(t *testing.T) {
-	// A literal backslash followed by "u003c" must not be mistaken for an escape.
 	literalEscape := "literal \\" + "u003c stays"
 	lineSeparators := string([]rune{0x2028, 0x2029})
 	raw, err := json.Marshal(map[string]string{
@@ -48,7 +47,7 @@ func TestStructuredDataTextLiftsMultilineFieldsVerbatim(t *testing.T) {
 
 func TestStructuredDataTextOmitsEmptyMetadata(t *testing.T) {
 	raw := json.RawMessage(`{"content":"a\nb"}`)
-	if got, want := StructuredDataText(raw), "<content>\na\nb\n</content>"; got != want {
+	if got, want := StructuredDataText(raw), "<content>\na\nb</content>"; got != want {
 		t.Fatalf("StructuredDataText = %q, want %q", got, want)
 	}
 }

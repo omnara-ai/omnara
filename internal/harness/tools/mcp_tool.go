@@ -163,10 +163,6 @@ func (e Executor) mcpToolResultContent(
 		}
 		parts = append(parts, part)
 	}
-	// The MCP spec asks servers that return structuredContent to repeat it as
-	// text content, so including both would show the model the result twice.
-	// Text content is what the server meant for the model; structuredContent
-	// is only the fallback for servers that send no text.
 	if result.StructuredContent != nil && !hasText {
 		raw, err := json.Marshal(result.StructuredContent)
 		if err != nil {

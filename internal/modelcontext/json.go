@@ -16,30 +16,19 @@ func marshalJSON(value any) (json.RawMessage, error) {
 	return body, nil
 }
 
-// StructuredDataText renders a structured_data value as model-facing text
-// without escaping the text tools produced. Top-level string fields that span
-// lines (file contents, process output, skill bodies) are lifted out of the
-// JSON and appended verbatim inside <field> tags, so the model reads real
-// newlines, quotes and backslashes instead of \n, \" and \\. The remaining
-// metadata stays JSON, minus encoding/json's HTML escapes.
 func StructuredDataText(value json.RawMessage) string {
-	metadata, texts, ok := splitMultilineFields(value)
-	if !ok {
+	metadata, texts := splitMultilineFields(value)
+	if len(texts) == 0 {
 		return undoHTMLEscapes(value)
 	}
 	var b strings.Builder
-	if metadata != "" {
-		b.WriteString(metadata)
-	}
+	b.WriteString(metadata)
 	for _, text := range texts {
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
 		b.WriteString("<" + text.key + ">\n")
 		b.WriteString(text.value)
-		if !strings.HasSuffix(text.value, "\n") {
-			b.WriteByte('\n')
-		}
 		b.WriteString("</" + text.key + ">")
 	}
 	return b.String()
@@ -50,12 +39,10 @@ type multilineField struct {
 	value string
 }
 
-// splitMultilineFields reports ok only for a JSON object with at least one
-// multi-line string field; metadata is "" when no other fields remain.
-func splitMultilineFields(value json.RawMessage) (string, []multilineField, bool) {
+func splitMultilineFields(value json.RawMessage) (string, []multilineField) {
 	decoder := json.NewDecoder(bytes.NewReader(value))
 	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
-		return "", nil, false
+		return "", nil
 	}
 	var (
 		metadata bytes.Buffer
@@ -65,15 +52,15 @@ func splitMultilineFields(value json.RawMessage) (string, []multilineField, bool
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
-			return "", nil, false
+			return "", nil
 		}
 		key, ok := token.(string)
 		if !ok {
-			return "", nil, false
+			return "", nil
 		}
 		var field json.RawMessage
 		if err := decoder.Decode(&field); err != nil {
-			return "", nil, false
+			return "", nil
 		}
 		var text string
 		if field[0] == '"' && json.Unmarshal(field, &text) == nil && strings.Contains(text, "\n") {
@@ -85,25 +72,19 @@ func splitMultilineFields(value json.RawMessage) (string, []multilineField, bool
 		}
 		encodedKey, err := json.Marshal(key)
 		if err != nil {
-			return "", nil, false
+			return "", nil
 		}
 		metadata.Write(encodedKey)
 		metadata.WriteByte(':')
 		metadata.Write(field)
 	}
-	if len(texts) == 0 {
-		return "", nil, false
-	}
-	if metadata.Len() == 1 {
-		return "", texts, true
+	if len(texts) == 0 || metadata.Len() == 1 {
+		return "", texts
 	}
 	metadata.WriteByte('}')
-	return undoHTMLEscapes(metadata.Bytes()), texts, true
+	return undoHTMLEscapes(metadata.Bytes()), texts
 }
 
-// undoHTMLEscapes reverses encoding/json's \uXXXX escapes for <, >, &, U+2028
-// and U+2029, which exist for safe embedding in HTML; the model is not a
-// browser.
 func undoHTMLEscapes(value []byte) string {
 	if !bytes.Contains(value, []byte(`\u`)) {
 		return string(value)

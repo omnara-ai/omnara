@@ -2548,10 +2548,6 @@ func toolResultOutputForCall(body map[string]any, callID string) string {
 	return ""
 }
 
-// toolResultJSONStream turns model-facing tool output back into a stream of
-// JSON values. modelcontext.StructuredDataText lifts multi-line string fields
-// out of the JSON into trailing <field>…</field> blocks; this folds them back
-// into the last JSON object so fake models can decode the tool result.
 func toolResultJSONStream(raw string) (string, error) {
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	var values []json.RawMessage
@@ -2582,8 +2578,6 @@ func toolResultJSONStream(raw string) (string, error) {
 		fields[key] = value
 		rest = strings.TrimLeft(after, " \t\r\n")
 	}
-	// values[0] is the {"outcome":...} part; only a later value is the
-	// tool's own object that the lifted fields came from.
 	if len(values) > 1 {
 		var last map[string]any
 		if err := json.Unmarshal(values[len(values)-1], &last); err == nil {

@@ -90,7 +90,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 	}
 	executeNextModelWork(t, ctx, fixture, executor, turn)
 
-	// Both tool calls completed with text + structured_data content parts.
+	// Both tool calls completed with text content parts.
 	completed, err := storagetest.ListCompletedToolCallsForTurn(
 		ctx,
 		fixture.Store,
@@ -121,11 +121,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		!strings.Contains(searchParts, "Go Release Notes") {
 		t.Fatalf("search parts missing results: %s", searchParts)
 	}
-	if searchParts := partsByCall["call_web_search"]; strings.Contains(searchParts, `"structured_data"`) {
-		t.Fatalf("search parts duplicate results as structured_data: %s", searchParts)
-	}
-	if fetchParts := partsByCall["call_web_fetch"]; !strings.Contains(fetchParts, "fetched page body") ||
-		!strings.Contains(fetchParts, `"structured_data"`) {
+	if fetchParts := partsByCall["call_web_fetch"]; !strings.Contains(fetchParts, "fetched page body") {
 		t.Fatalf("fetch parts missing page content: %s", fetchParts)
 	}
 

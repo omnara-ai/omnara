@@ -140,8 +140,6 @@ func runWebSearch(
 	return completeAsynchronously(webSearchToolResultContent(resolved.Query, response)), nil
 }
 
-// webSearchToolResultContent renders results as a single text part; a
-// structured copy alongside it would show the model every result twice.
 func webSearchToolResultContent(
 	query string,
 	response webaccess.SearchResponse,

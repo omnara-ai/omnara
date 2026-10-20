@@ -583,7 +583,6 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 	media := []byte("\x89PNG\r\n\x1a\nmcp-result")
 	client := &ownedMCPToolClient{callTool: func(context.Context) (*sdkmcp.CallToolResult, error) {
 		return &sdkmcp.CallToolResult{
-			// No text content, so structuredContent is kept as the fallback.
 			Content: []sdkmcp.Content{
 				&sdkmcp.ImageContent{MIMEType: "image/png", Data: media},
 			},
