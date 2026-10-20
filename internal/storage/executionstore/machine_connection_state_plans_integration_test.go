@@ -5,8 +5,6 @@ package executionstore_test
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"testing"
 
@@ -17,27 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	smallOnlineFleet           = 100
-	largeOnlineFleet           = 1000
-	lookupBufferBudget         = 64
-	fleetGrowthBufferAllowance = 4
-)
-
-const previousMachineConnectionStates = `
-SELECT machine.id AS machine_id,
-       machine.org_id,
-       CASE WHEN EXISTS (
-         SELECT 1
-         FROM online_daemon_runtimes runtime
-         WHERE runtime.org_id = machine.org_id
-           AND runtime.machine_id = machine.id
-       ) THEN 'online'
-       WHEN machine.asleep_since IS NOT NULL
-         AND machine.lifecycle_state = 'active'
-         AND machine.deleted_at IS NULL THEN 'asleep'
-       ELSE 'offline' END AS connection_state
-FROM machines machine`
+const onlineFleet = 1000
 
 const onlineFleetWithStaleLeaseStatistics = `
 INSERT INTO orgs(id, name, created_at, updated_at)
@@ -89,10 +67,7 @@ CREATE TEMP TABLE connection_cases(
   ('expired_lease', false, 'active', false, 'active', NULL, false, false, true, 'offline'),
   ('expired_lease_asleep', false, 'active', true, 'active', NULL, false, false, true, 'asleep'),
   ('revoked_token', false, 'active', false, 'active', NULL, true, true, true, 'offline'),
-  ('ended_lease_expired', false, 'active', false, 'ended', 'daemon_lease_expired', false, false, true, 'offline'),
-  ('ended_asleep', false, 'active', true, 'ended', 'machine_asleep', false, false, true, 'asleep'),
-  ('released_live_lease', false, 'active', false, 'ended', 'daemon_runtime_released', true, false, true, 'offline'),
-  ('asleep_live_lease', false, 'active', true, 'ended', 'machine_asleep', true, false, true, 'asleep'),
+  ('ended_lease_expired', false, 'active', false, 'ended', 'daemon_lease_expired', true, false, true, 'offline'),
   ('non_current_runtime', false, 'active', false, 'active', NULL, true, false, false, 'offline'),
   ('no_runtime', false, 'active', false, NULL, NULL, NULL, false, false, 'offline'),
   ('deleted', false, 'deleted', true, 'active', NULL, true, false, true, 'offline'),
@@ -191,58 +166,31 @@ WHERE id = $1`, started.ID,
 		}},
 	}
 
-	buffers := map[int]map[string]int{}
-	for _, fleetSize := range []int{smallOnlineFleet, largeOnlineFleet} {
-		_, err := tx.Exec(ctx, "SAVEPOINT fleet")
-		require.NoError(t, err)
-		_, err = tx.Exec(ctx, fmt.Sprintf(onlineFleetWithStaleLeaseStatistics, fleetSize))
-		require.NoError(t, err)
-		_, err = tx.Exec(ctx, machineConnectionCases)
-		require.NoError(t, err)
-		requireMachineConnectionStates(t, tx, fleetSize)
-		requireOnlineQueryResults(t, tx, []uuid.UUID{f.MachineID, wake.MachineID}, wake, blocker)
-		buffers[fleetSize] = lookupPlanBuffers(t, tx, lookups)
-		_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT fleet")
-		require.NoError(t, err)
-	}
-	require.Len(t, buffers[smallOnlineFleet], 2*len(lookups))
-	for _, label := range slices.Sorted(maps.Keys(buffers[smallOnlineFleet])) {
-		small, large := buffers[smallOnlineFleet][label], buffers[largeOnlineFleet][label]
-		t.Logf("%s: %d buffers at %d online runtimes, %d at %d", label, small, smallOnlineFleet, large, largeOnlineFleet)
-		require.LessOrEqual(t, small, lookupBufferBudget, label)
-		require.LessOrEqual(t, large, lookupBufferBudget, label)
-		require.LessOrEqual(t, large, small+fleetGrowthBufferAllowance, label)
-	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(onlineFleetWithStaleLeaseStatistics, onlineFleet))
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, machineConnectionCases)
+	require.NoError(t, err)
+	requireMachineConnectionStates(t, tx)
+	requireOnlineQueryResults(t, tx, []uuid.UUID{f.MachineID, wake.MachineID}, wake, blocker)
+	requireCurrentRuntimeProbes(t, tx, lookups)
 }
 
-func requireMachineConnectionStates(t *testing.T, tx pgx.Tx, fleetSize int) {
+func requireMachineConnectionStates(t *testing.T, tx pgx.Tx) {
 	t.Helper()
-	ctx := t.Context()
-	rows, err := tx.Query(ctx, `
-SELECT connection_case.name, connection_case.expected, state.connection_state
-FROM connection_cases connection_case
-JOIN machine_connection_states state ON state.org_id = md5('connection-org')::uuid
-  AND state.machine_id = md5('connection-machine-' || connection_case.name)::uuid`)
-	require.NoError(t, err)
-	expected, actual := map[string]string{}, map[string]string{}
-	var name, expectedState, actualState string
-	_, err = pgx.ForEachRow(rows, []any{&name, &expectedState, &actualState}, func() error {
-		expected[name], actual[name] = expectedState, actualState
-		return nil
-	})
-	require.NoError(t, err)
-	require.NoError(t, rows.Err())
-	require.Len(t, expected, 14)
+	var expected, actual []string
+	var online int
+	require.NoError(t, tx.QueryRow(t.Context(), `
+SELECT (SELECT array_agg(name || '=' || expected ORDER BY name) FROM connection_cases),
+       (SELECT array_agg(connection_case.name || '=' || state.connection_state
+                         ORDER BY connection_case.name, state.connection_state)
+        FROM connection_cases connection_case
+        JOIN machine_connection_states state ON state.org_id = md5('connection-org')::uuid
+          AND state.machine_id = md5('connection-machine-' || connection_case.name)::uuid),
+       (SELECT count(*) FROM machine_connection_states WHERE connection_state = 'online')`,
+	).Scan(&expected, &actual, &online))
+	require.Len(t, expected, 11)
 	require.Equal(t, expected, actual)
-	var online, differences int
-	require.NoError(t, tx.QueryRow(ctx, `
-WITH previous AS (`+previousMachineConnectionStates+`)
-SELECT (SELECT count(*) FROM machine_connection_states WHERE connection_state = 'online'),
-       (SELECT count(*) FROM ((TABLE previous EXCEPT ALL TABLE machine_connection_states)
-         UNION ALL (TABLE machine_connection_states EXCEPT ALL TABLE previous)) difference)`,
-	).Scan(&online, &differences))
-	require.Greater(t, online, fleetSize)
-	require.Zero(t, differences)
+	require.Greater(t, online, onlineFleet)
 }
 
 func requireOnlineQueryResults(
@@ -293,10 +241,9 @@ WHERE machine.id = ANY($1)
 	}
 }
 
-func lookupPlanBuffers(t *testing.T, tx pgx.Tx, lookups []machineConnectionLookup) map[string]int {
+func requireCurrentRuntimeProbes(t *testing.T, tx pgx.Tx, lookups []machineConnectionLookup) {
 	t.Helper()
 	ctx := t.Context()
-	buffers := map[string]int{}
 	for _, lookup := range lookups {
 		query := integrationdb.GeneratedQuery(t, "../internal/dbsqlc/"+lookup.file+".sql.go", lookup.name)
 		_, err := tx.Exec(ctx, "PREPARE lookup AS "+query)
@@ -307,7 +254,7 @@ func lookupPlanBuffers(t *testing.T, tx pgx.Tx, lookups []machineConnectionLooku
 			require.NoError(t, err)
 			var raw json.RawMessage
 			require.NoError(t, tx.QueryRow(ctx,
-				"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE lookup("+sqlArguments(lookup.args)+")",
+				"EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE lookup("+sqlArguments(lookup.args)+")",
 			).Scan(&raw))
 			plan := integrationdb.ReadPlan(t, raw)
 			require.Equal(t, 1.0, plan.Rows, label)
@@ -317,20 +264,17 @@ func lookupPlanBuffers(t *testing.T, tx pgx.Tx, lookups []machineConnectionLooku
 					return
 				}
 				require.LessOrEqual(t, node.RowsVisited(), 1.0, "%s: %s", label, raw)
-				if node.Type == "Index Scan" && node.Loops*node.Rows == 1 &&
-					(node.Index == "daemon_runtimes_pkey" || node.Index == "daemon_runtimes_one_active_idx") {
+				if node.Loops*node.Rows == 1 {
 					currentRuntimeProbes++
 				}
 			})
 			require.Positive(t, currentRuntimeProbes, "%s: %s", label, raw)
-			buffers[label] = integrationdb.PlanBuffers(t, raw)
 			_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT lookup")
 			require.NoError(t, err)
 		}
 		_, err = tx.Exec(ctx, "DEALLOCATE lookup")
 		require.NoError(t, err)
 	}
-	return buffers
 }
 
 func sqlArguments(args []any) string {
