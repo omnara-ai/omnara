@@ -228,18 +228,32 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type loadAgent struct {
-	id        string
-	uuid      string
-	project   *deterministicProject
-	sending   bool
-	waiting   bool
-	seenBusy  bool
-	sentAt    time.Time
-	nextAt    time.Time
-	started   bool
-	inputs    int
-	turnsDone int
-	turnTimes []time.Duration
+	id       string
+	uuid     string
+	project  *deterministicProject
+	sending  bool
+	waiting  bool
+	seenBusy bool
+	sentAt   time.Time
+	nextAt   time.Time
+	started  bool
+	inputs   int
+}
+
+type loadTurnSample struct {
+	at       time.Time
+	duration time.Duration
+}
+
+func loadTurnTimes(samples []loadTurnSample, from, to time.Time) []float64 {
+	var durations []float64
+	for _, sample := range samples {
+		if !sample.at.Before(from) && sample.at.Before(to) {
+			durations = append(durations, sample.duration.Seconds())
+		}
+	}
+	sort.Float64s(durations)
+	return durations
 }
 
 type providerSample struct {
@@ -396,6 +410,75 @@ func loadExplicitTransactionRates(start, end *loadExplicitTransactions, seconds 
 	begins := float64(end.begins-start.begins) / seconds
 	commits := float64(end.commits-start.commits) / seconds
 	return &begins, &commits
+}
+
+type loadQueryKey struct {
+	userID   uint32
+	queryID  int64
+	toplevel bool
+}
+
+type loadQueryStat struct {
+	calls   int64
+	totalMS float64
+	name    string
+}
+
+type loadQuerySnapshot struct {
+	queries map[loadQueryKey]loadQueryStat
+	resetAt time.Time
+	dealloc int64
+}
+
+func (e *serviceE2EEnvironment) loadQuerySnapshot(ctx context.Context) (*loadQuerySnapshot, error) {
+	rows, err := e.db.Query(ctx, `SELECT userid, queryid, toplevel, calls, total_exec_time,
+ coalesce(substring(query from '-- name: (\w+)'), left(regexp_replace(query, '\s+', ' ', 'g'), 60)),
+ info.stats_reset, info.dealloc
+ FROM public.pg_stat_statements CROSS JOIN public.pg_stat_statements_info info
+ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	snapshot := &loadQuerySnapshot{queries: make(map[loadQueryKey]loadQueryStat)}
+	for rows.Next() {
+		var key loadQueryKey
+		var stat loadQueryStat
+		if err := rows.Scan(&key.userID, &key.queryID, &key.toplevel, &stat.calls, &stat.totalMS,
+			&stat.name, &snapshot.resetAt, &snapshot.dealloc); err != nil {
+			return nil, err
+		}
+		snapshot.queries[key] = stat
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
+func loadQueryDeltas(start, end *loadQuerySnapshot) ([]loadQueryStat, bool) {
+	if start == nil || end == nil || !start.resetAt.Equal(end.resetAt) || start.dealloc != end.dealloc {
+		return nil, false
+	}
+	for key := range start.queries {
+		if _, ok := end.queries[key]; !ok {
+			return nil, false
+		}
+	}
+	var deltas []loadQueryStat
+	for key, stat := range end.queries {
+		previous := start.queries[key]
+		if stat.calls < previous.calls || stat.totalMS < previous.totalMS {
+			return nil, false
+		}
+		stat.calls -= previous.calls
+		stat.totalMS -= previous.totalMS
+		if stat.calls > 0 {
+			deltas = append(deltas, stat)
+		}
+	}
+	sort.Slice(deltas, func(i, j int) bool { return deltas[i].totalMS > deltas[j].totalMS })
+	return deltas, true
 }
 
 type loadProcess struct {
@@ -806,7 +889,7 @@ func TestServiceE2ELoadAgents(t *testing.T) {
 
 	var mu sync.Mutex
 	active := 0
-	var turnsDone atomic.Int64
+	var turnSamples []loadTurnSample
 	var sendErrors atomic.Int64
 	var lastSendErr atomic.Value
 	driverCtx, stopDriver := context.WithCancel(ctx)
@@ -851,8 +934,8 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 				continue
 			}
 			rows.Close()
-			now := time.Now()
 			mu.Lock()
+			now := time.Now()
 			var toSend []*loadAgent
 			for _, agent := range agents[:n] {
 				if !agent.started {
@@ -873,9 +956,7 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 						continue
 					}
 					agent.waiting = false
-					agent.turnsDone++
-					agent.turnTimes = append(agent.turnTimes, now.Sub(agent.sentAt))
-					turnsDone.Add(1)
+					turnSamples = append(turnSamples, loadTurnSample{at: now, duration: now.Sub(agent.sentAt)})
 					think := time.Duration(0)
 					if thinkMaxMS > 0 {
 						think = time.Duration(rand.IntN(thinkMaxMS)) * time.Millisecond
@@ -934,10 +1015,14 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 				t.Logf("analyzed agent tables in %s", time.Since(analyzeStart).Round(time.Millisecond))
 			}
 		}
-		if os.Getenv("LOADTEST_PGSS_RESET") == "1" {
-			_, _ = env.db.Exec(ctx, `SELECT public.pg_stat_statements_reset()`)
-		}
+		mu.Lock()
 		windowStart := time.Now()
+		startTurns := len(turnSamples)
+		mu.Unlock()
+		startQueries, err := env.loadQuerySnapshot(ctx)
+		if err != nil {
+			t.Logf("query statistics unavailable: %v", err)
+		}
 		startPG, err := env.loadPGStat(ctx)
 		require.NoError(t, err)
 		startExplicit, err := env.loadExplicitTransactions(ctx)
@@ -945,7 +1030,6 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 			t.Logf("explicit transaction statistics unavailable: %v", err)
 		}
 		redisCPUStart := loadRedisCPU(ctx, redisClient)
-		startTurns := turnsDone.Load()
 		pgCPUStart, _ := pgTreeCPU()
 		poolStart := scrapePool(workerMetricURLs)
 		cpuStart := map[int]float64{}
@@ -1004,14 +1088,24 @@ SELECT
 			}
 		}
 		sampleTicker.Stop()
+		mu.Lock()
 		windowEnd := time.Now()
+		endTurns := len(turnSamples)
+		completedTurns := turnSamples[startTurns:endTurns]
+		turnSamples = nil
+		mu.Unlock()
 		window := windowEnd.Sub(windowStart).Seconds()
+		endQueries, err := env.loadQuerySnapshot(ctx)
+		if err != nil {
+			t.Logf("query statistics unavailable: %v", err)
+		}
 		endPG, err := env.loadPGStat(ctx)
 		require.NoError(t, err)
 		endExplicit, err := env.loadExplicitTransactions(ctx)
 		if err != nil {
 			t.Logf("explicit transaction statistics unavailable: %v", err)
 		}
+		turnTimes := loadTurnTimes(completedTurns, windowStart, windowEnd)
 		explicitBegins, explicitCommits := loadExplicitTransactionRates(startExplicit, endExplicit, window)
 		var redisCores *float64
 		if end := loadRedisCPU(ctx, redisClient); end != nil && redisCPUStart != nil && *end >= *redisCPUStart {
@@ -1032,9 +1126,9 @@ SELECT
 		var databaseCores *float64
 		databaseCPUSource := "unavailable"
 		if pgCPUEnd, pgRSS := pgTreeCPU(); pgCPUStart > 0 && pgCPUEnd >= pgCPUStart {
-			cores["pg_native"] = (pgCPUEnd - pgCPUStart) / window
-			databaseCores = new(cores["pg_native"])
-			databaseCPUSource = "postmaster_process_tree"
+			cores["pg_native_cpu_live_processes"] = (pgCPUEnd - pgCPUStart) / window
+			databaseCores = new(cores["pg_native_cpu_live_processes"])
+			databaseCPUSource = "pg_native_cpu_live_processes"
 			rss["pg_native_sum_rss"] = pgRSS
 		}
 		for name, v := range dockerCPU {
@@ -1111,34 +1205,14 @@ WHERE input.queued_at >= $1::timestamptz AND input.queued_at < $2::timestamptz`,
 			t.Logf("turn start query: %v", err)
 		}
 		sort.Float64s(starts)
-		if os.Getenv("LOADTEST_PGSS_RESET") == "1" {
-			topRows, err := env.db.Query(ctx, `
-SELECT calls, round(mean_exec_time::numeric, 2), round(total_exec_time::numeric / 1000, 1),
-       coalesce(substring(query from '-- name: (\w+)'), left(regexp_replace(query, '\s+', ' ', 'g'), 60))
-FROM public.pg_stat_statements ORDER BY total_exec_time DESC LIMIT 15`)
-			if err == nil {
-				for topRows.Next() {
-					var calls int64
-					var mean, total float64
-					var name string
-					if topRows.Scan(&calls, &mean, &total, &name) == nil {
-						t.Logf("PGSS calls=%d mean_ms=%.2f total_s=%.1f %s", calls, mean, total, name)
-					}
-				}
-				topRows.Close()
-				require.NoError(t, topRows.Err())
+		if deltas, ok := loadQueryDeltas(startQueries, endQueries); ok {
+			for _, stat := range deltas[:min(15, len(deltas))] {
+				t.Logf("PGSS calls=%d mean_ms=%.2f total_s=%.1f %s",
+					stat.calls, stat.totalMS/float64(stat.calls), stat.totalMS/1000, stat.name)
 			}
+		} else {
+			t.Log("query statistics deltas unavailable: missing or discontinuous snapshots")
 		}
-		var turnTimes []float64
-		mu.Lock()
-		for _, agent := range agents[:n] {
-			for _, d := range agent.turnTimes {
-				turnTimes = append(turnTimes, d.Seconds())
-			}
-			agent.turnTimes = nil
-		}
-		mu.Unlock()
-		sort.Float64s(turnTimes)
 		result := loadStageResult{
 			AcceptedModelOutputs:       acceptedOutputs,
 			AcceptedModelOutputsPerSec: float64(acceptedOutputs) / window,
@@ -1156,7 +1230,7 @@ FROM public.pg_stat_statements ORDER BY total_exec_time DESC LIMIT 15`)
 
 			Active:            n,
 			WindowSeconds:     window,
-			TurnsPerSec:       float64(turnsDone.Load()-startTurns) / window,
+			TurnsPerSec:       float64(len(turnTimes)) / window,
 			ModelCallsPerSec:  float64(modelCalls) / window,
 			ToolResultsPerSec: float64(toolResults) / window,
 			FailedModelCalls:  failed,
