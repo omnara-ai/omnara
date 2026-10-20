@@ -7,6 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
+	"github.com/stretchr/testify/require"
+	"io"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,15 +43,21 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 	}
 
 	createDone := integrationdb.RunAsync(func() (executionstore.CreatePoolMachineResult, error) {
-		return executeToolCallOnceForLockOrder[executionstore.CreatePoolMachineResult](
-			ctx,
-			fixture.store,
-			fixture.transaction(fixture.createToolCallID),
-			executionstore.CreatePoolMachineForToolCall(
-				executionstore.CreatePoolMachineInput{MachinePoolID: fixture.machinePool.ID},
-				acceptedPoolMachineCompletionForTest,
-			),
-		)
+		result, err := fixture.store.Execution().ExecuteToolCall(ctx, fixture.transaction(fixture.createToolCallID),
+			func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.CreatePoolMachineForToolCall(
+					executionstore.CreatePoolMachineInput{MachinePoolID: fixture.machinePool.ID},
+					acceptedPoolMachineCompletionForTest,
+				), nil
+			})
+		if err != nil {
+			return executionstore.CreatePoolMachineResult{}, err
+		}
+		created, ok := result.CommandResult.(executionstore.CreatePoolMachineResult)
+		if !ok {
+			return executionstore.CreatePoolMachineResult{}, fmt.Errorf("unexpected command result %T", result.CommandResult)
+		}
+		return created, nil
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
@@ -1969,6 +1981,7 @@ tools:
 
 func (f machineLifecycleLockOrderFixture) transaction(toolCallID uuid.UUID) executionstore.ExecuteToolCallInput {
 	return executionstore.ExecuteToolCallInput{
+		RootAgentID:   f.agent.ID,
 		ProjectID:     testProjectID,
 		AgentID:       f.agent.ID,
 		ToolCallID:    toolCallID,
@@ -2043,4 +2056,213 @@ func assertPoolMachineRevokedAfterConcurrentCreate(
 	if toolCall.State != executionstore.ToolCallStateCompleted {
 		t.Fatalf("create-machine tool call state = %q, want completed", toolCall.State)
 	}
+}
+
+type stepFaultTx struct {
+	pgx.Tx
+	armed     *atomic.Bool
+	committed bool
+	after     func()
+}
+
+func (tx stepFaultTx) Commit(ctx context.Context) error {
+	if !tx.armed.CompareAndSwap(true, false) {
+		return tx.Tx.Commit(ctx)
+	}
+	if tx.committed {
+		if err := tx.Tx.Commit(ctx); err != nil {
+			return err
+		}
+	} else if err := tx.Tx.Rollback(ctx); err != nil {
+		return err
+	}
+	if tx.after != nil {
+		tx.after()
+	}
+	return io.ErrUnexpectedEOF
+}
+
+type stepResolutionQuery struct {
+	dbsqlc.DBTX
+	resolve func(context.Context) error
+}
+
+type stepErrorRow struct{ err error }
+
+func (r stepErrorRow) Scan(...any) error { return r.err }
+
+func (q stepResolutionQuery) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "GetCommittedToolResult") {
+		if err := q.resolve(ctx); err != nil {
+			return stepErrorRow{err}
+		}
+	}
+	return q.DBTX.QueryRow(ctx, sql, args...)
+}
+
+func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
+	for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "cleanup canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			f := newMachineLifecycleLockOrderFixture(t, ctx, "command-ack")
+			_, err := f.store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
+				ProjectID: testProjectID, AgentID: f.agent.ID, ID: f.deleteToolCallID,
+				RuntimeLockID: f.runtimeLock.ID, Outcome: executionstore.ToolResultOutcomeSucceeded,
+				ResultContentParts: json.RawMessage(`[{"type":"text","text":"done"}]`),
+			})
+			require.NoError(t, err)
+			input := f.transaction(f.createToolCallID)
+			input.Authorize = true
+			require.NotEqual(t, uuid.Nil, input.RootAgentID)
+			require.NoError(t, f.pool.QueryRow(ctx,
+				`SELECT model_output_id FROM tool_calls WHERE id=$1`, input.ToolCallID).Scan(&input.BatchOutputID))
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			executionCtx, cancelExecution := context.WithCancel(ctx)
+			defer cancelExecution()
+			cleanup, cancelCleanup := context.WithCancel(ctx)
+			defer cancelCleanup()
+			executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+			f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: cancelExecution}
+			})
+			resolving := make(chan struct{}, 1)
+			f.store.Execution().IntegrationWrapQueries(func(db dbsqlc.DBTX) dbsqlc.DBTX {
+				return stepResolutionQuery{DBTX: db, resolve: func(ctx context.Context) error {
+					resolving <- struct{}{}
+					if mode == "resolution unavailable" {
+						return io.ErrClosedPipe
+					}
+					if mode == "cleanup canceled" {
+						<-ctx.Done()
+						return ctx.Err()
+					}
+					return ctx.Err()
+				}}
+			})
+			plan := func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.CreatePoolMachineForToolCall(
+					executionstore.CreatePoolMachineInput{MachinePoolID: f.machinePool.ID}, acceptedPoolMachineCompletionForTest), nil
+			}
+			done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+				return f.store.Execution().ExecuteToolCall(executionCtx, input, plan)
+			})
+			select {
+			case <-resolving:
+			case <-time.After(3 * time.Second):
+				t.Fatal("store did not resolve uncertain command completion")
+			}
+			if mode == "cleanup canceled" {
+				cancelCleanup()
+			}
+			outcome := integrationdb.Await(t, done, "command completion resolution")
+			if mode == "resolved" {
+				require.NoError(t, outcome.Err)
+				require.True(t, outcome.Value.Applied)
+				require.Equal(t, executionstore.StepFinished, outcome.Value.StepDisposition)
+			} else {
+				require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
+			}
+			if mode == "cleanup canceled" {
+				require.ErrorIs(t, outcome.Err, context.Canceled)
+			}
+			if mode == "before commit" {
+				var count int
+				require.NoError(t, f.pool.QueryRow(ctx,
+					`SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1`, input.ToolCallID).Scan(&count))
+				require.Zero(t, count)
+				return
+			}
+			newer, found, err := f.store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+			require.NoError(t, err)
+			require.True(t, found)
+			replayed, err := f.store.Execution().ExecuteToolCall(ctx, input, plan)
+			require.NoError(t, err)
+			require.False(t, replayed.Applied)
+			require.Equal(t, executionstore.StepFinished, replayed.StepDisposition)
+			var count int
+			require.NoError(t, f.pool.QueryRow(ctx,
+				`SELECT count(*) FROM agent_runtime_locks WHERE id=$1`, newer.RuntimeLock.ID).Scan(&count))
+			require.Equal(t, 1, count)
+			require.NoError(t, f.pool.QueryRow(ctx,
+				`SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1`, input.ToolCallID).Scan(&count))
+			require.Equal(t, 1, count)
+			_, err = f.store.Execution().ExecuteToolCall(ctx, input,
+				func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+					return executionstore.CreatePoolMachineForToolCall(
+						executionstore.CreatePoolMachineInput{MachinePoolID: f.machinePool.ID},
+						func(result executionstore.CreatePoolMachineResult) (executionstore.ToolCallCompletionInput, error) {
+							completion, err := acceptedPoolMachineCompletionForTest(result)
+							completion.Outcome = executionstore.ToolResultOutcomeFailed
+							return completion, err
+						}), nil
+				})
+			require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+		})
+	}
+}
+
+type lifecycleBarrierTx struct {
+	pgx.Tx
+	entered chan struct{}
+	proceed chan struct{}
+	armed   *atomic.Bool
+}
+
+func (tx lifecycleBarrierTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "name: LockAgentInProject ") && tx.armed.CompareAndSwap(true, false) {
+		close(tx.entered)
+		select {
+		case <-tx.proceed:
+		case <-ctx.Done():
+			return stepErrorRow{ctx.Err()}
+		}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+func TestCommandToolAndGrantRevocationRespectResourceLockOrder(t *testing.T) {
+	f := newMachineLifecycleLockOrderFixture(t, t.Context(), "delete-revoke-production-route")
+	machine, err := f.createMachineOnce(t.Context())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	revoker := storage.NewStore(f.pool)
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	armed := &atomic.Bool{}
+	armed.Store(true)
+	revoker.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+		return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+	})
+	revoked := integrationdb.RunAsync(func() (executionstore.DeleteProjectMachinePoolGrantResult, error) {
+		return revoker.Execution().DeleteProjectMachinePoolGrant(ctx, testOrgID, testProjectID, f.poolGrant.ID)
+	})
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("grant revocation did not reach its agent-lock boundary")
+	}
+	var attempts atomic.Int32
+	f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+		attempts.Add(1)
+		return tx
+	})
+	deleted := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
+		return f.store.Execution().ExecuteToolCall(ctx, f.transaction(f.deleteToolCallID),
+			func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				return executionstore.DeletePoolMachineForToolCall(
+					executionstore.DeletePoolMachineInput{MachineID: machine.Machine.Machine.ID},
+					func(executionstore.PoolMachineRecord) (executionstore.ToolCallCompletionInput, error) {
+						return executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded,
+							ResultContentParts: json.RawMessage(`[{"type":"text","text":"deleted"}]`)}, nil
+					}), nil
+			})
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, f.pool, "LockMachineForLifecycle", 1)
+	close(proceed)
+	require.NoError(t, integrationdb.Await(t, revoked, "grant revocation").Err)
+	outcome := integrationdb.Await(t, deleted, "command after revocation")
+	require.NotErrorIs(t, outcome.Err, context.DeadlineExceeded)
+	require.NotErrorIs(t, outcome.Err, context.Canceled)
+	require.EqualValues(t, 1, attempts.Load(), "lock order must not require a deadlock retry")
 }

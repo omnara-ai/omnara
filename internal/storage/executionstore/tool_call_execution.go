@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -15,13 +16,14 @@ import (
 )
 
 type ExecuteToolCallInput struct {
-	RootAgentID   uuid.UUID
-	Authorize     bool
-	BatchOutputID uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	ToolCallID    uuid.UUID
-	RuntimeLockID uuid.UUID
+	RequireCompletion bool
+	RootAgentID       uuid.UUID
+	Authorize         bool
+	BatchOutputID     uuid.UUID
+	ProjectID         uuid.UUID
+	AgentID           uuid.UUID
+	ToolCallID        uuid.UUID
+	RuntimeLockID     uuid.UUID
 }
 
 type ExecuteToolCallResult struct {
@@ -99,12 +101,9 @@ func (s *Store) executeToolCallOnce(
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
 	if input.RootAgentID != uuid.Nil {
-		plan := unit.PlanKnownAgents([]agentexecution.AgentRoute{
-			{ProjectID: input.ProjectID, AgentID: input.AgentID, RootAgentID: input.RootAgentID},
+		unit.ReuseAgentRoute(agentexecution.AgentRoute{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, RootAgentID: input.RootAgentID,
 		})
-		if err := unit.LockAgents(ctx, plan); err != nil {
-			return ExecuteToolCallResult{}, err
-		}
 	}
 	tx := unit.DB()
 	toolTx := &toolCallTransaction{
@@ -128,6 +127,9 @@ func (s *Store) executeToolCallOnce(
 	}
 	if toolTx.disposition == 0 {
 		return ExecuteToolCallResult{}, errors.New("tool call command did not choose a disposition")
+	}
+	if input.RequireCompletion && toolTx.disposition != ToolCallDispositionCompleted {
+		return ExecuteToolCallResult{}, storeerr.ErrInvalidToolCallDisposition
 	}
 	if toolTx.requiresWaitingDisposition && toolTx.disposition != ToolCallDispositionWaiting {
 		return ExecuteToolCallResult{}, fmt.Errorf(
@@ -188,7 +190,7 @@ func (s *Store) executeToolCallOnce(
 	}
 	if err := unit.Commit(ctx, "execute tool call"); err != nil {
 		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied && toolTx.completed != nil {
-			resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
 			defer cancel()
 			receipt, resolveErr := s.q.GetCommittedToolResult(resolveCtx, dbsqlc.GetCommittedToolResultParams{
 				ProjectID: input.ProjectID, AgentID: input.AgentID, ToolCallID: input.ToolCallID,
@@ -229,15 +231,9 @@ func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting b
 	if err != nil {
 		return err
 	}
-	if t.input.Authorize {
-		if _, err := h.AuthorizeTool(ctx, agentexecution.ToolRef{
-			ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID,
-		}); err != nil {
-			return err
-		}
-	}
 	dispatch, err := h.DispatchTool(ctx,
-		agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}, acceptExisting,
+		agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID},
+		acceptExisting, t.input.Authorize,
 	)
 	if err != nil {
 		return err
@@ -279,10 +275,7 @@ func (t *toolCallTransaction) completeToolCall(
 	ctx context.Context,
 	input ToolCallCompletionInput,
 ) (ToolCallRecord, error) {
-	if t.disposition == ToolCallDispositionCompleted {
-		return getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
-	}
-	if t.disposition != 0 {
+	if t.disposition != 0 && t.disposition != ToolCallDispositionCompleted {
 		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	record, completed, err := completeExecutionTool(ctx, t.unit, CompleteToolCallInput{

@@ -4,7 +4,16 @@ package executionstore_test
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"io"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -182,4 +191,168 @@ func reclaimUnpreparedAgentWork(
 	require.True(t, found)
 	f.Lock = work.RuntimeLock
 	return work
+}
+
+type resolutionFaultTx struct {
+	pgx.Tx
+	resolve func(context.Context) error
+}
+
+func (tx resolutionFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if err := tx.resolve(ctx); err != nil {
+		return stepErrorRow{err}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+func TestClaimStoreLostAcknowledgementDoesNotReturnExecutableWork(t *testing.T) {
+	for _, committed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before commit", true: "after commit"}[committed], func(t *testing.T) {
+			ctx := t.Context()
+			f := newProcessDaemonFixture(t, ctx, "claim_store_ack")
+			ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
+			require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return stepFaultTx{Tx: tx, armed: armed, committed: committed}
+			})
+			claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+			require.ErrorIs(t, err, storeerr.ErrCommitOutcomeUnknown)
+			require.False(t, found)
+			require.Equal(t, executionstore.ClaimedAgentWork{}, claim)
+			var attempts, leases int
+			require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM model_call_contexts WHERE agent_id=$1 AND state='started'),
+ (SELECT count(*) FROM agent_runtime_locks WHERE agent_id=$1)`, f.AgentID).Scan(&attempts, &leases))
+			want := 0
+			if committed {
+				want = 1
+			}
+			require.Equal(t, want, attempts)
+			require.Equal(t, want, leases)
+		})
+	}
+}
+
+func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
+	for _, tool := range []bool{false, true} {
+		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "cleanup canceled"} {
+			t.Run(map[bool]string{false: "model/", true: "tools/"}[tool]+mode, func(t *testing.T) {
+				ctx := t.Context()
+				f := newProcessDaemonFixture(t, ctx, "output_store_ack")
+				ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
+				require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+				claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+				require.NoError(t, err)
+				require.True(t, found)
+				require.NotNil(t, claim.Model.Prepared)
+				require.Equal(t, f.AgentID, claim.RootAgentID)
+				input := executionstore.RecordModelOutputAndCompleteContextInput{
+					RootAgentID: claim.RootAgentID, FinishClaim: true, ProjectID: claim.ProjectID, AgentID: claim.AgentID,
+					RuntimeLockID: claim.RuntimeLock.ID, ModelCallContextID: claim.Model.Prepared.Claim.Context.ID,
+					ProviderRequestID: "ack-request",
+					ProviderResponse: modelenvelope.ResponseEnvelope{
+						InputFingerprint: strings.Repeat("a", 64),
+						RequestedProviderModelSlug: modelProviderSlugForContext(
+							t, ctx, f.Store, testProjectID, f.AgentID, claim.Model.Prepared.Claim.Context.ID),
+						APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+						Normalized: modelenvelope.ResponseNormalized{ID: "ack-response", StopReason: modelenvelope.StopReasonEndTurn,
+							Content: []modelenvelope.ResponsePart{{Type: modelenvelope.ResponsePartTypeText, Text: "done"}}},
+					},
+				}
+				bindings := []executionstore.ToolCallBindingInput{{ID: uuid.New(), ProviderCallID: "ack-call", Type: "built_in"}}
+				if tool {
+					input.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
+					input.ProviderResponse.Normalized.Content = []modelenvelope.ResponsePart{{
+						Type:           modelenvelope.ResponsePartTypeToolCall,
+						ProviderCallID: "ack-call", ToolName: "list_agents", ToolInput: json.RawMessage(`{}`)}}
+				}
+				complete := func(ctx context.Context) (uuid.UUID, error) {
+					if tool {
+						event, _, err := f.Store.Execution().RecordToolCallSourceAndCompleteContext(
+							ctx, executionstore.RecordToolCallSourceAndCompleteContextInput{
+								RootAgentID: input.RootAgentID, FinishClaim: true, ProjectID: input.ProjectID, AgentID: input.AgentID,
+								RuntimeLockID: input.RuntimeLockID, ModelCallContextID: input.ModelCallContextID,
+								ProviderRequestID: input.ProviderRequestID, ProviderResponse: input.ProviderResponse,
+								ToolCallBindings: bindings,
+							})
+						return event.ID, err
+					}
+					event, err := f.Store.Execution().RecordModelOutputAndCompleteContext(ctx, input)
+					return event.ID, err
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				executionCtx, cancelExecution := context.WithCancel(ctx)
+				defer cancelExecution()
+				cleanup, cancelCleanup := context.WithCancel(ctx)
+				defer cancelCleanup()
+				executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+				resolving := make(chan struct{}, 1)
+				var resolveCalled atomic.Bool
+				f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+					if armed.Load() {
+						return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: cancelExecution}
+					}
+					return resolutionFaultTx{Tx: tx, resolve: func(ctx context.Context) error {
+						if !resolveCalled.CompareAndSwap(false, true) {
+							return nil
+						}
+						resolving <- struct{}{}
+						if mode == "resolution unavailable" {
+							return io.ErrClosedPipe
+						}
+						if mode == "cleanup canceled" {
+							<-ctx.Done()
+							return ctx.Err()
+						}
+						return ctx.Err()
+					}}
+				})
+				done := integrationdb.RunAsync(func() (uuid.UUID, error) { return complete(executionCtx) })
+				select {
+				case <-resolving:
+				case <-time.After(3 * time.Second):
+					t.Fatal("store did not resolve uncertain model completion")
+				}
+				if mode == "cleanup canceled" {
+					cancelCleanup()
+				}
+				outcome := integrationdb.Await(t, done, "model output resolution")
+				if mode == "resolved" {
+					require.NoError(t, outcome.Err)
+					require.NotEqual(t, uuid.Nil, outcome.Value)
+				} else {
+					require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
+				}
+				if mode == "cleanup canceled" {
+					require.ErrorIs(t, outcome.Err, context.Canceled)
+				}
+				var outputs, leases int
+				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM model_outputs WHERE agent_id=$1),
+ (SELECT count(*) FROM agent_runtime_locks WHERE agent_id=$1)`, f.AgentID).Scan(&outputs, &leases))
+				if mode == "before commit" {
+					require.Zero(t, outputs)
+					require.Equal(t, 1, leases)
+					return
+				}
+				require.Equal(t, 1, outputs)
+				require.Zero(t, leases)
+				if !tool {
+					ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "next")
+				}
+				newer, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+				require.NoError(t, err)
+				require.True(t, found)
+				replayed, err := complete(ctx)
+				require.NoError(t, err)
+				require.NotEqual(t, uuid.Nil, replayed)
+				require.NoError(t, f.Store.pool.QueryRow(ctx,
+					`SELECT count(*) FROM agent_runtime_locks WHERE id=$1`, newer.RuntimeLock.ID).Scan(&leases))
+				require.Equal(t, 1, leases)
+			})
+		}
+	}
 }

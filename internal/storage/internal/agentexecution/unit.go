@@ -28,6 +28,7 @@ type Unit struct {
 	tx                pgx.Tx
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle
+	knownRoutes       map[uuid.UUID]AgentRoute
 	exclusiveProjects map[uuid.UUID]struct{}
 	runtimeLocked     bool
 	closed            bool

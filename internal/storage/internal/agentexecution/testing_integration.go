@@ -58,3 +58,20 @@ func (tx lostTestCommit) Commit(ctx context.Context) error {
 	}
 	return io.ErrUnexpectedEOF
 }
+
+func (c *AgentCell) WrapTransactionsForTest(wrap func(pgx.Tx) pgx.Tx) {
+	c.pool = wrappedTestTransactions{transactionBeginner: c.pool, wrap: wrap}
+}
+
+type wrappedTestTransactions struct {
+	transactionBeginner
+	wrap func(pgx.Tx) pgx.Tx
+}
+
+func (p wrappedTestTransactions) BeginTx(ctx context.Context, options pgx.TxOptions) (pgx.Tx, error) {
+	tx, err := p.transactionBeginner.BeginTx(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	return p.wrap(tx), nil
+}

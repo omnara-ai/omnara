@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 )
 
 type AsyncExecutionLimiter struct {
@@ -48,6 +51,14 @@ type asyncExecutionScopeContextKey struct{}
 
 func WithAsyncExecutionScope(ctx context.Context, scope *AsyncExecutionScope) context.Context {
 	return context.WithValue(ctx, asyncExecutionScopeContextKey{}, scope)
+}
+
+func WithCleanupLifetime(ctx, lifetime context.Context) context.Context {
+	return cleanupcontext.WithLifetime(ctx, lifetime)
+}
+
+func DetachForCleanup(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return cleanupcontext.Detach(ctx, timeout)
 }
 
 type AsyncExecutionReservation struct {

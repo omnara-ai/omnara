@@ -146,6 +146,14 @@ func SetInteractionHandlerForToolCall(
 		if err != nil {
 			return nil, err
 		}
+		if call.State == ToolCallStateCompleted {
+			result, err := completion(selected)
+			if err != nil {
+				return nil, err
+			}
+			_, err = t.completeToolCall(ctx, result)
+			return nil, err
+		}
 		var handler resolvedInteractionHandler
 		if selected.HandlerKey != "" {
 			capability, found := original.InteractionHandlers[selected.HandlerKey]

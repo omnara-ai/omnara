@@ -16,8 +16,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
+type transactionBeginner interface {
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
+
 type AgentCell struct {
-	pool         *storeutil.Pool
+	pool         transactionBeginner
 	publisher    notifications.PostCommitPublisher
 	retryBackoff func(int, string) time.Duration
 }

@@ -330,17 +330,26 @@ const (
 	ToolDispatchCompleted
 )
 
-func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting bool) (ToolDispatch, error) {
-	if err := h.unit.LockAgentRefs(ctx,
-		[]lifecyclelock.AgentRef{{ProjectID: h.route.ProjectID, AgentID: h.route.AgentID}},
-		&RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: ref.RuntimeLockID},
-	); err != nil {
-		return 0, err
-	}
+func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, authorize bool) (ToolDispatch, error) {
 	state, err := executiondb.New().ReadExecutionToolDispatch(
 		ctx, h.unit.DB(), executiondb.ReadExecutionToolDispatchParams{AgentID: h.route.AgentID, ID: ref.ID},
 	)
 	if err != nil {
+		return 0, err
+	}
+	if acceptExisting && state == "completed" {
+		return ToolDispatchCompleted, nil
+	}
+	if authorize && state == "awaiting_authorization" {
+		if _, err := h.AuthorizeTool(ctx, ref); err != nil {
+			return 0, err
+		}
+		state = "ready"
+	}
+	if err := h.unit.LockAgentRefs(ctx,
+		[]lifecyclelock.AgentRef{{ProjectID: h.route.ProjectID, AgentID: h.route.AgentID}},
+		&RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: ref.RuntimeLockID},
+	); err != nil {
 		return 0, err
 	}
 	switch state {

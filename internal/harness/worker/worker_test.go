@@ -1234,3 +1234,90 @@ func TestUnknownClaimOutcomeNeverStartsProviderOrReleases(t *testing.T) {
 	default:
 	}
 }
+
+type completionRenewalStore struct {
+	retainedRuntimeStore
+	mode      string
+	exhausted chan struct{}
+}
+
+func (s *completionRenewalStore) RenewAgentRuntimeLock(
+	ctx context.Context, _, _, _ uuid.UUID, _ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	defer close(s.exhausted)
+	if s.mode == "cancellation" {
+		return executionstore.AgentRuntimeLockRenewal{
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{CancelRequestedAt: new(time.Now())},
+		}, nil
+	}
+	if s.mode == "inactive" {
+		return executionstore.AgentRuntimeLockRenewal{}, storeerr.ErrRuntimeLockInactive
+	}
+	<-ctx.Done()
+	return executionstore.AgentRuntimeLockRenewal{}, ctx.Err()
+}
+
+type delayedCompletionExecutor struct {
+	fixedModelErrorExecutor
+	started chan context.Context
+	ack     chan struct{}
+}
+
+func (e *delayedCompletionExecutor) ExecuteModelWorkStep(
+	ctx context.Context, input kernel.ModelWorkExecution,
+) (executionstore.StepDisposition, error) {
+	finish := input.Completion.Begin()
+	e.started <- ctx
+	<-e.ack
+	finish(true)
+	return executionstore.StepFinished, ctx.Err()
+}
+
+func TestWorkerRenewalFailureWaitsForDelayedCompletionAcknowledgement(t *testing.T) {
+	for _, mode := range []string{"timeout", "inactive", "cancellation"} {
+		t.Run(mode, func(t *testing.T) {
+			store := &completionRenewalStore{
+				retainedRuntimeStore: retainedRuntimeStore{
+					claim: executionstore.ClaimedAgentWork{
+						ProjectID: uuid.New(), AgentID: uuid.New(), Kind: executionstore.AgentWorkModel,
+						RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+						LocalLeaseBudgetStartedAt: time.Now(),
+					}, released: make(chan uuid.UUID, 1),
+				}, mode: mode, exhausted: make(chan struct{}),
+			}
+			executor := &delayedCompletionExecutor{started: make(chan context.Context, 1), ack: make(chan struct{})}
+			worker := NewWorker(store, executor, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond, Capacity: 1})
+			done := make(chan error, 1)
+			go func() { _, err := worker.RunOnce(t.Context()); done <- err }()
+			executionCtx := <-executor.started
+			select {
+			case <-store.exhausted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("renewal did not exhaust its budget")
+			}
+			if mode == "cancellation" {
+				select {
+				case <-executionCtx.Done():
+				case <-time.After(time.Second):
+					t.Fatal("genuine cancellation was deferred")
+				}
+			} else {
+				select {
+				case <-executionCtx.Done():
+					t.Fatal("renewal canceled pending completion")
+				case <-time.After(50 * time.Millisecond):
+				}
+			}
+			close(executor.ack)
+			select {
+			case err := <-done:
+				if mode != "cancellation" {
+					require.NoError(t, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("worker did not finish after acknowledgement")
+			}
+			require.Empty(t, store.released)
+		})
+	}
+}

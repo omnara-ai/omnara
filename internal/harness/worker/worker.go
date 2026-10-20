@@ -580,8 +580,7 @@ func (w *Worker) startRuntimeRenewal(
 				return
 			}
 
-			active.renewalFailed.Store(true)
-			cancelTurn()
+			active.completion.LeaseLost(func() { active.renewalFailed.Store(true); cancelTurn() })
 			return
 		}
 	}()

@@ -38,6 +38,10 @@ func (u *Unit) PlanAgents(
 			plan.agents = append(plan.agents, h.route)
 			continue
 		}
+		if route, ok := u.knownRoutes[ref.AgentID]; ok && route.ProjectID == ref.ProjectID {
+			plan.agents = append(plan.agents, route)
+			continue
+		}
 		root, err := q.LoadExecutionScope(ctx, u.DB(), executiondb.LoadExecutionScopeParams{
 			ProjectID: ref.ProjectID, ID: ref.AgentID,
 		})
@@ -285,4 +289,11 @@ func (u *Unit) PlanSubagentLaunch(ctx context.Context, projectID, parentID uuid.
 
 func (u *Unit) PlanKnownAgents(routes []AgentRoute) MutationPlan {
 	return MutationPlan{unit: u, agents: slices.Clone(routes)}
+}
+
+func (u *Unit) ReuseAgentRoute(route AgentRoute) {
+	if u.knownRoutes == nil {
+		u.knownRoutes = make(map[uuid.UUID]AgentRoute)
+	}
+	u.knownRoutes[route.AgentID] = route
 }

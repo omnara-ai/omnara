@@ -6,9 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/stretchr/testify/require"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2863,4 +2868,95 @@ func assertNoOpenInteractions(t *testing.T, ctx context.Context, store *storage.
 	if len(page.Interactions) != 0 {
 		t.Fatalf("expected no open interactions, got %+v", page.Interactions)
 	}
+}
+
+type workerResolutionFaultTx struct {
+	pgx.Tx
+	armed     *atomic.Bool
+	lost      *atomic.Bool
+	resolving chan context.Context
+}
+
+func (tx workerResolutionFaultTx) Commit(ctx context.Context) error {
+	if err := tx.Tx.Commit(ctx); err != nil {
+		return err
+	}
+	if tx.armed.CompareAndSwap(true, false) {
+		tx.lost.Store(true)
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (tx workerResolutionFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if tx.lost.CompareAndSwap(true, false) {
+		tx.resolving <- ctx
+		<-ctx.Done()
+		return workerResolutionErrorRow{err: ctx.Err()}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+type workerResolutionErrorRow struct{ err error }
+
+func (r workerResolutionErrorRow) Scan(...any) error { return r.err }
+
+func TestWorkerShutdownBoundsUncertainResultResolution(t *testing.T) {
+	ctx := t.Context()
+	pool := openWorkerIntegrationDB(t, ctx)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+	now := time.Date(2026, 5, 16, 21, 30, 0, 0, time.UTC)
+	agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
+	createWorkerInput(t, ctx, store, agentID, userID, "finish during shutdown", now.Add(time.Second))
+	modelClient := drainingModelClient{
+		fixedModelClient: fixedModelClient{providerModelSlug: "worker-kernel-test", text: "committed before shutdown"},
+		responding:       make(chan struct{}, 1), release: make(chan struct{}),
+	}
+	var armed, lost atomic.Bool
+	resolving := make(chan context.Context, 1)
+	store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+		return workerResolutionFaultTx{Tx: tx, armed: &armed, lost: &lost, resolving: resolving}
+	})
+	worker := NewWorker(store.Execution(), kernel.AgentExecutor{
+		Store: store, ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+	}, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1, ControlSubscriber: noopControlSubscriber{}})
+	executionCtx, cancelExecution := context.WithCancel(ctx)
+	defer cancelExecution()
+	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
+	defer cancelCleanup()
+	drain := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	select {
+	case <-modelClient.responding:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker did not start model execution")
+	}
+	armed.Store(true)
+	close(modelClient.release)
+	var resolutionCtx context.Context
+	select {
+	case resolutionCtx = <-resolving:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker did not reach automatic store resolution")
+	}
+	close(drain)
+	cancelExecution()
+	require.NoError(t, resolutionCtx.Err())
+	select {
+	case <-done:
+		t.Fatal("worker exited before cleanup resolution finished")
+	case <-time.After(25 * time.Millisecond):
+	}
+	cancelCleanup()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("resolution escaped the worker cleanup lifetime")
+	}
+	require.ErrorIs(t, resolutionCtx.Err(), context.Canceled)
+	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
+	assertCompletedModelContext(t, ctx, pool, agentID, outputID)
+	waitNoRuntimeLock(t, ctx, pool, agentID)
 }
