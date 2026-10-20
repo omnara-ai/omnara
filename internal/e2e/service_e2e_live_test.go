@@ -776,27 +776,32 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	mcpServer := mcptest.NewJSONServerWithGreetResult(t, sampleID)
 	toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
 	env.startAPI(t, ctx)
-	sourceYAML := strings.Join([]string{
-		"instruction: Use tools only when explicitly requested. Preserve exact tool results and conversation facts across compaction.",
-		"model:",
-		"  provider_config: " + opts.ProviderConfig,
-		"  name: " + opts.ConfiguredModelName,
-		"mcp:",
-		"  docs:",
-		"    url: " + mcpServer.URL,
-		"    permission:",
-		"      mode: always_allow",
-		"",
-	}, "\n")
+	const setupContextWindow = 128000
+	const compactionContextWindow = 16000
+	sourceForContextWindow := func(contextWindow int) string {
+		return strings.Join([]string{
+			"instruction: Use tools only when explicitly requested. Preserve exact tool results and conversation facts across compaction.",
+			"model:",
+			"  provider_config: " + opts.ProviderConfig,
+			"  name: " + opts.ConfiguredModelName,
+			"  context_window_tokens: " + strconv.Itoa(contextWindow),
+			"mcp:",
+			"  docs:",
+			"    url: " + mcpServer.URL,
+			"    permission:",
+			"      mode: always_allow",
+			"",
+		}, "\n")
+	}
 	modelOptions := opts.ModelOptions
-	modelOptions.ContextWindowTokens = 16000
+	modelOptions.ContextWindowTokens = setupContextWindow
 	modelOptions.MaxOutputTokens = 8192
 	modelOptions.DefaultMaxOutputTokens = 4096
 	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		opts.Seed,
-		sourceYAML,
+		sourceForContextWindow(setupContextWindow),
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{
 				ProviderConfigName:  opts.ProviderConfig,
@@ -815,11 +820,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		http.StatusOK,
 	)
 	modelConfig := testutil.RequireType[map[string]any](t, config["model"])
-	if modelConfig["context_window_tokens"] != float64(16000) || modelConfig["max_output_tokens"] != float64(8192) ||
+	if modelConfig["context_window_tokens"] != float64(setupContextWindow) ||
+		modelConfig["max_output_tokens"] != float64(8192) ||
 		modelConfig["default_max_output_tokens"] != float64(4096) {
 		t.Fatalf(
-			"live compaction agent config model budget = %+v, want context_window_tokens=16000 max_output_tokens=8192 default_max_output_tokens=4096",
+			"live compaction setup model budget = %+v, want context_window_tokens=%d max_output_tokens=8192 default_max_output_tokens=4096",
 			modelConfig,
+			setupContextWindow,
 		)
 	}
 	agentID := project.createAgent(t, ctx)
@@ -827,20 +834,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	bridgeToken := "BRIDGE_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	rawPaddingToken := "RAW_PADDING_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
 	toolArgument := "COMPACTION_TOOL_FACT_" + strings.ToUpper(strings.ReplaceAll(opts.Seed+"-"+env.seed, "-", "_"))
-	firstTurnPaddingRepetitions := 150
-	if opts.ProviderConfig == "anthropic-prod" {
-		// Anthropic's measured usage for the opaque padding exceeds the initial
-		// estimate. Leave headroom to finish the tool exchange before compaction
-		// so the checkpoint can include the tool result, rather than retaining it.
-		firstTurnPaddingRepetitions = 75
-	}
 	firstPrompt := strings.Join([]string{
 		"The fictional project label for this conversation is " + projectLabel + ".",
 		"Call the " + toolName + " tool exactly once with name set to " + toolArgument + ".",
 		"The tool returns a generated sample identifier that does not appear elsewhere in this prompt.",
 		"Remember both the exact project label and generated sample identifier if the conversation is summarized or compacted.",
 		"After the tool returns, do not call another tool. Reply with exactly ACK_" + projectLabel + " and no other words.",
-		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", firstTurnPaddingRepetitions),
+		"Disposable context padding for the first turn: " + strings.Repeat(rawPaddingToken+" ", 150),
 	}, "\n")
 	project.createInput(t, ctx, agentID, firstPrompt)
 	worker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
@@ -862,6 +862,25 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	if earlyCheckpoints != 0 {
 		t.Fatalf("compaction occurred before the complete tool turn: checkpoints=%d", earlyCheckpoints)
 	}
+	// Establish the complete tool turn with ample headroom, then impose context
+	// pressure through the public config API. Tokenizer differences must not
+	// decide whether this fixture tests a summarized or retained tool result.
+	worker.stop()
+	configChange := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		project.projectPath+"/agents/"+agentID+"/config",
+		map[string]any{"source_format": "yaml", "source": sourceForContextWindow(compactionContextWindow)},
+		"idem-"+agentID+"-compaction-budget",
+		project.adminToken,
+		http.StatusOK,
+	)
+	updatedConfig := testutil.RequireType[map[string]any](t, configChange["agent_config"])
+	updatedModel := testutil.RequireType[map[string]any](t, updatedConfig["model"])
+	if updatedModel["context_window_tokens"] != float64(compactionContextWindow) {
+		t.Fatalf("live compaction model budget = %+v, want context_window_tokens=%d", updatedModel, compactionContextWindow)
+	}
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
@@ -878,6 +897,10 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t.Fatalf("query pre-bridge event sequence: %v", err)
 	}
 	project.createInput(t, ctx, agentID, secondPrompt)
+	worker = env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
+		ProviderConfig: opts.ProviderConfig,
+		BaseURL:        opts.BaseURL,
+	})
 	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		// Read output first so the evidence below cannot precede a newly completed turn.
