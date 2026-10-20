@@ -578,3 +578,10 @@ WHERE machine.id = sqlc.arg(machine_id)
   AND machine.deleted_at IS NULL
   AND connection.connection_state IN ('online', 'asleep')
 LIMIT 1;
+
+-- name: GetProcessExecutionSpecForAgent :one
+SELECT process.execution_spec
+FROM processes process
+WHERE process.project_id = sqlc.arg(project_id)
+  AND process.agent_id = sqlc.arg(agent_id)
+  AND process.id = sqlc.arg(id);

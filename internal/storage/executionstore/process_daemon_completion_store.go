@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -378,6 +379,26 @@ func (s *Store) GetProcessByToolCall(
 		return ProcessRecord{}, false, errors.New("project, agent, and tool call are required")
 	}
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
+}
+
+// ProcessExecutionSpec returns what one of the agent's processes runs.
+func (r *ToolCallReader) ProcessExecutionSpec(
+	ctx context.Context,
+	processID uuid.UUID,
+) (processcmd.ExecutionSpec, bool, error) {
+	t := r.transaction
+	spec, err := t.q.GetProcessExecutionSpecForAgent(ctx, dbsqlc.GetProcessExecutionSpecForAgentParams{
+		ProjectID: t.input.ProjectID,
+		AgentID:   t.input.AgentID,
+		ID:        processID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return processcmd.ExecutionSpec{}, false, nil
+	}
+	if err != nil {
+		return processcmd.ExecutionSpec{}, false, fmt.Errorf("get process execution spec: %w", err)
+	}
+	return spec, true, nil
 }
 
 func (r *ToolCallReader) ListActiveProcesses(

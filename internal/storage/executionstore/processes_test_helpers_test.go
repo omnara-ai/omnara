@@ -1453,9 +1453,9 @@ func assertProcessActionToolResultUsesPublicIDs(
 	}
 	toolCall := completedToolCallForTest(t, store, agentID, turnID, toolCallID)
 	body := string(toolCall.ResultContentParts)
-	if !strings.Contains(body, processPublicID) || !strings.Contains(body, actionPublicID) {
+	if !strings.Contains(body, processPublicID) || strings.Contains(body, actionPublicID) {
 		t.Fatalf(
-			"tool result must expose public process/action ids; body=%s process=%s action=%s",
+			"tool result must expose the public process id and not the action id; body=%s process=%s action=%s",
 			body,
 			processPublicID,
 			actionPublicID,

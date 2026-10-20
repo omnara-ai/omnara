@@ -186,7 +186,9 @@ func assertPublicOutputRange(t *testing.T, raw json.RawMessage, offset, next flo
 	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
-	if body["offset_byte"] != offset || body["next_offset_byte"] != next {
+	// A zero offset is left out of results.
+	if got, ok := body["offset_byte"]; ok != (offset != 0) || ok && got != offset ||
+		body["next_offset_byte"] != next {
 		t.Fatalf("result output range = %s", raw)
 	}
 	if _, ok := body["cursor"]; ok {
@@ -194,5 +196,95 @@ func assertPublicOutputRange(t *testing.T, raw json.RawMessage, offset, next flo
 	}
 	if _, ok := body["next_cursor"]; ok {
 		t.Fatalf("result exposes daemon next_cursor: %s", raw)
+	}
+}
+
+func TestReadValidatesHeadAndTail(t *testing.T) {
+	t.Parallel()
+
+	process := Process{ID: uuid.New(), State: "running"}
+	id := publicID(publicid.KindProcess, process.ID)
+	payload := json.RawMessage(`{"max_bytes":10,"wait_for_exit":true,"head_bytes":4}`)
+	tests := []struct {
+		name        string
+		observation string
+		want        string
+	}{
+		{
+			name: "head and tail",
+			observation: `{"process_id":"` + id + `","output":"star","cursor":0,"next_cursor":16,` +
+				`"truncated":false,"output_tail":"le-end","omitted_cursor":4,"tail_cursor":10}`,
+			want: `{"next_offset_byte":16,"omitted_offset_byte":4,"output":"star","output_tail":"le-end",` +
+				`"process_id":"` + id + `","state":"running","tail_offset_byte":10}`,
+		},
+		{
+			name: "more than max_bytes",
+			observation: `{"process_id":"` + id + `","output":"start","cursor":0,"next_cursor":16,` +
+				`"truncated":false,"output_tail":"le-end","omitted_cursor":5,"tail_cursor":10}`,
+		},
+		{
+			name: "tail beyond its range",
+			observation: `{"process_id":"` + id + `","output":"star","cursor":0,"next_cursor":12,` +
+				`"truncated":false,"output_tail":"le-end","omitted_cursor":4,"tail_cursor":10}`,
+		},
+		{
+			name: "tail without omitted cursor",
+			observation: `{"process_id":"` + id + `","output":"star","cursor":0,"next_cursor":16,` +
+				`"truncated":false,"output_tail":"le-end","tail_cursor":10}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, _, err := Read(process, Action{Payload: payload}, json.RawMessage(test.observation))
+			if test.want == "" {
+				if err == nil {
+					t.Fatalf("Read accepted %s", test.observation)
+				}
+				return
+			}
+			if err != nil || string(got) != test.want {
+				t.Fatalf("Read = %s, %v; want %s", got, err, test.want)
+			}
+			again, _, err := Read(process, Action{Payload: payload}, got)
+			if err != nil || string(again) != test.want {
+				t.Fatalf("Read of its own result = %s, %v", again, err)
+			}
+			if matches, err := ReadMatches(json.RawMessage(test.observation), got); err != nil || !matches {
+				t.Fatalf("ReadMatches = %t, %v", matches, err)
+			}
+		})
+	}
+}
+
+func TestProcessResultsLeaveOutEmptyFields(t *testing.T) {
+	t.Parallel()
+
+	exitCode := 2
+	process := Process{ID: uuid.New(), State: "exited", ExitCode: &exitCode}
+	id := publicID(publicid.KindProcess, process.ID)
+	outcome, terminal, err := TerminalOutput(process, json.RawMessage(
+		`{"state":"exited","exit_code":2,"output":"oops\n","cursor":0,"next_cursor":5,`+
+			`"truncated":false,"done":true,"error":"exit code 2"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"exit_code":2,"next_offset_byte":5,"output":"oops\n","process_id":"` + id + `","state":"exited"}`
+	if outcome != "failed" || string(terminal) != want {
+		t.Fatalf("TerminalOutput = %s %s, want failed %s", outcome, terminal, want)
+	}
+
+	process.State = "running"
+	started, err := Started(process, json.RawMessage(
+		`{"output":"","cursor":0,"next_cursor":0,"truncated":false,"done":false,`+
+			`"process_id":"`+id+`","state":"running","exit_code":null,"error":""}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"next_offset_byte":0,"output":"","process_id":"` + id + `","state":"running"}`; string(started) != want {
+		t.Fatalf("Started = %s, want %s", started, want)
 	}
 }

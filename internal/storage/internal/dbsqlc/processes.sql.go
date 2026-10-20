@@ -944,6 +944,27 @@ func (q *Queries) GetProcessExecutionConfig(ctx context.Context, arg GetProcessE
 	return i, err
 }
 
+const getProcessExecutionSpecForAgent = `-- name: GetProcessExecutionSpecForAgent :one
+SELECT process.execution_spec
+FROM processes process
+WHERE process.project_id = $1
+  AND process.agent_id = $2
+  AND process.id = $3
+`
+
+type GetProcessExecutionSpecForAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetProcessExecutionSpecForAgent(ctx context.Context, arg GetProcessExecutionSpecForAgentParams) (processcmd.ExecutionSpec, error) {
+	row := q.db.QueryRow(ctx, getProcessExecutionSpecForAgent, arg.ProjectID, arg.AgentID, arg.ID)
+	var execution_spec processcmd.ExecutionSpec
+	err := row.Scan(&execution_spec)
+	return execution_spec, err
+}
+
 const getProcessForUpdate = `-- name: GetProcessForUpdate :one
 SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, notify_on_exit
 FROM processes

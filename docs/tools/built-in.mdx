@@ -69,24 +69,24 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `machine_id` | string | Public ID (`mch_...`) of the [machine](#picking-a-machine) to use; omit when the agent has exactly one |
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
-| `wait_ms` | integer | 1–300000; how long to wait for early output or exit before returning |
 | `io_mode` | enum | `pipe` (default) or `pty` |
 | `detach` | boolean | For long-lived processes such as servers; default false. See [background processes](#background-processes) |
 
-Every command returns a `process_id` (`prc_…`). `wait_ms` controls how long `run_command` waits for the command to finish before returning. If it finishes in time, the result includes its output:
+Every command returns a `process_id` (`prc_…`). `run_command` waits up to 10 seconds for the command to exit. If it does, the result includes its exit code and output:
 
 ```json
 {
   "process_id": "prc_rwz3jehcyd5n6a2bfgik7mv4qt",
   "state": "exited",
-  "command": "git log -1 --format=%H",
+  "exit_code": 0,
   "output": "8c41d2e9f0a3b7c6d5e4f3a2b1c0d9e8f7a6b5c4\n",
-  "done": true,
-  "exit_code": 0
+  "next_offset_byte": 41
 }
 ```
 
-If the command is still running after `wait_ms`, the tool returns `"state": "running"`. The agent can then read its output, send input, or stop it with the process tools below.
+Results carry at most 16 KiB of output. Longer output keeps the first 2 KiB in `output` and the rest from the end in `output_tail`; `omitted_offset_byte` and `tail_offset_byte` mark the bytes left out, which [`read_process`](#read_process) can page through.
+
+If the command is still running after 10 seconds, the result has `"state": "running"` and the output so far. The command keeps running; the agent can read its output, send input, or stop it with the process tools below, and receives a message when it ends.
 
 #### Background processes
 
@@ -112,14 +112,19 @@ Use these tools to follow or control commands that are still running. A process 
 
 ### `read_process`
 
-Reads process output from a byte offset and can briefly wait for new output.
+Reads process output from a byte offset and can wait for the process to end.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
-| `limit_bytes` | integer | 1–65536 (default 8192) |
-| `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. |
+| `wait_ms` | integer | 1–300000; wait for the process to end before returning |
+
+Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A `pty` process also returns once its output has been quiet for a second, as an interactive program does at a prompt.
+
+Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
+
+Daemons older than omnarad 0.2.9 return as soon as output arrives and do not keep the end of long output.
 
 `run_command` and `read_process` results include `offset_byte` and `next_offset_byte`. To continue from a specific point, pass `next_offset_byte` as `offset_byte`.
 

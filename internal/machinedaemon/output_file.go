@@ -318,6 +318,15 @@ func (o *processOutput) Slice(
 	cursor int64,
 	maxBytes int,
 ) (string, int64, int64, bool, error) {
+	window, err := o.Window(cursor, maxBytes, 0)
+	return window.Output, window.Start, window.Next, window.Truncated, err
+}
+
+func (o *processOutput) Window(
+	cursor int64,
+	maxBytes int,
+	headBytes int,
+) (outputWindow, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	captureErr := o.stickyErr
@@ -325,7 +334,7 @@ func (o *processOutput) Slice(
 		err := o.rememberErrorLocked(
 			errors.New("process output path is required"),
 		)
-		return "", 0, 0, true, err
+		return outputWindow{Truncated: true}, err
 	}
 
 	file := o.file
@@ -335,12 +344,12 @@ func (o *processOutput) Slice(
 		var err error
 		file, base, end, err = openProcessOutputFile(o.path, os.O_RDONLY)
 		if err != nil {
-			return "", 0, 0, true, o.rememberErrorLocked(err)
+			return outputWindow{Truncated: true}, o.rememberErrorLocked(err)
 		}
 		closeFile = true
 		if base != o.baseOffset || end != o.endOffset {
 			_ = file.Close()
-			return "", 0, 0, true, o.rememberErrorLocked(
+			return outputWindow{Truncated: true}, o.rememberErrorLocked(
 				errors.New("process output file does not match the live cursor range"),
 			)
 		}
@@ -348,17 +357,19 @@ func (o *processOutput) Slice(
 	if closeFile {
 		defer func() { _ = file.Close() }()
 	}
-	output, start, next, truncated, err := readProcessOutputRange(
+	window, err := readProcessOutputWindow(
 		file,
 		o.baseOffset,
 		o.endOffset,
 		cursor,
 		maxBytes,
+		headBytes,
 	)
 	if err != nil {
-		return "", 0, 0, true, o.rememberErrorLocked(err)
+		return outputWindow{Truncated: true}, o.rememberErrorLocked(err)
 	}
-	return output, start, next, truncated || captureErr != nil, captureErr
+	window.Truncated = window.Truncated || captureErr != nil
+	return window, captureErr
 }
 
 func writeProcessOutputFile(path string, data []byte, baseOffset int64) error {
@@ -529,29 +540,39 @@ func readProcessOutputSnapshot(
 	cursor int64,
 	maxBytes int,
 ) (string, int64, int64, bool, error) {
+	window, err := readProcessOutputSnapshotWindow(root, cursor, maxBytes, 0)
+	return window.Output, window.Start, window.Next, window.Truncated, err
+}
+
+func readProcessOutputSnapshotWindow(
+	root *os.Root,
+	cursor int64,
+	maxBytes int,
+	headBytes int,
+) (outputWindow, error) {
 	if root == nil {
-		return "", 0, 0, false, errors.New("process output root is required")
+		return outputWindow{}, errors.New("process output root is required")
 	}
 	file, err := root.Open(localstore.OutputBufferFileName)
 	if err != nil {
-		return "", 0, 0, false, err
+		return outputWindow{}, err
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return "", 0, 0, false, err
+		return outputWindow{}, err
 	}
 	if err := localstore.ValidatePrivateFileInfo(info); err != nil {
-		return "", 0, 0, false, err
+		return outputWindow{}, err
 	}
 	if info.Size() < processOutputHeaderSize {
-		return "", 0, 0, false, errors.New(
+		return outputWindow{}, errors.New(
 			"process output header is truncated",
 		)
 	}
 	header := make([]byte, processOutputHeaderSize)
 	if _, err := file.ReadAt(header, 0); err != nil {
-		return "", 0, 0, false, fmt.Errorf(
+		return outputWindow{}, fmt.Errorf(
 			"read process output header: %w",
 			err,
 		)
@@ -559,15 +580,83 @@ func readProcessOutputSnapshot(
 	dataLength := info.Size() - int64(processOutputHeaderSize)
 	baseOffset, err := decodeProcessOutputHeader(header, dataLength)
 	if err != nil {
-		return "", 0, 0, false, err
+		return outputWindow{}, err
 	}
-	return readProcessOutputRange(
+	return readProcessOutputWindow(
 		file,
 		baseOffset,
 		baseOffset+dataLength,
 		cursor,
 		maxBytes,
+		headBytes,
 	)
+}
+
+// outputWindow is retained output from Start to Next. When Tail is set, Output
+// runs to HeadEnd, Tail starts at TailStart, and the bytes between them are
+// left out.
+type outputWindow struct {
+	Output    string
+	Tail      string
+	Start     int64
+	HeadEnd   int64
+	TailStart int64
+	Next      int64
+	Truncated bool
+}
+
+// readProcessOutputWindow reads like readProcessOutputRange, except that when
+// more than maxBytes are available and headBytes is set it keeps the first
+// headBytes and the last maxBytes-headBytes, reading through to the end.
+func readProcessOutputWindow(
+	file *os.File,
+	baseOffset, endOffset, cursor int64,
+	maxBytes int,
+	headBytes int,
+) (outputWindow, error) {
+	start := max(cursor, baseOffset, 0)
+	if headBytes <= 0 || maxBytes <= headBytes || endOffset-start <= int64(maxBytes) {
+		output, start, next, truncated, err := readProcessOutputRange(
+			file, baseOffset, endOffset, cursor, maxBytes,
+		)
+		return outputWindow{Output: output, Start: start, Next: next, Truncated: truncated}, err
+	}
+	head, err := readProcessOutputBytes(file, baseOffset, start, int64(headBytes))
+	if err != nil {
+		return outputWindow{}, err
+	}
+	tailStart := endOffset - int64(maxBytes-headBytes)
+	tail, err := readProcessOutputBytes(file, baseOffset, tailStart, endOffset-tailStart)
+	if err != nil {
+		return outputWindow{}, err
+	}
+	return outputWindow{
+		Output:    processOutputText(head),
+		Tail:      processOutputText(tail),
+		Start:     start,
+		HeadEnd:   start + int64(headBytes),
+		TailStart: tailStart,
+		Next:      endOffset,
+		Truncated: cursor < baseOffset,
+	}, nil
+}
+
+func readProcessOutputBytes(file *os.File, baseOffset, start, length int64) ([]byte, error) {
+	if file == nil || start < baseOffset || length < 0 || length > int64(math.MaxInt) {
+		return nil, errors.New("process output read range is invalid")
+	}
+	data := make([]byte, int(length))
+	if len(data) == 0 {
+		return data, nil
+	}
+	n, err := file.ReadAt(data, int64(processOutputHeaderSize)+start-baseOffset)
+	if err != nil && !(errors.Is(err, io.EOF) && n == len(data)) {
+		return nil, fmt.Errorf("read process output: %w", err)
+	}
+	if n != len(data) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	return data, nil
 }
 
 func readProcessOutputRange(

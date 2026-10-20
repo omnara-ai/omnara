@@ -365,6 +365,10 @@ type ProcessOffer struct {
 	Env              map[string]string        `json:"env,omitempty"`
 	WaitMs           int                      `json:"wait_ms,omitempty"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
+	// OutputBytes and OutputWait shape the started and terminal results.
+	// Zero values keep the original behavior.
+	OutputBytes int `json:"output_bytes,omitempty"`
+	processaction.OutputWait
 }
 
 type FileTransferResult struct {

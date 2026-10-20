@@ -59,6 +59,16 @@ func TestRenderProcessExit(t *testing.T) {
 			notWant:  []string{"head"},
 		},
 		{
+			name: "head and tail",
+			row:  exited,
+			observed: `{"output":"start\n","omitted_cursor":2048,"tail_cursor":180000,` +
+				`"output_tail":"partial line\nlast line\n","next_cursor":183000,"truncated":false}`,
+			want: []string{
+				"Output: 178.7 KiB. Last lines (use read_process for the rest):\n\n```\npartial line\nlast line\n```",
+			},
+			notWant: []string{"start"},
+		},
+		{
 			name:     "no output",
 			row:      exited,
 			observed: `{"output":"","next_cursor":0,"truncated":false}`,
