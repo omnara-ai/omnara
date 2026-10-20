@@ -2391,6 +2391,10 @@ func decodeServiceE2EProcessResult(raw string) (serviceE2EProcessResult, error) 
 	if raw == "" {
 		return serviceE2EProcessResult{}, errors.New("process result is absent")
 	}
+	raw, err := toolResultJSONStream(raw)
+	if err != nil {
+		return serviceE2EProcessResult{}, err
+	}
 	var result serviceE2EProcessResult
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	for {
@@ -2542,6 +2546,64 @@ func toolResultOutputForCall(body map[string]any, callID string) string {
 		}
 	}
 	return ""
+}
+
+// toolResultJSONStream turns model-facing tool output back into a stream of
+// JSON values. modelcontext.StructuredDataText lifts multi-line string fields
+// out of the JSON into trailing <field>…</field> blocks; this folds them back
+// into the last JSON object so fake models can decode the tool result.
+func toolResultJSONStream(raw string) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	var values []json.RawMessage
+	for {
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil {
+			break
+		}
+		values = append(values, value)
+	}
+	rest := strings.TrimLeft(raw[decoder.InputOffset():], " \t\r\n")
+	if rest == "" {
+		return raw, nil
+	}
+	fields := map[string]any{}
+	for rest != "" {
+		if !strings.HasPrefix(rest, "<") {
+			return "", fmt.Errorf("unexpected text after tool result JSON: %q", rest)
+		}
+		key, body, ok := strings.Cut(rest[1:], ">\n")
+		if !ok {
+			return "", fmt.Errorf("unterminated tool result field: %q", rest)
+		}
+		value, after, ok := strings.Cut(body, "</"+key+">")
+		if !ok {
+			return "", fmt.Errorf("tool result field %s is not closed", key)
+		}
+		fields[key] = value
+		rest = strings.TrimLeft(after, " \t\r\n")
+	}
+	// values[0] is the {"outcome":...} part; only a later value is the
+	// tool's own object that the lifted fields came from.
+	if len(values) > 1 {
+		var last map[string]any
+		if err := json.Unmarshal(values[len(values)-1], &last); err == nil {
+			for key, value := range last {
+				fields[key] = value
+			}
+			values = values[:len(values)-1]
+		}
+	}
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, value := range values {
+		b.Write(value)
+		b.WriteByte('\n')
+	}
+	b.Write(merged)
+	return b.String(), nil
 }
 
 func writeOpenAIFunctionCall(
