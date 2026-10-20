@@ -5,11 +5,9 @@ SELECT machine.id AS machine_id,
        machine.org_id,
        CASE WHEN token.id IS NOT NULL
          AND runtime.lease_expires_at > statement_timestamp()
-         AND machine.lifecycle_state = 'active'
-         AND machine.deleted_at IS NULL THEN 'online'
+         AND machine.lifecycle_state = 'active' THEN 'online'
        WHEN machine.asleep_since IS NOT NULL
-         AND machine.lifecycle_state = 'active'
-         AND machine.deleted_at IS NULL THEN 'asleep'
+         AND machine.lifecycle_state = 'active' THEN 'asleep'
        ELSE 'offline' END AS connection_state
 FROM machines machine
 LEFT JOIN daemon_runtimes runtime ON runtime.org_id = machine.org_id

@@ -71,7 +71,7 @@ SELECT process.state,
       AND terminate_action.action_kind = 'terminate'
       AND terminate_action.state IN ('queued', 'accepted', 'applied', 'unknown')
   ) AS has_terminate_action,
-  (connection.connection_state = 'online')::boolean AS has_online_runtime
+  connection.connection_state = 'online' AS has_online_runtime
 FROM processes process
 JOIN machine_connection_states connection ON connection.org_id = process.org_id
   AND connection.machine_id = process.machine_id

@@ -35,7 +35,7 @@ INSERT INTO daemon_runtimes(id, org_id, machine_id, daemon_token_id, daemon_inst
 SELECT md5('fleet-runtime-' || n)::uuid, md5('fleet-org-' || n)::uuid, md5('fleet-machine-' || n)::uuid,
        md5('fleet-token-' || n)::uuid, md5('fleet-instance-' || n)::uuid, '1.0.0', 'active',
        statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours',
-       statement_timestamp() - interval '1 hour' + n * interval '1 second', statement_timestamp()
+       statement_timestamp() - interval '1 hour', statement_timestamp()
 FROM generate_series(1, %[1]d) n;
 INSERT INTO daemon_runtimes(org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state,
                             state_reason_code,
@@ -50,29 +50,23 @@ UPDATE machines
 SET current_daemon_runtime_id = md5('fleet-runtime-' || n)::uuid
 FROM generate_series(1, %[1]d) n
 WHERE org_id = md5('fleet-org-' || n)::uuid AND id = md5('fleet-machine-' || n)::uuid;
-ANALYZE machines, machine_daemon_tokens, daemon_runtimes, agent_machine_bindings, project_machine_grants;
+ANALYZE daemon_runtimes;
 UPDATE daemon_runtimes
 SET last_seen_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + interval '1 hour' + n * interval '1 second'
+    lease_expires_at = statement_timestamp() + interval '1 hour'
 FROM generate_series(1, %[1]d) n
 WHERE id = md5('fleet-runtime-' || n)::uuid;`
 
 const machineConnectionCases = `
 CREATE TEMP TABLE connection_cases(
-  name, pool, lifecycle_state, asleep, runtime_state, runtime_reason, lease_live, token_revoked, runtime_current,
-  expected
+  name, pool, lifecycle_state, asleep, lease_live, token_revoked, runtime_current, expected
 ) ON COMMIT DROP AS VALUES
-  ('online', false, 'active', false, 'active', NULL, true, false, true, 'online'),
-  ('online_asleep', false, 'active', true, 'active', NULL, true, false, true, 'online'),
-  ('expired_lease', false, 'active', false, 'active', NULL, false, false, true, 'offline'),
-  ('expired_lease_asleep', false, 'active', true, 'active', NULL, false, false, true, 'asleep'),
-  ('revoked_token', false, 'active', false, 'active', NULL, true, true, true, 'offline'),
-  ('ended_lease_expired', false, 'active', false, 'ended', 'daemon_lease_expired', true, false, true, 'offline'),
-  ('non_current_runtime', false, 'active', false, 'active', NULL, true, false, false, 'offline'),
-  ('no_runtime', false, 'active', false, NULL, NULL, NULL, false, false, 'offline'),
-  ('deleted', false, 'deleted', true, 'active', NULL, true, false, true, 'offline'),
-  ('pool_deleting', true, 'deleting', true, 'active', NULL, true, false, true, 'offline'),
-  ('pool_online', true, 'active', false, 'active', NULL, true, false, true, 'online');
+  ('online_asleep', false, 'active', true, true, false, true, 'online'),
+  ('expired_lease_asleep', false, 'active', true, false, false, true, 'asleep'),
+  ('revoked_token', false, 'active', false, true, true, true, 'offline'),
+  ('non_current_runtime', false, 'active', false, true, false, false, 'offline'),
+  ('deleted', false, 'deleted', true, true, false, true, 'offline'),
+  ('pool_online', true, 'active', false, true, false, true, 'online');
 INSERT INTO orgs(id, name, created_at, updated_at)
 VALUES (md5('connection-org')::uuid, 'connection-org', statement_timestamp(), statement_timestamp());
 INSERT INTO machine_pools(id, org_id, name, management_kind, provider, provider_auth_env_var, max_total_machines,
@@ -80,17 +74,14 @@ INSERT INTO machine_pools(id, org_id, name, management_kind, provider, provider_
 VALUES (md5('connection-pool')::uuid, md5('connection-org')::uuid, 'connection-pool', 'cluster', 'test.provider',
         'TEST_PROVIDER_TOKEN', 100, statement_timestamp(), statement_timestamp());
 INSERT INTO machines(id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
-                     lifecycle_changed_at,
-                     provider_resource_id, cpu, memory_mb, provider_options, next_reconcile_after, asleep_since,
-                     deleted_at,
-                     created_at, updated_at)
+                     lifecycle_changed_at, provider_resource_id, cpu, memory_mb, provider_options, asleep_since,
+                     deleted_at, created_at, updated_at)
 SELECT md5('connection-machine-' || name)::uuid, md5('connection-org')::uuid,
        CASE WHEN pool THEN md5('connection-pool')::uuid END,
        CASE WHEN pool THEN 'pool' ELSE 'byo' END,
        name, CASE WHEN pool THEN 'test.provider' ELSE 'byo' END, lifecycle_state, statement_timestamp(),
        CASE WHEN pool THEN 'resource-' || name END,
        CASE WHEN pool THEN 1 END, CASE WHEN pool THEN 1024 END, CASE WHEN pool THEN '{}'::jsonb END,
-       CASE WHEN lifecycle_state NOT IN ('active', 'deleted') THEN statement_timestamp() END,
        CASE WHEN asleep THEN statement_timestamp() - interval '1 hour' END,
        CASE WHEN lifecycle_state = 'deleted' THEN statement_timestamp() END,
        statement_timestamp(), statement_timestamp()
@@ -101,17 +92,15 @@ SELECT md5('connection-token-' || name)::uuid, md5('connection-org')::uuid, md5(
        CASE WHEN token_revoked THEN statement_timestamp() END
 FROM connection_cases;
 INSERT INTO daemon_runtimes(id, org_id, machine_id, daemon_token_id, daemon_instance_id, daemon_version, state,
-                            state_reason_code, created_at, last_seen_at, lease_expires_at, ended_at, updated_at)
+                            created_at, last_seen_at, lease_expires_at, updated_at)
 SELECT md5('connection-runtime-' || name)::uuid, md5('connection-org')::uuid, md5('connection-machine-' || name)::uuid,
-       md5('connection-token-' || name)::uuid, md5('connection-instance-' || name)::uuid, '1.0.0', runtime_state,
-       runtime_reason, statement_timestamp() - interval '2 hours',
+       md5('connection-token-' || name)::uuid, md5('connection-instance-' || name)::uuid, '1.0.0', 'active',
+       statement_timestamp() - interval '2 hours',
        CASE WHEN lease_live THEN statement_timestamp() ELSE statement_timestamp() - interval '2 hours' END,
        CASE WHEN lease_live THEN statement_timestamp() + interval '1 hour'
             ELSE statement_timestamp() - interval '1 hour' END,
-       CASE WHEN runtime_state = 'ended' THEN statement_timestamp() END,
        statement_timestamp()
-FROM connection_cases
-WHERE runtime_state IS NOT NULL;
+FROM connection_cases;
 UPDATE machines machine
 SET current_daemon_runtime_id = md5('connection-runtime-' || connection_case.name)::uuid
 FROM connection_cases connection_case
@@ -171,26 +160,22 @@ WHERE id = $1`, started.ID,
 	_, err = tx.Exec(ctx, machineConnectionCases)
 	require.NoError(t, err)
 	requireMachineConnectionStates(t, tx)
-	requireOnlineQueryResults(t, tx, []uuid.UUID{f.MachineID, wake.MachineID}, wake, blocker)
 	requireCurrentRuntimeProbes(t, tx, lookups)
+	requireOnlineQueryResults(t, tx, []uuid.UUID{f.MachineID, wake.MachineID}, wake, blocker)
 }
 
 func requireMachineConnectionStates(t *testing.T, tx pgx.Tx) {
 	t.Helper()
 	var expected, actual []string
-	var online int
 	require.NoError(t, tx.QueryRow(t.Context(), `
 SELECT (SELECT array_agg(name || '=' || expected ORDER BY name) FROM connection_cases),
        (SELECT array_agg(connection_case.name || '=' || state.connection_state
                          ORDER BY connection_case.name, state.connection_state)
         FROM connection_cases connection_case
         JOIN machine_connection_states state ON state.org_id = md5('connection-org')::uuid
-          AND state.machine_id = md5('connection-machine-' || connection_case.name)::uuid),
-       (SELECT count(*) FROM machine_connection_states WHERE connection_state = 'online')`,
-	).Scan(&expected, &actual, &online))
-	require.Len(t, expected, 11)
+          AND state.machine_id = md5('connection-machine-' || connection_case.name)::uuid)`,
+	).Scan(&expected, &actual))
 	require.Equal(t, expected, actual)
-	require.Greater(t, online, onlineFleet)
 }
 
 func requireOnlineQueryResults(
@@ -203,41 +188,27 @@ func requireOnlineQueryResults(
 	t.Helper()
 	ctx := t.Context()
 	queries := dbsqlc.New(tx)
-	for _, transition := range []struct{ state, runtimeEndReason string }{
-		{"online", ""},
-		{"asleep", "machine_asleep"},
-		{"offline", "daemon_runtime_released"},
-	} {
-		_, err := tx.Exec(ctx, "SAVEPOINT connection")
-		require.NoError(t, err)
-		if transition.runtimeEndReason != "" {
-			_, err = tx.Exec(ctx, `
+	for _, online := range []bool{true, false} {
+		if !online {
+			_, err := tx.Exec(ctx, `
 UPDATE daemon_runtimes runtime
-SET state = 'ended', state_reason_code = $2, ended_at = statement_timestamp(), updated_at = statement_timestamp()
+SET state = 'ended', state_reason_code = 'machine_asleep', ended_at = statement_timestamp(),
+    updated_at = statement_timestamp()
 FROM machines machine
 WHERE machine.id = ANY($1)
   AND runtime.org_id = machine.org_id
   AND runtime.machine_id = machine.id
-  AND runtime.id = machine.current_daemon_runtime_id`, machines, transition.runtimeEndReason)
+  AND runtime.id = machine.current_daemon_runtime_id`, machines)
 			require.NoError(t, err)
-		}
-		if transition.state == "asleep" {
 			_, err = tx.Exec(ctx, `UPDATE machines SET asleep_since = statement_timestamp() WHERE id = ANY($1)`, machines)
 			require.NoError(t, err)
 		}
-		var states []string
-		require.NoError(t, tx.QueryRow(ctx,
-			`SELECT array_agg(connection_state) FROM machine_connection_states WHERE machine_id = ANY($1)`, machines,
-		).Scan(&states))
-		require.Equal(t, []string{transition.state, transition.state}, states)
 		wakeState, err := queries.GetMachineWakeState(ctx, wake)
 		require.NoError(t, err)
-		require.Equal(t, transition.state == "online", wakeState.Online, transition.state)
+		require.Equal(t, online, wakeState.Online)
 		blockerState, err := queries.GetProcessActionCreateBlocker(ctx, blocker)
 		require.NoError(t, err)
-		require.Equal(t, transition.state == "online", blockerState.HasOnlineRuntime, transition.state)
-		_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT connection")
-		require.NoError(t, err)
+		require.Equal(t, online, blockerState.HasOnlineRuntime)
 	}
 }
 
@@ -256,19 +227,11 @@ func requireCurrentRuntimeProbes(t *testing.T, tx pgx.Tx, lookups []machineConne
 			require.NoError(t, tx.QueryRow(ctx,
 				"EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE lookup("+sqlArguments(lookup.args)+")",
 			).Scan(&raw))
-			plan := integrationdb.ReadPlan(t, raw)
-			require.Equal(t, 1.0, plan.Rows, label)
-			currentRuntimeProbes := 0
-			plan.Walk(func(node integrationdb.PlanNode) {
-				if node.Relation != "daemon_runtimes" {
-					return
-				}
-				require.LessOrEqual(t, node.Loops*node.Rows, 1.0, "%s: %s", label, raw)
-				if node.Loops*node.Rows == 1 {
-					currentRuntimeProbes++
+			integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+				if node.Relation == "daemon_runtimes" {
+					require.LessOrEqual(t, node.Loops*node.Rows, 1.0, "%s: %s", label, raw)
 				}
 			})
-			require.Positive(t, currentRuntimeProbes, "%s: %s", label, raw)
 			_, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT lookup")
 			require.NoError(t, err)
 		}

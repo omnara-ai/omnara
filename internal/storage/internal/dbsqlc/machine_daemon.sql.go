@@ -795,7 +795,7 @@ func (q *Queries) GetDaemonRuntimeInstanceForUpdate(ctx context.Context, arg Get
 }
 
 const getMachineWakeState = `-- name: GetMachineWakeState :one
-SELECT (connection.connection_state = 'online')::boolean AS online,
+SELECT connection.connection_state = 'online' AS online,
        (machine.asleep_since IS NOT NULL)::boolean AS asleep,
        pool.runtime_protection_enabled,
        machine.wake_attempt_expires_at,
