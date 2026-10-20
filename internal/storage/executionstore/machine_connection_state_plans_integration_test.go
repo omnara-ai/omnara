@@ -51,7 +51,7 @@ WHERE id = md5('fleet-runtime-' || n)::uuid;`
 const machineConnectionCases = `
 CREATE TEMP TABLE connection_cases(
   name, pool, lifecycle_state, asleep, lease_live, token_revoked, runtime_current, expected
-) ON COMMIT DROP AS VALUES
+) AS VALUES
   ('online_asleep', false, 'active', true, true, false, true, 'online'),
   ('expired_lease_asleep', false, 'active', true, false, false, true, 'asleep'),
   ('revoked_token', false, 'active', false, true, true, true, 'offline'),
