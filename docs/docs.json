@@ -92,11 +92,21 @@
                 ]
               },
               "examples/posthog-analytics-agent",
-              "examples/sre-agent",
-              "examples/slack-coding-agent",
-              "examples/pr-review-agent",
-              "examples/browser-agent",
-              "examples/email-agent",
+              {
+                "group": "Engineering",
+                "pages": [
+                  "examples/sre-agent",
+                  "examples/slack-coding-agent",
+                  "examples/pr-review-agent"
+                ]
+              },
+              {
+                "group": "Operations",
+                "pages": [
+                  "examples/browser-agent",
+                  "examples/email-agent"
+                ]
+              },
               "examples/video-generation-agent"
             ]
           },
