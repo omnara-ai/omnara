@@ -216,6 +216,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     case 'boxd':
     case 'createos':
     case 'daytona':
+    case 'e2b':
       return {
         ...common,
         provider: values.provider,
@@ -390,6 +391,7 @@ export function machinePoolUpdateRequest(
     case 'boxd':
     case 'createos':
     case 'daytona':
+    case 'e2b':
       return {
         ...common,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -462,6 +464,7 @@ function clusterMachinePoolUpdateRequest(
     case 'boxd':
     case 'createos':
     case 'daytona':
+    case 'e2b':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),

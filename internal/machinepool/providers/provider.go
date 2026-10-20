@@ -19,6 +19,7 @@ const (
 	Boxd      = "boxd"
 	CreateOS  = "createos"
 	Daytona   = "daytona"
+	E2B       = "e2b"
 	Freestyle = "freestyle"
 	Modal     = "modal"
 	Tenki     = "tenki"
