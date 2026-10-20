@@ -263,7 +263,7 @@ func requireCurrentRuntimeProbes(t *testing.T, tx pgx.Tx, lookups []machineConne
 				if node.Relation != "daemon_runtimes" {
 					return
 				}
-				require.LessOrEqual(t, node.RowsVisited(), 1.0, "%s: %s", label, raw)
+				require.LessOrEqual(t, node.Loops*node.Rows, 1.0, "%s: %s", label, raw)
 				if node.Loops*node.Rows == 1 {
 					currentRuntimeProbes++
 				}
