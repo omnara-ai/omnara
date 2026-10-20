@@ -219,6 +219,8 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 		"OMNARA_REDIS_URL="+e.redisURL,
 		"OMNARA_PUBLIC_URL="+e.publicURL,
 		"OMNARA_WEB_SERVING="+webServing,
+		"OMNARA_API_RATE_LIMIT_READS_PER_HOUR=0",
+		"OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR=0",
 		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",

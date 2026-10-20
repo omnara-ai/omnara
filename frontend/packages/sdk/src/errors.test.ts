@@ -22,6 +22,20 @@ describe('ApiError', () => {
     expect(error.message).toBe('File changed')
   })
 
+  it('reads Retry-After as milliseconds', async () => {
+    const limited = await ApiError.fromResponse(
+      Response.json(
+        { code: 'rate_limited', error: 'too many requests: retry after 1800s' },
+        { status: 429, headers: { 'Retry-After': '1800' } },
+      ),
+    )
+    expect(limited.retryAfterMs).toBe(1_800_000)
+    const conflict = await ApiError.fromResponse(
+      Response.json({ code: 'conflict', error: 'Conflict' }, { status: 409 }),
+    )
+    expect(conflict.retryAfterMs).toBeUndefined()
+  })
+
   it('leaves the digest absent for other conflicts', () => {
     const error = ApiError.fromBody(409, { code: 'conflict', error: 'File limit reached' })
     expect(error.currentDigest).toBeUndefined()

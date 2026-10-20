@@ -39,6 +39,7 @@ import (
 
 const (
 	outboundHTTPClientTimeout  = 30 * time.Second
+	apiRateLimitRedisTimeout   = 100 * time.Millisecond
 	defaultReconciliationPlan  = "plan"
 	defaultReconciliationApply = "apply"
 )
@@ -96,6 +97,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = redisClient.Close() }()
+	rateLimitRedisClient, err := redistore.NewWithTimeout(cfg.RedisURL, apiRateLimitRedisTimeout)
+	if err != nil {
+		log.Error("create rate limit redis client", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rateLimitRedisClient.Close() }()
 	redisBus, err := notifications.NewRedisBus(redisClient, log)
 	if err != nil {
 		log.Error("create redis bus", "error", err)
@@ -166,6 +173,7 @@ func main() {
 		daemonRecorder,
 		machinePoolManager,
 		redisClient,
+		rateLimitRedisClient,
 		redisBus,
 		presenceStore,
 		replicaID,
@@ -382,6 +390,7 @@ func apiOptions(
 	daemonRecorder *metrics.DaemonRecorder,
 	machinePoolManager *machinepool.Manager,
 	redisClient *redistore.Client,
+	rateLimitRedisClient *redistore.Client,
 	redisBus *notifications.RedisBus,
 	presence notifications.DaemonPresenceStore,
 	replicaID uuid.UUID,
@@ -483,6 +492,12 @@ func apiOptions(
 	opts = append(opts, httpapi.WithSlackOAuth(httpapi.SlackOAuthConfig{HTTPClient: publicServiceHTTPClient}))
 	opts = append(opts, httpapi.WithIntegrationHTTPClient(publicServiceHTTPClient))
 	opts = append(opts, httpapi.WithRedisBackedAuth(redisClient))
+	opts = append(opts, httpapi.WithAPIRateLimit(
+		rateLimitRedisClient,
+		cfg.APIRateLimitReadsPerHour,
+		cfg.APIRateLimitWritesPerHour,
+		cfg.APIRateLimitBurst,
+	))
 	opts = append(opts, httpapi.WithTrustedProxyCIDRs(cfg.TrustedProxyCIDRs))
 	return opts, nil
 }

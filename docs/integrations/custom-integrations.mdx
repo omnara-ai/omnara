@@ -63,8 +63,8 @@ tools:
       additionalProperties: false
 ```
 
-Poll `GET /agents/{agentID}/tool-calls?type=custom&state=ready`, execute the call
-in your service, then submit its result to
+Find ready calls as described in [Custom tools](/tools/custom#find-calls-waiting-for-you),
+execute the call in your service, then submit its result to
 `POST /agents/{agentID}/tool-calls/{toolCallID}/result`. Resolve the ticket from
 your agent mapping and enforce authorization in your service. A model-supplied
 identifier is not authorization.
@@ -95,7 +95,7 @@ preserves the choice. An optional `destination` or `presentation_receipt` descri
 built-in presentation, not a delivery request to your service.
 
 Use [event stream](/events/streaming) updates as hints, then refresh the durable
-lists. Reconcile on startup, reconnect and periodically: notifications can be
+lists. Reconcile on startup, on reconnect and every few minutes: notifications can be
 missed. Deduplicate presentations by interaction ID and close your copies when
 interactions resolve or cancel. A failed external delivery must not prevent
 someone from answering through the dashboard or API.

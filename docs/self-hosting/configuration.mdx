@@ -166,6 +166,16 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
+## API rate limits
+
+Limits apply per user, per org for org API keys, and per machine for machine daemons.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `10000` | No |
+| `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `5000` | No |
+| `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `100` | No |
+
 ## Email
 
 Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In production, use `smtp` or `sendgrid` — or disable both flows with `OMNARA_AUTH_SIGNUP_ENABLED=0` and `OMNARA_AUTH_PASSWORD_RESET_ENABLED=0`.

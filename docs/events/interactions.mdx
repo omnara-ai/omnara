@@ -93,7 +93,7 @@ Canceled interactions keep their `request` and stay listable, so audit trails sh
 Your application decides where to display questions and approvals. Read the
 interaction's `request`, present the form, and resolve it through the ordinary
 project-authorized API. The dashboard remains available if delivery fails.
-Reconcile the interaction list on reconnect and periodically while connected;
+Reconcile the interaction list on reconnect and every few minutes while connected;
 stream hints alone are insufficient.
 
 For an interaction routed to an integration handler, list and resolve responses include

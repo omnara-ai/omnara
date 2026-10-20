@@ -100,13 +100,18 @@ func RunGitCredentialHelper(
 	var response *http.Response
 	for attempt := 0; ; attempt++ {
 		response, err = client.Do(request)
-		if (err == nil && response.StatusCode != http.StatusServiceUnavailable) || attempt == 2 || ctx.Err() != nil {
+		if (err == nil && response.StatusCode != http.StatusServiceUnavailable &&
+			response.StatusCode != http.StatusTooManyRequests) || attempt == 2 || ctx.Err() != nil {
 			break
 		}
+		delay := time.Duration(attempt+1) * 250 * time.Millisecond
 		if response != nil {
+			if retryAfter, ok := parseRetryAfter(response.Header.Get("Retry-After"), time.Now()); ok {
+				delay = max(delay, retryAfter)
+			}
 			_ = response.Body.Close()
 		}
-		if err := sleepContext(ctx, time.Duration(attempt+1)*250*time.Millisecond); err != nil {
+		if err := sleepContext(ctx, delay); err != nil {
 			return errors.New("git credential request timed out")
 		}
 	}
@@ -117,6 +122,9 @@ func RunGitCredentialHelper(
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden ||
 		response.StatusCode == http.StatusNotFound {
 		return errors.New("git credentials are not authorized for this process")
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return errors.New("git credentials are rate limited; try again shortly")
 	}
 	if response.StatusCode != http.StatusOK {
 		return errors.New("git credentials unavailable; check integration, Contents permission, and machine settings")
