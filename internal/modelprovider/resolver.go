@@ -39,17 +39,22 @@ type OpenRouterAttribution struct {
 	AppCategories []string
 }
 
-const providerMaxIdleConnsPerHost = 1024
+const (
+	providerMaxIdleConnsPerHost = 1024
+	providerMaxIdleConns        = 2048
+)
 
 var (
 	defaultHTTPTransport = ssrf.NewTransport(ssrf.TransportOptions{
 		DisableResponseHeaderTimeout: true,
 		MaxIdleConnsPerHost:          providerMaxIdleConnsPerHost,
+		MaxIdleConns:                 providerMaxIdleConns,
 	})
 	loopbackHTTPTransport = ssrf.NewTransport(ssrf.TransportOptions{
 		AllowLoopback:                true,
 		DisableResponseHeaderTimeout: true,
 		MaxIdleConnsPerHost:          providerMaxIdleConnsPerHost,
+		MaxIdleConns:                 providerMaxIdleConns,
 	})
 )
 
