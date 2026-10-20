@@ -525,9 +525,9 @@ func lockProviderRuntimeDeletionCandidate(
 	} else if err != nil {
 		return false, err
 	}
-	_, err := qtx.LockProviderRuntimeProtectionPool(
+	_, err := qtx.GetProviderRuntimeProtectionPool(
 		ctx,
-		dbsqlc.LockProviderRuntimeProtectionPoolParams{
+		dbsqlc.GetProviderRuntimeProtectionPoolParams{
 			OrgID:                candidate.OrgID,
 			MachinePoolID:        candidate.MachinePoolID,
 			Provider:             candidate.Provider,
@@ -541,7 +541,7 @@ func lockProviderRuntimeDeletionCandidate(
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("lock provider runtime protection pool: %w", err)
+		return false, fmt.Errorf("revalidate provider runtime protection pool: %w", err)
 	}
 	if err := lifecyclelock.Machines(
 		ctx,

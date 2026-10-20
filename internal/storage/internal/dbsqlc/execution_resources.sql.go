@@ -2379,7 +2379,7 @@ SELECT id
 FROM machine_pools
 WHERE org_id = $1
   AND id = $2
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type LockMachinePoolForLifecycleParams struct {
@@ -2400,7 +2400,7 @@ const lockMachinePoolForUpdate = `-- name: LockMachinePoolForUpdate :one
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type LockMachinePoolForUpdateParams struct {
@@ -2507,7 +2507,7 @@ WITH locked_pool AS MATERIALIZED (
   WHERE machine.org_id = $1
     AND machine.id = $2
     AND machine.source_kind = 'pool'
-  FOR UPDATE OF pool
+  FOR NO KEY UPDATE OF pool
 )
 SELECT machine_grant.project_id
 FROM locked_pool pool
