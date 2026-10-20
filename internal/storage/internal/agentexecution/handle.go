@@ -46,3 +46,13 @@ func (u *Unit) Handle(projectID, agentID uuid.UUID) (*Handle, error) {
 	}
 	return h, nil
 }
+
+func (h *Handle) Identity() (dbsqlc.LockAgentInProjectRow, error) {
+	if _, err := h.Route(); err != nil {
+		return dbsqlc.LockAgentInProjectRow{}, err
+	}
+	if h.identity == nil {
+		return dbsqlc.LockAgentInProjectRow{}, ErrLockPlan
+	}
+	return *h.identity, nil
+}

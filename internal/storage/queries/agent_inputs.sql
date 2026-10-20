@@ -1,6 +1,6 @@
 -- name: ClaimNextAgentWakeup :one
 WITH locked_agent AS MATERIALIZED (
-  SELECT agent.id AS agent_id, agent.project_id, agent.root_agent_id
+  SELECT agent.id AS agent_id, agent.project_id, agent.root_agent_id, agent.org_id, agent.state
   FROM agent_wakeups wake
   JOIN agents agent ON agent.id = wake.agent_id
   WHERE agent.state <> 'archived'
@@ -10,7 +10,7 @@ WITH locked_agent AS MATERIALIZED (
   LIMIT 1
 ),
 locked_wake AS MATERIALIZED (
-  SELECT wake.agent_id, agent.project_id, agent.root_agent_id
+  SELECT wake.agent_id, agent.project_id, agent.root_agent_id, agent.org_id, agent.state
   FROM agent_wakeups wake
   JOIN locked_agent agent ON agent.agent_id = wake.agent_id
   WHERE NOT EXISTS (
@@ -20,7 +20,7 @@ locked_wake AS MATERIALIZED (
     )
   FOR UPDATE OF wake
 )
-SELECT agent_id, project_id, root_agent_id
+SELECT agent_id, project_id, root_agent_id, org_id, state
 FROM locked_wake;
 
 -- name: LockClaimableAgentWakeup :one

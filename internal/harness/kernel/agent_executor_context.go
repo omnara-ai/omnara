@@ -50,7 +50,9 @@ func (e AgentExecutor) executeModelStep(
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	var claim executionstore.ModelCallClaim
 	var err error
-	if input.Kind == executionstore.ModelWorkResume {
+	if input.Prepared != nil {
+		claim, snapshot = input.Prepared.Claim, input.Prepared.Snapshot
+	} else if input.Kind == executionstore.ModelWorkResume {
 		claim, err = e.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 			ProjectID:                     input.ProjectID,
 			AgentID:                       input.AgentID,

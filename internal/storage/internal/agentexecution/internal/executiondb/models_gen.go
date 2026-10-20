@@ -3,3 +3,19 @@
 //   sqlc v1.31.1
 
 package executiondb
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AgentRuntimeLock struct {
+	ID                uuid.UUID
+	AgentID           uuid.UUID
+	WorkerProcessID   uuid.UUID
+	StartedAt         time.Time
+	RenewedAt         time.Time
+	LeaseExpiresAt    time.Time
+	CancelRequestedAt *time.Time
+}

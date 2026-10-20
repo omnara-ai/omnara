@@ -396,6 +396,7 @@ func (w *Worker) executeWork(
 	switch claim.Kind {
 	case executionstore.AgentWorkModel:
 		input := kernel.ModelWorkExecution{
+			Prepared: claim.Model.Prepared, RootAgentID: claim.RootAgentID,
 			Kind:                     claim.Model.Kind,
 			OrgID:                    claim.OrgID,
 			ProjectID:                claim.ProjectID,

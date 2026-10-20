@@ -222,7 +222,7 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 	route := AgentRoute{ProjectID: wakeup.ProjectID,
 		AgentID: wakeup.AgentID, RootAgentID: wakeup.RootAgentID}
 	if u.handles[route.AgentID] == nil {
-		u.handles[route.AgentID] = &Handle{unit: u, route: route}
+		u.handles[route.AgentID] = &Handle{unit: u, route: route, identity: &dbsqlc.LockAgentInProjectRow{ID: route.AgentID, OrgID: wakeup.OrgID, State: wakeup.State}}
 	}
 	u.claimedAgent = route.AgentID
 	return route, nil

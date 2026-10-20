@@ -154,3 +154,24 @@ func TestClaimNextAgentWorkCrashRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestClaimNextAgentWorkReturnsDurablePreparedModel(t *testing.T) {
+	ctx := t.Context()
+	f := newProcessDaemonFixture(t, ctx, "prepared_claim")
+	input := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "prepared")
+	work := reclaimAgentWork(t, ctx, &f)
+	require.NotNil(t, work.Model.Prepared)
+	prepared := work.Model.Prepared
+	require.True(t, prepared.Claim.Claimed)
+	require.True(t, prepared.Claim.Created)
+	require.Equal(t, f.Lock.ID, prepared.Claim.Context.RuntimeLockID)
+	require.Equal(t, work.OrgID, prepared.Claim.Context.OrgID)
+	require.Equal(t, f.AgentID, work.RootAgentID)
+	require.Equal(t, prepared.Snapshot.AgentConfig.ID, prepared.Claim.Context.AgentConfigID)
+	require.Equal(t, prepared.Snapshot.InputEventSequence, prepared.Claim.Context.InputEventSequence)
+	require.Equal(t, []uuid.UUID{input.ID}, work.Model.InputIDs)
+	saved, found, err := f.Store.Execution().GetModelCallContext(ctx, testProjectID, f.AgentID, prepared.Claim.Context.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, prepared.Claim.Context, saved)
+}

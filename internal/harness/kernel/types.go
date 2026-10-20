@@ -8,6 +8,8 @@ import (
 )
 
 type ModelWorkExecution struct {
+	Prepared                 *executionstore.PreparedNormalModelCall
+	RootAgentID              uuid.UUID
 	Kind                     executionstore.ModelWorkKind
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
