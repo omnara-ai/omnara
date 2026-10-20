@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -144,9 +144,24 @@ func (e Executor) mcpToolResultContent(
 	if result == nil {
 		return toolResultContent{}, errors.New("MCP tool returned no result")
 	}
+	var structured json.RawMessage
+	if result.StructuredContent != nil {
+		raw, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			return toolResultContent{}, fmt.Errorf("marshal MCP structured content: %w", err)
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+			return toolResultContent{}, errors.New("MCP structured content must be a JSON object")
+		}
+		structured = raw
+	}
 	parts := make([]toolResultPart, 0, len(result.Content)+1)
-	hasText := false
 	for ordinal, content := range result.Content {
+		if text, ok := content.(*sdkmcp.TextContent); ok && text != nil && structured != nil &&
+			jsoncanonical.Equal(json.RawMessage(text.Text), structured) {
+			continue
+		}
 		part, err := e.mcpContentPart(ctx, turn, toolCallID, ordinal, content)
 		if err != nil {
 			return toolResultContent{}, fmt.Errorf(
@@ -157,21 +172,10 @@ func (e Executor) mcpToolResultContent(
 				err,
 			)
 		}
-		if text, ok := part.(toolResultTextPart); ok && strings.TrimSpace(text.text) != "" {
-			hasText = true
-		}
 		parts = append(parts, part)
 	}
-	if result.StructuredContent != nil && !hasText {
-		raw, err := json.Marshal(result.StructuredContent)
-		if err != nil {
-			return toolResultContent{}, fmt.Errorf("marshal MCP structured content: %w", err)
-		}
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &object); err != nil || object == nil {
-			return toolResultContent{}, errors.New("MCP structured content must be a JSON object")
-		}
-		part, err := structuredToolResultPart(json.RawMessage(raw))
+	if structured != nil {
+		part, err := structuredToolResultPart(structured)
 		if err != nil {
 			return toolResultContent{}, err
 		}

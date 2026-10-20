@@ -584,6 +584,7 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 	client := &ownedMCPToolClient{callTool: func(context.Context) (*sdkmcp.CallToolResult, error) {
 		return &sdkmcp.CallToolResult{
 			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "before"},
 				&sdkmcp.ImageContent{MIMEType: "image/png", Data: media},
 			},
 			StructuredContent: map[string]any{"count": 1},
@@ -614,14 +615,15 @@ func TestMCPDispatchPersistsMediaAndStructuredContentInOrder(t *testing.T) {
 	if err := json.Unmarshal(record.ResultContentParts, &parts); err != nil {
 		t.Fatalf("decode MCP media result: %v", err)
 	}
-	if len(parts) != 2 ||
-		parts[0]["type"] != "media_ref" ||
-		parts[1]["type"] != "structured_data" {
+	if len(parts) != 3 ||
+		parts[0]["type"] != "text" ||
+		parts[1]["type"] != "media_ref" ||
+		parts[2]["type"] != "structured_data" {
 		t.Fatalf("MCP media result order = %s", record.ResultContentParts)
 	}
-	rawArtifactID, ok := parts[0]["artifact_id"].(string)
+	rawArtifactID, ok := parts[1]["artifact_id"].(string)
 	if !ok {
-		t.Fatalf("MCP media result artifact id = %v", parts[0]["artifact_id"])
+		t.Fatalf("MCP media result artifact id = %v", parts[1]["artifact_id"])
 	}
 	artifactID, err := uuid.Parse(rawArtifactID)
 	if err != nil {

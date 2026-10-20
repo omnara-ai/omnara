@@ -50,12 +50,13 @@ func TestMCPToolResultContentPreservesOrderWithoutProtocolEnvelope(t *testing.T)
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		t.Fatalf("decode normalized MCP result: %v", err)
 	}
-	if len(parts) != 3 {
-		t.Fatalf("normalized MCP parts = %s, want three ordered parts without structuredContent", raw)
+	if len(parts) != 4 {
+		t.Fatalf("normalized MCP parts = %s, want four ordered parts", raw)
 	}
 	if parts[0]["type"] != "text" || parts[0]["text"] != "first" ||
 		parts[1]["type"] != "structured_data" ||
-		parts[2]["type"] != "text" || parts[2]["text"] != "last" {
+		parts[2]["type"] != "text" || parts[2]["text"] != "last" ||
+		parts[3]["type"] != "structured_data" {
 		t.Fatalf("normalized MCP part order = %s", raw)
 	}
 	link, ok := parts[1]["value"].(map[string]any)
@@ -65,6 +66,10 @@ func TestMCPToolResultContentPreservesOrderWithoutProtocolEnvelope(t *testing.T)
 		link["mime_type"] != "application/json" ||
 		link["size"] != float64(size) {
 		t.Fatalf("normalized MCP resource link = %+v", parts[1])
+	}
+	structured, ok := parts[3]["value"].(map[string]any)
+	if !ok || structured["count"] != float64(2) || structured["valid"] != true {
+		t.Fatalf("normalized MCP structured content = %+v", parts[3])
 	}
 	for _, forbidden := range []string{"_meta", "structuredContent", "isError", `"content"`} {
 		if strings.Contains(string(raw), forbidden) {
@@ -143,34 +148,39 @@ func TestMCPToolResultContentPreservesEmptyText(t *testing.T) {
 	}
 }
 
-func TestMCPToolResultContentFallsBackToStructuredContentWithoutText(t *testing.T) {
-	for name, content := range map[string][]sdkmcp.Content{
-		"no content": nil,
-		"blank text": {&sdkmcp.TextContent{Text: "  "}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			result, err := (Executor{}).mcpToolResultContent(
-				context.Background(),
-				Turn{},
-				uuid.New(),
-				"docs",
-				"search",
-				&sdkmcp.CallToolResult{
-					Content:           content,
-					StructuredContent: map[string]any{"count": 2},
-				},
-			)
-			if err != nil {
-				t.Fatalf("normalize MCP result: %v", err)
-			}
-			raw, err := result.contentParts()
-			if err != nil {
-				t.Fatalf("marshal MCP result: %v", err)
-			}
-			if !strings.Contains(string(raw), `{"type":"structured_data","value":{"count":2}}`) {
-				t.Fatalf("normalized MCP content = %s, want structuredContent fallback", raw)
-			}
-		})
+func TestMCPToolResultContentDropsOnlyJSONEqualTextCopy(t *testing.T) {
+	result, err := (Executor{}).mcpToolResultContent(
+		context.Background(),
+		Turn{},
+		uuid.New(),
+		"docs",
+		"search",
+		&sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "{\n  \"valid\": true,\n  \"count\": 2.0\n}"},
+				&sdkmcp.TextContent{Text: "Found 2 results."},
+				&sdkmcp.TextContent{Text: `{"count":3,"valid":true}`},
+				&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
+					URI:  "file:///copy.json",
+					Text: `{"count":2,"valid":true}`,
+				}},
+			},
+			StructuredContent: map[string]any{"count": 2, "valid": true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("normalize MCP result: %v", err)
+	}
+	raw, err := result.contentParts()
+	if err != nil {
+		t.Fatalf("marshal MCP result: %v", err)
+	}
+	want := `[{"type":"text","text":"Found 2 results."},` +
+		`{"type":"text","text":"{\"count\":3,\"valid\":true}"},` +
+		`{"type":"text","text":"{\"count\":2,\"valid\":true}"},` +
+		`{"type":"structured_data","value":{"count":2,"valid":true}}]`
+	if string(raw) != want {
+		t.Fatalf("normalized MCP content = %s, want %s", raw, want)
 	}
 }
 
