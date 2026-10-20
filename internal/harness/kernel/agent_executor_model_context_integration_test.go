@@ -78,18 +78,10 @@ model:
 	if err != nil {
 		t.Fatalf("capture agent config: %v", err)
 	}
-	prepared1, err := fixture.Store.Execution().
-		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         launch.Agent.ID,
-			RuntimeLockID:   turn.RuntimeLockID,
-			OpeningInputIDs: turn.InputIDs,
-		})
-	modelClaim := prepared1.Claim
-
-	if err != nil {
-		t.Fatalf("claim model call context: %v", err)
+	if turn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	modelClaim := turn.Prepared.Claim
 	modelClient := &sequenceKernelModel{providerModelSlug: "context-options-model"}
 	resolver := &selectionRecordingResolver{
 		client: modelClient,

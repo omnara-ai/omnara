@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -27,10 +28,11 @@ type AcceptOutputInput struct {
 }
 
 type AcceptedOutput struct {
-	ID      uuid.UUID
-	Event   ExecutionEvent
-	Tools   []ToolProposal
-	Created bool
+	Projections map[uuid.UUID]dbsqlc.GetToolCallRow
+	ID          uuid.UUID
+	Event       ExecutionEvent
+	Tools       []ToolProposal
+	Created     bool
 }
 
 type outputProposal struct {
@@ -168,12 +170,22 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if err != nil {
 			return AcceptedOutput{}, err
 		}
-		result := AcceptedOutput{ID: output.ID, Event: event, Created: true}
+		result := AcceptedOutput{ID: output.ID, Event: event, Created: true,
+			Projections: make(map[uuid.UUID]dbsqlc.GetToolCallRow)}
 		for _, call := range proposals {
-			if err = q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
+			proposal, err := q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
 				ID: call.ID, AgentID: h.route.AgentID, OutputID: output.ID, ProviderCallID: call.ProviderCallID,
-				Name: call.Name, Input: call.Input, Type: call.Type}); err != nil {
+				Name: call.Name, Input: call.Input, Type: call.Type})
+			if err != nil {
 				return AcceptedOutput{}, err
+			}
+			if call.Error == "" {
+				result.Projections[call.ID] = dbsqlc.GetToolCallRow{
+					ID: proposal.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, TurnID: source.TurnID,
+					SourceEventID: event.ID, ModelCallContextID: source.ID, ProviderCallID: call.ProviderCallID,
+					Name: call.Name, Input: call.Input, Type: call.Type, CreatedAt: proposal.CreatedAt,
+					State: proposal.State, ResultContentParts: []byte(`[]`),
+				}
 			}
 			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
 			result.Tools = append(result.Tools, call.ToolProposal)

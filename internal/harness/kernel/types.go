@@ -28,6 +28,7 @@ type ModelWorkExecution struct {
 }
 
 type ToolWorkExecution struct {
+	RootAgentID        uuid.UUID
 	Completion         *executionstore.StepCompletion
 	finishClaim        bool
 	disposition        *executionstore.StepDisposition

@@ -134,6 +134,9 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	}
 	switch modeResult.kind {
 	case permissionModeAllow:
+		if turn.MergeAuthorization && toolType == toolcatalog.ToolTypeBuiltIn && call.Name == toolcatalog.ToolNameListAgents {
+			return proposal, nil
+		}
 		return e.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
 			ProjectID: turn.ProjectID, AgentID: turn.AgentID, ID: proposal.ID, RuntimeLockID: turn.RuntimeLockID,
 		})

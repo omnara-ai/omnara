@@ -8,11 +8,12 @@ SELECT o.id,o.served_provider_model_slug,o.stop_reason,o.provider_replay,e.id AS
 FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
 WHERE o.agent_id=sqlc.arg(agent_id) AND o.model_call_context_id=sqlc.arg(context_id);
 
--- name: CreateExecutionToolProposal :exec
+-- name: CreateExecutionToolProposal :one
 INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
 SELECT sqlc.arg(id),sqlc.arg(agent_id),o.id,sqlc.arg(provider_call_id),sqlc.arg(name),sqlc.arg(input)::jsonb,
  sqlc.arg(type),'awaiting_authorization',o.created_at FROM model_outputs o
- WHERE o.agent_id=sqlc.arg(agent_id) AND o.id=sqlc.arg(output_id);
+ WHERE o.agent_id=sqlc.arg(agent_id) AND o.id=sqlc.arg(output_id)
+ RETURNING id,created_at,state;
 
 -- name: ReadExecutionProposals :many
 SELECT id,provider_call_id,name,input,type FROM tool_calls

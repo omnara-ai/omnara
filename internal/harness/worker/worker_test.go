@@ -1212,3 +1212,25 @@ func TestWorkerFinishedStepDoesNotReleaseAgainOrFailRenewal(t *testing.T) {
 	default:
 	}
 }
+
+func TestUnknownClaimOutcomeNeverStartsProviderOrReleases(t *testing.T) {
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			AgentID: uuid.New(), ProjectID: uuid.New(), Kind: executionstore.AgentWorkModel,
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+		},
+		claimErr: storeerr.ErrCommitOutcomeUnknown,
+		released: make(chan uuid.UUID, 1),
+	}
+	executor := &recordingModelWorkExecutor{}
+	worker := NewWorker(store, executor, Options{Capacity: 1})
+	worked, err := worker.RunOnce(t.Context())
+	require.ErrorIs(t, err, storeerr.ErrCommitOutcomeUnknown)
+	require.False(t, worked)
+	require.Equal(t, uuid.Nil, executor.got.AgentID)
+	select {
+	case <-store.released:
+		t.Fatal("uncertain claim released")
+	default:
+	}
+}

@@ -22,7 +22,8 @@ import (
 func stepFixture(t *testing.T) (executionFixture, uuid.UUID) {
 	t.Helper()
 	f := migratedExecutionFixture(t)
-	config := storagefixture.SeedAgentConfig(t, t.Context(), storage.NewStore(f.pool).Models(), storage.NewStore(f.pool).Execution(), f.org, f.project,
+	store := storage.NewStore(f.pool)
+	config := storagefixture.SeedAgentConfig(t, t.Context(), store.Models(), store.Execution(), f.org, f.project,
 		"instruction: test\nmodel:\n  provider_config: openai-prod\n  name: test\nevent_webhook:\n  url: https://example.com/events\n  events: [model_output, tool_call_update, tool_result]\n")
 	f.config = config.ID
 	a := f.create(t, uuid.New(), uuid.Nil)
@@ -32,7 +33,9 @@ func stepFixture(t *testing.T) (executionFixture, uuid.UUID) {
 	return f, a
 }
 
-func claimPreparedStep(t *testing.T, f executionFixture) (*agentexecution.Unit, *agentexecution.Handle, agentexecution.ClaimedWork, agentexecution.PreparedModel) {
+func claimPreparedStep(
+	t *testing.T, f executionFixture,
+) (*agentexecution.Unit, *agentexecution.Handle, agentexecution.ClaimedWork, agentexecution.PreparedModel) {
 	t.Helper()
 	u, err := agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
 	require.NoError(t, err)
@@ -42,12 +45,16 @@ func claimPreparedStep(t *testing.T, f executionFixture) (*agentexecution.Unit, 
 	require.NoError(t, err)
 	work, err := h.Claim(t.Context(), uuid.New(), time.Minute)
 	require.NoError(t, err)
-	prepared, err := h.PrepareModel(t.Context(), agentexecution.PrepareModelInput{RuntimeLockID: work.RuntimeID, Selected: *work.Selection.Model})
+	prepared, err := h.PrepareModel(t.Context(), agentexecution.PrepareModelInput{
+		RuntimeLockID: work.RuntimeID, Selected: *work.Selection.Model,
+	})
 	require.NoError(t, err)
 	return u, h, work, prepared
 }
 
-func stepToolOutput(prepared agentexecution.PreparedModel, lease uuid.UUID, count int) agentexecution.AcceptOutputInput {
+func stepToolOutput(
+	prepared agentexecution.PreparedModel, lease uuid.UUID, count int,
+) agentexecution.AcceptOutputInput {
 	response := commandResponse(modelenvelope.StopReasonToolUse)
 	response.Normalized.Content = nil
 	input := agentexecution.AcceptOutputInput{ContextID: prepared.Context.ID, RuntimeLockID: lease, FinishClaim: true}
@@ -72,7 +79,10 @@ func stepCounts(t *testing.T, f executionFixture, a uuid.UUID) (int, int, int) {
 
 func expireStep(t *testing.T, f executionFixture, lease uuid.UUID) {
 	t.Helper()
-	_, err := f.pool.Exec(t.Context(), `UPDATE agent_runtime_locks SET started_at=statement_timestamp()-interval '3 minutes',renewed_at=statement_timestamp()-interval '2 minutes',lease_expires_at=statement_timestamp()-interval '1 minute' WHERE id=$1`, lease)
+	_, err := f.pool.Exec(t.Context(), `UPDATE agent_runtime_locks
+ SET started_at=statement_timestamp()-interval '3 minutes',
+ renewed_at=statement_timestamp()-interval '2 minutes',
+ lease_expires_at=statement_timestamp()-interval '1 minute' WHERE id=$1`, lease)
 	require.NoError(t, err)
 }
 
@@ -84,7 +94,9 @@ func TestPreparedClaimLostAcknowledgementAndCrashRecovery(t *testing.T) {
 			agentexecution.LoseTestCommitAcknowledgement(u, committed)
 			require.ErrorIs(t, u.Commit(t.Context(), "claim prepare"), storeerr.ErrCommitOutcomeUnknown)
 			var count int
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM model_call_contexts WHERE id=$1 AND state='started'`, prepared.Context.ID).Scan(&count))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM model_call_contexts WHERE id=$1 AND state='started'`, prepared.Context.ID,
+			).Scan(&count))
 			if !committed {
 				require.Zero(t, count)
 				_, leases, wakes := stepCounts(t, f, a)
@@ -100,12 +112,17 @@ func TestPreparedClaimLostAcknowledgementAndCrashRecovery(t *testing.T) {
 			require.True(t, reaped)
 			require.NoError(t, u.Commit(t.Context(), "reap abandoned intent"))
 			var state string
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT state FROM model_call_contexts WHERE id=$1`, prepared.Context.ID).Scan(&state))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT state FROM model_call_contexts WHERE id=$1`, prepared.Context.ID,
+			).Scan(&state))
 			require.Equal(t, "failed", state)
 			var ambiguous bool
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT (error_details->>'outcome_ambiguous')::boolean FROM model_call_contexts WHERE id=$1`, prepared.Context.ID).Scan(&ambiguous))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT (error_details->>'outcome_ambiguous')::boolean FROM model_call_contexts WHERE id=$1`, prepared.Context.ID,
+			).Scan(&ambiguous))
 			require.True(t, ambiguous)
-			_, leases, wakes := stepCounts(t, f, a)
+			outputs, leases, wakes := stepCounts(t, f, a)
+			require.Zero(t, outputs)
 			require.Zero(t, leases)
 			require.Equal(t, 1, wakes)
 		})
@@ -146,7 +163,9 @@ func TestResultReleaseLostAcknowledgementAndNewerClaim(t *testing.T) {
 			require.Zero(t, leases)
 			require.Equal(t, 1, wakes)
 			var deliveries int
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, a).Scan(&deliveries))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, a,
+			).Scan(&deliveries))
 			require.Equal(t, 2, deliveries)
 			u, h = f.handle(t, a)
 			newer, err := h.Claim(t.Context(), uuid.New(), time.Minute)
@@ -165,10 +184,14 @@ func TestResultReleaseLostAcknowledgementAndNewerClaim(t *testing.T) {
 			require.False(t, replay.Created)
 			require.NoError(t, u.Rollback(t.Context()))
 			var current uuid.UUID
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT id FROM agent_runtime_locks WHERE agent_id=$1`, a).Scan(&current))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT id FROM agent_runtime_locks WHERE agent_id=$1`, a,
+			).Scan(&current))
 			require.Equal(t, newer.RuntimeID, current)
 			var after int
-			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, a).Scan(&after))
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, a,
+			).Scan(&after))
 			require.Equal(t, deliveries, after)
 			u, h = f.handle(t, a)
 			reaped, err := h.Reap(t.Context(), work.RuntimeID)
@@ -255,7 +278,8 @@ func TestRenewalWaitsForSuccessfulStepRelease(t *testing.T) {
 			return
 		}
 		defer func() { _ = other.Rollback(context.Background()) }()
-		_, err = other.RenewRuntime(t.Context(), agentexecution.AgentRoute{ProjectID: f.project, AgentID: a}, work.RuntimeID, time.Minute)
+		_, err = other.RenewRuntime(
+			t.Context(), agentexecution.AgentRoute{ProjectID: f.project, AgentID: a}, work.RuntimeID, time.Minute)
 		done <- err
 	}()
 	integrationdb.WaitForLockWaitBlockedBy(t, t.Context(), f.pool, "", pid)

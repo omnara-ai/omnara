@@ -172,7 +172,9 @@ func TestPrepareNormalModelCallValidatesOwnershipAndSelectedWork(t *testing.T) {
 	}
 }
 
-func reclaimUnpreparedAgentWork(t *testing.T, ctx context.Context, f *processDaemonFixture) executionstore.ClaimedAgentWork {
+func reclaimUnpreparedAgentWork(
+	t *testing.T, ctx context.Context, f *processDaemonFixture,
+) executionstore.ClaimedAgentWork {
 	t.Helper()
 	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
 	work, found, err := f.Store.Execution().IntegrationClaimUnprepared(ctx, testClaimNextAgentWorkInput())

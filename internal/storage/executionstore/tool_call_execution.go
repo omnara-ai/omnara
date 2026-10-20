@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,6 +15,9 @@ import (
 )
 
 type ExecuteToolCallInput struct {
+	RootAgentID   uuid.UUID
+	Authorize     bool
+	BatchOutputID uuid.UUID
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
 	ToolCallID    uuid.UUID
@@ -21,10 +25,11 @@ type ExecuteToolCallInput struct {
 }
 
 type ExecuteToolCallResult struct {
-	Disposition   ToolCallDisposition
-	Applied       bool
-	CommandResult any
-	Completed     *ToolCallRecord
+	StepDisposition StepDisposition
+	Disposition     ToolCallDisposition
+	Applied         bool
+	CommandResult   any
+	Completed       *ToolCallRecord
 }
 
 type ToolCallDisposition uint8
@@ -59,6 +64,7 @@ type toolCallTransaction struct {
 	requiresWaitingDisposition bool
 	owner                      agentexecution.ToolOwner
 	completed                  *ToolCallRecord
+	completionID               uuid.UUID
 }
 
 func (s *Store) ExecuteToolCall(
@@ -92,6 +98,14 @@ func (s *Store) executeToolCallOnce(
 		return ExecuteToolCallResult{}, err
 	}
 	defer func() { _ = unit.Rollback(ctx) }()
+	if input.RootAgentID != uuid.Nil {
+		plan := unit.PlanKnownAgents([]agentexecution.AgentRoute{
+			{ProjectID: input.ProjectID, AgentID: input.AgentID, RootAgentID: input.RootAgentID},
+		})
+		if err := unit.LockAgents(ctx, plan); err != nil {
+			return ExecuteToolCallResult{}, err
+		}
+	}
 	tx := unit.DB()
 	toolTx := &toolCallTransaction{
 		unit:          unit,
@@ -134,14 +148,65 @@ func (s *Store) executeToolCallOnce(
 		}
 		toolTx.completed = &record
 	}
+	if toolTx.disposition == ToolCallDispositionCompleted && !toolTx.applied {
+		step := StepRetained
+		if input.BatchOutputID != uuid.Nil {
+			h, err := unit.Handle(input.ProjectID, input.AgentID)
+			if err != nil {
+				return ExecuteToolCallResult{}, err
+			}
+			finished, transferred, err := h.ResolveToolBatch(ctx, input.BatchOutputID)
+			if err != nil {
+				return ExecuteToolCallResult{}, err
+			}
+			if finished {
+				step = StepFinished
+				if transferred {
+					step = StepTransferred
+				}
+			}
+		}
+		return ExecuteToolCallResult{StepDisposition: step, Disposition: toolTx.disposition,
+			CommandResult: commandResult, Completed: toolTx.completed}, nil
+	}
+	step := StepRetained
+	if input.BatchOutputID != uuid.Nil && toolTx.disposition != ToolCallDispositionRunning {
+		h, err := unit.Handle(input.ProjectID, input.AgentID)
+		if err != nil {
+			return ExecuteToolCallResult{}, err
+		}
+		finished, transferred, err := h.FinishToolBatch(ctx, input.RuntimeLockID, input.BatchOutputID)
+		if err != nil {
+			return ExecuteToolCallResult{}, err
+		}
+		if finished {
+			step = StepFinished
+			if transferred {
+				step = StepTransferred
+			}
+		}
+	}
 	if err := unit.Commit(ctx, "execute tool call"); err != nil {
+		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied && toolTx.completed != nil {
+			resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			receipt, resolveErr := s.q.GetCommittedToolResult(resolveCtx, dbsqlc.GetCommittedToolResultParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ToolCallID: input.ToolCallID,
+			})
+			if resolveErr == nil && receipt.ID == toolTx.completionID && receipt.Outcome == string(toolTx.completed.Outcome) {
+				return ExecuteToolCallResult{StepDisposition: step, Disposition: toolTx.disposition, Applied: true,
+					CommandResult: commandResult, Completed: toolTx.completed}, nil
+			}
+			return ExecuteToolCallResult{}, errors.Join(err, resolveErr)
+		}
 		return ExecuteToolCallResult{}, err
 	}
 	return ExecuteToolCallResult{
-		Disposition:   toolTx.disposition,
-		Applied:       toolTx.applied,
-		CommandResult: commandResult,
-		Completed:     toolTx.completed,
+		StepDisposition: step,
+		Disposition:     toolTx.disposition,
+		Applied:         toolTx.applied,
+		CommandResult:   commandResult,
+		Completed:       toolTx.completed,
 	}, nil
 }
 
@@ -163,6 +228,13 @@ func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting b
 	h, err := lockExecution(ctx, t.unit, t.input.ProjectID, t.input.AgentID, false, t.input.RuntimeLockID)
 	if err != nil {
 		return err
+	}
+	if t.input.Authorize {
+		if _, err := h.AuthorizeTool(ctx, agentexecution.ToolRef{
+			ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID,
+		}); err != nil {
+			return err
+		}
 	}
 	dispatch, err := h.DispatchTool(ctx,
 		agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}, acceptExisting,
@@ -213,7 +285,8 @@ func (t *toolCallTransaction) completeToolCall(
 	if t.disposition != 0 {
 		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	record, err := completeExecutionTool(ctx, t.unit, CompleteToolCallInput{
+	record, completed, err := completeExecutionTool(ctx, t.unit, CompleteToolCallInput{
+		Authorize:          t.input.Authorize,
 		ProjectID:          t.input.ProjectID,
 		AgentID:            t.input.AgentID,
 		ID:                 t.input.ToolCallID,
@@ -226,7 +299,8 @@ func (t *toolCallTransaction) completeToolCall(
 	}
 	t.locked = true
 	t.disposition = ToolCallDispositionCompleted
-	t.applied = true
+	t.applied = completed.Changed
+	t.completionID = completed.ResultID
 	t.completed = &record
 	return record, nil
 }

@@ -126,6 +126,10 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 			}
 			records := make([]ToolCallRecord, 0, len(result.Tools))
 			for _, call := range result.Tools {
+				if projection, ok := result.Projections[call.ID]; ok {
+					records = append(records, toolCallRecordFromGetSQLC(projection))
+					continue
+				}
 				record, loadErr := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, call.ID)
 				if loadErr != nil {
 					return executionResult{events.Event{}, nil}, loadErr

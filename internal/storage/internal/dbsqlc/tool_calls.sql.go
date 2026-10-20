@@ -13,6 +13,32 @@ import (
 	"github.com/google/uuid"
 )
 
+const getCommittedToolResult = `-- name: GetCommittedToolResult :one
+SELECT result.id,result.outcome
+FROM tool_call_results result
+JOIN agents agent ON agent.id=result.agent_id
+WHERE agent.project_id=$1 AND result.agent_id=$2
+ AND result.tool_call_id=$3
+`
+
+type GetCommittedToolResultParams struct {
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ToolCallID uuid.UUID
+}
+
+type GetCommittedToolResultRow struct {
+	ID      uuid.UUID
+	Outcome string
+}
+
+func (q *Queries) GetCommittedToolResult(ctx context.Context, arg GetCommittedToolResultParams) (GetCommittedToolResultRow, error) {
+	row := q.db.QueryRow(ctx, getCommittedToolResult, arg.ProjectID, arg.AgentID, arg.ToolCallID)
+	var i GetCommittedToolResultRow
+	err := row.Scan(&i.ID, &i.Outcome)
+	return i, err
+}
+
 const getToolCall = `-- name: GetToolCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,

@@ -96,18 +96,10 @@ func TestAgentExecutorRetriesInterruptedModelContext(t *testing.T) {
 		"recover interrupted model call",
 		fixture.Now.Add(time.Second),
 	)
-	prepared1, err := fixture.Store.Execution().
-		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         agentID,
-			RuntimeLockID:   turn.RuntimeLockID,
-			OpeningInputIDs: turn.InputIDs,
-		})
-	modelClaim := prepared1.Claim
-
-	if err != nil {
-		t.Fatalf("claim initial model context: %v", err)
+	if turn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	modelClaim := turn.Prepared.Claim
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx,
 		kernelTestProjectID,

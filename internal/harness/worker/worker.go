@@ -430,6 +430,7 @@ func (w *Worker) executeWorkStep(
 		return executionstore.StepRetained, w.executor.ExecuteModelWork(ctx, input)
 	case executionstore.AgentWorkTool:
 		input := kernel.ToolWorkExecution{
+			RootAgentID:        claim.RootAgentID,
 			Completion:         completion,
 			Prepared:           claim.Tool.Prepared,
 			ProjectID:          claim.ProjectID,

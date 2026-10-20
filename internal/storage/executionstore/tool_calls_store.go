@@ -13,6 +13,8 @@ import (
 )
 
 type CompleteToolCallInput struct {
+	requireRuntime     bool
+	Authorize          bool
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	ID                 uuid.UUID
@@ -152,9 +154,12 @@ func (s *Store) CompleteToolCall(
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 
-			record, err := completeExecutionTool(ctx, unit, input)
+			record, completed, err := completeExecutionTool(ctx, unit, input)
 			if err != nil {
 				return ToolCallRecord{}, err
+			}
+			if !completed.Changed {
+				return record, nil
 			}
 			if err := unit.Commit(ctx, "complete tool call"); err != nil {
 				return ToolCallRecord{}, err
@@ -211,25 +216,41 @@ func completeExecutionTool(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	input CompleteToolCallInput,
-) (ToolCallRecord, error) {
+) (ToolCallRecord, agentexecution.CompletedTool, error) {
 	h, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+	}
+	if input.requireRuntime {
+		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
+			return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+		}
 	}
 	blocks, err := parseToolResultContentBlocks(input.ResultContentParts)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
 	parts, err := executionContent(blocks)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
-	_, err = h.CompleteTool(ctx, agentexecution.ToolCompletion{ToolRef: agentexecution.ToolRef{ID: input.ID,
-		RuntimeLockID: input.RuntimeLockID}, Outcome: string(input.Outcome), Content: parts})
+	completed, err := h.CompleteTool(ctx, agentexecution.ToolCompletion{
+		Authorize: input.Authorize, ToolRef: agentexecution.ToolRef{ID: input.ID, RuntimeLockID: input.RuntimeLockID},
+		Outcome: string(input.Outcome), Content: parts,
+	})
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
-	return getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+	if !completed.Changed {
+		record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+		return record, completed, err
+	}
+	canonical, err := marshalToolResultContentBlocks(blocks)
+	if err != nil {
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+	}
+	completed.Projection.ResultContentParts = canonical
+	return toolCallRecordFromGetSQLC(completed.Projection), completed, nil
 }
 
 func (s *Store) CompleteCustomToolCall(
@@ -301,7 +322,8 @@ func (s *Store) CompleteRuntimeToolCall(
 	if !input.Outcome.IsTerminal() || input.Outcome == ToolResultOutcomeDenied {
 		return ToolCallRecord{}, errors.New("invalid runtime tool outcome")
 	}
-	return s.CompleteToolCall(ctx, CompleteToolCallInput{ProjectID: input.ProjectID, AgentID: input.AgentID,
+	return s.CompleteToolCall(ctx, CompleteToolCallInput{
+		requireRuntime: true, ProjectID: input.ProjectID, AgentID: input.AgentID,
 		ID: input.ID, RuntimeLockID: input.RuntimeLockID, Outcome: input.Outcome,
 		ResultContentParts: input.ResultContentParts})
 }

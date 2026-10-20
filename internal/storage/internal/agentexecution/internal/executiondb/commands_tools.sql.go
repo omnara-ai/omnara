@@ -50,6 +50,38 @@ func (q *Queries) CloseExecutionToolInteractions(ctx context.Context, db DBTX, a
 	return items, nil
 }
 
+const executionToolBatchOwnership = `-- name: ExecutionToolBatchOwnership :one
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS present,
+ EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2
+ AND (c.state='awaiting_authorization' OR c.state='ready' AND c.type IN ('built_in','mcp') OR c.state='running')) AS retained,
+ EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND c.state<>'completed') AS transferred,
+ EXISTS(SELECT 1 FROM model_call_contexts attempt WHERE attempt.agent_id=$1 AND attempt.state='started') AS model_started
+`
+
+type ExecutionToolBatchOwnershipParams struct {
+	AgentID  uuid.UUID
+	OutputID uuid.UUID
+}
+
+type ExecutionToolBatchOwnershipRow struct {
+	Present      bool
+	Retained     bool
+	Transferred  bool
+	ModelStarted bool
+}
+
+func (q *Queries) ExecutionToolBatchOwnership(ctx context.Context, db DBTX, arg ExecutionToolBatchOwnershipParams) (ExecutionToolBatchOwnershipRow, error) {
+	row := db.QueryRow(ctx, executionToolBatchOwnership, arg.AgentID, arg.OutputID)
+	var i ExecutionToolBatchOwnershipRow
+	err := row.Scan(
+		&i.Present,
+		&i.Retained,
+		&i.Transferred,
+		&i.ModelStarted,
+	)
+	return i, err
+}
+
 const executionToolOwner = `-- name: ExecutionToolOwner :one
 SELECT EXISTS(SELECT 1 FROM agent_interactions i WHERE i.agent_id=$1 AND i.tool_call_id=$2
  AND i.id=$3 AND i.interaction_kind='question' AND i.state='open') AS question,
@@ -90,7 +122,7 @@ const insertExecutionToolResult = `-- name: InsertExecutionToolResult :one
 INSERT INTO tool_call_results(agent_id,tool_call_id,outcome,completed_at)
 SELECT c.agent_id,c.id,$1,statement_timestamp() FROM tool_calls c
 WHERE c.agent_id=$2 AND c.id=$3 AND c.state='completed'
-RETURNING id
+RETURNING id,completed_at
 `
 
 type InsertExecutionToolResultParams struct {
@@ -99,15 +131,20 @@ type InsertExecutionToolResultParams struct {
 	ID      uuid.UUID
 }
 
-func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg InsertExecutionToolResultParams) (uuid.UUID, error) {
+type InsertExecutionToolResultRow struct {
+	ID          uuid.UUID
+	CompletedAt time.Time
+}
+
+func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg InsertExecutionToolResultParams) (InsertExecutionToolResultRow, error) {
 	row := db.QueryRow(ctx, insertExecutionToolResult, arg.Outcome, arg.AgentID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i InsertExecutionToolResultRow
+	err := row.Scan(&i.ID, &i.CompletedAt)
+	return i, err
 }
 
 const readExecutionTool = `-- name: ReadExecutionTool :one
-SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+SELECT c.id,c.agent_id,c.created_at,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -126,6 +163,7 @@ type ReadExecutionToolParams struct {
 type ReadExecutionToolRow struct {
 	ID             uuid.UUID
 	AgentID        uuid.UUID
+	CreatedAt      time.Time
 	ModelOutputID  uuid.UUID
 	ProviderCallID string
 	Name           string
@@ -150,6 +188,7 @@ func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecut
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
+		&i.CreatedAt,
 		&i.ModelOutputID,
 		&i.ProviderCallID,
 		&i.Name,

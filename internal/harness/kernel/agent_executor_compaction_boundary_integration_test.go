@@ -94,18 +94,10 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 			},
 		},
 	}
-	prepared1, err := fixture.Store.Execution().
-		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         agentID,
-			RuntimeLockID:   retryTurn.RuntimeLockID,
-			OpeningInputIDs: retryTurn.InputIDs,
-		})
-	failedClaim := prepared1.Claim
-
-	if err != nil {
-		t.Fatalf("claim context-window model call: %v", err)
+	if retryTurn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	failedClaim := retryTurn.Prepared.Claim
 	plan, ok, err := compaction.PlanCheckpoint(compaction.PlanInput{
 		ProjectID:               kernelTestProjectID,
 		AgentID:                 agentID,

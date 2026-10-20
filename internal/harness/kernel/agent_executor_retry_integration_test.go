@@ -379,20 +379,10 @@ func TestManagedModelRetryReplayReturnsExistingAttemptAfterAdmissionCloses(t *te
 		fixture.Now.Add(time.Millisecond),
 	)
 
-	prepared1, err := fixture.Store.Execution().PrepareNormalModelCall(
-		ctx,
-		executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         agentID,
-			RuntimeLockID:   turn.RuntimeLockID,
-			OpeningInputIDs: turn.InputIDs,
-		},
-	)
-	initial := prepared1.Claim
-
-	if err != nil {
-		t.Fatalf("claim initial managed replay attempt: %v", err)
+	if turn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	initial := turn.Prepared.Claim
 	if _, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
 		ctx,
 		executionstore.RecordRecoverableModelCallFailureInput{
