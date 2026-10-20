@@ -43,7 +43,7 @@ func runIntegrationTool(ctx context.Context, call asyncToolContext) (asyncPhaseR
 	case integrationdefinition.GitHubPR:
 		return runGitHubTool(ctx, call, record, access)
 	default:
-		return integrationToolFailure(fmt.Errorf("unsupported integration type %q", access.Integration.IntegrationKind))
+		return integrationToolFailure(fmt.Errorf("unsupported integration type \"%s\"", access.Integration.IntegrationKind))
 	}
 }
 

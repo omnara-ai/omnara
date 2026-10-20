@@ -185,30 +185,12 @@ func TestWebSearchHandlerSuccessParts(t *testing.T) {
 		t.Fatalf("provider request = %+v", provider.gotReq)
 	}
 	parts := decodeParts(t, asyncCompletionContent(t, dispatch))
+	if len(parts) != 1 {
+		t.Fatalf("content parts = %d, want a single text part so results are not duplicated", len(parts))
+	}
 	text := partText(t, parts, "text", "text")
 	if !strings.Contains(text, "Post A") || !strings.Contains(text, "https://go.dev/blog/b") {
 		t.Fatalf("text part missing results: %q", text)
-	}
-	var structuredFound bool
-	for _, part := range parts {
-		var pt string
-		_ = json.Unmarshal(part["type"], &pt)
-		if pt == "structured_data" {
-			structuredFound = true
-			var value struct {
-				Query   string                   `json:"query"`
-				Results []webaccess.SearchResult `json:"results"`
-			}
-			if err := json.Unmarshal(part["value"], &value); err != nil {
-				t.Fatalf("decode structured value: %v", err)
-			}
-			if value.Query != "go releases" || len(value.Results) != 2 {
-				t.Fatalf("structured value = %+v", value)
-			}
-		}
-	}
-	if !structuredFound {
-		t.Fatal("structured_data part missing")
 	}
 }
 
@@ -419,28 +401,31 @@ func TestWebFetchToolResultContentPreservesEmptyTextBlock(t *testing.T) {
 	}
 }
 
-func TestWebSearchToolResultContentTruncatesSnippetOnRuneBoundary(t *testing.T) {
-	snippet := strings.Repeat("é", webSearchInlineSnippetChars+5)
-	result, err := webSearchToolResultContent("unicode", webaccess.SearchResponse{
+func TestWebSearchToolResultContentKeepsTextVerbatim(t *testing.T) {
+	snippet := strings.Repeat("é", 2000) + ` <b>"quoted" & \ raw</b>`
+	result := webSearchToolResultContent(`say "hi" \ <now>`, webaccess.SearchResponse{
 		Provider: "test",
-		Results:  []webaccess.SearchResult{{URL: "https://example.com", Title: "Unicode", Snippet: snippet}},
+		Results: []webaccess.SearchResult{{
+			URL:       "https://example.com/?a=1&b=2",
+			Title:     "<Unicode> & co",
+			Snippet:   snippet,
+			Published: "2026-01-02",
+		}},
 	})
-	if err != nil {
-		t.Fatalf("content parts: %v", err)
-	}
 	contentParts, err := result.contentParts()
 	if err != nil {
 		t.Fatalf("marshal content parts: %v", err)
 	}
 	text := partText(t, decodeParts(t, contentParts), "text", "text")
-	if !utf8.ValidString(text) ||
-		strings.Count(text, "é") != webSearchInlineSnippetChars ||
-		!strings.Contains(text, "…") {
-		t.Fatalf(
-			"search text invalid or not truncated on rune boundary: valid=%v count=%d text=%q",
-			utf8.ValidString(text),
-			strings.Count(text, "é"),
-			text[:min(len(text), 120)],
-		)
+	for _, want := range []string{
+		`Web search results for "say "hi" \ <now>":`,
+		"<Unicode> & co",
+		"https://example.com/?a=1&b=2",
+		"Published: 2026-01-02",
+		snippet,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("search text missing %q verbatim: %q", want, text[:min(len(text), 200)])
+		}
 	}
 }

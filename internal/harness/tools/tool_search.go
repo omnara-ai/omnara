@@ -110,13 +110,13 @@ func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec 
 func toolSearchSummary(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) string {
 	if len(search.ToolNames) == 0 {
 		return fmt.Sprintf(
-			"No deferred tools matched %q (%d deferred tools available). Try a broader pattern.",
+			"No deferred tools matched \"%s\" (%d deferred tools available). Try a broader pattern.",
 			search.Pattern,
 			search.TotalDeferredTools,
 		)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Loaded %d tool(s) matching %q:", len(search.ToolNames), search.Pattern)
+	fmt.Fprintf(&b, "Loaded %d tool(s) matching \"%s\":", len(search.ToolNames), search.Pattern)
 	for _, name := range search.ToolNames {
 		b.WriteString("\n- ")
 		b.WriteString(name)

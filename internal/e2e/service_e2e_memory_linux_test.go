@@ -72,6 +72,10 @@ memory_stores:
 		http.Error(w, message, status)
 	}
 	decodeResult := func(output string, result any) error {
+		output, err := toolResultJSONStream(output)
+		if err != nil {
+			return err
+		}
 		decoder := json.NewDecoder(strings.NewReader(output))
 		var status struct{ Outcome string }
 		if err := decoder.Decode(&status); err != nil {

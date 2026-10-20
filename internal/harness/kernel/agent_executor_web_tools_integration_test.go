@@ -90,7 +90,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 	}
 	executeNextModelWork(t, ctx, fixture, executor, turn)
 
-	// Both tool calls completed with text + structured_data content parts.
+	// Both tool calls completed with text content parts.
 	completed, err := storagetest.ListCompletedToolCallsForTurn(
 		ctx,
 		fixture.Store,
@@ -110,8 +110,8 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing from completed tool calls: %v", providerCallID, partsByCall)
 		}
-		if !strings.Contains(resultParts, `"structured_data"`) || !strings.Contains(resultParts, `"text"`) {
-			t.Fatalf("%s content parts missing text/structured_data: %s", providerCallID, resultParts)
+		if !strings.Contains(resultParts, `"text"`) {
+			t.Fatalf("%s content parts missing text: %s", providerCallID, resultParts)
 		}
 		if strings.Contains(resultParts, kernelTestExaSecret) {
 			t.Fatalf("%s content parts leak the provider API key", providerCallID)

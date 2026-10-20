@@ -60,9 +60,9 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	if inputErr == nil && supported && (!implemented || toolcatalog.UsesIntegrationToolNamespace(call.Name)) {
 		schema := spec.InputSchema
 		if len(schema) == 0 {
-			inputErr = fmt.Errorf("tool %q has no runtime input schema", call.Name)
+			inputErr = fmt.Errorf("tool \"%s\" has no runtime input schema", call.Name)
 		} else if err := jsonschema.Validate(schema, call.Input); err != nil {
-			inputErr = fmt.Errorf("tool %q input: %w", call.Name, err)
+			inputErr = fmt.Errorf("tool \"%s\" input: %w", call.Name, err)
 		}
 	}
 	executable := implemented || toolType == toolcatalog.ToolTypeCustom
@@ -77,7 +77,7 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	}
 	if !supported {
 		return executionstore.ToolCallRecord{}, fmt.Errorf(
-			"tool %q does not support permission mode %q",
+			"tool \"%s\" does not support permission mode \"%s\"",
 			call.Name,
 			selection.Mode,
 		)
@@ -87,7 +87,7 @@ func (e Executor) PrepareRecordedToolCallPermission(
 		[]toolpermission.ModeDescriptor{modeDescriptor},
 	)
 	if err != nil {
-		return executionstore.ToolCallRecord{}, fmt.Errorf("tool %q runtime permission: %w", call.Name, err)
+		return executionstore.ToolCallRecord{}, fmt.Errorf("tool \"%s\" runtime permission: %w", call.Name, err)
 	}
 	if existing, found, err := e.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,
@@ -146,7 +146,10 @@ func (e Executor) PrepareRecordedToolCallPermission(
 		)
 	case permissionModeAsk:
 	default:
-		return executionstore.ToolCallRecord{}, fmt.Errorf("tool %q permission mode returned an invalid outcome", call.Name)
+		return executionstore.ToolCallRecord{}, fmt.Errorf(
+			"tool \"%s\" permission mode returned an invalid outcome",
+			call.Name,
+		)
 	}
 	interaction, err := e.Store.Execution().CreatePermissionInteraction(
 		ctx,
@@ -205,7 +208,7 @@ func (e Executor) evaluateExistingPermissionInteraction(
 		return e.assertTerminalPermissionInteraction(ctx, turn, toolCallID)
 	default:
 		return fmt.Errorf(
-			"permission interaction %s has unsupported state %q",
+			"permission interaction %s has unsupported state \"%s\"",
 			permission.ID,
 			permission.State,
 		)

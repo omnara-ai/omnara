@@ -148,6 +148,42 @@ func TestMCPToolResultContentPreservesEmptyText(t *testing.T) {
 	}
 }
 
+func TestMCPToolResultContentDropsOnlyJSONEqualTextCopy(t *testing.T) {
+	result, err := (Executor{}).mcpToolResultContent(
+		context.Background(),
+		Turn{},
+		uuid.New(),
+		"docs",
+		"search",
+		&sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{
+				&sdkmcp.TextContent{Text: "{\n  \"valid\": true,\n  \"count\": 2.0\n}"},
+				&sdkmcp.TextContent{Text: "Found 2 results."},
+				&sdkmcp.TextContent{Text: `{"count":3,"valid":true}`},
+				&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
+					URI:  "file:///copy.json",
+					Text: `{"count":2,"valid":true}`,
+				}},
+			},
+			StructuredContent: map[string]any{"count": 2, "valid": true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("normalize MCP result: %v", err)
+	}
+	raw, err := result.contentParts()
+	if err != nil {
+		t.Fatalf("marshal MCP result: %v", err)
+	}
+	want := `[{"type":"text","text":"Found 2 results."},` +
+		`{"type":"text","text":"{\"count\":3,\"valid\":true}"},` +
+		`{"type":"text","text":"{\"count\":2,\"valid\":true}"},` +
+		`{"type":"structured_data","value":{"count":2,"valid":true}}]`
+	if string(raw) != want {
+		t.Fatalf("normalized MCP content = %s, want %s", raw, want)
+	}
+}
+
 func TestMCPToolResultContentRejectsNonObjectStructuredContent(t *testing.T) {
 	_, err := (Executor{}).mcpToolResultContent(
 		context.Background(),

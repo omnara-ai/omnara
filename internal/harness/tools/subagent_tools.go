@@ -218,7 +218,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 	subagent, ok := contract.Subagents[input.Agent]
 	if !ok {
 		return failSubagentTransaction("spawn_agent_failed", fmt.Errorf(
-			"unknown subagent key %q; configured keys: %s",
+			"unknown subagent key \"%s\"; configured keys: %s",
 			input.Agent,
 			strings.Join(contract.SubagentKeys(), ", "),
 		))
@@ -353,7 +353,7 @@ func subagentLaunchConfigForSpawn(
 		baseConfig = profile.CurrentConfig
 		profileID = profile.ID
 	default:
-		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
+		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type \"%s\"", subagent.Type)
 	}
 	body, err := agentconfigcompile.DeriveSubagentConfig(
 		baseConfig,

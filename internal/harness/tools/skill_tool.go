@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -40,7 +39,7 @@ func resolveSkillToolRequest(raw json.RawMessage) (skillToolInput, error) {
 	}
 	for field, value := range body {
 		if field != "name" {
-			return skillToolInput{}, fmt.Errorf("skill request has unsupported field %q", field)
+			return skillToolInput{}, fmt.Errorf("skill request has unsupported field \"%s\"", field)
 		}
 		if string(value) == "null" {
 			return skillToolInput{}, errors.New("skill name cannot be null")
@@ -101,23 +100,23 @@ func runSkillTool(
 	}
 	if match == nil {
 		return failSkillTool(fmt.Sprintf(
-			"skill %q is not attached; available: %s",
+			"skill \"%s\" is not attached; available: %s",
 			input.Name,
 			strings.Join(available, ", "),
 		))
 	}
 	matchPublicID, err := publicid.Encode(publicid.KindSkill, match.ID)
 	if err != nil {
-		return nil, fmt.Errorf("encode skill public id for %q: %w", match.Name, err)
+		return nil, fmt.Errorf("encode skill public id for \"%s\": %w", match.Name, err)
 	}
 	record := *match
 	if record.ArchiveDigest == "" {
-		return nil, fmt.Errorf("skill %q has no archive digest", match.Name)
+		return nil, fmt.Errorf("skill \"%s\" has no archive digest", match.Name)
 	}
 	revisionPublicID, err := publicid.Encode(publicid.KindSkillRevision, record.RevisionID)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"encode skill revision id for %q: %w",
+			"encode skill revision id for \"%s\": %w",
 			match.Name,
 			err,
 		)
@@ -175,11 +174,7 @@ func runSkillTool(
 	if err != nil {
 		return nil, err
 	}
-	content, err := skillToolSuccessResult(match.Name, wrapped)
-	if err != nil {
-		return nil, fmt.Errorf("marshal skill content: %w", err)
-	}
-	return completeAsynchronously(content), nil
+	return completeAsynchronously(newToolResultContent(textToolResultPart(wrapped))), nil
 }
 
 func failSkillTool(message string) (asyncPhaseResult, error) {
@@ -191,17 +186,7 @@ func failSkillTool(message string) (asyncPhaseResult, error) {
 }
 
 func skillToolErrorResult(message string) (toolResultContent, error) {
-	return structuredToolResultContent(map[string]any{
-		"error":   message,
-		"message": message,
-	})
-}
-
-func skillToolSuccessResult(name, content string) (toolResultContent, error) {
-	return structuredToolResultContent(map[string]any{
-		"name":    name,
-		"content": content,
-	})
+	return structuredToolResultContent(map[string]any{"error": message})
 }
 
 func wrapSkillContent(
@@ -211,9 +196,9 @@ func wrapSkillContent(
 ) (string, error) {
 	var b strings.Builder
 	b.WriteString("<skill_content name=\"")
-	writeXMLAttributeValue(&b, name)
+	b.WriteString(name)
 	b.WriteString("\">\n")
-	writeXMLText(&b, body)
+	b.WriteString(body)
 	if len(ready) == 0 && len(failed) == 0 {
 		b.WriteString("\n\nNo machines are attached; these instructions are available without an install.\n")
 	}
@@ -223,10 +208,10 @@ func wrapSkillContent(
 			return "", err
 		}
 		b.WriteString("\n\nSkill directory on machine: ")
-		writeXMLText(&b, SkillInstallPath(publicID, revisionPublicID))
+		b.WriteString(SkillInstallPath(publicID, revisionPublicID))
 		b.WriteString("\nResolve relative paths in this skill against that directory.\n")
 		b.WriteString("\nInstalled on: ")
-		writeXMLText(&b, machineIDs)
+		b.WriteString(machineIDs)
 		b.WriteString("\n")
 	}
 	if len(failed) > 0 {
@@ -235,16 +220,6 @@ func wrapSkillContent(
 	}
 	b.WriteString("</skill_content>")
 	return b.String(), nil
-}
-
-func writeXMLAttributeValue(b *strings.Builder, s string) {
-	writeXMLText(b, s)
-}
-
-func writeXMLText(b *strings.Builder, s string) {
-	if err := xml.EscapeText(b, []byte(s)); err != nil {
-		b.WriteString("[invalid text]")
-	}
 }
 
 func joinReadyMachineIDs(outcomes []skills.BroadcastOutcome) (string, error) {

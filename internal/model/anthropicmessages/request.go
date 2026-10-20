@@ -423,7 +423,7 @@ func renderAnthropicContent(
 		}
 		if partType == "structured_data" {
 			if value := part["value"]; len(value) != 0 {
-				blocks = append(blocks, textBlock{Type: "text", Text: string(value)})
+				blocks = append(blocks, textBlock{Type: "text", Text: modelcontext.StructuredDataText(value)})
 			}
 		}
 	}
