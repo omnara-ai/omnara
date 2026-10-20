@@ -1264,7 +1264,7 @@ func assertManagedWorkAdmissionToolFailure(
 	body := toolResultMapFromTestParts(t, result.ContentParts)
 	if body["error_code"] != storeerr.ManagedWorkAdmissionDeniedCode ||
 		body["error"] != "Insufficient Omnara credits." ||
-		body["message"] != "Insufficient Omnara credits." ||
+		body["message"] != nil ||
 		body["retryable"] != false {
 		t.Fatalf("denied tool result = %+v", body)
 	}

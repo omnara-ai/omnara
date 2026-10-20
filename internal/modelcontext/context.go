@@ -3,7 +3,6 @@ package modelcontext
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"strings"
 
@@ -263,17 +262,11 @@ func skillCatalogBlock(skills []skillstore.SkillRecord) string {
 	for _, skill := range skills {
 		b.WriteString("  <skill>\n")
 		b.WriteString("    <name>")
-		writeXMLEscapedString(&b, skill.Name)
+		b.WriteString(skill.Name)
 		b.WriteString("</name>\n    <description>")
-		writeXMLEscapedString(&b, skill.Description)
+		b.WriteString(skill.Description)
 		b.WriteString("</description>\n  </skill>\n")
 	}
 	b.WriteString("</available_skills>")
 	return b.String()
-}
-
-func writeXMLEscapedString(b *strings.Builder, s string) {
-	if err := xml.EscapeText(b, []byte(s)); err != nil {
-		b.WriteString(s)
-	}
 }

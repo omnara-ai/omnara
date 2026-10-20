@@ -868,6 +868,6 @@ func toolFailureContent(
 	retryable bool,
 ) (toolResultContent, error) {
 	return structuredToolResultContent(
-		map[string]any{"error_code": code, "error": message, "message": message, "retryable": retryable},
+		map[string]any{"error_code": code, "error": message, "retryable": retryable},
 	)
 }

@@ -174,11 +174,7 @@ func runSkillTool(
 	if err != nil {
 		return nil, err
 	}
-	content, err := skillToolSuccessResult(match.Name, wrapped)
-	if err != nil {
-		return nil, fmt.Errorf("marshal skill content: %w", err)
-	}
-	return completeAsynchronously(content), nil
+	return completeAsynchronously(newToolResultContent(textToolResultPart(wrapped))), nil
 }
 
 func failSkillTool(message string) (asyncPhaseResult, error) {
@@ -190,17 +186,7 @@ func failSkillTool(message string) (asyncPhaseResult, error) {
 }
 
 func skillToolErrorResult(message string) (toolResultContent, error) {
-	return structuredToolResultContent(map[string]any{
-		"error":   message,
-		"message": message,
-	})
-}
-
-func skillToolSuccessResult(name, content string) (toolResultContent, error) {
-	return structuredToolResultContent(map[string]any{
-		"name":    name,
-		"content": content,
-	})
+	return structuredToolResultContent(map[string]any{"error": message})
 }
 
 func wrapSkillContent(

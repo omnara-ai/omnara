@@ -575,7 +575,6 @@ func processToolError(
 ) (toolResultContent, error) {
 	result := struct {
 		ErrorCode  processToolErrorCode        `json:"error_code"`
-		Message    string                      `json:"message"`
 		Error      string                      `json:"error"`
 		Retryable  bool                        `json:"retryable"`
 		ProcessID  string                      `json:"process_id,omitempty"`
@@ -583,7 +582,6 @@ func processToolError(
 		NextAction string                      `json:"next_action,omitempty"`
 	}{
 		ErrorCode:  code,
-		Message:    message,
 		Error:      message,
 		Retryable:  retryable,
 		ProcessID:  processID,

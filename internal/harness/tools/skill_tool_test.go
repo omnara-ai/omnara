@@ -183,24 +183,6 @@ func TestWrapSkillContentWithoutMachinesOmitsInstallPath(t *testing.T) {
 	}
 }
 
-func TestSkillToolSuccessResultIsStructuredContent(t *testing.T) {
-	wrapped := "<skill_content name=\"canary-skill\">\nInstalled on: mch_aaaaaaaaaaaaaaaaaaaaaaaaae\n</skill_content>"
-	result, err := skillToolSuccessResult("canary-skill", wrapped)
-	if err != nil {
-		t.Fatalf("skillToolSuccessResult: %v", err)
-	}
-	parts, err := result.contentParts()
-	if err != nil {
-		t.Fatalf("marshal tool result content: %v", err)
-	}
-	got := string(parts)
-	for _, want := range []string{"structured_data", "canary-skill", "Installed on:"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("converted skill result missing %q: %s", want, got)
-		}
-	}
-}
-
 func TestSkillToolFailureUsesFailedAsyncOutcome(t *testing.T) {
 	result, err := failSkillTool("skill is unavailable")
 	if err != nil {

@@ -128,7 +128,6 @@ func mcpConnectionFailedToolResult(
 	return structuredToolResultContent(map[string]any{
 		"error_code":     "mcp_connection_failed",
 		"error":          message,
-		"message":        message,
 		"mcp_server_key": serverKey,
 		"mcp_tool_name":  remoteName,
 		"retryable":      mcp.IsRetryableConnectionFailure(cause),
