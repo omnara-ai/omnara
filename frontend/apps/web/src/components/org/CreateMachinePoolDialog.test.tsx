@@ -329,6 +329,16 @@ it('keeps checking the connection after leaving the provider step', async () => 
   expect(text()).toContain('BLAXEL_TOKEN · acme · Connection failed')
 })
 
+it("names the second step after the provider's resource", async () => {
+  await render(poolApi(), vi.fn())
+  await choose('Provider', 'Daytona')
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN', 'Daytona API token')
+  await click('Continue')
+
+  expect(activeStep()).toBe('Snapshot')
+})
+
 it('asks for the optional Modal app with the image', async () => {
   await render(poolApi(), vi.fn())
   await choose('Provider', 'Modal')
