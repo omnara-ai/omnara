@@ -23,11 +23,6 @@ var fileToolRenames = [][2]string{
 }
 
 func upFileToolCutover(ctx context.Context, tx *sql.Tx) error {
-	return renameConfigTools(ctx, tx, fileToolRenames)
-}
-
-// renameConfigTools renames tools in every stored agent config, keeping their hashes consistent.
-func renameConfigTools(ctx context.Context, tx *sql.Tx, renames [][2]string) error {
 	if _, err := tx.ExecContext(ctx, `LOCK TABLE agent_configs IN ACCESS EXCLUSIVE MODE`); err != nil {
 		return err
 	}
@@ -49,14 +44,14 @@ func renameConfigTools(ctx context.Context, tx *sql.Tx, renames [][2]string) err
 			&config.effectiveDefinitionHash); err != nil {
 			return err
 		}
-		migrated, changed, err := migrateToolConfig(config, renames)
+		migrated, changed, err := migrateFileToolConfig(config)
 		if err != nil {
-			return fmt.Errorf("migrate tools in config %s: %w", config.id, err)
+			return fmt.Errorf("migrate file tools in config %s: %w", config.id, err)
 		}
 		key := [4]string{projectID, migrated.effectiveDefinitionHash, migrated.sourceFormat, migrated.sourceHash}
 		if previous, found := seen[key]; found {
 			return fmt.Errorf(
-				"tool migration makes configs %s and %s identical; resolve the collision before retrying",
+				"file tool migration makes configs %s and %s identical; resolve the collision before retrying",
 				previous, config.id,
 			)
 		}
@@ -83,19 +78,19 @@ func renameConfigTools(ctx context.Context, tx *sql.Tx, renames [][2]string) err
 			    compiled_definition = $5::jsonb, effective_definition_hash = $6
 			WHERE id = $1::uuid`, config.id, config.source, config.sourceHash,
 			config.definition, config.compiledDefinition, config.effectiveDefinitionHash); err != nil {
-			return fmt.Errorf("update tools in config %s: %w", config.id, err)
+			return fmt.Errorf("update file tools in config %s: %w", config.id, err)
 		}
 	}
 	_, err = tx.ExecContext(ctx, `ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable`)
 	return err
 }
 
-func migrateToolConfig(config storedAgentConfig, renames [][2]string) (storedAgentConfig, bool, error) {
-	definition, definitionChanged, err := renameToolsJSON(config.definition, renames)
+func migrateFileToolConfig(config storedAgentConfig) (storedAgentConfig, bool, error) {
+	definition, definitionChanged, err := renameFileToolsJSON(config.definition)
 	if err != nil {
 		return config, false, err
 	}
-	compiled, compiledChanged, err := renameToolsJSON(config.compiledDefinition, renames)
+	compiled, compiledChanged, err := renameFileToolsJSON(config.compiledDefinition)
 	if err != nil {
 		return config, false, err
 	}
@@ -103,9 +98,9 @@ func migrateToolConfig(config storedAgentConfig, renames [][2]string) (storedAge
 	var sourceChanged bool
 	switch config.sourceFormat {
 	case "json":
-		source, sourceChanged, err = renameToolsJSON([]byte(config.source), renames)
+		source, sourceChanged, err = renameFileToolsJSON([]byte(config.source))
 	case "yaml":
-		source, sourceChanged, err = renameToolsYAML([]byte(config.source), renames)
+		source, sourceChanged, err = renameFileToolsYAML([]byte(config.source))
 	default:
 		err = fmt.Errorf("unsupported source format %q", config.sourceFormat)
 	}
@@ -116,7 +111,7 @@ func migrateToolConfig(config storedAgentConfig, renames [][2]string) (storedAge
 		return config, false, nil
 	}
 	if !definitionChanged || !compiledChanged || !sourceChanged {
-		return config, false, errors.New("legacy tool names differ between config representations")
+		return config, false, errors.New("legacy file tool names differ between config representations")
 	}
 	canonical, err := canonicalJSON(config.compiledDefinition)
 	if err != nil {
@@ -133,7 +128,7 @@ func migrateToolConfig(config storedAgentConfig, renames [][2]string) (storedAge
 	return config, true, nil
 }
 
-func renameToolsJSON(raw []byte, renames [][2]string) ([]byte, bool, error) {
+func renameFileToolsJSON(raw []byte) ([]byte, bool, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
 		return nil, false, err
@@ -144,7 +139,7 @@ func renameToolsJSON(raw []byte, renames [][2]string) ([]byte, bool, error) {
 	}
 	tools, _ := root["tools"].(map[string]any)
 	changed := false
-	for _, names := range renames {
+	for _, names := range fileToolRenames {
 		value, exists := tools[names[0]]
 		if !exists {
 			continue
@@ -163,7 +158,7 @@ func renameToolsJSON(raw []byte, renames [][2]string) ([]byte, bool, error) {
 	return encoded, true, err
 }
 
-func renameToolsYAML(raw []byte, renames [][2]string) ([]byte, bool, error) {
+func renameFileToolsYAML(raw []byte) ([]byte, bool, error) {
 	beforeValue, err := decodeAgentConfigNameMigrationYAML(raw)
 	if err != nil {
 		return nil, false, err
@@ -202,7 +197,7 @@ func renameToolsYAML(raw []byte, renames [][2]string) ([]byte, bool, error) {
 		return nil, false, errors.New("tools must be a mapping")
 	}
 	changed := false
-	for _, names := range renames {
+	for _, names := range fileToolRenames {
 		oldIndex, newIndex := -1, -1
 		for i := 0; i < len(tools.Content); i += 2 {
 			switch tools.Content[i].Value {
@@ -245,7 +240,7 @@ func renameToolsYAML(raw []byte, renames [][2]string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	expectedTools, _ := before["tools"].(map[string]any)
-	for _, names := range renames {
+	for _, names := range fileToolRenames {
 		if value, exists := expectedTools[names[0]]; exists {
 			expectedTools[names[1]] = value
 			delete(expectedTools, names[0])
@@ -256,7 +251,7 @@ func renameToolsYAML(raw []byte, renames [][2]string) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("parse migrated source: %w", err)
 	}
 	if !reflect.DeepEqual(after, before) {
-		return nil, false, errors.New("renaming tools changed other source values")
+		return nil, false, errors.New("renaming file tools changed other source values")
 	}
 	return encoded.Bytes(), true, nil
 }

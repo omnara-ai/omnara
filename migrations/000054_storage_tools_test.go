@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestStorageToolRenameRewritesConfig(t *testing.T) {
+func TestStorageToolsMigrationRenamesConfigTools(t *testing.T) {
 	source := "name: agent\ntools:\n  read_file: {enabled: false}\n  upload_file: {}\n  run_command: {}\n"
 	definition := []byte(`{"name":"agent","tools":{"read_file":{"enabled":false},"run_command":{},"upload_file":{}}}`)
 	canonical, err := canonicalJSON(definition)
@@ -15,7 +15,7 @@ func TestStorageToolRenameRewritesConfig(t *testing.T) {
 		id: "config", source: source, sourceFormat: "yaml", sourceHash: hashBytes([]byte(source)),
 		definition: definition, compiledDefinition: definition, effectiveDefinitionHash: hashBytes(canonical),
 	}
-	migrated, changed, err := migrateToolConfig(config, storageToolRenames)
+	migrated, changed, err := migrateStorageToolConfig(config)
 	if err != nil || !changed {
 		t.Fatalf("changed=%t err=%v", changed, err)
 	}
@@ -29,7 +29,7 @@ func TestStorageToolRenameRewritesConfig(t *testing.T) {
 		migrated.effectiveDefinitionHash != hashBytes([]byte(wantDefinition)) {
 		t.Fatalf("hashes = %s %s", migrated.sourceHash, migrated.effectiveDefinitionHash)
 	}
-	if _, changed, err := migrateToolConfig(migrated, storageToolRenames); err != nil || changed {
+	if _, changed, err := migrateStorageToolConfig(migrated); err != nil || changed {
 		t.Fatalf("second run changed=%t err=%v", changed, err)
 	}
 }
