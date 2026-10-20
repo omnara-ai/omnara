@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -145,6 +146,7 @@ func (e Executor) mcpToolResultContent(
 		return toolResultContent{}, errors.New("MCP tool returned no result")
 	}
 	parts := make([]toolResultPart, 0, len(result.Content)+1)
+	hasText := false
 	for ordinal, content := range result.Content {
 		part, err := e.mcpContentPart(ctx, turn, toolCallID, ordinal, content)
 		if err != nil {
@@ -156,9 +158,16 @@ func (e Executor) mcpToolResultContent(
 				err,
 			)
 		}
+		if text, ok := part.(toolResultTextPart); ok && strings.TrimSpace(text.text) != "" {
+			hasText = true
+		}
 		parts = append(parts, part)
 	}
-	if result.StructuredContent != nil {
+	// The MCP spec asks servers that return structuredContent to repeat it as
+	// text content, so including both would show the model the result twice.
+	// Text content is what the server meant for the model; structuredContent
+	// is only the fallback for servers that send no text.
+	if result.StructuredContent != nil && !hasText {
 		raw, err := json.Marshal(result.StructuredContent)
 		if err != nil {
 			return toolResultContent{}, fmt.Errorf("marshal MCP structured content: %w", err)
