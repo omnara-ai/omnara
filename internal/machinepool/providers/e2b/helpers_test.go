@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +18,8 @@ type fakeAPI struct {
 	repeatCursor  bool
 	templateErr   error
 	templateCalls int
+	teamAliases   map[string]string
+	resolveErr    error
 
 	sandboxes map[string]sandbox
 	creates   []createSandboxRequest
@@ -23,11 +27,12 @@ type fakeAPI struct {
 	hide      bool
 	findErr   error
 
-	extended []string
-	starts   []startProcessRequest
-	startErr error
-	tags     map[string][]string
-	deleted  []string
+	extended      []string
+	starts        []startProcessRequest
+	startErr      error
+	startUnlisted bool
+	tags          map[string][]string
+	deleted       []string
 }
 
 func (f *fakeAPI) ListTemplates(_ context.Context, _ string, cursor string) ([]template, string, error) {
@@ -46,6 +51,23 @@ func (f *fakeAPI) ListTemplates(_ context.Context, _ string, cursor string) ([]t
 		next = "page-" + strconv.Itoa(page+1)
 	}
 	return f.templatePages[page], next, nil
+}
+
+func (f *fakeAPI) ResolveTemplateAlias(_ context.Context, alias string) (string, error) {
+	if f.resolveErr != nil {
+		return "", f.resolveErr
+	}
+	if templateID, ok := f.teamAliases[alias]; ok {
+		return templateID, nil
+	}
+	for _, page := range f.templatePages {
+		for _, current := range page {
+			if current.IsDefault && (slices.Contains(current.Names, alias) || current.TemplateID == alias) {
+				return "", apiError{StatusCode: http.StatusForbidden}
+			}
+		}
+	}
+	return "", apiError{StatusCode: http.StatusNotFound}
 }
 
 func (f *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest) (sandbox, error) {
@@ -112,6 +134,9 @@ func (f *fakeAPI) ListProcesses(_ context.Context, target sandbox) ([]process, e
 
 func (f *fakeAPI) StartProcess(_ context.Context, target sandbox, request startProcessRequest) error {
 	f.starts = append(f.starts, request)
+	if f.startUnlisted {
+		return f.startErr
+	}
 	if f.tags == nil {
 		f.tags = map[string][]string{}
 	}

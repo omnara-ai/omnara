@@ -48,6 +48,10 @@ func TestRESTClientUsesE2BEndpoints(t *testing.T) {
 			assert.Equal(t, "api-key", r.Header.Get("X-Api-Key"), route)
 		}
 		switch route {
+		case "GET api.e2b.test/templates/aliases/claude":
+			_, _ = w.Write([]byte(`{"templateID":"t1","public":false}`))
+		case "GET api.e2b.test/templates/aliases/base":
+			w.WriteHeader(http.StatusForbidden)
 		case "GET dashboard-api.e2b.test/templates":
 			assert.Equal(t, "claude", r.URL.Query().Get("search"))
 			assert.Equal(t, "100", r.URL.Query().Get("limit"))
@@ -102,11 +106,16 @@ func TestRESTClientUsesE2BEndpoints(t *testing.T) {
 	})
 	ctx := t.Context()
 
+	templateID, err := client.ResolveTemplateAlias(ctx, "claude")
+	require.NoError(t, err)
+	require.Equal(t, "t1", templateID)
+	_, err = client.ResolveTemplateAlias(ctx, "base")
+	require.Equal(t, http.StatusForbidden, apiStatusCode(err))
 	page, next, err := client.ListTemplates(ctx, "claude", "")
 	require.NoError(t, err)
 	require.Equal(t, "next", next)
-	require.Equal(t, []template{{TemplateID: "t1", Aliases: []string{"claude"}, Names: []string{"claude"},
-		CPUCount: 2, MemoryMB: 2048, IsDefault: true}}, page)
+	require.Equal(t, []template{{TemplateID: "t1", Names: []string{"claude"}, CPUCount: 2, MemoryMB: 2048,
+		IsDefault: true}}, page)
 	_, next, err = client.ListTemplates(ctx, "claude", "next")
 	require.NoError(t, err)
 	require.Empty(t, next)
@@ -154,6 +163,25 @@ func TestRESTClientUsesTheSandboxDomainForEnvd(t *testing.T) {
 	_, err := client.ListProcesses(t.Context(), sandbox{SandboxID: "sbx1", Domain: "byoc.example.com"})
 	require.NoError(t, err)
 	require.Equal(t, "49983-sbx1.byoc.example.com", host)
+}
+
+func TestRESTClientSendsTheDefaultUserToOldEnvd(t *testing.T) {
+	var authorization string
+	client := testRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_, _ = w.Write(connectFrame(0, `{"event":{"start":{"pid":42}}}`))
+	})
+	for version, want := range map[string]string{
+		"0.3.9":  "Basic dXNlcjo=",
+		"0.4.0":  "",
+		"0.9.0":  "",
+		"":       "",
+		"banana": "",
+	} {
+		target := sandbox{SandboxID: "sbx1", EnvdVersion: version}
+		require.NoError(t, client.StartProcess(t.Context(), target, startProcessRequest{}))
+		require.Equal(t, want, authorization, version)
+	}
 }
 
 func TestRESTClientDoesNotExposeErrorBodies(t *testing.T) {

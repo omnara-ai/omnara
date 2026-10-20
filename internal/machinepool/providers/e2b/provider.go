@@ -21,6 +21,7 @@ const (
 	createTimeoutSeconds = 300
 	maxTimeoutSeconds    = 30 * 24 * 60 * 60
 	daemonProcessTag     = "omnara-daemon"
+	launcherLockPath     = "/tmp/omnara-launcher.lock"
 	installationLabel    = "omnara-installation"
 	machineLabel         = "omnara-machine"
 )
@@ -60,7 +61,23 @@ func (p *provider) PrepareProvisioning(
 }
 
 func (p *provider) findTemplate(ctx context.Context, ref string) (template, error) {
-	var templates []template
+	notFound := errors.New("not found among your team's templates or E2B's public templates")
+	matches := func(t template) bool { return slices.Contains(t.Names, ref) }
+	if !strings.Contains(ref, "/") {
+		teamTemplateID, err := p.api.ResolveTemplateAlias(ctx, ref)
+		switch {
+		case err == nil:
+			matches = func(t template) bool { return t.TemplateID == teamTemplateID }
+		case apiStatusCode(err) == http.StatusForbidden:
+			matches = func(t template) bool { return t.IsDefault && (slices.Contains(t.Names, ref) || t.TemplateID == ref) }
+		case isNotFound(err):
+			return template{}, notFound
+		case transientAPIError(err):
+			return template{}, fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
+		default:
+			return template{}, err
+		}
+	}
 	seen := map[string]bool{}
 	for cursor := ""; ; {
 		page, next, err := p.api.ListTemplates(ctx, ref, cursor)
@@ -70,9 +87,11 @@ func (p *provider) findTemplate(ctx context.Context, ref string) (template, erro
 			}
 			return template{}, err
 		}
-		templates = append(templates, page...)
+		if index := slices.IndexFunc(page, matches); index >= 0 {
+			return page[index], nil
+		}
 		if next == "" {
-			break
+			return template{}, notFound
 		}
 		if seen[next] {
 			return template{}, errors.New("e2b template list repeated a page cursor")
@@ -80,18 +99,6 @@ func (p *provider) findTemplate(ctx context.Context, ref string) (template, erro
 		seen[next] = true
 		cursor = next
 	}
-	namespaced := strings.Contains(ref, "/")
-	matchers := []func(template) bool{
-		func(t template) bool { return !namespaced && !t.IsDefault && slices.Contains(t.Aliases, ref) },
-		func(t template) bool { return slices.Contains(t.Names, ref) },
-		func(t template) bool { return !namespaced && t.TemplateID == ref },
-	}
-	for _, matches := range matchers {
-		if index := slices.IndexFunc(templates, matches); index >= 0 {
-			return templates[index], nil
-		}
-	}
-	return template{}, errors.New("not found among your team's templates or E2B's public templates")
 }
 
 func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
@@ -183,12 +190,23 @@ func (p *provider) ProvisionMachine(
 	if slices.ContainsFunc(processes, func(current process) bool { return current.Tag == daemonProcessTag }) {
 		return result, nil
 	}
-	launcher := providers.ManagedDaemonLauncherArgs()
+	launcher := daemonLauncherArgs()
 	return result, p.api.StartProcess(ctx, target, startProcessRequest{
 		Process: processConfig{Cmd: launcher[0], Args: launcher[1:], Envs: env},
 		Tag:     daemonProcessTag,
 		Stdin:   false,
 	})
+}
+
+func daemonLauncherArgs() []string {
+	args := providers.ManagedDaemonLauncherArgs()
+	args[2] = launcherGuard(launcherLockPath) + args[2]
+	return args
+}
+
+func launcherGuard(lockPath string) string {
+	return "l=" + lockPath + `;n=0;while ! ln -s $$ "$l.$n" 2>/dev/null;do p=$(readlink "$l.$n" 2>/dev/null)||exit 1;` +
+		`kill -0 "$p" 2>/dev/null&&exit 0;n=$((n+1));done;`
 }
 
 func (p *provider) InspectMachine(

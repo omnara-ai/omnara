@@ -26,6 +26,7 @@ const (
 
 type apiClient interface {
 	ListTemplates(ctx context.Context, search, cursor string) ([]template, string, error)
+	ResolveTemplateAlias(ctx context.Context, alias string) (string, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	FindSandboxes(ctx context.Context, metadata map[string]string) ([]sandbox, error)
 	GetSandbox(ctx context.Context, id string) (sandbox, bool, error)
@@ -37,7 +38,6 @@ type apiClient interface {
 
 type template struct {
 	TemplateID string   `json:"templateID"`
-	Aliases    []string `json:"aliases"`
 	Names      []string `json:"names"`
 	CPUCount   int      `json:"cpuCount"`
 	MemoryMB   int      `json:"memoryMB"`
@@ -51,6 +51,7 @@ type sandbox struct {
 	MemoryMB        int               `json:"memoryMB"`
 	Metadata        map[string]string `json:"metadata"`
 	EnvdAccessToken string            `json:"envdAccessToken"`
+	EnvdVersion     string            `json:"envdVersion"`
 	Domain          string            `json:"domain"`
 }
 
@@ -109,6 +110,14 @@ func (c *restClient) ListTemplates(ctx context.Context, search, cursor string) (
 		next = *out.NextCursor
 	}
 	return out.Data, next, err
+}
+
+func (c *restClient) ResolveTemplateAlias(ctx context.Context, alias string) (string, error) {
+	var out struct {
+		TemplateID string `json:"templateID"`
+	}
+	err := c.do(ctx, http.MethodGet, c.apiURL("/templates/aliases/"+url.PathEscape(alias)), c.apiKey(), nil, &out)
+	return out.TemplateID, err
 }
 
 func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxRequest) (sandbox, error) {
@@ -179,13 +188,13 @@ func (c *restClient) StartProcess(ctx context.Context, target sandbox, input sta
 	if err != nil {
 		return fmt.Errorf("encode e2b process start: %w", err)
 	}
-	body := make([]byte, 5, 5+len(message))
-	binary.BigEndian.PutUint32(body[1:], uint32(len(message)))
+	var header [5]byte
+	binary.BigEndian.PutUint32(header[1:], uint32(len(message)))
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		c.envdURL(target, "/process.Process/Start"),
-		bytes.NewReader(append(body, message...)),
+		bytes.NewReader(append(header[:], message...)),
 	)
 	if err != nil {
 		return fmt.Errorf("build e2b process start: %w", err)
@@ -193,6 +202,9 @@ func (c *restClient) StartProcess(ctx context.Context, target sandbox, input sta
 	request.Header.Set("Content-Type", "application/connect+json")
 	for key, value := range envdHeaders(target) {
 		request.Header.Set(key, value)
+	}
+	if envdNeedsDefaultUser(target.EnvdVersion) {
+		request.SetBasicAuth("user", "")
 	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -281,6 +293,12 @@ func (c *restClient) envdURL(target sandbox, path string) string {
 
 func envdHeaders(target sandbox) map[string]string {
 	return map[string]string{"X-Access-Token": target.EnvdAccessToken, "Connect-Protocol-Version": "1"}
+}
+
+func envdNeedsDefaultUser(version string) bool {
+	var major, minor int
+	_, err := fmt.Sscanf(version, "%d.%d", &major, &minor)
+	return err == nil && major == 0 && minor < 4
 }
 
 type apiError struct {

@@ -6,6 +6,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,62 +30,77 @@ func TestPrepareProvisioningKeepsStoredSize(t *testing.T) {
 
 func TestPrepareProvisioningResolvesTemplatesLikeE2B(t *testing.T) {
 	public := template{
-		TemplateID: "pub123", Aliases: []string{"claude"}, Names: []string{"claude", "e2b/claude"},
+		TemplateID: "pub123", Names: []string{"claude", "e2b/claude"},
 		CPUCount: 2, MemoryMB: 2048, IsDefault: true,
 	}
-	team := template{TemplateID: "team456", Aliases: []string{"claude"}, Names: []string{"acme/claude"}, CPUCount: 4,
-		MemoryMB: 8192}
+	historical := template{
+		TemplateID: "old789", Names: []string{"old-acme/claude"}, CPUCount: 8, MemoryMB: 8192,
+	}
+	current := template{
+		TemplateID: "team456", Names: []string{"acme/claude"}, CPUCount: 4, MemoryMB: 4096,
+	}
 	for _, test := range []struct {
-		ref      string
-		cpu      int
-		memoryMB int
+		ref         string
+		teamAliases map[string]string
+		cpu         int
 	}{
-		{ref: "claude", cpu: 4, memoryMB: 8192},
-		{ref: "e2b/claude", cpu: 2, memoryMB: 2048},
-		{ref: "acme/claude", cpu: 4, memoryMB: 8192},
-		{ref: "pub123", cpu: 2, memoryMB: 2048},
+		{ref: "claude", teamAliases: map[string]string{"claude": "team456"}, cpu: 4},
+		{ref: "claude", cpu: 2},
+		{ref: "team456", teamAliases: map[string]string{"team456": "team456"}, cpu: 4},
+		{ref: "pub123", cpu: 2},
+		{ref: "e2b/claude", cpu: 2},
+		{ref: "acme/claude", cpu: 4},
+		{ref: "old-acme/claude", cpu: 8},
 	} {
-		a := &fakeAPI{templatePages: [][]template{{public}, {team}}}
+		a := &fakeAPI{templatePages: [][]template{{public, historical}, {current}}, teamAliases: test.teamAliases}
 		facts, err := testProvider(a).PrepareProvisioning(
 			t.Context(),
 			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, test.ref)},
 		)
 		require.NoError(t, err, test.ref)
 		require.Equal(t, test.cpu, *facts.CPU, test.ref)
-		require.Equal(t, test.memoryMB, *facts.MemoryMB, test.ref)
-		require.Equal(t, 2, a.templateCalls, test.ref)
 	}
 }
 
 func TestPrepareProvisioningReportsUnusableTemplates(t *testing.T) {
-	building := template{TemplateID: "b1", Aliases: []string{"building"}, Names: []string{"acme/building"}}
+	building := template{TemplateID: "b1", Names: []string{"acme/building"}}
+	pages := [][]template{{building}}
+	unavailable := apiError{StatusCode: http.StatusServiceUnavailable}
 	for _, test := range []struct {
-		name string
-		api  *fakeAPI
-		ref  string
-		want string
+		name        string
+		api         *fakeAPI
+		ref         string
+		want        string
+		unavailable bool
 	}{
-		{name: "missing", api: &fakeAPI{templatePages: [][]template{{building}}}, ref: "nope", want: "not found"},
-		{name: "no build", api: &fakeAPI{templatePages: [][]template{{building}}}, ref: "building", want: "no ready build"},
+		{name: "missing", api: &fakeAPI{templatePages: pages}, ref: "nope", want: "not found"},
+		{name: "missing name", api: &fakeAPI{templatePages: pages}, ref: "acme/nope", want: "not found"},
+		{
+			name: "no build",
+			api:  &fakeAPI{templatePages: pages, teamAliases: map[string]string{"building": "b1"}},
+			ref:  "building",
+			want: "no ready build",
+		},
 		{
 			name: "repeated cursor",
 			api:  &fakeAPI{templatePages: [][]template{{building}, {building}}, repeatCursor: true},
-			ref:  "nope",
+			ref:  "acme/nope",
 			want: "repeated a page cursor",
 		},
+		{name: "rejected key", api: &fakeAPI{resolveErr: apiError{StatusCode: http.StatusUnauthorized}}, ref: "claude",
+			want: "HTTP 401"},
+		{name: "alias lookup down", api: &fakeAPI{resolveErr: unavailable}, ref: "claude", want: "HTTP 503",
+			unavailable: true},
+		{name: "template list down", api: &fakeAPI{templateErr: unavailable}, ref: "acme/claude", want: "HTTP 503",
+			unavailable: true},
 	} {
 		_, err := testProvider(test.api).PrepareProvisioning(
 			t.Context(),
 			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, test.ref)},
 		)
 		require.ErrorContains(t, err, test.want, test.name)
-		require.NotErrorIs(t, err, storeerr.ErrMachineProviderUnavailable, test.name)
+		require.Equal(t, test.unavailable, errors.Is(err, storeerr.ErrMachineProviderUnavailable), test.name)
 	}
-	_, err := testProvider(&fakeAPI{templateErr: apiError{StatusCode: http.StatusServiceUnavailable}}).PrepareProvisioning(
-		t.Context(),
-		executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, "claude")},
-	)
-	require.ErrorIs(t, err, storeerr.ErrMachineProviderUnavailable)
 }
 
 func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
@@ -106,7 +125,7 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 	start := a.starts[0]
 	launcher := providers.ManagedDaemonLauncherArgs()
 	require.Equal(t, launcher[0], start.Process.Cmd)
-	require.Equal(t, launcher[1:], start.Process.Args)
+	require.Equal(t, []string{launcher[1], launcherGuard(launcherLockPath) + launcher[2]}, start.Process.Args)
 	require.Equal(t, daemonProcessTag, start.Tag)
 	require.False(t, start.Stdin)
 	require.Equal(t, "machine-token", start.Process.Envs["OMNARA_MACHINE_TOKEN"])
@@ -126,6 +145,83 @@ func TestProvisionAdoptsDaemonWhoseStartResponseWasLost(t *testing.T) {
 	require.Equal(t, "sbx1", result.ProviderResourceID)
 	require.Len(t, a.creates, 1)
 	require.Len(t, a.starts, 1)
+}
+
+func TestLauncherGuardAllowsOneBootstrapAtATime(t *testing.T) {
+	dir := t.TempDir()
+	run := func(lockPath, script string) (string, error) {
+		output, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", launcherGuard(lockPath)+script).Output()
+		return string(output), err
+	}
+	exited := exec.CommandContext(t.Context(), "/bin/sh", "-c", "exit 0")
+	require.NoError(t, exited.Run())
+	dead := strconv.Itoa(exited.Process.Pid)
+
+	stale := filepath.Join(dir, "stale")
+	for slot := range 10 {
+		require.NoError(t, os.Symlink(dead, stale+"."+strconv.Itoa(slot)))
+	}
+	output, err := run(stale, "echo ran")
+	require.NoError(t, err)
+	require.Equal(t, "ran\n", output)
+	_, err = os.Readlink(stale + ".10")
+	require.NoError(t, err)
+
+	held := filepath.Join(dir, "held")
+	require.NoError(t, os.Symlink(strconv.Itoa(os.Getpid()), held+".0"))
+	output, err = run(held, "echo ran")
+	require.NoError(t, err)
+	require.Empty(t, output)
+
+	notLink := filepath.Join(dir, "file")
+	require.NoError(t, os.WriteFile(notLink+".0", nil, 0o600))
+	for _, lockPath := range []string{notLink, filepath.Join(dir, "missing", "lock")} {
+		output, err = run(lockPath, "echo ran")
+		require.Error(t, err, lockPath)
+		require.Empty(t, output, lockPath)
+	}
+
+	race := func(lockPath string) int {
+		type result struct {
+			output string
+			err    error
+		}
+		results := make(chan result, 4)
+		for range cap(results) {
+			go func() {
+				output, err := run(lockPath, "sleep 1;echo ran")
+				results <- result{output: output, err: err}
+			}()
+		}
+		ran := 0
+		for range cap(results) {
+			current := <-results
+			require.NoError(t, current.err)
+			if current.output == "ran\n" {
+				ran++
+			}
+		}
+		return ran
+	}
+	require.Equal(t, 1, race(filepath.Join(dir, "fresh")))
+	recovering := filepath.Join(dir, "recovering")
+	require.NoError(t, os.Symlink(dead, recovering+".0"))
+	require.Equal(t, 1, race(recovering))
+}
+
+func TestRetriedStartIsGuardedWhenTheFirstWasNeverListed(t *testing.T) {
+	a := &fakeAPI{startErr: errors.New("lost response"), startUnlisted: true}
+	p := testProvider(a)
+	installationID, machineID := uuid.New(), uuid.New()
+	_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(t), "token", nil, true)
+	require.ErrorContains(t, err, "lost response")
+	a.startErr, a.startUnlisted = nil, false
+	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(t), "token", nil, true)
+	require.NoError(t, err)
+	require.Len(t, a.starts, 2)
+	for _, start := range a.starts {
+		require.Equal(t, daemonLauncherArgs()[1:], start.Process.Args)
+	}
 }
 
 func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {
