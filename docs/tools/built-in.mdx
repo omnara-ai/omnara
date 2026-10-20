@@ -71,6 +71,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `cwd` | string | Overrides the binding's working directory |
 | `wait_ms` | integer | 1–300000; how long to wait for early output or exit before returning |
 | `io_mode` | enum | `pipe` (default) or `pty` |
+| `detach` | boolean | For long-lived processes such as servers; default false. See [background processes](#background-processes) |
 
 Every command returns a `process_id` (`prc_…`). `wait_ms` controls how long `run_command` waits for the command to finish before returning. If it finishes in time, the result includes its output:
 
@@ -86,6 +87,12 @@ Every command returns a `process_id` (`prc_…`). `wait_ms` controls how long `r
 ```
 
 If the command is still running after `wait_ms`, the tool returns `"state": "running"`. The agent can then read its output, send input, or stop it with the process tools below.
+
+#### Background processes
+
+When a command outlives its `run_command` call, Omnara sends the agent a message when it ends, with its exit status, how long it ran, how much output it wrote, and its last lines of output. The agent does not need to poll with `read_process`; it can do other work or end its turn, and the message wakes it. Like other messages, it waits for any open question or permission request to be answered instead of canceling it.
+
+There is no message when the agent stopped the process with `stop_process`, or when `run_command` was called with `detach: true`. Use `detach` for processes that are meant to keep running, such as development servers.
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 

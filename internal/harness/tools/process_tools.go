@@ -35,6 +35,7 @@ type runCommandAuthorization struct {
 	Cwd                   string                   `json:"cwd,omitempty"`
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
+	Detach                bool                     `json:"detach,omitempty"`
 }
 
 type processActionAuthorization struct {
@@ -69,6 +70,7 @@ func runCommandAuthorizationInput(
 		Cwd:                   resolved.Cwd,
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
+		Detach:                resolved.Detach,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal run_command authorization: %w", err)
@@ -157,6 +159,7 @@ func runCommand(
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
+		NotifyOnExit:   !resolved.Detach,
 	})
 }
 

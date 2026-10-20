@@ -106,11 +106,16 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			outcome = input.Outcome
 			parts = input.Content
 		}
+		backgrounded := !input.Started && call.State == "completed" &&
+			storeutil.ValueOrZero(call.Outcome) == "succeeded"
 		published, err := h.completeExternalTool(ctx, m, call, outcome, parts)
 		if err != nil {
 			return ExternalCompletion{}, err
 		}
 		if !published.Matches {
+			if backgrounded && row.NotifyOnExit && !row.StopRequested {
+				return published, h.notifyProcessExit(ctx, row, input.Observed)
+			}
 			return published, nil
 		}
 		next, found, err := processresult.ObservationNextCursor(

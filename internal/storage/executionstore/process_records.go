@@ -54,6 +54,8 @@ type CreateProcessInput struct {
 	Cwd                   string
 	TimeoutSeconds        int
 	InitialWaitMS         int
+	// NotifyOnExit sends the agent a message when the process ends after its tool call returned.
+	NotifyOnExit bool
 }
 
 type CreateProcessActionInput struct {
@@ -168,6 +170,7 @@ type ProcessRecord struct {
 	ExitSignal            string                   `json:"exit_signal,omitempty"`
 	CreatedAt             time.Time                `json:"created_at"`
 	UpdatedAt             time.Time                `json:"updated_at"`
+	NotifyOnExit          bool                     `json:"notify_on_exit,omitempty"`
 }
 
 type ProcessActionRecord struct {

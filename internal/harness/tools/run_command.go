@@ -18,6 +18,7 @@ type runCommandRequest struct {
 	Cwd       json.RawMessage `json:"cwd,omitempty"`
 	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
+	Detach    *bool           `json:"detach,omitempty"`
 }
 
 type resolvedRunCommandRequest struct {
@@ -27,6 +28,7 @@ type resolvedRunCommandRequest struct {
 	Cwd       string
 	WaitMs    int
 	IOMode    processcmd.IOMode
+	Detach    bool
 }
 
 func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, error) {
@@ -109,5 +111,6 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 		Cwd:       cwd,
 		WaitMs:    waitMs,
 		IOMode:    ioMode,
+		Detach:    input.Detach != nil && *input.Detach,
 	}, nil
 }
