@@ -146,13 +146,6 @@ func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
 	}
 	stopClaiming()
 	claimers.Wait()
-	if ctx.Err() == nil {
-		w.log.InfoContext(ctx, "worker stopped claiming; draining in-flight agent work")
-		stopDrainWarning := context.AfterFunc(ctx, func() {
-			w.log.WarnContext(ctx, "worker drain interrupted; canceling in-flight agent work")
-		})
-		defer stopDrainWarning()
-	}
 	executions.Wait()
 	w.retained.Wait()
 	return ctx.Err()
@@ -184,7 +177,7 @@ func (w *Worker) claimLoop(
 		}
 		loopCtx, event := logent.WorkerLoop(executionCtx, w.workerProcessID)
 		now := time.Now().UTC()
-		claim, handled, err := w.claimNextUntil(claimCtx, loopCtx)
+		claim, handled, err := w.claimNext(logpkg.WithEvent(claimCtx, event))
 		if err == nil && handled && claim.Kind != executionstore.AgentWorkNone {
 			failures = 0
 			idleDelay = minIdleClaimDelay
@@ -254,16 +247,6 @@ func (w *Worker) throttleAfterExecution(ctx context.Context, err error) {
 	default:
 		waitForDelay(ctx, runLoopRetryDelay(int(w.executionFailures.Add(1)-1)))
 	}
-}
-
-func (w *Worker) claimNextUntil(
-	stop, ctx context.Context,
-) (executionstore.ClaimedAgentWork, bool, error) {
-	claimCtx, cancelClaim := context.WithCancel(ctx)
-	defer cancelClaim()
-	stopWatching := context.AfterFunc(stop, cancelClaim)
-	defer stopWatching()
-	return w.claimNext(claimCtx)
 }
 
 func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAgentWork, handled bool, err error) {
@@ -492,7 +475,7 @@ func (w *Worker) finalizeContext(parent context.Context) (context.Context, conte
 	if timeout > 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	return tools.DetachForCleanup(parent, timeout)
+	return context.WithTimeout(context.WithoutCancel(parent), timeout)
 }
 
 func (w *Worker) startRuntimeRenewal(

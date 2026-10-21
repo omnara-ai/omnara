@@ -13,6 +13,7 @@ import (
 
 func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "")
 	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
@@ -1176,17 +1177,18 @@ func TestValidateWorkerLoadsExplicitBackgroundToolCapacity(t *testing.T) {
 
 func TestValidateWorkerLoadsExplicitDrainTimeout(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "45s")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if err := cfg.ValidateWorker(); err != nil {
-		t.Fatalf("validate worker: %v", err)
-	}
-	if cfg.WorkerDrainTimeout != 45*time.Second {
-		t.Fatalf("unexpected worker drain timeout: %s", cfg.WorkerDrainTimeout)
+	for raw, want := range map[string]time.Duration{"45s": 45 * time.Second, "0s": 0} {
+		t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", raw)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config with drain timeout %s: %v", raw, err)
+		}
+		if err := cfg.ValidateWorker(); err != nil {
+			t.Fatalf("validate worker with drain timeout %s: %v", raw, err)
+		}
+		if cfg.WorkerDrainTimeout != want {
+			t.Fatalf("worker drain timeout = %s, want %s", cfg.WorkerDrainTimeout, want)
+		}
 	}
 }
 

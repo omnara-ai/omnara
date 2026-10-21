@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"io"
-	"log/slog"
+	"errors"
 	"math"
 	"os"
+	"slices"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -43,137 +41,49 @@ func TestWorkerDatabaseMaxConns(t *testing.T) {
 }
 
 func TestCancelOnSignalsDrainsOnFirstSignalAndAbortsOnSecond(t *testing.T) {
-	signals := make(chan os.Signal)
-	drainCtx, drain := context.WithCancel(t.Context())
-	defer drain()
-	abortCtx, abort := context.WithCancel(t.Context())
-	defer abort()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		cancelOnSignals(signals, abortCtx.Done(), drain, abort)
-	}()
+	synctest.Test(t, func(t *testing.T) {
+		signals := make(chan os.Signal)
+		calls := make(chan string, 2)
+		go cancelOnSignals(signals, func() { calls <- "drain" }, func() { calls <- "abort" })
 
-	signals <- syscall.SIGTERM
-	select {
-	case <-drainCtx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("first signal did not start draining")
-	}
-	if abortCtx.Err() != nil {
-		t.Fatal("first signal aborted in-flight work")
-	}
-	signals <- syscall.SIGTERM
-	select {
-	case <-abortCtx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("second signal did not abort in-flight work")
-	}
-	<-done
-}
-
-func TestCancelAfterDoneStartsDelayWhenParentEnds(t *testing.T) {
-	parent, endParent := context.WithCancel(t.Context())
-	defer endParent()
-	prompt, stopPrompt := cancelAfterDone(parent, 0)
-	defer stopPrompt()
-	delayed, stopDelayed := cancelAfterDone(parent, time.Hour)
-	defer stopDelayed()
-	select {
-	case <-prompt.Done():
-		t.Fatal("context ended before its parent")
-	case <-time.After(20 * time.Millisecond):
-	}
-
-	endParent()
-	select {
-	case <-prompt.Done():
-	case <-time.After(time.Second):
-		t.Fatal("context did not end after its parent and delay")
-	}
-	if delayed.Err() != nil {
-		t.Fatal("context ended before its delay elapsed")
-	}
-	stopDelayed()
-	if delayed.Err() == nil {
-		t.Fatal("cancel did not end the context at once")
-	}
-}
-
-func TestWatchShutdownExitsOnlyWhenShutdownOverrunsItsBound(t *testing.T) {
-	const bound = 27 * time.Second
-	t.Run("shutdown hangs", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			var logs bytes.Buffer
-			started, finished := make(chan struct{}), make(chan struct{})
-			defer close(finished)
-			exitCodes := make(chan int, 1)
-			go watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(&logs, nil)),
-				func(code int) { exitCodes <- code })
-
-			<-time.After(time.Hour)
-			synctest.Wait()
-			if len(exitCodes) != 0 {
-				t.Fatal("watchdog exited before shutdown started")
-			}
-			close(started)
-			startedAt := time.Now()
-			if code := <-exitCodes; code == 0 {
-				t.Fatal("watchdog exited with code 0")
-			}
-			if elapsed := time.Since(startedAt); elapsed != bound {
-				t.Fatalf("watchdog exited after %s, want %s", elapsed, bound)
-			}
-			if !strings.Contains(logs.String(), "worker shutdown exceeded its bound") {
-				t.Fatalf("watchdog did not log the overrun: %s", logs.String())
-			}
-		})
-	})
-	t.Run("blocked log output", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			unblock := make(chan struct{})
-			defer close(unblock)
-			started, finished := make(chan struct{}), make(chan struct{})
-			defer close(finished)
-			exitCodes := make(chan int, 1)
-			go watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(blockingWriter{unblock}, nil)),
-				func(code int) { exitCodes <- code })
-
-			close(started)
-			startedAt := time.Now()
-			if code := <-exitCodes; code == 0 {
-				t.Fatal("watchdog exited with code 0")
-			}
-			if elapsed := time.Since(startedAt); elapsed != bound+watchdogLogGrace {
-				t.Fatalf("watchdog exited after %s, want %s", elapsed, bound+watchdogLogGrace)
-			}
-		})
-	})
-	t.Run("shutdown finishes in time", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			started, finished := make(chan struct{}), make(chan struct{})
-			exitCodes := make(chan int, 1)
-			watching := make(chan struct{})
-			go func() {
-				defer close(watching)
-				watchShutdown(started, finished, bound, slog.New(slog.NewTextHandler(io.Discard, nil)),
-					func(code int) { exitCodes <- code })
-			}()
-
-			close(started)
-			<-time.After(bound - time.Second)
-			close(finished)
-			<-watching
-			if len(exitCodes) != 0 {
-				t.Fatal("watchdog exited although shutdown finished within its bound")
-			}
-		})
+		signals <- syscall.SIGTERM
+		synctest.Wait()
+		if got := received(calls); !slices.Equal(got, []string{"drain"}) {
+			t.Fatalf("after the first signal: %v, want [drain]", got)
+		}
+		signals <- syscall.SIGTERM
+		synctest.Wait()
+		if got := received(calls); !slices.Equal(got, []string{"abort"}) {
+			t.Fatalf("after the second signal: %v, want [abort]", got)
+		}
 	})
 }
 
-type blockingWriter struct{ unblock <-chan struct{} }
+func received(calls chan string) []string {
+	var got []string
+	for len(calls) > 0 {
+		got = append(got, <-calls)
+	}
+	return got
+}
 
-func (w blockingWriter) Write(p []byte) (int, error) {
-	<-w.unblock
-	return len(p), nil
+func TestCancelAfterDone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		parent, endParent := context.WithCancel(t.Context())
+		ctx, cancel := cancelAfterDone(parent, 20*time.Second)
+		defer cancel()
+		time.Sleep(time.Hour) //nolint:omnaralint // Advance synctest's virtual clock.
+		endParent()
+		parentEndedAt := time.Now()
+		<-ctx.Done()
+		if elapsed := time.Since(parentEndedAt); elapsed != 20*time.Second {
+			t.Fatalf("context ended %s after its parent, want 20s", elapsed)
+		}
+
+		ctx, cancel = cancelAfterDone(t.Context(), time.Hour)
+		cancel()
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatalf("context error after cancel = %v, want canceled", ctx.Err())
+		}
+	})
 }

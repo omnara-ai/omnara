@@ -24,17 +24,14 @@ type backgroundTask struct {
 }
 
 type BackgroundExecutionRunner struct {
-	log        *slog.Logger
-	queue      chan backgroundTask
-	canceled   <-chan struct{}
-	stopTasks  context.CancelFunc
-	closing    chan struct{}
-	idle       chan struct{}
-	mu         sync.Mutex
-	closed     bool
-	unfinished int
-	workers    sync.WaitGroup
-	metrics    *metrics.BackgroundExecutionRecorder
+	log      *slog.Logger
+	queue    chan backgroundTask
+	canceled <-chan struct{}
+	closing  chan struct{}
+	stopOnce sync.Once
+	submitMu sync.RWMutex
+	workers  sync.WaitGroup
+	metrics  *metrics.BackgroundExecutionRecorder
 }
 
 func NewBackgroundExecutionRunner(
@@ -52,21 +49,18 @@ func NewBackgroundExecutionRunner(
 	if log == nil {
 		log = slog.Default()
 	}
-	taskCtx, stopTasks := context.WithCancel(ctx)
 	runner := &BackgroundExecutionRunner{
-		log:       log,
-		queue:     make(chan backgroundTask, capacity),
-		canceled:  ctx.Done(),
-		stopTasks: stopTasks,
-		closing:   make(chan struct{}),
-		idle:      make(chan struct{}),
+		log:      log,
+		queue:    make(chan backgroundTask, capacity),
+		canceled: ctx.Done(),
+		closing:  make(chan struct{}),
 	}
 	if metricSet != nil {
 		runner.metrics = metrics.NewBackgroundExecutionRecorder(metricSet, capacity, func() int { return len(runner.queue) })
 	}
 	runner.workers.Add(capacity)
 	for range capacity {
-		go runner.runWorker(taskCtx)
+		go runner.runWorker(ctx)
 	}
 	return runner, nil
 }
@@ -97,8 +91,14 @@ func (r *BackgroundExecutionRunner) submit(
 	r.metrics.StartSubmission()
 	result := metrics.BackgroundSubmissionShutdown
 	defer func() { r.metrics.RecordSubmission(result, time.Since(started)) }()
-	if !r.reserve() {
+	r.submitMu.RLock()
+	defer r.submitMu.RUnlock()
+	select {
+	case <-r.closing:
 		return false
+	case <-r.canceled:
+		return false
+	default:
 	}
 	queued := backgroundTask{label: label, run: task, submittedAt: started}
 	if waitForCapacity {
@@ -118,45 +118,7 @@ func (r *BackgroundExecutionRunner) submit(
 			result = metrics.BackgroundSubmissionFull
 		}
 	}
-	r.finish()
 	return false
-}
-
-func (r *BackgroundExecutionRunner) reserve() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	select {
-	case <-r.canceled:
-		return false
-	default:
-	}
-	if r.closed {
-		return false
-	}
-	r.unfinished++
-	return true
-}
-
-func (r *BackgroundExecutionRunner) finish() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.unfinished--
-	if r.closed && r.unfinished == 0 {
-		close(r.idle)
-	}
-}
-
-func (r *BackgroundExecutionRunner) stopAccepting() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
-		return
-	}
-	r.closed = true
-	close(r.closing)
-	if r.unfinished == 0 {
-		close(r.idle)
-	}
 }
 
 func (r *BackgroundExecutionRunner) runWorker(ctx context.Context) {
@@ -165,13 +127,12 @@ func (r *BackgroundExecutionRunner) runWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case task := <-r.queue:
-			if ctx.Err() != nil {
+		case task, ok := <-r.queue:
+			if !ok || ctx.Err() != nil {
 				return
 			}
 			r.metrics.RecordStart(time.Since(task.submittedAt))
 			r.runTask(ctx, task)
-			r.finish()
 		}
 	}
 }
@@ -198,11 +159,11 @@ func (r *BackgroundExecutionRunner) Shutdown() {
 	if r == nil {
 		return
 	}
-	r.stopAccepting()
-	select {
-	case <-r.idle:
-	case <-r.canceled:
-	}
-	r.stopTasks()
+	r.stopOnce.Do(func() {
+		close(r.closing)
+		r.submitMu.Lock()
+		close(r.queue)
+		r.submitMu.Unlock()
+	})
 	r.workers.Wait()
 }

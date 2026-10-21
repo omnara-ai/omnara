@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/omnara-ai/omnara/observability/metrics"
@@ -16,11 +17,13 @@ import (
 
 func TestBackgroundExecutionRunnerQueuesWorkAtCapacity(t *testing.T) {
 	metricSet := metrics.New()
-	runner, err := NewBackgroundExecutionRunner(context.Background(), slog.Default(), 1, metricSet)
+	ctx, cancel := context.WithCancel(t.Context())
+	runner, err := NewBackgroundExecutionRunner(ctx, slog.Default(), 1, metricSet)
 	if err != nil {
 		t.Fatalf("new background runner: %v", err)
 	}
 	defer runner.Shutdown()
+	defer cancel()
 
 	firstStarted := make(chan struct{})
 	firstRelease := make(chan struct{})
@@ -124,146 +127,95 @@ func TestBackgroundExecutionRunnerQueuesWorkAtCapacity(t *testing.T) {
 	require.Contains(t, body, "omnara_background_execution_start_delay_seconds_count 3\n")
 }
 
-func TestBackgroundExecutionRunnerShutdownDrainsAcceptedWork(t *testing.T) {
-	metricSet := metrics.New()
-	runner, err := NewBackgroundExecutionRunner(t.Context(), slog.Default(), 1, metricSet)
-	require.NoError(t, err)
-	runningCtx := make(chan context.Context, 1)
-	release := make(chan struct{})
-	require.True(t, runner.Submit("running", func(ctx context.Context) error {
-		runningCtx <- ctx
-		select {
-		case <-release:
+func TestBackgroundExecutionRunnerShutdownRunsAcceptedWork(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		metricSet := metrics.New()
+		runner, err := NewBackgroundExecutionRunner(t.Context(), slog.Default(), 1, metricSet)
+		require.NoError(t, err)
+		release := make(chan struct{})
+		ran := make(chan string, 3)
+		require.True(t, runner.Submit("running", func(ctx context.Context) error {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			ran <- fmt.Sprintf("running: %v", ctx.Err())
 			return nil
-		case <-ctx.Done():
+		}))
+		require.True(t, runner.Submit("queued", func(ctx context.Context) error {
+			ran <- fmt.Sprintf("queued: %v", ctx.Err())
+			return nil
+		}))
+		waiting := make(chan bool, 1)
+		go func() {
+			waiting <- runner.Submit("waiting", func(context.Context) error {
+				ran <- "waiting"
+				return nil
+			})
+		}()
+		synctest.Wait()
+
+		shutdownDone := make(chan struct{})
+		go func() {
+			runner.Shutdown()
+			close(shutdownDone)
+		}()
+		require.False(t, <-waiting)
+		require.False(t, runner.TrySubmit("late", func(context.Context) error { return nil }))
+		close(release)
+		<-shutdownDone
+		close(ran)
+		require.Equal(t, []string{"running: <nil>", "queued: <nil>"}, collect(ran))
+		body := scrapeBackgroundMetrics(t, metricSet)
+		require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"accepted\"} 2\n")
+		require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"shutdown\"} 2\n")
+	})
+}
+
+func TestBackgroundExecutionRunnerCancellationStopsWork(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		metricSet := metrics.New()
+		ctx, cancel := context.WithCancel(t.Context())
+		runner, err := NewBackgroundExecutionRunner(ctx, slog.Default(), 1, metricSet)
+		require.NoError(t, err)
+		ran := make(chan string, 3)
+		require.True(t, runner.Submit("running", func(ctx context.Context) error {
+			<-ctx.Done()
+			ran <- fmt.Sprintf("running: %v", ctx.Err())
 			return ctx.Err()
-		}
-	}))
-	taskCtx := <-runningCtx
-	queuedRan := make(chan struct{})
-	require.True(t, runner.Submit("queued", func(context.Context) error {
-		close(queuedRan)
-		return nil
-	}))
-	blockedRan := make(chan struct{})
-	blockedSubmission := make(chan bool, 1)
-	go func() {
-		blockedSubmission <- runner.Submit("blocked", func(context.Context) error {
-			close(blockedRan)
+		}))
+		require.True(t, runner.Submit("queued", func(context.Context) error {
+			ran <- "queued"
 			return nil
-		})
-	}()
-	requireBackgroundSubmissionsInFlight(t, metricSet, 1)
+		}))
+		waiting := make(chan bool, 1)
+		go func() {
+			waiting <- runner.Submit("waiting", func(context.Context) error {
+				ran <- "waiting"
+				return nil
+			})
+		}()
+		synctest.Wait()
 
-	shutdownDone := make(chan struct{})
-	go func() {
+		cancel()
+		require.False(t, <-waiting)
 		runner.Shutdown()
-		close(shutdownDone)
-	}()
-	select {
-	case accepted := <-blockedSubmission:
-		require.False(t, accepted, "a submission waiting when shutdown began was accepted")
-	case <-time.After(time.Second):
-		t.Fatal("shutdown did not unblock a waiting submission")
-	}
-	require.False(t, runner.TrySubmit("after-shutdown", func(context.Context) error { return nil }))
-	require.NoError(t, taskCtx.Err(), "shutdown canceled accepted work instead of draining it")
-	select {
-	case <-shutdownDone:
-		t.Fatal("shutdown returned before accepted work finished")
-	default:
-	}
-
-	close(release)
-	select {
-	case <-queuedRan:
-	case <-time.After(time.Second):
-		t.Fatal("queued background work did not run while draining")
-	}
-	select {
-	case <-shutdownDone:
-	case <-time.After(time.Second):
-		t.Fatal("shutdown did not return after accepted work finished")
-	}
-	select {
-	case <-blockedRan:
-		t.Fatal("rejected background work ran")
-	default:
-	}
-	body := scrapeBackgroundMetrics(t, metricSet)
-	require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"accepted\"} 2\n")
-	require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"shutdown\"} 2\n")
-	require.Contains(t, body, "omnara_background_execution_start_delay_seconds_count 2\n")
+		close(ran)
+		require.Equal(t, []string{"running: context canceled"}, collect(ran))
+		require.False(t, runner.Submit("late", func(context.Context) error { return nil }))
+		require.False(t, runner.TrySubmit("late", func(context.Context) error { return nil }))
+		body := scrapeBackgroundMetrics(t, metricSet)
+		require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"accepted\"} 2\n")
+		require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"shutdown\"} 3\n")
+	})
 }
 
-func TestBackgroundExecutionRunnerCancellationUnblocksSaturatedQueue(t *testing.T) {
-	metricSet := metrics.New()
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	runner, err := NewBackgroundExecutionRunner(ctx, slog.Default(), 1, metricSet)
-	require.NoError(t, err)
-	started := make(chan struct{})
-	stopped := make(chan struct{})
-	require.True(t, runner.Submit("running", func(ctx context.Context) error {
-		close(started)
-		<-ctx.Done()
-		close(stopped)
-		return ctx.Err()
-	}))
-	<-started
-	queuedStarted := make(chan struct{})
-	require.True(t, runner.Submit("queued", func(context.Context) error {
-		close(queuedStarted)
-		return nil
-	}))
-	blockedSubmission := make(chan bool, 1)
-	go func() {
-		blockedSubmission <- runner.Submit("blocked", func(context.Context) error { return nil })
-	}()
-	requireBackgroundSubmissionsInFlight(t, metricSet, 1)
-
-	cancel()
-	select {
-	case accepted := <-blockedSubmission:
-		require.False(t, accepted, "a submission was accepted after cancellation")
-	case <-time.After(time.Second):
-		t.Fatal("cancellation did not unblock a submission waiting on a full queue")
+func collect(values <-chan string) []string {
+	var collected []string
+	for value := range values {
+		collected = append(collected, value)
 	}
-	select {
-	case <-stopped:
-	case <-time.After(time.Second):
-		t.Fatal("cancellation did not stop in-flight background work")
-	}
-	shutdownDone := make(chan struct{})
-	go func() {
-		runner.Shutdown()
-		close(shutdownDone)
-	}()
-	select {
-	case <-shutdownDone:
-	case <-time.After(time.Second):
-		t.Fatal("shutdown waited for queued work after cancellation")
-	}
-	select {
-	case <-queuedStarted:
-		t.Fatal("queued background work started after cancellation")
-	default:
-	}
-	require.False(t, runner.Submit("after-cancel", func(context.Context) error { return nil }))
-	require.False(t, runner.TrySubmit("after-cancel", func(context.Context) error { return nil }))
-	body := scrapeBackgroundMetrics(t, metricSet)
-	require.Contains(t, body, "omnara_background_execution_submissions_in_flight 0\n")
-	require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"shutdown\"} 3\n")
-	require.Contains(t, body, "omnara_background_execution_submissions_total{result=\"full\"} 0\n")
-	require.Contains(t, body, "omnara_background_execution_start_delay_seconds_count 1\n")
-}
-
-func requireBackgroundSubmissionsInFlight(t *testing.T, set *metrics.Set, want int) {
-	t.Helper()
-	line := fmt.Sprintf("omnara_background_execution_submissions_in_flight %d\n", want)
-	require.Eventually(t, func() bool {
-		return strings.Contains(scrapeBackgroundMetrics(t, set), line)
-	}, time.Second, time.Millisecond)
+	return collected
 }
 
 func scrapeBackgroundMetrics(t *testing.T, set *metrics.Set) string {

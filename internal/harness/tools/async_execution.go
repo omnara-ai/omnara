@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 )
 
 type AsyncExecutionLimiter struct {
@@ -49,25 +48,6 @@ type asyncExecutionScopeContextKey struct{}
 
 func WithAsyncExecutionScope(ctx context.Context, scope *AsyncExecutionScope) context.Context {
 	return context.WithValue(ctx, asyncExecutionScopeContextKey{}, scope)
-}
-
-type cleanupLifetimeContextKey struct{}
-
-func WithCleanupLifetime(ctx, lifetime context.Context) context.Context {
-	return context.WithValue(ctx, cleanupLifetimeContextKey{}, lifetime)
-}
-
-func DetachForCleanup(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
-	lifetime, ok := ctx.Value(cleanupLifetimeContextKey{}).(context.Context)
-	if !ok {
-		return cleanupCtx, cancel
-	}
-	stopWatchingLifetime := context.AfterFunc(lifetime, cancel)
-	return cleanupCtx, func() {
-		stopWatchingLifetime()
-		cancel()
-	}
 }
 
 type AsyncExecutionReservation struct {

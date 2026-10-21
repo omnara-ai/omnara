@@ -430,7 +430,7 @@ func (e Executor) completeAsyncToolResult(
 		return errors.Join(err, fallbackErr)
 	}
 	input.Outcome = executionstore.ToolResultOutcomeFailed
-	completionCtx, cancel := DetachForCleanup(ctx, asyncToolCompletionTimeout)
+	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancel()
 	if fallbackErr := retryAsyncToolPersistence(completionCtx, persist); fallbackErr != nil {
 		return errors.Join(err, fallbackErr)

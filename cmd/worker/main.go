@@ -47,14 +47,9 @@ const (
 	integrationHTTPClientTimeout  = 5 * time.Minute
 	cronTriggerFireInterval       = 30 * time.Second
 	workerCapacityPerDBConnection = 8
-	workerShutdownCleanupBudget   = 5 * time.Second
-	watchdogLogGrace              = 100 * time.Millisecond
-	workerShutdownExitMargin      = 2 * time.Second
 )
 
 func main() {
-	shutdownFinished := make(chan struct{})
-	defer close(shutdownFinished)
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 
 	cfg, err := config.Load()
@@ -95,16 +90,7 @@ func main() {
 	defer cancel()
 	executionCtx, abortExecutions := cancelAfterDone(ctx, cfg.WorkerDrainTimeout)
 	defer abortExecutions()
-	cleanupCtx, abortCleanup := cancelAfterDone(executionCtx, workerShutdownCleanupBudget)
-	defer abortCleanup()
-	go cancelOnSignals(signals, executionCtx.Done(), cancelOnSignal, abortExecutions)
-	go watchShutdown(
-		ctx.Done(),
-		shutdownFinished,
-		cfg.WorkerDrainTimeout+workerShutdownCleanupBudget+workerShutdownExitMargin,
-		log,
-		os.Exit,
-	)
+	go cancelOnSignals(signals, cancelOnSignal, abortExecutions)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -273,7 +259,7 @@ func main() {
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), ctx.Done())
+		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -437,43 +423,10 @@ func cancelAfterDone(parent context.Context, delay time.Duration) (context.Conte
 	}
 }
 
-func watchShutdown(
-	started, finished <-chan struct{},
-	bound time.Duration,
-	log *slog.Logger,
-	exit func(int),
-) {
-	select {
-	case <-started:
-	case <-finished:
-		return
-	}
-	timer := time.NewTimer(bound)
-	defer timer.Stop()
-	select {
-	case <-finished:
-	case <-timer.C:
-		logged := make(chan struct{})
-		go func() {
-			defer close(logged)
-			log.Warn("worker shutdown exceeded its bound; exiting", "bound", bound.String())
-		}()
-		select {
-		case <-logged:
-		case <-time.After(watchdogLogGrace):
-		}
-		exit(1)
-	}
-}
-
-func cancelOnSignals(signals <-chan os.Signal, done <-chan struct{}, cancels ...context.CancelFunc) {
+func cancelOnSignals(signals <-chan os.Signal, cancels ...context.CancelFunc) {
 	for _, cancel := range cancels {
-		select {
-		case <-signals:
-			cancel()
-		case <-done:
-			return
-		}
+		<-signals
+		cancel()
 	}
 }
 
