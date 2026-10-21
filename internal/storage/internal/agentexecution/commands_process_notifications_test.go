@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 )
@@ -112,4 +113,21 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+func TestRenderProcessOutputMatch(t *testing.T) {
+	row := executiondb.ReadExecutionProcessOwnerRow{
+		ExecutionSpec: processcmd.ForShell("npm run dev", "sh", ""),
+		NotifyMatch:   "listening|ERROR",
+	}
+	got := renderProcessOutputMatch("prc_test", row, daemonprotocol.OutputMatchResult{
+		Lines: []string{"listening on :3000", "ERROR boom"}, Dropped: 2, Final: true,
+	})
+	want := "Background process prc_test (`npm run dev`) printed lines matching `listening|ERROR`:\n\n" +
+		"```\nlistening on :3000\nERROR boom\n```\n\n" +
+		"2 more matching lines are not shown; use read_process to read them.\n\n" +
+		"No more matches will be reported for this process."
+	if got != want {
+		t.Fatalf("render =\n%s\nwant\n%s", got, want)
+	}
 }

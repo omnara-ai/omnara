@@ -155,7 +155,8 @@ WHERE process_id = sqlc.arg(process_id);
 SELECT count(*)
 FROM frozen_reports
 WHERE process_id = sqlc.arg(process_id)
-  AND state <> 'acknowledged';
+  AND state <> 'acknowledged'
+  AND NOT (report_kind = 'process_output_match' AND state = 'rejected');
 
 -- name: SetProcessTerminal :exec
 UPDATE processes

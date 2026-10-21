@@ -56,6 +56,9 @@ type CreateProcessInput struct {
 	InitialWaitMS         int
 	// NotifyOnExit sends the agent a message when the process ends after its tool call returned.
 	NotifyOnExit bool
+	// NotifyMatch sends the agent output lines that match this regular
+	// expression while the process runs after its tool call returned.
+	NotifyMatch string
 }
 
 type CreateProcessActionInput struct {
@@ -171,6 +174,7 @@ type ProcessRecord struct {
 	CreatedAt             time.Time                `json:"created_at"`
 	UpdatedAt             time.Time                `json:"updated_at"`
 	NotifyOnExit          bool                     `json:"notify_on_exit,omitempty"`
+	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
 type ProcessActionRecord struct {

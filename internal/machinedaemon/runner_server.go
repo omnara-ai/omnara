@@ -607,8 +607,10 @@ func (s *runnerServerState) freezeInitialObservation(
 	ctx context.Context,
 	runner *localProcessRunner,
 ) {
+	// The terminal report waits for startedDone, so output matches watched
+	// below are frozen before it.
 	defer s.startedOnce.Do(func() { close(s.startedDone) })
-	result, _, observedAt, done, err := initialProcessObservation(
+	result, next, observedAt, done, err := initialProcessObservation(
 		ctx,
 		s.assignment,
 		runner,
@@ -632,10 +634,13 @@ func (s *runnerServerState) freezeInitialObservation(
 		Kind:      statedb.ReportProcessStarted,
 		Body:      body,
 	}
-	_ = s.autonomousStateWrite(ctx, func() error {
+	if err := s.autonomousStateWrite(ctx, func() error {
 		_, freezeErr := s.processState.FreezeStartedReport(ctx, report)
 		return freezeErr
-	})
+	}); err != nil || s.assignment.NotifyMatch == "" {
+		return
+	}
+	s.watchOutputMatches(ctx, runner, next)
 }
 
 func initialProcessObservation(
