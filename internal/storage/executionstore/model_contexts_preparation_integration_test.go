@@ -238,7 +238,7 @@ func TestClaimStoreLostAcknowledgementDoesNotReturnExecutableWork(t *testing.T) 
 func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 	for _, kind := range []string{"model", "built_in", "custom", "mcp"} {
 		tool := kind != "model"
-		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "cleanup canceled"} {
+		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "drain canceled"} {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
 				ctx := t.Context()
 				f := newProcessDaemonFixture(t, ctx, "output_store_ack")
@@ -287,9 +287,9 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				armed.Store(true)
 				executionCtx, cancelExecution := context.WithCancel(ctx)
 				defer cancelExecution()
-				cleanup, cancelCleanup := context.WithCancel(ctx)
-				defer cancelCleanup()
-				executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+				drainCtx, endDrain := context.WithCancel(ctx)
+				defer endDrain()
+				executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
 				resolving := make(chan struct{}, 1)
 				var resolveCalled atomic.Bool
 				f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
@@ -304,7 +304,7 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 						if mode == "resolution unavailable" {
 							return io.ErrClosedPipe
 						}
-						if mode == "cleanup canceled" {
+						if mode == "drain canceled" {
 							<-ctx.Done()
 							return ctx.Err()
 						}
@@ -317,8 +317,8 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				case <-time.After(3 * time.Second):
 					t.Fatal("store did not resolve uncertain model completion")
 				}
-				if mode == "cleanup canceled" {
-					cancelCleanup()
+				if mode == "drain canceled" {
+					endDrain()
 				}
 				outcome := integrationdb.Await(t, done, "model output resolution")
 				if mode == "resolved" {
@@ -327,7 +327,7 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				} else {
 					require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 				}
-				if mode == "cleanup canceled" {
+				if mode == "drain canceled" {
 					require.ErrorIs(t, outcome.Err, context.Canceled)
 				}
 				var outputs, leases int

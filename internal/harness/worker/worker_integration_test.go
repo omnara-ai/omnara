@@ -6,9 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/stretchr/testify/require"
 	"io"
 	"sort"
 	"strconv"
@@ -18,9 +15,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
+	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -39,6 +38,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -2924,11 +2924,9 @@ func TestWorkerShutdownBoundsUncertainResultResolution(t *testing.T) {
 	}, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1, ControlSubscriber: noopControlSubscriber{}})
 	executionCtx, cancelExecution := context.WithCancel(ctx)
 	defer cancelExecution()
-	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
-	defer cancelCleanup()
 	drain := make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- worker.Run(tools.WithCleanupLifetime(executionCtx, cleanupCtx), drain) }()
+	go func() { done <- worker.Run(executionCtx, drain) }()
 	select {
 	case <-modelClient.responding:
 	case <-time.After(3 * time.Second):
@@ -2943,19 +2941,18 @@ func TestWorkerShutdownBoundsUncertainResultResolution(t *testing.T) {
 		t.Fatal("worker did not reach automatic store resolution")
 	}
 	close(drain)
-	cancelExecution()
 	require.NoError(t, resolutionCtx.Err())
 	select {
 	case <-done:
-		t.Fatal("worker exited before cleanup resolution finished")
+		t.Fatal("worker exited before the drain deadline")
 	case <-time.After(25 * time.Millisecond):
 	}
-	cancelCleanup()
+	cancelExecution()
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
-		t.Fatal("resolution escaped the worker cleanup lifetime")
+		t.Fatal("resolution escaped the worker drain deadline")
 	}
 	require.ErrorIs(t, resolutionCtx.Err(), context.Canceled)
 	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
@@ -3081,5 +3078,24 @@ func TestWorkerLeaseLossCancelsAsyncToolDuringBlockedFollowup(t *testing.T) {
 			require.Error(t, integrationdb.Await(t, done, "worker after lease loss"))
 			worker.retained.Wait()
 		})
+	}
+}
+
+type drainingModelClient struct {
+	fixedModelClient
+	responding chan struct{}
+	release    chan struct{}
+}
+
+func (c drainingModelClient) Respond(ctx context.Context, request model.Request) (model.Response, error) {
+	select {
+	case c.responding <- struct{}{}:
+	default:
+	}
+	select {
+	case <-c.release:
+		return c.fixedModelClient.Respond(ctx, request)
+	case <-ctx.Done():
+		return model.Response{}, ctx.Err()
 	}
 }

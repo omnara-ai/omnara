@@ -2105,7 +2105,7 @@ func (q stepResolutionQuery) QueryRow(ctx context.Context, sql string, args ...a
 }
 
 func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
-	for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "cleanup canceled"} {
+	for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "drain canceled"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			f := newMachineLifecycleLockOrderFixture(t, ctx, "command-ack")
@@ -2124,9 +2124,9 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 			armed.Store(true)
 			executionCtx, cancelExecution := context.WithCancel(ctx)
 			defer cancelExecution()
-			cleanup, cancelCleanup := context.WithCancel(ctx)
-			defer cancelCleanup()
-			executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+			drainCtx, endDrain := context.WithCancel(ctx)
+			defer endDrain()
+			executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
 			f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
 				return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: cancelExecution}
 			})
@@ -2137,7 +2137,7 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 					if mode == "resolution unavailable" {
 						return io.ErrClosedPipe
 					}
-					if mode == "cleanup canceled" {
+					if mode == "drain canceled" {
 						<-ctx.Done()
 						return ctx.Err()
 					}
@@ -2156,8 +2156,8 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("store did not resolve uncertain command completion")
 			}
-			if mode == "cleanup canceled" {
-				cancelCleanup()
+			if mode == "drain canceled" {
+				endDrain()
 			}
 			outcome := integrationdb.Await(t, done, "command completion resolution")
 			if mode == "resolved" {
@@ -2167,7 +2167,7 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 			} else {
 				require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 			}
-			if mode == "cleanup canceled" {
+			if mode == "drain canceled" {
 				require.ErrorIs(t, outcome.Err, context.Canceled)
 			}
 			if mode == "before commit" {
@@ -2614,7 +2614,7 @@ func processTransferCommandForTest(t *testing.T, kind string) (
 }
 
 func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
-	modes := []string{"before commit", "different owner", "resolved", "resolution unavailable", "cleanup canceled"}
+	modes := []string{"before commit", "different owner", "resolved", "resolution unavailable", "drain canceled"}
 	for _, kind := range []string{"start", "upload", "download", "read", "write", "interrupt", "terminate", "question"} {
 		for _, mode := range modes {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
@@ -2624,9 +2624,9 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				armed.Store(true)
 				executionCtx, cancelExecution := context.WithCancel(ctx)
 				defer cancelExecution()
-				cleanup, cancelCleanup := context.WithCancel(ctx)
-				defer cancelCleanup()
-				executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+				drainCtx, endDrain := context.WithCancel(ctx)
+				defer endDrain()
+				executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
 				var newer uuid.UUID
 				var afterErr error
 				f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
@@ -2654,7 +2654,7 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 						if mode == "resolution unavailable" {
 							return io.ErrClosedPipe
 						}
-						if mode == "cleanup canceled" {
+						if mode == "drain canceled" {
 							<-ctx.Done()
 						}
 						return ctx.Err()
@@ -2668,8 +2668,8 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				case <-time.After(3 * time.Second):
 					t.Fatal("store did not resolve uncertain ownership transfer")
 				}
-				if mode == "cleanup canceled" {
-					cancelCleanup()
+				if mode == "drain canceled" {
+					endDrain()
 				}
 				outcome := integrationdb.Await(t, done, "ownership transfer resolution")
 				require.NoError(t, afterErr)
@@ -2683,7 +2683,7 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				} else {
 					require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 				}
-				if mode == "cleanup canceled" {
+				if mode == "drain canceled" {
 					require.ErrorIs(t, outcome.Err, context.Canceled)
 				}
 				call, err := f.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, input.ToolCallID)

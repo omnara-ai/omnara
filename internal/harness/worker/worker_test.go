@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
@@ -22,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	"github.com/stretchr/testify/require"
 )
 
 type renewalDeadlineStore struct {
@@ -1320,4 +1322,35 @@ func TestWorkerRenewalFailureWaitsForDelayedCompletionAcknowledgement(t *testing
 			require.Empty(t, store.released)
 		})
 	}
+}
+
+func TestWorkerDrainBoundsPendingCompletionAndFinalization(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &completionRenewalStore{mode: "inactive", exhausted: make(chan struct{})}
+		worker := NewWorker(store, nil, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond})
+		drain, endDrain := context.WithCancel(t.Context())
+		defer endDrain()
+		ctx := cleanupcontext.WithDrain(drain, drain)
+		turn, active, stop, err := worker.startRuntimeRenewal(ctx, uuid.New(), uuid.New(),
+			executionstore.AgentRuntimeLockRecord{ID: uuid.New()}, time.Now())
+		require.NoError(t, err)
+		defer stop()
+		finalize, cancelFinalize := worker.finalizeContext(turn)
+		defer cancelFinalize()
+		finish := active.completion.Begin(finalize, true)
+		defer finish(false)
+		<-store.exhausted
+		synctest.Wait()
+		require.NoError(t, turn.Err())
+		require.NoError(t, finalize.Err())
+		require.False(t, active.renewalFailed.Load())
+		endDrain()
+		synctest.Wait()
+		require.ErrorIs(t, turn.Err(), context.Canceled)
+		require.ErrorIs(t, finalize.Err(), context.Canceled)
+		require.True(t, active.renewalFailed.Load())
+		late, cancelLate := worker.finalizeContext(turn)
+		defer cancelLate()
+		require.ErrorIs(t, late.Err(), context.Canceled)
+	})
 }

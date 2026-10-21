@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
@@ -123,7 +124,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 }
 
 func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
-	ctx = logpkg.WithLogger(ctx, w.log)
+	ctx = cleanupcontext.WithDrain(logpkg.WithLogger(ctx, w.log), ctx)
 	controlSubscription, err := w.subscribeWorkerControl(ctx)
 	if err != nil {
 		return err
@@ -501,7 +502,7 @@ func (w *Worker) finalizeContext(parent context.Context) (context.Context, conte
 	if timeout > 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	return context.WithTimeout(context.WithoutCancel(parent), timeout)
+	return cleanupcontext.Detach(parent, timeout)
 }
 
 func (w *Worker) startRuntimeRenewal(

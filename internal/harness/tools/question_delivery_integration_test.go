@@ -384,7 +384,7 @@ func TestQuestionClaimReplayPresentsAfterLeaseDeletion(t *testing.T) {
 				BackgroundRunner: runner}
 			armed := &atomic.Bool{}
 			armed.Store(true)
-			executionCtx, cancelExecution := context.WithCancel(cleanupcontext.WithLifetime(ctx, ctx))
+			executionCtx, cancelExecution := context.WithCancel(cleanupcontext.WithDrain(ctx, ctx))
 			defer cancelExecution()
 			read, proceed := make(chan struct{}), make(chan struct{})
 			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -452,7 +453,7 @@ func (e Executor) completeAsyncToolResult(
 		return errors.Join(err, fallbackErr)
 	}
 	input.Outcome = executionstore.ToolResultOutcomeFailed
-	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
+	completionCtx, cancel := cleanupcontext.Detach(ctx, asyncToolCompletionTimeout)
 	defer cancel()
 	if fallbackErr := retryAsyncToolPersistence(completionCtx, persist); fallbackErr != nil {
 		return errors.Join(err, fallbackErr)
