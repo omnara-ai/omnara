@@ -867,7 +867,6 @@ type dispatchStore struct {
 	maxClaims        atomic.Int32
 	claims           atomic.Int32
 	renewals         atomic.Int32
-	claiming         chan struct{}
 	releaseMu        sync.Mutex
 	released         map[uuid.UUID]int
 }
@@ -879,12 +878,6 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	active := s.activeClaims.Add(1)
 	defer s.activeClaims.Add(-1)
 	raiseMax(&s.maxClaims, active)
-	if s.claiming != nil {
-		select {
-		case s.claiming <- struct{}{}:
-		default:
-		}
-	}
 	select {
 	case <-time.After(s.claimDelay):
 	case <-ctx.Done():
@@ -1132,13 +1125,10 @@ func TestWorkerDrainFinishesActiveThenRetainedWorkBeforeReturning(t *testing.T) 
 		}
 		close(executor.activeRelease)
 		synctest.Wait()
-		if got := receivedEvents(executor.events); !slices.Equal(got, []string{"active: <nil>"}) {
-			t.Fatalf("after releasing active work: %v, want [active: <nil>]", got)
-		}
 		close(executor.retainedRelease)
 		synctest.Wait()
-		if got := receivedEvents(executor.events); !slices.Equal(got, []string{"retained: <nil>", "run: <nil>"}) {
-			t.Fatalf("after releasing retained work: %v, want [retained: <nil> run: <nil>]", got)
+		if got := receivedEvents(executor.events); !slices.Equal(got, []string{"active: <nil>", "retained: <nil>", "run: <nil>"}) {
+			t.Fatalf("drain order = %v, want active, then retained, then run", got)
 		}
 		if got := store.claims.Load(); got != 2 {
 			t.Fatalf("claims after drain = %d, want 2", got)
@@ -1149,59 +1139,39 @@ func TestWorkerDrainFinishesActiveThenRetainedWorkBeforeReturning(t *testing.T) 
 	})
 }
 
-func TestWorkerDrainInterruptsPendingClaim(t *testing.T) {
-	for _, test := range []struct {
-		name             string
-		leaseAfterCancel bool
-		wantClaims       int32
-	}{
-		{name: "claim canceled"},
-		{name: "lease returned as drain begins", leaseAfterCancel: true, wantClaims: 1},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := &dispatchStore{
-				claimDelay:       time.Hour,
-				leaseAfterCancel: test.leaseAfterCancel,
-				claiming:         make(chan struct{}, 1),
-			}
-			executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
-			close(executor.release)
-			worker := NewWorker(store, executor, Options{
-				Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
-				RuntimeLockLeaseDuration: time.Minute,
-				Capacity:                 1,
-				ClaimConcurrency:         1,
-				ControlSubscriber:        noopControlSubscriber{},
-			})
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			drain := make(chan struct{})
-			runDone := make(chan error, 1)
-			go func() { runDone <- worker.Run(ctx, drain) }()
-			select {
-			case <-store.claiming:
-			case <-time.After(2 * time.Second):
-				t.Fatal("worker did not start claiming")
-			}
-
-			close(drain)
-			select {
-			case err := <-runDone:
-				if err != nil {
-					t.Fatalf("run error = %v, want nil after drain", err)
-				}
-			case <-time.After(2 * time.Second):
-				t.Fatal("drain did not interrupt the pending claim")
-			}
-			if got := store.claims.Load(); got != test.wantClaims {
-				t.Fatalf("claims = %d, want %d", got, test.wantClaims)
-			}
-			if got := int32(len(executor.started)); got != test.wantClaims {
-				t.Fatalf("executions = %d, want %d", got, test.wantClaims)
-			}
-			if got := len(store.releaseCounts()); got != int(test.wantClaims) {
-				t.Fatalf("released runtimes = %d, want %d", got, test.wantClaims)
-			}
+func TestWorkerDrainInterruptsPendingClaimAndRunsItsLease(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &dispatchStore{claimDelay: time.Hour, leaseAfterCancel: true}
+		executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
+		close(executor.release)
+		worker := NewWorker(store, executor, Options{
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: time.Minute,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
 		})
-	}
+		drain := make(chan struct{})
+		runDone := make(chan error, 1)
+		go func() { runDone <- worker.Run(t.Context(), drain) }()
+		synctest.Wait()
+
+		close(drain)
+		drainStartedAt := time.Now()
+		if err := <-runDone; err != nil {
+			t.Fatalf("run error = %v, want nil after drain", err)
+		}
+		if elapsed := time.Since(drainStartedAt); elapsed != 0 {
+			t.Fatalf("worker returned %s after the drain started, want at once", elapsed)
+		}
+		if got := store.claims.Load(); got != 1 {
+			t.Fatalf("claims = %d, want the interrupted claim's lease", got)
+		}
+		if got := len(executor.started); got != 1 {
+			t.Fatalf("executions = %d, want the interrupted claim's lease to run once", got)
+		}
+		if got := store.releaseCounts(); !slices.Equal(got, []int{1}) {
+			t.Fatalf("runtime release counts = %v, want the lease released once", got)
+		}
+	})
 }
