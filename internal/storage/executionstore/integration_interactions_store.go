@@ -132,7 +132,8 @@ func SetInteractionHandlerForToolCall(
 	input SelectInteractionHandlerInput,
 	completion ToolCallCompletionBuilder[InteractionSelection],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, t *toolCallTransaction) (any, error) {
+	replay := replayInteractionSelection(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, t *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("interaction selection completion builder is required")
 		}
@@ -606,7 +607,11 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 				return AgentInteractionRecord{}, err
 			}
 			if err := unit.Commit(ctx, "resolve interaction from handler"); err != nil {
-				return AgentInteractionRecord{}, err
+				if resolved, resolveErr := s.resolveInteractionCommit(ctx, record, err); resolved {
+					return record, nil
+				} else {
+					return AgentInteractionRecord{}, resolveErr
+				}
 			}
 			return record, nil
 		})

@@ -9,10 +9,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -85,7 +87,18 @@ func (s *Store) CreatePermissionInteraction(
 				return AgentInteractionRecord{}, err
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
-			destination, err := captureInteractionDestinationTx(ctx, unit.DB(), input.ProjectID, input.AgentID)
+			existing, err := dbsqlc.New(unit.DB()).GetAgentInteractionByToolCallKind(ctx,
+				dbsqlc.GetAgentInteractionByToolCallKindParams{
+					ProjectID: input.ProjectID, AgentID: input.AgentID, ToolCallID: input.ToolCallID,
+					InteractionKind: string(AgentInteractionKindPermission),
+				})
+			var destination json.RawMessage
+			if existing.Destination != nil {
+				destination = *existing.Destination
+			}
+			if errors.Is(err, pgx.ErrNoRows) {
+				destination, err = captureInteractionDestinationTx(ctx, unit.DB(), input.ProjectID, input.AgentID)
+			}
 			if err != nil {
 				return AgentInteractionRecord{}, err
 			}
@@ -102,10 +115,18 @@ func (s *Store) CreatePermissionInteraction(
 			if err != nil {
 				return AgentInteractionRecord{}, err
 			}
-			if err = unit.Commit(ctx, "open permission"); err != nil {
-				return AgentInteractionRecord{}, err
+			record := agentInteractionRecordFromSQLC(row)
+			if !result.Created {
+				return record, nil
 			}
-			return agentInteractionRecordFromSQLC(row), nil
+			if err = unit.Commit(ctx, "open permission"); err != nil {
+				if resolved, resolveErr := s.resolveInteractionCommit(ctx, record, err); resolved {
+					return record, nil
+				} else {
+					return AgentInteractionRecord{}, resolveErr
+				}
+			}
+			return record, nil
 		})
 }
 
@@ -116,6 +137,20 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	h, err := lockExecution(ctx, t.unit, t.input.ProjectID, t.input.AgentID, true, t.input.RuntimeLockID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
+	}
+	if record, err := getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID); err != nil {
+		return AgentInteractionRecord{}, err
+	} else if record.State == ToolCallStateWaiting || record.State == ToolCallStateCompleted {
+		replay, err := t.replayQuestion(ctx)
+		if err != nil {
+			return AgentInteractionRecord{}, err
+		}
+		t.disposition = ToolCallDispositionWaiting
+		if record.State == ToolCallStateCompleted {
+			t.disposition = ToolCallDispositionCompleted
+			t.completed = &record
+		}
+		return replay, nil
 	}
 	destination, err := captureInteractionDestinationTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
 	if err != nil {
@@ -140,6 +175,7 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
+	t.owner.InteractionID = result.ID
 	t.hasDurableCompletionOwner = true
 	t.disposition = ToolCallDispositionWaiting
 	t.applied = result.Created
@@ -169,7 +205,11 @@ func (s *Store) ResolveAgentInteraction(
 				return AgentInteractionRecord{}, err
 			}
 			if err := unit.Commit(ctx, "resolve agent interaction"); err != nil {
-				return AgentInteractionRecord{}, err
+				if resolved, resolveErr := s.resolveInteractionCommit(ctx, record, err); resolved {
+					return record, nil
+				} else {
+					return AgentInteractionRecord{}, resolveErr
+				}
 			}
 			return record, nil
 		})
@@ -356,4 +396,26 @@ func getAgentInteractionByToolCallKind(
 		)
 	}
 	return agentInteractionRecordFromSQLC(row), true, nil
+}
+
+func (s *Store) resolveInteractionCommit(
+	ctx context.Context, record AgentInteractionRecord, commitErr error,
+) (bool, error) {
+	if !errors.Is(commitErr, storeerr.ErrCommitOutcomeUnknown) {
+		return false, commitErr
+	}
+	resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
+	defer cancel()
+	row, err := s.q.GetAgentInteractionByToolCallKind(resolveCtx, dbsqlc.GetAgentInteractionByToolCallKindParams{
+		ProjectID: record.ProjectID, AgentID: record.AgentID, ToolCallID: record.ToolCallID,
+		InteractionKind: string(record.InteractionKind),
+	})
+	if err == nil && row.ID == record.ID {
+		persisted := agentInteractionRecordFromSQLC(row)
+		if record.State == AgentInteractionStateOpen || record.ResolvedByInputID == persisted.ResolvedByInputID &&
+			sameJSON(record.Resolution, persisted.Resolution) {
+			return true, nil
+		}
+	}
+	return false, errors.Join(commitErr, err)
 }

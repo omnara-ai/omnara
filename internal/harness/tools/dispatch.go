@@ -51,6 +51,7 @@ func (e Executor) dispatchToolHandler(
 		ctx,
 		executionstore.ExecuteToolCallInput{
 			Completion:        turn.Completion,
+			ResolveRecorded:   true,
 			RequireCompletion: handler.completion != completionUnspecified,
 			Authorize:         turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
 			ProjectID:     turn.ProjectID,

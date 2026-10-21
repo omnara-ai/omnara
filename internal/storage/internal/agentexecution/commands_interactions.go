@@ -55,9 +55,6 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 		if (input.Permission == nil) == (input.Question == nil) {
 			return Interaction{}, errors.New("exactly one interaction kind is required")
 		}
-		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
-			return Interaction{}, err
-		}
 		kind := "question"
 		var request json.RawMessage
 		var err error
@@ -88,13 +85,21 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 			if err != nil {
 				return Interaction{}, err
 			}
-			if kind == "permission" || call.Type != "built_in" ||
-				call.State != "waiting" && call.State != "completed" {
+			if kind == "permission" {
+				if !equalJSON(existing.Request, request) {
+					return Interaction{}, storeerr.ErrIdempotencyConflict
+				}
+				return interactionRecord(existing), nil
+			}
+			if call.Type != "built_in" || call.State != "waiting" && call.State != "completed" {
 				return Interaction{}, storeerr.ErrIdempotencyConflict
 			}
 			return interactionRecord(existing), nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
+			return Interaction{}, err
+		}
+		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
 			return Interaction{}, err
 		}
 		call, err := h.tool(ctx, input.ID)

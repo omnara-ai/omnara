@@ -236,9 +236,10 @@ func TestClaimStoreLostAcknowledgementDoesNotReturnExecutableWork(t *testing.T) 
 }
 
 func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
-	for _, tool := range []bool{false, true} {
+	for _, kind := range []string{"model", "built_in", "custom", "mcp"} {
+		tool := kind != "model"
 		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "cleanup canceled"} {
-			t.Run(map[bool]string{false: "model/", true: "tools/"}[tool]+mode, func(t *testing.T) {
+			t.Run(kind+"/"+mode, func(t *testing.T) {
 				ctx := t.Context()
 				f := newProcessDaemonFixture(t, ctx, "output_store_ack")
 				ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
@@ -261,7 +262,7 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 							Content: []modelenvelope.ResponsePart{{Type: modelenvelope.ResponsePartTypeText, Text: "done"}}},
 					},
 				}
-				bindings := []executionstore.ToolCallBindingInput{{ID: uuid.New(), ProviderCallID: "ack-call", Type: "built_in"}}
+				bindings := []executionstore.ToolCallBindingInput{{ID: uuid.New(), ProviderCallID: "ack-call", Type: kind}}
 				if tool {
 					input.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
 					input.ProviderResponse.Normalized.Content = []modelenvelope.ResponsePart{{
@@ -354,5 +355,80 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				require.Equal(t, 1, leases)
 			})
 		}
+	}
+}
+
+func TestModelOutputOverlappingReplayAudit(t *testing.T) {
+	for _, kind := range []string{"model", "built_in", "custom", "mcp"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			f := newProcessDaemonFixture(t, ctx, "model-overlap-audit")
+			ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
+			require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+			claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+			require.NoError(t, err)
+			require.True(t, found)
+			input := executionstore.RecordModelOutputAndCompleteContextInput{
+				RootAgentID: claim.RootAgentID, FinishClaim: true, ProjectID: claim.ProjectID, AgentID: claim.AgentID,
+				RuntimeLockID: claim.RuntimeLock.ID, ModelCallContextID: claim.Model.Prepared.Claim.Context.ID,
+				ProviderRequestID: "overlap-request",
+				ProviderResponse: modelenvelope.ResponseEnvelope{
+					RequestedProviderModelSlug: modelProviderSlugForContext(t, ctx, f.Store, testProjectID,
+						f.AgentID, claim.Model.Prepared.Claim.Context.ID),
+					APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+					Normalized: modelenvelope.ResponseNormalized{ID: "overlap-response", StopReason: modelenvelope.StopReasonEndTurn,
+						Content: []modelenvelope.ResponsePart{{Type: modelenvelope.ResponsePartTypeText, Text: "done"}}},
+				},
+			}
+			if kind != "model" {
+				input.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
+				input.ProviderResponse.Normalized.Content = []modelenvelope.ResponsePart{{
+					Type: modelenvelope.ResponsePartTypeToolCall, ProviderCallID: "overlap-call",
+					ToolName: "list_agents", ToolInput: json.RawMessage(`{}`),
+				}}
+			}
+			bindings := []executionstore.ToolCallBindingInput{{ID: uuid.New(), ProviderCallID: "overlap-call", Type: kind}}
+			complete := func() (uuid.UUID, error) {
+				if kind == "model" {
+					event, err := f.Store.Execution().RecordModelOutputAndCompleteContext(ctx, input)
+					return event.ID, err
+				}
+				event, _, err := f.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx,
+					executionstore.RecordToolCallSourceAndCompleteContextInput{
+						RootAgentID: input.RootAgentID, FinishClaim: true, ProjectID: input.ProjectID, AgentID: input.AgentID,
+						RuntimeLockID: input.RuntimeLockID, ModelCallContextID: input.ModelCallContextID,
+						ProviderRequestID: input.ProviderRequestID, ProviderResponse: input.ProviderResponse, ToolCallBindings: bindings,
+					})
+				return event.ID, err
+			}
+			entered, proceed := make(chan struct{}), make(chan struct{})
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+			})
+			done := integrationdb.RunAsync(complete)
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal("model output did not reach agent lock")
+			}
+			original, err := complete()
+			require.NoError(t, err)
+			newer, err := f.Store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, f.AgentID,
+				testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+			require.NoError(t, err)
+			close(proceed)
+			replayed := integrationdb.Await(t, done, "model output replay")
+			require.NoError(t, replayed.Err)
+			require.Equal(t, original, replayed.Value)
+			var outputs, leases int
+			require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM model_outputs WHERE model_call_context_id=$1),
+ (SELECT count(*) FROM agent_runtime_locks WHERE id=$2)`, input.ModelCallContextID, newer.ID).Scan(&outputs, &leases))
+			require.Equal(t, 1, outputs)
+			require.Equal(t, 1, leases)
+		})
 	}
 }

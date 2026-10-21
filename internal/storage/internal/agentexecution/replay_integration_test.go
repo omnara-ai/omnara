@@ -160,8 +160,9 @@ func TestInteractionReplayStateAndFence(t *testing.T) {
 			require.NoError(t, u.Rollback(t.Context()))
 			u, h = f.handle(t, agent)
 			open.RuntimeLockID = uuid.New()
-			_, err = h.OpenInteraction(t.Context(), open)
-			require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+			replay, err = h.OpenInteraction(t.Context(), open)
+			require.NoError(t, err)
+			require.Equal(t, original.ID, replay.ID)
 			require.NoError(t, u.Rollback(t.Context()))
 		})
 	}

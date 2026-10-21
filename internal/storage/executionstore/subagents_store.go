@@ -416,7 +416,8 @@ func SendSubagentMessageForToolCall(
 	input SendSubagentMessageInput,
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replaySubagentCompletion(input.TargetAgentID, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if err := tx.sendSubagentMessage(ctx, input); err != nil {
 			return nil, err
 		}
@@ -490,7 +491,8 @@ func LaunchSubagentForToolCall(
 	input LaunchAgentInput,
 	completion ToolCallCompletionBuilder[LaunchAgentResult],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayLaunchSubagent(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("subagent launch completion builder is required")
 		}
@@ -528,7 +530,8 @@ func StopSubagentForToolCall(
 	input StopSubagentInput,
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replaySubagentCompletion(input.TargetAgentID, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if err := enterActiveAgentProjectTx(ctx, tx.tx, tx.q, tx.input.ProjectID); err != nil {
 			return nil, err
 		}

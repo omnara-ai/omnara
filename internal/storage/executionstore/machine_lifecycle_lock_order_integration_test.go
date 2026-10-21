@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -28,6 +29,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testing.T) {
@@ -2212,7 +2214,8 @@ type lifecycleBarrierTx struct {
 }
 
 func (tx lifecycleBarrierTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	if strings.Contains(sql, "name: LockAgentInProject ") && tx.armed.CompareAndSwap(true, false) {
+	if (strings.Contains(sql, "name: LockAgentInProject ") || strings.Contains(sql, "name: TryLockAgentInProject ")) &&
+		tx.armed.CompareAndSwap(true, false) {
 		close(tx.entered)
 		select {
 		case <-tx.proceed:
@@ -2543,19 +2546,43 @@ func processTransferCommandForTest(t *testing.T, kind string) (
 	conflict := executionstore.StartProcessForToolCall(executionstore.CreateProcessInput{
 		AgentMachineBindingID: f.BindingID, ExecutionSpec: processcmd.ForShell("different", "sh", ""), Cwd: "/work",
 	})
-	if kind != "start" {
+	if kind == "upload" || kind == "download" {
+		name = kind + "_file"
+		transfer := processcmd.FileTransfer{Direction: processcmd.FileTransferDirection(kind), LocalPath: "file.txt",
+			Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}}}
+		if kind == "download" {
+			transfer.Target.Artifact.ID = uuid.New()
+		}
+		command = executionstore.StartProcessForToolCall(executionstore.CreateProcessInput{
+			AgentMachineBindingID: f.BindingID, ExecutionSpec: processcmd.ForFileTransfer(transfer), Cwd: "/work",
+		})
+	} else if kind == "question" {
+		name, query = "ask_question", "GetToolCall"
+		command = executionstore.CreateQuestionForToolCall(executionstore.CreateQuestionInteractionInput{
+			Form: interactionform.Form{Title: "Question", Questions: []interactionform.Question{
+				{Prompt: "Continue?", Options: []interactionform.Option{{Label: "Yes"}, {Label: "No"}}},
+			}},
+		})
+		conflict = executionstore.CompleteToolCallInExecution(executionstore.ToolCallCompletionInput{
+			Outcome: executionstore.ToolResultOutcomeFailed, ResultContentParts: json.RawMessage(`[]`),
+		})
+	} else if kind != "start" {
 		process := startRunningProcessForReadTest(t, ctx, f, "transfer-replay",
 			json.RawMessage(`{"output":"ready","cursor":0,"next_cursor":5,"truncated":false}`))
 		query = "GetProcessActionByToolCall"
 		name = "read_process"
 		input := executionstore.CreateProcessActionInput{ProcessID: process.ID,
 			ActionKind: executionstore.ProcessActionKindRead, Payload: json.RawMessage(`{}`)}
-		if kind == "terminate" {
+		if kind == "write" {
+			name = "write_process"
+			input.ActionKind = executionstore.ProcessActionKind(kind)
+		}
+		if kind == "terminate" || kind == "interrupt" {
 			name = "stop_process"
-			input.ActionKind = executionstore.ProcessActionKindTerminate
+			input.ActionKind = executionstore.ProcessActionKind(kind)
 		}
 		build := func(input executionstore.CreateProcessActionInput) executionstore.ToolCallCommand {
-			if kind == "terminate" {
+			if kind == "terminate" || kind == "interrupt" {
 				return executionstore.StopProcessForToolCall(input, executionstore.ToolCallCompletionInput{
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
 					ResultContentParts: json.RawMessage(`[{"type":"text","text":"stopped"}]`),
@@ -2579,7 +2606,7 @@ func processTransferCommandForTest(t *testing.T, kind string) (
 
 func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 	modes := []string{"before commit", "different owner", "resolved", "resolution unavailable", "cleanup canceled"}
-	for _, kind := range []string{"start", "read", "terminate"} {
+	for _, kind := range []string{"start", "upload", "download", "read", "write", "interrupt", "terminate", "question"} {
 		for _, mode := range modes {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
 				ctx := t.Context()
@@ -2654,7 +2681,9 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				require.NoError(t, err)
 				var owners, results int
 				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
- (SELECT count(*) FROM processes WHERE tool_call_id=$1) + (SELECT count(*) FROM process_actions WHERE tool_call_id=$1),
+ (SELECT count(*) FROM processes WHERE tool_call_id=$1) +
+ (SELECT count(*) FROM process_actions WHERE tool_call_id=$1) +
+ (SELECT count(*) FROM agent_interactions WHERE tool_call_id=$1 AND interaction_kind='question'),
  (SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1)`, input.ToolCallID).Scan(&owners, &results))
 				require.Zero(t, results)
 				if mode == "before commit" {
@@ -2686,7 +2715,7 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 }
 
 func TestProcessOwnershipTransferOverlappingReplay(t *testing.T) {
-	for _, kind := range []string{"start", "read", "terminate"} {
+	for _, kind := range []string{"start", "upload", "download", "read", "write", "interrupt", "terminate", "question"} {
 		t.Run(kind, func(t *testing.T) {
 			f, input, plan, conflicting, query := processTransferCommandForTest(t, kind)
 			assertOverlappingCommandReplay(t, f.Store, input, plan, query, nil)
@@ -2697,7 +2726,7 @@ func TestProcessOwnershipTransferOverlappingReplay(t *testing.T) {
 }
 
 func TestProcessOverlappingReplayAfterMachineDeletion(t *testing.T) {
-	for _, kind := range []string{"start", "read", "terminate"} {
+	for _, kind := range []string{"start", "upload", "download", "read", "write", "interrupt", "terminate"} {
 		t.Run(kind, func(t *testing.T) {
 			f, input, plan, conflicting, query := processTransferCommandForTest(t, kind)
 			result := assertOverlappingCommandReplay(t, f.Store, input, plan, query, func() {
@@ -2770,5 +2799,557 @@ func TestToolCompletionCoordinatesOnlyFinishedBatch(t *testing.T) {
 			input.Completion.LeaseLost(func() { canceled.Store(true) })
 			require.Equal(t, !last, canceled.Load())
 		})
+	}
+}
+
+func replayAuditCompletion() executionstore.ToolCallCompletionInput {
+	return executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded,
+		ResultContentParts: json.RawMessage(`[{"type":"text","text":"done"}]`)}
+}
+
+func replayAuditCommand(
+	t *testing.T, name string,
+) (*Store, executionstore.ExecuteToolCallInput, executionstore.ToolCallPlan) {
+	t.Helper()
+	ctx := t.Context()
+	var store *Store
+	var input executionstore.ExecuteToolCallInput
+	var command executionstore.ToolCallCommand
+	completion := replayAuditCompletion()
+	switch name {
+	case "custom_transfer", "permission_transfer":
+		f := newProcessDaemonFixture(t, ctx, "deferred-batch")
+		deferred := customProcessToolCallBatchItem("external", "custom")
+		if name == "permission_transfer" {
+			deferred = builtInProcessToolCallBatchItem("permission", "ask_question")
+			deferred.Allowed = false
+		}
+		ids := createToolCallBatchForProcessTest(t, ctx, f, "deferred-batch", []processToolCallBatchItem{
+			deferred, builtInProcessToolCallBatchItem("last", "list_agents"),
+		})
+		if name == "permission_transfer" {
+			request, err := toolpermission.ParseRequest(permissionRequestForStorageTest(t, "ask_question"))
+			require.NoError(t, err)
+			_, err = f.Store.Execution().CreatePermissionInteraction(ctx, executionstore.CreatePermissionInteractionInput{
+				ProjectID: testProjectID, AgentID: f.AgentID, ToolCallID: ids[0], RuntimeLockID: f.Lock.ID, Request: request,
+			})
+			require.NoError(t, err)
+		}
+		store = f.Store
+		input = executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+			RuntimeLockID: f.Lock.ID, ToolCallID: ids[1]}
+		command = executionstore.CompleteToolCallInExecution(completion)
+	case "stop_process_already_stopped":
+		f := newProcessDaemonFixture(t, ctx, "already-stopped-audit")
+		process := startRunningProcessForReadTest(t, ctx, f, "already-stopped-audit",
+			json.RawMessage(`{"output":"ready","cursor":0,"next_cursor":5,"truncated":false}`))
+		_, err := f.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+			ProjectID: testProjectID, AgentID: f.AgentID, ID: process.ID, Authority: f.authority(),
+			State: executionstore.ProcessStateExited, ExitCode: new(0), SourceEndedAt: f.Now.Add(3 * time.Second), Result: json.RawMessage(`{}`),
+		})
+		require.NoError(t, err)
+		id := createToolCallForProcessTest(t, ctx, f, "already-stopped-audit", "stop_process")
+		store = f.Store
+		input = executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+			RuntimeLockID: f.Lock.ID, ToolCallID: id}
+		command = executionstore.StopProcessForToolCall(executionstore.CreateProcessActionInput{
+			ProcessID: process.ID, ActionKind: executionstore.ProcessActionKindTerminate, Payload: json.RawMessage(`{}`),
+		}, completion)
+	case "create_machine", "delete_machine":
+		f := newMachineLifecycleLockOrderFixture(t, ctx, "audit-machine")
+		store = f.store
+		if name == "create_machine" {
+			_, err := store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
+				ProjectID: testProjectID, AgentID: f.agent.ID, ID: f.deleteToolCallID, RuntimeLockID: f.runtimeLock.ID,
+				Outcome: completion.Outcome, ResultContentParts: completion.ResultContentParts,
+			})
+			require.NoError(t, err)
+			input = f.transaction(f.createToolCallID)
+			command = executionstore.CreatePoolMachineForToolCall(executionstore.CreatePoolMachineInput{
+				MachinePoolID: f.machinePool.ID}, acceptedPoolMachineCompletionForTest)
+		} else {
+			created, err := f.createMachineOnce(ctx)
+			require.NoError(t, err)
+			input = f.transaction(f.deleteToolCallID)
+			command = executionstore.DeletePoolMachineForToolCall(executionstore.DeletePoolMachineInput{
+				MachineID: created.Machine.Machine.ID},
+				func(executionstore.PoolMachineRecord) (executionstore.ToolCallCompletionInput, error) {
+					return completion, nil
+				})
+		}
+	case "set_interaction_handler", "clear_interaction_handler":
+		f := newIntegrationInteractionFixture(t)
+		store, input = f.store, f.selectionCall(t)
+		key := "chat"
+		if name == "clear_interaction_handler" {
+			key = ""
+		}
+		var err error
+		command, err = handlerSelectionPlan(key, `{}`)(nil)
+		require.NoError(t, err)
+	case "spawn_agent", "send_agent_message", "stop_agent", "archive_agent":
+		f, parent, child := executionLockOrderAgents(t, true)
+		store = f.Store
+		agent, err := store.Execution().GetAgentInProject(ctx, testProjectID, parent)
+		require.NoError(t, err)
+		lease, err := store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, parent,
+			testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+		require.NoError(t, err)
+		ids := createReadyToolCallsForTest(t, ctx, store, parent, f.UserID, agent.CurrentConfigID, lease,
+			"audit-subagent", []toolCallSpecForTest{{Label: "call", Name: name, Input: json.RawMessage(`{}`)}})
+		input = executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: parent,
+			RuntimeLockID: lease.ID, ToolCallID: ids["call"]}
+		switch name {
+		case "spawn_agent":
+			command = executionstore.LaunchSubagentForToolCall(executionstore.LaunchAgentInput{
+				ProjectID: testProjectID, AgentConfigID: agent.CurrentConfigID, LaunchedBy: systemPrincipalForTest(parent),
+				IdempotencyKey: "spawn:" + input.ToolCallID.String(),
+				Subagent: &executionstore.SubagentLaunch{
+					ParentAgentID: parent, Key: "fork", MaxDepth: agentconfig.MaxSubagentDepth,
+				},
+			}, func(executionstore.LaunchAgentResult) (executionstore.ToolCallCompletionInput, error) {
+				return completion, nil
+			})
+		case "send_agent_message":
+			command = executionstore.SendSubagentMessageForToolCall(executionstore.SendSubagentMessageInput{
+				TargetAgentID: child, Message: "continue"}, completion)
+		default:
+			command = executionstore.StopSubagentForToolCall(executionstore.StopSubagentInput{
+				TargetAgentID: child, Archive: name == "archive_agent"}, completion)
+		}
+	default:
+		f := newProcessDaemonFixture(t, ctx, "audit-completion")
+		store = f.Store
+		kind := "built_in"
+		if name == "mcp" {
+			kind = "mcp"
+		}
+		id := createTypedToolCallForProcessTest(t, ctx, f, "audit-completion", name, kind, true)
+		input = executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: f.AgentID,
+			RuntimeLockID: f.Lock.ID, ToolCallID: id}
+		command = executionstore.CompleteToolCallInExecution(completion)
+	}
+	input.RootAgentID = input.AgentID
+	require.NoError(t, store.pool.QueryRow(ctx, `SELECT model_output_id FROM tool_calls WHERE id=$1`,
+		input.ToolCallID).Scan(&input.BatchOutputID))
+	return store, input, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		return command, nil
+	}
+}
+
+func TestReplayAuditCommandMatrix(t *testing.T) {
+	names := []string{"list_processes", "list_machines", "inspect_machine", "read_agent", "list_agents",
+		"tool_search", "list_interaction_handlers", "list_files", "read_file", "write_file", "search_files",
+		"web_search", "web_fetch", "skill", "mcp", "integration", "create_machine", "delete_machine",
+		"set_interaction_handler", "clear_interaction_handler", "spawn_agent", "send_agent_message", "stop_agent", "archive_agent",
+		"custom_transfer", "permission_transfer", "stop_process_already_stopped"}
+	for _, name := range names {
+		for _, scenario := range []string{"lost_ack", "overlap"} {
+			t.Run(name+"/"+scenario, func(t *testing.T) {
+				store, input, plan := replayAuditCommand(t, name)
+				expectedStep := executionstore.StepFinished
+				if strings.HasSuffix(name, "_transfer") {
+					expectedStep = executionstore.StepTransferred
+				}
+				if scenario == "overlap" {
+					result := assertOverlappingCommandReplay(t, store, input, plan, "GetToolCall", nil)
+					require.Equal(t, expectedStep, result.StepDisposition)
+					return
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				var newer uuid.UUID
+				var acquireErr error
+				store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+					return stepFaultTx{Tx: tx, armed: armed, committed: true, after: func() {
+						lease, err := store.Execution().AcquireAgentRuntimeLock(t.Context(), input.ProjectID, input.AgentID,
+							testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+						newer, acquireErr = lease.ID, err
+					}}
+				})
+				result, err := store.Execution().ExecuteToolCall(t.Context(), input, plan)
+				require.NoError(t, err)
+				require.NoError(t, acquireErr)
+				require.True(t, result.Applied)
+				require.Equal(t, expectedStep, result.StepDisposition)
+				replayed, err := store.Execution().ExecuteToolCall(t.Context(), input, plan)
+				require.NoError(t, err)
+				require.False(t, replayed.Applied)
+				require.JSONEq(t, string(result.Completed.ResultContentParts), string(replayed.Completed.ResultContentParts))
+				var count int
+				require.NoError(t, store.pool.QueryRow(t.Context(),
+					`SELECT count(*) FROM agent_runtime_locks WHERE id=$1`, newer).Scan(&count))
+				require.Equal(t, 1, count)
+				require.NoError(t, store.pool.QueryRow(t.Context(),
+					`SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1`, input.ToolCallID).Scan(&count))
+				require.Equal(t, 1, count)
+			})
+		}
+	}
+}
+
+func TestRecordedToolReplayBeforePlanning(t *testing.T) {
+	for _, name := range []string{"inspect_machine", "create_machine", "delete_machine", "spawn_agent",
+		"send_agent_message", "stop_agent", "set_interaction_handler", "question", "start", "read"} {
+		t.Run(name, func(t *testing.T) {
+			var store *Store
+			var input executionstore.ExecuteToolCallInput
+			var plan executionstore.ToolCallPlan
+			if name == "question" || name == "start" || name == "read" {
+				f, call, command, _, _ := processTransferCommandForTest(t, name)
+				store, input, plan = f.Store, call, command
+			} else {
+				store, input, plan = replayAuditCommand(t, name)
+			}
+			input.ResolveRecorded = true
+			var unavailable atomic.Bool
+			guarded := func(r *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+				if unavailable.Load() {
+					return nil, storeerr.ErrUnauthorized
+				}
+				return plan(r)
+			}
+			assertOverlappingCommandReplay(t, store, input, guarded, "GetToolCall", func() { unavailable.Store(true) })
+			_, err := store.Execution().ExecuteToolCall(t.Context(), input, guarded)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestExternalToolCompletionReplayAudit(t *testing.T) {
+	for _, kind := range []string{"built_in", "mcp", "custom"} {
+		for _, scenario := range []string{"lost_ack", "overlap"} {
+			t.Run(kind+"/"+scenario, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				defer cancel()
+				f := newProcessDaemonFixture(t, ctx, "external-replay")
+				id := createTypedToolCallForProcessTest(t, ctx, f, "external-replay", "external", kind, true)
+				completion := replayAuditCompletion()
+				if kind != "custom" {
+					_, err := startAsyncToolCallForTest(ctx, f.Store, executionstore.ExecuteToolCallInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID, ToolCallID: id,
+					})
+					require.NoError(t, err)
+				}
+				complete := func() (executionstore.ToolCallRecord, error) {
+					if kind == "custom" {
+						result, err := f.Store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+							ProjectID: testProjectID, AgentID: f.AgentID, ID: id, Outcome: completion.Outcome,
+							ContentBlocks: completion.ResultContentParts,
+						})
+						return result.ToolCall, err
+					}
+					return f.Store.Execution().CompleteRuntimeToolCall(ctx, executionstore.CompleteRuntimeToolCallInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, ID: id, RuntimeLockID: f.Lock.ID,
+						Outcome: completion.Outcome, ResultContentParts: completion.ResultContentParts,
+					})
+				}
+				var newer uuid.UUID
+				advance := func() {
+					require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+					lease, err := f.Store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, f.AgentID,
+						testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+					require.NoError(t, err)
+					newer = lease.ID
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				var original executionstore.ToolCallRecord
+				if scenario == "lost_ack" {
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return stepFaultTx{Tx: tx, armed: armed, committed: true, after: advance}
+					})
+					var err error
+					original, err = complete()
+					require.NoError(t, err)
+				} else {
+					entered, proceed := make(chan struct{}), make(chan struct{})
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+					})
+					done := integrationdb.RunAsync(complete)
+					select {
+					case <-entered:
+					case <-ctx.Done():
+						t.Fatal("completion did not reach agent lock")
+					}
+					var err error
+					original, err = complete()
+					require.NoError(t, err)
+					advance()
+					close(proceed)
+					replayed := integrationdb.Await(t, done, "external completion replay")
+					require.NoError(t, replayed.Err)
+					require.JSONEq(t, string(original.ResultContentParts), string(replayed.Value.ResultContentParts))
+				}
+				replayed, err := complete()
+				require.NoError(t, err)
+				require.JSONEq(t, string(original.ResultContentParts), string(replayed.ResultContentParts))
+				var results, leases int
+				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM tool_call_results WHERE tool_call_id=$1),
+ (SELECT count(*) FROM agent_runtime_locks WHERE id=$2)`, id, newer).Scan(&results, &leases))
+				require.Equal(t, 1, results)
+				require.Equal(t, 1, leases)
+				completion.Outcome = executionstore.ToolResultOutcomeFailed
+				_, err = complete()
+				require.Error(t, err)
+			})
+		}
+	}
+}
+
+type permissionReplayGuardTx struct{ pgx.Tx }
+
+func (tx permissionReplayGuardTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "name: GetInteractionSelection ") {
+		return stepErrorRow{storeerr.ErrUnauthorized}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+func TestInteractionReplayAudit(t *testing.T) {
+	for _, kind := range []string{"permission_open", "permission_allow", "permission_deny", "question_answer"} {
+		for _, scenario := range []string{"lost_ack", "overlap"} {
+			t.Run(kind+"/"+scenario, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				defer cancel()
+				f := newProcessDaemonFixture(t, ctx, "interaction-audit")
+				id := createTypedToolCallForProcessTest(t, ctx, f, "interaction-audit",
+					"ask_question", "built_in", kind == "question_answer")
+				request, err := toolpermission.ParseRequest(permissionRequestForStorageTest(t, "ask_question"))
+				require.NoError(t, err)
+				open := func() (executionstore.AgentInteractionRecord, error) {
+					return f.Store.Execution().CreatePermissionInteraction(ctx, executionstore.CreatePermissionInteractionInput{
+						ProjectID: testProjectID, AgentID: f.AgentID, ToolCallID: id, RuntimeLockID: f.Lock.ID, Request: request,
+					})
+				}
+				var interaction executionstore.AgentInteractionRecord
+				if kind == "question_answer" {
+					interaction = createQuestionInteractionForTest(t, ctx, f, id)
+				} else if kind != "permission_open" {
+					interaction, err = open()
+					require.NoError(t, err)
+				}
+				operation := open
+				if kind != "permission_open" {
+					option := 0
+					if kind == "permission_deny" {
+						option = toolpermission.DenyOptionIndex
+					}
+					operation = func() (executionstore.AgentInteractionRecord, error) {
+						return f.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+							ProjectID: testProjectID, AgentID: f.AgentID, ID: interaction.ID,
+							Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{option}}}},
+						})
+					}
+				}
+				var newer uuid.UUID
+				advance := func() {
+					require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+					lease, err := f.Store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, f.AgentID,
+						testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+					require.NoError(t, err)
+					newer = lease.ID
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				var original executionstore.AgentInteractionRecord
+				if scenario == "lost_ack" {
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return stepFaultTx{Tx: tx, armed: armed, committed: true, after: advance}
+					})
+					original, err = operation()
+					require.NoError(t, err)
+				} else {
+					entered, proceed := make(chan struct{}), make(chan struct{})
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+					})
+					done := integrationdb.RunAsync(operation)
+					select {
+					case <-entered:
+					case <-ctx.Done():
+						t.Fatal("interaction did not reach agent lock")
+					}
+					original, err = operation()
+					require.NoError(t, err)
+					advance()
+					close(proceed)
+					replayed := integrationdb.Await(t, done, "interaction replay")
+					require.NoError(t, replayed.Err)
+					require.Equal(t, original.ID, replayed.Value.ID)
+					require.Equal(t, original.ResolvedByInputID, replayed.Value.ResolvedByInputID)
+				}
+				if kind == "permission_open" {
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return permissionReplayGuardTx{tx}
+					})
+				}
+				replayed, err := operation()
+				require.NoError(t, err)
+				require.Equal(t, original.ID, replayed.ID)
+				require.Equal(t, original.ResolvedByInputID, replayed.ResolvedByInputID)
+				var interactions, leases int
+				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM agent_interactions WHERE tool_call_id=$1),
+ (SELECT count(*) FROM agent_runtime_locks WHERE id=$2)`, id, newer).Scan(&interactions, &leases))
+				require.Equal(t, 1, interactions)
+				require.Equal(t, 1, leases)
+				if kind == "permission_open" {
+					request.Form.Questions[0].Prompt = "A different permission request"
+					_, err = operation()
+					require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
+				}
+			})
+		}
+	}
+}
+
+func TestInteractionHandlerCallbackReplayAudit(t *testing.T) {
+	for _, kind := range []string{"question", "permission_allow", "permission_deny"} {
+		for _, scenario := range []string{"lost_ack", "overlap"} {
+			t.Run(kind+"/"+scenario, func(t *testing.T) {
+				f := newIntegrationInteractionFixture(t)
+				var interaction executionstore.AgentInteractionRecord
+				if kind == "question" {
+					interaction = f.questionForOrigin(t, f.a.ID)
+				} else {
+					id := createTypedToolCallForProcessTest(t, f.ctx, f.process, "callback-audit", "run_command", "built_in", false)
+					f.selectOrigin(t, f.a.ID)
+					request, err := toolpermission.ParseRequest(permissionRequestForStorageTest(t, "run_command"))
+					require.NoError(t, err)
+					interaction, err = f.store.Execution().CreatePermissionInteraction(f.ctx,
+						executionstore.CreatePermissionInteractionInput{ProjectID: testProjectID, AgentID: f.process.AgentID,
+							ToolCallID: id, RuntimeLockID: f.process.Lock.ID, Request: request})
+					require.NoError(t, err)
+				}
+				input := f.callback(t, interaction, "U_CALLBACK_REPLAY")
+				if kind == "permission_deny" {
+					input.Resolution.Answers[0].OptionIndices = []int{toolpermission.DenyOptionIndex}
+				}
+				operation := func() (executionstore.AgentInteractionRecord, error) {
+					return f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, input)
+				}
+				var newer uuid.UUID
+				advance := func() {
+					require.NoError(t, f.store.Execution().ReleaseAgentRuntimeLock(
+						f.ctx, testProjectID, f.process.AgentID, f.process.Lock.ID))
+					lease, err := f.store.Execution().AcquireAgentRuntimeLock(f.ctx, testProjectID, f.process.AgentID,
+						testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+					require.NoError(t, err)
+					newer = lease.ID
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				var original executionstore.AgentInteractionRecord
+				if scenario == "lost_ack" {
+					f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return stepFaultTx{Tx: tx, armed: armed, committed: true, after: advance}
+					})
+					var err error
+					original, err = operation()
+					require.NoError(t, err)
+				} else {
+					entered, proceed := make(chan struct{}), make(chan struct{})
+					f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+					})
+					done := integrationdb.RunAsync(operation)
+					select {
+					case <-entered:
+					case <-time.After(30 * time.Second):
+						t.Fatal("callback did not reach agent lock")
+					}
+					var err error
+					original, err = operation()
+					require.NoError(t, err)
+					advance()
+					close(proceed)
+					replayed := integrationdb.Await(t, done, "handler callback replay")
+					require.NoError(t, replayed.Err)
+					require.Equal(t, original.ResolvedByInputID, replayed.Value.ResolvedByInputID)
+				}
+				replayed, err := operation()
+				require.NoError(t, err)
+				require.Equal(t, original.ID, replayed.ID)
+				require.Equal(t, original.ResolvedByInputID, replayed.ResolvedByInputID)
+				var count int
+				require.NoError(t, f.store.pool.QueryRow(f.ctx,
+					`SELECT count(*) FROM agent_runtime_locks WHERE id=$1`, newer).Scan(&count))
+				require.Equal(t, 1, count)
+				input.Actor = nil
+				_, err = operation()
+				require.Error(t, err)
+			})
+		}
+	}
+}
+
+func TestRuntimeReleaseReplayAudit(t *testing.T) {
+	for _, reap := range []bool{false, true} {
+		for _, scenario := range []string{"lost_ack", "overlap"} {
+			t.Run(fmt.Sprintf("reap_%t/%s", reap, scenario), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				defer cancel()
+				f := newProcessDaemonFixture(t, ctx, "release-replay-audit")
+				createToolCallForProcessTest(t, ctx, f, "release-replay-audit", "list_agents")
+				if reap {
+					expireAgentRuntimeLockForTest(t, ctx, f.Store, f.Lock.ID)
+				}
+				release := func() error {
+					if reap {
+						_, err := f.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
+						return err
+					}
+					return f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID)
+				}
+				var newer uuid.UUID
+				advance := func() {
+					lease, err := f.Store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, f.AgentID,
+						testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+					require.NoError(t, err)
+					newer = lease.ID
+				}
+				armed := &atomic.Bool{}
+				armed.Store(true)
+				if scenario == "lost_ack" {
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return stepFaultTx{Tx: tx, armed: armed, committed: true, after: advance}
+					})
+					require.Error(t, release())
+				} else {
+					entered, proceed := make(chan struct{}), make(chan struct{})
+					f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+						return lifecycleBarrierTx{Tx: tx, entered: entered, proceed: proceed, armed: armed}
+					})
+					done := integrationdb.RunAsyncError(release)
+					select {
+					case <-entered:
+					case <-ctx.Done():
+						t.Fatal("release did not reach agent lock")
+					}
+					require.NoError(t, release())
+					advance()
+					close(proceed)
+					err := integrationdb.Await(t, done, "release replay")
+					if reap {
+						require.NoError(t, err)
+					} else {
+						require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+					}
+				}
+				err := release()
+				if reap {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+				}
+				var current uuid.UUID
+				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT id FROM agent_runtime_locks WHERE agent_id=$1`,
+					f.AgentID).Scan(&current))
+				require.Equal(t, newer, current)
+			})
+		}
 	}
 }
