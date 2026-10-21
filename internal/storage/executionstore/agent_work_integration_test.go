@@ -164,7 +164,7 @@ func TestClaimNextAgentWorkReturnsDurablePreparedModel(t *testing.T) {
 
 func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 	for _, mode := range []string{
-		"before commit", "resolved", "newer claim", "resolution unavailable", "cleanup canceled",
+		"before commit", "resolved", "newer claim", "resolution unavailable", "drain canceled",
 	} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
@@ -182,17 +182,16 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 						ResultContentParts: json.RawMessage(`[{"type":"text","text":"database result"}]`)}, true, nil
 				}, true, nil
 			}
-			executionCtx, cancelExecution := context.WithCancel(ctx)
-			defer cancelExecution()
-			cleanup, cancelCleanup := context.WithCancel(ctx)
-			defer cancelCleanup()
-			executionCtx = cleanupcontext.WithLifetime(executionCtx, cleanup)
+			drainCtx, endDrain := context.WithCancel(ctx)
+			defer endDrain()
+			claimCtx, stopClaiming := context.WithCancel(cleanupcontext.WithDrain(drainCtx, drainCtx))
+			defer stopClaiming()
 			armed := &atomic.Bool{}
 			armed.Store(true)
 			var newer executionstore.ClaimedAgentWork
 			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
 				return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: func() {
-					cancelExecution()
+					stopClaiming()
 					if mode == "newer claim" {
 						var found bool
 						var err error
@@ -209,7 +208,7 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 					if mode == "resolution unavailable" {
 						return io.ErrClosedPipe
 					}
-					if mode == "cleanup canceled" {
+					if mode == "drain canceled" {
 						<-ctx.Done()
 					}
 					return ctx.Err()
@@ -220,7 +219,7 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 				found bool
 			}
 			done := integrationdb.RunAsync(func() (result, error) {
-				claim, found, err := f.Store.Execution().ClaimNextAgentWork(executionCtx, input)
+				claim, found, err := f.Store.Execution().ClaimNextAgentWork(claimCtx, input)
 				return result{claim, found}, err
 			})
 			select {
@@ -228,8 +227,8 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("claim did not resolve the tool result")
 			}
-			if mode == "cleanup canceled" {
-				cancelCleanup()
+			if mode == "drain canceled" {
+				endDrain()
 			}
 			outcome := integrationdb.Await(t, done, "database claim resolution")
 			if mode == "resolved" || mode == "newer claim" {
@@ -241,7 +240,7 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 				require.False(t, outcome.Value.found)
 				require.Equal(t, executionstore.ClaimedAgentWork{}, outcome.Value.claim)
 			}
-			if mode == "cleanup canceled" {
+			if mode == "drain canceled" {
 				require.ErrorIs(t, outcome.Err, context.Canceled)
 			}
 			var results, leases, wakes int
