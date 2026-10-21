@@ -1,4 +1,4 @@
-package agentconfig
+package openapispec
 
 import (
 	"encoding/json"
@@ -6,31 +6,29 @@ import (
 	"strings"
 	"sync"
 
-	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	OpenAPIDefinitionComponent      = "AgentConfigDefinition"
-	OpenAPIToolsDefinitionComponent = "AgentConfigToolsDefinition"
-)
+const schemaRefPrefix = "#/components/schemas/"
 
-const openAPISchemaRefPrefix = "#/components/schemas/"
-
-var specComponentSchemas = sync.OnceValues(func() (map[string]any, error) {
+var componentSchemas = sync.OnceValues(func() (map[string]any, error) {
 	var spec struct {
 		Components struct {
 			Schemas map[string]any `yaml:"schemas"`
 		} `yaml:"components"`
 	}
-	if err := yaml.Unmarshal(openapispec.YAML, &spec); err != nil {
+	if err := yaml.Unmarshal(YAML, &spec); err != nil {
 		return nil, fmt.Errorf("parse openapi spec: %w", err)
 	}
 	return spec.Components.Schemas, nil
 })
 
-func specJSONSchema(component string) ([]byte, error) {
-	schemas, err := specComponentSchemas()
+func ComponentSchemas() (map[string]any, error) {
+	return componentSchemas()
+}
+
+func ComponentJSONSchema(component string) ([]byte, error) {
+	schemas, err := ComponentSchemas()
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +56,7 @@ func specJSONSchema(component string) ([]byte, error) {
 					continue
 				}
 				ref, _ := value.(string)
-				name, ok := strings.CutPrefix(ref, openAPISchemaRefPrefix)
+				name, ok := strings.CutPrefix(ref, schemaRefPrefix)
 				if !ok {
 					return nil, fmt.Errorf("unsupported $ref %q in %s", ref, component)
 				}
@@ -110,5 +108,5 @@ func specJSONSchema(component string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s JSON schema: %w", component, err)
 	}
-	return canonicalizeJSON(raw), nil
+	return raw, nil
 }

@@ -9,9 +9,12 @@ import (
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
+
+const OpenAPIToolsDefinitionComponent = "AgentConfigToolsDefinition"
 
 type ResolvedTool struct {
 	Name       string
@@ -57,7 +60,7 @@ func compileTools(
 }
 
 var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
-	raw, err := specJSONSchema(OpenAPIToolsDefinitionComponent)
+	raw, err := openapispec.ComponentJSONSchema(OpenAPIToolsDefinitionComponent)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +68,7 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 })
 
 var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
-	schemas, err := specComponentSchemas()
+	schemas, err := openapispec.ComponentSchemas()
 	if err != nil {
 		return nil, err
 	}

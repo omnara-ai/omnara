@@ -109,6 +109,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 		response.GitCredentials = &openapi.CompiledGitCredentials{
 			Integration: credentials.Integration, IntegrationId: integrationID,
+			RepositoryIds: credentials.RepositoryIDs, ReadOnly: credentials.ReadOnly,
 		}
 	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))

@@ -40,10 +40,12 @@ type GitHubSettings struct {
 	CodeWrite bool                    `json:"code_write,omitempty"`
 }
 
+type ChatSettings struct {
+	Launcher *ChatLauncherSettings `json:"launcher,omitempty"`
+}
+
 func ReadChatLauncher(raw json.RawMessage) (*ChatLauncherSettings, error) {
-	var settings struct {
-		Launcher *ChatLauncherSettings `json:"launcher"`
-	}
+	var settings ChatSettings
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return nil, err
 	}
@@ -73,7 +75,7 @@ func ChatLaunchProfiles(raw json.RawMessage) ([]uuid.UUID, error) {
 }
 
 var chatSettings = &SettingsDefinition{
-	InputSchema:      json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profiles"],"properties":{"profiles":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$"},"title":"Profiles","description":"One profile launches immediately; several offer a choice of exactly one."}}}}}`),
+	SchemaComponent:  "ChatIntegrationSettings",
 	Description:      "Launch from a mention using one profile or a menu of profiles.",
 	ValidateSettings: func(raw json.RawMessage) error { _, err := ChatLaunchProfiles(raw); return err },
 }
@@ -102,8 +104,8 @@ func newChatLauncher(provider Provider) *LauncherDefinition {
 }
 
 var githubSettings = &SettingsDefinition{
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened","both"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}},"code_write":{"type":"boolean","title":"Let agents push code","description":"Git credentials can push. Off by default: read-only."}}}`),
-	Description: "Launch on PR openings, mentions, or both, from someone with repository write access.",
+	SchemaComponent: "GitHubIntegrationSettings",
+	Description:     "Launch on PR openings, mentions, or both, from someone with repository write access.",
 	ValidateSettings: func(raw json.RawMessage) error {
 		settings, err := ReadGitHubSettings(raw)
 		if err != nil || settings.Launcher == nil {

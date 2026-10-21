@@ -435,6 +435,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"CreateSlackSetupRequest.app_name":                        "",
 		"CreateGitHubSetupRequest.app_name":                       "",
 		"GitHubInstallations.name":                                "",
+		"GitHubRepository.name":                                   "",
 		"CurrentUserIdentity.display_name":                        "",
 		"DiscoveredProviderModel.display_name":                    "",
 		"ExternalActorParams.display_name":                        "",

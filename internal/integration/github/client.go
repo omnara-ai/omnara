@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
@@ -43,7 +44,7 @@ type Client struct {
 	sharedTokens   *installationTokenCache
 	tokenIdentity  installationTokenIdentity
 	gitTokenGate   chan struct{}
-	gitCredentials map[string]InstallationCredentials
+	gitCredentials *simplelru.LRU[string, InstallationCredentials]
 }
 
 type appClient struct {
@@ -71,9 +72,13 @@ func NewClient(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	gitCredentials, err := simplelru.NewLRU[string, InstallationCredentials](gitCredentialCacheSize, nil)
+	if err != nil {
+		return nil, err
+	}
 	client := &Client{
 		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
-		gitTokenGate: make(chan struct{}, 1), gitCredentials: map[string]InstallationCredentials{},
+		gitTokenGate: make(chan struct{}, 1), gitCredentials: gitCredentials,
 	}
 	if shareTokens {
 		client.sharedTokens, err = sharedInstallationTokens()

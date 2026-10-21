@@ -2,12 +2,18 @@ import * as z from 'zod'
 
 import type {
   CreateIntegrationRequest,
+  GitHubIntegrationLauncher,
   IntegrationKind,
   IntegrationProviderConfig,
   IntegrationSettings,
   UpdateIntegrationRequest,
 } from './generated/types.gen'
-import { zAgentProfileId, zIntegrationName } from './generated/zod.gen'
+import {
+  zAgentProfileId,
+  zChatIntegrationLauncher,
+  zGitHubIntegrationLauncher,
+  zIntegrationName,
+} from './generated/zod.gen'
 
 const discordPublicKeyPattern = '[a-fA-F0-9]{64}'
 const discordPublicKey = z.string().regex(new RegExp(`^${discordPublicKeyPattern}$`))
@@ -15,23 +21,8 @@ const profilesSchema = z
   .array(zAgentProfileId)
   .max(16)
   .refine((ids) => new Set(ids).size === ids.length, 'Choose each profile only once.')
-const repositorySchema = z
-  .string()
-  .trim()
-  .regex(/^[1-9][0-9]*$/, 'Enter a positive repository ID without leading zeros.')
-  .refine((id) => BigInt(id) <= 9223372036854775807n, 'The repository ID is too large.')
-const triggerSchema = z.enum(['mention', 'pull_request_opened', 'both'])
-const chatLauncherSchema = z.object({ profiles: profilesSchema.min(1) }).strict()
-const githubLauncherSchema = z
-  .object({
-    profile: zAgentProfileId,
-    trigger: triggerSchema,
-    repository_id: repositorySchema.optional(),
-  })
-  .strict()
-
-export type ChatIntegrationLauncher = z.output<typeof chatLauncherSchema>
-export type GitHubIntegrationLauncher = z.output<typeof githubLauncherSchema>
+const chatLauncherSchema = z.strictObject(zChatIntegrationLauncher.shape)
+const githubLauncherSchema = z.strictObject(zGitHubIntegrationLauncher.shape)
 
 export function chatIntegrationLauncher(settings: IntegrationSettings) {
   return settings.launcher === undefined ? undefined : chatLauncherSchema.parse(settings.launcher)
@@ -87,10 +78,11 @@ export function profileIntegrationSetup(input: {
       .parse(input.profileIds ?? (input.profileId ? [input.profileId] : []))
     if (input.integrationKind === 'github_pr') {
       if (profiles.length !== 1) throw new Error('GitHub requires exactly one profile.')
+      const repositoryId = input.repositoryId?.trim()
       settings.launcher = githubLauncherSchema.parse({
         profile: profiles[0],
         trigger: input.trigger ?? 'both',
-        repository_id: input.repositoryId === '' ? undefined : input.repositoryId,
+        repository_id: repositoryId === '' ? undefined : repositoryId,
       })
     } else {
       if (input.repositoryId || (input.trigger && input.trigger !== 'mention'))

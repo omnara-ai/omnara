@@ -548,10 +548,7 @@ func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFi
 
 const getDaemonGitCredentialsScope = `-- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
-                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
-       coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
-                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS current_integration_id
+       (original_config.compiled_definition->'git_credentials')::jsonb AS git_credentials
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -580,6 +577,7 @@ WHERE process.org_id = $1
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
+  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials'
 `
 
 type GetDaemonGitCredentialsScopeParams struct {
@@ -589,21 +587,15 @@ type GetDaemonGitCredentialsScopeParams struct {
 }
 
 type GetDaemonGitCredentialsScopeRow struct {
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	OriginalIntegrationID uuid.UUID
-	CurrentIntegrationID  uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	GitCredentials json.RawMessage
 }
 
 func (q *Queries) GetDaemonGitCredentialsScope(ctx context.Context, arg GetDaemonGitCredentialsScopeParams) (GetDaemonGitCredentialsScopeRow, error) {
 	row := q.db.QueryRow(ctx, getDaemonGitCredentialsScope, arg.OrgID, arg.MachineID, arg.ProcessID)
 	var i GetDaemonGitCredentialsScopeRow
-	err := row.Scan(
-		&i.ProjectID,
-		&i.AgentID,
-		&i.OriginalIntegrationID,
-		&i.CurrentIntegrationID,
-	)
+	err := row.Scan(&i.ProjectID, &i.AgentID, &i.GitCredentials)
 	return i, err
 }
 

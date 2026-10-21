@@ -148,8 +148,15 @@ func (s strictOpenAPIServer) ListIntegrations(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	namePattern := ""
+	if request.Params.Name != nil {
+		namePattern, err = resourceNameGlobToLike(*request.Params.Name)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+	}
 	page, err := s.server.store.Integrations().ListIntegrations(ctx, integrationstore.ListIntegrationsInput{
-		ProjectID: scope.project.ID, Limit: limit, After: after,
+		ProjectID: scope.project.ID, NamePattern: namePattern, Limit: limit, After: after,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

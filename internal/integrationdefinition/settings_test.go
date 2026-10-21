@@ -3,10 +3,13 @@ package integrationdefinition
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,6 +42,20 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 	} {
 		_, err := ValidateSettings(tc.kind, json.RawMessage(tc.settings))
 		require.Error(t, err, tc.settings)
+	}
+}
+
+func TestSettingsSchemasMatchGoStructs(t *testing.T) {
+	schemas, err := openapispec.ComponentSchemas()
+	require.NoError(t, err)
+	for name, structType := range map[string]reflect.Type{
+		"GitHubIntegrationSettings": reflect.TypeOf(GitHubSettings{}),
+		"GitHubIntegrationLauncher": reflect.TypeOf(GitHubLauncherSettings{}),
+		"ChatIntegrationSettings":   reflect.TypeOf(ChatSettings{}),
+		"ChatIntegrationLauncher":   reflect.TypeOf(ChatLauncherSettings{}),
+	} {
+		schema, _ := schemas[name].(map[string]any)
+		testutil.AssertSchemaMatchesStruct(t, name, schema, structType)
 	}
 }
 
@@ -100,7 +117,6 @@ func TestChatLaunchersMatchProviderMentions(t *testing.T) {
 
 func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 	definition := Definition{
-		Settings: &SettingsDefinition{InputSchema: json.RawMessage(`{"type":"object","required":["enabled"],"additionalProperties":false,"properties":{"enabled":{"type":"boolean"}}}`)},
 		Launcher: &LauncherDefinition{
 			Matches: func(settings json.RawMessage, _ Event) bool { return string(settings) == `{"enabled":true}` },
 			AuthorizeIntent: func(_ json.RawMessage, _ Event, intent LaunchIntent) error {
@@ -110,7 +126,6 @@ func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 				return nil
 			}},
 	}
-	require.NoError(t, definition.Settings.Validate(json.RawMessage(`{"enabled":true}`)))
 	require.NoError(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":true}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
 	require.Error(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":false}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
 	require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{"enabled":true}`), Event{}))

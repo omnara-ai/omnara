@@ -195,6 +195,8 @@ Agents can use a connected integration for HTTPS Git access on `github.com`:
 ```yaml
 git_credentials:
   integration: reviews
+  repository_ids: [123456789]  # optional
+  read_only: true              # optional
 ```
 
 This works independently of PR tools, subscriptions and PR assignment. The GitHub
@@ -203,15 +205,15 @@ profile takes precedence. Subagents do not inherit this capability, including
 from their selected profile. Configure machine access separately and run ordinary
 Git commands with HTTPS repository URLs.
 
-Credentials inherit **all repositories granted to the connected installation**.
+Credentials inherit **all repositories granted to the connected installation**
+unless `repository_ids` lists a subset; find an ID with `gh api repos/OWNER/REPO --jq .id`.
 They are read-only unless **Let agents push code** (`code_write`) is enabled on
-the integration. There are no repository or permission
-filters in this config. The assigned PR and `launcher.repository_id` do not narrow
+the integration and `read_only` isn't set. The assigned PR and `launcher.repository_id` do not narrow
 these credentials. Existing PR tools retain their assigned-PR restrictions.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
 Apps registered through Omnara get **Contents: Read & write**. If an App only
-has **Read-only**, its Git credentials fail while **Let agents push code** is
+has **Read-only**, its write credentials fail while **Let agents push code** is
 enabled; grant **Read & write** in the App's settings and have the installation
 owner approve it. Pushes remain subject to GitHub's repository rules and can't
 change files under `.github/workflows`. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).

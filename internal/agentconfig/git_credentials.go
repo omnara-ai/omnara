@@ -1,18 +1,24 @@
 package agentconfig
 
 import (
+	"slices"
+
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type GitCredentialsSource struct {
-	Integration string `json:"integration"`
+	Integration   string  `json:"integration"`
+	RepositoryIDs []int64 `json:"repository_ids,omitempty"`
+	ReadOnly      bool    `json:"read_only,omitempty"`
 }
 
 type GitCredentialsCompiled struct {
 	Integration   string    `json:"integration"`
 	IntegrationID uuid.UUID `json:"integration_id"`
+	RepositoryIDs []int64   `json:"repository_ids,omitempty"`
+	ReadOnly      bool      `json:"read_only,omitempty"`
 }
 
 func compileGitCredentials(source GitCredentialsSource, opts CompileOptions) (GitCredentialsCompiled, error) {
@@ -30,5 +36,6 @@ func compileGitCredentials(source GitCredentialsSource, opts CompileOptions) (Gi
 	}
 	return GitCredentialsCompiled{
 		Integration: source.Integration, IntegrationID: integration.IntegrationID,
+		RepositoryIDs: slices.Sorted(slices.Values(source.RepositoryIDs)), ReadOnly: source.ReadOnly,
 	}, nil
 }

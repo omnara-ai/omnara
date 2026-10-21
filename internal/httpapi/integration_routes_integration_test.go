@@ -112,6 +112,26 @@ func TestIntegrationHTTPCRUDAndPagination(t *testing.T) {
 	require.NotEqual(t, alphaID, replacement["id"], "name reuse creates a distinct identity")
 }
 
+func TestListIntegrationsFiltersByName(t *testing.T) {
+	t.Parallel()
+	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
+	project := bootstrapPublicHTTPProject(t, handler, "integration-name-filter")
+	headers := authHeaders(project.AdminToken)
+	path := project.ProjectPath + "/integrations"
+	var reviewsID any
+	for _, name := range []string{"reviews", "support"} {
+		created := requestJSONWithHeaders(t, handler, http.MethodPost, path,
+			integrationHTTPJSON(t, integrationHTTPBody(name, "slack_thread")), "", http.StatusCreated, headers)
+		if name == "reviews" {
+			reviewsID = created["id"]
+		}
+	}
+	listed := requestJSONWithHeaders(t, handler, http.MethodGet, path+"?name=Reviews", "", "", http.StatusOK, headers)
+	rows := testutil.RequireType[[]any](t, listed["data"])
+	require.Len(t, rows, 1)
+	require.Equal(t, reviewsID, testutil.RequireType[map[string]any](t, rows[0])["id"])
+}
+
 func TestIntegrationHTTPManagementAuthorizationAndIsolation(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

@@ -1,4 +1,4 @@
-import { type AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
+import type { AgentConfigDefinition, AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isNode, type Node } from 'yaml'
 
@@ -88,7 +88,7 @@ export interface BasicConfig {
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
   interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
-  gitCredentialsIntegration: string
+  gitCredentials: AgentConfigDefinition['git_credentials']
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
   eventWebhookUrl: string
@@ -127,7 +127,7 @@ export const emptyBasicConfig: BasicConfig = {
   machineSources: [],
   tools: [],
   interactionHandlers: {},
-  gitCredentialsIntegration: '',
+  gitCredentials: undefined,
   mcpServers: [],
   eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
@@ -201,7 +201,7 @@ export function useAgentBuilderForm(
     machineSources: draft.machineSources,
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
-    gitCredentialsIntegration: draft.gitCredentialsIntegration,
+    gitCredentials: draft.gitCredentials,
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
@@ -227,8 +227,8 @@ export function useAgentBuilderForm(
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
     },
-    setGitCredentialsIntegration: (gitCredentialsIntegration: string) => {
-      patch({ gitCredentialsIntegration })
+    setGitCredentials: (gitCredentials: BasicConfig['gitCredentials']) => {
+      patch({ gitCredentials })
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
@@ -374,9 +374,9 @@ function applyToDocument(
     set,
     del,
   )
-  if (config.gitCredentialsIntegration !== (baseline?.gitCredentialsIntegration ?? '')) {
-    if (config.gitCredentialsIntegration === '') del(['git_credentials'])
-    else set(['git_credentials', 'integration'], config.gitCredentialsIntegration)
+  if (!deepEqual(config.gitCredentials, baseline?.gitCredentials)) {
+    if (config.gitCredentials == null) del(['git_credentials'])
+    else set(['git_credentials'], config.gitCredentials)
   }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)

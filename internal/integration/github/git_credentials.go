@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const gitCredentialExpiryMargin = 15 * time.Minute
+const (
+	gitCredentialExpiryMargin = 15 * time.Minute
+	gitCredentialCacheSize    = 1024
+)
 
 var ErrContentsPermissionRequired = errors.New(
 	"github installation requires Contents read or write permission for Git credentials; " +
@@ -21,8 +24,11 @@ type InstallationCredentials struct {
 }
 
 // InstallationGitCredentials requires caller-owned live authorization checks
-// before and after every call, including cache hits.
-func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (InstallationCredentials, error) {
+// before and after every call, including cache hits, when the caller hands out
+// the credentials.
+func (c *Client) InstallationGitCredentials(
+	ctx context.Context, write bool, repositoryIDs []int64,
+) (InstallationCredentials, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	select {
@@ -38,7 +44,11 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 	if write {
 		permission = "write"
 	}
-	if cached := c.gitCredentials[permission]; cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
+	key := permission
+	for _, id := range repositoryIDs {
+		key += "/" + strconv.FormatInt(id, 10)
+	}
+	if cached, ok := c.gitCredentials.Get(key); ok && cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
 		return cached, nil
 	}
 	jwt, err := c.appJWT()
@@ -49,7 +59,10 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 		InstallationCredentials
 		Permissions map[string]string `json:"permissions"`
 	}
-	input := map[string]map[string]string{"permissions": {"contents": permission, "metadata": "read"}}
+	input := struct {
+		Permissions   map[string]string `json:"permissions"`
+		RepositoryIDs []int64           `json:"repository_ids,omitempty"`
+	}{map[string]string{"contents": permission, "metadata": "read"}, repositoryIDs}
 	path := "/app/installations/" + strconv.FormatInt(c.installationID, 10) + "/access_tokens"
 	if _, err := c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false); err != nil {
 		return InstallationCredentials{}, err
@@ -69,6 +82,39 @@ func (c *Client) InstallationGitCredentials(ctx context.Context, write bool) (In
 		_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", result.Token, jsonMediaType, nil, true)
 		return InstallationCredentials{}, ErrContentsPermissionRequired
 	}
-	c.gitCredentials[permission] = result.InstallationCredentials
+	c.gitCredentials.Add(key, result.InstallationCredentials)
 	return result.InstallationCredentials, nil
+}
+
+func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repository, int, error) {
+	if page < 1 {
+		return nil, 0, errors.New("github repository page must be positive")
+	}
+	credentials, err := c.InstallationGitCredentials(ctx, false, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
+	defer cancel()
+	var listing struct {
+		Repositories []Repository `json:"repositories"`
+	}
+	path := "/installation/repositories?per_page=100&page=" + strconv.Itoa(page)
+	header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	if listing.Repositories == nil || len(listing.Repositories) > 100 {
+		return nil, 0, &APIError{Code: InvalidResponse}
+	}
+	for _, repository := range listing.Repositories {
+		if repository.ID <= 0 || !validRepositorySegment(repository.Name) {
+			return nil, 0, &APIError{Code: InvalidResponse}
+		}
+	}
+	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")
+	if err != nil {
+		return nil, 0, err
+	}
+	return listing.Repositories, next, nil
 }

@@ -2,12 +2,14 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -25,9 +27,9 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonGitCredentialsScope struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	IntegrationID uuid.UUID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	agentconfig.GitCredentialsCompiled
 }
 
 func (s *Store) GetDaemonGitCredentialsScope(
@@ -48,13 +50,14 @@ func (s *Store) GetDaemonGitCredentialsScope(
 	if err != nil {
 		return DaemonGitCredentialsScope{}, false, fmt.Errorf("load daemon Git credentials scope: %w", err)
 	}
-	if row.OriginalIntegrationID == uuid.Nil || row.CurrentIntegrationID != row.OriginalIntegrationID {
+	scope := DaemonGitCredentialsScope{ProjectID: row.ProjectID, AgentID: row.AgentID}
+	if err := json.Unmarshal(row.GitCredentials, &scope.GitCredentialsCompiled); err != nil {
+		return DaemonGitCredentialsScope{}, false, fmt.Errorf("decode daemon Git credentials scope: %w", err)
+	}
+	if scope.IntegrationID == uuid.Nil {
 		return DaemonGitCredentialsScope{}, false, nil
 	}
-	return DaemonGitCredentialsScope{
-		ProjectID: row.ProjectID, AgentID: row.AgentID,
-		IntegrationID: row.OriginalIntegrationID,
-	}, true, nil
+	return scope, true, nil
 }
 
 type DaemonFileProcessScope struct {
