@@ -40,6 +40,7 @@ type PlanNode struct {
 	Index    string     `json:"Index Name"`
 	Type     string     `json:"Node Type"`
 	Rows     float64    `json:"Actual Rows"`
+	Loops    float64    `json:"Actual Loops"`
 	Hit      int        `json:"Shared Hit Blocks"`
 	Read     int        `json:"Shared Read Blocks"`
 	Plans    []PlanNode `json:"Plans"`
