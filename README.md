@@ -1,9 +1,9 @@
 <p align="center">
-  <a href="https://www.omnara.com">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-white.png">
-      <img alt="Omnara" src="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-black.png" width="212">
-    </picture>
+  <a href="https://www.omnara.com#gh-light-mode-only">
+    <img alt="Omnara" src="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-black.png" width="212">
+  </a>
+  <a href="https://www.omnara.com#gh-dark-mode-only">
+    <img alt="Omnara" src="https://raw.githubusercontent.com/omnara-ai/omnara/main/frontend/apps/web/public/omnara-logo-white.png" width="212">
   </a>
 </p>
 
