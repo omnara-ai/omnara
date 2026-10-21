@@ -2470,7 +2470,8 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
         provider: z.enum([
             'boxd',
             'createos',
-            'daytona'
+            'daytona',
+            'e2b'
         ]),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),

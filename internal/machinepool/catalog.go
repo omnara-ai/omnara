@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/e2b"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
@@ -31,6 +32,7 @@ func DefaultCatalog() Catalog {
 			providers.Boxd:      boxd.Definition{},
 			providers.CreateOS:  createos.Definition{},
 			providers.Daytona:   daytona.Definition{},
+			providers.E2B:       e2b.Definition{},
 			providers.Freestyle: freestyle.Definition{},
 			providers.Modal:     modal.Definition{},
 			providers.Tenki:     tenki.Definition{},

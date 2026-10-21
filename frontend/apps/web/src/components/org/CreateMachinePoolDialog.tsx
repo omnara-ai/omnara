@@ -37,9 +37,8 @@ import {
   useMachinePoolConnectionState,
 } from './useMachinePoolConnectionState'
 
-const stepTitles: Record<MachinePoolCreateStepId, string> = {
+const stepTitles: Record<Exclude<MachinePoolCreateStepId, 'image'>, string> = {
   provider: 'Provider',
-  image: 'Image',
   capacity: 'Capacity',
   environment: 'Environment',
 }
@@ -198,7 +197,11 @@ export function CreateMachinePoolDialog({
               <MachinePoolCreateStep
                 key={step}
                 number={index + 1}
-                title={stepTitles[step]}
+                title={
+                  step === 'image'
+                    ? machinePoolProviderDefinitions[values.provider].resource.label
+                    : stepTitles[step]
+                }
                 status={stepStatus(index)}
                 summary={summaries[step]}
                 open={index === current && !collapsed}

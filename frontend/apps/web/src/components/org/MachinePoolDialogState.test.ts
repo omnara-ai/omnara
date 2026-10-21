@@ -216,6 +216,51 @@ describe('CreateOS machine pools', () => {
   })
 })
 
+describe('E2B machine pools', () => {
+  it('creates a template pool limited to the default E2B maximums', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'e2b'),
+      name: 'e2b-pool',
+      image: ' claude ',
+      maxMachines: '3',
+      secretId: 'sec_e2b',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'e2b',
+      default_machine_provider_options: { template: 'claude' },
+      max_total_cpu: 24,
+      max_total_memory_mb: 24576,
+      max_machine_cpu: 8,
+      max_machine_memory_mb: 8192,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('edits the template while preserving the domain and API-only options', () => {
+    const pool = machinePool({
+      provider: 'e2b',
+      provider_config: { domain: 'e2b-juliett.dev' },
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { template: 'claude', startup_script: 'echo ready' },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 2048,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected E2B pool form')
+    expect(values).toMatchObject({ image: 'claude', cpu: '2', memoryGb: '2' })
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'codex' })
+    expect(request.default_machine_provider_options).toEqual({
+      template: 'codex',
+      startup_script: 'echo ready',
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',
@@ -710,6 +755,7 @@ it('lists providers alphabetically', () => {
     'boxd',
     'CreateOS',
     'Daytona',
+    'E2B',
     'Freestyle',
     'Modal',
     'Tenki',

@@ -1,0 +1,61 @@
+---
+title: E2B
+description: Give every agent a hardware-isolated Firecracker microVM that starts from a snapshot
+icon: "/logo/providers/e2b.svg"
+---
+
+[E2B](https://e2b.dev) is the AI agent cloud: secure, on-demand machines for AI agents. Each machine is a Firecracker microVM that starts from a template, a snapshot with your tools already installed. Connect your E2B account with a custom pool.
+
+## Why E2B
+
+- **A hardware-isolated microVM, not a shared-kernel container.** Every machine runs in its own Firecracker microVM, so AI-generated code stays isolated from your infrastructure and from other tenants.
+- **Starts from a snapshot.** A template is a saved, running machine, so each new machine starts in milliseconds with its tools installed and its processes already running.
+- **Agents ready to go.** Public templates come with Claude Code, Codex, OpenCode, Amp, and more installed. For your own stack, build a template from a Dockerfile once.
+- **Runs where you need it.** E2B runs in the US, EU, and Asia-Pacific, and can also run in your own cloud account or on your own machines with the same API.
+
+## Set up an E2B pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [E2B console](https://console.e2b.dev/?tab=keys), create an API key. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose a template">
+    The template is the snapshot each machine starts from, and it sets each machine's CPU and memory. Use one of E2B's public templates, such as `code-interpreter-v1`, or one your team built.
+
+    To build your own, write a Dockerfile that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements) and run, for example, `e2b template create my-agent --cpu-count 4 --memory-mb 8192` to choose its size. See E2B's [template quickstart](https://docs.e2b.dev/template/quickstart).
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **E2B**. Enter the credential, template, CPU and memory maximums, and capacity limits. The maximums must be at least the template's size.
+
+    E2B ends each machine once it reaches your E2B plan's maximum continuous runtime, so put setup in the template or startup script rather than on the machine.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't set the domain, so to use another E2B region or E2B in your own cloud, set `domain` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "e2b-pool",
+  "provider": "e2b",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "domain": "e2b-juliett.dev" // optional
+  },
+  "default_machine_provider_options": {
+    "template": "code-interpreter-v1"
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 2048,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 20480,
+  "max_total_machines": 10
+}
+```
+
+- `template` is a template ID, name, or `team/name`, without a tag. The template sets each machine's size, so CPU and memory defaults are optional, and the maximums must be at least the template's size.
+- `domain` is the E2B domain to use, such as `e2b-juliett.dev` for E2B's EU region. Omit it to use `e2b.app`.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

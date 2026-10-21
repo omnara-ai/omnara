@@ -5,7 +5,7 @@ icon: "cubes"
 description: Compare the sandbox providers you can use with Omnara
 ---
 
-Omnara supports nine sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
+Omnara supports ten sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
 
 On Omnara's hosted service, every organization starts with a default pool on Blaxel. Omnara manages it for you, so there's nothing to set up: agents can use it right away. To use another provider, or your own Blaxel account, create a [custom pool](/machines/pools#create-a-pool).
 
@@ -18,6 +18,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 | [boxd](/machines/providers/boxd) | microVM | Snapshot of a boxd machine | EU | Set by the snapshot or org default | Yes |
 | [CreateOS](/machines/providers/createos) | microVM | Template built from a Dockerfile | Chosen by CreateOS | Set by the shape | Yes |
 | [Daytona](/machines/providers/daytona) | Container | Snapshot from a registry image or Dockerfile | US, EU | Set by the snapshot | No |
+| [E2B](/machines/providers/e2b) | microVM | Template built from a Dockerfile, or one of E2B's public templates | US, EU, Asia-Pacific | Set by the template | No |
 | [Freestyle](/machines/providers/freestyle) | Full VM | Snapshot of a Freestyle VM | Chosen by Freestyle | CPU and memory | Yes |
 | [Modal](/machines/providers/modal) | Container (gVisor) | Public registry image | US, EU, Asia-Pacific, and more | CPU and memory | No |
 | [Tenki](/machines/providers/tenki) | Full VM | Tenki template | Chosen by Tenki | CPU and memory | No |
@@ -30,6 +31,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 - **boxd** gives devs and agents full, hardware-isolated Linux computers in under 10 ms, hosted in Europe. Machines are persistent by default, suspend when idle, and resume in under a millisecond.
 - **CreateOS** gives every agent its own computer: a Firecracker microVM with its own kernel that boots in about 30 ms. Idle machines pause and resume in place, with no cold boot.
 - **Daytona** creates sandboxes in under 90 ms and runs AI-generated code in isolation from your infrastructure. It fits teams with existing Docker images, and you can open a terminal on any machine to work alongside your agents.
+- **E2B** gives every agent a hardware-isolated Firecracker microVM that starts from a snapshot in milliseconds, with public templates for Claude Code, Codex, OpenCode, and more. It runs in the US, EU, and Asia-Pacific, or in your own cloud.
 - **Freestyle** gives agents full Linux VMs, ready in about 65 ms, for tasks that run for hours, days, or weeks. Nested virtualization runs Docker and VMs inside each machine, and idle VMs pause with their state intact.
 - **Modal** is trusted infrastructure for untrusted agents. It scales to a million sandboxes in under a minute and runs public registry images in the region you choose.
 - **Tenki** gives coding agents full Linux computers that start in under a second, with Claude Code, Codex, and common languages already installed, on hardware Tenki owns end to end.
@@ -45,7 +47,7 @@ The default Blaxel pool has sleep turned on already, so its machines stop using 
 
 ## Allowlists
 
-By default, project grants and agent configs can only use the image, snapshot, shape, and location set in the pool's `default_machine_provider_options`. To let them choose others, list every allowed value, including the default, in the matching `provider_config` allowlist, such as `allowed_images`. Use `["*"]` to allow any value.
+By default, project grants and agent configs can only use the image, snapshot, shape, template, or location set in the pool's `default_machine_provider_options`. To let them choose others, list every allowed value, including the default, in the matching `provider_config` allowlist, such as `allowed_images`. Use `["*"]` to allow any value.
 
 ## Custom image requirements
 

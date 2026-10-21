@@ -260,6 +260,24 @@ const createos: MachinePoolProviderDefinition = {
   },
 }
 
+const e2b: MachinePoolProviderDefinition = {
+  label: 'E2B',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'code-interpreter-v1',
+    description:
+      "An E2B public template such as code-interpreter-v1, or one your team built. Machines take the template's CPU and memory, so the max vCPU and memory must be at least that size.",
+    descriptionHref: 'https://docs.e2b.dev/template/quickstart',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '8',
+    defaultMemoryGb: '8',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -270,6 +288,7 @@ export const machinePoolProviderDefinitions = {
   arker,
   boxd,
   createos,
+  e2b,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
