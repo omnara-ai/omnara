@@ -292,7 +292,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	call(download, http.MethodPost, content, http.StatusNotFound)
 	replacementContent := []byte("updated content")
 	unread := call(upload, http.MethodPost, replacementContent, http.StatusConflict)
-	if unread["code"] != "file_content_conflict" || unread["error"] !=
+	if unread["code"] != "file_content_conflict" || unread["error"] != "file content conflict: "+
 		"/memory/engineering/empty.md exists but you have not read it; read or download it before uploading" {
 		t.Fatalf("unread replacement: %v", unread)
 	}
