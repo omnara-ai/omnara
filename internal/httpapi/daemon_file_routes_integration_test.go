@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/png"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -58,7 +60,11 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		t.Fatal("upload process offer was not found")
 	}
 
-	content := []byte("png bytes")
+	var pngContent bytes.Buffer
+	if err := png.Encode(&pngContent, image.NewGray(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	content := pngContent.Bytes()
 	response := requestDaemonFileArtifactUpload(
 		t,
 		handler,
