@@ -16,7 +16,7 @@ import (
 )
 
 func newStorageToolsMigration() *goose.Migration {
-	return goose.NewGoMigration(54, &goose.GoFunc{RunDB: upStorageTools}, nil)
+	return goose.NewGoMigration(55, &goose.GoFunc{RunDB: upStorageTools}, nil)
 }
 
 var storageToolRenames = [][2]string{
