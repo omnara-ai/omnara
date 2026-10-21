@@ -131,3 +131,16 @@ Troubleshooting:
 <Info>
 Full schema and playground: [Start MCP OAuth for a new secret](/api-reference/endpoints/secrets/start-mcp-oauth-for-a-new-secret).
 </Info>
+
+## Authorization requests during a run
+
+Some servers list their tools without credentials and ask for authorization only when a tool is called, or ask for more scopes than the current token holds. When a tool call comes back `401` with a `Bearer` challenge, or `403` with `error="insufficient_scope"`, the call pauses on an `authorization` interaction instead of failing. This applies to servers with `auth.type: oauth` and to servers with no `auth` block; servers using `bearer` or `sigv4` auth get an `mcp_authorization_required` tool error instead.
+
+The interaction shows up with the agent's other pending requests. Its `authorization` field names the server, the tool, the scopes the server asked for, and the secret that will hold the token:
+
+- **Grant access** (or **Connect** for a server with no credential yet) calls [`startAgentInteractionAuthorization`](/api-reference/endpoints/interactions/start-authorization-for-an-agent-interaction) and opens the server's consent screen. Omnara asks for the scopes the secret already holds plus the requested ones. When the flow completes, Omnara saves a new version of the secret, resolves the interaction, and runs the paused tool call again.
+- **Decline** resolves the interaction with option `1`. The tool call fails with `mcp_authorization_required` so the agent can explain what happened.
+
+Connecting a server for the first time creates a project secret named `<server-key>-oauth` and adds `auth.type: oauth` with that secret to the agent's config. That needs permission to manage the project. Omnara refuses with `409` if a different secret already uses that name.
+
+The callback rejects a token that is missing a requested scope (`mcp_oauth_error=insufficient_scope_granted`), or that belongs to a different account than the one already connected (`mcp_oauth_error=account_mismatch`). In both cases the request stays open so you can try again. Each tool call gets one authorization request; if the server still rejects the call after access is granted, the call fails with `mcp_authorization_required`.

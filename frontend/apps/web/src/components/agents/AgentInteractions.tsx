@@ -1,4 +1,8 @@
-import { useAgentInteractions, useResolveAgentInteraction } from '@omnara/react'
+import {
+  useAgentInteractions,
+  useResolveAgentInteraction,
+  useStartAgentInteractionAuthorization,
+} from '@omnara/react'
 import type {
   AgentInteraction,
   InteractionAnswer,
@@ -8,6 +12,7 @@ import type {
 import { useState } from 'react'
 
 import { KeyRound, MessageCircleQuestion } from '@/components/icons'
+import { OAuthOutcomeDialog } from '@/components/oauth/OAuthOutcomeDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -19,6 +24,10 @@ type Resolve = (
   interaction: AgentInteraction,
   body: ResolveAgentInteractionRequest,
 ) => Promise<void>
+
+type Authorize = (interaction: AgentInteraction) => Promise<void>
+
+const authorizationDeclineOptionIndex = 1
 
 function selectedOptions(
   options: InteractionFormOption[],
@@ -139,20 +148,116 @@ function PermissionActions({
   )
 }
 
-function InteractionFormCard({
+/**
+ * An MCP server asked for OAuth access the agent's credential lacks. Granting
+ * access leaves for the server's consent screen; the OAuth callback resolves the
+ * interaction, so only Decline is answered here.
+ */
+function AuthorizationActions({
   interaction,
   resolve,
+  authorize,
   pending,
   canOperate,
 }: {
   interaction: AgentInteraction
   resolve: Resolve
+  authorize: Authorize
+  pending: boolean
+  canOperate: boolean
+}) {
+  const [chosen, setChosen] = useState<'grant' | 'decline' | null>(null)
+  const disabled = !canOperate || pending
+  const connecting = interaction.authorization?.secret_id == null
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="min-w-20"
+        disabled={disabled}
+        loading={pending && chosen === 'decline'}
+        onClick={() => {
+          setChosen('decline')
+          void resolve(interaction, {
+            answers: [{ option_indices: [authorizationDeclineOptionIndex] }],
+          }).catch(() => undefined)
+        }}
+      >
+        Decline
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className="min-w-20"
+        disabled={disabled}
+        loading={pending && chosen === 'grant'}
+        onClick={() => {
+          setChosen('grant')
+          void authorize(interaction).catch(() => {
+            setChosen(null)
+          })
+        }}
+      >
+        {connecting ? 'Connect' : 'Grant access'}
+      </Button>
+    </div>
+  )
+}
+
+function AuthorizationOutcomeDialog() {
+  return (
+    <OAuthOutcomeDialog
+      successParam="mcp_oauth"
+      errorParam="mcp_oauth_error"
+      extraParams={['secret_id', 'interaction_id']}
+      successOutcome={() => ({
+        title: 'Access granted',
+        description: 'The MCP server authorized access. The agent is retrying the tool call.',
+      })}
+      errorOutcome={(code) => ({
+        title: 'Authorization failed',
+        description: authorizationErrorDescription(code),
+      })}
+    />
+  )
+}
+
+function authorizationErrorDescription(code: string) {
+  switch (code) {
+    case 'insufficient_scope_granted':
+      return 'The MCP server granted less access than the tool needs. Try again and approve every requested permission.'
+    case 'account_mismatch':
+      return 'You signed in to a different account than the one already connected. Try again with the same account.'
+    case 'agent_config_update_failed':
+      return "The credential was saved, but the agent's config could not be updated. Add the secret to the MCP server's auth in the agent config."
+    case 'interaction_resolve_failed':
+      return 'The credential was saved, but the waiting tool call could not be resumed. Ask the agent to try again.'
+    case 'access_denied':
+      return 'Authorization was denied. The request is still waiting if you want to try again.'
+    default:
+      return 'MCP authorization failed. Please try again.'
+  }
+}
+
+function InteractionFormCard({
+  interaction,
+  resolve,
+  authorize,
+  pending,
+  canOperate,
+}: {
+  interaction: AgentInteraction
+  resolve: Resolve
+  authorize: Authorize
   pending: boolean
   canOperate: boolean
 }) {
   const [selections, setSelections] = useState<Record<number, number[]>>({})
   const [responses, setResponses] = useState<Record<number, string>>({})
-  const isPermission = interaction.interaction_kind === 'permission'
+  const isAuthorization = interaction.interaction_kind === 'authorization'
+  const isPermission = interaction.interaction_kind === 'permission' || isAuthorization
   const questions = interaction.request.questions
   let complete = true
   for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
@@ -161,7 +266,8 @@ function InteractionFormCard({
       break
     }
   }
-  const directPermission = isPermission && questions.length === 1 && questions[0]?.multiple !== true
+  const directPermission =
+    !isAuthorization && isPermission && questions.length === 1 && questions[0]?.multiple !== true
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
   const subagentLabel = subagentSourceLabel(interaction)
@@ -196,7 +302,7 @@ function InteractionFormCard({
               interaction.request.title
             ) : (
               <>
-                Permission requested for
+                {isAuthorization ? 'Authorization requested for' : 'Permission requested for'}
                 <span className="bg-muted text-foreground rounded-md px-2 py-1 font-mono text-xs">
                   {toolName}
                 </span>
@@ -224,6 +330,18 @@ function InteractionFormCard({
             ))}
           </dl>
         )}
+        {isAuthorization && (
+          <>
+            <p className="text-sm wrap-anywhere">{questions[0]?.prompt}</p>
+            <AuthorizationActions
+              interaction={interaction}
+              resolve={resolve}
+              authorize={authorize}
+              pending={pending}
+              canOperate={canOperate}
+            />
+          </>
+        )}
         {directPermission && (
           <PermissionActions
             interaction={interaction}
@@ -233,6 +351,7 @@ function InteractionFormCard({
           />
         )}
         {!directPermission &&
+          !isAuthorization &&
           questions.map((question, questionIndex) => {
             const optionIndices = selections[questionIndex] ?? []
             const optionIndexSet = new Set(optionIndices)
@@ -351,11 +470,12 @@ export function AgentInteractions({
 }) {
   const interactionsQuery = useAgentInteractions(orgID, projectID, agentID)
   const resolveInteraction = useResolveAgentInteraction(orgID, projectID, agentID)
+  const startAuthorization = useStartAgentInteractionAuthorization(orgID, projectID, agentID)
   const interactions = interactionsQuery.data?.data ?? []
   const loadError =
     interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
-  const error = resolveInteraction.error
-  const pending = resolveInteraction.isPending
+  const error = resolveInteraction.error ?? startAuthorization.error
+  const pending = resolveInteraction.isPending || startAuthorization.isPending
   const onResolve: Resolve = async (interaction, body) => {
     await resolveInteraction.mutateAsync({
       interactionID: interaction.id,
@@ -363,7 +483,15 @@ export function AgentInteractions({
       targetAgentID: interaction.agent_id,
     })
   }
-  if (interactions.length === 0 && loadError == null) return null
+  const onAuthorize: Authorize = async (interaction) => {
+    const response = await startAuthorization.mutateAsync({
+      interactionID: interaction.id,
+      returnTo: window.location.pathname + window.location.search + window.location.hash,
+      targetAgentID: interaction.agent_id,
+    })
+    window.location.assign(response.authorization_url)
+  }
+  if (interactions.length === 0 && loadError == null) return <AuthorizationOutcomeDialog />
   return (
     <section
       className="grid max-h-[40svh] min-w-0 gap-3 overflow-x-hidden overflow-y-auto pr-1"
@@ -372,12 +500,14 @@ export function AgentInteractions({
       {loadError != null && (
         <p className="text-destructive text-xs">Could not load pending requests: {loadError}</p>
       )}
+      <AuthorizationOutcomeDialog />
       {error && <p className="text-destructive text-xs">{error.message}</p>}
       {interactions.map((interaction) => (
         <InteractionFormCard
           key={interaction.id}
           interaction={interaction}
           resolve={onResolve}
+          authorize={onAuthorize}
           pending={pending}
           canOperate={canOperate}
         />

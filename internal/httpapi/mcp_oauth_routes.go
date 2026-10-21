@@ -64,6 +64,14 @@ type mcpOAuthFlowData struct {
 	SecretName      string                `json:"secret_name"`
 	Metadata        resourcemeta.Metadata `json:"metadata,omitempty"`
 	ReturnTo        string                `json:"return_to,omitempty"`
+	Interaction     *mcpOAuthInteraction  `json:"interaction,omitempty"`
+}
+
+// mcpOAuthInteraction ties a flow to the authorization interaction it grants.
+type mcpOAuthInteraction struct {
+	ID        uuid.UUID `json:"id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	AgentID   uuid.UUID `json:"agent_id"`
 }
 
 func (s strictOpenAPIServer) StartSecretMCPOAuth(
@@ -110,6 +118,16 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	owner mcpOAuthOwner,
 	principal identitystore.PrincipalRecord,
 	body *openapi.MCPOAuthStartRequest,
+) (openapi.MCPOAuthStartResponse, *apierror.ResponseError, error) {
+	return s.startMCPOAuthFlow(ctx, owner, principal, body, nil)
+}
+
+func (s strictOpenAPIServer) startMCPOAuthFlow(
+	ctx context.Context,
+	owner mcpOAuthOwner,
+	principal identitystore.PrincipalRecord,
+	body *openapi.MCPOAuthStartRequest,
+	interaction *mcpOAuthInteraction,
 ) (openapi.MCPOAuthStartResponse, *apierror.ResponseError, error) {
 	if body == nil {
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
@@ -204,6 +222,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		SecretName:      body.Name,
 		Metadata:        metadata,
 		ReturnTo:        returnTo,
+		Interaction:     interaction,
 	})
 	if err != nil {
 		logpkg.Error(ctx, fmt.Errorf("marshal mcp oauth flow data: %w", err))
@@ -354,6 +373,20 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {exchangeError}})
 		return
 	}
+	var authorization *mcpAuthorizationGrant
+	if flowData.Interaction != nil {
+		grant, rejection, err := s.checkMCPAuthorizationGrant(r.Context(), flowData, token)
+		if err != nil {
+			logpkg.Error(r.Context(), fmt.Errorf("check mcp authorization grant: %w", err))
+			s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {"authorization_check_failed"}})
+			return
+		}
+		if rejection != "" {
+			s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {rejection}})
+			return
+		}
+		authorization = &grant
+	}
 	secretID, err := s.saveMCPOAuthSecret(r.Context(), flow, flowData, token)
 	if errors.Is(err, storeerr.ErrMCPOAuthFlowConsumed) {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "mcp oauth state already redeemed")
@@ -369,7 +402,20 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 		return
 	}
-	s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth": {"success"}, "secret_id": {publicSecretID}})
+	outcome := url.Values{"mcp_oauth": {"success"}, "secret_id": {publicSecretID}}
+	if authorization != nil {
+		publicInteractionID, err := publicID(publicid.KindAgentInteraction, authorization.interaction.ID)
+		if err != nil {
+			apierror.Write(w, openapi.ErrorCodeInternalError)
+			return
+		}
+		outcome.Set("interaction_id", publicInteractionID)
+		if failure := s.finishMCPAuthorizationGrant(r.Context(), flowData, *authorization, secretID); failure != "" {
+			outcome.Del("mcp_oauth")
+			outcome.Set("mcp_oauth_error", failure)
+		}
+	}
+	s.redirectOAuthOutcome(w, r, flowData.ReturnTo, outcome)
 }
 
 func (s *Server) saveMCPOAuthSecret(

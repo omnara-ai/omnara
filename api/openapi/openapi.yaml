@@ -5330,7 +5330,8 @@ paths:
       description: >-
         Answers an open permission prompt or question so the paused agent resumes, and returns the
         resolved interaction. Send one answer per question with zero-based option_indices;
-        permission prompts use 0 for Allow and 1 for Deny.
+        permission prompts use 0 for Allow and 1 for Deny. Authorization interactions accept only
+        1 (Decline) here; grant access with startAgentInteractionAuthorization.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5360,6 +5361,74 @@ paths:
           $ref: '#/components/responses/Conflict'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/authorize:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        description: Agent ID (agt_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+      - name: interactionID
+        in: path
+        description: Interaction ID (int_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^int_[a-z2-7]{26}$'
+    post:
+      operationId: startAgentInteractionAuthorization
+      tags: [Interactions]
+      summary: Start authorization for an agent interaction
+      description: >-
+        Starts the MCP OAuth flow that grants an open authorization interaction. The MCP server,
+        secret, and scopes come from the interaction. Redirect the user to authorization_url;
+        when the flow completes, Omnara stores the token, adds the secret to the agent's config if
+        the server had none, resolves the interaction, and the paused tool call runs again. Starting
+        authorization for a server with no credential yet requires permission to manage the project.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartAgentInteractionAuthorizationRequest'
+      responses:
+        '201':
+          description: MCP OAuth flow started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPOAuthStartResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '424': { $ref: '#/components/responses/FailedDependency' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':
@@ -14020,10 +14089,11 @@ components:
             $ref: '#/components/schemas/InteractionAnswer'
     AgentInteractionKind:
       type: string
-      enum: [permission, question]
+      enum: [permission, question, authorization]
       x-enum-varnames:
         - AgentInteractionKindPermission
         - AgentInteractionKindQuestion
+        - AgentInteractionKindAuthorization
     AgentInteractionState:
       type: string
       enum: [open, resolved, canceled]
@@ -14078,11 +14148,11 @@ components:
         agent_id:
           $ref: '#/components/schemas/AgentID'
         tool_call_id:
-          description: The tool call that is waiting on this interaction — the guarded tool for a permission, or the ask_question call for a question.
+          description: The tool call that is waiting on this interaction — the guarded tool for a permission, the ask_question call for a question, or the MCP tool call the server rejected for an authorization.
           $ref: '#/components/schemas/ToolCallID'
         tool_name:
           type: string
-          description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+          description: The tool whose invocation a permission or authorization interaction guards. Present only when interaction_kind is permission or authorization.
         agent_name:
           $ref: '#/components/schemas/AgentName'
         subagent_key:
@@ -14096,6 +14166,9 @@ components:
           $ref: '#/components/schemas/InteractionForm'
         resolution:
           $ref: '#/components/schemas/InteractionResolution'
+        authorization:
+          description: Present only when interaction_kind is authorization.
+          $ref: '#/components/schemas/AgentInteractionAuthorization'
         destination:
           description: Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
           $ref: '#/components/schemas/AgentInteractionDestination'
@@ -14108,6 +14181,45 @@ components:
           $ref: '#/components/schemas/Timestamp'
         resolved_at:
           $ref: '#/components/schemas/Timestamp'
+    AgentInteractionAuthorization:
+      type: object
+      additionalProperties: false
+      description: >-
+        The MCP server and OAuth access an authorization interaction asks for. Grant access by
+        starting authorization for the interaction and completing the OAuth flow; decline by
+        resolving the interaction with option 1.
+      required: [mcp_server_key, mcp_tool_name, mcp_url, secret_name, required_scopes, granted_scopes]
+      properties:
+        mcp_server_key:
+          type: string
+        mcp_tool_name:
+          type: string
+          description: The MCP server's name for the tool the agent called.
+        mcp_url:
+          type: string
+        secret_id:
+          description: The OAuth secret the server's config already uses. Absent when the server has no credential yet; granting access creates the secret and adds it to the agent's config.
+          $ref: '#/components/schemas/SecretID'
+        secret_name:
+          description: The name of the OAuth secret granting access writes.
+          $ref: '#/components/schemas/ResourceName'
+        required_scopes:
+          type: array
+          description: Scopes the MCP server asked for. Empty when the server's challenge named none.
+          items:
+            type: string
+        granted_scopes:
+          type: array
+          description: Scopes the existing secret already holds.
+          items:
+            type: string
+    StartAgentInteractionAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        return_to:
+          type: string
+          description: Path in the web app to return to after the OAuth flow.
     ActorProvider:
       type: string
       description: omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.

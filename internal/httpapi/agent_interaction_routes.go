@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -126,6 +127,9 @@ func (s strictOpenAPIServer) resolveAgentInteraction(
 	resolution, err := publicInteractionResolution(existing, body.Answers)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	if apiErr := rejectAuthorizationGrantByAnswer(existing, resolution); apiErr != nil {
+		return nil, *apiErr
 	}
 	principal, ok := principalFromContext(ctx)
 	if !ok || principal.ID == uuid.Nil {
@@ -265,6 +269,19 @@ func agentInteractionResponseFromRecord(
 			return openapi.AgentInteraction{}, err
 		}
 		response.ToolName = &permissionRequest.Authorization.ToolName
+	}
+	if record.InteractionKind == executionstore.AgentInteractionKindAuthorization {
+		authorizationRequest, err := record.AuthorizationRequest()
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		toolName := toolcatalog.MCPRuntimeToolName(authorizationRequest.ServerKey, authorizationRequest.ToolName)
+		response.ToolName = &toolName
+		authorization, err := openAPIInteractionAuthorization(authorizationRequest)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.Authorization = &authorization
 	}
 	if record.State == executionstore.AgentInteractionStateResolved {
 		resolution, err := interactionform.ParseResolution(request, record.Resolution)

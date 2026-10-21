@@ -30,6 +30,10 @@ func runMCPToolAsync(
 		call.ToolCallID,
 		call.Call,
 	)
+	var pending *mcpAuthorizationPendingError
+	if errors.As(err, &pending) {
+		return awaitAuthorizationAsync{request: pending.request}, nil
+	}
 	if err != nil {
 		return failAsynchronously(content, err), nil
 	}
@@ -60,6 +64,10 @@ func (e Executor) dispatchMCPTool(
 	if err != nil {
 		return toolResultContent{}, err
 	}
+	server, err = e.authorizedRuntimeMCPServer(ctx, turn, toolCallID, server)
+	if err != nil {
+		return toolResultContent{}, err
+	}
 	manager := mcp.Manager{
 		Execution:            e.Store.Execution(),
 		Secrets:              e.Store.Secrets(),
@@ -86,6 +94,9 @@ func (e Executor) dispatchMCPTool(
 			return toolResultContent{}, resultErr
 		}
 		return failed, cause
+	}
+	if challenge, ok := mcp.AuthorizationChallengeFromError(err); ok {
+		return e.mcpAuthorizationFailure(ctx, turn, toolCallID, server, remoteName, challenge, err)
 	}
 	if err != nil {
 		return toolResultContent{}, err

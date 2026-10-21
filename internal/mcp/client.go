@@ -690,15 +690,17 @@ const (
 
 func (c *httpClient) statusError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, statusErrorDecodeBytes))
+	challenges := resp.Header.Values("WWW-Authenticate")
 	if rpcErr, ok := decodeRPCErrorBody(body); ok {
 		rpcErr.HTTPStatus = resp.StatusCode
+		rpcErr.WWWAuthenticate = challenges
 		return rpcErr
 	}
 	preview := body
 	if len(preview) > statusErrorPreviewBytes {
 		preview = preview[:statusErrorPreviewBytes]
 	}
-	return &HTTPError{Status: resp.StatusCode, Body: bytes.TrimSpace(preview)}
+	return &HTTPError{Status: resp.StatusCode, Body: bytes.TrimSpace(preview), WWWAuthenticate: challenges}
 }
 
 func decodeRPCErrorBody(body []byte) (*RPCError, bool) {

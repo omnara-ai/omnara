@@ -36,6 +36,7 @@ export {
   useAgentInteractions,
   useCancelAgent,
   useResolveAgentInteraction,
+  useStartAgentInteractionAuthorization,
 } from './domains/agent-interactions'
 export {
   type AgentProfileListFilters,
