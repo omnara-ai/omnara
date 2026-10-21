@@ -62,20 +62,21 @@ const (
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
 	writeFileToolDescription = "Create or edit a memory text file. " +
-		"Read a file before changing it; the write fails if it changed since your last read. Returns path."
+		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Returns path."
 	readFileToolDescription = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
-		"For large files, call again with the next position returned in the result. " +
-		"Memory reads include a note when the file changed since your last read."
+		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text in Omnara files. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use storage_read to read more around a match."
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Set view to also see an uploaded image, such as a screenshot. " +
-		"Replacing a memory file requires reading or downloading it first. Returns path."
+		"Set view to load an uploaded image, such as a screenshot, into your context. " +
+		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Returns path."
 	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine."
 	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
@@ -613,11 +614,7 @@ func writeFileTool() (Entry, error) {
 				"type":        "boolean",
 				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
 			},
-			"force": map[string]any{
-				"type": "boolean",
-				"description": "Overwrite even if the file changed since you last read it, or was never read. " +
-					"Use only after a conflict when replacing the latest content is intended. Defaults to false.",
-			},
+			"force": memoryForceProperty(""),
 		},
 	)
 }
@@ -656,6 +653,16 @@ func searchFilesTool() (Entry, error) {
 	)
 }
 
+// memoryForceProperty describes skipping memory read tracking when replacing a file.
+func memoryForceProperty(prefix string) map[string]any {
+	return map[string]any{
+		"type": "boolean",
+		"description": prefix + "Replace the file even if it changed since you last read, wrote, uploaded, " +
+			"or downloaded it, or you never did. Use only after a conflict when replacing the latest content " +
+			"is intended. Defaults to false.",
+	}
+}
+
 func uploadFileTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameStorageUpload,
@@ -677,16 +684,11 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,
-			"force": map[string]any{
-				"type": "boolean",
-				"description": "Memory only. Replace the file even if it changed since you last read or downloaded it, " +
-					"or was never read. Use only after a conflict when replacing the latest content is intended. " +
-					"Defaults to false.",
-			},
+			"force":      memoryForceProperty("Memory only. "),
 			"view": map[string]any{
 				"type": "boolean",
-				"description": "Also return the uploaded file for you to view when it is a PNG, JPEG, GIF, or WebP image. " +
-					"Defaults to false. Artifacts only.",
+				"description": "Load the uploaded file into your context so you can see it, " +
+					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only.",
 			},
 		},
 	)
