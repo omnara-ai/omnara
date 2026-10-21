@@ -478,13 +478,7 @@ func (m Manager) ReconcileManagedWorkDeniedDeletion(
 		poolMachineReconcileConcurrency,
 		func(ctx context.Context, i int) error {
 			candidate := candidates[i]
-			_, marked, err := m.Execution.MarkPoolMachineDeleting(ctx, executionstore.MachineDeletingInput{
-				OrgID:                    candidate.OrgID,
-				MachineID:                candidate.MachineID,
-				LifecycleReasonCode:      "managed_work_admission_denied",
-				LifecycleReasonMessage:   "organization was denied managed work past its deletion grace period",
-				ExpectedLifecycleVersion: candidate.LifecycleVersion,
-			})
+			marked, err := m.Execution.MarkManagedWorkDeniedPoolMachineDeleting(ctx, candidate)
 			if err != nil || !marked {
 				return err
 			}

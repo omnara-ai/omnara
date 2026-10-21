@@ -672,6 +672,44 @@ func (s *Store) ListManagedWorkDeniedPoolMachines(
 	return out, nil
 }
 
+func (s *Store) MarkManagedWorkDeniedPoolMachineDeleting(
+	ctx context.Context,
+	machine ManagedWorkDeniedPoolMachine,
+) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin mark managed work denied pool machine deleting: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	if _, err := qtx.LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: machine.OrgID, ID: machine.MachineID},
+	); errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("lock managed work denied pool machine: %w", err)
+	}
+	marked, err := qtx.MarkManagedWorkDeniedPoolMachineDeleting(
+		ctx,
+		dbsqlc.MarkManagedWorkDeniedPoolMachineDeletingParams{
+			OrgID:                    machine.OrgID,
+			ID:                       machine.MachineID,
+			ExpectedLifecycleVersion: machine.LifecycleVersion,
+		},
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark managed work denied pool machine deleting: %w", err)
+	}
+	if marked == 0 {
+		return false, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit mark managed work denied pool machine deleting: %w", err)
+	}
+	return true, nil
+}
+
 func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 	ctx context.Context,
 	orgID, machineID uuid.UUID,

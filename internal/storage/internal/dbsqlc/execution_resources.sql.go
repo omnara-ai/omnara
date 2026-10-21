@@ -2781,6 +2781,43 @@ func (q *Queries) MarkMachinePoolMachinesDeleting(ctx context.Context, arg MarkM
 	return items, nil
 }
 
+const markManagedWorkDeniedPoolMachineDeleting = `-- name: MarkManagedWorkDeniedPoolMachineDeleting :execrows
+UPDATE machines machine
+SET lifecycle_state = 'deleting',
+    lifecycle_changed_at = statement_timestamp(),
+    lifecycle_version = machine.lifecycle_version + 1,
+    lifecycle_reason_code = 'managed_work_admission_denied',
+    lifecycle_reason_message = 'organization was denied managed work past its machine deletion delay',
+    next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
+    updated_at = statement_timestamp()
+FROM org_managed_work_admission admission
+WHERE machine.org_id = $1
+  AND machine.id = $2
+  AND machine.lifecycle_version = $3::bigint
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND admission.org_id = machine.org_id
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+`
+
+type MarkManagedWorkDeniedPoolMachineDeletingParams struct {
+	OrgID                    uuid.UUID
+	ID                       uuid.UUID
+	ExpectedLifecycleVersion int64
+}
+
+func (q *Queries) MarkManagedWorkDeniedPoolMachineDeleting(ctx context.Context, arg MarkManagedWorkDeniedPoolMachineDeletingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markManagedWorkDeniedPoolMachineDeleting, arg.OrgID, arg.ID, arg.ExpectedLifecycleVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markPoolMachineDeleting = `-- name: MarkPoolMachineDeleting :one
 UPDATE machines
 SET lifecycle_state = 'deleting',

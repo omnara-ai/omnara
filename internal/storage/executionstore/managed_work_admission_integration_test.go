@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestManagedWorkAdmissionGatesNewPoolMachineCreation(t *testing.T) {
@@ -561,7 +562,7 @@ func TestManagedWorkDeniedPoolMachinesWaitForContinuousDenial(t *testing.T) {
 	tenant.insertNeverConnectedMachine(t, ctx, "denied-tenant")
 	tenant.insertInactiveBYOMachine(t, ctx, "denied-byo")
 
-	requireListed := func(step string, want ...uuid.UUID) {
+	requireListed := func(step string, want ...uuid.UUID) []executionstore.ManagedWorkDeniedPoolMachine {
 		t.Helper()
 		machines, err := store.Execution().ListManagedWorkDeniedPoolMachines(ctx, 40)
 		if err != nil {
@@ -574,6 +575,7 @@ func TestManagedWorkDeniedPoolMachinesWaitForContinuousDenial(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("%s: listed %v, want %v", step, got, want)
 		}
+		return machines
 	}
 	backdateDenial := func() {
 		t.Helper()
@@ -609,4 +611,22 @@ WHERE org_id = $1
 	requireListed("repeated denial keeps deadline", busy.machineID)
 	setDeletionDelay(nil)
 	requireListed("no deletion delay")
+	setDeletionDelay(new(60))
+	candidates := requireListed("deletion delay restored", busy.machineID)
+
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := blocker.Exec(ctx, `SELECT id FROM machines WHERE id = $1 FOR UPDATE`, busy.machineID); err != nil {
+		t.Fatalf("lock denied machine: %v", err)
+	}
+	done := integrationdb.RunAsync(func() (bool, error) {
+		return store.Execution().MarkManagedWorkDeniedPoolMachineDeleting(ctx, candidates[0])
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
+	setManagedWorkAdmissionForTest(t, ctx, pool, testOrgID, true)
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatalf("commit mark blocker: %v", err)
+	}
+	if integrationdb.AwaitSuccess(t, done, "mark after admission restored") {
+		t.Fatal("machine was marked after admission was restored")
+	}
 }
