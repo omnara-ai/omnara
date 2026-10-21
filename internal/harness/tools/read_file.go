@@ -6,10 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"net/http"
 	"path"
 	"strings"
@@ -25,7 +21,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	_ "golang.org/x/image/webp"
 )
 
 type readFileRequest struct {
@@ -119,7 +114,7 @@ func runReadFileAsync(
 		}
 		digest, contentType = record.Digest, record.ContentType
 	}
-	if isViewableImage(contentType, content) {
+	if modelcontext.IsViewableImage(contentType, content) {
 		if artifactID == uuid.Nil {
 			artifact, err := call.Executor.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 				ProjectID:      call.Turn.ProjectID,
@@ -238,14 +233,6 @@ func loadArtifactContent(
 		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact exceeds readable limit")
 	}
 	return content, record, nil
-}
-
-func isViewableImage(contentType string, content []byte) bool {
-	if kind, _ := modelcontext.AttachmentKindForMediaType(contentType); kind != modelcontext.AttachmentKindImage {
-		return false
-	}
-	_, format, err := image.DecodeConfig(bytes.NewReader(content))
-	return err == nil && "image/"+format == contentType
 }
 
 func completeImageRead(

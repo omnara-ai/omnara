@@ -22,7 +22,9 @@ func TestUploadedArtifactContentTypePrefersDetectedImageType(t *testing.T) {
 		want     string
 	}{
 		{filename: "screenshot.jpg", content: pngContent.Bytes(), want: "image/png"},
-		{filename: "screenshot.png", content: []byte("png bytes"), want: "image/png"},
+		{filename: "screenshot.png", content: []byte("png bytes"), want: "text/plain; charset=utf-8"},
+		{filename: "screenshot.png", content: pngContent.Bytes()[:pngContent.Len()-4], want: "application/octet-stream"},
+		{filename: "diagram.svg", content: []byte("<svg/>"), want: "image/svg+xml"},
 		{filename: "notes", content: []byte("plain text"), want: "text/plain; charset=utf-8"},
 	} {
 		if got := uploadedArtifactContentType(test.filename, test.content); got != test.want {

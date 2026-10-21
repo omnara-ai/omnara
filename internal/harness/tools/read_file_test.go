@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -198,11 +199,11 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 	})
 }
 
-func TestIsViewableImageRequiresValidMatchingImage(t *testing.T) {
+func TestIsViewableImageRequiresCompleteMatchingImage(t *testing.T) {
 	images := testImages(t)
 	for contentType, content := range images {
-		if !isViewableImage(contentType, content) {
-			t.Fatalf("isViewableImage(%q) = false for a valid image", contentType)
+		if !modelcontext.IsViewableImage(contentType, content) {
+			t.Fatalf("IsViewableImage(%q) = false for a valid image", contentType)
 		}
 	}
 	pngContent := images["image/png"]
@@ -214,9 +215,14 @@ func TestIsViewableImageRequiresValidMatchingImage(t *testing.T) {
 		{contentType: "image/png", content: []byte("plain text named .png")},
 		{contentType: "image/jpeg", content: pngContent},
 		{contentType: "application/octet-stream", content: pngContent},
+		// Truncated mid-write: the header still decodes, but the end marker is missing.
+		{contentType: "image/png", content: pngContent[:len(pngContent)-4]},
+		{contentType: "image/jpeg", content: images["image/jpeg"][:len(images["image/jpeg"])-2]},
+		{contentType: "image/gif", content: images["image/gif"][:len(images["image/gif"])-1]},
+		{contentType: "image/webp", content: images["image/webp"][:len(images["image/webp"])-2]},
 	} {
-		if isViewableImage(test.contentType, test.content) {
-			t.Fatalf("isViewableImage(%q, %q) = true, want false", test.contentType, test.content)
+		if modelcontext.IsViewableImage(test.contentType, test.content) {
+			t.Fatalf("IsViewableImage(%q, %q) = true, want false", test.contentType, test.content)
 		}
 	}
 }

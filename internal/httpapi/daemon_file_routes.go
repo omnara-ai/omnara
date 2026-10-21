@@ -97,10 +97,31 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	result, err := s.server.store.Memories().Write(ctx, memorystore.WriteInput{
 		Scope: scope, StoreID: target.StoreID, Path: target.Path, Content: body, ExpectedDigest: expected,
 	})
+	var conflict *storeerr.FileContentConflictError
+	if target.ExpectedDigest == nil && errors.As(err, &conflict) {
+		// The file changed after the read check; the store's digest guidance doesn't apply to tracked uploads.
+		path, pathErr := s.memoryUploadPath(ctx, process)
+		if pathErr != nil {
+			return nil, apierror.ProjectScoped(pathErr)
+		}
+		err = storeerr.Tag(&storeerr.FileContentConflictError{},
+			fmt.Errorf("%s changed while uploading; read or download it again before uploading", path))
+	}
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
 	return openapi.UploadDaemonFile201JSONResponse{Path: result.Path, Digest: result.Digest}, nil
+}
+
+func (s strictOpenAPIServer) memoryUploadPath(
+	ctx context.Context, process executionstore.DaemonFileProcessScope,
+) (string, error) {
+	target := process.Transfer.Target.Memory
+	name, err := s.server.store.Memories().Name(ctx, process.ProjectID, target.StoreID)
+	if err != nil {
+		return "", err
+	}
+	return memorystore.Root + "/" + name + "/" + target.Path, nil
 }
 
 // trackedUploadDigest returns the digest of the file an upload replaces, and whether it exists. Replacing
@@ -120,11 +141,10 @@ func (s strictOpenAPIServer) trackedUploadDigest(
 	if target.Force || blobstore.ContentDigest(body) == current {
 		return current, true, nil
 	}
-	name, err := memories.Name(ctx, process.ProjectID, target.StoreID)
+	path, err := s.memoryUploadPath(ctx, process)
 	if err != nil {
 		return "", false, err
 	}
-	path := memorystore.Root + "/" + name + "/" + target.Path
 	seen, found, err := memories.LastSeen(ctx, process.AgentID, path)
 	if err != nil {
 		return "", false, err
@@ -172,12 +192,19 @@ func (s strictOpenAPIServer) DownloadDaemonFile(
 	}, nil
 }
 
+// uploadedArtifactContentType gives model-viewable image types only to intact images: storage_upload's view
+// sends the artifact to the model by its type, and a damaged image makes the provider reject the request.
 func uploadedArtifactContentType(filename string, content []byte) string {
 	detected := http.DetectContentType(content)
-	if kind, _ := modelcontext.AttachmentKindForMediaType(detected); kind == modelcontext.AttachmentKindImage {
+	if modelcontext.IsViewableImage(detected, content) {
 		return detected
 	}
-	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))); contentType != "" {
+	if kind, _ := modelcontext.AttachmentKindForMediaType(detected); kind == modelcontext.AttachmentKindImage {
+		detected = "application/octet-stream"
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
+	if kind, _ := modelcontext.AttachmentKindForMediaType(contentType); contentType != "" &&
+		kind != modelcontext.AttachmentKindImage {
 		return contentType
 	}
 	return detected
