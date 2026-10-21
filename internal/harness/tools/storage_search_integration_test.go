@@ -51,7 +51,7 @@ func TestSearchArtifactLoadTimeout(t *testing.T) {
 	require.NoError(t, err)
 	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
 	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameSearchFiles,
+		Name:  toolcatalog.ToolNameStorageSearch,
 		Input: json.RawMessage(`{"path":"/artifacts/` + id + `","args":["-e","TARGET"]}`),
 	}
 	for _, name := range []string{"search timeout", "parent deadline", "parent cancellation"} {
@@ -67,7 +67,7 @@ func TestSearchArtifactLoadTimeout(t *testing.T) {
 				parent, cancel = context.WithCancel(parent)
 				cancel()
 			}
-			_, err := runSearchFilesAsync(parent, call)
+			_, err := runStorageSearchAsync(parent, call)
 			if name == "search timeout" {
 				require.EqualError(t, err, "artifact loading timed out; retry")
 				require.NotErrorIs(t, err, context.DeadlineExceeded)
@@ -164,8 +164,8 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		call.Call = model.ToolCall{Name: toolcatalog.ToolNameSearchFiles, Input: input}
-		result, err := runSearchFilesAsync(ctx, call)
+		call.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageSearch, Input: input}
+		result, err := runStorageSearchAsync(ctx, call)
 		views, cleanupErr := os.ReadDir(temporary)
 		if cleanupErr != nil || len(views) != 0 {
 			t.Fatalf("search left temporary views: %v %v", views, cleanupErr)

@@ -77,7 +77,7 @@ func TestMediaProjectorOmitsHistoricalImagesForTextOnlyModels(t *testing.T) {
 			historical := projector.ProjectRenderedMedia(modelcontext.Bundle{
 				Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: mediaRef}},
 				ToolResults: []modelcontext.ToolResultRef{{
-					Name:                "read_file",
+					Name:                "storage_read",
 					SourceEventSequence: 2,
 					ContentParts:        mediaRef,
 				}},

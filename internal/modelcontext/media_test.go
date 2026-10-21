@@ -42,8 +42,8 @@ func TestTextAttachmentBudgetPreservesInputsAndReferencesWholeFiles(t *testing.T
 		OpeningInputIDs: []uuid.UUID{testInputID},
 		Messages:        []Message{{AgentInputID: testInputID.String(), Role: modelprotocol.RoleUser, Content: input}},
 		ToolSpecs: []ToolSpec{
-			{Name: toolcatalog.ToolNameReadFile, Type: toolcatalog.ToolTypeBuiltIn},
-			{Name: toolcatalog.ToolNameSearchFiles, Type: toolcatalog.ToolTypeBuiltIn},
+			{Name: toolcatalog.ToolNameStorageRead, Type: toolcatalog.ToolTypeBuiltIn},
+			{Name: toolcatalog.ToolNameStorageSearch, Type: toolcatalog.ToolTypeBuiltIn},
 		},
 	}
 	require.NoError(t, (Builder{Store: store}).resolveMedia(t.Context(), &bundle, nil, 100))
@@ -56,8 +56,8 @@ func TestTextAttachmentBudgetPreservesInputsAndReferencesWholeFiles(t *testing.T
 	require.Contains(t, parts[2]["text"], "/artifacts/"+ArtifactPublicID(second.String()))
 	require.Contains(t, parts[3]["text"], "archive.json")
 	require.Contains(t, parts[3]["text"], "4000000 bytes")
-	require.Contains(t, parts[3]["text"], "read_file")
-	require.Contains(t, parts[3]["text"], "search_files")
+	require.Contains(t, parts[3]["text"], "storage_read")
+	require.Contains(t, parts[3]["text"], "storage_search")
 	require.Equal(t, imageID.String(), parts[4]["artifact_id"])
 	require.Equal(t, pdfID.String(), parts[5]["artifact_id"])
 
@@ -75,7 +75,7 @@ func TestTextAttachmentBudgetPreservesInputsAndReferencesWholeFiles(t *testing.T
 	require.Contains(t, bundle.ResolvedMedia, large.String())
 }
 
-func TestTextAttachmentReferencesRequireCallableBuiltInReadFile(t *testing.T) {
+func TestTextAttachmentReferencesRequireCallableBuiltInStorageRead(t *testing.T) {
 	id := testIDN(210)
 	for _, test := range []struct {
 		name          string
@@ -83,13 +83,13 @@ func TestTextAttachmentReferencesRequireCallableBuiltInReadFile(t *testing.T) {
 		wantReference bool
 	}{
 		{name: "missing"},
-		{name: "custom", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeCustom}},
-		{name: "deferred", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn, Deferred: true}},
-		{name: "denied", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn,
+		{name: "custom", spec: ToolSpec{Name: "storage_read", Type: toolcatalog.ToolTypeCustom}},
+		{name: "deferred", spec: ToolSpec{Name: "storage_read", Type: toolcatalog.ToolTypeBuiltIn, Deferred: true}},
+		{name: "denied", spec: ToolSpec{Name: "storage_read", Type: toolcatalog.ToolTypeBuiltIn,
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)}},
-		{name: "approval_required", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn,
+		{name: "approval_required", spec: ToolSpec{Name: "storage_read", Type: toolcatalog.ToolTypeBuiltIn,
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}, wantReference: true},
-		{name: "callable", spec: ToolSpec{Name: "read_file", Type: toolcatalog.ToolTypeBuiltIn}, wantReference: true},
+		{name: "callable", spec: ToolSpec{Name: "storage_read", Type: toolcatalog.ToolTypeBuiltIn}, wantReference: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeContextStore{artifacts: []artifactstore.ArtifactRecord{mediaTestArtifact(id, "text/plain", 1000)}}
@@ -103,7 +103,7 @@ func TestTextAttachmentReferencesRequireCallableBuiltInReadFile(t *testing.T) {
 			if test.wantReference {
 				require.Empty(t, store.artifactBlobReads)
 				require.Contains(t, string(bundle.Messages[0].Content), "/artifacts/")
-				require.NotContains(t, string(bundle.Messages[0].Content), "search_files")
+				require.NotContains(t, string(bundle.Messages[0].Content), "storage_search")
 			} else {
 				require.Equal(t, input, bundle.Messages[0].Content)
 				require.Equal(t, []uuid.UUID{id}, store.artifactBlobReads)

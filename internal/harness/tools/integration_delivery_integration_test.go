@@ -884,6 +884,7 @@ type toolFixtureOptions struct {
 	withMCP                bool
 	withSubagents          bool
 	withMemory             bool
+	memoryReadWrite        bool
 	withSlackIntegration   bool
 	withDiscordIntegration bool
 	withGitHubIntegration  bool
@@ -1309,7 +1310,11 @@ tools:
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(userID),
 		}, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
 		require.NoError(t, err)
-		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read\n"
+		access := agentconfig.MemoryStoreAccessRead
+		if fixtureOptions.memoryReadWrite {
+			access = agentconfig.MemoryStoreAccessReadWrite
+		}
+		sourceYAML += "memory_stores:\n  - name: engineering\n    access: " + string(access) + "\n"
 	}
 	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{

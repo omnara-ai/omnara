@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/png"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +44,7 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now,
 		"daemon-artifact-upload-success",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
@@ -58,7 +60,11 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		t.Fatal("upload process offer was not found")
 	}
 
-	content := []byte("png bytes")
+	var pngContent bytes.Buffer
+	if err := png.Encode(&pngContent, image.NewGray(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	content := pngContent.Bytes()
 	response := requestDaemonFileArtifactUpload(
 		t,
 		handler,
@@ -108,7 +114,7 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now.Add(2*time.Second),
 		"daemon-vfs-upload-wrong-root",
-		"upload_file",
+		"storage_upload",
 		nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/memory","source":"notes.md"}`)
@@ -140,7 +146,7 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		otherProject,
 		now.Add(3*time.Second),
 		"daemon-artifact-upload-other-org",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
@@ -192,7 +198,7 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now.Add(3*time.Second),
 		"daemon-artifact-upload-ungranted",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
@@ -214,7 +220,7 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 		project,
 		now.Add(4*time.Second),
 		"daemon-artifact-upload-terminal",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
@@ -262,7 +268,7 @@ func TestUploadDaemonFileArtifactValidatesFilenameAndBody(t *testing.T) {
 		project,
 		time.Date(2026, 8, 25, 13, 0, 0, 0, time.UTC),
 		"daemon-artifact-validation",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
@@ -333,7 +339,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		project,
 		now,
 		"daemon-artifact-download-success",
-		"download_file",
+		"storage_download",
 		nil,
 		func(agentID uuid.UUID) json.RawMessage {
 			artifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
@@ -385,7 +391,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		project,
 		now.Add(2*time.Second),
 		"daemon-artifact-download-other-agent",
-		"download_file",
+		"storage_download",
 	)
 	otherAgentArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   project.ProjectUUID,
@@ -406,7 +412,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		project,
 		now.Add(3*time.Second),
 		"daemon-artifact-download-cross-agent",
-		"download_file",
+		"storage_download",
 		nil,
 		func(uuid.UUID) json.RawMessage {
 			input, err := json.Marshal(map[string]string{
@@ -567,7 +573,7 @@ func TestDaemonFileProcessScopeRejectsWrongMachine(t *testing.T) {
 		project,
 		time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC),
 		"daemon-artifact-wrong-machine",
-		"upload_file", nil,
+		"storage_upload", nil,
 		func(uuid.UUID) json.RawMessage {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},

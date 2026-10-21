@@ -30,11 +30,11 @@ func (s *Store) ListFiles(
 		return listing.FileListResult{}, storeerr.InvalidRequest(err)
 	}
 	if limit == 0 {
-		limit = toolcatalog.ListFilesDefaultLimit
+		limit = toolcatalog.StorageListDefaultLimit
 	}
-	if limit < 1 || limit > toolcatalog.ListFilesMaxLimit {
+	if limit < 1 || limit > toolcatalog.StorageListMaxLimit {
 		return listing.FileListResult{}, storeerr.InvalidRequest(
-			fmt.Errorf("limit must be between 1 and %d", toolcatalog.ListFilesMaxLimit),
+			fmt.Errorf("limit must be between 1 and %d", toolcatalog.StorageListMaxLimit),
 		)
 	}
 	parent := ctx

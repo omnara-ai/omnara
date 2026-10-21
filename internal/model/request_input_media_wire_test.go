@@ -53,7 +53,7 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 						Content: json.RawMessage(`[{"type":"text","text":"Inspect the screenshot and report its contents."}]`),
 					}},
 					ToolSpecs: []modelcontext.ToolSpec{{
-						Name: "read_file", Description: "Read a file or image.",
+						Name: "storage_read", Description: "Read a file or image.",
 						InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
 					}},
 				},
@@ -74,7 +74,7 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 				StopReason:                modelenvelope.StopReasonToolUse,
 			})
 			input.Context.ToolResults = []modelcontext.ToolResultRef{{
-				ToolCallID: callID, ModelCallContextID: contextID, ProviderCallID: callID, Name: "read_file",
+				ToolCallID: callID, ModelCallContextID: contextID, ProviderCallID: callID, Name: "storage_read",
 				SourceEventSequence: 2, ResultEventSequence: 3, Outcome: "succeeded",
 				Input: json.RawMessage(`{"path":"/tmp/screenshot.png"}`), ContentParts: bytes.Clone(resultContent),
 			}}

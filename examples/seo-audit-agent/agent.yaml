@@ -178,7 +178,7 @@ instruction: |
 
   # Delivering
 
-  Upload report.pdf and report.md with upload_file. When this conversation
+  Upload report.pdf and report.md with storage_upload. When this conversation
   comes from an integration such as Slack or Discord, post with the
   integration's qualified posting tool (for example,
   `int__engineering__post_message`): the three grades and the top three
@@ -300,7 +300,7 @@ machine_sources:
         chmod +x /usr/local/bin/render-page /usr/local/bin/report-pdf
 
 tools:
-  # Machine tools such as run_command and upload_file are added automatically;
+  # Machine tools such as run_command and storage_upload are added automatically;
   # list one here only to change its permission.
   web_search: {}
   web_fetch: {}

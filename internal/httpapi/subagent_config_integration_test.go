@@ -146,7 +146,7 @@ tools: {skill: {enabled: false}}
 			require.Empty(t, compiled.Subagents)
 			require.NotContains(t, compiled.Tools, "spawn_agent")
 			require.True(t, compiled.Tools["read_agent"].Enabled)
-			require.True(t, compiled.Tools["read_file"].Enabled)
+			require.True(t, compiled.Tools["storage_read"].Enabled)
 			require.Contains(t, compiled.Tools, "skill")
 			require.False(t, compiled.Tools["skill"].Enabled)
 		})

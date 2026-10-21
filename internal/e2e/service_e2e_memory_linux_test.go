@@ -102,19 +102,19 @@ memory_stores:
 		if request > 1 {
 			output := toolResultOutputForCall(body, "read")
 			if err := decodeResult(output, &read); err != nil ||
-				read.Path != path || read.Content != original || read.Digest != digest {
+				read.Path != path || read.Content != original || read.Digest != "" {
 				fail(w, http.StatusBadRequest, "unexpected read result: %s (%v)", output, err)
 				return
 			}
 		}
 		switch request {
 		case 1:
-			if !fakeModelRequestContainsTools(w, body, fail, "read_file", "search_files", "write_file") {
+			if !fakeModelRequestContainsTools(w, body, fail, "storage_read", "storage_search", "storage_write") {
 				return
 			}
-			writeOpenAIFunctionCall(w, fail, "resp_read", "read", "read_file", map[string]any{"path": path})
+			writeOpenAIFunctionCall(w, fail, "resp_read", "read", "storage_read", map[string]any{"path": path})
 		case 2:
-			writeOpenAIFunctionCall(w, fail, "resp_search", "search", "search_files", map[string]any{
+			writeOpenAIFunctionCall(w, fail, "resp_search", "search", "storage_search", map[string]any{
 				"path": "/memory/notes/**/*.txt", "args": []string{"-F", "-e", "pending"},
 			})
 		case 3:
@@ -130,14 +130,14 @@ memory_stores:
 				fail(w, http.StatusBadRequest, "unexpected search result: %s (%v)", output, err)
 				return
 			}
-			writeOpenAIFunctionCall(w, fail, "resp_edit", "edit", "write_file", map[string]any{
-				"path": path, "script": "s/pending/complete/", "expected_digest": read.Digest,
+			writeOpenAIFunctionCall(w, fail, "resp_edit", "edit", "storage_write", map[string]any{
+				"path": path, "script": "s/pending/complete/",
 			})
 		case 4:
 			var edit struct{ Path, Digest string }
 			output := toolResultOutputForCall(body, "edit")
 			if err := decodeResult(output, &edit); err != nil ||
-				edit.Path != path || edit.Digest != blobstore.ContentDigest([]byte(updated)) {
+				edit.Path != path || edit.Digest != "" {
 				fail(w, http.StatusBadRequest, "unexpected edit result: %s (%v)", output, err)
 				return
 			}

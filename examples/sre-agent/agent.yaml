@@ -111,7 +111,7 @@ mcp:
 
 # Optional: source code. Delete this block along with machine_sources.
 tools:
-  # Machine tools such as run_command and upload_file are added automatically;
+  # Machine tools such as run_command and storage_upload are added automatically;
   # list one here only to change its permission.
   run_command:
     permission:

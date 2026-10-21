@@ -24,20 +24,18 @@ const (
 const (
 	FilePageBytes            = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
-	ListFilesDefaultLimit    = 50
-	ListFilesMaxLimit        = 100
-	ReadFileDefaultLines     = 100
-	ReadFileMaxLines         = 200
-	ReadFileDefaultChars     = 512
-	ReadFileMaxChars         = 4096
+	StorageListDefaultLimit  = 50
+	StorageListMaxLimit      = 100
+	StorageReadDefaultLines  = 100
+	StorageReadMaxLines      = 200
+	StorageReadDefaultChars  = 512
+	StorageReadMaxChars      = 4096
 	SearchDefaultMatches     = 20
 	SearchMaxMatches         = 100
 	SearchMaxContextLines    = 5
 	SearchMaxPatternBytes    = 1024
 	SearchMaxArgs            = 64
 )
-
-const fileDigestPattern = `^sha256:[0-9a-f]{64}$`
 
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
@@ -63,20 +61,24 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	writeFileToolDescription = "Create or edit a memory text file. Returns path and digest."
-	readFileToolDescription  = "Read a text or image file stored in Omnara. " +
+	storageWriteToolDescription = "Create or edit a memory text file. " +
+		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Returns path."
+	storageReadToolDescription = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text in Omnara files. " +
+	storageSearchToolDescription = "Search text in Omnara files. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
-		"Narrow the query when truncated. Use read_file to read more around a match."
-	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
+		"Narrow the query when truncated. Use storage_read to read more around a match."
+	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
-	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Returns path and digest."
-	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest."
-	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
+	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
+		"Set view to load an uploaded image, such as a screenshot, into your context. " +
+		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Returns path."
+	storageDownloadToolDescription = "Copy a file stored in Omnara to an attached machine."
+	toolSearchToolDescription      = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
 	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
@@ -263,9 +265,9 @@ func buildDefaultCatalog() (Catalog, error) {
 	); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameListFiles], err = toolEntry(
-		ToolNameListFiles,
-		listFilesToolDescription,
+	if entries[ToolNameStorageList], err = toolEntry(
+		ToolNameStorageList,
+		storageListToolDescription,
 		[]string{"pattern"},
 		map[string]any{
 			"pattern": map[string]any{
@@ -278,14 +280,14 @@ func buildDefaultCatalog() (Catalog, error) {
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
 			"cursor": map[string]any{
-				"type": "string", "maxLength": ListFilesMaxCursorLength,
+				"type": "string", "maxLength": StorageListMaxCursorLength,
 				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ListFilesMaxLimit,
-				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListFilesDefaultLimit),
+				"maximum":     StorageListMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", StorageListDefaultLimit),
 			},
 		},
 	); err != nil {
@@ -319,19 +321,19 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWriteFile], err = writeFileTool(); err != nil {
+	if entries[ToolNameStorageWrite], err = storageWriteTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
+	if entries[ToolNameStorageSearch], err = storageSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageUpload], err = storageUploadTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameDownloadFile], err = downloadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageDownload], err = storageDownloadTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -547,22 +549,16 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-func readFileTool() (Entry, error) {
+func storageReadTool() (Entry, error) {
 	return toolEntry(
-		ToolNameReadFile,
-		readFileToolDescription,
+		ToolNameStorageRead,
+		storageReadToolDescription,
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
 				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
-			},
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
-					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
 			},
 			"offset_line": map[string]any{
 				"type":    "integer",
@@ -574,7 +570,7 @@ func readFileTool() (Entry, error) {
 			"limit_lines": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ReadFileMaxLines,
+				"maximum":     StorageReadMaxLines,
 				"description": "Maximum number of lines to return. Defaults to 100 in line mode; each response contains at most 4 KiB of text.",
 			},
 			"offset_char": map[string]any{
@@ -587,17 +583,17 @@ func readFileTool() (Entry, error) {
 			"limit_chars": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ReadFileMaxChars,
+				"maximum":     StorageReadMaxChars,
 				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
 			},
 		},
 	)
 }
 
-func writeFileTool() (Entry, error) {
+func storageWriteTool() (Entry, error) {
 	return toolEntry(
-		ToolNameWriteFile,
-		writeFileToolDescription,
+		ToolNameStorageWrite,
+		storageWriteToolDescription,
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
@@ -618,25 +614,21 @@ func writeFileTool() (Entry, error) {
 				"type":        "boolean",
 				"description": "With content, append the exact text instead of replacing; no newline is added. Creates the file if missing. Defaults to false; cannot be used with script.",
 			},
-			"expected_digest": map[string]any{
-				"type":        "string",
-				"pattern":     fileDigestPattern,
-				"description": "Current file digest from read_file or download_file. Required to change existing content; omit to create. Concurrent changes cause a conflict.",
-			},
+			"force": memoryForceProperty(""),
 		},
 	)
 }
 
-func searchFilesTool() (Entry, error) {
+func storageSearchTool() (Entry, error) {
 	return toolEntry(
-		ToolNameSearchFiles,
-		searchFilesToolDescription,
+		ToolNameStorageSearch,
+		storageSearchToolDescription,
 		[]string{"path", "args"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as list_files and only search attached stores. Artifact globs are not supported.",
+				"description": "Exact /artifacts/<artifact_id> path, or /memory/<store>/<file> path or glob. Memory globs use the same rules as storage_list and only search attached stores. Artifact globs are not supported.",
 			},
 			"args": map[string]any{
 				"type":        "array",
@@ -661,10 +653,20 @@ func searchFilesTool() (Entry, error) {
 	)
 }
 
-func uploadFileTool(machineID map[string]any) (Entry, error) {
+// memoryForceProperty describes skipping memory read tracking when replacing a file.
+func memoryForceProperty(prefix string) map[string]any {
+	return map[string]any{
+		"type": "boolean",
+		"description": prefix + "Replace the file even if it changed since you last read, wrote, uploaded, " +
+			"or downloaded it, or you never did. Use only after a conflict when replacing the latest content " +
+			"is intended. Defaults to false.",
+	}
+}
+
+func storageUploadTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameUploadFile,
-		uploadFileToolDescription,
+		ToolNameStorageUpload,
+		storageUploadToolDescription,
 		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
@@ -682,20 +684,20 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "To replace changed memory content, use digest from download_file. " +
-					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
+			"force":      memoryForceProperty("Memory only. "),
+			"view": map[string]any{
+				"type": "boolean",
+				"description": "Load the uploaded file into your context so you can see it, " +
+					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only.",
 			},
 		},
 	)
 }
 
-func downloadFileTool(machineID map[string]any) (Entry, error) {
+func storageDownloadTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
-		ToolNameDownloadFile,
-		downloadFileToolDescription,
+		ToolNameStorageDownload,
+		storageDownloadToolDescription,
 		[]string{"path", "destination"},
 		map[string]any{
 			"path": map[string]any{

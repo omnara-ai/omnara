@@ -27,13 +27,18 @@ type FileTarget struct {
 }
 
 type MemoryTarget struct {
-	StoreID        uuid.UUID `json:"store_id"`
-	Path           string    `json:"path"`
-	ExpectedDigest *string   `json:"expected_digest,omitempty"`
+	StoreID uuid.UUID `json:"store_id"`
+	Path    string    `json:"path"`
+	// ExpectedDigest is set only by processes created before uploads used memory read tracking.
+	ExpectedDigest *string `json:"expected_digest,omitempty"`
+	// Force replaces the file even if the agent has not read its current content.
+	Force bool `json:"force,omitempty"`
 }
 
 type ArtifactTarget struct {
 	ID uuid.UUID `json:"id,omitzero"`
+	// View keeps an uploaded image in the model's context.
+	View bool `json:"view,omitempty"`
 }
 
 func (t FileTransfer) validateLocal() error {
@@ -55,11 +60,13 @@ func (t FileTransfer) validateTarget() error {
 			target.Path == "." || strings.ContainsAny(target.Path, "\\\x00") {
 			return errors.New("invalid memory transfer target")
 		}
-		if t.Direction == FileTransferDownload && target.ExpectedDigest != nil {
-			return errors.New("download cannot have an expected digest")
+		if t.Direction == FileTransferDownload && (target.ExpectedDigest != nil || target.Force) {
+			return errors.New("download cannot have an expected digest or force")
 		}
 	} else if (t.Direction == FileTransferDownload) != (t.Target.Artifact.ID != uuid.Nil) {
 		return errors.New("artifact uploads create a new artifact; downloads require an artifact id")
+	} else if t.Direction == FileTransferDownload && t.Target.Artifact.View {
+		return errors.New("only artifact uploads can be viewed")
 	}
 	return nil
 }

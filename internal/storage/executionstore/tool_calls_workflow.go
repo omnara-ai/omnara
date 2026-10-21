@@ -63,7 +63,12 @@ func fileTransferToolResultContentParts(
 	if !valid || metadata.Error != nil {
 		return failedFileTransferToolResultContentParts(result, invalidMetadata)
 	}
-	parts := []map[string]any{{"type": "structured_data", "value": metadata}}
+	// The digest is kept out of model context; memory read tracking reads it from the stored result.
+	visible := map[string]any{"path": metadata.Path}
+	if direction == processcmd.FileTransferDownload {
+		visible = map[string]any{"destination": transfer.LocalPath}
+	}
+	parts := []map[string]any{{"type": "structured_data", "value": visible}}
 	if direction == processcmd.FileTransferUpload {
 		if transfer.Target.Artifact != nil {
 			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
@@ -82,8 +87,14 @@ func fileTransferToolResultContentParts(
 			if metadata.Path != path || metadata.Digest != artifact.Digest {
 				return failedFileTransferToolResultContentParts(result, invalidMetadata)
 			}
+			view := transfer.Target.Artifact.View
+			if view && !viewableImageTypes[artifact.ContentType] {
+				view = false
+				parts = append(parts, map[string]any{"type": "text", "text": fmt.Sprintf(
+					"not shown: %s is not a PNG, JPEG, GIF, or WebP image", artifact.ContentType)})
+			}
 			parts = append(parts, map[string]any{
-				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": true,
+				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": !view,
 			})
 		} else {
 			target := transfer.Target.Memory
@@ -98,9 +109,16 @@ func fileTransferToolResultContentParts(
 			}
 		}
 	}
+	parts = append(parts, map[string]any{
+		"type": "structured_data", "value": map[string]string{"digest": metadata.Digest},
+		"exclude_from_model_context": true,
+	})
 	contentParts, err := marshalJSON(parts)
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
+
+// viewableImageTypes matches the image types modelcontext sends to models inline.
+var viewableImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
@@ -118,9 +136,6 @@ func failedFileTransferToolResultContentParts(
 	value["error"] = failure.Message
 	if failure.Code != "" {
 		value["error_code"] = failure.Code
-	}
-	if failure.CurrentDigest != "" {
-		value["current_digest"] = failure.CurrentDigest
 	}
 	contentParts, err := marshalJSON([]map[string]any{{"type": "structured_data", "value": value}})
 	return ToolResultOutcomeFailed, contentParts, err

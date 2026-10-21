@@ -76,7 +76,7 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		mcpToolNames = append(mcpToolNames, testutil.RequireType[string](t, tool["name"]))
 	}
 	require.ElementsMatch(t, []string{
-		toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageSearch,
 	}, mcpToolNames)
 	for _, body := range []map[string]any{
 		{}, {"source": "{}"}, {"source_format": "json"},

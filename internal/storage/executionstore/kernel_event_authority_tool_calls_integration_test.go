@@ -30,10 +30,10 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 		stopReason                               modelenvelope.StopReason
 		acceptedName, rejectedName, rejectedType string
 	}{
-		{"tool_use", modelenvelope.StopReasonToolUse, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
+		{"tool_use", modelenvelope.StopReasonToolUse, "storage_read", "docs__lookup", toolcatalog.ToolTypeMCP},
 		{"end_turn with identical names", modelenvelope.StopReasonEndTurn,
 			"unparseable_tool_call", "unparseable_tool_call", toolcatalog.ToolTypeBuiltIn},
-		{"max_tokens", modelenvelope.StopReasonMaxTokens, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
+		{"max_tokens", modelenvelope.StopReasonMaxTokens, "storage_read", "docs__lookup", toolcatalog.ToolTypeMCP},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -193,7 +193,7 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 		"tool_call_updates",
 		[]toolCallForContextTest{{
 			ProviderCallID: "call_tool_call_updates",
-			Name:           "read_file",
+			Name:           "storage_read",
 			Input:          json.RawMessage(`{"path":"README.md"}`),
 			Type:           toolcatalog.ToolTypeBuiltIn,
 		}},
@@ -301,7 +301,7 @@ func TestToolCallBindingBatchRejectsEnvelopeMismatchWithoutPartialState(t *testi
 					Content: []modelenvelope.ResponsePart{{
 						Type:           modelenvelope.ResponsePartTypeToolCall,
 						ProviderCallID: "call_from_envelope",
-						ToolName:       "read_file",
+						ToolName:       "storage_read",
 						ToolInput:      json.RawMessage(`{"path":"README.md"}`),
 					}},
 					StopReason: modelenvelope.StopReasonToolUse,

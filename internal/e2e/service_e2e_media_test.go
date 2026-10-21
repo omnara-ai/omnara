@@ -40,7 +40,7 @@ func TestServiceE2ELargeTextAttachmentsRemainReadableInTheSameTurn(t *testing.T)
 					{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
 						ContextWindowTokens: 1_048_576, MaxOutputTokens: 8192, DefaultMaxOutputTokens: 1024,
 					},
-				}, "read_file", "search_files")
+				}, "storage_read", "storage_search")
 			agentID := project.createAgent(t, ctx)
 			const instruction = "Read the end of the last attachment and report the verification marker."
 			const marker = "verification_marker_from_original_file"
@@ -95,13 +95,13 @@ func TestServiceE2ELargeTextAttachmentsRemainReadableInTheSameTurn(t *testing.T)
 					}
 					_ = json.NewEncoder(w).Encode(map[string]any{
 						"id": "resp_attachment_read", "status": "completed",
-						"output": []map[string]any{{"type": "function_call", "call_id": "read_attachment", "name": "read_file", "arguments": string(arguments)}},
+						"output": []map[string]any{{"type": "function_call", "call_id": "read_attachment", "name": "storage_read", "arguments": string(arguments)}},
 						"usage":  map[string]int{"input_tokens": len(body) / 4, "output_tokens": 40},
 					})
 					return
 				}
 				if !strings.Contains(string(body), marker) || !strings.Contains(string(body), "function_call_output") {
-					failures <- "read_file did not return the end of the original stored file"
+					failures <- "storage_read did not return the end of the original stored file"
 				}
 				text := "attachment analysis complete"
 				if call > 2 {

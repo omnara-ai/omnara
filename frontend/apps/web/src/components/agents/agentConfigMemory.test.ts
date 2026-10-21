@@ -12,8 +12,8 @@ memory_stores:
   - name: unavailable
     access: read
 tools:
-  write_file: {enabled: false}
-  read_file: {permission: {mode: always_ask}}
+  storage_write: {enabled: false}
+  storage_read: {permission: {mode: always_ask}}
 `
 
 describe('memory attachments in the builder', () => {
@@ -45,8 +45,8 @@ interaction_handlers: {chat: {}}
       interaction_handlers: { chat: {} },
       memory_stores: [{ name: 'notes', access: 'read' }],
       tools: {
-        write_file: { enabled: false },
-        read_file: { permission: { mode: 'always_ask' } },
+        storage_write: { enabled: false },
+        storage_read: { permission: { mode: 'always_ask' } },
         int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
       },
     })
@@ -54,7 +54,7 @@ interaction_handlers: {chat: {}}
       interaction_handlers: { chat: {} },
       memory_stores: changed.memoryStores,
       tools: {
-        write_file: { type: 'built_in', enabled: false },
+        storage_write: { type: 'built_in', enabled: false },
         int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
       },
     })
@@ -84,7 +84,10 @@ interaction_handlers: {chat: {}}
         { name: 'unavailable', access: 'read' },
         { name: 'new-store', access: 'read_write' },
       ],
-      tools: { write_file: { enabled: false }, read_file: { permission: { mode: 'always_ask' } } },
+      tools: {
+        storage_write: { enabled: false },
+        storage_read: { permission: { mode: 'always_ask' } },
+      },
     })
     const next = createBasicConfigSession(updated)
     expect(next.initialDraft && next.apply(next.initialDraft)).toBe(updated)
@@ -100,7 +103,10 @@ interaction_handlers: {chat: {}}
     const updated: unknown = parse(session.apply({ ...draft, memoryStores: [] }))
     expect(updated).not.toHaveProperty('memory_stores')
     expect(updated).toMatchObject({
-      tools: { write_file: { enabled: false }, read_file: { permission: { mode: 'always_ask' } } },
+      tools: {
+        storage_write: { enabled: false },
+        storage_read: { permission: { mode: 'always_ask' } },
+      },
     })
   })
 })

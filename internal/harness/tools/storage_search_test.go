@@ -78,20 +78,20 @@ func TestCheckFileToolSupportSearchFailure(t *testing.T) {
 	}
 }
 
-func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesRequest {
+func searchRequestForTest(t *testing.T, args []string, limit int) storageSearchRequest {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{"path": "/memory/team/file.txt", "args": args, "limit": limit})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := resolveSearchFilesRequest(data)
+	input, err := resolveStorageSearchRequest(data)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return input
 }
 
-func TestSearchFilesModes(t *testing.T) {
+func TestStorageSearchModes(t *testing.T) {
 	setupSandbox(t)
 	for _, test := range []struct {
 		name, text string
@@ -138,7 +138,7 @@ func TestSearchFilesModes(t *testing.T) {
 	}
 }
 
-func TestSearchFilesContextAndLimits(t *testing.T) {
+func TestStorageSearchContextAndLimits(t *testing.T) {
 	setupSandbox(t)
 	text := "before\nTARGET\nTARGET\nafter\nTARGET\nlast\n"
 	for _, test := range []struct {
@@ -179,7 +179,7 @@ func TestSearchFilesContextAndLimits(t *testing.T) {
 	}
 }
 
-func TestSearchFilesLimitAcrossSources(t *testing.T) {
+func TestStorageSearchLimitAcrossSources(t *testing.T) {
 	setupSandbox(t)
 	for _, test := range []struct {
 		name string
@@ -213,7 +213,7 @@ func TestSearchFilesLimitAcrossSources(t *testing.T) {
 	}
 }
 
-func TestSearchFilesResponseBudget(t *testing.T) {
+func TestStorageSearchResponseBudget(t *testing.T) {
 	setupSandbox(t)
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	input.Path = "/memory/team/" + strings.Repeat("name/", 190) + "file.txt"
@@ -225,7 +225,7 @@ func TestSearchFilesResponseBudget(t *testing.T) {
 	}
 }
 
-func TestSearchFilesTextAndOutputBounds(t *testing.T) {
+func TestStorageSearchTextAndOutputBounds(t *testing.T) {
 	setupSandbox(t)
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	text := strings.Repeat(strings.Repeat("é", 5000)+"\n", 5) + "TARGET" +
@@ -248,7 +248,7 @@ func TestSearchFilesTextAndOutputBounds(t *testing.T) {
 	}
 }
 
-func TestSearchFilesNativeBinaryContent(t *testing.T) {
+func TestStorageSearchNativeBinaryContent(t *testing.T) {
 	setupSandbox(t)
 	for _, test := range []struct {
 		name, content, snippet string
@@ -272,7 +272,7 @@ func TestSearchFilesNativeBinaryContent(t *testing.T) {
 	}
 }
 
-func TestSearchFilesMatchSnippets(t *testing.T) {
+func TestStorageSearchMatchSnippets(t *testing.T) {
 	setupSandbox(t)
 	for _, test := range []struct {
 		name, content, pattern, want string
@@ -316,7 +316,7 @@ func TestSearchFilesMatchSnippets(t *testing.T) {
 	}
 }
 
-func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
+func TestStorageSearchRejectsUnsafeArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"-e", "x", "/etc/passwd"}, {"--pre", "cat", "-e", "x"}, {"-f", "/etc/passwd"},
 		{"--follow", "-e", "x"}, {"-P", "-e", "x"}, {"-m", "1", "-e", "x"},
@@ -335,13 +335,13 @@ func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 		`{"path":"/memory/team/file","args":["-e","x"],"cursor":"bad"}`,
 		`{"path":"/memory/team/file","pattern":"x"}`,
 	} {
-		if validateSearchFilesInput(json.RawMessage(data)) == nil {
+		if validateStorageSearchInput(json.RawMessage(data)) == nil {
 			t.Fatalf("accepted invalid input: %s", data)
 		}
 	}
 }
 
-func TestSearchFilesOversizedEvents(t *testing.T) {
+func TestStorageSearchOversizedEvents(t *testing.T) {
 	setupSandbox(t)
 	large := strings.Repeat("x", 3*1024*1024) + "TARGET"
 	for _, test := range []struct {
@@ -378,7 +378,7 @@ func TestSearchFilesOversizedEvents(t *testing.T) {
 	}
 }
 
-func TestSearchFilesCancellation(t *testing.T) {
+func TestStorageSearchCancellation(t *testing.T) {
 	setupSandbox(t)
 	input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
 	page := &searchOutput{input: input}

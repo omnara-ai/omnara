@@ -57,7 +57,7 @@ func TestDaemonPollingOffersEquivalent(t *testing.T) {
 	tools := createToolCallBatchForProcessTest(t, ctx, f, t.Name(), []processToolCallBatchItem{
 		builtInProcessToolCallBatchItem("shell-one", "run_command"),
 		builtInProcessToolCallBatchItem("shell-two", "run_command"),
-		builtInProcessToolCallBatchItem("upload", "upload_file"),
+		builtInProcessToolCallBatchItem("upload", "storage_upload"),
 	})
 	var offered []uuid.UUID
 	for _, id := range tools[:2] {

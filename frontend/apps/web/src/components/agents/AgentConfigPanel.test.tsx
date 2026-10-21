@@ -23,7 +23,9 @@ it('keeps the saved compiled view separate from an unsaved form', async () => {
   const definition: AgentConfig['compiled_definition'] = {
     instruction: 'Saved instruction.',
     model: { configured_model_id: fakeId('mdl') },
-    tools: { read_file: { enabled: true, permission: { mode: 'always_allow', parameters: {} } } },
+    tools: {
+      storage_read: { enabled: true, permission: { mode: 'always_allow', parameters: {} } },
+    },
   }
   try {
     act(() => {

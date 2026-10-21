@@ -944,7 +944,7 @@ func testSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T, kind st
 		kind,
 		model.ToolCall{
 			ID:    siblingProviderCallID,
-			Name:  "read_file",
+			Name:  "storage_read",
 			Input: json.RawMessage(`{}`),
 		},
 	)

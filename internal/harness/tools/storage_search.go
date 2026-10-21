@@ -35,7 +35,7 @@ const searchEntryOverheadBytes = 64
 var errSearchResultLimit = errors.New("search result limit reached")
 var searchGlobEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}", " ", "\\ ")
 
-type searchFilesRequest struct {
+type storageSearchRequest struct {
 	Path       string   `json:"path"`
 	Args       []string `json:"args"`
 	Limit      int      `json:"limit,omitempty"`
@@ -44,14 +44,14 @@ type searchFilesRequest struct {
 	matcher    *regexp.Regexp
 }
 
-func validateSearchFilesInput(raw json.RawMessage) error {
-	_, err := resolveSearchFilesRequest(raw)
+func validateStorageSearchInput(raw json.RawMessage) error {
+	_, err := resolveStorageSearchRequest(raw)
 	return err
 }
 
-func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) {
-	var input searchFilesRequest
-	if err := decodeSingleStrictJSON(raw, &input, "search_files request"); err != nil {
+func resolveStorageSearchRequest(raw json.RawMessage) (storageSearchRequest, error) {
+	var input storageSearchRequest
+	if err := decodeSingleStrictJSON(raw, &input, "storage_search request"); err != nil {
 		return input, err
 	}
 	var err error
@@ -150,8 +150,8 @@ type searchStore struct {
 	root *os.File
 }
 
-func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	input, err := resolveSearchFilesRequest(call.Call.Input)
+func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+	input, err := resolveStorageSearchRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ type searchResult struct {
 }
 
 type searchOutput struct {
-	input  searchFilesRequest
+	input  storageSearchRequest
 	result searchResult
 	used   int
 }
@@ -325,7 +325,7 @@ func newSearchView(stores []searchStore) (_ *os.File, err error) {
 }
 
 func newSearchCommand(
-	ctx context.Context, input searchFilesRequest, source searchSource, view *os.File,
+	ctx context.Context, input storageSearchRequest, source searchSource, view *os.File,
 ) (*exec.Cmd, error) {
 	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
 		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}

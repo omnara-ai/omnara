@@ -54,23 +54,23 @@ func TestFileListCursorValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, raw := range []string{"bad", strings.Repeat("a", toolcatalog.ListFilesMaxCursorLength+1), "e30"} {
+	for _, raw := range []string{"bad", strings.Repeat("a", toolcatalog.StorageListMaxCursorLength+1), "e30"} {
 		if _, err := decodeFileListCursor(raw); !errors.Is(err, errInvalidFileListCursor) {
 			t.Fatalf("accepted malformed cursor: %v", err)
 		}
 	}
 }
 
-func TestListFilesLiteralRootValidation(t *testing.T) {
+func TestStorageListLiteralRootValidation(t *testing.T) {
 	for _, pattern := range []string{
 		"/memory", "/artifacts", "/memory/*", "/memory/**", "/memory/*-archive/**/*.md",
 		"/artifacts/*.pdf", "/artifacts/art_*", "/*", "/**", "/**/review-note.txt", "/mem*/*", "/unknown/*",
 	} {
-		raw, err := json.Marshal(listFilesRequest{Pattern: pattern})
+		raw, err := json.Marshal(storageListRequest{Pattern: pattern})
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = validateRegisteredToolInput(toolcatalog.ToolNameListFiles, raw)
+		err = validateRegisteredToolInput(toolcatalog.ToolNameStorageList, raw)
 		valid := pattern == "/memory" || pattern == "/artifacts" ||
 			strings.HasPrefix(pattern, "/memory/") || strings.HasPrefix(pattern, "/artifacts/")
 		if valid && err != nil {

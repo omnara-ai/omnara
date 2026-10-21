@@ -4,7 +4,6 @@ package tools
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -48,10 +47,10 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 	path := "/artifacts/" + publicID
 	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
 	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameReadFile,
+		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `","offset_line":2,"limit_lines":1}`),
 	}
-	result, err := runReadFileAsync(ctx, call)
+	result, err := runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +59,10 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		t.Fatalf("read result = %s", content)
 	}
 	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameReadFile,
+		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `","offset_char":1,"limit_chars":1}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +72,10 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 	t.Run("search", func(t *testing.T) {
 		setupSandbox(t)
 		call.Call = model.ToolCall{
-			Name:  toolcatalog.ToolNameSearchFiles,
+			Name:  toolcatalog.ToolNameStorageSearch,
 			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
 		}
-		result, err := runSearchFilesAsync(ctx, call)
+		result, err := runStorageSearchAsync(ctx, call)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,10 +105,10 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameReadFile,
+		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `"}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,10 +130,10 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameReadFile,
+		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"/artifacts/` + imagePublicID + `","offset_line":2}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,30 +141,6 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		string(content), `{"type":"media_ref","artifact_id":"`+image.ID.String()+`"}`,
 	) {
 		t.Fatalf("image read result = %s", content)
-	}
-	for _, file := range []struct{ path, digest string }{
-		{path, artifact.Digest},
-		{"/artifacts/" + imagePublicID, image.Digest},
-	} {
-		for _, digest := range []string{file.digest, blobstore.ContentDigest([]byte("different content"))} {
-			call.Call = model.ToolCall{
-				Name:  toolcatalog.ToolNameReadFile,
-				Input: json.RawMessage(`{"path":"` + file.path + `","expected_digest":"` + digest + `"}`),
-			}
-			result, err := runReadFileAsync(ctx, call)
-			if digest != file.digest {
-				if !errors.Is(err, storeerr.ErrConflict) || result != nil {
-					t.Fatalf("mismatched digest for %s returned %v, %v", file.path, result, err)
-				}
-				continue
-			}
-			if err != nil {
-				t.Fatalf("matching digest for %s: %v", file.path, err)
-			}
-			if content := asyncCompletionContent(t, result); !strings.Contains(string(content), digest) {
-				t.Fatalf("read result = %s", content)
-			}
-		}
 	}
 	call.Turn.AgentID = uuid.New()
 	if _, _, err := loadArtifactContent(ctx, call, artifact.ID); err == nil {
@@ -194,20 +169,20 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		}
 		path := "/artifacts/" + id
 		call.Call = model.ToolCall{
-			Name:  toolcatalog.ToolNameReadFile,
+			Name:  toolcatalog.ToolNameStorageRead,
 			Input: json.RawMessage(`{"path":"` + path + `"}`),
 		}
-		if _, err := runReadFileAsync(ctx, call); err == nil ||
+		if _, err := runStorageReadAsync(ctx, call); err == nil ||
 			!strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
 			t.Fatalf("non-text read: %v", err)
 		}
 		t.Run(fmt.Sprintf("search binary=%t", test.binary), func(t *testing.T) {
 			setupSandbox(t)
 			call.Call = model.ToolCall{
-				Name:  toolcatalog.ToolNameSearchFiles,
+				Name:  toolcatalog.ToolNameStorageSearch,
 				Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
 			}
-			result, err := runSearchFilesAsync(ctx, call)
+			result, err := runStorageSearchAsync(ctx, call)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -255,10 +230,10 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 		}
 		for _, paging := range []string{`"offset_line":2,"limit_lines":1`, `"offset_char":1,"limit_chars":1`} {
 			call.Call = model.ToolCall{
-				Name:  toolcatalog.ToolNameReadFile,
+				Name:  toolcatalog.ToolNameStorageRead,
 				Input: json.RawMessage(`{"path":"/memory/engineering/` + file + `",` + paging + `}`),
 			}
-			result, err := runReadFileAsync(ctx, call)
+			result, err := runStorageReadAsync(ctx, call)
 			if test.invalid {
 				if err == nil {
 					t.Fatal("non-text memory accepted")
@@ -275,14 +250,16 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 					Digest    string `json:"digest"`
 					SizeBytes int    `json:"size_bytes"`
 				} `json:"value"`
+				Exclude bool `json:"exclude_from_model_context"`
 			}
 			if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 				t.Fatal(err)
 			}
-			if len(parts) != 1 {
+			if len(parts) != 2 || parts[0].Exclude || parts[0].Value.Digest != "" || !parts[1].Exclude {
 				t.Fatalf("unexpected result: %+v", parts)
 			}
 			value := parts[0].Value
+			value.Digest = parts[1].Value.Digest
 			want := ""
 			if len(test.content) > 0 {
 				want = "TARGET\n"
@@ -308,27 +285,27 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	}
 	for _, name := range []string{"private", "unknown"} {
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt"}`)
-		if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+		if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) ||
 			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store read: %v", name, err)
 		}
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt","content":"replacement"}`)
-		if _, err := runWriteFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+		if _, err := runStorageWriteAsync(ctx, call); !storeerr.IsNotFound(err) ||
 			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store write: %v", name, err)
 		}
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/missing.txt"}`)
-	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
 		t.Fatalf("missing file read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested"}`)
-	if _, err := runReadFileAsync(ctx, call); storeerr.FileErrorCode(err) != "not_a_file" {
+	if _, err := runStorageReadAsync(ctx, call); storeerr.FileErrorCode(err) != "not_a_file" {
 		t.Fatalf("directory read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested/0.txt"}`)
 	call.Turn.ProjectID = uuid.New()
-	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
+	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) {
 		t.Fatalf("cross-project store read: %v", err)
 	}
 }
@@ -353,28 +330,31 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 		require.NoError(t, err)
 		expectedDigest = &written.Digest
 		input, err := json.Marshal(map[string]any{
-			"path": written.Path, "expected_digest": written.Digest, "offset_line": 2,
+			"path": written.Path, "offset_line": 2,
 		})
 		require.NoError(t, err)
 		call := asyncToolContext{
 			Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
-			Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: input},
+			Call: model.ToolCall{Name: toolcatalog.ToolNameStorageRead, Input: input},
 		}
-		result, err := runReadFileAsync(ctx, call)
+		result, err := runStorageReadAsync(ctx, call)
 		require.NoError(t, err)
 		raw := asyncCompletionContent(t, result)
 		var parts []struct {
 			Type       string          `json:"type"`
 			Value      json.RawMessage `json:"value"`
 			ArtifactID uuid.UUID       `json:"artifact_id"`
+			Exclude    bool            `json:"exclude_from_model_context"`
 		}
 		require.NoError(t, json.Unmarshal(raw, &parts))
-		require.Len(t, parts, 2)
+		require.Len(t, parts, 3)
 		require.Equal(t, "structured_data", parts[0].Type)
-		require.JSONEq(t, fmt.Sprintf(`{"path":%q,"digest":%q,"size_bytes":%d,"content_type":%q}`,
-			written.Path, written.Digest, len(content), contentType), string(parts[0].Value))
+		require.JSONEq(t, fmt.Sprintf(`{"path":%q,"size_bytes":%d,"content_type":%q}`,
+			written.Path, len(content), contentType), string(parts[0].Value))
 		require.Equal(t, "media_ref", parts[1].Type)
 		require.NotEqual(t, uuid.Nil, parts[1].ArtifactID)
+		require.True(t, parts[2].Exclude)
+		require.JSONEq(t, fmt.Sprintf(`{"digest":%q}`, written.Digest), string(parts[2].Value))
 		require.NotContains(t, snapshots, parts[1].ArtifactID)
 		snapshots[parts[1].ArtifactID] = content
 		artifact, err := fixture.Store.Artifacts().GetArtifact(ctx, scope.ProjectID, fixture.Agent.ID, parts[1].ArtifactID)
@@ -382,7 +362,7 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 		require.Equal(t, "image.png", artifact.Filename)
 		require.Equal(t, contentType, artifact.ContentType)
 		call.ToolCallID = uuid.New()
-		repeated, err := runReadFileAsync(ctx, call)
+		repeated, err := runStorageReadAsync(ctx, call)
 		require.NoError(t, err)
 		require.JSONEq(t, string(raw), string(asyncCompletionContent(t, repeated)))
 	}
@@ -399,7 +379,7 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 	require.Equal(t, len(images), count)
 }
 
-func TestReadMemoryImagesCheckAccessAndDigestBeforeSnapshot(t *testing.T) {
+func TestReadMemoryImagesCheckAccessBeforeSnapshot(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-image-access", toolFixtureOptions{withMemory: true},
 		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)))
@@ -421,15 +401,13 @@ func TestReadMemoryImagesCheckAccessAndDigestBeforeSnapshot(t *testing.T) {
 		name, input string
 		want        error
 	}{
-		{"stale digest", `{"path":"/memory/engineering/image.png","expected_digest":"` +
-			blobstore.ContentDigest([]byte("changed")) + `"}`, storeerr.ErrConflict},
 		{"unattached store", `{"path":"/memory/private/image.png"}`, storeerr.ErrNotFound},
 		{"missing store", `{"path":"/memory/missing/image.png"}`, storeerr.ErrNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := runReadFileAsync(ctx, asyncToolContext{
+			result, err := runStorageReadAsync(ctx, asyncToolContext{
 				Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
-				Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: json.RawMessage(test.input)},
+				Call: model.ToolCall{Name: toolcatalog.ToolNameStorageRead, Input: json.RawMessage(test.input)},
 			})
 			require.ErrorIs(t, err, test.want)
 			require.Nil(t, result)
@@ -439,73 +417,4 @@ func TestReadMemoryImagesCheckAccessAndDigestBeforeSnapshot(t *testing.T) {
 	require.NoError(t, fixture.Pool.QueryRow(ctx,
 		"SELECT count(*) FROM artifacts WHERE agent_id = $1", fixture.Agent.ID).Scan(&count))
 	require.Zero(t, count)
-}
-
-func TestReadMemoryExpectedDigest(t *testing.T) {
-	ctx := t.Context()
-	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-read-digest", toolFixtureOptions{withMemory: true})
-	scope := memorystore.Scope{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
-	}
-	store, err := fixture.Store.Memories().Resolve(ctx, toolsTestProjectID, "engineering")
-	if err != nil {
-		t.Fatal(err)
-	}
-	written, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
-		Scope: scope, StoreID: store.ID, Path: "notes.txt", Content: []byte("first\nsecond\nlast\n"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
-		Scope: scope, StoreID: store.ID, Path: "notes.txt", Content: []byte("first\nsecond\nchanged\n"),
-		ExpectedDigest: &written.Digest,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, paging := range []string{`"offset_line":2,"limit_lines":1`, `"offset_char":6,"limit_chars":7`} {
-		for _, test := range []struct {
-			name     string
-			digest   string
-			conflict bool
-		}{
-			{name: "matching", digest: updated.Digest},
-			{name: "stale", digest: written.Digest, conflict: true},
-			{name: "omitted"},
-		} {
-			t.Run(paging+"/"+test.name, func(t *testing.T) {
-				input := `{"path":"/memory/engineering/notes.txt",` + paging
-				if test.digest != "" {
-					input += `,"expected_digest":"` + test.digest + `"`
-				}
-				result, err := runReadFileAsync(ctx, asyncToolContext{
-					Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(),
-					Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: json.RawMessage(input + `}`)},
-				})
-				if test.conflict {
-					if !errors.Is(err, storeerr.ErrConflict) ||
-						err.Error() != "file digest mismatch; restart the read" || result != nil {
-						t.Fatalf("stale read returned %v, %v", result, err)
-					}
-					return
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				var parts []struct {
-					Value struct {
-						Content string `json:"content"`
-						Digest  string `json:"digest"`
-					} `json:"value"`
-				}
-				if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
-					t.Fatal(err)
-				}
-				if len(parts) != 1 || parts[0].Value.Content != "second\n" || parts[0].Value.Digest != updated.Digest {
-					t.Fatalf("unexpected memory page: %+v", parts)
-				}
-			})
-		}
-	}
 }

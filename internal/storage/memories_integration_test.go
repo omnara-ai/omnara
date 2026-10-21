@@ -563,7 +563,7 @@ func TestMemoryListingRecordsDuration(t *testing.T) {
 	}
 }
 
-func TestListFilesScopedFilesystem(t *testing.T) {
+func TestStorageListScopedFilesystem(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -820,7 +820,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 	}
 }
 
-func TestListFilesArtifactNamesAndPagination(t *testing.T) {
+func TestStorageListArtifactNamesAndPagination(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)

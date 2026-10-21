@@ -83,7 +83,7 @@ test('reconnect drops tool calls only a delta announced and keeps durable ones',
   const terminal = new FakeTerminal()
   const renderer = new DeltaRenderer(terminal, 'agent', 'error')
   const toolCalls = new Map([
-    ['tcl_durable', { name: 'read_file', summary: 'notes.md' }],
+    ['tcl_durable', { name: 'storage_read', summary: 'notes.md' }],
     ['tcl_provisional', { name: 'search', provisional: true }],
   ])
 
