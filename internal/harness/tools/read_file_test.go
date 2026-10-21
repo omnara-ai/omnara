@@ -199,12 +199,17 @@ func TestArtifactFilenameGuidance(t *testing.T) {
 	})
 }
 
-func TestIsViewableImageRequiresCompleteMatchingImage(t *testing.T) {
+func TestIsViewableImageRequiresDecodableMatchingImage(t *testing.T) {
 	images := testImages(t)
 	for contentType, content := range images {
 		if !modelcontext.IsViewableImage(contentType, content) {
 			t.Fatalf("IsViewableImage(%q) = false for a valid image", contentType)
 		}
+	}
+	// Intact JPEGs can carry data after their end marker, such as an embedded video.
+	withTrailer := append(bytes.Clone(images["image/jpeg"]), []byte("embedded video")...)
+	if !modelcontext.IsViewableImage("image/jpeg", withTrailer) {
+		t.Fatal("IsViewableImage rejected a JPEG with trailing data")
 	}
 	pngContent := images["image/png"]
 	for _, test := range []struct {
@@ -215,15 +220,41 @@ func TestIsViewableImageRequiresCompleteMatchingImage(t *testing.T) {
 		{contentType: "image/png", content: []byte("plain text named .png")},
 		{contentType: "image/jpeg", content: pngContent},
 		{contentType: "application/octet-stream", content: pngContent},
-		// Truncated mid-write: the header still decodes, but the end marker is missing.
-		{contentType: "image/png", content: pngContent[:len(pngContent)-4]},
-		{contentType: "image/jpeg", content: images["image/jpeg"][:len(images["image/jpeg"])-2]},
-		{contentType: "image/gif", content: images["image/gif"][:len(images["image/gif"])-1]},
-		{contentType: "image/webp", content: images["image/webp"][:len(images["image/webp"])-2]},
 	} {
 		if modelcontext.IsViewableImage(test.contentType, test.content) {
 			t.Fatalf("IsViewableImage(%q, %q) = true, want false", test.contentType, test.content)
 		}
+	}
+	// Truncated mid-write: the header still decodes, but the pixel data is cut off.
+	for contentType, content := range noisyTestImages(t) {
+		if !modelcontext.IsViewableImage(contentType, content) {
+			t.Fatalf("IsViewableImage(%q) = false for a valid image", contentType)
+		}
+		if modelcontext.IsViewableImage(contentType, content[:len(content)/2]) {
+			t.Fatalf("IsViewableImage(%q) = true for a truncated image", contentType)
+		}
+	}
+}
+
+// noisyTestImages encodes images large enough that truncating them cuts into the pixel data.
+func noisyTestImages(t *testing.T) map[string][]byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 64, 64))
+	for i := range img.Pix {
+		img.Pix[i] = byte(i * 7919)
+	}
+	var pngContent, jpegContent, gifContent bytes.Buffer
+	if err := png.Encode(&pngContent, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gifContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"image/png": pngContent.Bytes(), "image/jpeg": jpegContent.Bytes(), "image/gif": gifContent.Bytes(),
 	}
 }
 
