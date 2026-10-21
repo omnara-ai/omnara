@@ -12,7 +12,7 @@ import (
 
 // maxDecodedImagePixels bounds full decodes, whose memory grows with the dimensions a small file can
 // declare. It covers phone photos and 8K screenshots.
-const maxDecodedImagePixels = 40 << 20
+const maxDecodedImagePixels = 40_000_000
 
 // IsViewableImage reports whether content is a PNG, JPEG, GIF, or WebP image of contentType that decodes,
 // so a provider will accept it as model input. Larger images are checked by their header only.
