@@ -134,6 +134,7 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 					process := ProcessRecord{
 						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
 							Direction: direction,
+							LocalPath: "notes.md",
 							Target: processcmd.FileTarget{
 								Memory: &processcmd.MemoryTarget{StoreID: uuid.New(), Path: "notes.md"},
 							},
@@ -147,7 +148,13 @@ func TestFileTransferToolResultContentParts(t *testing.T) {
 					require.NoError(t, err)
 					if tc.wantOK {
 						require.Equal(t, ToolResultOutcomeSucceeded, outcome)
-						require.JSONEq(t, `[{"type":"structured_data","value":`+metadata+`}]`, string(got))
+						visible := `{"destination":"notes.md"}`
+						if direction == processcmd.FileTransferUpload {
+							visible = `{"path":"` + path + `"}`
+						}
+						require.JSONEq(t, `[{"type":"structured_data","value":`+visible+`},`+
+							`{"type":"structured_data","value":{"digest":"`+digest+`"},"exclude_from_model_context":true}]`,
+							string(got))
 					} else {
 						delete(observed, "file_transfer")
 						observed["error"] = direction + " completed without valid file metadata"
@@ -201,6 +208,7 @@ func TestFileTransferFailureResult(t *testing.T) {
 				require.NoError(t, json.Unmarshal([]byte(tc.metadata), &fields))
 				fields["error_code"] = fields["code"]
 				delete(fields, "code")
+				delete(fields, "current_digest")
 				fields["output"] = "diagnostics"
 				body, err := json.Marshal(fields)
 				require.NoError(t, err)

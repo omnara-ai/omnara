@@ -102,7 +102,7 @@ memory_stores:
 		if request > 1 {
 			output := toolResultOutputForCall(body, "read")
 			if err := decodeResult(output, &read); err != nil ||
-				read.Path != path || read.Content != original || read.Digest != digest {
+				read.Path != path || read.Content != original || read.Digest != "" {
 				fail(w, http.StatusBadRequest, "unexpected read result: %s (%v)", output, err)
 				return
 			}
@@ -137,7 +137,7 @@ memory_stores:
 			var edit struct{ Path, Digest string }
 			output := toolResultOutputForCall(body, "edit")
 			if err := decodeResult(output, &edit); err != nil ||
-				edit.Path != path || edit.Digest != blobstore.ContentDigest([]byte(updated)) {
+				edit.Path != path || edit.Digest != "" {
 				fail(w, http.StatusBadRequest, "unexpected edit result: %s (%v)", output, err)
 				return
 			}

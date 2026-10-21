@@ -117,8 +117,7 @@ func TestFileTransferApprovalPinsBindingAndInput(t *testing.T) {
 		{name: "artifact download", tool: "storage_download",
 			input: `{"path":"/artifacts/art_aaaaaaaaaaaaaaaaaaaaaaaaae","destination":"shot.png"}`},
 		{name: "memory upload", tool: "storage_upload",
-			input: `{"path":"/memory/team/shot.png","source":"shot.png","expected_digest":"sha256:` +
-				strings.Repeat("a", 64) + `"}`},
+			input: `{"path":"/memory/team/shot.png","source":"shot.png"}`},
 		{name: "memory download", tool: "storage_download",
 			input: `{"path":"/memory/team/shot.png","destination":"shot.png"}`},
 	} {
@@ -208,7 +207,7 @@ func TestFileTransferProcessInput(t *testing.T) {
 			}
 			remotePath += "/" + id
 		}
-		input, err := fileTransferProcessInput(context.Background(), nil, tc.direction, localPath, remotePath, nil, tc.view)
+		input, err := fileTransferProcessInput(context.Background(), nil, tc.direction, localPath, remotePath, false, tc.view)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -222,27 +221,22 @@ func TestFileTransferProcessInput(t *testing.T) {
 	}
 }
 
-func TestMemoryUploadDigestValidation(t *testing.T) {
+func TestUploadInputValidation(t *testing.T) {
 	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageUpload)
 	if err != nil || !ok {
 		t.Fatalf("storage_upload registration: %v", err)
 	}
-	for _, expected := range []string{`""`, `null`, `"invalid"`, `123`, `"sha256:` + strings.Repeat("A", 64) + `"`} {
-		raw := json.RawMessage(`{"path":"/memory/team/file","source":"file","expected_digest":` + expected + `}`)
-		if err := tool.validateInput(raw); err == nil {
-			t.Fatalf("accepted %s", raw)
-		}
-	}
 	digest := "sha256:" + strings.Repeat("0", 64)
 	if err := tool.validateInput(
 		json.RawMessage(`{"path":"/memory/team/file","source":"file","expected_digest":"` + digest + `"}`),
-	); err != nil {
+	); err == nil {
+		t.Fatal("accepted expected_digest")
+	}
+	if err := tool.validateInput(json.RawMessage(`{"path":"/memory/team/file","source":"file","force":true}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := tool.validateInput(
-		json.RawMessage(`{"path":"/artifacts","source":"file","expected_digest":"` + digest + `"}`),
-	); err == nil {
-		t.Fatal("artifact accepted digest precondition")
+	if err := tool.validateInput(json.RawMessage(`{"path":"/artifacts","source":"file","force":true}`)); err == nil {
+		t.Fatal("artifact accepted force")
 	}
 	if err := tool.validateInput(json.RawMessage(`{"path":"/artifacts","source":"shot.png","view":true}`)); err != nil {
 		t.Fatal(err)

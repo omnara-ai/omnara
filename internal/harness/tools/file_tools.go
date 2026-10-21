@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -27,19 +26,19 @@ const (
 )
 
 type uploadFileRequest struct {
-	ExpectedDigest *string         `json:"expected_digest,omitempty"`
-	Path           string          `json:"path"`
-	Source         string          `json:"source"`
-	MachineID      json.RawMessage `json:"machine_id,omitempty"`
-	View           bool            `json:"view,omitempty"`
+	Path      string          `json:"path"`
+	Source    string          `json:"source"`
+	MachineID json.RawMessage `json:"machine_id,omitempty"`
+	Force     bool            `json:"force,omitempty"`
+	View      bool            `json:"view,omitempty"`
 }
 
 type resolvedUploadFileRequest struct {
-	ExpectedDigest *string
-	Path           string
-	Source         string
-	MachineID      uuid.UUID
-	View           bool
+	Path      string
+	Source    string
+	MachineID uuid.UUID
+	Force     bool
+	View      bool
 }
 
 type downloadFileRequest struct {
@@ -69,16 +68,11 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
 			return resolvedUploadFileRequest{}, err
 		}
-		if input.ExpectedDigest != nil {
-			if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
-				return resolvedUploadFileRequest{}, err
-			}
+		if input.View {
+			return resolvedUploadFileRequest{}, errors.New("view only applies to /artifacts uploads")
 		}
-	} else if input.ExpectedDigest != nil {
-		return resolvedUploadFileRequest{}, errors.New("expected_digest only applies to memory")
-	}
-	if isMemory && input.View {
-		return resolvedUploadFileRequest{}, errors.New("view only applies to /artifacts uploads")
+	} else if input.Force {
+		return resolvedUploadFileRequest{}, errors.New("force only applies to memory uploads")
 	}
 	if !isMemory && input.Path != toolcatalog.ArtifactVFSRoot {
 		return resolvedUploadFileRequest{}, errors.New("upload path must be /artifacts")
@@ -94,8 +88,7 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 		return resolvedUploadFileRequest{}, err
 	}
 	return resolvedUploadFileRequest{
-		Path: input.Path, Source: input.Source, MachineID: machineID, ExpectedDigest: input.ExpectedDigest,
-		View: input.View,
+		Path: input.Path, Source: input.Source, MachineID: machineID, Force: input.Force, View: input.View,
 	}, nil
 }
 
@@ -144,8 +137,7 @@ func runUploadFile(
 		return nil, err
 	}
 	processInput, err := fileTransferProcessInput(
-		ctx, call.Reader, processcmd.FileTransferUpload, resolved.Source, resolved.Path, resolved.ExpectedDigest,
-		resolved.View,
+		ctx, call.Reader, processcmd.FileTransferUpload, resolved.Source, resolved.Path, resolved.Force, resolved.View,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return failInTransaction(toolResultContent{}, err), nil
@@ -173,7 +165,7 @@ func runDownloadFile(
 		return nil, err
 	}
 	processInput, err := fileTransferProcessInput(
-		ctx, call.Reader, processcmd.FileTransferDownload, resolved.Destination, resolved.Path, nil, false,
+		ctx, call.Reader, processcmd.FileTransferDownload, resolved.Destination, resolved.Path, false, false,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return failInTransaction(toolResultContent{}, err), nil
@@ -253,7 +245,7 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 
 func fileTransferProcessInput(
 	ctx context.Context, reader *executionstore.ToolCallReader,
-	direction processcmd.FileTransferDirection, localPath, remotePath string, expectedDigest *string, view bool,
+	direction processcmd.FileTransferDirection, localPath, remotePath string, force, view bool,
 ) (executionstore.CreateProcessInput, error) {
 	transfer := processcmd.FileTransfer{Direction: direction, LocalPath: localPath}
 	if strings.HasPrefix(remotePath, memorystore.Root+"/") {
@@ -265,7 +257,7 @@ func fileTransferProcessInput(
 		if err != nil {
 			return executionstore.CreateProcessInput{}, err
 		}
-		transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: path, ExpectedDigest: expectedDigest}
+		transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: path, Force: force}
 	} else {
 		target := &processcmd.ArtifactTarget{View: view}
 		if direction == processcmd.FileTransferDownload {

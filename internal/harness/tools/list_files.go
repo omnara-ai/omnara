@@ -115,6 +115,10 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 		token := base64.RawURLEncoding.EncodeToString(payload.Bytes())
 		next = &token
 	}
+	// Digests are bookkeeping for memory read tracking, not something the model acts on.
+	for i := range result.Entries {
+		result.Entries[i].Digest = ""
+	}
 	return completeFileTool(struct {
 		Entries    []listing.FileEntry `json:"entries"`
 		NextCursor *string             `json:"next_cursor"`

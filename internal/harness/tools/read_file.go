@@ -150,12 +150,15 @@ func runReadFileAsync(
 	}
 	result["content_type"] = contentType
 	result["size_bytes"] = len(content)
-	result["digest"] = digest
 	part, err := structuredToolResultPart(result)
 	if err != nil {
 		return nil, err
 	}
-	return completeFileRead(note, part), nil
+	digestPart, err := fileDigestToolResultPart(digest)
+	if err != nil {
+		return nil, err
+	}
+	return completeFileRead(note, part, digestPart), nil
 }
 
 func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (memorystore.File, error) {
@@ -257,7 +260,6 @@ func completeImageRead(
 		"path":         path,
 		"content_type": contentType,
 		"size_bytes":   sizeBytes,
-		"digest":       digest,
 	})
 	if err != nil {
 		return nil, err
@@ -266,7 +268,11 @@ func completeImageRead(
 	if err != nil {
 		return nil, err
 	}
-	return completeFileRead(note, metadata, media), nil
+	digestPart, err := fileDigestToolResultPart(digest)
+	if err != nil {
+		return nil, err
+	}
+	return completeFileRead(note, metadata, media, digestPart), nil
 }
 
 func readFileChars(

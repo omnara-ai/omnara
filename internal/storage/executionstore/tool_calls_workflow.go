@@ -63,7 +63,12 @@ func fileTransferToolResultContentParts(
 	if !valid || metadata.Error != nil {
 		return failedFileTransferToolResultContentParts(result, invalidMetadata)
 	}
-	parts := []map[string]any{{"type": "structured_data", "value": metadata}}
+	// The digest is kept out of model context; memory read tracking reads it from the stored result.
+	visible := map[string]any{"path": metadata.Path}
+	if direction == processcmd.FileTransferDownload {
+		visible = map[string]any{"destination": transfer.LocalPath}
+	}
+	parts := []map[string]any{{"type": "structured_data", "value": visible}}
 	if direction == processcmd.FileTransferUpload {
 		if transfer.Target.Artifact != nil {
 			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
@@ -104,6 +109,10 @@ func fileTransferToolResultContentParts(
 			}
 		}
 	}
+	parts = append(parts, map[string]any{
+		"type": "structured_data", "value": map[string]string{"digest": metadata.Digest},
+		"exclude_from_model_context": true,
+	})
 	contentParts, err := marshalJSON(parts)
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
@@ -127,9 +136,6 @@ func failedFileTransferToolResultContentParts(
 	value["error"] = failure.Message
 	if failure.Code != "" {
 		value["error_code"] = failure.Code
-	}
-	if failure.CurrentDigest != "" {
-		value["current_digest"] = failure.CurrentDigest
 	}
 	contentParts, err := marshalJSON([]map[string]any{{"type": "structured_data", "value": value}})
 	return ToolResultOutcomeFailed, contentParts, err

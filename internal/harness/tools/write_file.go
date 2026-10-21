@@ -122,7 +122,15 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	if err != nil {
 		return nil, err
 	}
-	return completeFileTool(map[string]any{"path": result.Path, "digest": result.Digest})
+	part, err := structuredToolResultPart(map[string]any{"path": result.Path})
+	if err != nil {
+		return nil, err
+	}
+	digestPart, err := fileDigestToolResultPart(result.Digest)
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(newToolResultContent(part, digestPart)), nil
 }
 
 // checkMemoryFileSeen rejects changes to a file the agent has not read since its last change.

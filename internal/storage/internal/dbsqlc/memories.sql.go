@@ -130,7 +130,7 @@ JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool
 JOIN content_blocks block ON block.agent_id = result.agent_id AND block.owner_tool_call_result_id = result.id
 WHERE call.agent_id = $1
   AND call.type = 'built_in'
-  AND call.name IN ('storage_read', 'storage_write')
+  AND call.name IN ('storage_read', 'storage_write', 'storage_upload', 'storage_download')
   AND md5(call.input->>'path') = md5($2::text)
   AND call.input->>'path' = $2::text
   AND result.outcome = 'succeeded'

@@ -1664,22 +1664,23 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 			)
 			if test.createArtifact && test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
-				metadataPart := `{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
-					`","digest":"` + digest + `"}}`
+				metadataPart := `{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}`
+				// Stored results keep the digest for memory read tracking; model context drops it.
+				digestPart := `{"type":"structured_data","value":{"digest":"` + digest + `"}}`
 				mediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() + `"}`
 				excludedMediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() +
 					`","exclude_from_model_context":true}`
 				wantExcluded := true
-				wantContent := []byte(`[` + metadataPart + `,` + excludedMediaPart + `]`)
+				wantContent := []byte(`[` + metadataPart + `,` + excludedMediaPart + `,` + digestPart + `]`)
 				wantModelContent := []byte(`[` + metadataPart + `]`)
 				switch test.name {
 				case "viewed_artifact":
 					wantExcluded = false
-					wantContent = []byte(`[` + metadataPart + `,` + mediaPart + `]`)
-					wantModelContent = wantContent
+					wantContent = []byte(`[` + metadataPart + `,` + mediaPart + `,` + digestPart + `]`)
+					wantModelContent = []byte(`[` + metadataPart + `,` + mediaPart + `]`)
 				case "viewed_non_image":
 					notePart := `{"type":"text","text":"not shown: image/svg+xml is not a PNG, JPEG, GIF, or WebP image"}`
-					wantContent = []byte(`[` + metadataPart + `,` + notePart + `,` + excludedMediaPart + `]`)
+					wantContent = []byte(`[` + metadataPart + `,` + notePart + `,` + excludedMediaPart + `,` + digestPart + `]`)
 					wantModelContent = []byte(`[` + metadataPart + `,` + notePart + `]`)
 				}
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
@@ -1789,6 +1790,15 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				if err := json.Unmarshal(wantValueJSON, &wantValue); err != nil {
 					t.Fatal(err)
 				}
+				var wantStoredParts []map[string]any
+				if test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
+					digestPart := map[string]any{"type": "structured_data", "value": map[string]any{"digest": wantValue["digest"]}}
+					wantValue = map[string]any{"path": wantValue["path"]}
+					if test.direction == processcmd.FileTransferDownload {
+						wantValue = map[string]any{"destination": "screenshot.png"}
+					}
+					wantStoredParts = append(wantStoredParts, digestPart)
+				}
 				if test.wantOutcome == executionstore.ToolResultOutcomeFailed {
 					wantValue["process_id"] = publicResourceID(publicid.KindProcess, process.ID)
 					if test.wantError != "" {
@@ -1803,6 +1813,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 						delete(wantValue, "file_transfer")
 						fields["error_code"] = fields["code"]
 						delete(fields, "code")
+						delete(fields, "current_digest")
 						for key, value := range fields {
 							wantValue[key] = value
 						}
@@ -1815,8 +1826,14 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				if result.Outcome != test.wantOutcome || !sameJSON(result.ResultContentParts, wantResult) {
 					t.Fatalf("file transfer tool result = %+v, want %s", result, wantResult)
 				}
-				if !sameJSON(toolCall.ResultContentParts, wantResult) {
-					t.Fatalf("stored file transfer result = %s, want %s", toolCall.ResultContentParts, wantResult)
+				wantStored, err := json.Marshal(append(
+					[]map[string]any{{"type": "structured_data", "value": wantValue}}, wantStoredParts...,
+				))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !sameJSON(toolCall.ResultContentParts, wantStored) {
+					t.Fatalf("stored file transfer result = %s, want %s", toolCall.ResultContentParts, wantStored)
 				}
 				var terminal struct {
 					NextCursor int64 `json:"next_cursor"`

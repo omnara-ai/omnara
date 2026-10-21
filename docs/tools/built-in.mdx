@@ -191,21 +191,21 @@ Use `storage_upload` to copy a file from an attached machine into Omnara. Upload
 
 Files may be up to 10 MiB. Artifacts must be non-empty; memory files may be empty. The upload process has a 30-second execution timeout.
 
-On success, an artifact appears in the conversation and the durable tool result contains its `path`, `digest`, and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `storage_download`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context unless `view` is true and the file is a PNG, JPEG, GIF, or WebP image; set `view` to look at a screenshot or other image in the same call. Other files uploaded with `view` succeed with a note that they weren't shown. To deliver artifacts through an integration, use its qualified posting tool, such as `int__engineering__post_message`, and follow its attachment schema.
+On success, an artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `storage_download`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context unless `view` is true and the file is a PNG, JPEG, GIF, or WebP image; set `view` to look at a screenshot or other image in the same call. Other files uploaded with `view` succeed with a note that they weren't shown. To deliver artifacts through an integration, use its qualified posting tool, such as `int__engineering__post_message`, and follow its attachment schema.
 
-A memory upload requires write access and returns its `path` and `digest`. Omit `expected_digest` to create a file, or pass its current digest to replace changed content. On conflict, read or download the latest file and reapply your changes before retrying. Uploading identical contents succeeds without changing the file, even with a stale digest. Artifacts do not accept `expected_digest`, and memory uploads do not accept `view`.
+A memory upload requires write access and returns its `path`. Replacing an existing file requires the agent to have read, written, uploaded, or downloaded it since its last change, like `storage_write`; `force: true` skips that check. On conflict, read or download the latest file and reapply your changes before retrying. Uploading identical contents always succeeds without changing the file. Artifact uploads do not accept `force`, and memory uploads do not accept `view`.
 
 ### `storage_download`
 
 Use `storage_download` to copy a file stored in Omnara to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
-Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads return the file's `digest` on completion; use it when uploading an edited memory file.
+Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. A memory download counts as reading the file, so the agent can edit the copy and upload it back.
 
 The download process has a 120-second execution timeout.
 
 ### `storage_read`
 
-Reads a text or image file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, `size_bytes`, and `digest` instead of paging fields; paging inputs are still validated but don't apply to images.
+Reads a text or image file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Text must be UTF-8 without NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, and `size_bytes` instead of paging fields; paging inputs are still validated but don't apply to images.
 
 Memory images are preserved as immutable artifacts when read and appear in the agent's artifact listings.
 
@@ -217,15 +217,15 @@ Memory images are preserved as immutable artifacts when read and appear in the a
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
 
-Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
+Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, and `has_more`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
 
-If a memory file changed since the agent last read or wrote it, the result includes a note with the file's update time and the time of that read.
+If a memory file changed since the agent last read, wrote, uploaded, or downloaded it, the result includes a note with the file's update time and the time of that read.
 
 ### `storage_write`
 
-Creates or edits a memory text file in a writable store attached with `read_write` access. Returns `path` and `digest`.
+Creates or edits a memory text file in a writable store attached with `read_write` access. Returns `path`.
 
 | Input | Type | Notes |
 | --- | --- | --- |

@@ -187,20 +187,25 @@ func optionalBool(raw json.RawMessage) (bool, error) {
 func parseStructuredDataContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "value"); err != nil {
+	if err := rejectContentBlockFields(fields, "value", "exclude_from_model_context"); err != nil {
 		return CreateContentBlockInput{}, err
+	}
+	excludeFromModelContext, err := optionalBool(fields["exclude_from_model_context"])
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("exclude_from_model_context %w", err)
 	}
 	value, ok := fields["value"]
 	if !ok {
 		return CreateContentBlockInput{}, errors.New("value is required")
 	}
-	value, err := normalizeContentBlockJSONForStorage(value)
+	value, err = normalizeContentBlockJSONForStorage(value)
 	if err != nil {
 		return CreateContentBlockInput{}, fmt.Errorf("value %w", err)
 	}
 	return CreateContentBlockInput{
-		BlockKind:      ContentBlockKindStructuredData,
-		StructuredData: value,
+		BlockKind:               ContentBlockKindStructuredData,
+		StructuredData:          value,
+		ExcludeFromModelContext: excludeFromModelContext,
 	}, nil
 }
 

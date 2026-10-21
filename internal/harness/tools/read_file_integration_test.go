@@ -250,14 +250,16 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 					Digest    string `json:"digest"`
 					SizeBytes int    `json:"size_bytes"`
 				} `json:"value"`
+				Exclude bool `json:"exclude_from_model_context"`
 			}
 			if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 				t.Fatal(err)
 			}
-			if len(parts) != 1 {
+			if len(parts) != 2 || parts[0].Exclude || parts[0].Value.Digest != "" || !parts[1].Exclude {
 				t.Fatalf("unexpected result: %+v", parts)
 			}
 			value := parts[0].Value
+			value.Digest = parts[1].Value.Digest
 			want := ""
 			if len(test.content) > 0 {
 				want = "TARGET\n"
@@ -342,14 +344,17 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 			Type       string          `json:"type"`
 			Value      json.RawMessage `json:"value"`
 			ArtifactID uuid.UUID       `json:"artifact_id"`
+			Exclude    bool            `json:"exclude_from_model_context"`
 		}
 		require.NoError(t, json.Unmarshal(raw, &parts))
-		require.Len(t, parts, 2)
+		require.Len(t, parts, 3)
 		require.Equal(t, "structured_data", parts[0].Type)
-		require.JSONEq(t, fmt.Sprintf(`{"path":%q,"digest":%q,"size_bytes":%d,"content_type":%q}`,
-			written.Path, written.Digest, len(content), contentType), string(parts[0].Value))
+		require.JSONEq(t, fmt.Sprintf(`{"path":%q,"size_bytes":%d,"content_type":%q}`,
+			written.Path, len(content), contentType), string(parts[0].Value))
 		require.Equal(t, "media_ref", parts[1].Type)
 		require.NotEqual(t, uuid.Nil, parts[1].ArtifactID)
+		require.True(t, parts[2].Exclude)
+		require.JSONEq(t, fmt.Sprintf(`{"digest":%q}`, written.Digest), string(parts[2].Value))
 		require.NotContains(t, snapshots, parts[1].ArtifactID)
 		snapshots[parts[1].ArtifactID] = content
 		artifact, err := fixture.Store.Artifacts().GetArtifact(ctx, scope.ProjectID, fixture.Agent.ID, parts[1].ArtifactID)

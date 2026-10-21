@@ -1039,16 +1039,15 @@ func TestAsyncFileFailureCodes(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	conflict := &storeerr.FileContentConflictError{CurrentDigest: digest}
 	for _, test := range []struct {
-		code   string
-		cause  error
-		digest string
+		code  string
+		cause error
 	}{
-		{"file_read_only", storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.ErrConflict), ""},
-		{"expected_digest_required", storeerr.Tag(storeerr.ErrExpectedDigestRequired, conflict), digest},
-		{"file_content_conflict", conflict, digest},
-		{"not_a_file", storeerr.InvalidRequest(storeerr.ErrNotAFile), ""},
-		{"operation_unavailable", errFileToolUnavailable, ""},
-		{"async_tool_interrupted", context.Canceled, ""},
+		{"file_read_only", storeerr.Tag(storeerr.ErrFileReadOnly, storeerr.ErrConflict)},
+		{"expected_digest_required", storeerr.Tag(storeerr.ErrExpectedDigestRequired, conflict)},
+		{"file_content_conflict", conflict},
+		{"not_a_file", storeerr.InvalidRequest(storeerr.ErrNotAFile)},
+		{"operation_unavailable", errFileToolUnavailable},
+		{"async_tool_interrupted", context.Canceled},
 	} {
 		t.Run(test.code, func(t *testing.T) {
 			ctx := t.Context()
@@ -1068,7 +1067,7 @@ func TestAsyncFileFailureCodes(t *testing.T) {
 			require.NoError(t, json.Unmarshal(record.ResultContentParts, &parts))
 			require.Len(t, parts, 1)
 			require.Equal(t, test.code, parts[0].Value["error_code"])
-			require.Equal(t, test.digest, parts[0].Value["current_digest"])
+			require.NotContains(t, parts[0].Value, "current_digest")
 		})
 	}
 }
@@ -1336,11 +1335,15 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			}
 			if tc.memory {
 				delete(inputFields, "machine_id")
-				if name == "storage_upload" {
-					inputFields["expected_digest"] = "sha256:" + strings.Repeat("a", 64)
-				}
 			}
-			input, err := json.Marshal(inputFields)
+			fields := map[string]any{}
+			for key, value := range inputFields {
+				fields[key] = value
+			}
+			if tc.memory && name == "storage_upload" {
+				fields["force"] = true
+			}
+			input, err := json.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1422,9 +1425,8 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 				if target == nil || target.Path != "report.pdf" {
 					t.Fatalf("memory target = %+v", target)
 				}
-				if name == "storage_upload" &&
-					(target.ExpectedDigest == nil || *target.ExpectedDigest != inputFields["expected_digest"]) {
-					t.Fatalf("expected digest was not saved: %+v", target)
+				if (name == "storage_upload") != target.Force || target.ExpectedDigest != nil {
+					t.Fatalf("force was not saved: %+v", target)
 				}
 				if _, err := fixture.Pool.Exec(ctx,
 					`UPDATE memory_stores SET deleted_at = statement_timestamp() WHERE id = $1`, target.StoreID); err != nil {
@@ -1439,7 +1441,7 @@ SELECT project_id, name FROM memory_stores WHERE id = $1`, target.StoreID); err 
 					ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ToolCallID: callID, RuntimeLockID: fixture.Lock.ID,
 				}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 					prepared, err := fileTransferProcessInput(
-						ctx, reader, direction, "report.pdf", serverPath, target.ExpectedDigest, false,
+						ctx, reader, direction, "report.pdf", serverPath, target.Force, false,
 					)
 					if err != nil {
 						return nil, err

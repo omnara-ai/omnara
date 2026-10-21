@@ -358,10 +358,6 @@ func (e Executor) completeAsyncToolFailure(
 		failure := map[string]any{"error": errorMessage}
 		if code := storeerr.FileErrorCode(cause); code != "" {
 			failure["error_code"] = code
-			var conflict *storeerr.FileContentConflictError
-			if errors.As(cause, &conflict) && conflict.CurrentDigest != "" {
-				failure["current_digest"] = conflict.CurrentDigest
-			}
 		} else if errors.Is(cause, errFileToolUnavailable) {
 			failure["error_code"] = "operation_unavailable"
 		}

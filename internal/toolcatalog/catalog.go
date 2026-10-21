@@ -37,8 +37,6 @@ const (
 	SearchMaxArgs            = 64
 )
 
-const fileDigestPattern = `^sha256:[0-9a-f]{64}$`
-
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
 }
@@ -64,8 +62,7 @@ const (
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
 	writeFileToolDescription = "Create or edit a memory text file. " +
-		"Read a file before changing it; the write fails if it changed since your last read. " +
-		"Returns path and digest."
+		"Read a file before changing it; the write fails if it changed since your last read. Returns path."
 	readFileToolDescription = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
@@ -77,8 +74,9 @@ const (
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Set view to also see an uploaded image, such as a screenshot. Returns path and digest."
-	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest."
+		"Set view to also see an uploaded image, such as a screenshot. " +
+		"Replacing a memory file requires reading or downloading it first. Returns path."
+	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine."
 	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
@@ -679,11 +677,11 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_id": machineID,
-			"expected_digest": map[string]any{
-				"type":    "string",
-				"pattern": fileDigestPattern,
-				"description": "To replace changed memory content, use digest from storage_download. " +
-					"Conflicts if current content changed; identical content is a no-op. Omit to create. Memory only.",
+			"force": map[string]any{
+				"type": "boolean",
+				"description": "Memory only. Replace the file even if it changed since you last read or downloaded it, " +
+					"or was never read. Use only after a conflict when replacing the latest content is intended. " +
+					"Defaults to false.",
 			},
 			"view": map[string]any{
 				"type": "boolean",

@@ -173,7 +173,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		authHeaders(project.AdminToken),
 	)
 	store := integrationStoreForHandler(t, handler)
-	makeFixture := func(name, tool string, expectedDigest *string) daemonProcessFixture {
+	makeFixture := func(name, tool string, expectedDigest *string, force bool) daemonProcessFixture {
 		var storeID uuid.UUID
 		if err := pool.QueryRow(ctx,
 			`SELECT id FROM memory_stores WHERE project_id = $1 AND name = 'engineering'`,
@@ -189,7 +189,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 			processcmd.ForFileTransfer(processcmd.FileTransfer{
 				Direction: direction, LocalPath: "note.md",
 				Target: processcmd.FileTarget{Memory: &processcmd.MemoryTarget{
-					StoreID: storeID, Path: "empty.md", ExpectedDigest: expectedDigest,
+					StoreID: storeID, Path: "empty.md", ExpectedDigest: expectedDigest, Force: force,
 				}},
 			}),
 		)
@@ -238,7 +238,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		}
 		return fixture
 	}
-	upload := makeFixture("memory-upload", "storage_upload", nil)
+	upload := makeFixture("memory-upload", "storage_upload", nil, false)
 	call := func(f daemonProcessFixture, method string, content []byte, status int) map[string]any {
 		id, err := publicid.Encode(publicid.KindProcess, f.ProcessUUID)
 		if err != nil {
@@ -284,22 +284,29 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		t.Fatal("upload replay changed the path or digest")
 	}
 	call(upload, http.MethodGet, nil, http.StatusNotFound)
-	download := makeFixture("memory-download", "storage_download", nil)
+	download := makeFixture("memory-download", "storage_download", nil, false)
 	read := call(download, http.MethodGet, content, http.StatusOK)
 	if read["digest"] != uploaded["digest"] {
 		t.Fatalf("download content or digest mismatch")
 	}
 	call(download, http.MethodPost, content, http.StatusNotFound)
 	replacementContent := []byte("updated content")
-	missingDigest := call(upload, http.MethodPost, replacementContent, http.StatusConflict)
-	if missingDigest["code"] != "expected_digest_required" || missingDigest["current_digest"] != uploaded["digest"] {
-		t.Fatalf("missing digest: %v", missingDigest)
+	unread := call(upload, http.MethodPost, replacementContent, http.StatusConflict)
+	if unread["code"] != "file_content_conflict" || unread["error"] !=
+		"/memory/engineering/empty.md exists but you have not read it; read or download it before uploading" {
+		t.Fatalf("unread replacement: %v", unread)
 	}
-	digest, ok := uploaded["digest"].(string)
+	forced := call(makeFixture("memory-forced", "storage_upload", nil, true),
+		http.MethodPost, []byte("forced content"), http.StatusCreated)
+	if forced["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("forced content"))) {
+		t.Fatalf("incorrect forced digest: %v", forced)
+	}
+	// Processes created before uploads used read tracking carry an explicit expected digest.
+	digest, ok := forced["digest"].(string)
 	if !ok {
-		t.Fatalf("upload response is missing a string digest: %v", uploaded)
+		t.Fatalf("upload response is missing a string digest: %v", forced)
 	}
-	replacement := makeFixture("memory-replacement", "storage_upload", &digest)
+	replacement := makeFixture("memory-replacement", "storage_upload", &digest, false)
 	replaced := call(replacement, http.MethodPost, replacementContent, http.StatusCreated)
 	if replaced["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256(replacementContent)) {
 		t.Fatalf("incorrect replacement digest: %v", replaced)

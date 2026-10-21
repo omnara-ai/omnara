@@ -257,14 +257,18 @@ func TestCompleteImageReadReturnsMetadataAndMediaRef(t *testing.T) {
 	if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 		t.Fatal(err)
 	}
-	if len(parts) != 2 || parts[0]["type"] != "structured_data" || parts[1]["type"] != "media_ref" ||
-		parts[1]["artifact_id"] != artifactID.String() || parts[1]["exclude_from_model_context"] != nil {
+	if len(parts) != 3 || parts[0]["type"] != "structured_data" || parts[1]["type"] != "media_ref" ||
+		parts[1]["artifact_id"] != artifactID.String() || parts[1]["exclude_from_model_context"] != nil ||
+		parts[2]["type"] != "structured_data" || parts[2]["exclude_from_model_context"] != true {
 		t.Fatalf("image read parts = %v", parts)
 	}
 	metadata, _ := parts[0]["value"].(map[string]any)
 	if metadata["path"] != "/artifacts/example" || metadata["content_type"] != "image/png" ||
-		metadata["size_bytes"] != float64(12) || metadata["digest"] != digest {
+		metadata["size_bytes"] != float64(12) || metadata["digest"] != nil {
 		t.Fatalf("image read metadata = %v", metadata)
+	}
+	if hidden, _ := parts[2]["value"].(map[string]any); hidden["digest"] != digest {
+		t.Fatalf("image read digest = %v", parts[2])
 	}
 }
 

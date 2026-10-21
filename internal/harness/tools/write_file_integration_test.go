@@ -64,15 +64,17 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 			return "", err
 		}
 		var parts []struct {
-			Value map[string]string `json:"value"`
+			Value   map[string]string `json:"value"`
+			Exclude bool              `json:"exclude_from_model_context"`
 		}
 		if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
 			return "", err
 		}
-		if len(parts) != 1 || len(parts[0].Value) != 2 || parts[0].Value["path"] != request["path"] {
+		if len(parts) != 2 || len(parts[0].Value) != 1 || parts[0].Value["path"] != request["path"] ||
+			!parts[1].Exclude {
 			return "", fmt.Errorf("unexpected write result: %+v", parts)
 		}
-		return parts[0].Value["digest"], nil
+		return parts[1].Value["digest"], nil
 	}
 	path := "/memory/engineering/nested/note.txt"
 	check := func(want string) {

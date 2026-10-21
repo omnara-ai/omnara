@@ -3121,10 +3121,10 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 	spec := processcmd.ForShell("echo ok", "sh", "pipe")
 	if toolName == "storage_upload" || toolName == "storage_download" {
 		var input struct {
-			Path           string  `json:"path"`
-			Source         string  `json:"source"`
-			Destination    string  `json:"destination"`
-			ExpectedDigest *string `json:"expected_digest"`
+			Path        string `json:"path"`
+			Source      string `json:"source"`
+			Destination string `json:"destination"`
+			Force       bool   `json:"force"`
 		}
 		if err := json.Unmarshal(toolCall.Input, &input); err != nil {
 			t.Fatal(err)
@@ -3147,7 +3147,7 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: parts[1], ExpectedDigest: input.ExpectedDigest}
+			transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: id, Path: parts[1], Force: input.Force}
 			spec = processcmd.ForFileTransfer(transfer)
 		} else if input.Path == "/artifacts" || strings.HasPrefix(input.Path, "/artifacts/") {
 			target := &processcmd.ArtifactTarget{}

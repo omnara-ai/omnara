@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -55,6 +56,8 @@ func TestMemoryReadTracking(t *testing.T) {
 		{"paged_write", toolcatalog.ToolNameStorageWrite, `{"path":"` + paged + `","content":"4\n"}`},
 		{"gone_read", toolcatalog.ToolNameStorageRead, `{"path":"` + gone + `"}`},
 		{"gone_write", toolcatalog.ToolNameStorageWrite, `{"path":"` + gone + `","content":"new"}`},
+		{"download", toolcatalog.ToolNameStorageDownload, `{"path":"` + a + `","destination":"a.md"}`},
+		{"after_download_write", toolcatalog.ToolNameStorageWrite, `{"path":"` + a + `","content":"edited"}`},
 	}
 	calls := map[string]model.ToolCall{}
 	batch := make([]model.ToolCall, 0, len(steps))
@@ -74,16 +77,24 @@ func TestMemoryReadTracking(t *testing.T) {
 		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, calls[id])
 		require.NoError(t, err)
 		var parts []struct {
-			Type  string         `json:"type"`
-			Text  string         `json:"text"`
-			Value map[string]any `json:"value"`
+			Type    string         `json:"type"`
+			Text    string         `json:"text"`
+			Value   map[string]any `json:"value"`
+			Exclude bool           `json:"exclude_from_model_context"`
 		}
 		require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
 		note := ""
 		if parts[0].Type == "text" {
 			note, parts = parts[0].Text, parts[1:]
 		}
-		require.Len(t, parts, 1)
+		if len(parts) == 2 {
+			require.True(t, parts[1].Exclude, "digest must stay out of model context")
+			require.NotEmpty(t, parts[1].Value["digest"])
+			require.NotContains(t, parts[0].Value, "digest")
+		} else {
+			require.Len(t, parts, 1)
+			require.Contains(t, parts[0].Value, "error")
+		}
 		return note, parts[0].Value
 	}
 	succeeds := func(id string) {
@@ -126,6 +137,16 @@ func TestMemoryReadTracking(t *testing.T) {
 		require.Equal(t, want, string(content), file)
 	}
 
+	// A memory download counts as reading the file it copied.
+	put("a.md", "downloaded\n")
+	visible, err := structuredToolResultPart(map[string]any{"destination": "a.md"})
+	require.NoError(t, err)
+	hidden, err := fileDigestToolResultPart(blobstore.ContentDigest([]byte("downloaded\n")))
+	require.NoError(t, err)
+	require.NoError(t, executor.completeAsyncToolResult(ctx, turn, fixture.toolCallID(t, ctx, "download"),
+		newToolResultContent(visible, hidden), executionstore.ToolResultOutcomeSucceeded))
+	succeeds("after_download_write")
+
 	direct := asyncToolContext{Executor: executor, Turn: turn}
 	write := func(agent asyncToolContext, content string) error {
 		agent.Call = model.ToolCall{
@@ -149,7 +170,9 @@ func TestMemoryReadTracking(t *testing.T) {
 	}
 	require.Len(t, failures, 1)
 	require.ErrorIs(t, failures[0], storeerr.ErrConflict)
-	require.Regexp(t, "^"+quote(a)+" was updated at ", failures[0].Error())
+	// The loser fails its read check if the winner committed first, or the store's compare-and-swap
+	// if both passed the check before either wrote.
+	require.Regexp(t, "^"+quote(a)+" (was updated at |changed while writing; )", failures[0].Error())
 
 	child, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: toolsTestProjectID, AgentConfigID: fixture.AgentConfig.ID,

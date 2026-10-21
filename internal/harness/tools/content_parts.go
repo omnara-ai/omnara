@@ -23,6 +23,8 @@ type toolResultTextPart struct {
 
 type toolResultStructuredPart struct {
 	value json.RawMessage
+	// hidden keeps the value out of model context while it stays in the stored result.
+	hidden bool
 }
 
 type toolResultMediaPart struct {
@@ -60,6 +62,15 @@ func structuredToolResultPart(value any) (toolResultPart, error) {
 	return toolResultStructuredPart{value: raw}, nil
 }
 
+// fileDigestToolResultPart records a file's digest for memory read tracking without showing it to the model.
+func fileDigestToolResultPart(digest string) (toolResultPart, error) {
+	raw, err := marshalJSON(map[string]string{"digest": digest})
+	if err != nil {
+		return nil, fmt.Errorf("marshal file digest: %w", err)
+	}
+	return toolResultStructuredPart{value: raw, hidden: true}, nil
+}
+
 func mediaToolResultPart(artifactID uuid.UUID) (toolResultPart, error) {
 	if artifactID == uuid.Nil {
 		return nil, errors.New("tool result media requires an artifact")
@@ -88,11 +99,13 @@ func (content toolResultContent) contentParts() (json.RawMessage, error) {
 			})
 		case toolResultStructuredPart:
 			raw, err = marshalJSON(struct {
-				Type  string          `json:"type"`
-				Value json.RawMessage `json:"value"`
+				Type    string          `json:"type"`
+				Value   json.RawMessage `json:"value"`
+				Exclude bool            `json:"exclude_from_model_context,omitempty"`
 			}{
-				Type:  "structured_data",
-				Value: part.value,
+				Type:    "structured_data",
+				Value:   part.value,
+				Exclude: part.hidden,
 			})
 		case toolResultMediaPart:
 			raw, err = marshalJSON(struct {
