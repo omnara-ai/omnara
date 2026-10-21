@@ -77,10 +77,9 @@ func TestMemoryReadTracking(t *testing.T) {
 		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, calls[id])
 		require.NoError(t, err)
 		var parts []struct {
-			Type    string         `json:"type"`
-			Text    string         `json:"text"`
-			Value   map[string]any `json:"value"`
-			Exclude bool           `json:"exclude_from_model_context"`
+			Type  string         `json:"type"`
+			Text  string         `json:"text"`
+			Value map[string]any `json:"value"`
 		}
 		require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
 		note := ""
@@ -88,7 +87,8 @@ func TestMemoryReadTracking(t *testing.T) {
 			note, parts = parts[0].Text, parts[1:]
 		}
 		if len(parts) == 2 {
-			require.True(t, parts[1].Exclude, "digest must stay out of model context")
+			// Stored results keep the digest in its own part, which model context excludes.
+			require.Len(t, parts[1].Value, 1)
 			require.NotEmpty(t, parts[1].Value["digest"])
 			require.NotContains(t, parts[0].Value, "digest")
 		} else {

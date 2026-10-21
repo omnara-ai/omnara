@@ -343,13 +343,15 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("structured_data requires a value")
 		}
 		return marshalJSON(struct {
-			Type     string                `json:"type"`
-			Value    json.RawMessage       `json:"value"`
-			Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			Value                   json.RawMessage       `json:"value"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:     "structured_data",
-			Value:    block.StructuredData,
-			Metadata: metadata,
+			Type:                    "structured_data",
+			Value:                   block.StructuredData,
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	case ContentBlockKindArtifact:
 		if block.ArtifactID == uuid.Nil {
