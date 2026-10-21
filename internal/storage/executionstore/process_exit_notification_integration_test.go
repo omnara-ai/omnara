@@ -100,18 +100,29 @@ func startBackgroundProcessForTest(
 	notifyOnExit bool,
 ) executionstore.ProcessRecord {
 	t.Helper()
+	return startBackgroundProcessWithInputForTest(t, ctx, fixture, name, executionstore.CreateProcessInput{
+		NotifyOnExit: notifyOnExit,
+	})
+}
+
+func startBackgroundProcessWithInputForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	name string,
+	input executionstore.CreateProcessInput,
+) executionstore.ProcessRecord {
+	t.Helper()
+	input.ExecutionSpec = processcmd.ForShell("sleep 60", "sh", "")
+	input.AgentMachineBindingID = fixture.BindingID
+	input.Cwd = "/work"
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, name, "run_command")
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
-	}, executionstore.CreateProcessInput{
-		ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
-		AgentMachineBindingID: fixture.BindingID,
-		Cwd:                   "/work",
-		NotifyOnExit:          notifyOnExit,
-	})
+	}, input)
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
@@ -202,5 +213,44 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	}
 	if activity.State != executionstore.SubagentStateIdle || !activity.WaitingOn.Empty() {
 		t.Fatalf("activity after an hour = %+v, want idle", activity)
+	}
+}
+
+func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "background_output_match")
+	process := startBackgroundProcessWithInputForTest(t, ctx, fixture, "background_output_match",
+		executionstore.CreateProcessInput{NotifyMatch: "listening|ERROR"})
+
+	match := executionstore.NotifyProcessOutputMatchInput{
+		Authority: fixture.authority(),
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ID:        process.ID,
+		Sequence:  1,
+		Result:    json.RawMessage(`{"lines":["listening on :3000"]}`),
+	}
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify output match: %v", err)
+	}
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("replay output match: %v", err)
+	}
+	match.Sequence = 2
+	match.Result = json.RawMessage(`{"lines":["ERROR boom"],"dropped":3}`)
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify second output match: %v", err)
+	}
+
+	texts := processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 2 {
+		t.Fatalf("process notifications = %d, want 2: %q", len(texts), texts)
+	}
+	if !strings.Contains(texts[0], "printed lines matching `listening|ERROR`") ||
+		!strings.Contains(texts[0], "listening on :3000") ||
+		!strings.Contains(texts[1], "ERROR boom") ||
+		!strings.Contains(texts[1], "3 more matching lines") {
+		t.Fatalf("output match notifications = %q", texts)
 	}
 }

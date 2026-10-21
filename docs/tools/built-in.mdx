@@ -71,6 +71,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `cwd` | string | Overrides the binding's working directory |
 | `io_mode` | enum | `pipe` (default) or `pty` |
 | `detach` | boolean | For long-lived processes such as servers; default false. See [background processes](#background-processes) |
+| `notify_match` | string | RE2 regular expression; send the agent output lines that match while the command runs in the background |
 
 Every command returns a `process_id` (`prc_…`). `run_command` waits up to 10 seconds for the command to exit. If it does, the result includes its exit code and output:
 
@@ -93,6 +94,8 @@ If the command is still running after 10 seconds, the result has `"state": "runn
 When a command outlives its `run_command` call, Omnara sends the agent a message when it ends, with its exit status, how long it ran, how much output it wrote, and its last lines of output. The agent does not need to poll with `read_process`; it can do other work or end its turn, and the message wakes it. Like other messages, it waits for any open question or permission request to be answered instead of canceling it.
 
 There is no message when the agent stopped the process with `stop_process`, or when `run_command` was called with `detach: true`. Use `detach` for processes that are meant to keep running, such as development servers.
+
+With `notify_match`, the agent also receives the output lines that match the expression, starting after `run_command` returns. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `detach: true` and `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.9 or later.
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 

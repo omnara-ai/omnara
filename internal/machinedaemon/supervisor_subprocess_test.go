@@ -468,7 +468,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 			if !strings.Contains(string(event.Result), "supervisor-output") {
 				t.Fatalf("terminal result lost process output: %s", event.Result)
 			}
-		case statedb.ReportActionTerminal:
+		case statedb.ReportActionTerminal, statedb.ReportProcessOutputMatch:
 		}
 	}
 	if !sawStarted || !sawTerminal {

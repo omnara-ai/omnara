@@ -162,6 +162,13 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": "For long-lived processes such as servers: no message when it exits, " +
 					"and the agent is not treated as waiting on it. Defaults to false.",
 			},
+			"notify_match": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"maxLength": 500,
+				"description": "Regular expression (RE2). While the command runs after this returns, you get a " +
+					"message with new output lines that match, batched and rate limited.",
+			},
 		},
 	)
 	if err != nil {

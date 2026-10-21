@@ -175,6 +175,7 @@ SELECT count(*)
 FROM frozen_reports
 WHERE process_id = ?1
   AND state <> 'acknowledged'
+  AND NOT (report_kind = 'process_output_match' AND state = 'rejected')
 `
 
 type CountUnsettledProcessReportsParams struct {

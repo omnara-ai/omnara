@@ -276,6 +276,7 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 		if wait, ok := offer.Process.ExecutionSpec.AgentOutputWait(); ok {
 			processOffer.OutputBytes = processaction.AgentOutputBytes
 			processOffer.OutputWait = wait
+			processOffer.NotifyMatch = offer.Process.NotifyMatch
 		}
 	}
 	message := daemonprotocol.Message{
@@ -348,5 +349,7 @@ func (s *daemonSocket) forgetAcceptedWork(event *daemonprotocol.ReportedEvent) {
 		if actionErr == nil {
 			delete(s.acceptedActions, actionID)
 		}
+	case daemonprotocol.EventProcessOutputMatched:
+		// Matches arrive while the process runs; it stays accepted.
 	}
 }

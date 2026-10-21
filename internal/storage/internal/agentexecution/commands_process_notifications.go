@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -34,6 +35,53 @@ func (h *Handle) notifyProcessExit(
 	row executiondb.ReadExecutionProcessOwnerRow,
 	observed json.RawMessage,
 ) error {
+	processID, err := publicid.Encode(publicid.KindProcess, row.ID)
+	if err != nil {
+		return err
+	}
+	return h.sendProcessNotification(ctx, row, "exit", "exit:"+row.ID.String(),
+		renderProcessExit(processID, row, observed))
+}
+
+// NotifyProcessOutputMatch tells the agent about output lines that matched
+// the notify_match of a process it left running in the background.
+func (h *Handle) NotifyProcessOutputMatch(
+	ctx context.Context,
+	id uuid.UUID,
+	seq int64,
+	matched daemonprotocol.OutputMatchResult,
+) error {
+	_, err := executeCommand(ctx, h, func(*executionMutation) (struct{}, error) {
+		row, err := executiondb.New().ReadExecutionProcessOwner(ctx, h.unit.DB(),
+			executiondb.ReadExecutionProcessOwnerParams{AgentID: h.route.AgentID, ID: id})
+		if err != nil {
+			return struct{}{}, err
+		}
+		if row.NotifyMatch == "" || row.StopRequested || row.ToolCallID == uuid.Nil {
+			return struct{}{}, nil
+		}
+		call, err := h.tool(ctx, row.ToolCallID)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if call.State != "completed" || storeutil.ValueOrZero(call.Outcome) != "succeeded" {
+			return struct{}{}, nil
+		}
+		processID, err := publicid.Encode(publicid.KindProcess, row.ID)
+		if err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match",
+			fmt.Sprintf("match:%s:%d", row.ID, seq), renderProcessOutputMatch(processID, row, matched))
+	})
+	return err
+}
+
+func (h *Handle) sendProcessNotification(
+	ctx context.Context,
+	row executiondb.ReadExecutionProcessOwnerRow,
+	kind, key, text string,
+) error {
 	identity, err := executiondb.New().ReadExecutionAgentIdentity(ctx, h.unit.DB(),
 		executiondb.ReadExecutionAgentIdentityParams{ProjectID: h.route.ProjectID, ID: h.route.AgentID})
 	if err != nil {
@@ -51,7 +99,7 @@ func (h *Handle) notifyProcessExit(
 		return err
 	}
 	metadata, err := json.Marshal(map[string]any{
-		processNotificationScope: map[string]any{"kind": "exit", "process_id": processID},
+		processNotificationScope: map[string]any{"kind": kind, "process_id": processID},
 	})
 	if err != nil {
 		return err
@@ -61,9 +109,9 @@ func (h *Handle) notifyProcessExit(
 		ActorID:          actorID,
 		DeliveryMode:     "steering",
 		IdempotencyScope: processNotificationScope,
-		IdempotencyKey:   "exit:" + row.ID.String(),
+		IdempotencyKey:   key,
 		Metadata:         metadata,
-		Content:          []Content{{Kind: "text", Text: renderProcessExit(processID, row, observed)}},
+		Content:          []Content{{Kind: "text", Text: text}},
 	})
 	return err
 }
@@ -150,6 +198,26 @@ func renderProcessExit(
 	}
 	fence := codeFence(tail)
 	b.WriteString(fence + "\n" + strings.TrimRight(tail, "\n") + "\n" + fence)
+	return b.String()
+}
+
+func renderProcessOutputMatch(
+	processID string,
+	row executiondb.ReadExecutionProcessOwnerRow,
+	matched daemonprotocol.OutputMatchResult,
+) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Background process %s (`%s`) printed lines matching `%s`:\n\n", processID,
+		truncateRunes(row.ExecutionSpec.Label(), processNotificationLabelChars), row.NotifyMatch)
+	text := strings.Join(matched.Lines, "\n")
+	fence := codeFence(text)
+	b.WriteString(fence + "\n" + text + "\n" + fence)
+	if matched.Dropped > 0 {
+		fmt.Fprintf(&b, "\n\n%d more matching lines are not shown; use read_process to read them.", matched.Dropped)
+	}
+	if matched.Final {
+		b.WriteString("\n\nNo more matches will be reported for this process.")
+	}
 	return b.String()
 }
 

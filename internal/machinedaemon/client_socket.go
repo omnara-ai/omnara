@@ -675,6 +675,7 @@ func (t *daemonSocketTransport) offerProcess(
 		TimeoutSeconds:   offer.TimeoutSeconds,
 		OutputBytes:      offer.OutputBytes,
 		OutputWait:       offer.OutputWait,
+		NotifyMatch:      offer.NotifyMatch,
 	}
 
 	t.mu.Lock()

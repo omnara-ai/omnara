@@ -150,6 +150,10 @@ func (c *Client) outboxReports(
 			report.Kind != statedb.ReportProcessTerminal {
 			continue
 		}
+		if report.Kind == statedb.ReportProcessOutputMatch && report.State == statedb.ReportRejected {
+			// A rejected match only loses that notification; later reports proceed.
+			continue
+		}
 		if report.State != statedb.ReportPending {
 			if _, wanted := forced[report.ID]; !wanted {
 				if report.Kind == statedb.ReportActionTerminal &&
@@ -351,6 +355,9 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 		}
 		settled := true
 		for _, report := range reports {
+			if report.Kind == statedb.ReportProcessOutputMatch && report.State == statedb.ReportRejected {
+				continue
+			}
 			if report.State != statedb.ReportAcknowledged {
 				settled = false
 				break
