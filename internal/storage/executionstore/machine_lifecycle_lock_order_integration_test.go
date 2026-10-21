@@ -2327,6 +2327,15 @@ func assertOverlappingCommandReplay(
 	store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
 		return overlappingReplayTx{Tx: tx, query: query, armed: armed, commits: commits, read: read, proceed: proceed}
 	})
+	if query == "GetToolCall" {
+		commandPlan := plan
+		plan = func(r *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			if _, err := r.GetToolCall(ctx); err != nil {
+				return nil, err
+			}
+			return commandPlan(r)
+		}
+	}
 	retry := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 		return store.Execution().ExecuteToolCall(ctx, input, plan)
 	})
@@ -3010,7 +3019,15 @@ func TestRecordedToolReplayBeforePlanning(t *testing.T) {
 				return plan(r)
 			}
 			assertOverlappingCommandReplay(t, store, input, guarded, "GetToolCall", func() { unavailable.Store(true) })
-			_, err := store.Execution().ExecuteToolCall(t.Context(), input, guarded)
+			recorded, err := store.Execution().GetToolCall(t.Context(), input.ProjectID, input.AgentID, input.ToolCallID)
+			require.NoError(t, err)
+			input.ObservedState = recorded.State
+			_, err = store.Execution().ExecuteToolCall(t.Context(), input, func(
+				*executionstore.ToolCallReader,
+			) (executionstore.ToolCallCommand, error) {
+				t.Fatal("recorded replay reached planning")
+				return nil, storeerr.ErrUnauthorized
+			})
 			require.NoError(t, err)
 		})
 	}

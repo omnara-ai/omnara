@@ -25,6 +25,10 @@ func (c replayableCommand) apply(ctx context.Context, t *toolCallTransaction) (a
 	return c.run(ctx, t)
 }
 
+func (t *toolCallTransaction) hasRecordedOutcome() bool {
+	return t.observedState == ToolCallStateCompleted || t.observedState == ToolCallStateWaiting
+}
+
 func (c replayableCommand) resolve(ctx context.Context, t *toolCallTransaction) (any, bool, error) {
 	call, err := getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
 	if errors.Is(err, storeerr.ErrNotFound) {
@@ -33,6 +37,7 @@ func (c replayableCommand) resolve(ctx context.Context, t *toolCallTransaction) 
 	if err != nil {
 		return nil, false, err
 	}
+	t.observedState = call.State
 	switch call.State {
 	case ToolCallStateCompleted:
 		t.disposition = ToolCallDispositionCompleted

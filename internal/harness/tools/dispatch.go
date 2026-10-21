@@ -25,9 +25,10 @@ func (e Executor) dispatchToolHandler(
 	ctx context.Context,
 	turn Turn,
 	call model.ToolCall,
-	toolCallID uuid.UUID,
+	proposal executionstore.ToolCallRecord,
 	handler toolHandler,
 ) (toolDispatchResult, error) {
+	toolCallID := proposal.ID
 	if handler.Transactional == nil && handler.Async == nil {
 		return nil, errors.New(
 			"tool handler requires a transactional or async phase",
@@ -52,6 +53,7 @@ func (e Executor) dispatchToolHandler(
 		executionstore.ExecuteToolCallInput{
 			Completion:        turn.Completion,
 			ResolveRecorded:   true,
+			ObservedState:     proposal.State,
 			RequireCompletion: handler.completion != completionUnspecified,
 			Authorize:         turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
 			ProjectID:     turn.ProjectID,

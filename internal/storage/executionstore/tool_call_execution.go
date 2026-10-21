@@ -19,6 +19,7 @@ type ExecuteToolCallInput struct {
 	Completion        *StepCompletion
 	RequireCompletion bool
 	ResolveRecorded   bool
+	ObservedState     ToolCallState
 	RootAgentID       uuid.UUID
 	Authorize         bool
 	BatchOutputID     uuid.UUID
@@ -70,6 +71,7 @@ type toolCallTransaction struct {
 	owner                      agentexecution.ToolOwner
 	completed                  *ToolCallRecord
 	completionID               uuid.UUID
+	observedState              ToolCallState
 }
 
 func (s *Store) ExecuteToolCall(
@@ -122,11 +124,12 @@ func (s *Store) executeToolCallCommand(
 		q:             dbsqlc.New(tx),
 		notifications: unit.Notifications(),
 		input:         input,
+		observedState: input.ObservedState,
 	}
 	command := replay
 	var commandResult any
 	var resolved bool
-	if command == nil && input.ResolveRecorded {
+	if command == nil && input.ResolveRecorded && toolTx.hasRecordedOutcome() {
 		commandResult, resolved, err = recordedToolReplay().resolve(ctx, toolTx)
 		if err != nil {
 			return ExecuteToolCallResult{}, err
@@ -150,9 +153,11 @@ func (s *Store) executeToolCallCommand(
 	if command == nil {
 		return ExecuteToolCallResult{}, errors.New("tool call plan returned no command")
 	}
-	commandResult, resolved, err = command.resolve(ctx, toolTx)
-	if err != nil {
-		return ExecuteToolCallResult{}, err
+	if replay != nil || toolTx.hasRecordedOutcome() {
+		commandResult, resolved, err = command.resolve(ctx, toolTx)
+		if err != nil {
+			return ExecuteToolCallResult{}, err
+		}
 	}
 	if !resolved {
 		if replay != nil {
@@ -164,6 +169,16 @@ func (s *Store) executeToolCallCommand(
 				return ExecuteToolCallResult{}, errors.Join(err, rollbackErr)
 			}
 			return s.resolveToolCallAfterError(ctx, input, command, err)
+		}
+	}
+	if !resolved && !toolTx.applied &&
+		(toolTx.disposition == ToolCallDispositionCompleted || toolTx.disposition == ToolCallDispositionWaiting) {
+		commandResult, resolved, err = command.resolve(ctx, toolTx)
+		if err != nil {
+			return ExecuteToolCallResult{}, err
+		}
+		if !resolved {
+			return ExecuteToolCallResult{}, storeerr.ErrIdempotencyConflict
 		}
 	}
 	if toolTx.disposition == 0 {
@@ -362,7 +377,11 @@ func (t *toolCallTransaction) completeToolCall(
 
 func (r *ToolCallReader) GetToolCall(ctx context.Context) (ToolCallRecord, error) {
 	t := r.transaction
-	return getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
+	record, err := getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
+	if err == nil {
+		t.observedState = record.State
+	}
+	return record, err
 }
 
 func (r *ToolCallReader) GetModelCallContext(

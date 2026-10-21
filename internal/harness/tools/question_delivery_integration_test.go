@@ -342,30 +342,14 @@ func (tx questionReplayFaultTx) Commit(ctx context.Context) error {
 }
 
 func (tx questionReplayFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	row := tx.Tx.QueryRow(ctx, sql, args...)
-	if tx.read != nil && strings.Contains(sql, "name: GetToolCall ") && tx.armed.CompareAndSwap(true, false) {
-		return questionReplayFaultRow{Row: row, done: ctx.Done(), contextErr: ctx.Err, read: tx.read, proceed: tx.proceed}
+	if tx.read != nil && strings.Contains(sql, "name: LockAgentInProject ") && tx.armed.CompareAndSwap(true, false) {
+		close(tx.read)
+		select {
+		case <-tx.proceed:
+		case <-ctx.Done():
+		}
 	}
-	return row
-}
-
-type questionReplayFaultRow struct {
-	pgx.Row
-	done       <-chan struct{}
-	contextErr func() error
-	read       chan struct{}
-	proceed    chan struct{}
-}
-
-func (r questionReplayFaultRow) Scan(dest ...any) error {
-	err := r.Row.Scan(dest...)
-	close(r.read)
-	select {
-	case <-r.proceed:
-		return err
-	case <-r.done:
-		return r.contextErr()
-	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
 }
 
 func TestQuestionClaimReplayPresentsAfterLeaseDeletion(t *testing.T) {
@@ -420,7 +404,7 @@ func TestQuestionClaimReplayPresentsAfterLeaseDeletion(t *testing.T) {
 				select {
 				case <-read:
 				case <-ctx.Done():
-					t.Fatal("replay did not read pending question")
+					t.Fatal("replay did not reach the question mutation lock")
 				}
 			}
 			result, err := executor.Dispatch(executionCtx, turn, call)

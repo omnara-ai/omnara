@@ -71,7 +71,7 @@ func (e Executor) DispatchRecordedToolCall(
 			ctx,
 			turn,
 			call,
-			proposal.ID,
+			proposal,
 			implementation.handler,
 		)
 		if err != nil {

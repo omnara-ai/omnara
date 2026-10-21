@@ -3,36 +3,19 @@
 package kernel
 
 import (
-	"context"
 	"encoding/json"
-	"strings"
-	"sync/atomic"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
-
-type stepCommitTrace struct{ commits atomic.Int64 }
-type stepCommitKey struct{}
-
-func (c *stepCommitTrace) TraceQueryStart(
-	ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData,
-) context.Context {
-	return context.WithValue(ctx, stepCommitKey{}, strings.EqualFold(strings.TrimSpace(data.SQL), "commit"))
-}
-func (c *stepCommitTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
-	if commit, _ := ctx.Value(stepCommitKey{}).(bool); commit && data.Err == nil {
-		c.commits.Add(1)
-	}
-}
 
 func TestModelAndListAgentsCommitCount(t *testing.T) {
 	for _, merged := range []bool{false, true} {
@@ -58,7 +41,7 @@ subagents:
 			require.NoError(t, err)
 			_, _, _, err = f.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{ProjectID: kernelTestProjectID, AgentID: launch.Agent.ID, Actor: kernelTestOmnaraActorParams(t, kernelTestUserID), ContentBlocks: json.RawMessage(`[{"type":"text","text":"list agents"}]`), IdempotencyKey: "count-input"})
 			require.NoError(t, err)
-			trace := &stepCommitTrace{}
+			trace := &integrationdb.QueryTrace{}
 			config := f.Pool.Config()
 			config.ConnConfig.Tracer = trace
 			pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -81,15 +64,20 @@ subagents:
 				disposition, err := executor.ExecuteModelWorkStep(ctx, work)
 				require.NoError(t, err)
 				require.Equal(t, executionstore.StepFinished, disposition)
-				require.EqualValues(t, 2, trace.commits.Load())
+				require.EqualValues(t, 2, trace.Commits.Load())
 			} else {
 				require.NoError(t, executor.ExecuteModelWork(ctx, work))
 				require.NoError(t, counted.Execution().ReleaseAgentRuntimeLock(
 					ctx, claim.ProjectID, claim.AgentID, claim.RuntimeLock.ID,
 				))
-				require.EqualValues(t, 4, trace.commits.Load())
+				require.EqualValues(t, 4, trace.Commits.Load())
 			}
-			t.Logf("%s: %d explicit commits for one model step", name, trace.commits.Load())
+			t.Logf("%s: %d explicit commits for one model step", name, trace.Commits.Load())
+			modelStatements := trace.Statements.Load()
+			if merged {
+				require.EqualValues(t, 51, modelStatements, "merged model statement count at b09b5e608")
+			}
+			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			claim, found, err = counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
 			require.NoError(t, err)
 			require.True(t, found)
@@ -105,15 +93,20 @@ subagents:
 				disposition, err := executor.ExecuteToolWorkStep(ctx, tool)
 				require.NoError(t, err)
 				require.Equal(t, executionstore.StepFinished, disposition)
-				require.EqualValues(t, 4, trace.commits.Load())
+				require.EqualValues(t, 4, trace.Commits.Load())
 			} else {
 				require.NoError(t, executor.ExecuteToolWork(ctx, tool))
 				require.NoError(t, counted.Execution().ReleaseAgentRuntimeLock(
 					ctx, claim.ProjectID, claim.AgentID, claim.RuntimeLock.ID,
 				))
-				require.EqualValues(t, 8, trace.commits.Load())
+				require.EqualValues(t, 8, trace.Commits.Load())
 			}
-			t.Logf("%s: %d explicit commits for one model step plus list_agents", name, trace.commits.Load())
+			t.Logf("%s: %d explicit commits for one model step plus list_agents", name, trace.Commits.Load())
+			toolStatements := trace.Statements.Load() - modelStatements
+			if merged {
+				require.EqualValues(t, 37, toolStatements, "merged list_agents statement count at b09b5e608")
+			}
+			t.Logf("%s: %d statements for list_agents step", name, toolStatements)
 			var results, wakes int
 			require.NoError(t, f.Pool.QueryRow(ctx, `SELECT
  (SELECT count(*) FROM tool_call_results WHERE agent_id=$1 AND outcome='succeeded'),
@@ -124,7 +117,7 @@ subagents:
 				newer, found, err := counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
 				require.NoError(t, err)
 				require.True(t, found)
-				before := trace.commits.Load()
+				before := trace.Commits.Load()
 				replayInput := executionstore.ExecuteToolCallInput{
 					RootAgentID: claim.RootAgentID, ProjectID: claim.ProjectID, AgentID: claim.AgentID,
 					ToolCallID: claim.Tool.Prepared.FirstCall.ID, RuntimeLockID: claim.RuntimeLock.ID,
@@ -142,7 +135,7 @@ subagents:
 				require.NoError(t, err)
 				require.False(t, resolved.Applied)
 				require.Equal(t, executionstore.StepFinished, resolved.StepDisposition)
-				require.Equal(t, before, trace.commits.Load())
+				require.Equal(t, before, trace.Commits.Load())
 				_, err = replay(executionstore.ToolResultOutcomeFailed)
 				require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 				var exists bool
