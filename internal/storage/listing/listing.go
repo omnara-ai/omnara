@@ -74,5 +74,21 @@ type FileEntry struct {
 
 type FileListResult struct {
 	Entries []FileEntry
-	Next    Cursor
+	HasMore bool
+}
+
+// FilePage is the storage_list result.
+type FilePage struct {
+	Entries    []FileEntry `json:"entries"`
+	HasMore    bool        `json:"has_more"`
+	NextOffset *int        `json:"next_offset,omitempty"`
+}
+
+func NewFilePage(entries []FileEntry, hasMore bool, offset int) FilePage {
+	page := FilePage{Entries: entries, HasMore: hasMore}
+	if hasMore {
+		next := offset + len(entries)
+		page.NextOffset = &next
+	}
+	return page
 }

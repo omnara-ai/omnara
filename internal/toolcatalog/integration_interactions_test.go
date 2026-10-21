@@ -13,10 +13,12 @@ func TestInteractionHandlerToolSchemas(t *testing.T) {
 	require.True(t, ok)
 	set, ok := catalog.Lookup(ToolNameSetInteractionHandler)
 	require.True(t, ok)
-	for _, raw := range []string{`{}`, `{"cursor":"cursor","limit":100}`} {
+	for _, raw := range []string{`{}`, `{"offset":0,"limit":100}`, `{"offset":5}`} {
 		require.NoError(t, jsonschema.Validate(list.InputSchema, []byte(raw)))
 	}
-	for _, raw := range []string{`{"limit":101}`, `{"limit":0}`, `{"cursor":""}`} {
+	for _, raw := range []string{
+		`{"limit":101}`, `{"limit":0}`, `{"offset":-1}`, `{"offset":1.5}`, `{"offset":"1"}`, `{"cursor":"next"}`,
+	} {
 		require.Error(t, jsonschema.Validate(list.InputSchema, []byte(raw)))
 	}
 	for _, raw := range []string{`{"handler":null,"args":{}}`, `{"handler":"engineering","args":{"channel_id":"C123"}}`} {

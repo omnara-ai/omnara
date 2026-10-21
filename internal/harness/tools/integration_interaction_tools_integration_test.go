@@ -173,6 +173,11 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 			Name:  toolcatalog.ToolNameSetInteractionHandler,
 			Input: json.RawMessage(`{"handler":null,"args":{}}`),
 		},
+		{
+			ID:    "list-next",
+			Name:  toolcatalog.ToolNameListInteractionHandlers,
+			Input: json.RawMessage(`{"offset":1,"limit":1}`),
+		},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
 	turn := interactionToolTurn(f, toolpermission.ModeAlwaysAllow)
@@ -206,7 +211,8 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	pageHandlers, ok := page["handlers"].([]any)
 	require.True(t, ok)
 	require.Len(t, pageHandlers, 1)
-	require.NotEmpty(t, page["next_cursor"])
+	require.Equal(t, true, page["has_more"])
+	require.Equal(t, float64(1), page["next_offset"])
 	pageHandler, ok := pageHandlers[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "chat", pageHandler["handler"])
@@ -224,6 +230,16 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	require.Equal(t, publicIntegrationID, listed["integration_id"])
 	dispatchInteractionHandler(t, ctx, f, turn, calls[3])
 	require.Nil(t, interactionToolResult(t, ctx, f, calls[3])["selection"])
+	dispatchInteractionHandler(t, ctx, f, turn, calls[4])
+	nextPage := interactionToolResult(t, ctx, f, calls[4])
+	nextHandlers, ok := nextPage["handlers"].([]any)
+	require.True(t, ok)
+	require.Len(t, nextHandlers, 1)
+	nextHandler, ok := nextHandlers[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "overlap", nextHandler["handler"])
+	require.Equal(t, false, nextPage["has_more"])
+	require.NotContains(t, nextPage, "next_offset")
 	replayed, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, calls[1])
 	require.NoError(t, err)
 	require.Equal(t, selected, toolResultMapFromTestParts(t, replayed.ContentParts)["selection"])
@@ -261,7 +277,8 @@ func TestInteractionToolListsOnlyAssignedHandlers(t *testing.T) {
 		map[string]any{"channel_id": "C123", "thread_ts": "111.222"},
 		handler["destination"],
 	)
-	require.Empty(t, page["next_cursor"])
+	require.Equal(t, false, page["has_more"])
+	require.NotContains(t, page, "next_offset")
 	require.Nil(t, page["selection"])
 }
 

@@ -237,20 +237,19 @@ func (s *Store) GetArtifactBlob(
 }
 
 func (s *Store) ListFiles(
-	ctx context.Context, agentID uuid.UUID, artifactID *uuid.UUID, pattern string, limit int, after listing.Cursor,
-) ([]listing.FileEntry, listing.Cursor, error) {
+	ctx context.Context, agentID uuid.UUID, artifactID *uuid.UUID, pattern string, offset, limit int32,
+) ([]listing.FileEntry, error) {
 	rows, err := s.q.ListAgentArtifacts(ctx, dbsqlc.ListAgentArtifactsParams{
-		AgentID: agentID, ArtifactID: artifactID, Pattern: pattern, RowLimit: int32(limit),
-		AfterID: storeutil.IDFromNil(after.ID),
+		AgentID: agentID, ArtifactID: artifactID, Pattern: pattern, RowLimit: limit, RowOffset: offset,
 	})
 	if err != nil {
-		return nil, listing.Cursor{}, fmt.Errorf("list artifact files: %w", err)
+		return nil, fmt.Errorf("list artifact files: %w", err)
 	}
 	entries := make([]listing.FileEntry, 0, len(rows))
 	for _, row := range rows {
 		id, err := publicid.Encode(publicid.KindArtifact, row.ID)
 		if err != nil {
-			return nil, listing.Cursor{}, fmt.Errorf("list artifact files: %w", err)
+			return nil, fmt.Errorf("list artifact files: %w", err)
 		}
 		entry := listing.FileEntry{Path: "/artifacts/" + id, Type: listing.FileTypeFile, SizeBytes: row.SizeBytes}
 		entry.ContentType, entry.CreatedAt = row.ContentType, &row.CreatedAt
@@ -261,9 +260,8 @@ func (s *Store) ListFiles(
 			entry.Digest = *row.Digest
 		}
 		entries = append(entries, entry)
-		after = listing.Cursor{Set: true, Key: "/artifacts", ID: row.ID}
 	}
-	return entries, after, nil
+	return entries, nil
 }
 
 func (s *Store) ListAgentArtifactsByIDs(

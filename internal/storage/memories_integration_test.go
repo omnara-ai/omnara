@@ -31,6 +31,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
@@ -243,17 +244,31 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	}
 	artifactPath := "/artifacts/" + artifactID
 	for _, pattern := range []string{"/artifacts/*", artifactPath} {
-		result, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 1, listing.Cursor{})
-		if listErr != nil || !result.Next.Set || len(result.Entries) != 1 || result.Entries[0].Path != artifactPath {
+		result, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 0, 1)
+		if listErr != nil || result.HasMore || len(result.Entries) != 1 || result.Entries[0].Path != artifactPath {
 			t.Fatalf("artifact listing %s: %+v %v", pattern, result, listErr)
 		}
 		entry := result.Entries[0]
 		if entry.Type != listing.FileTypeFile || entry.SizeBytes == nil || *entry.SizeBytes != 8 || entry.Digest == "" {
 			t.Fatalf("artifact metadata: %+v", entry)
 		}
+		past, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 1, 1)
+		if listErr != nil || past.HasMore || len(past.Entries) != 0 {
+			t.Fatalf("artifact listing %s past the only entry: %+v %v", pattern, past, listErr)
+		}
 	}
-	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/**", 100, listing.Cursor{})
-	if err != nil || result.Next.Set {
+	for _, pattern := range []string{"/artifacts", "/memory"} {
+		root, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 0, 1)
+		if listErr != nil || root.HasMore || len(root.Entries) != 1 || root.Entries[0].Path != pattern {
+			t.Fatalf("root listing %s: %+v %v", pattern, root, listErr)
+		}
+		root, listErr = store.ListFiles(ctx, testProjectID, agent.ID, pattern, 1, 1)
+		if listErr != nil || root.HasMore || len(root.Entries) != 0 {
+			t.Fatalf("root listing %s at offset 1: %+v %v", pattern, root, listErr)
+		}
+	}
+	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/**", 0, 100)
+	if err != nil || result.HasMore {
 		t.Fatalf("memory listing: %+v %v", result, err)
 	}
 	var paths []string
@@ -269,13 +284,29 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	if !slices.Equal(paths, wantPaths) {
 		t.Fatalf("memory listing paths = %v, want %v", paths, wantPaths)
 	}
-	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 1, listing.Cursor{})
+	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 0, 1)
 	if err != nil || len(stores.Entries) != 1 || stores.Entries[0].Access != "read" {
 		t.Fatalf("store listing: %+v %v", stores, err)
 	}
-	first, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 2, listing.Cursor{})
-	if err != nil || !first.Next.Set || len(first.Entries) != 2 {
+	first, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 0, 2)
+	if err != nil || !first.HasMore || len(first.Entries) != 2 {
 		t.Fatalf("first page: %+v %v", first, err)
+	}
+	last, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 2, 2)
+	if err != nil || last.HasMore || len(last.Entries) != 1 {
+		t.Fatalf("last page: %+v %v", last, err)
+	}
+	exact, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 1, 2)
+	if err != nil || exact.HasMore || len(exact.Entries) != 2 ||
+		exact.Entries[0].Path != first.Entries[1].Path || exact.Entries[1].Path != last.Entries[0].Path {
+		t.Fatalf("exact final page: %+v %v", exact, err)
+	}
+	for _, offset := range []int{-1, toolcatalog.StorageListMaxOffset + 1} {
+		if _, err := store.ListFiles(
+			ctx, testProjectID, agent.ID, "/memory/**", offset, 1,
+		); !errors.Is(err, storeerr.ErrInvalidRequest) {
+			t.Fatalf("offset %d: %v", offset, err)
+		}
 	}
 	if _, _, err = store.Memories().Read(ctx, agentScope, resource.ID, "a.md"); err != nil {
 		t.Fatal(err)
@@ -339,13 +370,13 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			}
 		}
 		pattern := "/memory/engineering/**/*.md"
-		partial, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, listing.Cursor{})
-		if err != nil || len(partial.Entries) != 3 || !partial.Next.Set {
+		partial, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 0, 100)
+		if err != nil || len(partial.Entries) != 3 || !partial.HasMore {
 			t.Fatalf("discarded partial page: %+v, %v", partial, err)
 		}
-		stalled, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, partial.Next)
-		if !errors.Is(err, memorystore.ErrFileTraversalLimit) || stalled.Next.Set {
-			t.Fatalf("resource limit reported completion or repeated a cursor: %+v, %v", stalled, err)
+		stalled, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, len(partial.Entries), 100)
+		if !errors.Is(err, memorystore.ErrFileTraversalLimit) || stalled.HasMore || len(stalled.Entries) != 0 {
+			t.Fatalf("resource limit reported completion or an empty page with more: %+v, %v", stalled, err)
 		}
 	})
 	if err = store.Memories().Delete(ctx, scope, resource.ID); err != nil {
@@ -499,7 +530,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("existing config bypassed read-only store: %v", err)
 	}
-	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 10, listing.Cursor{})
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 0, 10)
 	if err != nil || len(listed.Entries) != 1 || listed.Entries[0].Access != "read" {
 		t.Fatalf("read-only store effective access: %+v %v", listed, err)
 	}
@@ -543,13 +574,13 @@ func TestMemoryListingRecordsDuration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Memories().ListFiles(ctx, testProjectID, nil, pattern, matcher, 50, ""); err != nil {
+	if _, err := store.Memories().ListFiles(ctx, testProjectID, nil, pattern, matcher, 0, 50); err != nil {
 		t.Fatal(err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := store.Memories().ListFiles(
-		canceled, testProjectID, nil, pattern, matcher, 50, "",
+		canceled, testProjectID, nil, pattern, matcher, 0, 50,
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled listing error = %v", err)
 	}
@@ -670,7 +701,7 @@ func TestStorageListScopedFilesystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	listCtx, cancel := context.WithTimeout(ctx, time.Second)
-	result, listErr := listStore.ListFiles(listCtx, testProjectID, agent.ID, "/memory/a/root.md", 1, listing.Cursor{})
+	result, listErr := listStore.ListFiles(listCtx, testProjectID, agent.ID, "/memory/a/root.md", 0, 1)
 	cancel()
 	_ = lock.Close()
 	if listErr != nil || len(result.Entries) != 1 {
@@ -678,15 +709,17 @@ func TestStorageListScopedFilesystem(t *testing.T) {
 	}
 	for _, test := range []struct {
 		pattern, want string
-		hasNext       bool
+		offset        int
+		hasMore       bool
 	}{
-		{"/memory/?", "/memory/a", true},
-		{"/memory/*z", "/memory/z", true},
-		{"/memory/*/last.md", "/memory/z/last.md", true},
+		{"/memory/?", "/memory/a", 0, true},
+		{"/memory/?", "/memory/z", 1, false},
+		{"/memory/*z", "/memory/z", 0, false},
+		{"/memory/*/last.md", "/memory/z/last.md", 0, false},
 	} {
-		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 1, listing.Cursor{})
+		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, test.offset, 1)
 		if err != nil || len(result.Entries) != 1 ||
-			result.Entries[0].Path != test.want || result.Next.Set != test.hasNext {
+			result.Entries[0].Path != test.want || result.HasMore != test.hasMore {
 			t.Fatalf("limited listing %s: %+v %v", test.pattern, result, err)
 		}
 	}
@@ -734,7 +767,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 		}
 	}
 	if _, err := listStore.ListFiles(
-		ctx, otherProjectID, agent.ID, "/memory/**", 100, listing.Cursor{},
+		ctx, otherProjectID, agent.ID, "/memory/**", 0, 100,
 	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("cross-project agent listing: %v", err)
 	}
@@ -751,8 +784,8 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 			"/memory/a/dir/a.txt", "/memory/a/folder.md/child.txt", "/memory/z/last.txt",
 		}},
 	} {
-		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 100, listing.Cursor{})
-		if err != nil || result.Next.Set {
+		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 0, 100)
+		if err != nil || result.HasMore {
 			t.Fatalf("multi-store listing %s: %+v %v", test.pattern, result, err)
 		}
 		var paths []string
@@ -787,8 +820,8 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 					want = append(want, entry)
 				}
 			}
-			result, listErr := listStore.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, listing.Cursor{})
-			if result.Next.Set {
+			result, listErr := listStore.ListFiles(ctx, testProjectID, agent.ID, pattern, 0, 100)
+			if result.HasMore {
 				t.Fatal("unexpected continuation")
 			}
 			for _, limit := range []int{1, 2, 5} {
@@ -897,11 +930,38 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 	}
 	newestFirst := slices.Clone(artifactPaths)
 	slices.Reverse(newestFirst)
-	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 1, listing.Cursor{})
-	if err != nil || !first.Next.Set || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
+	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 0, 1)
+	if err != nil || !first.HasMore || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
 		t.Fatalf("first artifact page: %+v %v", first, err)
 	}
-	other, err := store.ListFiles(ctx, testProjectID, otherAgentID, "/artifacts/*", 100, listing.Cursor{})
+	for _, test := range []struct {
+		offset, limit int
+		want          []string
+		hasMore       bool
+	}{
+		{offset: 3, limit: 2, want: newestFirst[3:5], hasMore: true},
+		{offset: 7, limit: 2, want: newestFirst[7:], hasMore: false},
+		{offset: 8, limit: 5, want: newestFirst[8:], hasMore: false},
+		{offset: 9, limit: 1, want: nil, hasMore: false},
+		{offset: 50, limit: 1, want: nil, hasMore: false},
+	} {
+		page, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", test.offset, test.limit)
+		var got []string
+		for _, entry := range page.Entries {
+			got = append(got, entry.Path)
+		}
+		if err != nil || !slices.Equal(got, test.want) || page.HasMore != test.hasMore {
+			t.Fatalf("artifact page offset=%d limit=%d: got %v has_more=%t, want %v has_more=%t: %v",
+				test.offset, test.limit, got, page.HasMore, test.want, test.hasMore, err)
+		}
+	}
+	for _, offset := range []int{0, 1} {
+		single, err := store.ListFiles(ctx, testProjectID, agentID, artifactPaths[2], offset, 1)
+		if err != nil || single.HasMore || len(single.Entries) != 1-offset {
+			t.Fatalf("exact artifact at offset %d: %+v %v", offset, single, err)
+		}
+	}
+	other, err := store.ListFiles(ctx, testProjectID, otherAgentID, "/artifacts/*", 0, 100)
 	if err != nil || len(other.Entries) != 1 || other.Entries[0].Path == first.Entries[0].Path {
 		t.Fatalf("artifact scope: %+v %v", other, err)
 	}
@@ -967,20 +1027,21 @@ func collectFileListing(
 	limit int,
 ) ([]listing.FileEntry, error) {
 	var entries []listing.FileEntry
-	var after listing.Cursor
 	for {
-		result, err := store.ListFiles(ctx, testProjectID, agentID, pattern, limit, after)
+		result, err := store.ListFiles(ctx, testProjectID, agentID, pattern, len(entries), limit)
 		if err != nil {
 			return nil, err
 		}
+		if len(result.Entries) > limit {
+			return nil, fmt.Errorf("listing returned %d entries for limit %d", len(result.Entries), limit)
+		}
 		entries = append(entries, result.Entries...)
-		if !result.Next.Set {
+		if !result.HasMore {
 			return entries, nil
 		}
-		if len(result.Entries) == 0 || result.Next == after {
-			return nil, errors.New("listing cursor did not advance")
+		if len(result.Entries) == 0 {
+			return nil, errors.New("listing offset did not advance")
 		}
-		after = result.Next
 	}
 
 }
@@ -1235,7 +1296,7 @@ func TestMemoryStoreDeletionWithActiveAgent(t *testing.T) {
 			t.Fatalf("agent wrote store %s after deletion: %v", id, err)
 		}
 	}
-	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 100, listing.Cursor{})
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 0, 100)
 	if err != nil || len(listed.Entries) != 0 {
 		t.Fatalf("deleted attachment listed stores: %+v %v", listed, err)
 	}

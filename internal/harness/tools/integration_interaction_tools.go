@@ -36,8 +36,8 @@ func listInteractionHandlers(
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
 	var input struct {
-		Cursor string `json:"cursor"`
-		Limit  int    `json:"limit"`
+		Offset int `json:"offset"`
+		Limit  int `json:"limit"`
 	}
 	if err := decodeSingleStrictJSON(
 		call.Call.Input,
@@ -55,7 +55,7 @@ func listInteractionHandlers(
 	); err != nil {
 		return nil, err
 	}
-	page, err := call.Reader.ListInteractionHandlers(ctx, input.Cursor, input.Limit)
+	page, err := call.Reader.ListInteractionHandlers(ctx, input.Offset, input.Limit)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -27,13 +26,14 @@ type InteractionHandlerPage struct {
 	AutoSelect bool                      `json:"auto_select"`
 	Handlers   []InteractionHandlerEntry `json:"handlers"`
 	Selection  *HandlerSelection         `json:"selection"`
-	NextCursor string                    `json:"next_cursor,omitempty"`
+	HasMore    bool                      `json:"has_more"`
+	NextOffset *int                      `json:"next_offset,omitempty"`
 }
 
 func ListInteractionHandlers(
 	handlers map[string]InteractionHandlerEntry,
 	selection *HandlerSelection,
-	cursor string,
+	offset int,
 	limit int,
 ) (InteractionHandlerPage, error) {
 	if limit == 0 {
@@ -42,29 +42,23 @@ func ListInteractionHandlers(
 	if limit < 1 || limit > toolcatalog.InteractionHandlersMaxLimit {
 		return InteractionHandlerPage{}, fmt.Errorf("limit must be between 1 and %d", toolcatalog.InteractionHandlersMaxLimit)
 	}
-	after := ""
-	if cursor != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
-		if err != nil || toolcatalog.ValidateIntegrationName(string(decoded)) != nil {
-			return InteractionHandlerPage{}, fmt.Errorf("invalid interaction handler cursor")
-		}
-		after = string(decoded)
+	if offset < 0 {
+		return InteractionHandlerPage{}, fmt.Errorf("offset must be non-negative")
 	}
 	page := InteractionHandlerPage{Handlers: []InteractionHandlerEntry{}, Selection: selection}
 	keys := slices.Sorted(maps.Keys(handlers))
-	for index, key := range keys {
-		if key <= after {
-			continue
-		}
+	if offset >= len(keys) {
+		return page, nil
+	}
+	end := len(keys)
+	if limit < end-offset {
+		end = offset + limit
+		page.HasMore, page.NextOffset = true, &end
+	}
+	for _, key := range keys[offset:end] {
 		handler := handlers[key]
 		handler.Handler = key
 		page.Handlers = append(page.Handlers, handler)
-		if len(page.Handlers) == limit {
-			if index+1 < len(keys) {
-				page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(key))
-			}
-			break
-		}
 	}
 	return page, nil
 }

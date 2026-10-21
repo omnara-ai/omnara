@@ -181,19 +181,25 @@ func TestStoreFilesystem(t *testing.T) {
 			t.Fatalf("pattern %s: paths=%v remaining=%d err=%v", pattern, paths, remaining, err)
 		}
 	}
-	view.after = "memory/b/nested"
-	remaining = 3
-	var resumed []string
-	err = globFiles(t.Context(), &view, "memory/**", func(name string, _ fs.DirEntry) error {
-		if compareFilePaths(name, view.after) > 0 {
-			resumed = append(resumed, name)
-		}
-		return nil
-	})
-	if err != nil || !slices.Equal(resumed, []string{"memory/b/nested/note.md", "memory/b/note.md", "memory/empty"}) {
-		t.Fatalf("resume inside directory: %v, %v", resumed, err)
+	// Offset pagination re-walks the view on every page, so traversal order must be stable.
+	wantOrder := []string{
+		"memory/a", "memory/a/nested", "memory/a/nested/note.md", "memory/a/note.md",
+		"memory/b", "memory/b/nested", "memory/b/nested/note.md", "memory/b/note.md",
+		"memory/empty",
 	}
-	view.after = ""
+	for range 2 {
+		remaining = 100
+		var walked []string
+		err = globFiles(t.Context(), &view, "memory/**", func(name string, _ fs.DirEntry) error {
+			if name != "memory" {
+				walked = append(walked, name)
+			}
+			return nil
+		})
+		if err != nil || !slices.Equal(walked, wantOrder) {
+			t.Fatalf("traversal order: %v, %v", walked, err)
+		}
+	}
 	remaining = 100
 	root, err := view.openStore(view.stores[0])
 	if err != nil {

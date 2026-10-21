@@ -247,7 +247,7 @@ func TestUploadInputValidation(t *testing.T) {
 		t.Fatal("memory upload accepted view")
 	}
 	if err := validateStorageList(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
-		t.Fatal("storage_list accepted malformed cursor")
+		t.Fatal("storage_list accepted removed cursor field")
 	}
 }
 

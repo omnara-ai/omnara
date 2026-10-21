@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +27,9 @@ func TestMachineToolInputValidation(t *testing.T) {
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "list_machines", Input: json.RawMessage(`{}`)},
-		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
-		{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"offset":0}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"offset":250,"limit":100}`)},
+		{Name: "list_machines", Input: json.RawMessage(`{"limit":1}`)},
 	}
 	for _, call := range valid {
 		if err := validateRegisteredToolInput(call.Name, call.Input); err != nil {
@@ -62,12 +64,28 @@ func TestMachineToolInputValidation(t *testing.T) {
 			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		},
 		{
-			name: "list rejects nil cursor UUID",
-			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
+			name: "list rejects removed cursor",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		},
 		{
-			name: "list rejects noncanonical cursor",
-			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaab"}`)},
+			name: "list rejects negative offset",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"offset":-1}`)},
+		},
+		{
+			name: "list rejects fractional offset",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"offset":1.5}`)},
+		},
+		{
+			name: "list rejects null offset",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"offset":null}`)},
+		},
+		{
+			name: "list rejects zero limit",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"limit":0}`)},
+		},
+		{
+			name: "list rejects oversized limit",
+			call: model.ToolCall{Name: "list_machines", Input: json.RawMessage(`{"limit":101}`)},
 		},
 	}
 	for _, tc := range invalid {
@@ -449,45 +467,79 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 	}
 }
 
-func TestMachineListPaginationAfterCursorResourceRemoval(t *testing.T) {
-	for _, counts := range []struct{ pools, machines int }{{0, 150}, {150, 0}, {75, 75}} {
-		t.Run(fmt.Sprintf("pools=%d/machines=%d", counts.pools, counts.machines), func(t *testing.T) {
+func TestResolveListMachinesRequest(t *testing.T) {
+	for _, tc := range []struct {
+		input         string
+		offset, limit int
+		wantErr       string
+	}{
+		{input: `{}`, offset: 0, limit: toolcatalog.ListMachinesDefaultLimit},
+		{input: `{"offset":7}`, offset: 7, limit: toolcatalog.ListMachinesDefaultLimit},
+		{input: `{"offset":0,"limit":1}`, offset: 0, limit: 1},
+		{input: `{"limit":100}`, offset: 0, limit: toolcatalog.ListMachinesMaxLimit},
+		{input: `{"offset":-1}`, wantErr: "offset must be non-negative"},
+		{input: `{"limit":0}`, wantErr: "limit must be between 1 and 100"},
+		{input: `{"limit":101}`, wantErr: "limit must be between 1 and 100"},
+		{input: `{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`, wantErr: "unknown field"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			offset, limit, err := resolveListMachinesRequest(json.RawMessage(tc.input))
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.offset, offset)
+			require.Equal(t, tc.limit, limit)
+		})
+	}
+}
+
+func TestMachineListOffsetPagination(t *testing.T) {
+	for _, counts := range []struct{ pools, machines, limit int }{
+		{0, 150, 100}, {150, 0, 100}, {75, 75, 100}, {3, 4, 2}, {2, 2, 1}, {0, 0, 50},
+	} {
+		t.Run(fmt.Sprintf("pools=%d/machines=%d/limit=%d", counts.pools, counts.machines, counts.limit), func(t *testing.T) {
+			// Large descriptions make the byte budget end most pages before the limit.
+			description := ""
+			if counts.limit == toolcatalog.ListMachinesMaxLimit {
+				description = strings.Repeat("<é", 500)
+			}
 			machines := make([]executionstore.AgentMachineObservationRecord, counts.machines)
 			for i := range machines {
 				machines[i] = executionstore.AgentMachineObservationRecord{
-					MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: strings.Repeat("<é", 500),
+					MachineID: uuid.UUID{15: byte(len(machines) - i)}, Description: description,
 				}
 			}
 			pools := make([]executionstore.MachinePoolSourceRecord, counts.pools)
 			for i := range pools {
 				pools[i] = executionstore.MachinePoolSourceRecord{
 					MachinePoolID: uuid.UUID{15: byte(len(pools) - i)}, MachinePoolName: fmt.Sprint(i),
-					Description: strings.Repeat("<é", 500),
+					Description: description,
 				}
 			}
 			var seenPools, seenMachines []string
-			cursor := ""
+			offset, pages := 0, 0
 			for range counts.pools + counts.machines + 1 {
-				page := machineListPageForTest(t, machines, pools, cursor)
+				page := machineListPageForTest(t, machines, pools, offset, counts.limit)
+				pages++
+				entries := len(page.MachinePools) + len(page.Machines)
+				require.LessOrEqual(t, entries, counts.limit)
 				for _, pool := range page.MachinePools {
 					require.Empty(t, seenMachines, "pools must precede machines across pages")
 					seenPools = append(seenPools, pool.MachinePoolID)
-					cursor = pool.MachinePoolID
 				}
 				for _, machine := range page.Machines {
 					seenMachines = append(seenMachines, machine.MachineID)
-					cursor = machine.MachineID
 				}
-				if page.NextCursor == "" {
+				if !page.HasMore {
+					require.Nil(t, page.NextOffset)
 					break
 				}
-				require.Equal(t, cursor, page.NextCursor)
-				pools = slices.DeleteFunc(pools, func(pool executionstore.MachinePoolSourceRecord) bool {
-					return poolPublicIDForTest(t, pool.MachinePoolID) == cursor
-				})
-				machines = slices.DeleteFunc(machines, func(machine executionstore.AgentMachineObservationRecord) bool {
-					return machinePublicIDForTest(t, machine.MachineID) == cursor
-				})
+				require.NotZero(t, entries, "a page with has_more must make progress")
+				require.NotNil(t, page.NextOffset)
+				require.Equal(t, offset+entries, *page.NextOffset)
+				offset = *page.NextOffset
 			}
 			require.Len(t, seenPools, counts.pools)
 			require.Len(t, seenMachines, counts.machines)
@@ -497,12 +549,74 @@ func TestMachineListPaginationAfterCursorResourceRemoval(t *testing.T) {
 			for i, id := range seenMachines {
 				require.Equal(t, machinePublicIDForTest(t, uuid.UUID{15: byte(i + 1)}), id)
 			}
-			page := machineListPageForTest(t, machines, pools, cursor)
-			require.Equal(t, machineListResult{
-				Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{},
-			}, page)
+			if total := counts.pools + counts.machines; total > 0 && description == "" {
+				require.Equal(t, (total+counts.limit-1)/counts.limit, pages)
+			}
+			for _, past := range []int{counts.pools + counts.machines, counts.pools + counts.machines + 10} {
+				page := machineListPageForTest(t, machines, pools, past, counts.limit)
+				require.Equal(t, machineListResult{
+					Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{},
+				}, page)
+			}
 		})
 	}
+}
+
+func TestMachineListPageResultJSON(t *testing.T) {
+	machines := []executionstore.AgentMachineObservationRecord{
+		{MachineID: uuid.UUID{15: 1}},
+		{MachineID: uuid.UUID{15: 2}},
+	}
+	pageJSON := func(offset, limit int) map[string]any {
+		t.Helper()
+		result, err := machineListPage(slices.Clone(machines), nil, offset, limit)
+		require.NoError(t, err)
+		completed, ok := result.(completeTransaction)
+		require.True(t, ok, "page returned %T", result)
+		parts, err := completed.content.contentParts()
+		require.NoError(t, err)
+		var blocks []struct{ Value map[string]any }
+		require.NoError(t, json.Unmarshal(parts, &blocks))
+		return blocks[0].Value
+	}
+	first := pageJSON(0, 1)
+	require.Equal(t, true, first["has_more"])
+	require.Equal(t, float64(1), first["next_offset"])
+	require.NotContains(t, first, "next_cursor")
+	last := pageJSON(1, 1)
+	require.Equal(t, false, last["has_more"])
+	require.NotContains(t, last, "next_offset")
+}
+
+func TestMachineListOversizedPoolPointsPastIt(t *testing.T) {
+	pools := []executionstore.MachinePoolSourceRecord{
+		{MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Small"},
+		{
+			MachinePoolID: uuid.UUID{15: 2}, MachinePoolName: "Huge",
+			Description: strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes),
+		},
+	}
+	machines := []executionstore.AgentMachineObservationRecord{{MachineID: uuid.UUID{15: 1}}}
+	page := machineListPageForTest(t, machines, pools, 0, 50)
+	require.Len(t, page.MachinePools, 1)
+	require.Empty(t, page.Machines)
+	require.True(t, page.HasMore)
+	require.NotNil(t, page.NextOffset)
+	require.Equal(t, 1, *page.NextOffset)
+	result, err := machineListPage(machines, pools, 1, 50)
+	require.NoError(t, err)
+	failure, ok := result.(failTransaction)
+	require.True(t, ok, "oversized pool returned %T", result)
+	parts, err := failure.content.contentParts()
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(parts), executionstore.ToolResultInlineBudgetBytes)
+	require.Contains(t, string(parts), "machine_pool_details_too_large")
+	require.Contains(t, string(parts), poolPublicIDForTest(t, pools[1].MachinePoolID))
+	require.Contains(t, string(parts), "offset 2")
+	page = machineListPageForTest(t, machines, pools, 2, 50)
+	require.Empty(t, page.MachinePools)
+	require.Len(t, page.Machines, 1)
+	require.False(t, page.HasMore)
 }
 
 func TestMachineListPageSizeBoundary(t *testing.T) {
@@ -511,10 +625,12 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 			machines := []executionstore.AgentMachineObservationRecord{
 				{MachineID: uuid.UUID{15: 1}}, {MachineID: uuid.UUID{15: 2}},
 			}
+			nextOffset := 1
 			content, err := structuredToolResultContent(machineListResult{
 				MachinePools: []machinePoolPayload{},
 				Machines:     []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
-				NextCursor:   machinePublicIDForTest(t, machines[0].MachineID),
+				HasMore:      true,
+				NextOffset:   &nextOffset,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -525,12 +641,13 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 			}
 			machines[0].Description = strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts)+delta)
 			if delta <= 0 {
-				page := machineListPageForTest(t, machines, nil, "")
-				if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
-					t.Fatalf("unexpected boundary page: machines=%d cursor=%s", len(page.Machines), page.NextCursor)
+				page := machineListPageForTest(t, machines, nil, 0, 50)
+				if len(page.Machines) != 1 || !page.HasMore || page.NextOffset == nil || *page.NextOffset != 1 {
+					t.Fatalf("unexpected boundary page: machines=%d has_more=%t next_offset=%v",
+						len(page.Machines), page.HasMore, page.NextOffset)
 				}
 			} else {
-				result, err := machineListPage(machines, nil, "")
+				result, err := machineListPage(machines, nil, 0, 50)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -540,15 +657,16 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 				}
 				parts, err := failure.content.contentParts()
 				if err != nil || len(parts) > executionstore.ToolResultInlineBudgetBytes ||
+					!strings.Contains(string(parts), "machine_details_too_large") ||
 					!strings.Contains(string(parts), "inspect_machine") ||
 					!strings.Contains(string(parts), machinePublicIDForTest(t, machines[0].MachineID)) ||
-					!strings.Contains(string(parts), "cursor") {
+					!strings.Contains(string(parts), "offset 1") {
 					t.Fatalf("missing bounded recovery instructions: %s, %v", parts, err)
 				}
 			}
-			page := machineListPageForTest(t, machines, nil, machinePublicIDForTest(t, machines[0].MachineID))
+			page := machineListPageForTest(t, machines, nil, 1, 50)
 			if len(page.Machines) != 1 || page.Machines[0].MachineID != machinePublicIDForTest(t, machines[1].MachineID) ||
-				page.NextCursor != "" {
+				page.HasMore || page.NextOffset != nil {
 				t.Fatalf("continuation skipped remaining machine: %+v", page)
 			}
 		})
@@ -567,10 +685,8 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				{MachineID: uuid.UUID{15: 3}},
 			}
 			machines = machines[:count]
-			cursor := ""
-			if count > 2 {
-				cursor = machinePublicIDForTest(t, machines[1].MachineID)
-			}
+			// The page budget reserves room for has_more and the largest possible next_offset.
+			total := len(pools) + len(machines)
 			content, err := structuredToolResultContent(machineListResult{
 				MachinePools: []machinePoolPayload{{
 					MachinePoolID:   poolPublicIDForTest(t, pools[0].MachinePoolID),
@@ -579,7 +695,8 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				Machines: []machineObservationPayload{
 					machineObservationForPaginationTest(t, machines[0]), machineObservationForPaginationTest(t, machines[1]),
 				},
-				NextCursor: cursor,
+				HasMore:    true,
+				NextOffset: &total,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -589,14 +706,18 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			machines[1].Description += strings.Repeat("x", executionstore.ToolResultInlineBudgetBytes-len(parts))
-			page := machineListPageForTest(t, machines, pools, "")
-			if len(page.Machines) != 2 || page.NextCursor != cursor {
-				t.Fatalf("exact-size page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			page := machineListPageForTest(t, machines, pools, 0, 50)
+			if len(page.Machines) != 2 || page.HasMore != (count > 2) {
+				t.Fatalf("exact-size page: machines=%d has_more=%t", len(page.Machines), page.HasMore)
+			}
+			if count > 2 && (page.NextOffset == nil || *page.NextOffset != 3) {
+				t.Fatalf("exact-size page next_offset=%v, want 3", page.NextOffset)
 			}
 			machines[1].Description += "x"
-			page = machineListPageForTest(t, machines, pools, "")
-			if len(page.Machines) != 1 || page.NextCursor != machinePublicIDForTest(t, machines[0].MachineID) {
-				t.Fatalf("oversized page: machines=%d cursor=%q", len(page.Machines), page.NextCursor)
+			page = machineListPageForTest(t, machines, pools, 0, 50)
+			if len(page.Machines) != 1 || !page.HasMore || page.NextOffset == nil || *page.NextOffset != 2 {
+				t.Fatalf("oversized page: machines=%d has_more=%t next_offset=%v",
+					len(page.Machines), page.HasMore, page.NextOffset)
 			}
 		})
 	}
@@ -606,10 +727,10 @@ func machineListPageForTest(
 	t *testing.T,
 	machines []executionstore.AgentMachineObservationRecord,
 	pools []executionstore.MachinePoolSourceRecord,
-	cursor string,
+	offset, limit int,
 ) machineListResult {
 	t.Helper()
-	result, err := machineListPage(machines, pools, cursor)
+	result, err := machineListPage(machines, pools, offset, limit)
 	if err != nil {
 		t.Fatal(err)
 	}

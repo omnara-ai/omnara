@@ -36,7 +36,6 @@ type storeFS struct {
 	projectID uuid.UUID
 	stores    []dbsqlc.ListAttachedMemoryStoresRow
 	opened    string
-	after     string
 }
 
 func (v *storeFS) Close() error {
@@ -119,9 +118,6 @@ func (v *storeFS) Open(name string) (fs.File, error) {
 }
 
 func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
-	if name != "." && v.finished(name) {
-		return nil, nil
-	}
 	if err := v.checkCanceled(); err != nil {
 		return nil, err
 	}
@@ -131,9 +127,6 @@ func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name == "memory" {
 		entries := make([]fs.DirEntry, 0, len(v.stores))
 		for _, store := range v.stores {
-			if v.finished(name + "/" + store.Name) {
-				continue
-			}
 			entries = append(entries, fs.FileInfoToDirEntry(&storeDirectory{name: store.Name}))
 		}
 		return entries, nil
@@ -148,21 +141,7 @@ func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 		return nil, err
 	}
-	entries, err := v.globFS.ReadDir(relative)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(entries, func(entry fs.DirEntry) bool {
-		return v.finished(name + "/" + entry.Name())
-	}), nil
-}
-
-func (v *storeFS) finished(name string) bool {
-	return compareFilePaths(name, v.after) < 0 && !strings.HasPrefix(v.after, name+"/")
-}
-
-func compareFilePaths(a, b string) int {
-	return slices.Compare(strings.Split(a, "/"), strings.Split(b, "/"))
+	return v.globFS.ReadDir(relative)
 }
 
 type storeDirectory struct {

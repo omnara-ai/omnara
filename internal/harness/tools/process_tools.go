@@ -51,11 +51,11 @@ const (
 )
 
 type processObservationRequest struct {
-	ProcessID string                 `json:"process_id,omitempty"`
-	Mode      processObservationMode `json:"mode"`
-	Cursor    *int64                 `json:"cursor,omitempty"`
-	MaxBytes  int                    `json:"max_bytes,omitempty"`
-	WaitMS    int                    `json:"wait_ms,omitempty"`
+	ProcessID  string                 `json:"process_id,omitempty"`
+	Mode       processObservationMode `json:"mode"`
+	OffsetByte *int64                 `json:"offset_byte,omitempty"`
+	LimitBytes int                    `json:"limit_bytes,omitempty"`
+	WaitMS     int                    `json:"wait_ms,omitempty"`
 }
 
 func runCommandAuthorizationInput(
@@ -391,8 +391,8 @@ func processObservationActionPayload(
 	request processObservationRequest,
 ) (json.RawMessage, error) {
 	return marshalJSON(processaction.ReadPayload{
-		Cursor:   request.Cursor,
-		MaxBytes: request.MaxBytes,
+		Cursor:   request.OffsetByte,
+		MaxBytes: request.LimitBytes,
 		WaitMS:   request.WaitMS,
 	})
 }
@@ -729,10 +729,10 @@ func resolveProcessObservationRequest(
 		return processObservationRequest{Mode: mode}, nil
 	}
 	var parsed struct {
-		ProcessID string `json:"process_id,omitempty"`
-		Cursor    *int64 `json:"cursor,omitempty"`
-		MaxBytes  *int   `json:"max_bytes,omitempty"`
-		WaitMs    *int   `json:"wait_ms,omitempty"`
+		ProcessID  string `json:"process_id,omitempty"`
+		OffsetByte *int64 `json:"offset_byte,omitempty"`
+		LimitBytes *int   `json:"limit_bytes,omitempty"`
+		WaitMs     *int   `json:"wait_ms,omitempty"`
 	}
 	if len(raw) != 0 {
 		var fields map[string]json.RawMessage
@@ -761,24 +761,24 @@ func resolveProcessObservationRequest(
 		}
 	}
 	input := processObservationRequest{ProcessID: parsed.ProcessID, Mode: mode}
-	if parsed.Cursor != nil {
-		if *parsed.Cursor < 0 {
-			return input, errors.New("cursor must be non-negative")
+	if parsed.OffsetByte != nil {
+		if *parsed.OffsetByte < 0 {
+			return input, errors.New("offset_byte must be non-negative")
 		}
-		cursor := *parsed.Cursor
-		input.Cursor = &cursor
+		offset := *parsed.OffsetByte
+		input.OffsetByte = &offset
 	}
-	if parsed.MaxBytes != nil {
-		if *parsed.MaxBytes <= 0 {
-			return input, errors.New("max_bytes must be positive")
+	if parsed.LimitBytes != nil {
+		if *parsed.LimitBytes <= 0 {
+			return input, errors.New("limit_bytes must be positive")
 		}
-		if *parsed.MaxBytes > processaction.MaxObservationBytes {
+		if *parsed.LimitBytes > processaction.MaxObservationBytes {
 			return input, fmt.Errorf(
-				"max_bytes must be <= %d",
+				"limit_bytes must be <= %d",
 				processaction.MaxObservationBytes,
 			)
 		}
-		input.MaxBytes = *parsed.MaxBytes
+		input.LimitBytes = *parsed.LimitBytes
 	}
 	if parsed.WaitMs != nil {
 		if *parsed.WaitMs <= 0 {

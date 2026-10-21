@@ -139,3 +139,53 @@ func TestObservationNextCursorMeasuresReplacementSymbolsAsRawBytes(t *testing.T)
 		}
 	}
 }
+
+func TestProcessResultsExposeOutputRangeAsByteOffsets(t *testing.T) {
+	t.Parallel()
+
+	process := Process{ID: uuid.New(), State: "running"}
+	publicProcessID := publicID(publicid.KindProcess, process.ID)
+	observation := json.RawMessage(`{"process_id":"` + publicProcessID +
+		`","output":"ab","cursor":0,"next_cursor":2,"truncated":false}`)
+
+	read, _, err := Read(process, Action{Payload: json.RawMessage(`{}`)}, observation)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	assertPublicOutputRange(t, read, 0, 2)
+	matches, err := ReadMatches(observation, read)
+	if err != nil || !matches {
+		t.Fatalf("read matches = %t, err = %v", matches, err)
+	}
+	mismatched, err := ReadMatches(
+		json.RawMessage(`{"process_id":"`+publicProcessID+
+			`","output":"ab","cursor":0,"next_cursor":3,"truncated":false}`),
+		read,
+	)
+	if err != nil || mismatched {
+		t.Fatalf("mismatched read matches = %t, err = %v", mismatched, err)
+	}
+
+	started, err := Started(process, observation)
+	if err != nil {
+		t.Fatalf("started result: %v", err)
+	}
+	assertPublicOutputRange(t, started, 0, 2)
+}
+
+func assertPublicOutputRange(t *testing.T, raw json.RawMessage, offset, next float64) {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if body["offset_byte"] != offset || body["next_offset_byte"] != next {
+		t.Fatalf("result output range = %s", raw)
+	}
+	if _, ok := body["cursor"]; ok {
+		t.Fatalf("result exposes daemon cursor: %s", raw)
+	}
+	if _, ok := body["next_cursor"]; ok {
+		t.Fatalf("result exposes daemon next_cursor: %s", raw)
+	}
+}

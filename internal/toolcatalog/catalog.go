@@ -26,6 +26,9 @@ const (
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
 	StorageListDefaultLimit  = 50
 	StorageListMaxLimit      = 100
+	StorageListMaxOffset     = 1_000_000
+	ListMachinesDefaultLimit = 50
+	ListMachinesMaxLimit     = 100
 	StorageReadDefaultLines  = 100
 	StorageReadMaxLines      = 200
 	StorageReadDefaultChars  = 512
@@ -72,7 +75,7 @@ const (
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use storage_read to read more around a match."
 	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
-		"Returns paths and metadata without file contents, with next_cursor to continue listing."
+		"Returns paths and metadata without file contents. When has_more is true, call again with next_offset to continue."
 	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
 		"Set view to load an uploaded image, such as a screenshot, into your context. " +
 		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
@@ -209,16 +212,21 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	observationProperties := map[string]any{
 		"process_id": processID,
-		"cursor": map[string]any{
-			"type":        "integer",
-			"minimum":     0,
-			"description": "Output cursor returned by a previous run_command or read_process result.",
+		"offset_byte": map[string]any{
+			"type":    "integer",
+			"minimum": 0,
+			"description": "Starting byte position in the process output stream. " +
+				"To continue, use next_offset_byte from the previous run_command or read_process result. " +
+				"Omit to continue after the output returned by run_command or the last read_process call that omitted offset_byte.",
 		},
-		"max_bytes": map[string]any{
-			"type":        "integer",
-			"minimum":     1,
-			"maximum":     processaction.MaxObservationBytes,
-			"description": "Maximum output bytes to return.",
+		"limit_bytes": map[string]any{
+			"type":    "integer",
+			"minimum": 1,
+			"maximum": processaction.MaxObservationBytes,
+			"description": fmt.Sprintf(
+				"Maximum output bytes to return. Defaults to %d.",
+				processaction.DefaultObservationBytes,
+			),
 		},
 		"wait_ms": map[string]any{
 			"type":    "integer",
@@ -279,9 +287,12 @@ func buildDefaultCatalog() (Catalog, error) {
 					"An exact artifact ID selects one artifact; wildcards match filenames, not IDs. " +
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
-			"cursor": map[string]any{
-				"type": "string", "maxLength": StorageListMaxCursorLength,
-				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
+			"offset": map[string]any{
+				"type":    "integer",
+				"minimum": 0,
+				"maximum": StorageListMaxOffset,
+				"description": "Number of matching entries to skip; defaults to 0. " +
+					"To continue, use next_offset from the previous result with the same pattern.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
@@ -297,10 +308,20 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameListMachines,
 		listMachinesToolDescription,
 		nil,
-		map[string]any{"cursor": map[string]any{
-			"type": "string", "pattern": `^(mch|mpo)_[a-z2-7]{26}$`,
-			"description": "next_cursor from the previous result. Omit it to start listing.",
-		}},
+		map[string]any{
+			"offset": map[string]any{
+				"type":    "integer",
+				"minimum": 0,
+				"description": "Number of entries to skip; defaults to 0. Pools are listed first, followed by machines. " +
+					"To continue, use next_offset from the previous result.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ListMachinesMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListMachinesDefaultLimit),
+			},
+		},
 	); err != nil {
 		return Catalog{}, err
 	}

@@ -88,6 +88,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 					err = json.Unmarshal(result, &base)
 					if err == nil {
 						body["process_id"] = base["process_id"]
+						processresult.PublicOutputRange(body)
 						result, err = json.Marshal(body)
 					}
 				}
@@ -112,7 +113,9 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 		if !published.Matches {
 			return published, nil
 		}
-		next, found, err := processresult.ObservationNextCursor(result)
+		next, found, err := processresult.ObservationNextCursor(
+			processresult.NormalizeObservation(input.Observed),
+		)
 		if err != nil {
 			return ExternalCompletion{}, err
 		}

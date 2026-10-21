@@ -95,13 +95,13 @@ func Read(
 	}
 
 	result := map[string]any{
-		"process_id":  publicProcessID,
-		"state":       process.State,
-		"output":      *observed.Output,
-		"cursor":      *observed.Cursor,
-		"next_cursor": *observed.NextCursor,
-		"truncated":   *observed.Truncated,
-		"done":        TerminalState(process.State),
+		"process_id":       publicProcessID,
+		"state":            process.State,
+		"output":           *observed.Output,
+		"offset_byte":      *observed.Cursor,
+		"next_offset_byte": *observed.NextCursor,
+		"truncated":        *observed.Truncated,
+		"done":             TerminalState(process.State),
 	}
 	if process.SourceStartedAt != nil {
 		result["started_at"] = *process.SourceStartedAt
@@ -199,6 +199,7 @@ func Started(process Process, observed json.RawMessage) (json.RawMessage, error)
 		if err := json.Unmarshal(observed, &observedObject); err != nil {
 			return nil, fmt.Errorf("decode process started result: %w", err)
 		}
+		PublicOutputRange(observedObject)
 		for key, value := range observedObject {
 			result[key] = value
 		}
@@ -245,20 +246,26 @@ func ReadMatches(
 	if !ok {
 		return false, nil
 	}
-	var committed daemonProcessReadObservation
+	var committed struct {
+		ProcessID      string  `json:"process_id"`
+		Output         *string `json:"output"`
+		OffsetByte     *int64  `json:"offset_byte"`
+		NextOffsetByte *int64  `json:"next_offset_byte"`
+		Truncated      *bool   `json:"truncated"`
+	}
 	if err := json.Unmarshal(result, &committed); err != nil {
 		return false, fmt.Errorf("decode committed read result: %w", err)
 	}
 	if observed.Output == nil || committed.Output == nil ||
-		observed.Cursor == nil || committed.Cursor == nil ||
-		observed.NextCursor == nil || committed.NextCursor == nil ||
+		observed.Cursor == nil || committed.OffsetByte == nil ||
+		observed.NextCursor == nil || committed.NextOffsetByte == nil ||
 		observed.Truncated == nil || committed.Truncated == nil {
 		return false, nil
 	}
 	return observed.ProcessID == committed.ProcessID &&
 		*observed.Output == *committed.Output &&
-		*observed.Cursor == *committed.Cursor &&
-		*observed.NextCursor == *committed.NextCursor &&
+		*observed.Cursor == *committed.OffsetByte &&
+		*observed.NextCursor == *committed.NextOffsetByte &&
 		*observed.Truncated == *committed.Truncated, nil
 }
 
@@ -302,6 +309,20 @@ func ObservationNextCursor(
 		)
 	}
 	return *observed.NextCursor, true, nil
+}
+
+// PublicOutputRange renames the daemon's output cursor fields to the byte
+// offsets that process tool results expose.
+func PublicOutputRange(body map[string]any) {
+	for wire, public := range map[string]string{
+		"cursor":      "offset_byte",
+		"next_cursor": "next_offset_byte",
+	} {
+		if value, ok := body[wire]; ok {
+			delete(body, wire)
+			body[public] = value
+		}
+	}
 }
 
 func NormalizeObservation(raw json.RawMessage) json.RawMessage {

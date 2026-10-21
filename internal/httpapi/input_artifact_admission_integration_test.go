@@ -20,7 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/stretchr/testify/require"
@@ -71,7 +70,7 @@ func TestAgentInputPreparedArtifacts(t *testing.T) {
 				require.NoError(t, pool.QueryRow(ctx,
 					`SELECT count(*) FROM content_blocks WHERE agent_id=$1 AND artifact_id IS NOT NULL`, agent).Scan(&referenced))
 				require.Equal(t, count, referenced)
-				files, _, err := store.Artifacts().ListFiles(ctx, agent, nil, "", 100, listing.Cursor{})
+				files, err := store.Artifacts().ListFiles(ctx, agent, nil, "", 0, 100)
 				require.NoError(t, err)
 				require.Len(t, files, count)
 				live := 0

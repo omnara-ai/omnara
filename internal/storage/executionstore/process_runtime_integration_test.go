@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -1801,6 +1802,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				}
 				if test.wantOutcome == executionstore.ToolResultOutcomeFailed {
 					wantValue["process_id"] = publicResourceID(publicid.KindProcess, process.ID)
+					processresult.PublicOutputRange(wantValue)
 					if test.wantError != "" {
 						delete(wantValue, "file_transfer")
 						wantValue["error"] = test.wantError

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -71,40 +72,46 @@ func TestTransactionalToolDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 }
 
-func TestListMachinesDispatchRejectsInvalidCursor(t *testing.T) {
-	ctx := t.Context()
-	fixture := newIntegrationToolFixture(t, ctx, "invalid-machine-cursor")
-	call := fixture.recordToolCall(
-		t, ctx, "call_invalid_machine_cursor", "list_machines",
-		`{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaaa"}`, fixture.Now.Add(20*time.Second),
-	)
-	turn := fixture.turn()
-	turn.Tools["list_machines"] = ToolSpec{
-		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
-	}
-	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Disposition != DispatchCompleted {
-		t.Fatalf("invalid cursor result = %+v, want completed malformed-input result", result)
-	}
-	var parts []struct {
-		Type  string
-		Value map[string]any
-	}
-	require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
-	require.Len(t, parts, 1)
-	require.Equal(t, "structured_data", parts[0].Type)
-	require.Equal(t, "malformed", parts[0].Value["error_code"])
-	record, err := fixture.Store.Execution().GetToolCall(
-		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.State != executionstore.ToolCallStateCompleted || record.Outcome != executionstore.ToolResultOutcomeFailed {
-		t.Fatalf("invalid cursor tool call = %+v, want completed failure", record)
+func TestListMachinesDispatchRejectsInvalidPagination(t *testing.T) {
+	for index, input := range []string{
+		`{"offset":-1}`, `{"limit":0}`, `{"limit":101}`, `{"cursor":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			ctx := t.Context()
+			fixture := newIntegrationToolFixture(t, ctx, fmt.Sprintf("invalid-machine-page-%d", index))
+			call := fixture.recordToolCall(
+				t, ctx, "call_invalid_machine_page", "list_machines", input, fixture.Now.Add(20*time.Second),
+			)
+			turn := fixture.turn()
+			turn.Tools["list_machines"] = ToolSpec{
+				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+			}
+			result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Disposition != DispatchCompleted {
+				t.Fatalf("invalid pagination result = %+v, want completed malformed-input result", result)
+			}
+			var parts []struct {
+				Type  string
+				Value map[string]any
+			}
+			require.NoError(t, json.Unmarshal(result.ContentParts, &parts))
+			require.Len(t, parts, 1)
+			require.Equal(t, "structured_data", parts[0].Type)
+			require.Equal(t, "malformed", parts[0].Value["error_code"])
+			record, err := fixture.Store.Execution().GetToolCall(
+				ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.State != executionstore.ToolCallStateCompleted ||
+				record.Outcome != executionstore.ToolResultOutcomeFailed {
+				t.Fatalf("invalid pagination tool call = %+v, want completed failure", record)
+			}
+		})
 	}
 }
 

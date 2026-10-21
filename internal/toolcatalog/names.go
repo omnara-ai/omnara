@@ -35,7 +35,6 @@ const (
 	ToolNameToolSearch         = "tool_search"
 	ToolNameCallDeferredTool   = "call_deferred_tool"
 	ToolSearchMaxPatternLength = 200
-	StorageListMaxCursorLength = 4096
 	ToolSearchDefaultResults   = 5
 	ToolSearchMaxResults       = 50
 )

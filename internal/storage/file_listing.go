@@ -22,8 +22,7 @@ func (s *Store) ListFiles(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
 	pattern string,
-	limit int,
-	after listing.Cursor,
+	offset, limit int,
 ) (listing.FileListResult, error) {
 	matcher, err := CompileFilePattern(pattern)
 	if err != nil {
@@ -37,6 +36,11 @@ func (s *Store) ListFiles(
 			fmt.Errorf("limit must be between 1 and %d", toolcatalog.StorageListMaxLimit),
 		)
 	}
+	if offset < 0 || offset > toolcatalog.StorageListMaxOffset {
+		return listing.FileListResult{}, storeerr.InvalidRequest(
+			fmt.Errorf("offset must be between 0 and %d", toolcatalog.StorageListMaxOffset),
+		)
+	}
 	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -47,27 +51,24 @@ func (s *Store) ListFiles(
 	root, suffix, descends := strings.Cut(pattern[1:], "/")
 	result := listing.FileListResult{Entries: []listing.FileEntry{}}
 	var listErr error
+	// One extra entry is requested so has_more is exact.
 	switch {
 	case !descends:
-		if !after.Set {
+		if offset == 0 {
 			result.Entries = append(result.Entries, listing.FileEntry{Path: pattern, Type: listing.FileTypeDirectory})
-			after = listing.Cursor{Set: true, Key: pattern}
 		}
 	case root == "artifacts":
 		var artifactID *uuid.UUID
 		if id, decodeErr := publicid.Decode(publicid.KindArtifact, suffix); decodeErr == nil {
 			artifactID = &id
 		}
-		result.Entries, after, listErr = s.artifacts.ListFiles(
-			ctx, agentID, artifactID, matcher.String(), limit, after,
+		result.Entries, listErr = s.artifacts.ListFiles(
+			ctx, agentID, artifactID, matcher.String(), int32(offset), int32(limit+1),
 		)
 	case root == "memory":
 		result.Entries, listErr = s.memories.ListFiles(
-			ctx, projectID, attachments, pattern, matcher, limit, after.Key,
+			ctx, projectID, attachments, pattern, matcher, offset, limit+1,
 		)
-		if len(result.Entries) != 0 {
-			after = listing.Cursor{Set: true, Key: result.Entries[len(result.Entries)-1].Path}
-		}
 	}
 	if parent.Err() != nil {
 		return listing.FileListResult{}, parent.Err()
@@ -77,9 +78,11 @@ func (s *Store) ListFiles(
 	if listErr != nil && (!limited || len(result.Entries) == 0) {
 		return listing.FileListResult{}, listErr
 	}
-	if limited || len(result.Entries) == limit {
-		result.Next = after
+	if len(result.Entries) > limit {
+		result.Entries = result.Entries[:limit]
+		result.HasMore = true
 	}
+	result.HasMore = result.HasMore || limited
 	return result, nil
 }
 

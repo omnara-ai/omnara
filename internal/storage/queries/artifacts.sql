@@ -49,7 +49,6 @@ WHERE agent.project_id = sqlc.arg(project_id) AND artifact.agent_id = sqlc.arg(a
  FROM artifacts a
  WHERE a.agent_id = sqlc.arg(agent_id)
    AND a.id = sqlc.narg(artifact_id)::uuid
-   AND sqlc.narg(after_id)::uuid IS NULL
 )
 UNION ALL
 (SELECT a.id, a.filename, a.digest, a.size_bytes, a.content_type, a.created_at
@@ -57,8 +56,8 @@ UNION ALL
  WHERE sqlc.narg(artifact_id)::uuid IS NULL
    AND a.agent_id = sqlc.arg(agent_id)
    AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ sqlc.arg(pattern)::text
-   AND a.id < coalesce(sqlc.narg(after_id)::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
  ORDER BY a.id DESC
- LIMIT sqlc.arg(row_limit))
+ LIMIT sqlc.arg(row_limit)::integer + sqlc.arg(row_offset)::integer)
 ORDER BY id DESC
-LIMIT sqlc.arg(row_limit);
+LIMIT sqlc.arg(row_limit)
+OFFSET sqlc.arg(row_offset);
