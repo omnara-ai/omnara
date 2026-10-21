@@ -466,6 +466,7 @@ func apiOptions(
 		)
 	}
 	opts = append(opts, httpapi.WithPasswordAuthEnabled(cfg.AuthSignupEnabled, cfg.AuthPasswordResetEnabled))
+	opts = append(opts, httpapi.WithAuthClientRateLimits(cfg.AuthClientRateLimits))
 	if cfg.PublicURL != "" {
 		opts = append(opts, httpapi.WithPublicURL(cfg.PublicURL))
 		opts = append(opts, httpapi.WithPublicAPIURL(cfg.PublicAPIURL))

@@ -101,8 +101,8 @@ func (h *Handler) requireAuthRateLimits(
 func (h *Handler) requireOAuthLoginRateLimits(w http.ResponseWriter, r *http.Request, connectorSlug string) bool {
 	client := h.clientBucket(r)
 	if err := h.checkAuthLimitBuckets(r, "oauth_login", []authLimit{
-		{scope: "pair", subject: connectorSlug + ":" + client, limit: oauthLoginRateLimit},
-		{scope: "client", subject: client, limit: oauthLoginClientRateLimit},
+		{scope: "pair", subject: connectorSlug + ":" + client, limit: h.clientRateLimits.OAuthLoginConnector},
+		{scope: "client", subject: client, limit: h.clientRateLimits.OAuthLogin},
 	}, authShortWindow); err != nil {
 		h.writeAuthRateLimitError(w, err)
 		return false

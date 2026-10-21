@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -76,6 +77,7 @@ type Config struct {
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
 	ExaAPIKey                         string
+	AuthClientRateLimits              authn.ClientRateLimits
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
 	EmailDriver                       string
@@ -191,6 +193,10 @@ func validateGitHubProviderCompleteness(slug string, connector AuthConnectorConf
 }
 
 func Load() (Config, error) {
+	authClientRateLimits, err := loadAuthClientRateLimits()
+	if err != nil {
+		return Config{}, err
+	}
 	authSignupEnabled, err := getenvBool("OMNARA_AUTH_SIGNUP_ENABLED", true)
 	if err != nil {
 		return Config{}, err
@@ -281,6 +287,7 @@ func Load() (Config, error) {
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
+		AuthClientRateLimits:              authClientRateLimits,
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,
 		EmailDriver:                       getenv("OMNARA_EMAIL_DRIVER", "none"),

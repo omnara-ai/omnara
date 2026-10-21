@@ -2051,7 +2051,8 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("subject-wide signup limit status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for i := range httpauth.SignupClientLimit - httpauth.SignupLimit {
+	clientLimit := (authn.ClientRateLimits{}).WithDefaults().Signup
+	for i := range clientLimit - httpauth.SignupLimit {
 		req = newAuthJSONRequest(
 			http.MethodPost,
 			"/api/auth/signup",

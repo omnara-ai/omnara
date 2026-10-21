@@ -304,7 +304,7 @@ func (h *Handler) oauthAuthorizePrincipal(
 		principal.ID.String(),
 		LoginLimit,
 		LoginSubjectLimit,
-		TokenClientLimit,
+		h.clientRateLimits.Token,
 		authShortWindow,
 	) {
 		return identitystore.PrincipalRecord{}, false
@@ -514,7 +514,7 @@ func (h *Handler) refreshTokenGrant(w http.ResponseWriter, r *http.Request, form
 
 func (h *Handler) requireOAuthGrantRateLimits(w http.ResponseWriter, r *http.Request, action, grant string) bool {
 	return h.requireOAuthRateLimits(
-		w, r, action, grant, TokenConsumeLimit, TokenConsumeLimit, TokenClientLimit, authShortWindow, false,
+		w, r, action, grant, TokenConsumeLimit, TokenConsumeLimit, h.clientRateLimits.Token, authShortWindow, false,
 	)
 }
 
