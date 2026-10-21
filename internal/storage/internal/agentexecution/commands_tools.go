@@ -283,7 +283,7 @@ func (h *Handle) completeTool(
 	if err != nil {
 		return CompletedTool{}, err
 	}
-	if err = h.writePreparedContent(ctx, "tool_call_result", id, inserted.CompletedAt, blocks); err != nil {
+	if err = h.writePreparedContent(ctx, "tool_call_result", id, blocks); err != nil {
 		return CompletedTool{}, err
 	}
 	event, err := q.AppendExecutionEvent(ctx, h.unit.DB(), executiondb.AppendExecutionEventParams{
@@ -293,7 +293,6 @@ func (h *Handle) completeTool(
 		TurnID:         &row.TurnID,
 		Kind:           "tool_result",
 		ResultID:       &id,
-		CreatedAt:      &inserted.CompletedAt,
 		IdempotencyKey: storeutil.TextFromEmpty("tool-call-result-authority:" + row.ID.String())})
 	if err != nil {
 		return CompletedTool{}, err

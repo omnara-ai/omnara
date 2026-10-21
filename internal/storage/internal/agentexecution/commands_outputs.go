@@ -194,7 +194,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			uuid.Nil,
 			output.ID,
 			uuid.Nil,
-			false, output.CreatedAt,
+			false,
 		)
 		if err != nil {
 			return AcceptedOutput{}, err
@@ -230,7 +230,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			}
 		}
 		if err = h.writePreparedContent(
-			ctx, "model_output", output.ID, output.CreatedAt, input.prepared.content,
+			ctx, "model_output", output.ID, input.prepared.content,
 		); err != nil {
 			return AcceptedOutput{}, err
 		}

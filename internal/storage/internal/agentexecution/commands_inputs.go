@@ -100,7 +100,7 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 		if err != nil {
 			return ReceivedContent{}, err
 		}
-		if err = h.writePreparedContent(ctx, "agent_input", row.ID, row.QueuedAt, prepared); err != nil {
+		if err = h.writePreparedContent(ctx, "agent_input", row.ID, prepared); err != nil {
 			return ReceivedContent{}, err
 		}
 		if m.loaded != nil {

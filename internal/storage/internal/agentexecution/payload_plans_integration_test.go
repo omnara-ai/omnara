@@ -4,14 +4,13 @@ package agentexecution_test
 
 import (
 	"encoding/json"
+	"strings"
+	"testing"
+
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,17 +112,14 @@ func TestExecutionPayloadScopeAndOwnership(t *testing.T) {
 		rows           int64
 		fails          bool
 	}{
-		{"scope", uuid.New(), a, 0, false}, {"owner", f.project, other, 0, true}, {"valid", f.project, a, 2, false},
+		{"scope", uuid.New(), a, 0, true}, {"owner", f.project, other, 0, true}, {"valid", f.project, a, 2, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tx, err := f.pool.Begin(t.Context())
 			require.NoError(t, err)
 			defer func() { _ = tx.Rollback(t.Context()) }()
-			var created time.Time
-			require.NoError(t, tx.QueryRow(t.Context(),
-				`SELECT queued_at FROM agent_inputs WHERE id=$1`, received.ID).Scan(&created))
 			rows, err := executiondb.New().InsertExecutionContent(t.Context(), tx, executiondb.InsertExecutionContentParams{
-				ProjectID: tc.project, AgentID: tc.agent, OwnerKind: "agent_input", InputID: &received.ID, CreatedAt: created,
+				ProjectID: tc.project, AgentID: tc.agent, OwnerKind: "agent_input", InputID: &received.ID,
 				Parts: json.RawMessage(`[{"ordinal":0,"kind":"text","text":"one","exclude":false,"metadata":{}},{"ordinal":1,"kind":"text","text":"two","exclude":false,"metadata":{}}]`),
 			})
 			if tc.fails {
@@ -131,6 +127,12 @@ func TestExecutionPayloadScopeAndOwnership(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.rows, rows)
+				var same bool
+				require.NoError(t, tx.QueryRow(t.Context(), `
+SELECT bool_and(b.created_at=i.queued_at) FROM content_blocks b
+ JOIN agent_inputs i ON i.agent_id=b.agent_id AND i.id=b.owner_agent_input_id WHERE i.id=$1`,
+					received.ID).Scan(&same))
+				require.True(t, same)
 			}
 		})
 	}

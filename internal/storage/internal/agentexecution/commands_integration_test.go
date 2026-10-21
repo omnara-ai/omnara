@@ -252,6 +252,12 @@ func TestExecutionCompactionCommands(t *testing.T) {
 	checkpoint, err := h.PublishCheckpoint(t.Context(), cp)
 	require.NoError(t, err)
 	require.True(t, checkpoint.Created)
+	var sameTimestamp bool
+	require.NoError(t, u.DB().QueryRow(t.Context(), `
+SELECT e.created_at=c.created_at FROM context_checkpoints c
+ JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id WHERE c.id=$1`,
+		checkpoint.ID).Scan(&sameTimestamp))
+	require.True(t, sameTimestamp)
 	snapshot = assertCommandState(t, u, h)
 	require.Equal(t, checkpoint.ID, snapshot.Head.PendingCheckpointID)
 	again, err := h.PublishCheckpoint(t.Context(), cp)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
@@ -61,7 +60,6 @@ func (h *Handle) appendEvent(
 	kind string,
 	input, output, checkpoint uuid.UUID,
 	opening bool,
-	createdAt ...time.Time,
 ) (ExecutionEvent, error) {
 	args := executiondb.AppendExecutionEventParams{ID: uuid.New(),
 		AgentID:   h.route.AgentID,
@@ -71,9 +69,6 @@ func (h *Handle) appendEvent(
 		InputID: storeutil.IDFromNil(
 			input,
 		), OutputID: storeutil.IDFromNil(output), CheckpointID: storeutil.IDFromNil(checkpoint), Opening: opening}
-	if len(createdAt) > 0 {
-		args.CreatedAt = &createdAt[0]
-	}
 	if input != uuid.Nil {
 		args.IdempotencyKey = storeutil.TextFromEmpty("agent_input:" + input.String())
 	}
@@ -143,23 +138,23 @@ func PrepareContent(kind string, parts []Content) (PreparedContent, error) {
 }
 
 func (h *Handle) writeContent(
-	ctx context.Context, kind string, id uuid.UUID, createdAt time.Time, parts []Content,
+	ctx context.Context, kind string, id uuid.UUID, parts []Content,
 ) error {
 	prepared, err := PrepareContent(kind, parts)
 	if err != nil {
 		return err
 	}
-	return h.writePreparedContent(ctx, kind, id, createdAt, prepared)
+	return h.writePreparedContent(ctx, kind, id, prepared)
 }
 
 func (h *Handle) writePreparedContent(
-	ctx context.Context, kind string, id uuid.UUID, createdAt time.Time, parts PreparedContent,
+	ctx context.Context, kind string, id uuid.UUID, parts PreparedContent,
 ) error {
 	if parts.count == 0 {
 		return nil
 	}
 	args := executiondb.InsertExecutionContentParams{AgentID: h.route.AgentID, ProjectID: h.route.ProjectID,
-		OwnerKind: kind, CreatedAt: createdAt, Parts: parts.data}
+		OwnerKind: kind, Parts: parts.data}
 	switch kind {
 	case "agent_input":
 		args.InputID = &id
