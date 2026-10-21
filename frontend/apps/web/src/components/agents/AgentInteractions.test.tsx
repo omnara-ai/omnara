@@ -87,7 +87,10 @@ const authorization = {
 } satisfies AgentInteraction
 const authorizationPath = `${agentPath}/interactions/${authorization.id}`
 
-async function render(current: AgentInteraction = interaction, ready = 'Allow') {
+async function render(
+  current: typeof interaction | typeof authorization = interaction,
+  ready = 'Allow',
+) {
   const api = fakeApi([
     {
       method: 'GET',

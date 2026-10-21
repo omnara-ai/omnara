@@ -96,6 +96,8 @@ export function useStartAgentInteractionAuthorization(
   agentID: string,
 ) {
   const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  const queryKey = openAgentInteractionsQueryKey(client, { orgID, projectID, agentID })
   return useMutation({
     mutationFn: async ({
       interactionID,
@@ -112,6 +114,10 @@ export function useStartAgentInteractionAuthorization(
         body: { return_to: returnTo },
       })
       return data
+    },
+    // A failed start can mean the interaction closed meanwhile; refresh the list.
+    onError: async () => {
+      await queryClient.invalidateQueries({ queryKey })
     },
   })
 }

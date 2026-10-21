@@ -3,16 +3,10 @@ import {
   useResolveAgentInteraction,
   useStartAgentInteractionAuthorization,
 } from '@omnara/react'
-import type {
-  AgentInteraction,
-  InteractionAnswer,
-  InteractionFormOption,
-  ResolveAgentInteractionRequest,
-} from '@omnara/sdk'
+import type { AgentInteraction, InteractionAnswer, InteractionFormOption } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { KeyRound, MessageCircleQuestion } from '@/components/icons'
-import { OAuthOutcomeDialog } from '@/components/oauth/OAuthOutcomeDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -20,38 +14,18 @@ import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
-type Resolve = (
-  interaction: AgentInteraction,
-  body: ResolveAgentInteractionRequest,
-) => Promise<void>
-
-type Authorize = (interaction: AgentInteraction) => Promise<void>
-
-const authorizationDeclineOptionIndex = 1
+import {
+  AuthorizationCard,
+  AuthorizationOutcomeDialog,
+  type Authorize,
+} from './AgentInteractionAuthorization'
+import { keyedContextItems, type Resolve, subagentSourceLabel } from './agentInteractionCards'
 
 function selectedOptions(
   options: InteractionFormOption[],
   optionIndices: number[],
 ): InteractionFormOption[] {
   return optionIndices.flatMap((index) => options[index] ?? [])
-}
-
-function keyedContextItems(interaction: AgentInteraction) {
-  const occurrences = new Map<string, number>()
-  return (interaction.request.context ?? []).map((item) => {
-    const contentKey = JSON.stringify([item.label, item.value])
-    const occurrence = (occurrences.get(contentKey) ?? 0) + 1
-    occurrences.set(contentKey, occurrence)
-    return {
-      item,
-      key: `${interaction.id}:context:${contentKey}:${String(occurrence)}`,
-    }
-  })
-}
-
-function subagentSourceLabel(interaction: AgentInteraction): string | null {
-  if (interaction.agent_name == null) return null
-  return `From subagent ${interaction.agent_name}`
 }
 
 /**
@@ -148,116 +122,20 @@ function PermissionActions({
   )
 }
 
-/**
- * An MCP server asked for OAuth access the agent's credential lacks. Granting
- * access leaves for the server's consent screen; the OAuth callback resolves the
- * interaction, so only Decline is answered here.
- */
-function AuthorizationActions({
-  interaction,
-  resolve,
-  authorize,
-  pending,
-  canOperate,
-}: {
-  interaction: AgentInteraction
-  resolve: Resolve
-  authorize: Authorize
-  pending: boolean
-  canOperate: boolean
-}) {
-  const [chosen, setChosen] = useState<'grant' | 'decline' | null>(null)
-  const disabled = !canOperate || pending
-  const connecting = interaction.authorization?.secret_id == null
-  return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="min-w-20"
-        disabled={disabled}
-        loading={pending && chosen === 'decline'}
-        onClick={() => {
-          setChosen('decline')
-          void resolve(interaction, {
-            answers: [{ option_indices: [authorizationDeclineOptionIndex] }],
-          }).catch(() => undefined)
-        }}
-      >
-        Decline
-      </Button>
-      <Button
-        type="button"
-        size="sm"
-        className="min-w-20"
-        disabled={disabled}
-        loading={pending && chosen === 'grant'}
-        onClick={() => {
-          setChosen('grant')
-          void authorize(interaction).catch(() => {
-            setChosen(null)
-          })
-        }}
-      >
-        {connecting ? 'Connect' : 'Grant access'}
-      </Button>
-    </div>
-  )
-}
-
-function AuthorizationOutcomeDialog() {
-  return (
-    <OAuthOutcomeDialog
-      successParam="mcp_oauth"
-      errorParam="mcp_oauth_error"
-      extraParams={['secret_id', 'interaction_id']}
-      successOutcome={() => ({
-        title: 'Access granted',
-        description: 'The MCP server authorized access. The agent is retrying the tool call.',
-      })}
-      errorOutcome={(code) => ({
-        title: 'Authorization failed',
-        description: authorizationErrorDescription(code),
-      })}
-    />
-  )
-}
-
-function authorizationErrorDescription(code: string) {
-  switch (code) {
-    case 'insufficient_scope_granted':
-      return 'The MCP server granted less access than the tool needs. Try again and approve every requested permission.'
-    case 'account_mismatch':
-      return 'You signed in to a different account than the one already connected. Try again with the same account.'
-    case 'agent_config_update_failed':
-      return "The credential was saved, but the agent's config could not be updated. Add the secret to the MCP server's auth in the agent config."
-    case 'interaction_resolve_failed':
-      return 'The credential was saved, but the waiting tool call could not be resumed. Ask the agent to try again.'
-    case 'access_denied':
-      return 'Authorization was denied. The request is still waiting if you want to try again.'
-    default:
-      return 'MCP authorization failed. Please try again.'
-  }
-}
-
 function InteractionFormCard({
   interaction,
   resolve,
-  authorize,
   pending,
   canOperate,
 }: {
   interaction: AgentInteraction
   resolve: Resolve
-  authorize: Authorize
   pending: boolean
   canOperate: boolean
 }) {
   const [selections, setSelections] = useState<Record<number, number[]>>({})
   const [responses, setResponses] = useState<Record<number, string>>({})
-  const isAuthorization = interaction.interaction_kind === 'authorization'
-  const isPermission = interaction.interaction_kind === 'permission' || isAuthorization
+  const isPermission = interaction.interaction_kind === 'permission'
   const questions = interaction.request.questions
   let complete = true
   for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
@@ -266,8 +144,7 @@ function InteractionFormCard({
       break
     }
   }
-  const directPermission =
-    !isAuthorization && isPermission && questions.length === 1 && questions[0]?.multiple !== true
+  const directPermission = isPermission && questions.length === 1 && questions[0]?.multiple !== true
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
   const subagentLabel = subagentSourceLabel(interaction)
@@ -302,7 +179,7 @@ function InteractionFormCard({
               interaction.request.title
             ) : (
               <>
-                {isAuthorization ? 'Authorization requested for' : 'Permission requested for'}
+                Permission requested for
                 <span className="bg-muted text-foreground rounded-md px-2 py-1 font-mono text-xs">
                   {toolName}
                 </span>
@@ -330,18 +207,6 @@ function InteractionFormCard({
             ))}
           </dl>
         )}
-        {isAuthorization && (
-          <>
-            <p className="text-sm wrap-anywhere">{questions[0]?.prompt}</p>
-            <AuthorizationActions
-              interaction={interaction}
-              resolve={resolve}
-              authorize={authorize}
-              pending={pending}
-              canOperate={canOperate}
-            />
-          </>
-        )}
         {directPermission && (
           <PermissionActions
             interaction={interaction}
@@ -351,7 +216,6 @@ function InteractionFormCard({
           />
         )}
         {!directPermission &&
-          !isAuthorization &&
           questions.map((question, questionIndex) => {
             const optionIndices = selections[questionIndex] ?? []
             const optionIndexSet = new Set(optionIndices)
@@ -502,16 +366,26 @@ export function AgentInteractions({
       )}
       <AuthorizationOutcomeDialog />
       {error && <p className="text-destructive text-xs">{error.message}</p>}
-      {interactions.map((interaction) => (
-        <InteractionFormCard
-          key={interaction.id}
-          interaction={interaction}
-          resolve={onResolve}
-          authorize={onAuthorize}
-          pending={pending}
-          canOperate={canOperate}
-        />
-      ))}
+      {interactions.map((interaction) =>
+        interaction.interaction_kind === 'authorization' ? (
+          <AuthorizationCard
+            key={interaction.id}
+            interaction={interaction}
+            resolve={onResolve}
+            authorize={onAuthorize}
+            pending={pending}
+            canOperate={canOperate}
+          />
+        ) : (
+          <InteractionFormCard
+            key={interaction.id}
+            interaction={interaction}
+            resolve={onResolve}
+            pending={pending}
+            canOperate={canOperate}
+          />
+        ),
+      )}
     </section>
   )
 }
