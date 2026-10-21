@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebFetchOverflowRetrieval(t *testing.T) {
@@ -257,23 +258,54 @@ func TestAsyncToolOverflowFailureRechecksOwnership(t *testing.T) {
 	blobs := &failingOverflowBlobStore{cancel: cancel}
 	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "overflow-owner", false, storage.WithBlobStore(blobs))
 	call := startOverflowTestCall(t, &fixture, "web_fetch", `{"url":"https://example.com"}`)
+	readResult := func() executionstore.ToolCallRecord {
+		result, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, call.ToolCallID)
+		require.NoError(t, err)
+		require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT r.id, e.id
+FROM tool_call_results r JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
+WHERE r.agent_id=$1 AND r.tool_call_id=$2`, fixture.Agent.ID, call.ToolCallID).
+			Scan(&result.ToolCallResultID, &result.ToolResultEventID))
+		return result
+	}
+	var recovery executionstore.ToolCallRecord
 	blobs.beforePut = func() {
-		if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
 			ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID,
-		); err != nil {
-			t.Fatal(err)
-		}
+		))
+		recovery = readResult()
+		require.Equal(t, executionstore.ToolCallStateCompleted, recovery.State)
+		require.Equal(t, executionstore.ToolResultOutcomeFailed, recovery.Outcome)
+		require.NotZero(t, recovery.ToolCallResultID)
+		require.NotZero(t, recovery.ToolResultEventID)
+		require.NotEmpty(t, recovery.ResultContentParts)
 	}
 	content := newToolResultContent(textToolResultPart(strings.Repeat("x", 60000)))
-	if err := call.Executor.completeAsyncToolResult(
+	require.NoError(t, call.Executor.completeAsyncToolResult(
 		completionCtx, call.Turn, call.ToolCallID, content, executionstore.ToolResultOutcomeSucceeded,
-	); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
-		t.Fatalf("completion after ownership loss: %v", err)
-	}
-	result, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, call.ToolCallID)
-	if err != nil || strings.Contains(string(result.ResultContentParts), "tool_result_persistence_failed") {
-		t.Fatalf("fallback replaced runtime recovery: %v", err)
-	}
+	))
+	require.Equal(t, 1, blobs.puts)
+	require.Equal(t, recovery, readResult())
+}
+
+func TestAsyncToolCompletionRejectsFreshMutationAfterOwnershipLoss(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "completion-owner", false)
+	call := fixture.recordToolCall(t, ctx, "fresh_call", "web_fetch", `{"url":"https://example.com"}`,
+		fixture.Now.Add(time.Second))
+	id := fixture.toolCallID(t, ctx, call.ID)
+	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID,
+	))
+	before, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, id)
+	require.NoError(t, err)
+	require.NotEqual(t, executionstore.ToolCallStateCompleted, before.State)
+	executor := Executor{Store: fixture.Store}
+	err = executor.completeAsyncToolResult(ctx, fixture.turn(), id,
+		newToolResultContent(textToolResultPart("fresh result")), executionstore.ToolResultOutcomeSucceeded)
+	require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+	after, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, id)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }
 
 func startOverflowTestCall(t *testing.T, fixture *integrationToolFixture, name, input string) asyncToolContext {
