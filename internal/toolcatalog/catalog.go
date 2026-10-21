@@ -24,12 +24,12 @@ const (
 const (
 	FilePageBytes            = 4 * 1024
 	MaxReadableArtifactBytes = 48 * 1024 * 1024
-	ListFilesDefaultLimit    = 50
-	ListFilesMaxLimit        = 100
-	ReadFileDefaultLines     = 100
-	ReadFileMaxLines         = 200
-	ReadFileDefaultChars     = 512
-	ReadFileMaxChars         = 4096
+	StorageListDefaultLimit  = 50
+	StorageListMaxLimit      = 100
+	StorageReadDefaultLines  = 100
+	StorageReadMaxLines      = 200
+	StorageReadDefaultChars  = 512
+	StorageReadMaxChars      = 4096
 	SearchDefaultMatches     = 20
 	SearchMaxMatches         = 100
 	SearchMaxContextLines    = 5
@@ -61,24 +61,24 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	writeFileToolDescription = "Create or edit a memory text file. " +
+	storageWriteToolDescription = "Create or edit a memory text file. " +
 		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
 		"Returns path."
-	readFileToolDescription = "Read a text or image file stored in Omnara. " +
+	storageReadToolDescription = "Read a text or image file stored in Omnara. " +
 		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
-	searchFilesToolDescription = "Search text in Omnara files. " +
+	storageSearchToolDescription = "Search text in Omnara files. " +
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use storage_read to read more around a match."
-	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
+	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
-	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
+	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
 		"Set view to load an uploaded image, such as a screenshot, into your context. " +
 		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
 		"Returns path."
-	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine."
-	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
+	storageDownloadToolDescription = "Copy a file stored in Omnara to an attached machine."
+	toolSearchToolDescription      = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
 	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
@@ -267,7 +267,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	if entries[ToolNameStorageList], err = toolEntry(
 		ToolNameStorageList,
-		listFilesToolDescription,
+		storageListToolDescription,
 		[]string{"pattern"},
 		map[string]any{
 			"pattern": map[string]any{
@@ -280,14 +280,14 @@ func buildDefaultCatalog() (Catalog, error) {
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
 			},
 			"cursor": map[string]any{
-				"type": "string", "maxLength": ListFilesMaxCursorLength,
+				"type": "string", "maxLength": StorageListMaxCursorLength,
 				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ListFilesMaxLimit,
-				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListFilesDefaultLimit),
+				"maximum":     StorageListMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", StorageListDefaultLimit),
 			},
 		},
 	); err != nil {
@@ -321,19 +321,19 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageRead], err = readFileTool(); err != nil {
+	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageWrite], err = writeFileTool(); err != nil {
+	if entries[ToolNameStorageWrite], err = storageWriteTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageSearch], err = searchFilesTool(); err != nil {
+	if entries[ToolNameStorageSearch], err = storageSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageUpload], err = uploadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageUpload], err = storageUploadTool(machineID); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameStorageDownload], err = downloadFileTool(machineID); err != nil {
+	if entries[ToolNameStorageDownload], err = storageDownloadTool(machineID); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -549,10 +549,10 @@ func webFetchTool() (Entry, error) {
 	return entry, nil
 }
 
-func readFileTool() (Entry, error) {
+func storageReadTool() (Entry, error) {
 	return toolEntry(
 		ToolNameStorageRead,
-		readFileToolDescription,
+		storageReadToolDescription,
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
@@ -570,7 +570,7 @@ func readFileTool() (Entry, error) {
 			"limit_lines": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ReadFileMaxLines,
+				"maximum":     StorageReadMaxLines,
 				"description": "Maximum number of lines to return. Defaults to 100 in line mode; each response contains at most 4 KiB of text.",
 			},
 			"offset_char": map[string]any{
@@ -583,17 +583,17 @@ func readFileTool() (Entry, error) {
 			"limit_chars": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     ReadFileMaxChars,
+				"maximum":     StorageReadMaxChars,
 				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
 			},
 		},
 	)
 }
 
-func writeFileTool() (Entry, error) {
+func storageWriteTool() (Entry, error) {
 	return toolEntry(
 		ToolNameStorageWrite,
-		writeFileToolDescription,
+		storageWriteToolDescription,
 		[]string{"path"},
 		map[string]any{
 			"path": map[string]any{
@@ -619,10 +619,10 @@ func writeFileTool() (Entry, error) {
 	)
 }
 
-func searchFilesTool() (Entry, error) {
+func storageSearchTool() (Entry, error) {
 	return toolEntry(
 		ToolNameStorageSearch,
-		searchFilesToolDescription,
+		storageSearchToolDescription,
 		[]string{"path", "args"},
 		map[string]any{
 			"path": map[string]any{
@@ -663,10 +663,10 @@ func memoryForceProperty(prefix string) map[string]any {
 	}
 }
 
-func uploadFileTool(machineID map[string]any) (Entry, error) {
+func storageUploadTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameStorageUpload,
-		uploadFileToolDescription,
+		storageUploadToolDescription,
 		[]string{"path", "source"},
 		map[string]any{
 			"path": map[string]any{
@@ -694,10 +694,10 @@ func uploadFileTool(machineID map[string]any) (Entry, error) {
 	)
 }
 
-func downloadFileTool(machineID map[string]any) (Entry, error) {
+func storageDownloadTool(machineID map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameStorageDownload,
-		downloadFileToolDescription,
+		storageDownloadToolDescription,
 		[]string{"path", "destination"},
 		map[string]any{
 			"path": map[string]any{

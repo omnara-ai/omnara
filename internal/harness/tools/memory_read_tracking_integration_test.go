@@ -152,7 +152,7 @@ func TestMemoryReadTracking(t *testing.T) {
 		agent.Call = model.ToolCall{
 			Name: toolcatalog.ToolNameStorageWrite, Input: json.RawMessage(`{"path":"` + a + `","content":"` + content + `"}`),
 		}
-		_, err := runWriteFileAsync(ctx, agent)
+		_, err := runStorageWriteAsync(ctx, agent)
 		return err
 	}
 	var wg sync.WaitGroup
@@ -184,7 +184,7 @@ func TestMemoryReadTracking(t *testing.T) {
 	subagent.Turn.AgentID = child.Agent.ID
 	require.EqualError(t, write(subagent, "C"), a+" exists but you have not read it; read it before writing")
 	subagent.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageRead, Input: json.RawMessage(`{"path":"` + a + `"}`)}
-	result, err := runReadFileAsync(ctx, subagent)
+	result, err := runStorageReadAsync(ctx, subagent)
 	require.NoError(t, err)
 	require.NotContains(t, string(asyncCompletionContent(t, result)), "note:")
 }

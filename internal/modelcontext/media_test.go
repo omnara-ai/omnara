@@ -75,7 +75,7 @@ func TestTextAttachmentBudgetPreservesInputsAndReferencesWholeFiles(t *testing.T
 	require.Contains(t, bundle.ResolvedMedia, large.String())
 }
 
-func TestTextAttachmentReferencesRequireCallableBuiltInReadFile(t *testing.T) {
+func TestTextAttachmentReferencesRequireCallableBuiltInStorageRead(t *testing.T) {
 	id := testIDN(210)
 	for _, test := range []struct {
 		name          string

@@ -18,7 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestReadFilePagingPreservesContent(t *testing.T) {
+func TestStorageReadPagingPreservesContent(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		content string
@@ -30,7 +30,7 @@ func TestReadFilePagingPreservesContent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			content := []byte(test.content)
-			page := readFileLines(content, "/artifacts/example", 1, toolcatalog.ReadFileDefaultLines)
+			page := readFileLines(content, "/artifacts/example", 1, toolcatalog.StorageReadDefaultLines)
 			var got string
 			for {
 				chunk, ok := page["content"].(string)
@@ -52,12 +52,12 @@ func TestReadFilePagingPreservesContent(t *testing.T) {
 					break
 				}
 				if offset, ok := page["next_offset_line"].(int); ok {
-					page = readFileLines(content, "/artifacts/example", offset, toolcatalog.ReadFileDefaultLines)
+					page = readFileLines(content, "/artifacts/example", offset, toolcatalog.StorageReadDefaultLines)
 				} else if offset, ok := page["next_offset_char"].(int); ok {
 					if offset != utf8.RuneCountInString(got) {
 						t.Fatalf("character continuation = %d, want %d", offset, utf8.RuneCountInString(got))
 					}
-					page = readFileChars(content, "/artifacts/example", offset, toolcatalog.ReadFileDefaultChars)
+					page = readFileChars(content, "/artifacts/example", offset, toolcatalog.StorageReadDefaultChars)
 				} else {
 					t.Fatal("missing continuation")
 				}
@@ -73,7 +73,7 @@ func TestReadFilePagingPreservesContent(t *testing.T) {
 	}
 }
 
-func TestReadFileChars(t *testing.T) {
+func TestStorageReadChars(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		content       string
@@ -90,11 +90,11 @@ func TestReadFileChars(t *testing.T) {
 		{name: "empty file", offset: 100, limit: 1},
 		{
 			name: "byte cap", content: strings.Repeat("a", 4095) + "😀z",
-			limit: toolcatalog.ReadFileMaxChars, want: strings.Repeat("a", 4095), nextOffset: 4095,
+			limit: toolcatalog.StorageReadMaxChars, want: strings.Repeat("a", 4095), nextOffset: 4095,
 		},
 		{
 			name: "unicode byte cap", content: strings.Repeat("😀", 2000),
-			limit: toolcatalog.ReadFileMaxChars, want: strings.Repeat("😀", 1024), nextOffset: 1024,
+			limit: toolcatalog.StorageReadMaxChars, want: strings.Repeat("😀", 1024), nextOffset: 1024,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,13 +109,13 @@ func TestReadFileChars(t *testing.T) {
 	}
 }
 
-func TestReadFileDefaults(t *testing.T) {
+func TestStorageReadDefaults(t *testing.T) {
 	for _, input := range []string{
 		`{"path":"/memory/team/notes.md"}`,
 		`{"path":"/memory/team/notes.md","offset_char":0}`,
 		`{"path":"/memory/team/notes.md","limit_chars":512}`,
 	} {
-		request, err := resolveReadFileRequest(json.RawMessage(input))
+		request, err := resolveStorageReadRequest(json.RawMessage(input))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,14 +148,14 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if validateReadFileInput(raw) == nil {
+		if validateStorageReadInput(raw) == nil {
 			t.Fatalf("accepted %s", raw)
 		}
 	}
 
 }
 
-func TestReadFileRejectsExpectedDigest(t *testing.T) {
+func TestStorageReadRejectsExpectedDigest(t *testing.T) {
 	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageRead)
 	if err != nil || !ok {
 		t.Fatalf("storage_read registration: %v", err)

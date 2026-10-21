@@ -172,20 +172,20 @@ func builtInToolRegistrations() []toolRegistration {
 	return append(registrations, []toolRegistration{
 		{
 			name:                   toolcatalog.ToolNameStorageRead,
-			semanticInputValidator: validateReadFileInput,
-			handler:                toolHandler{Async: runReadFileAsync},
+			semanticInputValidator: validateStorageReadInput,
+			handler:                toolHandler{Async: runStorageReadAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameStorageWrite,
-			semanticInputValidator: validateWriteFileInput,
-			handler:                toolHandler{Async: runWriteFileAsync},
+			semanticInputValidator: validateStorageWriteInput,
+			handler:                toolHandler{Async: runStorageWriteAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameStorageSearch,
-			semanticInputValidator: validateSearchFilesInput,
-			handler:                toolHandler{Async: runSearchFilesAsync},
+			semanticInputValidator: validateStorageSearchInput,
+			handler:                toolHandler{Async: runStorageSearchAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
@@ -196,15 +196,15 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameStorageUpload,
-			semanticInputValidator: validateUploadFileInput,
-			handler:                toolHandler{Transactional: runUploadFile, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(uploadFilePermissionChallenge),
+			semanticInputValidator: validateStorageUploadInput,
+			handler:                toolHandler{Transactional: runStorageUpload, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(storageUploadPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameStorageDownload,
-			semanticInputValidator: validateDownloadFileInput,
-			handler:                toolHandler{Transactional: runDownloadFile, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(downloadFilePermissionChallenge),
+			semanticInputValidator: validateStorageDownloadInput,
+			handler:                toolHandler{Transactional: runStorageDownload, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(storageDownloadPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteProcess,
@@ -257,8 +257,8 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameStorageList,
-			semanticInputValidator: validateListFiles,
-			handler:                toolHandler{Async: runListFiles},
+			semanticInputValidator: validateStorageList,
+			handler:                toolHandler{Async: runStorageList},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{

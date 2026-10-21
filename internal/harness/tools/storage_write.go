@@ -18,9 +18,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const maxWriteFileScriptBytes = 64 * 1024
+const maxStorageWriteScriptBytes = 64 * 1024
 
-type writeFileRequest struct {
+type storageWriteRequest struct {
 	Path    string  `json:"path"`
 	Content *string `json:"content,omitempty"`
 	Script  *string `json:"script,omitempty"`
@@ -28,13 +28,13 @@ type writeFileRequest struct {
 	Force   bool    `json:"force,omitempty"`
 }
 
-func validateWriteFileInput(raw json.RawMessage) error {
-	_, err := resolveWriteFileRequest(raw)
+func validateStorageWriteInput(raw json.RawMessage) error {
+	_, err := resolveStorageWriteRequest(raw)
 	return err
 }
 
-func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
-	var input writeFileRequest
+func resolveStorageWriteRequest(raw json.RawMessage) (storageWriteRequest, error) {
+	var input storageWriteRequest
 	if err := decodeSingleStrictJSON(raw, &input, "storage_write request"); err != nil {
 		return input, err
 	}
@@ -55,14 +55,14 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	if input.Content != nil && len(*input.Content) > daemonprotocol.MaxFileTransferBytes {
 		return input, errors.New("memory content must be at most 10 MiB")
 	}
-	if input.Script != nil && len(*input.Script) > maxWriteFileScriptBytes {
+	if input.Script != nil && len(*input.Script) > maxStorageWriteScriptBytes {
 		return input, errors.New("script must be at most 64 KiB")
 	}
 	return input, nil
 }
 
-func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	input, err := resolveWriteFileRequest(call.Call.Input)
+func runStorageWriteAsync(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+	input, err := resolveStorageWriteRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}

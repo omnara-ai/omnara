@@ -50,7 +50,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `","offset_line":2,"limit_lines":1}`),
 	}
-	result, err := runReadFileAsync(ctx, call)
+	result, err := runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `","offset_char":1,"limit_chars":1}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			Name:  toolcatalog.ToolNameStorageSearch,
 			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
 		}
-		result, err := runSearchFilesAsync(ctx, call)
+		result, err := runStorageSearchAsync(ctx, call)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,7 +108,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"` + path + `"}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 		Name:  toolcatalog.ToolNameStorageRead,
 		Input: json.RawMessage(`{"path":"/artifacts/` + imagePublicID + `","offset_line":2}`),
 	}
-	result, err = runReadFileAsync(ctx, call)
+	result, err = runStorageReadAsync(ctx, call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			Name:  toolcatalog.ToolNameStorageRead,
 			Input: json.RawMessage(`{"path":"` + path + `"}`),
 		}
-		if _, err := runReadFileAsync(ctx, call); err == nil ||
+		if _, err := runStorageReadAsync(ctx, call); err == nil ||
 			!strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
 			t.Fatalf("non-text read: %v", err)
 		}
@@ -182,7 +182,7 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 				Name:  toolcatalog.ToolNameStorageSearch,
 				Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
 			}
-			result, err := runSearchFilesAsync(ctx, call)
+			result, err := runStorageSearchAsync(ctx, call)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +233,7 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 				Name:  toolcatalog.ToolNameStorageRead,
 				Input: json.RawMessage(`{"path":"/memory/engineering/` + file + `",` + paging + `}`),
 			}
-			result, err := runReadFileAsync(ctx, call)
+			result, err := runStorageReadAsync(ctx, call)
 			if test.invalid {
 				if err == nil {
 					t.Fatal("non-text memory accepted")
@@ -285,27 +285,27 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	}
 	for _, name := range []string{"private", "unknown"} {
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt"}`)
-		if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+		if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) ||
 			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store read: %v", name, err)
 		}
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt","content":"replacement"}`)
-		if _, err := runWriteFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+		if _, err := runStorageWriteAsync(ctx, call); !storeerr.IsNotFound(err) ||
 			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store write: %v", name, err)
 		}
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/missing.txt"}`)
-	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
 		t.Fatalf("missing file read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested"}`)
-	if _, err := runReadFileAsync(ctx, call); storeerr.FileErrorCode(err) != "not_a_file" {
+	if _, err := runStorageReadAsync(ctx, call); storeerr.FileErrorCode(err) != "not_a_file" {
 		t.Fatalf("directory read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested/0.txt"}`)
 	call.Turn.ProjectID = uuid.New()
-	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
+	if _, err := runStorageReadAsync(ctx, call); !storeerr.IsNotFound(err) {
 		t.Fatalf("cross-project store read: %v", err)
 	}
 }
@@ -337,7 +337,7 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 			Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
 			Call: model.ToolCall{Name: toolcatalog.ToolNameStorageRead, Input: input},
 		}
-		result, err := runReadFileAsync(ctx, call)
+		result, err := runStorageReadAsync(ctx, call)
 		require.NoError(t, err)
 		raw := asyncCompletionContent(t, result)
 		var parts []struct {
@@ -362,7 +362,7 @@ func TestReadMemoryImageSnapshots(t *testing.T) {
 		require.Equal(t, "image.png", artifact.Filename)
 		require.Equal(t, contentType, artifact.ContentType)
 		call.ToolCallID = uuid.New()
-		repeated, err := runReadFileAsync(ctx, call)
+		repeated, err := runStorageReadAsync(ctx, call)
 		require.NoError(t, err)
 		require.JSONEq(t, string(raw), string(asyncCompletionContent(t, repeated)))
 	}
@@ -405,7 +405,7 @@ func TestReadMemoryImagesCheckAccessBeforeSnapshot(t *testing.T) {
 		{"missing store", `{"path":"/memory/missing/image.png"}`, storeerr.ErrNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := runReadFileAsync(ctx, asyncToolContext{
+			result, err := runStorageReadAsync(ctx, asyncToolContext{
 				Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(), ToolCallID: uuid.New(),
 				Call: model.ToolCall{Name: toolcatalog.ToolNameStorageRead, Input: json.RawMessage(test.input)},
 			})

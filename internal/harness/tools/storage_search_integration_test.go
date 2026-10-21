@@ -67,7 +67,7 @@ func TestSearchArtifactLoadTimeout(t *testing.T) {
 				parent, cancel = context.WithCancel(parent)
 				cancel()
 			}
-			_, err := runSearchFilesAsync(parent, call)
+			_, err := runStorageSearchAsync(parent, call)
 			if name == "search timeout" {
 				require.EqualError(t, err, "artifact loading timed out; retry")
 				require.NotErrorIs(t, err, context.DeadlineExceeded)
@@ -165,7 +165,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		call.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageSearch, Input: input}
-		result, err := runSearchFilesAsync(ctx, call)
+		result, err := runStorageSearchAsync(ctx, call)
 		views, cleanupErr := os.ReadDir(temporary)
 		if cleanupErr != nil || len(views) != 0 {
 			t.Fatalf("search left temporary views: %v %v", views, cleanupErr)

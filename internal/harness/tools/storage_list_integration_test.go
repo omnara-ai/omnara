@@ -19,7 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestListFilesPagination(t *testing.T) {
+func TestStorageListPagination(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "file-list", toolFixtureOptions{withMemory: true})
 	_, err := fixture.Pool.Exec(ctx, `
@@ -47,7 +47,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		Entries []listing.FileEntry `json:"entries"`
 		Next    *string             `json:"next_cursor"`
 	}
-	read := func(input listFilesRequest, turn Turn) (page, error) {
+	read := func(input storageListRequest, turn Turn) (page, error) {
 		raw, err := json.Marshal(input)
 		if err != nil {
 			return page{}, err
@@ -58,7 +58,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		local := call
 		local.Turn = turn
 		local.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageList, Input: raw}
-		result, err := runListFiles(ctx, local)
+		result, err := runStorageList(ctx, local)
 		if err != nil {
 			return page{}, err
 		}
@@ -94,7 +94,7 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 			t.Fatalf("root listing %s: %+v", pattern, expected)
 		}
 		for _, limit := range []int{1, 7, 100} {
-			request := listFilesRequest{Pattern: pattern, Limit: limit}
+			request := storageListRequest{Pattern: pattern, Limit: limit}
 			var got []listing.FileEntry
 			for pages := 0; ; pages++ {
 				if pages > len(expected)+1 {
@@ -124,11 +124,11 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 			t.Fatalf("invalid root %s: %v", pattern, err)
 		}
 	}
-	first, err := read(listFilesRequest{Pattern: "/artifacts/*", Limit: 1}, call.Turn)
+	first, err := read(storageListRequest{Pattern: "/artifacts/*", Limit: 1}, call.Turn)
 	if err != nil || first.Next == nil {
 		t.Fatalf("first page: %+v, %v", first, err)
 	}
-	request := listFilesRequest{Pattern: "/artifacts/*", Limit: 100, Cursor: *first.Next}
+	request := storageListRequest{Pattern: "/artifacts/*", Limit: 100, Cursor: *first.Next}
 	for _, dimension := range []string{"pattern", "agent", "project"} {
 		changed, turn := request, call.Turn
 		switch dimension {
@@ -165,14 +165,14 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 	if err != nil || len(continued.Entries) != 100 {
 		t.Fatalf("deleted cursor anchor: %d entries, %v", len(continued.Entries), err)
 	}
-	memoryPage, err := read(listFilesRequest{Pattern: "/memory/**", Limit: 1}, call.Turn)
+	memoryPage, err := read(storageListRequest{Pattern: "/memory/**", Limit: 1}, call.Turn)
 	if err != nil || memoryPage.Next == nil {
 		t.Fatalf("first memory page: %+v, %v", memoryPage, err)
 	}
 	if err := fixture.Store.Memories().Delete(ctx, scope, store.ID); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := read(listFilesRequest{Pattern: "/memory/**", Cursor: *memoryPage.Next}, call.Turn)
+	removed, err := read(storageListRequest{Pattern: "/memory/**", Cursor: *memoryPage.Next}, call.Turn)
 	if err != nil || len(removed.Entries) != 0 || removed.Next != nil {
 		t.Fatalf("deleted store remained visible: %+v, %v", removed, err)
 	}

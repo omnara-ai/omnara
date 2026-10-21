@@ -167,7 +167,7 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 	}
 }
 
-func TestListFilesImplementationValidatorBinding(t *testing.T) {
+func TestStorageListImplementationValidatorBinding(t *testing.T) {
 	for _, limit := range []int{-1, 0, 1, 100, 101} {
 		input := json.RawMessage(fmt.Sprintf(`{"pattern":"/memory/*","limit":%d}`, limit))
 		err := validateRegisteredToolInput("storage_list", input)

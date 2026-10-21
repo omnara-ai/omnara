@@ -16,8 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-func TestResolveUploadFileRequest(t *testing.T) {
-	resolved, err := resolveUploadFileRequest(json.RawMessage(
+func TestResolveStorageUploadRequest(t *testing.T) {
+	resolved, err := resolveStorageUploadRequest(json.RawMessage(
 		`{"path":"/artifacts","source":"reports/final.pdf","machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`,
 	))
 	if err != nil {
@@ -50,7 +50,7 @@ func TestResolveUploadFileRequest(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveUploadFileRequest(json.RawMessage(test.raw))
+			_, err := resolveStorageUploadRequest(json.RawMessage(test.raw))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -58,12 +58,12 @@ func TestResolveUploadFileRequest(t *testing.T) {
 	}
 }
 
-func TestResolveDownloadFileRequest(t *testing.T) {
+func TestResolveStorageDownloadRequest(t *testing.T) {
 	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
 	if err != nil {
 		t.Fatalf("encode artifact id: %v", err)
 	}
-	artifact, err := resolveDownloadFileRequest(json.RawMessage(
+	artifact, err := resolveStorageDownloadRequest(json.RawMessage(
 		`{"path":"/artifacts/` + artifactID + `","destination":"downloads/final.pdf"}`,
 	))
 	if err != nil {
@@ -99,7 +99,7 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveDownloadFileRequest(json.RawMessage(test.raw))
+			_, err := resolveStorageDownloadRequest(json.RawMessage(test.raw))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -246,7 +246,7 @@ func TestUploadInputValidation(t *testing.T) {
 	); err == nil {
 		t.Fatal("memory upload accepted view")
 	}
-	if err := validateListFiles(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
+	if err := validateStorageList(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
 		t.Fatal("storage_list accepted malformed cursor")
 	}
 }

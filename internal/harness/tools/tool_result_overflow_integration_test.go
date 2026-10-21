@@ -71,10 +71,10 @@ func TestWebFetchOverflowRetrieval(t *testing.T) {
 		run         asyncToolHandler
 		offsetLine  int
 	}{
-		{"storage_search", `{"path":"` + path + `","args":["-e","^TARGET"],"limit":20}`, runSearchFilesAsync, 1},
+		{"storage_search", `{"path":"` + path + `","args":["-e","^TARGET"],"limit":20}`, runStorageSearchAsync, 1},
 		{"storage_search", `{"path":"` + path + `","args":["-e","^TARGET"],"offset_line":21,"limit":20}`,
-			runSearchFilesAsync, 21},
-		{"storage_read", `{"path":"` + path + `","offset_line":2,"limit_lines":1}`, runReadFileAsync, 0},
+			runStorageSearchAsync, 21},
+		{"storage_read", `{"path":"` + path + `","offset_line":2,"limit_lines":1}`, runStorageReadAsync, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.name == "storage_search" {

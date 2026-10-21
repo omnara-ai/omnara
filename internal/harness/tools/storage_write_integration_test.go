@@ -59,7 +59,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		}
 		local := call
 		local.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageWrite, Input: input}
-		result, err := runWriteFileAsync(ctx, local)
+		result, err := runStorageWriteAsync(ctx, local)
 		if err != nil {
 			return "", err
 		}

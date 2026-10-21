@@ -62,7 +62,7 @@ func CheckFileToolSupport(ctx context.Context) error {
 		_ = os.RemoveAll(view.Name())
 	}()
 	command, err := newSearchCommand(ctx,
-		searchFilesRequest{Path: "/memory/probe/*.txt", Args: []string{"-e", "x"}}, source, view)
+		storageSearchRequest{Path: "/memory/probe/*.txt", Args: []string{"-e", "x"}}, source, view)
 	if err != nil {
 		return err
 	}

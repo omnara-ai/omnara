@@ -20,7 +20,7 @@ import (
 
 const fileListCursorVersion = 1
 
-type listFilesRequest struct {
+type storageListRequest struct {
 	Pattern string `json:"pattern"`
 	Limit   int    `json:"limit,omitempty"`
 	Cursor  string `json:"cursor,omitempty"`
@@ -40,7 +40,7 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 	if raw == "" {
 		return cursor, nil
 	}
-	if len(raw) > toolcatalog.ListFilesMaxCursorLength {
+	if len(raw) > toolcatalog.StorageListMaxCursorLength {
 		return cursor, errInvalidFileListCursor
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(raw)
@@ -64,8 +64,8 @@ func decodeFileListCursor(raw string) (fileListCursor, error) {
 	return cursor, errInvalidFileListCursor
 }
 
-func validateListFiles(raw json.RawMessage) error {
-	var input listFilesRequest
+func validateStorageList(raw json.RawMessage) error {
+	var input storageListRequest
 	if err := decodeSingleStrictJSON(raw, &input, "storage_list request"); err != nil {
 		return err
 	}
@@ -76,8 +76,8 @@ func validateListFiles(raw json.RawMessage) error {
 	return err
 }
 
-func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	var input listFilesRequest
+func runStorageList(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+	var input storageListRequest
 	if err := json.Unmarshal(call.Call.Input, &input); err != nil {
 		return nil, err
 	}

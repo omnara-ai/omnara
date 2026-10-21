@@ -145,7 +145,7 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	}
 }
 
-func TestReadFileTransferResultEscapedPath(t *testing.T) {
+func TestStorageReadTransferResultEscapedPath(t *testing.T) {
 	component := strings.Repeat("&", 255)
 	want := daemonprotocol.FileTransferResult{
 		Path:   "/memory/team/" + strings.Join([]string{component, component, component, component}, "/"),

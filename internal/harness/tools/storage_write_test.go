@@ -18,7 +18,7 @@ func TestEditFileTextMissingExecutable(t *testing.T) {
 	}
 }
 
-func TestWriteFileInput(t *testing.T) {
+func TestStorageWriteInput(t *testing.T) {
 	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageWrite)
 	if err != nil || !ok {
 		t.Fatalf("storage_write registration: %v", err)

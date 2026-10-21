@@ -23,7 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-type readFileRequest struct {
+type storageReadRequest struct {
 	Path       string `json:"path"`
 	OffsetLine *int   `json:"offset_line,omitempty"`
 	LimitLines *int   `json:"limit_lines,omitempty"`
@@ -31,23 +31,23 @@ type readFileRequest struct {
 	LimitChars *int   `json:"limit_chars,omitempty"`
 }
 
-func validateReadFileInput(raw json.RawMessage) error {
-	_, err := resolveReadFileRequest(raw)
+func validateStorageReadInput(raw json.RawMessage) error {
+	_, err := resolveStorageReadRequest(raw)
 	return err
 }
 
-func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
-	var input readFileRequest
+func resolveStorageReadRequest(raw json.RawMessage) (storageReadRequest, error) {
+	var input storageReadRequest
 	if err := decodeSingleStrictJSON(raw, &input, "storage_read request"); err != nil {
-		return readFileRequest{}, fmt.Errorf("parse storage_read request: %w", err)
+		return storageReadRequest{}, fmt.Errorf("parse storage_read request: %w", err)
 	}
 	if err := validateFilePath(input.Path); err != nil {
-		return readFileRequest{}, err
+		return storageReadRequest{}, err
 	}
 	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
 	if charMode && lineMode {
-		return readFileRequest{}, errors.New(
+		return storageReadRequest{}, errors.New(
 			"character paging cannot be combined with line paging",
 		)
 	}
@@ -57,12 +57,12 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 			input.OffsetChar = &value
 		}
 		if input.LimitChars == nil {
-			value := toolcatalog.ReadFileDefaultChars
+			value := toolcatalog.StorageReadDefaultChars
 			input.LimitChars = &value
 		}
 		if *input.OffsetChar < 0 || *input.LimitChars < 1 ||
-			*input.LimitChars > toolcatalog.ReadFileMaxChars {
-			return readFileRequest{}, errors.New("invalid file character range")
+			*input.LimitChars > toolcatalog.StorageReadMaxChars {
+			return storageReadRequest{}, errors.New("invalid file character range")
 		}
 	} else {
 		if input.OffsetLine == nil {
@@ -70,22 +70,22 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 			input.OffsetLine = &value
 		}
 		if input.LimitLines == nil {
-			value := toolcatalog.ReadFileDefaultLines
+			value := toolcatalog.StorageReadDefaultLines
 			input.LimitLines = &value
 		}
 		if *input.OffsetLine < 1 || *input.LimitLines < 1 ||
-			*input.LimitLines > toolcatalog.ReadFileMaxLines {
-			return readFileRequest{}, errors.New("invalid file line range")
+			*input.LimitLines > toolcatalog.StorageReadMaxLines {
+			return storageReadRequest{}, errors.New("invalid file line range")
 		}
 	}
 	return input, nil
 }
 
-func runReadFileAsync(
+func runStorageReadAsync(
 	ctx context.Context,
 	call asyncToolContext,
 ) (asyncPhaseResult, error) {
-	input, err := resolveReadFileRequest(call.Call.Input)
+	input, err := resolveStorageReadRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}

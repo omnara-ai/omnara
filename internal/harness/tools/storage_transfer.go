@@ -25,7 +25,7 @@ const (
 	fileTransferInitialWaitMS         = 10 * 1000
 )
 
-type uploadFileRequest struct {
+type storageUploadRequest struct {
 	Path      string          `json:"path"`
 	Source    string          `json:"source"`
 	MachineID json.RawMessage `json:"machine_id,omitempty"`
@@ -33,7 +33,7 @@ type uploadFileRequest struct {
 	View      bool            `json:"view,omitempty"`
 }
 
-type resolvedUploadFileRequest struct {
+type resolvedStorageUploadRequest struct {
 	Path      string
 	Source    string
 	MachineID uuid.UUID
@@ -41,90 +41,90 @@ type resolvedUploadFileRequest struct {
 	View      bool
 }
 
-type downloadFileRequest struct {
+type storageDownloadRequest struct {
 	Path        string          `json:"path"`
 	Destination string          `json:"destination"`
 	MachineID   json.RawMessage `json:"machine_id,omitempty"`
 }
 
-type resolvedDownloadFileRequest struct {
+type resolvedStorageDownloadRequest struct {
 	Path        string
 	Destination string
 	MachineID   uuid.UUID
 }
 
-func validateUploadFileInput(input json.RawMessage) error {
-	_, err := resolveUploadFileRequest(input)
+func validateStorageUploadInput(input json.RawMessage) error {
+	_, err := resolveStorageUploadRequest(input)
 	return err
 }
 
-func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, error) {
-	var input uploadFileRequest
+func resolveStorageUploadRequest(raw json.RawMessage) (resolvedStorageUploadRequest, error) {
+	var input storageUploadRequest
 	if err := decodeSingleStrictJSON(raw, &input, "storage_upload request"); err != nil {
-		return resolvedUploadFileRequest{}, fmt.Errorf("parse storage_upload request: %w", err)
+		return resolvedStorageUploadRequest{}, fmt.Errorf("parse storage_upload request: %w", err)
 	}
 	isMemory := strings.HasPrefix(input.Path, memorystore.Root+"/")
 	if isMemory {
 		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
-			return resolvedUploadFileRequest{}, err
+			return resolvedStorageUploadRequest{}, err
 		}
 		if input.View {
-			return resolvedUploadFileRequest{}, errors.New("view only applies to /artifacts uploads")
+			return resolvedStorageUploadRequest{}, errors.New("view only applies to /artifacts uploads")
 		}
 	} else if input.Force {
-		return resolvedUploadFileRequest{}, errors.New("force only applies to memory uploads")
+		return resolvedStorageUploadRequest{}, errors.New("force only applies to memory uploads")
 	}
 	if !isMemory && input.Path != toolcatalog.ArtifactVFSRoot {
-		return resolvedUploadFileRequest{}, errors.New("upload path must be /artifacts")
+		return resolvedStorageUploadRequest{}, errors.New("upload path must be /artifacts")
 	}
 	if input.Source == "" {
-		return resolvedUploadFileRequest{}, errors.New("source is required")
+		return resolvedStorageUploadRequest{}, errors.New("source is required")
 	}
 	if strings.Contains(input.Source, "\x00") {
-		return resolvedUploadFileRequest{}, errors.New("source cannot contain NUL")
+		return resolvedStorageUploadRequest{}, errors.New("source cannot contain NUL")
 	}
 	machineID, err := resolveOptionalMachineID(input.MachineID)
 	if err != nil {
-		return resolvedUploadFileRequest{}, err
+		return resolvedStorageUploadRequest{}, err
 	}
-	return resolvedUploadFileRequest{
+	return resolvedStorageUploadRequest{
 		Path: input.Path, Source: input.Source, MachineID: machineID, Force: input.Force, View: input.View,
 	}, nil
 }
 
-func validateDownloadFileInput(input json.RawMessage) error {
-	_, err := resolveDownloadFileRequest(input)
+func validateStorageDownloadInput(input json.RawMessage) error {
+	_, err := resolveStorageDownloadRequest(input)
 	return err
 }
 
-func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileRequest, error) {
-	var input downloadFileRequest
+func resolveStorageDownloadRequest(raw json.RawMessage) (resolvedStorageDownloadRequest, error) {
+	var input storageDownloadRequest
 	if err := decodeSingleStrictJSON(raw, &input, "storage_download request"); err != nil {
-		return resolvedDownloadFileRequest{}, fmt.Errorf("parse storage_download request: %w", err)
+		return resolvedStorageDownloadRequest{}, fmt.Errorf("parse storage_download request: %w", err)
 	}
 	if err := validateFilePath(input.Path); err != nil {
-		return resolvedDownloadFileRequest{}, err
+		return resolvedStorageDownloadRequest{}, err
 	}
 	if input.Destination == "" {
-		return resolvedDownloadFileRequest{}, errors.New("destination is required")
+		return resolvedStorageDownloadRequest{}, errors.New("destination is required")
 	}
 	if strings.Contains(input.Destination, "\x00") {
-		return resolvedDownloadFileRequest{}, errors.New("destination cannot contain NUL")
+		return resolvedStorageDownloadRequest{}, errors.New("destination cannot contain NUL")
 	}
 	machineID, err := resolveOptionalMachineID(input.MachineID)
 	if err != nil {
-		return resolvedDownloadFileRequest{}, err
+		return resolvedStorageDownloadRequest{}, err
 	}
-	return resolvedDownloadFileRequest{
+	return resolvedStorageDownloadRequest{
 		Path: input.Path, Destination: input.Destination, MachineID: machineID,
 	}, nil
 }
 
-func runUploadFile(
+func runStorageUpload(
 	ctx context.Context,
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
-	resolved, err := resolveUploadFileRequest(call.Call.Input)
+	resolved, err := resolveStorageUploadRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
@@ -148,11 +148,11 @@ func runUploadFile(
 	return startProcessTool(ctx, call, binding, authorization, processInput)
 }
 
-func runDownloadFile(
+func runStorageDownload(
 	ctx context.Context,
 	call transactionalToolContext,
 ) (transactionalPhaseResult, error) {
-	resolved, err := resolveDownloadFileRequest(call.Call.Input)
+	resolved, err := resolveStorageDownloadRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
@@ -176,14 +176,14 @@ func runDownloadFile(
 	return startProcessTool(ctx, call, binding, authorization, processInput)
 }
 
-func uploadFilePermissionChallenge(
+func storageUploadPermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveUploadFileRequest(call.Input)
+	resolved, err := resolveStorageUploadRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
@@ -206,14 +206,14 @@ func uploadFilePermissionChallenge(
 	)
 }
 
-func downloadFilePermissionChallenge(
+func storageDownloadPermissionChallenge(
 	ctx context.Context,
 	executor Executor,
 	turn Turn,
 	call model.ToolCall,
 	mode permissionModeContext,
 ) (toolpermission.Request, error) {
-	resolved, err := resolveDownloadFileRequest(call.Input)
+	resolved, err := resolveStorageDownloadRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
