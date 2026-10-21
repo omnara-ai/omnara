@@ -2,6 +2,7 @@ package processresult
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,12 +31,37 @@ type Action struct {
 	ID      uuid.UUID
 	Payload json.RawMessage
 }
-type daemonProcessReadObservation struct {
-	ProcessID  string  `json:"process_id"`
-	Output     *string `json:"output"`
-	Cursor     *int64  `json:"cursor"`
-	NextCursor *int64  `json:"next_cursor"`
-	Truncated  *bool   `json:"truncated"`
+type processReadObservation struct {
+	ProcessID  string
+	Output     *string
+	Cursor     *int64
+	NextCursor *int64
+	Truncated  *bool
+}
+
+// decodeReadObservation accepts the daemon's cursor fields and the published
+// byte offsets, because process action completion re-reads results that were
+// already canonicalized.
+func decodeReadObservation(raw json.RawMessage) (processReadObservation, error) {
+	var body struct {
+		ProcessID      string  `json:"process_id"`
+		Output         *string `json:"output"`
+		Cursor         *int64  `json:"cursor"`
+		NextCursor     *int64  `json:"next_cursor"`
+		OffsetByte     *int64  `json:"offset_byte"`
+		NextOffsetByte *int64  `json:"next_offset_byte"`
+		Truncated      *bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return processReadObservation{}, err
+	}
+	return processReadObservation{
+		ProcessID:  body.ProcessID,
+		Output:     body.Output,
+		Cursor:     cmp.Or(body.Cursor, body.OffsetByte),
+		NextCursor: cmp.Or(body.NextCursor, body.NextOffsetByte),
+		Truncated:  body.Truncated,
+	}, nil
 }
 
 func TerminalState(state string) bool {
@@ -57,8 +83,8 @@ func Read(
 		return nil, nil, fmt.Errorf("decode read request: %w", err)
 	}
 
-	var observed daemonProcessReadObservation
-	if err := json.Unmarshal(raw, &observed); err != nil {
+	observed, err := decodeReadObservation(raw)
+	if err != nil {
 		return nil, nil, fmt.Errorf("decode read observation: %w", err)
 	}
 	if observed.Output == nil ||
@@ -241,31 +267,24 @@ func ReadMatches(
 	raw json.RawMessage,
 	result json.RawMessage,
 ) (bool, error) {
-	var observed daemonProcessReadObservation
-	ok := json.Unmarshal(raw, &observed) == nil
-	if !ok {
-		return false, nil
+	observed, err := decodeReadObservation(raw)
+	if err != nil {
+		return false, nil //nolint:nilerr // An undecodable observation differs from the committed result.
 	}
-	var committed struct {
-		ProcessID      string  `json:"process_id"`
-		Output         *string `json:"output"`
-		OffsetByte     *int64  `json:"offset_byte"`
-		NextOffsetByte *int64  `json:"next_offset_byte"`
-		Truncated      *bool   `json:"truncated"`
-	}
-	if err := json.Unmarshal(result, &committed); err != nil {
+	committed, err := decodeReadObservation(result)
+	if err != nil {
 		return false, fmt.Errorf("decode committed read result: %w", err)
 	}
 	if observed.Output == nil || committed.Output == nil ||
-		observed.Cursor == nil || committed.OffsetByte == nil ||
-		observed.NextCursor == nil || committed.NextOffsetByte == nil ||
+		observed.Cursor == nil || committed.Cursor == nil ||
+		observed.NextCursor == nil || committed.NextCursor == nil ||
 		observed.Truncated == nil || committed.Truncated == nil {
 		return false, nil
 	}
 	return observed.ProcessID == committed.ProcessID &&
 		*observed.Output == *committed.Output &&
-		*observed.Cursor == *committed.OffsetByte &&
-		*observed.NextCursor == *committed.NextOffsetByte &&
+		*observed.Cursor == *committed.Cursor &&
+		*observed.NextCursor == *committed.NextCursor &&
 		*observed.Truncated == *committed.Truncated, nil
 }
 

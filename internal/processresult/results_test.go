@@ -153,9 +153,16 @@ func TestProcessResultsExposeOutputRangeAsByteOffsets(t *testing.T) {
 		t.Fatalf("read result: %v", err)
 	}
 	assertPublicOutputRange(t, read, 0, 2)
-	matches, err := ReadMatches(observation, read)
-	if err != nil || !matches {
-		t.Fatalf("read matches = %t, err = %v", matches, err)
+	reread, _, err := Read(process, Action{Payload: json.RawMessage(`{}`)}, read)
+	if err != nil {
+		t.Fatalf("reread published result: %v", err)
+	}
+	assertPublicOutputRange(t, reread, 0, 2)
+	for _, raw := range []json.RawMessage{observation, read} {
+		matches, err := ReadMatches(raw, read)
+		if err != nil || !matches {
+			t.Fatalf("read matches %s = %t, err = %v", raw, matches, err)
+		}
 	}
 	mismatched, err := ReadMatches(
 		json.RawMessage(`{"process_id":"`+publicProcessID+
