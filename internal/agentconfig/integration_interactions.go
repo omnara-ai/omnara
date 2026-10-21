@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -26,8 +27,7 @@ type InteractionHandlerPage struct {
 	AutoSelect bool                      `json:"auto_select"`
 	Handlers   []InteractionHandlerEntry `json:"handlers"`
 	Selection  *HandlerSelection         `json:"selection"`
-	HasMore    bool                      `json:"has_more"`
-	NextOffset *int                      `json:"next_offset,omitempty"`
+	listing.OffsetPage
 }
 
 func ListInteractionHandlers(
@@ -50,11 +50,8 @@ func ListInteractionHandlers(
 	if offset >= len(keys) {
 		return page, nil
 	}
-	end := len(keys)
-	if limit < end-offset {
-		end = offset + limit
-		page.HasMore, page.NextOffset = true, &end
-	}
+	end := listing.PageEnd(offset, limit, len(keys))
+	page.OffsetPage = listing.ContinueAt(end, end < len(keys))
 	for _, key := range keys[offset:end] {
 		handler := handlers[key]
 		handler.Handler = key

@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -625,12 +626,10 @@ func TestMachineListPageSizeBoundary(t *testing.T) {
 			machines := []executionstore.AgentMachineObservationRecord{
 				{MachineID: uuid.UUID{15: 1}}, {MachineID: uuid.UUID{15: 2}},
 			}
-			nextOffset := 1
 			content, err := structuredToolResultContent(machineListResult{
 				MachinePools: []machinePoolPayload{},
 				Machines:     []machineObservationPayload{machineObservationForPaginationTest(t, machines[0])},
-				HasMore:      true,
-				NextOffset:   &nextOffset,
+				OffsetPage:   listing.ContinueAt(1, true),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -695,8 +694,7 @@ func TestMachineListPageEncodedEntriesBoundary(t *testing.T) {
 				Machines: []machineObservationPayload{
 					machineObservationForPaginationTest(t, machines[0]), machineObservationForPaginationTest(t, machines[1]),
 				},
-				HasMore:    true,
-				NextOffset: &total,
+				OffsetPage: listing.ContinueAt(total, true),
 			})
 			if err != nil {
 				t.Fatal(err)

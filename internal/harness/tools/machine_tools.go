@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -236,10 +237,7 @@ func machineListPage(
 		return bytes.Compare(a.MachineID[:], b.MachineID[:])
 	})
 	total := len(pools) + len(machines)
-	end := total
-	if offset < total && limit < total-offset {
-		end = offset + limit
-	}
+	end := listing.PageEnd(offset, limit, total)
 	page := machineListResult{Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{}}
 	entryBytes := 0
 	reserveEntry := func(entry any, collectionSize int) (bool, error) {
@@ -253,7 +251,7 @@ func machineListPage(
 		}
 		envelope, err := structuredToolResultContent(machineListResult{
 			Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{},
-			HasMore: true, NextOffset: &total,
+			OffsetPage: listing.ContinueAt(total, true),
 		})
 		if err != nil {
 			return false, err
@@ -269,9 +267,7 @@ func machineListPage(
 		return true, nil
 	}
 	finish := func(next int) (transactionalPhaseResult, error) {
-		if next < total {
-			page.HasMore, page.NextOffset = true, &next
-		}
+		page.OffsetPage = listing.ContinueAt(next, next < total)
 		content, err := structuredToolResultContent(page)
 		if err != nil {
 			return nil, err
@@ -655,8 +651,7 @@ type machineObservationPayload struct {
 type machineListResult struct {
 	Machines     []machineObservationPayload `json:"machines"`
 	MachinePools []machinePoolPayload        `json:"machine_pools"`
-	HasMore      bool                        `json:"has_more"`
-	NextOffset   *int                        `json:"next_offset,omitempty"`
+	listing.OffsetPage
 }
 
 type machinePoolPayload struct {
