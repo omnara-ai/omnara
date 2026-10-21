@@ -189,14 +189,14 @@ configure `OMNARA_TRUSTED_PROXY_CIDRS` so limits use the client IP.
 
 | Variable | Purpose | Default | Window |
 | --- | --- | --- | --- |
-| `OMNARA_AUTH_SIGNUP_CLIENT_LIMIT` | Signup and verification email requests (shared budget) | `25` | 1 hour |
-| `OMNARA_AUTH_LOGIN_CLIENT_LIMIT` | Password login | `100` | 15 minutes |
-| `OMNARA_AUTH_PASSWORD_RESET_CLIENT_LIMIT` | Password reset requests, password changes, and token revocation (separate budgets) | `25` | 1 hour |
-| `OMNARA_AUTH_TOKEN_CLIENT_LIMIT` | Email verification, password reset completion, OAuth grants, and device/OAuth authorization lookups and decisions (separate budgets) | `100` | 15 minutes |
-| `OMNARA_AUTH_OAUTH_LOGIN_CONNECTOR_CLIENT_LIMIT` | OAuth login starts per connector | `30` | 15 minutes |
-| `OMNARA_AUTH_OAUTH_LOGIN_CLIENT_LIMIT` | OAuth login starts across connectors | `120` | 15 minutes |
-| `OMNARA_AUTH_DEVICE_AUTHORIZATION_CLIENT_LIMIT` | Device authorization starts | `25` | 15 minutes |
-| `OMNARA_AUTH_DEVICE_POLL_CLIENT_LIMIT` | Device token polling | `600` | 15 minutes |
+| `OMNARA_AUTH_SIGNUP_CLIENT_LIMIT` | Signup and verification email requests (shared budget) | `500` | 1 hour |
+| `OMNARA_AUTH_LOGIN_CLIENT_LIMIT` | Password login | `1000` | 15 minutes |
+| `OMNARA_AUTH_PASSWORD_RESET_CLIENT_LIMIT` | Password reset requests, password changes, and token revocation (separate budgets) | `500` | 1 hour |
+| `OMNARA_AUTH_TOKEN_CLIENT_LIMIT` | Email verification, password reset completion, OAuth grants, and device/OAuth authorization lookups and decisions (separate budgets) | `5000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CONNECTOR_CLIENT_LIMIT` | OAuth login starts per connector | `1000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CLIENT_LIMIT` | OAuth login starts across connectors | `2000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_AUTHORIZATION_CLIENT_LIMIT` | Device authorization starts | `1000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_POLL_CLIENT_LIMIT` | Device token polling | `30000` | 15 minutes |
 
 ## Auth and SSO connectors
 

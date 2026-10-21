@@ -23,8 +23,8 @@ func TestLoadAuthClientRateLimits(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	want := authn.ClientRateLimits{
-		Signup: 25, Login: 100, PasswordReset: 25, Token: 100,
-		OAuthLogin: 120, OAuthLoginConnector: 30, DeviceAuthorization: 25, DevicePoll: 600,
+		Signup: 500, Login: 1000, PasswordReset: 500, Token: 5000,
+		OAuthLogin: 2000, OAuthLoginConnector: 1000, DeviceAuthorization: 1000, DevicePoll: 30000,
 	}
 	cfg, err := Load()
 	if err != nil || cfg.AuthClientRateLimits != want {
