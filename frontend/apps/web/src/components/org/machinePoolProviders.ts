@@ -278,6 +278,25 @@ const e2b: MachinePoolProviderDefinition = {
   },
 }
 
+const superserve: MachinePoolProviderDefinition = {
+  label: 'Superserve',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'superserve/omnara',
+    optional: true,
+    description:
+      "Leave empty to use superserve/omnara, Superserve's template with Omnara's default development tools, or enter a template name. Machines take the template's vCPU and memory, so the maximums must be at least that size.",
+    descriptionHref: 'https://docs.superserve.ai/templates/overview',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -289,6 +308,7 @@ export const machinePoolProviderDefinitions = {
   boxd,
   createos,
   e2b,
+  superserve,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
