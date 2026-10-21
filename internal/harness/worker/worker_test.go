@@ -1127,8 +1127,9 @@ func TestWorkerDrainFinishesActiveThenRetainedWorkBeforeReturning(t *testing.T) 
 		synctest.Wait()
 		close(executor.retainedRelease)
 		synctest.Wait()
-		if got := receivedEvents(executor.events); !slices.Equal(got, []string{"active: <nil>", "retained: <nil>", "run: <nil>"}) {
-			t.Fatalf("drain order = %v, want active, then retained, then run", got)
+		want := []string{"active: <nil>", "retained: <nil>", "run: <nil>"}
+		if got := receivedEvents(executor.events); !slices.Equal(got, want) {
+			t.Fatalf("drain order = %v, want %v", got, want)
 		}
 		if got := store.claims.Load(); got != 2 {
 			t.Fatalf("claims after drain = %d, want 2", got)
