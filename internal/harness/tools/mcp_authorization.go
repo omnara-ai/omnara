@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpauthorization"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -80,13 +81,19 @@ func (e Executor) mcpAuthorizationFailure(
 	if !found {
 		return toolResultContent{}, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
 	}
+	secretName, err := agentMCPOAuthSecretName(server.ServerKey, turn.AgentID)
+	if err != nil {
+		return toolResultContent{}, err
+	}
 	input := mcpauthorization.NewRequestInput{
 		ServerKey:      server.ServerKey,
 		ToolName:       remoteName,
 		MCPURL:         server.URL,
-		SecretName:     defaultMCPOAuthSecretName(server.ServerKey),
+		SecretName:     secretName,
 		AgentConfigID:  contextRow.AgentConfigID,
 		RequiredScopes: challenge.Scopes,
+
+		ResourceMetadataURL: challenge.ResourceMetadataURL,
 	}
 	if server.Auth != nil {
 		secret, err := e.Store.Secrets().GetSecret(ctx, turn.OrgID, server.Auth.SecretID)
@@ -214,12 +221,19 @@ func mcpAuthorizationRequiredToolResult(
 	return content, cause
 }
 
-func defaultMCPOAuthSecretName(serverKey string) string {
-	const suffix = "-oauth"
+// agentMCPOAuthSecretName names the secret a first connect creates. The agent's
+// public ID keeps it unique to that agent, so two agents connecting the same
+// server never share or overwrite each other's credential.
+func agentMCPOAuthSecretName(serverKey string, agentID uuid.UUID) (string, error) {
+	publicAgentID, err := publicid.Encode(publicid.KindAgent, agentID)
+	if err != nil {
+		return "", err
+	}
+	suffix := "-oauth-" + publicAgentID
 	name := serverKey
 	for utf8.RuneCountInString(name)+len(suffix) > resourcename.MaxCodePoints {
 		_, size := utf8.DecodeLastRuneInString(name)
 		name = name[:len(name)-size]
 	}
-	return name + suffix
+	return name + suffix, nil
 }

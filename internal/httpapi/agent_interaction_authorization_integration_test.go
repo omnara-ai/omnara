@@ -18,8 +18,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcpauthorization"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -161,6 +163,151 @@ func TestAgentInteractionAuthorizationFirstConnectGrantsAndAttachesSecret(t *tes
 	if !strings.Contains(string(config.CompiledDefinition), secretID.String()) &&
 		!strings.Contains(string(config.CompiledDefinition), secretPublicID) {
 		t.Fatalf("compiled definition does not reference secret %s: %s", secretPublicID, config.CompiledDefinition)
+	}
+}
+
+// Each agent's first connect creates its own secret, and a first connect never
+// writes into a secret it did not create, even one that appears mid-flow.
+func TestAgentInteractionAuthorizationFirstConnectNeverOverwritesAnotherSecret(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newMCPOAuthIntegrationServer(pool, "http://omnara.test")
+	project := bootstrapPublicHTTPProject(t, handler, "mcp-authz-isolation")
+	store := integrationStoreForHandler(t, handler)
+	fake := newMCPOAuthFakeServer(t, mcpOAuthFakeConfig{PKCE: true, DCR: true})
+	mcpURL := fake.URL + "/mcp"
+
+	type started struct {
+		agentPath, interactionPublicID, state, secretName string
+	}
+	start := func(name string) started {
+		t.Helper()
+		agent := createHTTPMCPAuthorizationAgent(t, ctx, store, project, name, mcpURL).Agent
+		secretName := "calendar-oauth-" + testPublicID(t, publicid.KindAgent, agent.ID)
+		_, interactionID := createHTTPOpenAuthorizationInteractionWithChallenge(
+			t, ctx, store, project, agent, mcpURL, []string{"files:read"},
+			httpMCPResourceMetadataURL(mcpURL), secretName,
+		)
+		agentPath := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, agent.ID)
+		interactionPublicID := testPublicID(t, publicid.KindAgentInteraction, interactionID)
+		response := requestJSONWithHeaders(t, handler, http.MethodPost,
+			agentPath+"/interactions/"+interactionPublicID+"/authorize",
+			`{"return_to":"/agents"}`, "", http.StatusCreated, authHeaders(project.AdminToken))
+		authURL, err := url.Parse(testutil.RequireType[string](t, response["authorization_url"]))
+		if err != nil {
+			t.Fatalf("parse authorization_url: %v", err)
+		}
+		fake.setCodeChallenge(authURL.Query().Get("code_challenge"))
+		return started{agentPath, interactionPublicID, authURL.Query().Get("state"), secretName}
+	}
+	complete := func(flow started) url.Values {
+		t.Helper()
+		location := completeMCPOAuthCallback(t, handler, flow.state, http.StatusFound)
+		redirect, err := url.Parse(location)
+		if err != nil {
+			t.Fatalf("parse callback redirect: %v", err)
+		}
+		return redirect.Query()
+	}
+
+	first := complete(start("mcp-authz-isolation-a"))
+	second := complete(start("mcp-authz-isolation-b"))
+	if first.Get("mcp_oauth") != "success" || second.Get("mcp_oauth") != "success" {
+		t.Fatalf("callbacks = %v / %v, want both to succeed", first, second)
+	}
+	if first.Get("secret_id") == second.Get("secret_id") {
+		t.Fatalf("two agents share secret %s, want one secret each", first.Get("secret_id"))
+	}
+	firstSecretID, ok := parseOpenAPIPublicID(publicid.KindSecret, first.Get("secret_id"))
+	if !ok {
+		t.Fatalf("secret_id = %q", first.Get("secret_id"))
+	}
+	firstSecret, err := store.Secrets().GetSecret(ctx, project.OrgUUID, firstSecretID)
+	if err != nil {
+		t.Fatalf("get first agent's secret: %v", err)
+	}
+	if firstSecret.CurrentVersionNumber != 1 {
+		t.Fatalf("first agent's secret version = %d, want 1 after another agent connects", firstSecret.CurrentVersionNumber)
+	}
+
+	// A secret with the flow's name appears between consent start and callback.
+	racing := start("mcp-authz-isolation-c")
+	occupant, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          project.OrgUUID,
+		OwnerKind:      secretstore.SecretOwnerProject,
+		OwnerProjectID: project.ProjectUUID,
+		Name:           racing.secretName,
+		Material:       secrets.OAuthTokenSetMaterial{AccessToken: "someone-else", MCPURL: mcpURL},
+		Actor:          identitystore.NewUserPrincipal(project.AdminUserUUID),
+	})
+	if err != nil {
+		t.Fatalf("create occupying secret: %v", err)
+	}
+	if got := complete(racing); got.Get("mcp_oauth_error") != "secret_exists" {
+		t.Fatalf("callback = %v, want mcp_oauth_error=secret_exists", got)
+	}
+	occupant, err = store.Secrets().GetSecret(ctx, project.OrgUUID, occupant.ID)
+	if err != nil {
+		t.Fatalf("get occupying secret: %v", err)
+	}
+	if occupant.CurrentVersionNumber != 1 {
+		t.Fatalf("occupying secret version = %d, want untouched", occupant.CurrentVersionNumber)
+	}
+	interactions := requestJSONWithHeaders(t, handler, http.MethodGet, racing.agentPath+"/interactions?state=open",
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	if data := testutil.RequireType[[]any](t, interactions["data"]); len(data) != 1 {
+		t.Fatalf("open interactions = %+v, want the rejected request still open", interactions)
+	}
+}
+
+// Servers such as Google Calendar answer discovery anonymously and challenge
+// only tools/call, so authorization must start from the recorded challenge
+// rather than re-probing the server.
+func TestAgentInteractionAuthorizationConnectsServerWithPublicDiscovery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newMCPOAuthIntegrationServer(pool, "http://omnara.test")
+	project := bootstrapPublicHTTPProject(t, handler, "mcp-authz-public-discovery")
+	store := integrationStoreForHandler(t, handler)
+	fake := newMCPOAuthFakeServer(t, mcpOAuthFakeConfig{PKCE: true, DCR: true})
+	mcpURL := fake.URL + "/mcp"
+
+	launch := createHTTPMCPAuthorizationAgent(t, ctx, store, project, "mcp-authz-public-discovery", mcpURL)
+	agent := launch.Agent
+	toolCallID, interactionID := createHTTPOpenAuthorizationInteraction(
+		t, ctx, store, project, agent, mcpURL, []string{"files:read"},
+	)
+	agentPath := project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, agent.ID)
+	interactionPublicID := testPublicID(t, publicid.KindAgentInteraction, interactionID)
+
+	start := requestJSONWithHeaders(t, handler, http.MethodPost,
+		agentPath+"/interactions/"+interactionPublicID+"/authorize",
+		`{"return_to":"/agents"}`, "", http.StatusCreated, authHeaders(project.AdminToken))
+	authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
+	if err != nil {
+		t.Fatalf("parse authorization_url: %v", err)
+	}
+	if got := authURL.Query().Get("resource"); got != mcpURL {
+		t.Fatalf("authorization resource = %q, want %q", got, mcpURL)
+	}
+	fake.setCodeChallenge(authURL.Query().Get("code_challenge"))
+
+	location := completeMCPOAuthCallback(t, handler, authURL.Query().Get("state"), http.StatusFound)
+	redirect, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("parse callback redirect: %v", err)
+	}
+	if redirect.Query().Get("mcp_oauth") != "success" || redirect.Query().Get("interaction_id") != interactionPublicID {
+		t.Fatalf("callback redirect = %q, want success for %s", location, interactionPublicID)
+	}
+	toolCall, err := store.Execution().GetToolCall(ctx, project.ProjectUUID, agent.ID, toolCallID)
+	if err != nil {
+		t.Fatalf("get tool call: %v", err)
+	}
+	if toolCall.State != executionstore.ToolCallStateReady {
+		t.Fatalf("tool call state = %s, want ready after grant", toolCall.State)
 	}
 }
 
@@ -401,6 +548,29 @@ func createHTTPOpenAuthorizationInteraction(
 	mcpURL string,
 	requiredScopes []string,
 ) (uuid.UUID, uuid.UUID) {
+	return createHTTPOpenAuthorizationInteractionWithChallenge(
+		t, ctx, store, project, agent, mcpURL, requiredScopes, httpMCPResourceMetadataURL(mcpURL),
+		httpMCPAuthorizationSecretName,
+	)
+}
+
+// httpMCPResourceMetadataURL is the resource_metadata a fake MCP server's
+// Bearer challenge names.
+func httpMCPResourceMetadataURL(mcpURL string) string {
+	return strings.TrimSuffix(mcpURL, "/mcp") + "/prm"
+}
+
+func createHTTPOpenAuthorizationInteractionWithChallenge(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	project publicHTTPProject,
+	agent executionstore.AgentRecord,
+	mcpURL string,
+	requiredScopes []string,
+	resourceMetadataURL string,
+	secretName string,
+) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	toolCall, runtime := recordHTTPToolCallForAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent,
@@ -429,9 +599,11 @@ func createHTTPOpenAuthorizationInteraction(
 		ServerKey:      "calendar",
 		ToolName:       "create_event",
 		MCPURL:         mcpURL,
-		SecretName:     httpMCPAuthorizationSecretName,
+		SecretName:     secretName,
 		AgentConfigID:  agent.CurrentConfigID,
 		RequiredScopes: requiredScopes,
+
+		ResourceMetadataURL: resourceMetadataURL,
 	})
 	if err != nil {
 		t.Fatalf("build authorization request: %v", err)

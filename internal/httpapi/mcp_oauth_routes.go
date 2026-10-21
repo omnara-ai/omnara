@@ -67,11 +67,15 @@ type mcpOAuthFlowData struct {
 	Interaction     *mcpOAuthInteraction  `json:"interaction,omitempty"`
 }
 
-// mcpOAuthInteraction ties a flow to the authorization interaction it grants.
+// mcpOAuthInteraction ties a flow to the authorization interaction it grants
+// and the secret it writes. A nil SecretID creates a new secret and never
+// reuses one by name, so connecting one agent cannot replace another agent's
+// credential.
 type mcpOAuthInteraction struct {
-	ID        uuid.UUID `json:"id"`
-	ProjectID uuid.UUID `json:"project_id"`
-	AgentID   uuid.UUID `json:"agent_id"`
+	ID        uuid.UUID  `json:"id"`
+	ProjectID uuid.UUID  `json:"project_id"`
+	AgentID   uuid.UUID  `json:"agent_id"`
+	SecretID  *uuid.UUID `json:"secret_id,omitempty"`
 }
 
 func (s strictOpenAPIServer) StartSecretMCPOAuth(
@@ -119,7 +123,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	principal identitystore.PrincipalRecord,
 	body *openapi.MCPOAuthStartRequest,
 ) (openapi.MCPOAuthStartResponse, *apierror.ResponseError, error) {
-	return s.startMCPOAuthFlow(ctx, owner, principal, body, nil)
+	return s.startMCPOAuthFlow(ctx, owner, principal, body, nil, nil)
 }
 
 func (s strictOpenAPIServer) startMCPOAuthFlow(
@@ -128,6 +132,7 @@ func (s strictOpenAPIServer) startMCPOAuthFlow(
 	principal identitystore.PrincipalRecord,
 	body *openapi.MCPOAuthStartRequest,
 	interaction *mcpOAuthInteraction,
+	challenge *mcp.AuthorizationChallenge,
 ) (openapi.MCPOAuthStartResponse, *apierror.ResponseError, error) {
 	if body == nil {
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
@@ -172,7 +177,13 @@ func (s strictOpenAPIServer) startMCPOAuthFlow(
 	}
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpOAuthOutboundTimeout)
 	defer cancel()
-	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
+	authOptions := mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient}
+	var requirement mcp.AuthRequirement
+	if challenge != nil {
+		requirement, err = mcp.AuthRequirementFromChallenge(outboundCtx, mcpURL, *challenge, authOptions)
+	} else {
+		requirement, err = mcp.DetectAuth(outboundCtx, mcpURL, authOptions)
+	}
 	if err != nil {
 		apiErr := mcpUpstreamFailure(
 			err,
@@ -388,6 +399,10 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		authorization = &grant
 	}
 	secretID, err := s.saveMCPOAuthSecret(r.Context(), flow, flowData, token)
+	if errors.Is(err, storeerr.ErrSecretNameExists) && flowData.Interaction != nil {
+		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {"secret_exists"}})
+		return
+	}
 	if errors.Is(err, storeerr.ErrMCPOAuthFlowConsumed) {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "mcp oauth state already redeemed")
 		return
@@ -446,6 +461,9 @@ func (s *Server) saveMCPOAuthSecret(
 	}
 	if len(scopes) > 0 {
 		material.Scopes = strings.Join(scopes, " ")
+	}
+	if flowData.Interaction != nil {
+		return s.saveMCPAuthorizationSecret(ctx, flow, flowData, material)
 	}
 	existing, err := s.store.Secrets().GetSecretByOwnerName(
 		ctx,

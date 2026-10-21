@@ -35,6 +35,11 @@ type Request struct {
 	RequiredScopes []string             `json:"required_scopes"`
 	GrantedScopes  []string             `json:"granted_scopes"`
 	Form           interactionform.Form `json:"form"`
+
+	// ResourceMetadataURL is the resource_metadata named by the server's
+	// challenge. Authorization discovers the OAuth server from it, since a
+	// server that answers discovery anonymously cannot be re-probed for auth.
+	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
 }
 
 type NewRequestInput struct {
@@ -46,6 +51,8 @@ type NewRequestInput struct {
 	AgentConfigID  uuid.UUID
 	RequiredScopes []string
 	GrantedScopes  []string
+
+	ResourceMetadataURL string
 }
 
 func NewRequest(input NewRequestInput) (Request, error) {
@@ -57,6 +64,8 @@ func NewRequest(input NewRequestInput) (Request, error) {
 		AgentConfigID:  input.AgentConfigID,
 		RequiredScopes: input.RequiredScopes,
 		GrantedScopes:  input.GrantedScopes,
+
+		ResourceMetadataURL: input.ResourceMetadataURL,
 	}
 	if input.SecretID != uuid.Nil {
 		secretID := input.SecretID
@@ -177,6 +186,7 @@ func (request *Request) normalize() {
 	request.ToolName = strings.TrimSpace(request.ToolName)
 	request.MCPURL = strings.TrimSpace(request.MCPURL)
 	request.SecretName = strings.TrimSpace(request.SecretName)
+	request.ResourceMetadataURL = strings.TrimSpace(request.ResourceMetadataURL)
 	request.RequiredScopes = UnionScopes(request.RequiredScopes)
 	request.GrantedScopes = UnionScopes(request.GrantedScopes)
 	if request.RequiredScopes == nil {

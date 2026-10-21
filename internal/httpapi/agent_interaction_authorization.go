@@ -115,8 +115,19 @@ func (s strictOpenAPIServer) StartAgentInteractionAuthorization(
 		OwnerProjectID: scope.project.ID,
 	}
 	secretName := authorization.SecretName
-	if authorization.SecretID != nil {
-		secret, err := s.server.store.Secrets().GetSecret(ctx, scope.project.OrgID, *authorization.SecretID)
+	targetSecretID := authorization.SecretID
+	if targetSecretID == nil {
+		// An earlier grant on this agent may already have connected the server.
+		connected, found, err := s.server.agentMCPOAuthSecretID(ctx, scope.project.ID, scope.agent.ID, authorization)
+		if err != nil {
+			return nil, apierror.ProjectScoped(err)
+		}
+		if found {
+			targetSecretID = &connected
+		}
+	}
+	if targetSecretID != nil {
+		secret, err := s.server.store.Secrets().GetSecret(ctx, scope.project.OrgID, *targetSecretID)
 		if err != nil {
 			return nil, secretAPIError(ctx, err)
 		}
@@ -131,7 +142,7 @@ func (s strictOpenAPIServer) StartAgentInteractionAuthorization(
 		); apiErr != nil {
 			return nil, *apiErr
 		}
-		if apiErr := s.server.checkMCPAuthorizationSecretName(ctx, owner, secretName, authorization.MCPURL); apiErr != nil {
+		if apiErr := s.server.checkMCPAuthorizationSecretName(ctx, owner, secretName); apiErr != nil {
 			return nil, *apiErr
 		}
 	}
@@ -147,9 +158,15 @@ func (s strictOpenAPIServer) StartAgentInteractionAuthorization(
 	if request.Body != nil {
 		body.ReturnTo = request.Body.ReturnTo
 	}
+	// The server already rejected the tool call with this challenge; discovery
+	// may be anonymous, so re-probing would wrongly report no auth required.
+	challenge := &mcp.AuthorizationChallenge{
+		Scopes:              authorization.RequiredScopes,
+		ResourceMetadataURL: authorization.ResourceMetadataURL,
+	}
 	response, apiErr, err := s.startMCPOAuthFlow(ctx, owner, principal, body, &mcpOAuthInteraction{
-		ID: record.ID, ProjectID: scope.project.ID, AgentID: scope.agent.ID,
-	})
+		ID: record.ID, ProjectID: scope.project.ID, AgentID: scope.agent.ID, SecretID: targetSecretID,
+	}, challenge)
 	if err != nil {
 		return nil, err
 	}
@@ -159,14 +176,15 @@ func (s strictOpenAPIServer) StartAgentInteractionAuthorization(
 	return openapi.StartAgentInteractionAuthorization201JSONResponse(response), nil
 }
 
-// checkMCPAuthorizationSecretName refuses to let a first connect write a token
-// into an unrelated secret that happens to share the default name.
+// checkMCPAuthorizationSecretName fails fast when a first connect's secret name
+// is taken. The flow only ever creates that secret, so an existing one belongs
+// to another credential and must not be overwritten.
 func (s *Server) checkMCPAuthorizationSecretName(
 	ctx context.Context,
 	owner mcpOAuthOwner,
-	name, mcpURL string,
+	name string,
 ) *apierror.ResponseError {
-	existing, err := s.store.Secrets().GetSecretByOwnerName(
+	_, err := s.store.Secrets().GetSecretByOwnerName(
 		ctx, owner.OrgID, owner.OwnerKind, owner.OwnerProjectID, owner.OwnerUserID, name,
 	)
 	if errors.Is(err, storeerr.ErrNotFound) {
@@ -176,16 +194,94 @@ func (s *Server) checkMCPAuthorizationSecretName(
 		apiErr := secretAPIError(ctx, err)
 		return &apiErr
 	}
-	var metadata map[string]string
-	_ = json.Unmarshal(existing.Metadata, &metadata)
-	if existing.Kind != secretstore.SecretKindOAuthTokenSet || metadata[secrets.KeyMCPURL] != mcpURL {
-		apiErr := apierror.FromCode(openapi.ErrorCodeConflict, fmt.Sprintf(
-			"secret %q already exists for a different credential; configure the MCP server's auth in the agent config",
-			name,
-		))
-		return &apiErr
+	apiErr := apierror.FromCode(openapi.ErrorCodeConflict, fmt.Sprintf(
+		"secret %q already exists for a different credential; configure the MCP server's auth in the agent config",
+		name,
+	))
+	return &apiErr
+}
+
+// agentMCPOAuthSecretID returns the OAuth secret the agent's current config
+// uses for the request's MCP server, if any.
+func (s *Server) agentMCPOAuthSecretID(
+	ctx context.Context,
+	projectID, agentID uuid.UUID,
+	request mcpauthorization.Request,
+) (uuid.UUID, bool, error) {
+	agent, err := s.store.Execution().GetAgentInProject(ctx, projectID, agentID)
+	if err != nil {
+		return uuid.Nil, false, err
 	}
-	return nil
+	config, found, err := s.store.Execution().GetAgentConfig(ctx, projectID, agent.CurrentConfigID)
+	if err != nil || !found {
+		return uuid.Nil, false, err
+	}
+	contract, err := agentconfig.RuntimeContractFromCompiled(config.CompiledDefinition, config.EffectiveDefinitionHash)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	for _, server := range contract.MCPServers {
+		if server.ServerKey == request.ServerKey && server.URL == request.MCPURL &&
+			server.Auth != nil && server.Auth.Type == agentconfig.MCPAuthTypeOAuth {
+			return server.Auth.SecretID, true, nil
+		}
+	}
+	return uuid.Nil, false, nil
+}
+
+// saveMCPAuthorizationSecret stores an interaction flow's token in exactly the
+// secret the flow was started for: a new version of a bound secret, or a new
+// secret that fails rather than reusing an existing name.
+func (s *Server) saveMCPAuthorizationSecret(
+	ctx context.Context,
+	flow mcp.OAuthFlowState,
+	flowData mcpOAuthFlowData,
+	material secrets.OAuthTokenSetMaterial,
+) (uuid.UUID, error) {
+	actor := identitystore.NewUserPrincipal(flowData.CreatedByUserID)
+	if secretID := flowData.Interaction.SecretID; secretID != nil {
+		existing, err := s.store.Secrets().GetSecret(ctx, flowData.OrgID, *secretID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if existing.Kind != secretstore.SecretKindOAuthTokenSet {
+			return uuid.Nil, fmt.Errorf("secret %s has kind %q, want oauth_token_set", existing.ID, existing.Kind)
+		}
+		metadata, err := mcpOAuthSecretMetadata(existing.Metadata, flowData.Metadata, flow.EndpointURL)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if _, _, err := s.store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
+			OrgID:          flowData.OrgID,
+			SecretID:       existing.ID,
+			Material:       material,
+			Actor:          actor,
+			SecretMetadata: metadata,
+			MCPOAuthFlowID: flowData.FlowID,
+		}); err != nil {
+			return uuid.Nil, err
+		}
+		return existing.ID, nil
+	}
+	metadata, err := mcpOAuthSecretMetadata(nil, flowData.Metadata, flow.EndpointURL)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	record, _, err := s.store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          flowData.OrgID,
+		OwnerKind:      flowData.OwnerKind,
+		OwnerProjectID: flowData.OwnerProjectID,
+		OwnerUserID:    flowData.OwnerUserID,
+		Name:           flowData.SecretName,
+		Metadata:       metadata,
+		Material:       material,
+		Actor:          actor,
+		MCPOAuthFlowID: flowData.FlowID,
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return record.ID, nil
 }
 
 type mcpAuthorizationGrant struct {
@@ -223,13 +319,13 @@ func (s *Server) checkMCPAuthorizationGrant(
 	if len(token.Scopes) > 0 && len(request.MissingScopes(token.Scopes)) > 0 {
 		return mcpAuthorizationGrant{}, "insufficient_scope_granted", nil
 	}
-	if request.SecretID != nil {
+	if link.SecretID != nil {
 		payload, err := s.store.Secrets().ReadProjectAvailableSecretPayload(
 			ctx,
 			secretstore.ReadProjectAvailableSecretPayloadInput{
 				OrgID:     flowData.OrgID,
 				ProjectID: link.ProjectID,
-				SecretID:  *request.SecretID,
+				SecretID:  *link.SecretID,
 				Kind:      secrets.KindOAuthTokenSet,
 			},
 		)
@@ -257,7 +353,7 @@ func (s *Server) finishMCPAuthorizationGrant(
 	grant mcpAuthorizationGrant,
 	secretID uuid.UUID,
 ) string {
-	if grant.request.SecretID == nil {
+	if flowData.Interaction.SecretID == nil {
 		if err := s.attachMCPOAuthSecretToAgentConfig(ctx, grant, secretID); err != nil {
 			logpkg.Error(ctx, fmt.Errorf("attach mcp oauth secret to agent config: %w", err))
 			return "agent_config_update_failed"

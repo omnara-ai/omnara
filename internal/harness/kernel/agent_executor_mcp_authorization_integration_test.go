@@ -118,7 +118,11 @@ func TestAgentExecutorParksMCPToolOnAuthorizationAndResumesAfterGrant(t *testing
 	require.Equal(t, "calendar", request.ServerKey)
 	require.Equal(t, "create_event", request.ToolName)
 	require.Nil(t, request.SecretID)
-	require.Equal(t, "calendar-oauth", request.SecretName)
+	publicAgentID, err := publicid.Encode(publicid.KindAgent, launch.Agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, "calendar-oauth-"+publicAgentID, request.SecretName)
+	require.Equal(t,
+		"https://calendar.example.com/.well-known/oauth-protected-resource", request.ResourceMetadataURL)
 	require.Equal(t, []string{"calendar.events"}, request.RequiredScopes)
 	toolCall, err := fixture.Store.Execution().GetToolCall(
 		ctx, kernelTestProjectID, launch.Agent.ID, interaction.ToolCallID,
