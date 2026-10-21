@@ -1,6 +1,6 @@
 module github.com/omnara-ai/omnara/tools/ci
 
-go 1.27.2
+go 1.27.3
 
 tool (
 	github.com/air-verse/air
