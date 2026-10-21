@@ -220,50 +220,58 @@ func TestUnchangedToolReadinessPreservesNotificationsAndWebhooks(t *testing.T) {
 
 func TestCompletedToolBatchFactsMatchReconstruction(t *testing.T) {
 	for _, size := range []int{1, 2} {
-		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			f, a := stepFixture(t)
-			u, _, work, prepared := claimPreparedStep(t, f)
-			require.NoError(t, u.Commit(t.Context(), "prepare"))
-			u, h := f.handle(t, a)
-			output, err := h.AcceptOutput(t.Context(), stepToolOutput(prepared, work.RuntimeID, size))
-			require.NoError(t, err)
-			require.NoError(t, u.Commit(t.Context(), "output"))
-			u, h = f.handle(t, a)
-			tools, err := h.Claim(t.Context(), uuid.New(), time.Minute)
-			require.NoError(t, err)
-			require.NoError(t, u.Commit(t.Context(), "claim tools"))
-			u, h = f.handle(t, a)
-			for _, call := range output.Tools {
-				_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
-					ToolRef:   agentexecution.ToolRef{ID: call.ID, RuntimeLockID: tools.RuntimeID},
-					Authorize: true, Outcome: "succeeded",
+		for _, inline := range []bool{false, true} {
+			t.Run(strconv.Itoa(size)+"/inline="+strconv.FormatBool(inline), func(t *testing.T) {
+				f, a := stepFixture(t)
+				u, _, work, prepared := claimPreparedStep(t, f)
+				require.NoError(t, u.Commit(t.Context(), "prepare"))
+				u, h := f.handle(t, a)
+				output, err := h.AcceptOutput(t.Context(), stepToolOutput(prepared, work.RuntimeID, size))
+				require.NoError(t, err)
+				require.NoError(t, u.Commit(t.Context(), "output"))
+				u, h = f.handle(t, a)
+				tools, err := h.Claim(t.Context(), uuid.New(), time.Minute)
+				require.NoError(t, err)
+				if !inline {
+					require.NoError(t, u.Commit(t.Context(), "claim tools"))
+					u, h = f.handle(t, a)
+				}
+				for _, call := range output.Tools {
+					_, err = h.CompleteTool(t.Context(), agentexecution.ToolCompletion{
+						ToolRef:   agentexecution.ToolRef{ID: call.ID, RuntimeLockID: tools.RuntimeID},
+						Authorize: true, Outcome: "succeeded",
+					})
+					require.NoError(t, err)
+				}
+				finished, transferred, err := h.FinishToolBatch(t.Context(), tools.RuntimeID, output.ID)
+				require.NoError(t, err)
+				require.True(t, finished)
+				require.False(t, transferred)
+				trace, err := agentexecution.TraceExecutionCommand(u, func() error {
+					return u.Commit(t.Context(), "complete batch")
 				})
 				require.NoError(t, err)
-			}
-			finished, transferred, err := h.FinishToolBatch(t.Context(), tools.RuntimeID, output.ID)
-			require.NoError(t, err)
-			require.True(t, finished)
-			require.False(t, transferred)
-			trace, err := agentexecution.TraceExecutionCommand(u, func() error {
-				return u.Commit(t.Context(), "complete batch")
-			})
-			require.NoError(t, err)
-			facts := 0
-			for _, statement := range trace {
-				require.NotContains(t, statement.Query.SQL, "name: LoadExecutionContexts")
-				if strings.Contains(statement.Query.SQL, "name: LoadExecutionFacts") {
-					facts++
-					require.NotNil(t, statement.Query.Arguments[1])
+				facts := 0
+				for _, statement := range trace {
+					require.NotContains(t, statement.Query.SQL, "name: LoadExecutionContexts")
+					if strings.Contains(statement.Query.SQL, "name: LoadExecutionFacts") {
+						facts++
+						require.NotNil(t, statement.Query.Arguments[1])
+					}
 				}
-			}
-			require.Equal(t, 1, facts)
-			u, h = f.handle(t, a)
-			rebuilt, err := h.ReconstructExecution(t.Context())
-			require.NoError(t, err)
-			var ready time.Time
-			require.NoError(t, u.DB().QueryRow(t.Context(),
-				`SELECT logical_ready_at FROM agent_execution_state WHERE agent_id=$1`, a).Scan(&ready))
-			require.Equal(t, rebuilt.Head.LogicalReadyAt, &ready)
-		})
+				wantFacts := 1
+				if inline {
+					wantFacts = 0
+				}
+				require.Equal(t, wantFacts, facts)
+				u, h = f.handle(t, a)
+				rebuilt, err := h.ReconstructExecution(t.Context())
+				require.NoError(t, err)
+				var ready time.Time
+				require.NoError(t, u.DB().QueryRow(t.Context(),
+					`SELECT logical_ready_at FROM agent_execution_state WHERE agent_id=$1`, a).Scan(&ready))
+				require.Equal(t, rebuilt.Head.LogicalReadyAt, &ready)
+			})
+		}
 	}
 }

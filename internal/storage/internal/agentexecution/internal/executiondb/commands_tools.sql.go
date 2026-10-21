@@ -13,43 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const closeExecutionToolInteractions = `-- name: CloseExecutionToolInteractions :many
-UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
-WHERE agent_id=$1 AND tool_call_id=$2 AND state='open'
-RETURNING id,interaction_kind,state
-`
-
-type CloseExecutionToolInteractionsParams struct {
-	AgentID uuid.UUID
-	ToolID  uuid.UUID
-}
-
-type CloseExecutionToolInteractionsRow struct {
-	ID              uuid.UUID
-	InteractionKind string
-	State           string
-}
-
-func (q *Queries) CloseExecutionToolInteractions(ctx context.Context, db DBTX, arg CloseExecutionToolInteractionsParams) ([]CloseExecutionToolInteractionsRow, error) {
-	rows, err := db.Query(ctx, closeExecutionToolInteractions, arg.AgentID, arg.ToolID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []CloseExecutionToolInteractionsRow{}
-	for rows.Next() {
-		var i CloseExecutionToolInteractionsRow
-		if err := rows.Scan(&i.ID, &i.InteractionKind, &i.State); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const executionToolBatchOwnership = `-- name: ExecutionToolBatchOwnership :one
 SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS present,
  EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2

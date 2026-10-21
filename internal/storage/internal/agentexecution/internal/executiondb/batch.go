@@ -19,6 +19,136 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
+const advanceExecutionTurn = `-- name: AdvanceExecutionTurn :batchone
+UPDATE agent_turns SET latest_event_id=$1,
+ latest_semantic_event_id=CASE WHEN $2::boolean THEN $1 ELSE latest_semantic_event_id END
+WHERE agent_id=$3 AND id=$4
+RETURNING id
+`
+
+type AdvanceExecutionTurnBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type AdvanceExecutionTurnParams struct {
+	EventID  uuid.UUID
+	Semantic bool
+	AgentID  uuid.UUID
+	TurnID   uuid.UUID
+}
+
+func (q *Queries) AdvanceExecutionTurn(ctx context.Context, db DBTX, arg []AdvanceExecutionTurnParams) *AdvanceExecutionTurnBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.EventID,
+			a.Semantic,
+			a.AgentID,
+			a.TurnID,
+		}
+		batch.Queue(advanceExecutionTurn, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &AdvanceExecutionTurnBatchResults{br, len(arg), false}
+}
+
+func (b *AdvanceExecutionTurnBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *AdvanceExecutionTurnBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const closeExecutionToolInteractions = `-- name: CloseExecutionToolInteractions :batchmany
+UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
+WHERE agent_id=$1 AND tool_call_id=$2 AND state='open'
+RETURNING id,interaction_kind,state
+`
+
+type CloseExecutionToolInteractionsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CloseExecutionToolInteractionsParams struct {
+	AgentID uuid.UUID
+	ToolID  uuid.UUID
+}
+
+type CloseExecutionToolInteractionsRow struct {
+	ID              uuid.UUID
+	InteractionKind string
+	State           string
+}
+
+func (q *Queries) CloseExecutionToolInteractions(ctx context.Context, db DBTX, arg []CloseExecutionToolInteractionsParams) *CloseExecutionToolInteractionsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ToolID,
+		}
+		batch.Queue(closeExecutionToolInteractions, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &CloseExecutionToolInteractionsBatchResults{br, len(arg), false}
+}
+
+func (b *CloseExecutionToolInteractionsBatchResults) Query(f func(int, []CloseExecutionToolInteractionsRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []CloseExecutionToolInteractionsRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i CloseExecutionToolInteractionsRow
+				if err := rows.Scan(&i.ID, &i.InteractionKind, &i.State); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *CloseExecutionToolInteractionsBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :batchone
 INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
 SELECT $1,$2,o.id,$3,$4,$5::jsonb,

@@ -13,14 +13,19 @@ import (
 )
 
 type QueryTrace struct {
-	Statements atomic.Int64
-	Begins     atomic.Int64
-	Commits    atomic.Int64
-	OnQuery    func(string)
+	Statements        atomic.Int64
+	RoundTrips        atomic.Int64
+	ExecutionBase     atomic.Int64
+	ExecutionFacts    atomic.Int64
+	ExecutionContexts atomic.Int64
+	Begins            atomic.Int64
+	Commits           atomic.Int64
+	OnQuery           func(string)
 }
 
 func (t *QueryTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	t.Statements.Add(1)
+	t.RoundTrips.Add(1)
+	t.recordStatement(data.SQL)
 	if strings.EqualFold(data.SQL, "begin") {
 		t.Begins.Add(1)
 	}
@@ -34,16 +39,30 @@ func (t *QueryTrace) TraceQueryEnd(_ context.Context, _ *pgx.Conn, data pgx.Trac
 		t.Commits.Add(1)
 	}
 }
-func (*QueryTrace) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
+func (t *QueryTrace) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
+	t.RoundTrips.Add(1)
 	return ctx
 }
 func (t *QueryTrace) TraceBatchQuery(_ context.Context, _ *pgx.Conn, data pgx.TraceBatchQueryData) {
-	t.Statements.Add(1)
+	t.recordStatement(data.SQL)
 	if t.OnQuery != nil {
 		t.OnQuery(data.SQL)
 	}
 }
 func (*QueryTrace) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData) {}
+func (t *QueryTrace) recordStatement(sql string) {
+	t.Statements.Add(1)
+	for name, count := range map[string]*atomic.Int64{
+		"LoadExecutionBase":     &t.ExecutionBase,
+		"LoadExecutionFacts":    &t.ExecutionFacts,
+		"LoadExecutionContexts": &t.ExecutionContexts,
+	} {
+		if strings.Contains(sql, "name: "+name+" ") {
+			count.Add(1)
+		}
+	}
+}
+
 func MultiXacts(t testing.TB, db interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, table string) int {

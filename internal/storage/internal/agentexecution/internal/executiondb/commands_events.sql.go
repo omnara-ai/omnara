@@ -13,32 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const advanceExecutionTurn = `-- name: AdvanceExecutionTurn :execrows
-UPDATE agent_turns SET latest_event_id=$1,
- latest_semantic_event_id=CASE WHEN $2::boolean THEN $1 ELSE latest_semantic_event_id END
-WHERE agent_id=$3 AND id=$4
-`
-
-type AdvanceExecutionTurnParams struct {
-	EventID  uuid.UUID
-	Semantic bool
-	AgentID  uuid.UUID
-	TurnID   uuid.UUID
-}
-
-func (q *Queries) AdvanceExecutionTurn(ctx context.Context, db DBTX, arg AdvanceExecutionTurnParams) (int64, error) {
-	result, err := db.Exec(ctx, advanceExecutionTurn,
-		arg.EventID,
-		arg.Semantic,
-		arg.AgentID,
-		arg.TurnID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const appendExecutionEvent = `-- name: AppendExecutionEvent :one
 WITH payload AS MATERIALIZED (
  SELECT agent_payload_created_at($11,$2,CASE WHEN $8::uuid IS NOT NULL THEN 'tool_call_result' ELSE $4 END,

@@ -85,3 +85,59 @@ func (q *Queries) LoadExecutionBase(ctx context.Context, db DBTX, arg LoadExecut
 	)
 	return i, err
 }
+
+const loadExecutionToolBatch = `-- name: LoadExecutionToolBatch :one
+WITH batch AS (
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS has_tools,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND c.state<>'completed') AS incomplete,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2
+AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE $2::uuid IS NOT NULL) present
+), tool_batch AS (
+SELECT b.has_tools,b.incomplete,b.runnable,coalesce(r.calls,0)::bigint AS calls,coalesce(r.results,0)::bigint AS results,
+coalesce(r.events,0)::bigint AS events,coalesce(r.last_sequence,0)::bigint AS last_sequence,
+coalesce(r.ready_at,'epoch'::timestamptz)::timestamptz AS ready_at
+FROM batch b LEFT JOIN LATERAL (
+SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
+max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
+FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
+WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
+) r ON NOT b.incomplete
+)
+SELECT has_tools,incomplete,runnable,calls,results,events,last_sequence,ready_at,
+statement_timestamp()::timestamptz AS database_now FROM tool_batch
+`
+
+type LoadExecutionToolBatchParams struct {
+	AgentID      uuid.UUID
+	ToolOutputID *uuid.UUID
+}
+
+type LoadExecutionToolBatchRow struct {
+	HasTools     bool
+	Incomplete   bool
+	Runnable     bool
+	Calls        int64
+	Results      int64
+	Events       int64
+	LastSequence int64
+	ReadyAt      time.Time
+	DatabaseNow  time.Time
+}
+
+func (q *Queries) LoadExecutionToolBatch(ctx context.Context, db DBTX, arg LoadExecutionToolBatchParams) (LoadExecutionToolBatchRow, error) {
+	row := db.QueryRow(ctx, loadExecutionToolBatch, arg.AgentID, arg.ToolOutputID)
+	var i LoadExecutionToolBatchRow
+	err := row.Scan(
+		&i.HasTools,
+		&i.Incomplete,
+		&i.Runnable,
+		&i.Calls,
+		&i.Results,
+		&i.Events,
+		&i.LastSequence,
+		&i.ReadyAt,
+		&i.DatabaseNow,
+	)
+	return i, err
+}

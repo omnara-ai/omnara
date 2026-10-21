@@ -17,6 +17,7 @@ type executionMutation struct {
 	insertHead       bool
 	dirty            bool
 	selectionChanged bool
+	toolBatchChanged bool
 	loaded           *ExecutionSnapshot
 }
 
@@ -69,6 +70,11 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 	for _, h := range u.orderedHandles() {
 		if h.mutation == nil || !h.mutation.dirty {
 			continue
+		}
+		if h.mutation.toolBatchChanged {
+			if _, err := h.LoadExecution(ctx); err != nil {
+				return err
+			}
 		}
 		handles = append(handles, h)
 		if h.mutation.loaded == nil && h.mutation.selectionChanged {
@@ -130,6 +136,7 @@ func executeCommand[T any](
 
 func (m *executionMutation) changed() {
 	m.knownContexts = nil
+	m.toolBatchChanged = false
 	m.dirty = true
 	m.selectionChanged = true
 	m.loaded = nil
@@ -156,4 +163,14 @@ func (m *executionMutation) updated(snapshot ExecutionSnapshot) error {
 	m.dirty = true
 	m.loaded = &snapshot
 	return m.selectLoaded()
+}
+
+func (m *executionMutation) changedTools() {
+	if m.loaded == nil || m.loaded.View.ToolBatch == nil {
+		m.changed()
+		return
+	}
+	m.dirty = true
+	m.selectionChanged = true
+	m.toolBatchChanged = true
 }

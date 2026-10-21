@@ -25,7 +25,7 @@ SELECT c.agent_id,c.id,sqlc.arg(outcome),statement_timestamp() FROM tool_calls c
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='completed'
 RETURNING id,completed_at;
 
--- name: CloseExecutionToolInteractions :many
+-- name: CloseExecutionToolInteractions :batchmany
 UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
 WHERE agent_id=sqlc.arg(agent_id) AND tool_call_id=sqlc.arg(tool_id) AND state='open'
 RETURNING id,interaction_kind,state;

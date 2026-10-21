@@ -64,7 +64,7 @@ func (h *Handle) transitionTool(
 		return state == "awaiting_authorization" || state == "ready" && (row.Type == "built_in" || row.Type == "mcp")
 	}
 	if (row.State == "completed") != (state == "completed") || runnable(row.State) != runnable(state) {
-		m.changed()
+		m.changedTools()
 	}
 	return nil
 }
@@ -302,16 +302,20 @@ func (h *Handle) completeTool(
 		TurnID:        row.TurnID,
 		EventBoundary: EventBoundary{Sequence: event.Sequence, Time: event.CreatedAt},
 	}
-	if err = h.advanceTurn(ctx, admitted, false); err != nil {
-		return CompletedTool{}, err
-	}
-	closed, err := q.CloseExecutionToolInteractions(
-		ctx,
-		h.unit.DB(),
-		executiondb.CloseExecutionToolInteractionsParams{
-			AgentID: h.route.AgentID, ToolID: row.ID},
-	)
-	if err != nil {
+	batch := factsBatch{DBTX: h.unit.DB()}
+	h.queueTurnAdvance(ctx, &batch, admitted, false)
+	interactions := q.CloseExecutionToolInteractions(ctx, &batch, []executiondb.CloseExecutionToolInteractionsParams{{
+		AgentID: h.route.AgentID, ToolID: row.ID,
+	}})
+	var closed []executiondb.CloseExecutionToolInteractionsRow
+	batch.readers = append(batch.readers, func() {
+		interactions.Query(func(_ int, rows []executiondb.CloseExecutionToolInteractionsRow, err error) {
+			closed = rows
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, interactions.Close())
+	})
+	if err := batch.read(ctx); err != nil {
 		return CompletedTool{}, err
 	}
 	for _, i := range closed {

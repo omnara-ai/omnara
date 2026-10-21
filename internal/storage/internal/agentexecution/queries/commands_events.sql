@@ -18,10 +18,11 @@ INSERT INTO agent_turns(id,agent_id,turn_sequence,latest_event_id,latest_semanti
 SELECT sqlc.arg(id),sqlc.arg(agent_id),coalesce((SELECT max(turn_sequence)+1 FROM agent_turns
  WHERE agent_id=sqlc.arg(agent_id)),1),sqlc.arg(event_id),sqlc.arg(event_id);
 
--- name: AdvanceExecutionTurn :execrows
+-- name: AdvanceExecutionTurn :batchone
 UPDATE agent_turns SET latest_event_id=sqlc.arg(event_id),
  latest_semantic_event_id=CASE WHEN sqlc.arg(semantic)::boolean THEN sqlc.arg(event_id) ELSE latest_semantic_event_id END
-WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(turn_id);
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(turn_id)
+RETURNING id;
 
 -- name: InsertExecutionContent :execrows
 WITH payload AS MATERIALIZED (

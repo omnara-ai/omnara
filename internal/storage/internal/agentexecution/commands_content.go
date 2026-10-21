@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
@@ -171,12 +172,24 @@ func (h *Handle) writePreparedContent(
 }
 
 func (h *Handle) advanceTurn(ctx context.Context, event ExecutionEvent, semantic bool) error {
-	n, err := executiondb.New().AdvanceExecutionTurn(ctx, h.unit.DB(), executiondb.AdvanceExecutionTurnParams{
-		AgentID: h.route.AgentID, TurnID: event.TurnID, EventID: event.ID, Semantic: semantic})
-	if err == nil && n != 1 {
-		return ErrInvalidState
-	}
-	return err
+	batch := factsBatch{DBTX: h.unit.DB()}
+	h.queueTurnAdvance(ctx, &batch, event, semantic)
+	return batch.read(ctx)
+}
+
+func (h *Handle) queueTurnAdvance(ctx context.Context, batch *factsBatch, event ExecutionEvent, semantic bool) {
+	rows := executiondb.New().AdvanceExecutionTurn(ctx, batch, []executiondb.AdvanceExecutionTurnParams{{
+		AgentID: h.route.AgentID, TurnID: event.TurnID, EventID: event.ID, Semantic: semantic,
+	}})
+	batch.readers = append(batch.readers, func() {
+		rows.QueryRow(func(_ int, id uuid.UUID, err error) {
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && id != event.TurnID {
+				err = ErrInvalidState
+			}
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, rows.Close())
+	})
 }
 
 func (m *executionMutation) openTurn(id uuid.UUID) {

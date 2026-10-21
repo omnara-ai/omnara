@@ -262,7 +262,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
-				m.changed()
+				m.changedTools()
 				break
 			}
 		}
