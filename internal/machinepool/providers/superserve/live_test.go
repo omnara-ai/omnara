@@ -54,14 +54,30 @@ func TestSuperserveProviderLiveSmoke(t *testing.T) {
 	machineID := uuid.New()
 	cleanupResourceID := ""
 	t.Cleanup(func() {
-		if cleanupResourceID == "" {
-			return
-		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		if err := machineProvider.DeleteMachine(
-			cleanupCtx, installationID, machineID, provisioning, cleanupResourceID,
-		); err != nil {
+		id := cleanupResourceID
+		for attempt := 0; id == "" && attempt < 10; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-cleanupCtx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
+			}
+			foundID, found, err := machineProvider.InspectMachine(cleanupCtx, installationID, machineID, provisioning, "")
+			if err != nil {
+				t.Errorf("find live superserve sandbox for cleanup: %v", err)
+				return
+			}
+			if found {
+				id = foundID
+			}
+		}
+		if id == "" {
+			return
+		}
+		if err := machineProvider.DeleteMachine(cleanupCtx, installationID, machineID, provisioning, id); err != nil {
 			t.Errorf("delete live superserve sandbox: %v", err)
 		}
 	})
@@ -76,7 +92,7 @@ func TestSuperserveProviderLiveSmoke(t *testing.T) {
 	}
 	reprovisionCtx, reprovisionCancel := context.WithTimeout(context.Background(), provisioningTimeout)
 	reprovisioned, err := machineProvider.ProvisionMachine(
-		reprovisionCtx, installationID, machineID, provisioning, "live-smoke-token", nil, true,
+		reprovisionCtx, installationID, machineID, provisioning, "live-smoke-token", nil, false,
 	)
 	reprovisionCancel()
 	if err != nil {
@@ -165,18 +181,12 @@ func TestSuperserveProviderLiveSmoke(t *testing.T) {
 	); err != nil {
 		t.Fatalf("delete terminated live superserve sandbox again: %v", err)
 	}
-	cleanupResourceID = ""
 }
 
 type liveTestAPI struct {
 	apiClient
 }
 
-// liveStandInDaemon replaces the managed daemon command in the launcher. The
-// live test has no real machine token, so the daemon's bootstrap would exit as
-// soon as Omnara rejects it, and whether that happens inside the launcher's
-// liveness window is a race. A long-lived stand-in whose command line names
-// omnarad keeps the launcher's detach, pid-file, and relaunch logic under test.
 const liveStandInDaemon = "exec /bin/sh -c 'while :; do sleep 60; done' omnarad-live-stand-in"
 
 func (a liveTestAPI) Exec(ctx context.Context, session execSession, request execRequest) (execResult, error) {

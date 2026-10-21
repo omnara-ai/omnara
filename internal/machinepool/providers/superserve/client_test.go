@@ -43,7 +43,7 @@ func TestSuperserveRESTClientSendsTheAPIKeyAndDecodesBareLists(t *testing.T) {
 		if r.Header.Get(apiKeyHeader) != "test-key" {
 			t.Errorf("api key header = %q", r.Header.Get(apiKeyHeader))
 		}
-		if r.URL.Path != "/templates" || r.URL.Query().Get("q") != "superserve/base" || r.URL.Query().Get("limit") != "200" {
+		if r.URL.Path != "/templates" || r.URL.Query().Get("q") != "superserve/base" || r.URL.Query().Has("limit") {
 			t.Errorf("templates request = %s", r.URL.String())
 		}
 		_, _ = w.Write([]byte(`[{"id":"tpl-1","name":"superserve/base","status":"ready","vcpu":1,"memory_mib":1024}]`))
@@ -55,19 +55,6 @@ func TestSuperserveRESTClientSendsTheAPIKeyAndDecodesBareLists(t *testing.T) {
 	if len(templates) != 1 || templates[0].Name != "superserve/base" ||
 		templates[0].VCPU != 1 || templates[0].MemoryMiB != 1024 {
 		t.Fatalf("templates = %+v, want the base template", templates)
-	}
-}
-
-func TestSuperserveRESTClientDecodesItemEnvelopes(t *testing.T) {
-	client := newTestRESTClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"items":[{"id":"tpl-1","name":"custom","status":"building"}]}`))
-	})
-	templates, err := client.ListTemplates(context.Background(), "custom")
-	if err != nil {
-		t.Fatalf("list templates: %v", err)
-	}
-	if len(templates) != 1 || templates[0].Status != "building" {
-		t.Fatalf("templates = %+v, want the enveloped template", templates)
 	}
 }
 
@@ -107,24 +94,14 @@ func TestSuperserveRESTClientCreatesSandboxes(t *testing.T) {
 	}
 }
 
-func TestSuperserveRESTClientPagesThroughMetadataFilteredSandboxes(t *testing.T) {
-	var offsets []string
+func TestSuperserveRESTClientListsMetadataFilteredSandboxes(t *testing.T) {
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		if r.URL.Path != "/sandboxes" || query.Get("metadata.omnara-machine") != "mch_1" ||
-			query.Get("metadata.omnara-installation") != "ins_1" || query.Get("limit") != "200" {
+			query.Get("metadata.omnara-installation") != "ins_1" || query.Has("limit") || query.Has("offset") {
 			t.Errorf("list request = %s", r.URL.String())
 		}
-		offsets = append(offsets, query.Get("offset"))
-		if query.Get("offset") == "0" {
-			items := make([]string, listPageSize)
-			for i := range items {
-				items[i] = `{"id":"sb-page"}`
-			}
-			_, _ = w.Write([]byte("[" + strings.Join(items, ",") + "]"))
-			return
-		}
-		_, _ = w.Write([]byte(`[{"id":"sb-last"}]`))
+		_, _ = w.Write([]byte(`[{"id":"sb-1"},{"id":"sb-2"}]`))
 	})
 	sandboxes, err := client.ListSandboxes(context.Background(), map[string]string{
 		"omnara-installation": "ins_1",
@@ -133,11 +110,8 @@ func TestSuperserveRESTClientPagesThroughMetadataFilteredSandboxes(t *testing.T)
 	if err != nil {
 		t.Fatalf("list sandboxes: %v", err)
 	}
-	if len(sandboxes) != listPageSize+1 || sandboxes[listPageSize].ID != "sb-last" {
-		t.Fatalf("sandboxes = %d, want both pages", len(sandboxes))
-	}
-	if strings.Join(offsets, ",") != "0,200" {
-		t.Fatalf("offsets = %v, want every page read", offsets)
+	if len(sandboxes) != 2 || sandboxes[1].ID != "sb-2" {
+		t.Fatalf("sandboxes = %+v, want the full list", sandboxes)
 	}
 }
 
@@ -203,7 +177,7 @@ func TestSuperserveRESTClientExecUsesTheDataPlane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
-	if result.ExitCode != 3 || result.Stdout != "ok\n" {
+	if result.ExitCode != 3 {
 		t.Fatalf("exec result = %+v", result)
 	}
 	if received.Command != "/bin/sh" || len(received.Args) != 2 || received.Env["A"] != "b" ||

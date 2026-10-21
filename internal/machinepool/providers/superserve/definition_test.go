@@ -35,7 +35,7 @@ func TestSuperserveProviderConfigRejectsUnknownAndInvalidFields(t *testing.T) {
 	}
 }
 
-func TestSuperserveProviderOptionsDefaultToTheBaseTemplate(t *testing.T) {
+func TestSuperserveProviderOptionsDefaultToTheOmnaraTemplate(t *testing.T) {
 	for name, raw := range map[string]map[string]json.RawMessage{
 		"nil":   nil,
 		"empty": {},
@@ -45,7 +45,7 @@ func TestSuperserveProviderOptionsDefaultToTheBaseTemplate(t *testing.T) {
 			t.Fatalf("%s: parse provider options: %v", name, err)
 		}
 		if options.Template != "" || options.template() != defaultTemplate {
-			t.Fatalf("%s: provider options = %+v, want the base template by default", name, options)
+			t.Fatalf("%s: provider options = %+v, want superserve/omnara by default", name, options)
 		}
 	}
 	options, err := parseProviderOptions(testOptions(t, " acme/agent-box ", "echo ready"))

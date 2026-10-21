@@ -1,12 +1,11 @@
 set -u
-# Superserve guests mount a bare devtmpfs without the /dev/fd and standard
-# stream links that scripts (including the daemon bootstrap) expect.
 [ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd
 [ -e /dev/stdin ] || ln -s /proc/self/fd/0 /dev/stdin
 [ -e /dev/stdout ] || ln -s /proc/self/fd/1 /dev/stdout
 [ -e /dev/stderr ] || ln -s /proc/self/fd/2 /dev/stderr
+grep -qs ' /dev/shm ' /proc/mounts || { mkdir -p /dev/shm && mount -t tmpfs -o nosuid,nodev tmpfs /dev/shm; }
 umask 077
-d=${HOME:-/tmp}/.omnara-superserve
+d=${OMNARA_HOME:-${HOME:-/tmp}}/.omnara-superserve
 mkdir -p "$d" || exit 1
 if [ -f "$d/pid" ]; then
   p=$(cat "$d/pid" 2>/dev/null)
@@ -17,8 +16,6 @@ if [ -f "$d/pid" ]; then
   fi
 fi
 : >"$d/log"
-# setsid gives the daemon its own session when the image has it; otherwise
-# ignoring SIGHUP with detached stdio is enough to outlive this exec session.
 detach=
 if command -v setsid >/dev/null 2>&1; then detach=setsid; fi
 $detach /bin/sh -c 'trap "" HUP; echo $$ >"$1/pid" && exec /bin/sh -c "$2"' omnara-daemon "$d" "$1" \

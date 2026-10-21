@@ -286,7 +286,7 @@ const superserve: MachinePoolProviderDefinition = {
     placeholder: 'superserve/omnara',
     optional: true,
     description:
-      "Leave empty to use superserve/omnara, Superserve's template with Omnara's default development tools, or enter one of your team's template names. Machines take the template's vCPU and memory, so the maximums must be at least that size.",
+      "Leave empty to use superserve/omnara, Superserve's template with Omnara's default development tools, or enter a template name. Machines take the template's vCPU and memory, so the maximums must be at least that size.",
     descriptionHref: 'https://docs.superserve.ai/templates/overview',
   },
   resources: {

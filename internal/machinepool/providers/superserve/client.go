@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
@@ -19,15 +18,12 @@ import (
 const (
 	defaultAPIBaseURL  = "https://api.superserve.ai"
 	defaultSandboxHost = "sandbox.superserve.ai"
-	listPageSize       = 200
 	apiKeyHeader       = "X-Api-Key"
 	sandboxIDHeader    = "X-Superserve-Sandbox-Id"
 	accessTokenHeader  = "X-Access-Token"
 	routingHintHeader  = "X-Superserve-Routing-Hint"
 )
 
-// Superserve API keys carry their home region, which selects the control plane
-// and the shared data-plane host, as the official SDK does.
 var regionKeyPattern = regexp.MustCompile(`^ss_live_([a-z0-9]{1,17})_[A-Za-z0-9_-]{32}$`)
 
 type regionEndpoints struct {
@@ -65,7 +61,6 @@ const (
 const templateStatusReady = "ready"
 
 type template struct {
-	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	VCPU      int    `json:"vcpu"`
@@ -74,11 +69,9 @@ type template struct {
 
 type sandbox struct {
 	ID          string            `json:"id"`
-	Name        string            `json:"name"`
 	Status      sandboxStatus     `json:"status"`
 	VCPUCount   int               `json:"vcpu_count"`
 	MemoryMiB   int               `json:"memory_mib"`
-	CreatedAt   time.Time         `json:"created_at"`
 	Metadata    map[string]string `json:"metadata"`
 	AccessToken string            `json:"access_token"`
 	RoutingHint string            `json:"routing_hint"`
@@ -90,7 +83,6 @@ type createSandboxRequest struct {
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
-// execSession carries the data-plane credentials that activate returns.
 type execSession struct {
 	SandboxID   string
 	AccessToken string
@@ -105,7 +97,6 @@ type execRequest struct {
 }
 
 type execResult struct {
-	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 }
@@ -140,9 +131,9 @@ func newRESTClient(endpoints regionEndpoints, apiKey string, httpClient *http.Cl
 }
 
 func (c *restClient) ListTemplates(ctx context.Context, query string) ([]template, error) {
-	values := url.Values{"q": {query}, "limit": {strconv.Itoa(listPageSize)}}
+	values := url.Values{"q": {query}}
 	var templates []template
-	if err := c.control(ctx, http.MethodGet, "/templates?"+values.Encode(), nil, listDecoder(&templates)); err != nil {
+	if err := c.control(ctx, http.MethodGet, "/templates?"+values.Encode(), nil, &templates); err != nil {
 		return nil, err
 	}
 	return templates, nil
@@ -150,34 +141,25 @@ func (c *restClient) ListTemplates(ctx context.Context, query string) ([]templat
 
 func (c *restClient) CreateSandbox(ctx context.Context, request createSandboxRequest) (sandbox, error) {
 	var created sandbox
-	err := c.control(ctx, http.MethodPost, "/sandboxes", request, jsonDecoder(&created))
+	err := c.control(ctx, http.MethodPost, "/sandboxes", request, &created)
 	return created, err
 }
 
 func (c *restClient) ListSandboxes(ctx context.Context, metadata map[string]string) ([]sandbox, error) {
-	var sandboxes []sandbox
-	for offset := 0; ; offset += listPageSize {
-		values := url.Values{
-			"limit":  {strconv.Itoa(listPageSize)},
-			"offset": {strconv.Itoa(offset)},
-		}
-		for key, value := range metadata {
-			values.Set("metadata."+key, value)
-		}
-		var page []sandbox
-		if err := c.control(ctx, http.MethodGet, "/sandboxes?"+values.Encode(), nil, listDecoder(&page)); err != nil {
-			return nil, err
-		}
-		sandboxes = append(sandboxes, page...)
-		if len(page) < listPageSize {
-			return sandboxes, nil
-		}
+	values := url.Values{}
+	for key, value := range metadata {
+		values.Set("metadata."+key, value)
 	}
+	var sandboxes []sandbox
+	if err := c.control(ctx, http.MethodGet, "/sandboxes?"+values.Encode(), nil, &sandboxes); err != nil {
+		return nil, err
+	}
+	return sandboxes, nil
 }
 
 func (c *restClient) GetSandbox(ctx context.Context, id string) (sandbox, bool, error) {
 	var current sandbox
-	err := c.control(ctx, http.MethodGet, "/sandboxes/"+url.PathEscape(id), nil, jsonDecoder(&current))
+	err := c.control(ctx, http.MethodGet, "/sandboxes/"+url.PathEscape(id), nil, &current)
 	if isNotFound(err) {
 		return sandbox{}, false, nil
 	}
@@ -186,7 +168,7 @@ func (c *restClient) GetSandbox(ctx context.Context, id string) (sandbox, bool, 
 
 func (c *restClient) ActivateSandbox(ctx context.Context, id string) (sandbox, error) {
 	var activated sandbox
-	err := c.control(ctx, http.MethodPost, "/sandboxes/"+url.PathEscape(id)+"/activate", nil, jsonDecoder(&activated))
+	err := c.control(ctx, http.MethodPost, "/sandboxes/"+url.PathEscape(id)+"/activate", nil, &activated)
 	return activated, err
 }
 
@@ -207,25 +189,23 @@ func (c *restClient) Exec(ctx context.Context, session execSession, request exec
 		headers[routingHintHeader] = session.RoutingHint
 	}
 	var result execResult
-	err := c.do(ctx, http.MethodPost, "https://"+c.sandboxHost+"/exec", headers, request, jsonDecoder(&result))
+	err := c.do(ctx, http.MethodPost, "https://"+c.sandboxHost+"/exec", headers, request, &result)
 	return result, err
 }
 
 func (c *restClient) control(
 	ctx context.Context,
 	method, path string,
-	body any,
-	decode func([]byte) error,
+	body, out any,
 ) error {
-	return c.do(ctx, method, c.apiBaseURL+path, map[string]string{apiKeyHeader: c.apiKey}, body, decode)
+	return c.do(ctx, method, c.apiBaseURL+path, map[string]string{apiKeyHeader: c.apiKey}, body, out)
 }
 
 func (c *restClient) do(
 	ctx context.Context,
 	method, requestURL string,
 	headers map[string]string,
-	body any,
-	decode func([]byte) error,
+	body, out any,
 ) error {
 	response, err := providers.DoHTTPResponse(ctx, c.httpClient, providers.Superserve, method, requestURL, headers, body)
 	if err != nil {
@@ -234,36 +214,13 @@ func (c *restClient) do(
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return providers.WithResponse(apiErrorFromResponse(response), response)
 	}
-	if decode == nil || len(bytes.TrimSpace(response.Body)) == 0 {
+	if out == nil || len(bytes.TrimSpace(response.Body)) == 0 {
 		return nil
 	}
-	if err := decode(response.Body); err != nil {
+	if err := json.Unmarshal(response.Body, out); err != nil {
 		return fmt.Errorf("decode superserve response: %w", err)
 	}
 	return nil
-}
-
-func jsonDecoder(out any) func([]byte) error {
-	return func(body []byte) error { return json.Unmarshal(body, out) }
-}
-
-// listDecoder accepts both the bare array the API returns today and the
-// documented {"items": [...]} envelope.
-func listDecoder[T any](out *[]T) func([]byte) error {
-	return func(body []byte) error {
-		trimmed := bytes.TrimSpace(body)
-		if len(trimmed) > 0 && trimmed[0] == '[' {
-			return json.Unmarshal(trimmed, out)
-		}
-		var envelope struct {
-			Items []T `json:"items"`
-		}
-		if err := json.Unmarshal(trimmed, &envelope); err != nil {
-			return err
-		}
-		*out = envelope.Items
-		return nil
-	}
 }
 
 type apiError struct {
@@ -310,17 +267,19 @@ func isNotFound(err error) bool {
 	return apiStatusCode(err) == http.StatusNotFound
 }
 
-// transientAPIError reports failures worth retrying: transport errors, rate
-// limits, capacity limits, state conflicts, and server errors.
 func transientAPIError(err error) bool {
 	status := apiStatusCode(err)
 	return status == 0 || status == http.StatusConflict || status == http.StatusTooManyRequests ||
 		status == http.StatusRequestTimeout || status >= http.StatusInternalServerError
 }
 
-// sandboxUnavailable reports data-plane failures that a fresh activate can fix:
-// a paused sandbox or an expired access token.
 func sandboxUnavailable(err error) bool {
 	status := apiStatusCode(err)
 	return status == http.StatusUnauthorized || status == http.StatusServiceUnavailable
+}
+
+func isDialError(err error) bool {
+	var dnsErr *net.DNSError
+	var opErr *net.OpError
+	return errors.As(err, &dnsErr) || errors.As(err, &opErr) && opErr.Op == "dial"
 }

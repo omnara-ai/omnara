@@ -34,8 +34,6 @@ type Definition struct{}
 var _ providers.Definition = Definition{}
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-// ResourcePolicy lets the template decide each machine's size: a Superserve
-// sandbox inherits its vCPU and memory from the template it boots from.
 func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{

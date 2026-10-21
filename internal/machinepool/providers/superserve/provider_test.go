@@ -3,6 +3,7 @@ package superserve
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -28,6 +29,18 @@ func provisionTestMachine(
 	)
 }
 
+func provisionLaterAttempt(
+	t *testing.T,
+	api *fakeAPI,
+	installationID, machineID uuid.UUID,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) (providers.ProvisionMachineResult, error) {
+	t.Helper()
+	return newTestProvider(api).ProvisionMachine(
+		context.Background(), installationID, machineID, machineProvisioning, "machine-token", nil, false,
+	)
+}
+
 func sizedProvisioning(t *testing.T, templateName string, cpu, memoryMB int) executionstore.MachineProvisioningConfig {
 	t.Helper()
 	provisioning := testMachineProvisioning(t, templateName, "")
@@ -49,49 +62,28 @@ func TestSuperservePrepareProvisioningKeepsConfiguredResources(t *testing.T) {
 	}
 }
 
-func TestSuperserveCheckConnectionResolvesTheTemplate(t *testing.T) {
+func TestSuperserveCheckConnectionOnlyChecksAPIAccess(t *testing.T) {
 	api := newFakeAPI()
-	api.templates = []template{
-		{ID: "tpl-1", Name: defaultTemplate, Status: templateStatusReady, VCPU: 2, MemoryMiB: 4096},
-		{ID: "tpl-2", Name: "acme/building", Status: "building", VCPU: 2, MemoryMiB: 2048},
-	}
-	for name, test := range map[string]struct {
-		templateName string
-		wantErr      string
-	}{
-		"default template":   {"", ""},
-		"explicit template":  {"tpl-1", ""},
-		"template not ready": {"acme/building", "not ready"},
-		"missing template":   {"acme/missing", "not found"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := newTestProvider(api).CheckConnection(
-				context.Background(),
-				testMachineProvisioning(t, test.templateName, ""),
-			)
-			if test.wantErr == "" && err != nil {
-				t.Fatalf("check connection: %v", err)
-			}
-			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
-				t.Fatalf("check connection error = %v, want %q", err, test.wantErr)
-			}
-		})
+	api.templates = nil
+	err := newTestProvider(api).CheckConnection(context.Background(), testMachineProvisioning(t, "acme/missing", ""))
+	if err != nil || !slices.Equal(api.templateQueries, []string{""}) {
+		t.Fatalf("check connection error = %v queries = %v, want one unfiltered template list", err, api.templateQueries)
 	}
 
 	api = newFakeAPI()
-	api.templatesErr = errors.New("connection reset")
-	err := newTestProvider(api).CheckConnection(context.Background(), testMachineProvisioning(t, "", ""))
-	if !errors.Is(err, storeerr.ErrMachineProviderUnavailable) {
-		t.Fatalf("check connection with an unreachable API = %v, want provider unavailable", err)
+	api.templatesErr = apiError{StatusCode: http.StatusUnauthorized}
+	err = newTestProvider(api).CheckConnection(context.Background(), testMachineProvisioning(t, "", ""))
+	if !errors.Is(err, api.templatesErr) {
+		t.Fatalf("check connection with a rejected key = %v", err)
 	}
 }
 
 func TestSuperservePrepareProvisioningResolvesTheTemplateShape(t *testing.T) {
 	api := newFakeAPI()
 	api.templates = []template{
-		{ID: "tpl-1", Name: defaultTemplate, Status: templateStatusReady, VCPU: 2, MemoryMiB: 4096},
-		{ID: "tpl-2", Name: "acme/agent-box", Status: templateStatusReady, VCPU: 2, MemoryMiB: 2048},
-		{ID: "tpl-3", Name: "acme/agent-box-v2", Status: templateStatusReady, VCPU: 4, MemoryMiB: 4096},
+		{Name: defaultTemplate, Status: templateStatusReady, VCPU: 2, MemoryMiB: 4096},
+		{Name: "acme/agent-box", Status: templateStatusReady, VCPU: 2, MemoryMiB: 2048},
+		{Name: "acme/agent-box-v2", Status: templateStatusReady, VCPU: 4, MemoryMiB: 4096},
 	}
 	for _, test := range []struct {
 		templateName string
@@ -99,7 +91,7 @@ func TestSuperservePrepareProvisioningResolvesTheTemplateShape(t *testing.T) {
 	}{
 		{"", [2]int{2, 4096}},
 		{"acme/agent-box", [2]int{2, 2048}},
-		{"tpl-3", [2]int{4, 4096}},
+		{"acme/agent-box-v2", [2]int{4, 4096}},
 	} {
 		facts, err := newTestProvider(api).PrepareProvisioning(
 			context.Background(),
@@ -112,7 +104,7 @@ func TestSuperservePrepareProvisioningResolvesTheTemplateShape(t *testing.T) {
 			t.Fatalf("%q resource facts = %+v, want %v", test.templateName, facts, test.want)
 		}
 	}
-	if !slices.Equal(api.templateQueries, []string{defaultTemplate, "acme/agent-box", "tpl-3"}) {
+	if !slices.Equal(api.templateQueries, []string{defaultTemplate, "acme/agent-box", "acme/agent-box-v2"}) {
 		t.Fatalf("template queries = %v, want the template searched by name", api.templateQueries)
 	}
 }
@@ -120,8 +112,8 @@ func TestSuperservePrepareProvisioningResolvesTheTemplateShape(t *testing.T) {
 func TestSuperservePrepareProvisioningRejectsUnusableTemplates(t *testing.T) {
 	api := newFakeAPI()
 	api.templates = []template{
-		{ID: "tpl-1", Name: "acme/building", Status: "building", VCPU: 1, MemoryMiB: 1024},
-		{ID: "tpl-2", Name: "acme/broken", Status: templateStatusReady},
+		{Name: "acme/building", Status: "building", VCPU: 1, MemoryMiB: 1024},
+		{Name: "acme/broken", Status: templateStatusReady},
 	}
 	for templateName, want := range map[string]string{
 		"acme/missing":  "was not found",
@@ -151,20 +143,6 @@ func TestSuperservePrepareProvisioningClassifiesProviderFailures(t *testing.T) {
 		if err == nil || errors.Is(err, storeerr.ErrMachineProviderUnavailable) != test.unavailable {
 			t.Fatalf("%s: prepare provisioning error = %v, want unavailable %t", name, err, test.unavailable)
 		}
-	}
-}
-
-func TestSuperserveValidateMachineConfig(t *testing.T) {
-	p := newTestProvider(newFakeAPI())
-	provisioning := testMachineProvisioning(t, "", "")
-	if err := p.ValidateMachineConfig(provisioning, map[string]string{"GITHUB_TOKEN": "t", "my-var": "x"}); err != nil {
-		t.Fatalf("validate machine config: %v", err)
-	}
-	if err := p.ValidateMachineConfig(provisioning, map[string]string{"OMNARA_API_URL": "x"}); err == nil {
-		t.Fatal("validate machine config accepted a reserved OMNARA_ key")
-	}
-	if err := p.ValidateMachineConfig(testMachineProvisioning(t, "*", ""), nil); err == nil {
-		t.Fatal("validate machine config accepted a wildcard template")
 	}
 }
 
@@ -249,6 +227,7 @@ func TestSuperserveDaemonLauncherScriptIsIdempotentAndDetached(t *testing.T) {
 		`kill -0 "$p"`,
 		"grep -q omnarad",
 		"exit 0",
+		`d=${OMNARA_HOME:-${HOME:-/tmp}}/.omnara-superserve`,
 		`if command -v setsid >/dev/null 2>&1; then detach=setsid; fi`,
 		`$detach /bin/sh -c 'trap "" HUP; echo $$ >"$1/pid" && exec /bin/sh -c "$2"' omnara-daemon "$d" "$1"`,
 		`</dev/null >>"$d/log" 2>&1 &`,
@@ -274,7 +253,7 @@ func TestSuperserveProvisionMachineAdoptsAnOwnedSandbox(t *testing.T) {
 		ownedSandbox(t, "sb-existing", sandboxStatusActive, installationID, machineID),
 	}
 	api.created = api.sandboxes[1]
-	result, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
+	result, err := provisionLaterAttempt(t, api, installationID, machineID, testMachineProvisioning(t, "", ""))
 	if err != nil {
 		t.Fatalf("provision machine: %v", err)
 	}
@@ -284,19 +263,40 @@ func TestSuperserveProvisionMachineAdoptsAnOwnedSandbox(t *testing.T) {
 	}
 }
 
-func TestSuperserveProvisionMachineAdoptsAfterAmbiguousCreateFailure(t *testing.T) {
+func TestSuperserveLostCreateResponseNeverCreatesADuplicate(t *testing.T) {
 	api := newFakeAPI()
 	installationID := uuid.New()
 	machineID := uuid.New()
 	api.createErr = errors.New("connection reset")
 	api.createErrCreates = true
-	result, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-	if err != nil {
-		t.Fatalf("provision machine: %v", err)
+	p := newTestProvider(api)
+	provision := func(firstAttempt bool) (providers.ProvisionMachineResult, error) {
+		return p.ProvisionMachine(
+			context.Background(), installationID, machineID, testMachineProvisioning(t, "", ""),
+			"machine-token", nil, firstAttempt,
+		)
 	}
-	if result.ProviderResourceID != "sb-123" || api.createCalls != 1 || api.listCalls != 2 || api.execCalls != 1 {
-		t.Fatalf("result = %+v create calls = %d list calls = %d exec calls = %d, want the created sandbox adopted",
-			result, api.createCalls, api.listCalls, api.execCalls)
+	if _, err := provision(true); err == nil || !strings.Contains(err.Error(), "connection reset") ||
+		api.listCalls != 0 {
+		t.Fatalf("first attempt error = %v list calls = %d, want the create error without a lookup", err, api.listCalls)
+	}
+	hidden := api.sandboxes
+	api.sandboxes = nil
+	for _, firstAttempt := range []bool{true, false} {
+		if _, err := provision(firstAttempt); err == nil || !strings.Contains(err.Error(), "outcome is unknown") {
+			t.Fatalf("retry before the sandbox is listed = %v, want the outcome treated as unknown", err)
+		}
+	}
+	api.sandboxes = hidden
+	result, err := provision(true)
+	if err != nil || result.ProviderResourceID != "sb-123" || api.createCalls != 1 || api.execCalls != 1 {
+		t.Fatalf("result = %+v error = %v create calls = %d exec calls = %d, want the created sandbox adopted",
+			result, err, api.createCalls, api.execCalls)
+	}
+	if _, err := newTestProvider(api).ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), "machine-token", nil, false,
+	); err == nil || api.createCalls != 1 {
+		t.Fatalf("later attempt error = %v create calls = %d, want no create", err, api.createCalls)
 	}
 }
 
@@ -304,9 +304,11 @@ func TestSuperserveProvisionMachineClassifiesCreateFailures(t *testing.T) {
 	for name, test := range map[string]struct {
 		err       error
 		permanent bool
+		recreates bool
 	}{
-		"capacity":      {err: providers.WithResponse(apiError{StatusCode: http.StatusTooManyRequests, Code: "too_many_sandboxes"}, providers.HTTPResponse{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}}})},
+		"capacity":      {err: providers.WithResponse(apiError{StatusCode: http.StatusTooManyRequests, Code: "too_many_sandboxes"}, providers.HTTPResponse{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}}}), recreates: true},
 		"outage":        {err: apiError{StatusCode: http.StatusServiceUnavailable}},
+		"unreachable":   {err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}, recreates: true},
 		"conflict":      {err: apiError{StatusCode: http.StatusConflict}},
 		"transport":     {err: errors.New("connection reset")},
 		"bad template":  {err: apiError{StatusCode: http.StatusNotFound, Code: "not_found"}, permanent: true},
@@ -316,7 +318,12 @@ func TestSuperserveProvisionMachineClassifiesCreateFailures(t *testing.T) {
 	} {
 		api := newFakeAPI()
 		api.createErr = test.err
-		result, err := provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
+		installationID, machineID := uuid.New(), uuid.New()
+		p := newTestProvider(api)
+		result, err := p.ProvisionMachine(
+			context.Background(), installationID, machineID, testMachineProvisioning(t, "", ""),
+			"machine-token", nil, true,
+		)
 		if !errors.Is(err, test.err) || result.ProviderResourceID != "" || api.execCalls != 0 {
 			t.Fatalf("%s: result = %+v error = %v exec calls = %d", name, result, err, api.execCalls)
 		}
@@ -327,6 +334,18 @@ func TestSuperserveProvisionMachineClassifiesCreateFailures(t *testing.T) {
 			if delay, ok := providers.RetryAfter(err); !ok || delay != 30*time.Second {
 				t.Fatalf("%s: retry after = %v %v, want the hint preserved", name, delay, ok)
 			}
+		}
+		api.createErr = nil
+		_, err = p.ProvisionMachine(
+			context.Background(), installationID, machineID, testMachineProvisioning(t, "", ""),
+			"machine-token", nil, true,
+		)
+		wantCreates := 1
+		if test.recreates {
+			wantCreates = 2
+		}
+		if api.createCalls != wantCreates || test.recreates != (err == nil) {
+			t.Fatalf("%s: retry error = %v create calls = %d, want %d", name, err, api.createCalls, wantCreates)
 		}
 	}
 }
@@ -345,7 +364,7 @@ func TestSuperserveProvisionMachineWaitsForAResumingSandbox(t *testing.T) {
 	active.AccessToken = "get-token"
 	api.activateResults = []sandbox{resuming}
 	api.getResults = []sandbox{resuming, active}
-	result, err := provisionTestMachine(t, api, installationID, machineID, sizedProvisioning(t, "", 1, 1024), nil)
+	result, err := provisionLaterAttempt(t, api, installationID, machineID, sizedProvisioning(t, "", 1, 1024))
 	if err != nil {
 		t.Fatalf("provision machine: %v", err)
 	}
@@ -385,6 +404,26 @@ func TestSuperserveProvisionMachineRidesOutTransientActivateFailures(t *testing.
 	}
 }
 
+func TestSuperserveProvisionMachineHonorsRetryAfterFromLookups(t *testing.T) {
+	api := newFakeAPI()
+	api.created.Status = sandboxStatusStarting
+	rateLimited := providers.WithResponse(
+		apiError{StatusCode: http.StatusTooManyRequests, Code: "rate_limited"},
+		providers.HTTPResponse{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}}},
+	)
+	api.getErrs = []error{rateLimited}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	result, err := newTestProvider(api).ProvisionMachine(
+		ctx, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), "machine-token", nil, true,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, rateLimited) ||
+		len(api.getLookups) != 1 || api.activateCalls != 0 || result.ProviderResourceID != "sb-123" {
+		t.Fatalf("result = %+v error = %v lookups = %d activate calls = %d, want the Retry-After wait honored",
+			result, err, len(api.getLookups), api.activateCalls)
+	}
+}
+
 func TestSuperserveProvisionMachineBoundsTheWaitByContext(t *testing.T) {
 	api := newFakeAPI()
 	api.created.Status = sandboxStatusPausing
@@ -401,36 +440,34 @@ func TestSuperserveProvisionMachineBoundsTheWaitByContext(t *testing.T) {
 	}
 }
 
-func TestSuperserveProvisionMachineReplacesAFailedSandbox(t *testing.T) {
-	for _, status := range []sandboxStatus{sandboxStatusFailed, sandboxStatusDeleted} {
-		api := newFakeAPI()
-		installationID := uuid.New()
-		machineID := uuid.New()
-		api.sandboxes = []sandbox{ownedSandbox(t, "sb-dead", status, installationID, machineID)}
-		result, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-		if status == sandboxStatusDeleted {
-			// Deleted sandboxes are not owned resources; a fresh one is created.
-			if err != nil || result.ProviderResourceID != "sb-123" || api.createCalls != 1 {
-				t.Fatalf("%s: result = %+v error = %v create calls = %d", status, result, err, api.createCalls)
-			}
-			continue
-		}
-		if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "" ||
-			api.deleteCalls != 1 || api.deletedID != "sb-dead" || api.createCalls != 0 || api.execCalls != 0 {
-			t.Fatalf("%s: result = %+v error = %v delete calls = %d deleted = %q create calls = %d exec calls = %d",
-				status, result, err, api.deleteCalls, api.deletedID, api.createCalls, api.execCalls)
-		}
+func TestSuperserveProvisionMachineFailsPermanentlyOnAFailedSandbox(t *testing.T) {
+	api := newFakeAPI()
+	installationID := uuid.New()
+	machineID := uuid.New()
+	api.sandboxes = []sandbox{ownedSandbox(t, "sb-dead", sandboxStatusFailed, installationID, machineID)}
+	result, err := provisionLaterAttempt(t, api, installationID, machineID, testMachineProvisioning(t, "", ""))
+	if !errors.Is(err, providers.ErrPermanent) || result.ProviderResourceID != "sb-dead" ||
+		api.deleteCalls != 0 || api.createCalls != 0 || api.execCalls != 0 {
+		t.Fatalf("result = %+v error = %v delete calls = %d create calls = %d exec calls = %d",
+			result, err, api.deleteCalls, api.createCalls, api.execCalls)
 	}
 
-	api := newFakeAPI()
+	api = newFakeAPI()
+	api.sandboxes = []sandbox{ownedSandbox(t, "sb-gone", sandboxStatusDeleted, installationID, machineID)}
+	_, err = provisionLaterAttempt(t, api, installationID, machineID, testMachineProvisioning(t, "", ""))
+	if err == nil || !strings.Contains(err.Error(), "outcome is unknown") || api.createCalls != 0 {
+		t.Fatalf("deleted sandbox error = %v create calls = %d, want it ignored without a create", err, api.createCalls)
+	}
+
+	api = newFakeAPI()
 	api.created.Status = sandboxStatusStarting
 	failed := api.created
 	failed.Status = sandboxStatusFailed
 	api.getResults = []sandbox{failed}
-	result, err := provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
-	if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "" || api.deletedID != "sb-123" {
-		t.Fatalf("result = %+v error = %v deleted = %q, want a sandbox that failed to start replaced",
-			result, err, api.deletedID)
+	result, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
+	if !errors.Is(err, providers.ErrPermanent) || result.ProviderResourceID != "sb-123" || api.deleteCalls != 0 {
+		t.Fatalf("result = %+v error = %v delete calls = %d, want a sandbox that failed to start kept for cleanup",
+			result, err, api.deleteCalls)
 	}
 }
 
@@ -452,81 +489,34 @@ func TestSuperserveProvisionMachineRefusesForeignAndMismatchedSandboxes(t *testi
 		t.Fatalf("result = %+v error = %v exec calls = %d, want a foreign sandbox refused", result, err, api.execCalls)
 	}
 
-	// A sandbox whose shape no longer matches the template's recorded size is
-	// deleted and replaced, since adopting it again could never succeed.
-	api = newFakeAPI()
-	api.created.VCPUCount = 2
-	result, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), sizedProvisioning(t, "", 1, 1024), nil)
-	if err == nil || !strings.Contains(err.Error(), "vcpu") || !errors.Is(err, providers.ErrResourceReplaced) ||
-		result.ProviderResourceID != "" || api.deletedID != "sb-123" || api.execCalls != 0 {
-		t.Fatalf("result = %+v error = %v deleted = %q exec calls = %d, want the mismatched sandbox replaced",
-			result, err, api.deletedID, api.execCalls)
-	}
-
-	api = newFakeAPI()
-	api.created.MemoryMiB = 2048
-	result, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), sizedProvisioning(t, "", 1, 1024), nil)
-	if err == nil || !strings.Contains(err.Error(), "memory") || !errors.Is(err, providers.ErrResourceReplaced) ||
-		result.ProviderResourceID != "" || api.deletedID != "sb-123" {
-		t.Fatalf("result = %+v error = %v deleted = %q, want the mismatched sandbox replaced", result, err, api.deletedID)
-	}
-
-	api = newFakeAPI()
-	api.created.MemoryMiB = 2048
-	api.deleteErr = errors.New("boom")
-	result, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), sizedProvisioning(t, "", 1, 1024), nil)
-	if err == nil || !strings.Contains(err.Error(), "boom") || errors.Is(err, providers.ErrResourceReplaced) ||
-		result.ProviderResourceID != "sb-123" {
-		t.Fatalf("result = %+v error = %v, want the id kept when the delete fails", result, err)
+	for field, mutate := range map[string]func(*sandbox){
+		"vcpu":   func(s *sandbox) { s.VCPUCount = 2 },
+		"memory": func(s *sandbox) { s.MemoryMiB = 2048 },
+	} {
+		api = newFakeAPI()
+		mutate(&api.created)
+		result, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), sizedProvisioning(t, "", 1, 1024), nil)
+		if !errors.Is(err, providers.ErrPermanent) || !strings.Contains(err.Error(), field) ||
+			result.ProviderResourceID != "sb-123" || api.deleteCalls != 0 || api.execCalls != 0 {
+			t.Fatalf("%s: result = %+v error = %v delete calls = %d exec calls = %d, want the mismatch reported",
+				field, result, err, api.deleteCalls, api.execCalls)
+		}
 	}
 }
 
-// A create whose outcome was lost, followed by a retry whose list missed the
-// first sandbox, leaves two sandboxes with the same ownership. The newest is
-// kept and the rest are deleted, so provisioning and deletion both converge.
-func TestSuperserveProvisionMachineKeepsTheNewestDuplicateOwnedSandbox(t *testing.T) {
+func TestSuperserveProvisionMachineRefusesDuplicateOwnedSandboxes(t *testing.T) {
 	api := newFakeAPI()
 	installationID := uuid.New()
 	machineID := uuid.New()
-	base := time.Date(2026, time.October, 17, 12, 0, 0, 0, time.UTC)
-	older := ownedSandbox(t, "sb-older", sandboxStatusActive, installationID, machineID)
-	older.CreatedAt = base
-	newer := ownedSandbox(t, "sb-newer", sandboxStatusPaused, installationID, machineID)
-	newer.CreatedAt = base.Add(time.Minute)
-	api.sandboxes = []sandbox{older, newer}
-	api.created = newer
-
-	result, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-	if err != nil || result.ProviderResourceID != "sb-newer" || api.createCalls != 0 ||
-		!slices.Equal(api.deletedIDs, []string{"sb-older"}) || api.execCalls != 1 {
-		t.Fatalf(
-			"result = %+v error = %v create calls = %d deleted = %v exec calls = %d, want the newest adopted",
-			result, err, api.createCalls, api.deletedIDs, api.execCalls,
-		)
-	}
-
-	// Equal creation times fall back to the ID so every retry picks the same one.
-	api = newFakeAPI()
-	tied := []sandbox{
+	api.sandboxes = []sandbox{
 		ownedSandbox(t, "sb-a", sandboxStatusActive, installationID, machineID),
 		ownedSandbox(t, "sb-b", sandboxStatusActive, installationID, machineID),
 	}
-	api.sandboxes = tied
-	api.created = tied[1]
-	result, err = provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-	if err != nil || result.ProviderResourceID != "sb-b" || !slices.Equal(api.deletedIDs, []string{"sb-a"}) {
-		t.Fatalf("result = %+v error = %v deleted = %v, want the tie broken by id", result, err, api.deletedIDs)
-	}
-
-	// A duplicate that cannot be deleted keeps the machine retrying rather than
-	// adopting one of two live sandboxes.
-	api = newFakeAPI()
-	api.sandboxes = tied
-	api.deleteErr = errors.New("delete denied")
-	result, err = provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
-	if err == nil || !strings.Contains(err.Error(), "delete denied") || result.ProviderResourceID != "" ||
-		api.createCalls != 0 || api.execCalls != 0 {
-		t.Fatalf("result = %+v error = %v create calls = %d exec calls = %d", result, err, api.createCalls, api.execCalls)
+	result, err := provisionLaterAttempt(t, api, installationID, machineID, testMachineProvisioning(t, "", ""))
+	if err == nil || !strings.Contains(err.Error(), "multiple") || result.ProviderResourceID != "" ||
+		api.deleteCalls != 0 || api.createCalls != 0 || api.execCalls != 0 {
+		t.Fatalf("result = %+v error = %v delete calls = %d create calls = %d exec calls = %d",
+			result, err, api.deleteCalls, api.createCalls, api.execCalls)
 	}
 }
 
@@ -650,17 +640,6 @@ func TestSuperserveDeleteMachine(t *testing.T) {
 	api.sandboxes = []sandbox{ownedSandbox(t, "sb-replacement", sandboxStatusActive, installationID, machineID)}
 	if err := deleteMachine(api, "sb-stale"); err != nil || api.deletedID != "sb-replacement" {
 		t.Fatalf("delete by ownership fallback error = %v deleted %q", err, api.deletedID)
-	}
-
-	api = newFakeAPI()
-	api.getFound = false
-	api.sandboxes = []sandbox{
-		ownedSandbox(t, "sb-dup-1", sandboxStatusActive, installationID, machineID),
-		ownedSandbox(t, "sb-dup-2", sandboxStatusPaused, installationID, machineID),
-	}
-	err := deleteMachine(api, "sb-stale")
-	if err != nil || !slices.Equal(api.deletedIDs, []string{"sb-dup-1", "sb-dup-2"}) {
-		t.Fatalf("delete with duplicate owned sandboxes error = %v deleted %v, want both removed", err, api.deletedIDs)
 	}
 
 	api = newFakeAPI()

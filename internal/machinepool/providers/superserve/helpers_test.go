@@ -74,7 +74,6 @@ func ownedSandbox(t *testing.T, id string, status sandboxStatus, installationID,
 	t.Helper()
 	return sandbox{
 		ID:        id,
-		Name:      "omnara-mch-test",
 		Status:    status,
 		VCPUCount: 1,
 		MemoryMiB: 1024,
@@ -100,12 +99,9 @@ type fakeAPI struct {
 	createErr        error
 	createErrCreates bool
 	createNoToken    bool
-	// created is the sandbox the fake owns: create returns it, and get and
-	// activate fall back to it.
-	created sandbox
+	created          sandbox
 
 	sandboxes []sandbox
-	listErr   error
 	listCalls int
 
 	getResults   []sandbox
@@ -121,8 +117,6 @@ type fakeAPI struct {
 
 	deleteCalls int
 	deletedID   string
-	deletedIDs  []string
-	deleteErr   error
 
 	execCalls    int
 	execSessions []execSession
@@ -134,7 +128,6 @@ type fakeAPI struct {
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{
 		templates: []template{{
-			ID:        "tpl-base",
 			Name:      defaultTemplate,
 			Status:    templateStatusReady,
 			VCPU:      1,
@@ -158,9 +151,6 @@ func (a *fakeAPI) ListTemplates(_ context.Context, query string) ([]template, er
 func (a *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest) (sandbox, error) {
 	a.createCalls++
 	a.createRequest = request
-	if a.created.Name == "" {
-		a.created.Name = request.Name
-	}
 	if a.created.Metadata == nil {
 		a.created.Metadata = request.Metadata
 	}
@@ -180,9 +170,6 @@ func (a *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest)
 
 func (a *fakeAPI) ListSandboxes(_ context.Context, metadata map[string]string) ([]sandbox, error) {
 	a.listCalls++
-	if a.listErr != nil {
-		return nil, a.listErr
-	}
 	var matching []sandbox
 	for _, current := range a.sandboxes {
 		matches := true
@@ -242,8 +229,7 @@ func (a *fakeAPI) ActivateSandbox(_ context.Context, id string) (sandbox, error)
 func (a *fakeAPI) DeleteSandbox(_ context.Context, id string) error {
 	a.deleteCalls++
 	a.deletedID = id
-	a.deletedIDs = append(a.deletedIDs, id)
-	return a.deleteErr
+	return nil
 }
 
 func (a *fakeAPI) Exec(_ context.Context, session execSession, request execRequest) (execResult, error) {
