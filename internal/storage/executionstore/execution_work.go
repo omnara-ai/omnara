@@ -14,6 +14,7 @@ func shapeClaimedWork(
 	unit *agentexecution.Unit,
 	projectID, agentID uuid.UUID,
 	work agentexecution.ClaimedWork,
+	databaseTools bool,
 ) (ClaimedAgentWork, error) {
 	result := ClaimedAgentWork{ProjectID: projectID, AgentID: agentID}
 	if work.Selection.Work == agentexecution.WorkNone {
@@ -39,7 +40,7 @@ func shapeClaimedWork(
 		result.Kind = AgentWorkTool
 		result.Tool = ClaimedToolWork{TurnID: selected.TurnID, ModelCallContextID: selected.SourceContextID,
 			ModelOutputID: selected.OutputID, SourceEventID: selected.SourceEventID}
-		result.Tool.Prepared, err = prepareToolWorkTx(ctx, q, projectID, agentID, result.Tool)
+		result.Tool.Prepared, err = prepareToolWorkTx(ctx, q, projectID, agentID, result.Tool, databaseTools)
 		return result, err
 	}
 	selected := work.Selection.Model

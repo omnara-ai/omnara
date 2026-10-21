@@ -14,11 +14,17 @@ func (s *Store) ResolveIntegrationDefinitions(
 	projectID uuid.UUID,
 	ids []uuid.UUID,
 ) (map[uuid.UUID]agentconfig.IntegrationResolution, error) {
+	return ResolveIntegrationDefinitionsTx(ctx, s.q, projectID, ids)
+}
+
+func ResolveIntegrationDefinitionsTx(
+	ctx context.Context, q *dbsqlc.Queries, projectID uuid.UUID, ids []uuid.UUID,
+) (map[uuid.UUID]agentconfig.IntegrationResolution, error) {
 	result := make(map[uuid.UUID]agentconfig.IntegrationResolution, len(ids))
 	if len(ids) == 0 {
 		return result, nil
 	}
-	rows, err := s.q.ListIntegrationMetadataByIDs(
+	rows, err := q.ListIntegrationMetadataByIDs(
 		ctx,
 		dbsqlc.ListIntegrationMetadataByIDsParams{ProjectID: projectID, Ids: ids},
 	)

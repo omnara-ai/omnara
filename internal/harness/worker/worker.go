@@ -259,6 +259,7 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 	claim, handled, err = w.store.ClaimNextAgentWork(
 		ctx,
 		executionstore.ClaimNextAgentWorkInput{
+			DatabaseTools:   tools.PlanDatabaseTool,
 			WorkerProcessID: w.workerProcessID,
 			LeaseDuration:   w.runtimeLockLeaseDuration,
 		},
@@ -297,6 +298,9 @@ func (w *Worker) executeClaimedWork(
 	claim executionstore.ClaimedAgentWork,
 	now time.Time,
 ) error {
+	if claim.StepDisposition == executionstore.StepFinished {
+		return nil
+	}
 	runtime := claim.RuntimeLock
 	projectID, agentID := claim.ProjectID, claim.AgentID
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)

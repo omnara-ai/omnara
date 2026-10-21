@@ -35,3 +35,19 @@ func TestClaimDeferralErrors(t *testing.T) {
 	}
 	require.False(t, shouldDeferClaim(nil))
 }
+
+func TestDatabaseToolFallbackErrors(t *testing.T) {
+	require.NoError(t, databaseToolFallbackError(nil))
+	for _, err := range []error{storeerr.ErrInvalidRequest, storeerr.ErrNotFound, errors.New("decode failed")} {
+		require.NoError(t, databaseToolFallbackError(fmt.Errorf("plan: %w", err)))
+	}
+	for _, err := range []error{
+		context.Canceled, context.DeadlineExceeded, storeerr.ErrCommitOutcomeUnknown,
+		agentexecution.ErrLockPlan, agentexecution.ErrUnitAborted, agentexecution.ErrUnitClosed,
+		storeutil.ErrRetryTransaction, &pgconn.PgError{Code: "23514"}, &pgconn.PgError{Code: "40001"},
+		&pgconn.PgError{Code: "40P01"}, &pgconn.PgError{Code: "08006"}, &pgconn.ConnectError{},
+		&net.OpError{Op: "read", Err: io.EOF}, io.EOF, io.ErrUnexpectedEOF,
+	} {
+		require.ErrorIs(t, databaseToolFallbackError(fmt.Errorf("plan: %w", err)), err)
+	}
+}

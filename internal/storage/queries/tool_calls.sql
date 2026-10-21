@@ -194,3 +194,24 @@ FROM tool_call_results result
 JOIN agents agent ON agent.id=result.agent_id
 WHERE agent.project_id=sqlc.arg(project_id) AND result.agent_id=sqlc.arg(agent_id)
  AND result.tool_call_id=sqlc.arg(tool_call_id);
+
+-- name: ListClaimToolCalls :many
+SELECT call.id, call.project_id, call.agent_id,
+  call.turn_id, call.source_event_id,
+  call.model_call_context_id,
+  call.provider_call_id, call.name, call.input,
+  call.type, call.state,
+  ''::text AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at, NULL::timestamptz AS completed_at,
+  EXISTS(SELECT 1 FROM agent_interactions i WHERE i.agent_id=call.agent_id
+    AND i.tool_call_id=call.id AND i.interaction_kind='permission') AS has_permission
+FROM tool_call_read_projection call
+LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
+  AND call_block.tool_call_id = call.id
+  AND call_block.block_kind = 'tool_call'
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.model_output_id = sqlc.arg(model_output_id)
+  AND call.state <> 'completed'
+ORDER BY coalesce(call_block.ordinal, 2147483647), call.created_at, call.id;
