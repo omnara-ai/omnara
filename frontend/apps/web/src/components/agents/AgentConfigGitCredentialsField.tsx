@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
+import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
 type IntegrationOption = Pick<Integration, 'name'> & Partial<Pick<Integration, 'state'>>
@@ -46,8 +47,7 @@ export function AgentConfigGitCredentialsField({
   onChange: (value: AgentConfigDefinitionGitCredentials | undefined) => void
 }) {
   const { query, items, selected } = useGitHubIntegrations(orgId, projectId, value?.integration)
-  const repositories = useIntegrationGitHubRepositories(orgId, projectId, selected?.id ?? '')
-  const repositoryOptions = repositories.data?.repositories ?? []
+  const repositories = useGitHubRepositories(orgId, projectId, selected?.id ?? '')
   if (value == null && items.length === 0 && !query.isError && !query.hasNextPage) {
     return null
   }
@@ -78,13 +78,13 @@ export function AgentConfigGitCredentialsField({
             <FieldLabel htmlFor="agent-config-git-repositories">Repositories</FieldLabel>
             <RepositoryCombobox
               id="agent-config-git-repositories"
-              items={repositoryOptions}
-              pending={repositories.isLoading}
+              items={repositories.items}
+              query={repositories.query}
+              pending={repositories.pending}
               placeholder={value.repository_ids ? 'Add repositories…' : undefined}
-              emptyMessage={repositories.isError ? 'Couldn’t load repositories.' : undefined}
               value={(value.repository_ids ?? []).map(
                 (id) =>
-                  repositoryOptions.find((repository) => repository.id === id) ?? {
+                  repositories.items.find((repository) => repository.id === id) ?? {
                     id,
                     name: String(id),
                   },
@@ -128,6 +128,25 @@ function useGitHubIntegrations(orgId: string, projectId: string, name: string | 
   })
   const lookedUp = useInfiniteQueryItems(lookup).find((item) => item.name === name)
   return { query, items, selected: listed ?? lookedUp }
+}
+
+function useGitHubRepositories(orgId: string, projectId: string, integrationId: string) {
+  const query = useIntegrationGitHubRepositories(orgId, projectId, integrationId)
+  const items = useInfiniteQueryItems(query)
+  const loading = useCompleteInfiniteQueryItems(query, integrationId !== '')
+  return {
+    items,
+    pending: loading.isPending,
+    query: {
+      isPending: query.isPending,
+      isError: query.isError,
+      isFetching: query.isFetching,
+      hasNextPage: query.hasNextPage,
+      isFetchingNextPage: query.isFetchingNextPage,
+      fetchNextPage: query.fetchNextPage,
+      refetch: query.isFetchNextPageError ? query.fetchNextPage : query.refetch,
+    },
+  }
 }
 
 function gitCredentials(

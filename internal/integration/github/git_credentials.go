@@ -10,7 +10,7 @@ import (
 
 const (
 	gitCredentialExpiryMargin = 15 * time.Minute
-	maxRepositoryPages        = 10
+	gitCredentialCacheSize    = 1024
 )
 
 var ErrContentsPermissionRequired = errors.New(
@@ -48,7 +48,7 @@ func (c *Client) InstallationGitCredentials(
 	for _, id := range repositoryIDs {
 		key += "/" + strconv.FormatInt(id, 10)
 	}
-	if cached := c.gitCredentials[key]; cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
+	if cached, ok := c.gitCredentials.Get(key); ok && cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
 		return cached, nil
 	}
 	jwt, err := c.appJWT()
@@ -82,40 +82,39 @@ func (c *Client) InstallationGitCredentials(
 		_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", result.Token, jsonMediaType, nil, true)
 		return InstallationCredentials{}, ErrContentsPermissionRequired
 	}
-	c.gitCredentials[key] = result.InstallationCredentials
+	c.gitCredentials.Add(key, result.InstallationCredentials)
 	return result.InstallationCredentials, nil
 }
 
-func (c *Client) InstallationRepositories(ctx context.Context) ([]Repository, error) {
+func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repository, int, error) {
+	if page < 1 {
+		return nil, 0, errors.New("github repository page must be positive")
+	}
 	credentials, err := c.InstallationGitCredentials(ctx, false, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
-	repositories := []Repository{}
-	for page := 1; page != 0 && page <= maxRepositoryPages; {
-		var listing struct {
-			Repositories []Repository `json:"repositories"`
-		}
-		path := "/installation/repositories?per_page=100&page=" + strconv.Itoa(page)
-		header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
-		if err != nil {
-			return nil, err
-		}
-		if listing.Repositories == nil || len(listing.Repositories) > 100 {
-			return nil, &APIError{Code: InvalidResponse}
-		}
-		for _, repository := range listing.Repositories {
-			if repository.ID <= 0 || !validRepositorySegment(repository.Name) {
-				return nil, &APIError{Code: InvalidResponse}
-			}
-		}
-		repositories = append(repositories, listing.Repositories...)
-		page, err = c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")
-		if err != nil {
-			return nil, err
+	var listing struct {
+		Repositories []Repository `json:"repositories"`
+	}
+	path := "/installation/repositories?per_page=100&page=" + strconv.Itoa(page)
+	header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	if listing.Repositories == nil || len(listing.Repositories) > 100 {
+		return nil, 0, &APIError{Code: InvalidResponse}
+	}
+	for _, repository := range listing.Repositories {
+		if repository.ID <= 0 || !validRepositorySegment(repository.Name) {
+			return nil, 0, &APIError{Code: InvalidResponse}
 		}
 	}
-	return repositories, nil
+	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")
+	if err != nil {
+		return nil, 0, err
+	}
+	return listing.Repositories, next, nil
 }

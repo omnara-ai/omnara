@@ -960,6 +960,11 @@ export const zGitHubRepository = z.object({
     name: z.string()
 });
 
+export const zListGitHubRepositoriesResponse = z.object({
+    data: z.array(zGitHubRepository),
+    next_cursor: z.string().nullable()
+});
+
 export const zSlackSetupIcon = z.object({
     filename: z.string().optional(),
     data_base64: z.string().min(1)
@@ -6039,12 +6044,14 @@ export const zListIntegrationGitHubRepositoriesPath = z.object({
     integrationID: zIntegrationId
 });
 
+export const zListIntegrationGitHubRepositoriesQuery = z.object({
+    cursor: z.string().max(1024).optional()
+});
+
 /**
  * Repositories.
  */
-export const zListIntegrationGitHubRepositoriesResponse = z.object({
-    repositories: z.array(zGitHubRepository)
-});
+export const zListIntegrationGitHubRepositoriesResponse = zListGitHubRepositoriesResponse;
 
 export const zListIntegrationDefinitionsPath = z.object({
     orgID: zOrganizationId,

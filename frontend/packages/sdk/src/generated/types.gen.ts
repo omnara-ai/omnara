@@ -1307,6 +1307,11 @@ export type GitHubRepository = {
     name: string;
 };
 
+export type ListGitHubRepositoriesResponse = {
+    data: Array<GitHubRepository>;
+    next_cursor: string | null;
+};
+
 export type CreateSlackSetupRequest = {
     app_name: string;
     app_configuration_token: string;
@@ -18602,7 +18607,12 @@ export type ListIntegrationGitHubRepositoriesData = {
          */
         integrationID: IntegrationId;
     };
-    query?: never;
+    query?: {
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories';
 };
 
@@ -18659,9 +18669,7 @@ export type ListIntegrationGitHubRepositoriesResponses = {
     /**
      * Repositories.
      */
-    200: {
-        repositories: Array<GitHubRepository>;
-    };
+    200: ListGitHubRepositoriesResponse;
 };
 
 export type ListIntegrationGitHubRepositoriesResponse = ListIntegrationGitHubRepositoriesResponses[keyof ListIntegrationGitHubRepositoriesResponses];

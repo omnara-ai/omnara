@@ -117,7 +117,6 @@ func TestChatLaunchersMatchProviderMentions(t *testing.T) {
 
 func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 	definition := Definition{
-		Settings: &SettingsDefinition{InputSchema: json.RawMessage(`{"type":"object","required":["enabled"],"additionalProperties":false,"properties":{"enabled":{"type":"boolean"}}}`)},
 		Launcher: &LauncherDefinition{
 			Matches: func(settings json.RawMessage, _ Event) bool { return string(settings) == `{"enabled":true}` },
 			AuthorizeIntent: func(_ json.RawMessage, _ Event, intent LaunchIntent) error {
@@ -127,7 +126,6 @@ func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 				return nil
 			}},
 	}
-	require.NoError(t, definition.Settings.Validate(json.RawMessage(`{"enabled":true}`)))
 	require.NoError(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":true}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
 	require.Error(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":false}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
 	require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{"enabled":true}`), Event{}))

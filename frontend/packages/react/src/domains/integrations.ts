@@ -17,7 +17,7 @@ import {
   listAgentsQueryKey,
   listCronTriggersQueryKey,
   listIntegrationDefinitionsOptions,
-  listIntegrationGitHubRepositoriesOptions,
+  listIntegrationGitHubRepositoriesInfiniteOptions,
   listIntegrationsInfiniteOptions,
   listIntegrationsQueryKey,
   listOrgAgentsQueryKey,
@@ -53,11 +53,13 @@ export function useIntegrationGitHubRepositories(
   integrationID: string,
 ) {
   const client = useOmnaraClient()
-  return useQuery({
-    ...listIntegrationGitHubRepositoriesOptions({
-      path: { orgID, projectID, integrationID },
-      client,
-    }),
+  return useInfiniteQuery({
+    ...cursorPaginated(
+      listIntegrationGitHubRepositoriesInfiniteOptions({
+        path: { orgID, projectID, integrationID },
+        client,
+      }),
+    ),
     enabled: integrationID !== '',
   })
 }

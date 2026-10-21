@@ -454,9 +454,13 @@ func TestListIntegrationGitHubRepositories(t *testing.T) {
 	path := strings.TrimSuffix(integrationSetupPath(t, f.project, f.integration), "/setup") + "/github-repositories"
 	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK,
 		authHeaders(f.project.AdminToken))
-	require.Equal(t, map[string]any{"repositories": []any{
+	require.Equal(t, map[string]any{"data": []any{
 		map[string]any{"id": float64(1), "name": "app"}, map[string]any{"id": float64(2), "name": "docs"},
-	}}, listed)
+	}, "next_cursor": nil}, listed)
+	for _, cursor := range []string{"abc", "1"} {
+		requestJSONWithHeaders(t, f.handler, http.MethodGet, path+"?cursor="+cursor, "", "", http.StatusBadRequest,
+			authHeaders(f.project.AdminToken))
+	}
 	_, err := f.project.Store.Integrations().DisconnectIntegration(t.Context(),
 		integrationstore.DisconnectIntegrationInput{ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID})
 	require.NoError(t, err)

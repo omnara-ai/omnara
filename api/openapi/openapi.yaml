@@ -8635,21 +8635,16 @@ paths:
       operationId: listIntegrationGitHubRepositories
       tags: [Integrations]
       summary: List repositories a GitHub integration can access
-      description: Returns up to 1,000 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+      description: Returns one page of up to 100 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+      parameters:
+        - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
           description: Repositories.
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                required: [repositories]
-                properties:
-                  repositories:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/GitHubRepository'
+                $ref: '#/components/schemas/ListGitHubRepositoriesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -11190,6 +11185,17 @@ components:
           format: int64
         name:
           type: string
+    ListGitHubRepositoriesResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitHubRepository'
+        next_cursor:
+          type: [string, 'null']
     CreateSlackSetupRequest:
       type: object
       additionalProperties: false

@@ -169,34 +169,45 @@ func TestInstallationGitCredentialsRepositoriesAreScopedAndCachedSeparately(t *t
 	}
 }
 
-func TestInstallationRepositoriesPaginatesUpToLimit(t *testing.T) {
-	for _, test := range []struct {
-		lastPage, want int
-	}{{2, 2}, {1000, maxRepositoryPages}} {
-		t.Run(strconv.Itoa(test.lastPage), func(t *testing.T) {
-			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/app/installations/456/access_tokens" {
-					gitCredentialResponse(w, "git-token", "read", time.Now().Add(time.Hour))
-					return
-				}
-				if r.URL.Path != "/installation/repositories" || r.Header.Get("Authorization") != "Bearer git-token" ||
-					r.URL.Query().Get("per_page") != "100" {
-					t.Errorf("unexpected repository listing %s", r.URL)
-				}
-				page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-				if page < test.lastPage {
-					w.Header().Set("Link", fmt.Sprintf(
-						`<http://%s/installation/repositories?per_page=100&page=%d>; rel="next"`, r.Host, page+1))
-				}
-				fmt.Fprintf(w, `{"total_count":%d,"repositories":[{"id":%d,"name":"repo-%d"}]}`,
-					test.lastPage, page, page)
-			})
-			repositories, err := client.InstallationRepositories(t.Context())
-			if err != nil || len(repositories) != test.want || repositories[0] != (Repository{ID: 1, Name: "repo-1"}) ||
-				repositories[test.want-1].ID != int64(test.want) {
-				t.Fatalf("repositories = %v, %v", repositories, err)
-			}
-		})
+func TestInstallationGitCredentialsCacheIsBounded(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		gitCredentialResponse(w, "git-token", "read", time.Now().Add(time.Hour))
+	})
+	for id := range gitCredentialCacheSize + 1 {
+		if _, err := client.InstallationGitCredentials(t.Context(), false, []int64{int64(id + 1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if client.gitCredentials.Len() != gitCredentialCacheSize {
+		t.Fatalf("cached %d credentials, want at most %d", client.gitCredentials.Len(), gitCredentialCacheSize)
+	}
+}
+
+func TestInstallationRepositoriesReturnsOnePageAndTheNext(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/456/access_tokens" {
+			gitCredentialResponse(w, "git-token", "read", time.Now().Add(time.Hour))
+			return
+		}
+		if r.URL.Path != "/installation/repositories" || r.Header.Get("Authorization") != "Bearer git-token" ||
+			r.URL.Query().Get("per_page") != "100" {
+			t.Errorf("unexpected repository listing %s", r.URL)
+		}
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		if page == 1 {
+			w.Header().Set("Link", fmt.Sprintf(
+				`<http://%s/installation/repositories?per_page=100&page=2>; rel="next"`, r.Host))
+		}
+		fmt.Fprintf(w, `{"total_count":2,"repositories":[{"id":%d,"name":"repo-%d"}]}`, page, page)
+	})
+	for page, want := range map[int]struct {
+		repository Repository
+		next       int
+	}{1: {Repository{ID: 1, Name: "repo-1"}, 2}, 2: {Repository{ID: 2, Name: "repo-2"}, 0}} {
+		repositories, next, err := client.InstallationRepositories(t.Context(), page)
+		if err != nil || len(repositories) != 1 || repositories[0] != want.repository || next != want.next {
+			t.Fatalf("page %d = %v, next %d, %v", page, repositories, next, err)
+		}
 	}
 }
 
@@ -213,7 +224,7 @@ func TestInstallationRepositoriesRejectsInvalidPages(t *testing.T) {
 				fmt.Fprint(w, page)
 			})
 			var apiErr *APIError
-			if _, err := client.InstallationRepositories(t.Context()); !errors.As(err, &apiErr) ||
+			if _, _, err := client.InstallationRepositories(t.Context(), 1); !errors.As(err, &apiErr) ||
 				apiErr.Code != InvalidResponse {
 				t.Fatalf("invalid repository page accepted: %v", err)
 			}
@@ -311,7 +322,7 @@ func TestInstallationGitCredentialsRevokesMissingContents(t *testing.T) {
 			})
 			result, err := client.InstallationGitCredentials(t.Context(), true, nil)
 			if !errors.Is(err, ErrContentsPermissionRequired) || result != (InstallationCredentials{}) ||
-				len(client.gitCredentials) != 0 {
+				client.gitCredentials.Len() != 0 {
 				t.Fatalf("cleanup changed the permission error or retained the rejected token: %v", err)
 			}
 			if minted.Load() != 1 || revoked.Load() != 1 {

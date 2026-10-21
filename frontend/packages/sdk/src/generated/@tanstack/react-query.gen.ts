@@ -4573,7 +4573,7 @@ export const listIntegrationGitHubRepositoriesQueryKey = (options: Options<ListI
 /**
  * List repositories a GitHub integration can access
  *
- * Returns up to 1,000 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+ * Returns one page of up to 100 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
  */
 export const listIntegrationGitHubRepositoriesOptions = (options: Options<ListIntegrationGitHubRepositoriesData>) => queryOptions<ListIntegrationGitHubRepositoriesResponse, ListIntegrationGitHubRepositoriesError, ListIntegrationGitHubRepositoriesResponse, ReturnType<typeof listIntegrationGitHubRepositoriesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -4587,6 +4587,38 @@ export const listIntegrationGitHubRepositoriesOptions = (options: Options<ListIn
     },
     queryKey: listIntegrationGitHubRepositoriesQueryKey(options)
 });
+
+export const listIntegrationGitHubRepositoriesInfiniteQueryKey = (options: Options<ListIntegrationGitHubRepositoriesData>): QueryKey<Options<ListIntegrationGitHubRepositoriesData>> => createQueryKey('listIntegrationGitHubRepositories', options, true);
+
+/**
+ * List repositories a GitHub integration can access
+ *
+ * Returns one page of up to 100 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+ */
+export const listIntegrationGitHubRepositoriesInfiniteOptions = (options: Options<ListIntegrationGitHubRepositoriesData>) => {
+    const opts = infiniteQueryOptions<ListIntegrationGitHubRepositoriesResponse, ListIntegrationGitHubRepositoriesError, InfiniteData<ListIntegrationGitHubRepositoriesResponse>, QueryKey<Options<ListIntegrationGitHubRepositoriesData>>, string | Pick<QueryKey<Options<ListIntegrationGitHubRepositoriesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<ListIntegrationGitHubRepositoriesData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    cursor: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await listIntegrationGitHubRepositories({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: listIntegrationGitHubRepositoriesInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
+};
 
 export const listIntegrationDefinitionsQueryKey = (options: Options<ListIntegrationDefinitionsData>) => createQueryKey('listIntegrationDefinitions', options);
 

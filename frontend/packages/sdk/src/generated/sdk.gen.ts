@@ -3994,7 +3994,7 @@ export const disconnectIntegration = <ThrowOnError extends boolean = true>(optio
 /**
  * List repositories a GitHub integration can access
  *
- * Returns up to 1,000 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
+ * Returns one page of up to 100 repositories the connected installation can access, for use in git_credentials.repository_ids. Requires project management access.
  */
 export const listIntegrationGitHubRepositories = <ThrowOnError extends boolean = true>(options: Options<ListIntegrationGitHubRepositoriesData, ThrowOnError>): RequestResult<ListIntegrationGitHubRepositoriesResponses, ListIntegrationGitHubRepositoriesErrors, ThrowOnError> => (options.client ?? client).get<ListIntegrationGitHubRepositoriesResponses, ListIntegrationGitHubRepositoriesErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListIntegrationGitHubRepositoriesResponse),
