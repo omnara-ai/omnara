@@ -664,6 +664,23 @@ FROM expired_idle_pool_machine_candidates
 ORDER BY org_id, machine_id
 LIMIT sqlc.arg(limit_count)::integer;
 
+-- name: ListManagedWorkDeniedPoolMachines :many
+SELECT machine.org_id, machine.id AS machine_id, machine.lifecycle_version
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+JOIN org_managed_work_admission admission ON admission.org_id = machine.org_id
+WHERE machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND pool.management_kind = 'cluster'
+  AND pool.deleted_at IS NULL
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+ORDER BY machine.org_id, machine.id
+LIMIT sqlc.arg(limit_count)::integer;
+
 -- name: LockPoolMachineDeletionAttemptForLifecycle :one
 SELECT id, machine_pool_id
 FROM machines

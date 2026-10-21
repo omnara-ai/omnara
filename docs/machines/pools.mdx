@@ -47,6 +47,7 @@ Omnara deletes a pool machine when:
 - The agent is archived.
 - The pool is deleted.
 - Its configured idle-deletion period elapses.
+- It's in an Omnara-managed pool and its organization stays out of credits.
 
 Idle deletion waits until the machine has no queued or active process work. Process activity restarts the idle period.
 

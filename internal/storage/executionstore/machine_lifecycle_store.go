@@ -97,6 +97,12 @@ type ExpiredIdlePoolMachine struct {
 	MachineID uuid.UUID
 }
 
+type ManagedWorkDeniedPoolMachine struct {
+	OrgID            uuid.UUID
+	MachineID        uuid.UUID
+	LifecycleVersion int64
+}
+
 type PoolMachineDeletionClaim struct {
 	Machine                            MachineRecord
 	CanFinalizeMissingProviderResource bool
@@ -637,6 +643,31 @@ func (s *Store) ListExpiredIdlePoolMachines(
 	out := make([]ExpiredIdlePoolMachine, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ExpiredIdlePoolMachine{OrgID: row.OrgID, MachineID: row.MachineID})
+	}
+	return out, nil
+}
+
+func (s *Store) ListManagedWorkDeniedPoolMachines(
+	ctx context.Context,
+	limit int32,
+) ([]ManagedWorkDeniedPoolMachine, error) {
+	if limit <= 0 {
+		limit = defaultMachineLifecycleListLimit
+	}
+	rows, err := s.q.ListManagedWorkDeniedPoolMachines(
+		ctx,
+		dbsqlc.ListManagedWorkDeniedPoolMachinesParams{LimitCount: limit},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list managed work denied pool machines: %w", err)
+	}
+	out := make([]ManagedWorkDeniedPoolMachine, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ManagedWorkDeniedPoolMachine{
+			OrgID:            row.OrgID,
+			MachineID:        row.MachineID,
+			LifecycleVersion: row.LifecycleVersion,
+		})
 	}
 	return out, nil
 }

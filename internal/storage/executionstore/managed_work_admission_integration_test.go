@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -497,4 +498,115 @@ func TestManagedWorkAdmissionDoesNotGateTenantPoolProcesses(t *testing.T) {
 	); err != nil {
 		t.Fatalf("start tenant-pool process while managed admission is closed: %v", err)
 	}
+}
+
+func TestManagedWorkDeniedPoolMachinesWaitForContinuousDenial(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	defaultMachine := defaultMachineFieldsForTest{
+		DefaultMachineCPU:             1,
+		DefaultMachineMemoryMB:        1024,
+		DefaultMachineProviderOptions: json.RawMessage(`{"image":"default"}`),
+	}
+	cluster := providerRuntimeStorageFixture{
+		pool:  pool,
+		store: store,
+		machinePool: createDefaultMachinePoolForTest(
+			t,
+			ctx,
+			store,
+			machinePoolInputWithDefaultMachineForTest(
+				executionstore.CreateMachinePoolInput{
+					OrgID:            testOrgID,
+					Provider:         "test.provider",
+					MaxTotalMachines: 3,
+				},
+				defaultMachine,
+			),
+		),
+	}
+	busy := cluster.insertInactiveMachine(t, ctx, "denied-busy")
+	cluster.createQueuedProcess(t, ctx, busy, "denied-busy")
+	deletingID := cluster.insertNeverConnectedMachine(t, ctx, "denied-deleting")
+	deleting, err := store.Execution().GetMachine(ctx, testOrgID, deletingID)
+	if err != nil {
+		t.Fatalf("get deleting machine: %v", err)
+	}
+	if _, marked, err := store.Execution().MarkPoolMachineDeleting(ctx, executionstore.MachineDeletingInput{
+		OrgID:                    testOrgID,
+		MachineID:                deletingID,
+		LifecycleReasonCode:      "machine_tool_delete",
+		LifecycleReasonMessage:   "deleted by machine tool",
+		ExpectedLifecycleVersion: deleting.LifecycleVersion,
+	}); err != nil || !marked {
+		t.Fatalf("mark machine deleting marked=%v err=%v", marked, err)
+	}
+	tenant := providerRuntimeStorageFixture{
+		pool:  pool,
+		store: store,
+		machinePool: createLaunchTestMachinePool(
+			t,
+			ctx,
+			store,
+			"Denied tenant pool",
+			"test.provider",
+			defaultMachine,
+			1,
+			time.Now().UTC(),
+		),
+	}
+	tenant.insertNeverConnectedMachine(t, ctx, "denied-tenant")
+	tenant.insertInactiveBYOMachine(t, ctx, "denied-byo")
+
+	requireListed := func(step string, want ...uuid.UUID) {
+		t.Helper()
+		machines, err := store.Execution().ListManagedWorkDeniedPoolMachines(ctx, 40)
+		if err != nil {
+			t.Fatalf("%s: list managed work denied pool machines: %v", step, err)
+		}
+		got := make([]uuid.UUID, 0, len(machines))
+		for _, machine := range machines {
+			got = append(got, machine.MachineID)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s: listed %v, want %v", step, got, want)
+		}
+	}
+	backdateDenial := func() {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+UPDATE org_managed_work_admission
+SET admission_changed_at = statement_timestamp() - interval '2 hours'
+WHERE org_id = $1
+`, testOrgID); err != nil {
+			t.Fatalf("backdate managed work admission change: %v", err)
+		}
+	}
+	setDeletionDelay := func(minutes *int) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+UPDATE org_managed_work_admission
+SET delete_machines_after_minutes = $2
+WHERE org_id = $1
+`, testOrgID, minutes); err != nil {
+			t.Fatalf("set machine deletion delay: %v", err)
+		}
+	}
+
+	requireListed("no admission row")
+	setManagedWorkAdmissionForTest(t, ctx, pool, testOrgID, true)
+	setDeletionDelay(new(60))
+	backdateDenial()
+	requireListed("allowed past deadline")
+	setManagedWorkAdmissionForTest(t, ctx, pool, testOrgID, false)
+	requireListed("denied before deadline")
+	backdateDenial()
+	requireListed("denied past deadline", busy.machineID)
+	setManagedWorkAdmissionForTest(t, ctx, pool, testOrgID, false)
+	requireListed("repeated denial keeps deadline", busy.machineID)
+	setDeletionDelay(nil)
+	requireListed("no deletion delay")
 }
