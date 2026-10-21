@@ -151,7 +151,7 @@ func (s *Store) executeToolCallOnce(
 		}
 		toolTx.completed = &record
 	}
-	if toolTx.disposition == ToolCallDispositionCompleted && !toolTx.applied {
+	if toolTx.disposition != ToolCallDispositionRunning && !toolTx.applied {
 		step := StepRetained
 		if input.BatchOutputID != uuid.Nil {
 			h, err := unit.Handle(input.ProjectID, input.AgentID)
@@ -195,13 +195,11 @@ func (s *Store) executeToolCallOnce(
 	finished := false
 	defer func() { finish(finished) }()
 	if err := unit.Commit(ctx, "execute tool call"); err != nil {
-		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied && toolTx.completed != nil {
+		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied {
 			resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
 			defer cancel()
-			receipt, resolveErr := s.q.GetCommittedToolResult(resolveCtx, dbsqlc.GetCommittedToolResultParams{
-				ProjectID: input.ProjectID, AgentID: input.AgentID, ToolCallID: input.ToolCallID,
-			})
-			if resolveErr == nil && receipt.ID == toolTx.completionID && receipt.Outcome == string(toolTx.completed.Outcome) {
+			committed, resolveErr := toolTx.resolveCommitted(resolveCtx)
+			if resolveErr == nil && committed {
 				finished = step != StepRetained
 				return ExecuteToolCallResult{StepDisposition: step, Disposition: toolTx.disposition, Applied: true,
 					CommandResult: commandResult, Completed: toolTx.completed}, nil
@@ -218,6 +216,34 @@ func (s *Store) executeToolCallOnce(
 		CommandResult:   commandResult,
 		Completed:       toolTx.completed,
 	}, nil
+}
+
+func (t *toolCallTransaction) resolveCommitted(ctx context.Context) (bool, error) {
+	if t.completed != nil {
+		receipt, err := t.store.q.GetCommittedToolResult(ctx, dbsqlc.GetCommittedToolResultParams{
+			ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, ToolCallID: t.input.ToolCallID,
+		})
+		return err == nil && receipt.ID == t.completionID && receipt.Outcome == string(t.completed.Outcome), err
+	}
+	if t.disposition != ToolCallDispositionWaiting || t.owner.ProcessID == uuid.Nil && t.owner.ActionID == uuid.Nil {
+		return false, nil
+	}
+	call, err := t.store.q.GetToolCall(ctx, dbsqlc.GetToolCallParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, ID: t.input.ToolCallID,
+	})
+	if err != nil || call.State != "waiting" && call.State != "completed" {
+		return false, err
+	}
+	if t.owner.ProcessID != uuid.Nil {
+		process, err := t.store.q.GetProcessByToolCall(ctx, dbsqlc.GetProcessByToolCallParams{
+			ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, ToolCallID: t.input.ToolCallID,
+		})
+		return err == nil && process.ID == t.owner.ProcessID, err
+	}
+	action, err := t.store.q.GetProcessActionByToolCall(ctx, dbsqlc.GetProcessActionByToolCallParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, ToolCallID: t.input.ToolCallID,
+	})
+	return err == nil && action.ID == t.owner.ActionID, err
 }
 
 func (t *toolCallTransaction) lockForMutation(ctx context.Context) error {

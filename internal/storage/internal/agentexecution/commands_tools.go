@@ -341,6 +341,9 @@ func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, 
 	if acceptExisting && state == "completed" {
 		return ToolDispatchCompleted, nil
 	}
+	if acceptExisting && state == "waiting" {
+		return ToolDispatchWaiting, nil
+	}
 	if authorize && state == "awaiting_authorization" {
 		if _, err := h.AuthorizeTool(ctx, ref); err != nil {
 			return 0, err
@@ -361,10 +364,6 @@ func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, 
 		return ToolDispatchReady, nil
 	case "running":
 		return 0, storeerr.ErrToolCallInProgress
-	case "waiting":
-		if acceptExisting {
-			return ToolDispatchWaiting, nil
-		}
 	}
 	return 0, storeerr.ErrIdempotencyConflict
 }

@@ -181,23 +181,24 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("prepare process environment: %w", err)
 	}
-	if _, err := t.q.LockMachineForRuntimeRegistration(
+	_, machineLockErr := t.q.LockMachineForRuntimeRegistration(
 		ctx,
 		dbsqlc.LockMachineForRuntimeRegistrationParams{
 			OrgID: executionConfig.OrgID,
 			ID:    executionConfig.MachineID,
 		},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ProcessRecord{}, storeerr.ErrMachineNotReachable
-		}
-		return ProcessRecord{}, fmt.Errorf("lock machine for start process: %w", err)
+	)
+	if machineLockErr != nil && !errors.Is(machineLockErr, pgx.ErrNoRows) {
+		return ProcessRecord{}, fmt.Errorf("lock machine for start process: %w", machineLockErr)
 	}
 	if _, err := lockExecution(ctx, t.unit, projectID, agentID, false, runtimeLockID); err != nil {
 		return ProcessRecord{}, err
 	}
 	if existing, found, err := t.replayProcess(ctx, input); err != nil || found {
 		return existing, err
+	}
+	if machineLockErr != nil {
+		return ProcessRecord{}, storeerr.ErrMachineNotReachable
 	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return ProcessRecord{}, err

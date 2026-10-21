@@ -78,27 +78,27 @@ func (t *toolCallTransaction) createProcessAction(
 		}
 		return ProcessActionRecord{}, fmt.Errorf("load process for action machine lock: %w", err)
 	}
-	_, err = t.q.LockMachineForRuntimeRegistration(
+	_, machineLockErr := t.q.LockMachineForRuntimeRegistration(
 		ctx,
 		dbsqlc.LockMachineForRuntimeRegistrationParams{
 			OrgID: processRow.OrgID,
 			ID:    processRow.MachineID,
 		},
 	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			if input.ActionKind == ProcessActionKindRead {
-				return ProcessActionRecord{}, ErrProcessMachineDeleted
-			}
-			return ProcessActionRecord{}, t.processActionCreateBlocker(ctx, input)
-		}
-		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", err)
+	if machineLockErr != nil && !errors.Is(machineLockErr, pgx.ErrNoRows) {
+		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", machineLockErr)
 	}
 	if _, err := lockExecution(ctx, t.unit, projectID, agentID, false, runtimeLockID); err != nil {
 		return ProcessActionRecord{}, err
 	}
 	if record, found, err := t.replayProcessAction(ctx, input); err != nil || found {
 		return record, err
+	}
+	if machineLockErr != nil {
+		if input.ActionKind == ProcessActionKindRead {
+			return ProcessActionRecord{}, ErrProcessMachineDeleted
+		}
+		return ProcessActionRecord{}, t.processActionCreateBlocker(ctx, input)
 	}
 	if err := t.lockOrAcceptExisting(ctx); err != nil {
 		return ProcessActionRecord{}, err
