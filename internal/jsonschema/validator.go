@@ -2,12 +2,17 @@ package jsonschema
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+
 	"errors"
 	"fmt"
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+var validators, _ = lru.New[[32]byte, *Validator](256)
 
 const schemaResource = "urn:omnara:inline-json-schema"
 
@@ -19,11 +24,19 @@ func Compile(raw json.RawMessage) (*Validator, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, errors.New("JSON schema is required")
 	}
+	key := sha256.Sum256(raw)
+	if cached, ok := validators.Get(key); ok {
+		return cached, nil
+	}
 	schema, err := compile(raw)
 	if err != nil {
 		return nil, fmt.Errorf("compile JSON schema: %w", err)
 	}
-	return &Validator{schema: schema}, nil
+	validator := &Validator{schema: schema}
+	if len(raw) <= 1024*1024 {
+		validators.Add(key, validator)
+	}
+	return validator, nil
 }
 
 func ValidateSchema(raw json.RawMessage) error {

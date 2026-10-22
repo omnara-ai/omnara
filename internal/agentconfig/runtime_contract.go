@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -73,12 +74,23 @@ type RuntimeMachine struct {
 	Description                   string
 }
 
+type runtimeContractKey struct {
+	definitionHash string
+	compiledHash   [32]byte
+}
+
+var runtimeContracts, _ = lru.New[runtimeContractKey, RuntimeContract](128)
+
 func RuntimeContractFromCompiled(
 	compiledJSON json.RawMessage,
 	definitionHash string,
 ) (RuntimeContract, error) {
 	if len(compiledJSON) == 0 {
 		return RuntimeContract{}, errors.New("agent config compiled definition is required")
+	}
+	key := runtimeContractKey{definitionHash: definitionHash, compiledHash: sha256.Sum256(compiledJSON)}
+	if cached, ok := runtimeContracts.Get(key); ok {
+		return cloneRuntimeContract(cached), nil
 	}
 	canonical := canonicalizeJSON(compiledJSON)
 	sum := sha256.Sum256(canonical)
@@ -127,7 +139,10 @@ func RuntimeContractFromCompiled(
 		MaxSubagents:        compiled.MaxSubagents,
 		MaxDepth:            compiled.MaxDepth,
 	}
-	return contract, nil
+	if len(compiledJSON) <= 1024*1024 {
+		runtimeContracts.Add(key, cloneRuntimeContract(contract))
+	}
+	return cloneRuntimeContract(contract), nil
 }
 
 func (contract RuntimeContract) DefersAnyTool() bool {
