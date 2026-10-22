@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -563,6 +564,46 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_TRUSTED_PROXY_CIDRS") {
 		t.Fatalf("expected trusted proxy config error, got %v", err)
+	}
+}
+
+func TestLoadAPIRateLimitDefaults(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_BURST", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	got := []int{cfg.APIRateLimitReadsPerHour, cfg.APIRateLimitWritesPerHour, cfg.APIRateLimitBurst}
+	if want := []int{10000, 5000, 100}; !slices.Equal(got, want) {
+		t.Fatalf("reads, writes, burst = %v, want %v", got, want)
+	}
+}
+
+func TestValidateAPIRateLimit(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	cases := []struct{ reads, writes, burst, wantErr string }{
+		{reads: "10000", writes: "5000", burst: "100"},
+		{reads: "0", writes: "0", burst: "1000000"},
+		{reads: "-1", writes: "0", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_READS_PER_HOUR"},
+		{reads: "0", writes: "-1", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR"},
+		{reads: "10000", writes: "5000", burst: "0", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+		{reads: "10000", writes: "5000", burst: "1000001", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+	}
+	for _, tc := range cases {
+		t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", tc.reads)
+		t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", tc.writes)
+		t.Setenv("OMNARA_API_RATE_LIMIT_BURST", tc.burst)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load %+v: %v", tc, err)
+		}
+		err = cfg.ValidateAPI()
+		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Fatalf("validate %+v error = %v", tc, err)
+		}
 	}
 }
 

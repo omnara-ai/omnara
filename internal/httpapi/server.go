@@ -43,6 +43,7 @@ type Server struct {
 	store                               *storage.Store
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
+	apiRateLimit                        *apiRateLimit
 	authOAuthStates                     httpauth.OAuthStateStore
 	trustedProxyNets                    []*net.IPNet
 	email                               httpauth.EmailSender
@@ -510,6 +511,7 @@ func (s *Server) Handler() http.Handler {
 		maxBody(requestBodyLimit),
 		s.publicHostGuard,
 		s.auth,
+		s.limitAPIRequests,
 		s.openAPIRequestValidator,
 	)
 }

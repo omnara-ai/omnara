@@ -1619,7 +1619,7 @@ func (t *daemonSocketTransport) skillSyncManager() (
 	t.skillsync = skillsync.NewManager(
 		store,
 		transportSkillSender{transport: t},
-		t.client.http.Transport,
+		NewRetryAfterTransport(t.client.http.Transport),
 		t.client.cfg.APIURL,
 		t.client.cfg.MachineToken,
 		t.client.log,

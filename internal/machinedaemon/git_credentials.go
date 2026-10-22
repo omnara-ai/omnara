@@ -155,8 +155,10 @@ func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
 	var credentials daemonprotocol.GitCredentials
 	if err := c.postJSON(ctx, daemonAPIPath+"/processes/"+processID+"/git-credentials", nil, &credentials); err != nil {
 		var status httpStatusError
-		if errors.As(err, &status) && status.StatusCode >= 400 && status.StatusCode < 500 &&
-			status.StatusCode != http.StatusTooManyRequests {
+		if errors.As(err, &status) && status.StatusCode >= 400 && status.StatusCode < 500 {
+			if status.RetryAfter != "" {
+				w.Header().Set("Retry-After", status.RetryAfter)
+			}
 			http.Error(w, "Git credentials are unavailable for this process", status.StatusCode)
 		} else {
 			http.Error(w, "Git credential service temporarily unavailable", http.StatusServiceUnavailable)

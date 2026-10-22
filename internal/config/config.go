@@ -92,6 +92,9 @@ type Config struct {
 	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
+	APIRateLimitReadsPerHour          int
+	APIRateLimitWritesPerHour         int
+	APIRateLimitBurst                 int
 	DaemonReleaseURL                  string
 	WebServing                        WebServingMode
 	SecretEncryptionKeys              string
@@ -248,6 +251,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 10000)
+	if err != nil {
+		return Config{}, err
+	}
+	apiRateLimitWritesPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", 5000)
+	if err != nil {
+		return Config{}, err
+	}
+	apiRateLimitBurst, err := getenvInt("OMNARA_API_RATE_LIMIT_BURST", 100)
+	if err != nil {
+		return Config{}, err
+	}
 	openRouterSiteURL := normalizePublicURL(getenv("OMNARA_OPENROUTER_SITE_URL", defaultOpenRouterSiteURL))
 	openRouterAppTitle := strings.TrimSpace(getenv("OMNARA_OPENROUTER_APP_TITLE", defaultOpenRouterAppTitle))
 	openRouterAppCategories := getenvCSV("OMNARA_OPENROUTER_APP_CATEGORIES")
@@ -302,6 +317,9 @@ func Load() (Config, error) {
 		PublicAPIURL:                      publicAPIURL,
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
+		APIRateLimitReadsPerHour:          apiRateLimitReadsPerHour,
+		APIRateLimitWritesPerHour:         apiRateLimitWritesPerHour,
+		APIRateLimitBurst:                 apiRateLimitBurst,
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
 		WebServing:                        WebServingMode(getenv("OMNARA_WEB_SERVING", string(WebServingDisabled))),
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
@@ -515,6 +533,14 @@ func (cfg Config) ValidateAPI() error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("parse OMNARA_TRUSTED_PROXY_CIDRS: %w", err)
 		}
+	}
+	if cfg.APIRateLimitReadsPerHour < 0 || cfg.APIRateLimitWritesPerHour < 0 {
+		return fmt.Errorf(
+			"OMNARA_API_RATE_LIMIT_READS_PER_HOUR and OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR must not be negative",
+		)
+	}
+	if cfg.APIRateLimitBurst < 1 || cfg.APIRateLimitBurst > 1_000_000 {
+		return fmt.Errorf("OMNARA_API_RATE_LIMIT_BURST must be between 1 and 1000000")
 	}
 	if err := validateExternalHTTPSURL(DaemonReleaseURLEnv, cfg.DaemonReleaseURL); err != nil {
 		return err
