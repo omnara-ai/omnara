@@ -595,6 +595,7 @@ func (f kernelFixture) admitContentInputTurn(
 	admitted := claim.Model.AdmittedInputTurn
 	lock := claim.RuntimeLock
 	return ModelWorkExecution{
+		Prepared:             claim.Model.Prepared,
 		Kind:                 executionstore.ModelWorkStart,
 		OrgID:                claim.OrgID,
 		ProjectID:            kernelTestProjectID,
@@ -609,6 +610,7 @@ func (f kernelFixture) admitContentInputTurn(
 
 func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentWork, now time.Time) ModelWorkExecution {
 	return ModelWorkExecution{
+		Prepared:                 claim.Model.Prepared,
 		Kind:                     claim.Model.Kind,
 		OrgID:                    claim.OrgID,
 		ProjectID:                claim.ProjectID,

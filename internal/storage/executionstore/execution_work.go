@@ -20,23 +20,21 @@ func shapeClaimedWork(
 		return result, nil
 	}
 	q := dbsqlc.New(unit.DB())
-	agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: agentID})
+	h, err := unit.Handle(projectID, agentID)
 	if err != nil {
 		return result, err
 	}
-	result.OrgID = agent.OrgID
-	runtime, err := q.GetAgentRuntimeLockForRelease(
-		ctx,
-		dbsqlc.GetAgentRuntimeLockForReleaseParams{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			ID:        work.RuntimeID,
-		},
-	)
+	identity, err := h.Identity()
 	if err != nil {
 		return result, err
 	}
-	result.RuntimeLock = agentRuntimeLockRecordFromSQLC(runtime)
+	result.OrgID = identity.OrgID
+	route, err := h.Route()
+	if err != nil {
+		return result, err
+	}
+	result.RootAgentID = route.RootAgentID
+	result.RuntimeLock = AgentRuntimeLockRecord(work.Runtime)
 	if selected := work.Selection.Tool; selected != nil {
 		result.Kind = AgentWorkTool
 		result.Tool = ClaimedToolWork{TurnID: selected.TurnID, ModelCallContextID: selected.SourceContextID,
@@ -72,9 +70,15 @@ func shapePreparedModel(
 	prepared agentexecution.PreparedModel,
 ) (PreparedNormalModelCall, error) {
 	q := dbsqlc.New(unit.DB())
-	record, err := loadModelCallContextByID(ctx, q, projectID, agentID, prepared.Context.ID)
-	if err != nil {
-		return PreparedNormalModelCall{}, err
+	var record ModelCallContextRecord
+	var err error
+	if prepared.Record != nil {
+		record = modelCallContextRecordFromSQLC(*prepared.Record)
+	} else {
+		record, err = loadModelCallContextByID(ctx, q, projectID, agentID, prepared.Context.ID)
+		if err != nil {
+			return PreparedNormalModelCall{}, err
+		}
 	}
 	config, err := q.GetAgentConfig(
 		ctx,

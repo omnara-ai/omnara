@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPublicAgentInteractionResolveMarksWakeup(t *testing.T) {
@@ -1652,19 +1653,38 @@ func TestPermissionApprovalUniquePerToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse stored permission request: %v", err)
 	}
-	_, err = store.Execution().CreatePermissionInteraction(ctx, executionstore.CreatePermissionInteractionInput{
+	input := executionstore.CreatePermissionInteractionInput{
 		ProjectID:     project.ProjectUUID,
 		AgentID:       agentID,
 		ToolCallID:    interaction.ToolCallID,
 		RuntimeLockID: runtimeLockID,
 		Request:       request,
-	})
+	}
+	replayed, err := store.Execution().CreatePermissionInteraction(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, interaction.ID, replayed.ID)
+	require.Equal(t, interaction.ToolCallID, replayed.ToolCallID)
+	require.JSONEq(t, string(interaction.Request), string(replayed.Request))
+	assertSingleInteraction := func() {
+		t.Helper()
+		var count int
+		err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_interaction_read_projection
+ WHERE project_id = $1 AND agent_id = $2 AND tool_call_id = $3 AND interaction_kind = 'permission'`,
+			project.ProjectUUID, agentID, interaction.ToolCallID).Scan(&count)
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+	}
+	assertSingleInteraction()
+	input.Request.Authorization.Input = json.RawMessage(`{"command":"printf different"}`)
+	_, err = store.Execution().CreatePermissionInteraction(ctx, input)
 	if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf(
-			"duplicate permission approval error = %v, want ErrIdempotencyConflict",
+			"conflicting permission approval error = %v, want ErrIdempotencyConflict",
 			err,
 		)
 	}
+	assertSingleInteraction()
 }
 
 func TestAgentInteractionListsAndResolvesListProcessesPermission(

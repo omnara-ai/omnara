@@ -93,6 +93,26 @@ func (s *Store) GetDaemonFileProcessScope(
 	}, true, nil
 }
 
+func (t *toolCallTransaction) replayProcess(
+	ctx context.Context, input CreateProcessInput,
+) (ProcessRecord, bool, error) {
+	projectID, agentID, toolCallID := t.input.ProjectID, t.input.AgentID, t.input.ToolCallID
+	if existing, found, err := getProcessByToolCallTx(ctx, t.tx, projectID, agentID, toolCallID); err != nil {
+		return ProcessRecord{}, false, err
+	} else if found {
+		if !processReplayMatches(existing, input) {
+			return ProcessRecord{}, false, storeerr.ErrIdempotencyConflict
+		}
+		t.hasDurableCompletionOwner = true
+		t.owner.ProcessID = existing.ID
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
+			return ProcessRecord{}, false, err
+		}
+		return existing, true, nil
+	}
+	return ProcessRecord{}, false, nil
+}
+
 func (t *toolCallTransaction) startProcess(
 	ctx context.Context,
 	input CreateProcessInput,
@@ -118,18 +138,8 @@ func (t *toolCallTransaction) startProcess(
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
 	runtimeLockID := t.input.RuntimeLockID
-	if existing, found, err := getProcessByToolCallTx(ctx, t.tx, projectID, agentID, toolCallID); err != nil {
-		return ProcessRecord{}, err
-	} else if found {
-		if !processReplayMatches(existing, input) {
-			return ProcessRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		t.hasDurableCompletionOwner = true
-		t.owner.ProcessID = existing.ID
-		if err := t.lockOrAcceptExisting(ctx); err != nil {
-			return ProcessRecord{}, err
-		}
-		return existing, nil
+	if existing, found, err := t.replayProcess(ctx, input); err != nil || found {
+		return existing, err
 	}
 	executionConfig, err := t.q.GetProcessExecutionConfig(
 		ctx,
@@ -171,17 +181,24 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("prepare process environment: %w", err)
 	}
-	if _, err := t.q.LockMachineForRuntimeRegistration(
+	_, machineLockErr := t.q.LockMachineForRuntimeRegistration(
 		ctx,
 		dbsqlc.LockMachineForRuntimeRegistrationParams{
 			OrgID: executionConfig.OrgID,
 			ID:    executionConfig.MachineID,
 		},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ProcessRecord{}, storeerr.ErrMachineNotReachable
-		}
-		return ProcessRecord{}, fmt.Errorf("lock machine for start process: %w", err)
+	)
+	if machineLockErr != nil && !errors.Is(machineLockErr, pgx.ErrNoRows) {
+		return ProcessRecord{}, fmt.Errorf("lock machine for start process: %w", machineLockErr)
+	}
+	if _, err := lockExecution(ctx, t.unit, projectID, agentID, false, runtimeLockID); err != nil {
+		return ProcessRecord{}, err
+	}
+	if existing, found, err := t.replayProcess(ctx, input); err != nil || found {
+		return existing, err
+	}
+	if machineLockErr != nil {
+		return ProcessRecord{}, storeerr.ErrMachineNotReachable
 	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return ProcessRecord{}, err

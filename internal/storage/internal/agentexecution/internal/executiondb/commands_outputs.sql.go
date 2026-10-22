@@ -81,11 +81,12 @@ func (q *Queries) CreateExecutionOutput(ctx context.Context, db DBTX, arg Create
 	return i, err
 }
 
-const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :exec
+const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :one
 INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
 SELECT $1,$2,o.id,$3,$4,$5::jsonb,
  $6,'awaiting_authorization',o.created_at FROM model_outputs o
  WHERE o.agent_id=$2 AND o.id=$7
+ RETURNING id,created_at,state
 `
 
 type CreateExecutionToolProposalParams struct {
@@ -98,8 +99,14 @@ type CreateExecutionToolProposalParams struct {
 	OutputID       uuid.UUID
 }
 
-func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg CreateExecutionToolProposalParams) error {
-	_, err := db.Exec(ctx, createExecutionToolProposal,
+type CreateExecutionToolProposalRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+	State     string
+}
+
+func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg CreateExecutionToolProposalParams) (CreateExecutionToolProposalRow, error) {
+	row := db.QueryRow(ctx, createExecutionToolProposal,
 		arg.ID,
 		arg.AgentID,
 		arg.ProviderCallID,
@@ -108,7 +115,9 @@ func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg 
 		arg.Type,
 		arg.OutputID,
 	)
-	return err
+	var i CreateExecutionToolProposalRow
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.State)
+	return i, err
 }
 
 const findExecutionCheckpoint = `-- name: FindExecutionCheckpoint :one

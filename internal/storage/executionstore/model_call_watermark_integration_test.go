@@ -37,13 +37,8 @@ func TestPreparedModelCallTranscriptIgnoresLaterEvents(t *testing.T) {
 	}
 	work := reclaimAgentWork(t, ctx, &f)
 	require.Equal(t, executionstore.ModelWorkContinue, work.Model.Kind)
-	prepared, err := f.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-		ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
-		OpeningInputIDs:          work.Model.InputIDs,
-		SourceModelCallContextID: work.Model.SourceModelCallContextID,
-		SourceModelOutputID:      work.Model.SourceModelOutputID,
-	})
-	require.NoError(t, err)
+	prepared := work.Model.Prepared
+	require.NotNil(t, prepared)
 	require.True(t, prepared.Claim.Claimed)
 	watermark := prepared.Claim.Context.InputEventSequence
 	read := func() ([]executionstore.ContextEventRecord, []executionstore.ToolCallRecord) {
@@ -56,7 +51,7 @@ func TestPreparedModelCallTranscriptIgnoresLaterEvents(t *testing.T) {
 	events, calls := read()
 	require.NotEmpty(t, events)
 	require.Len(t, calls, 2)
-	_, err = f.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
+	_, err := f.Store.Execution().RecordModelOutputAndCompleteContext(ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
 			ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
 			ModelCallContextID: prepared.Claim.Context.ID,

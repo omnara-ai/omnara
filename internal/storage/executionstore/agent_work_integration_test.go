@@ -47,20 +47,9 @@ func ownedModelClaim(
 	work executionstore.ClaimedAgentWork,
 ) executionstore.ModelCallClaim {
 	t.Helper()
-	_, err := f.Store.Execution().CaptureAgentConfigForModelContext(ctx, testProjectID, f.AgentID)
-	require.NoError(t, err)
-	prepared1, err := f.Store.Execution().
-		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID: testProjectID, AgentID: f.AgentID, RuntimeLockID: f.Lock.ID,
-			OpeningInputIDs:          work.Model.InputIDs,
-			SourceModelCallContextID: work.Model.SourceModelCallContextID,
-			SourceModelOutputID:      work.Model.SourceModelOutputID,
-		})
-	claim := prepared1.Claim
-
-	require.NoError(t, err)
-	require.True(t, claim.Claimed)
-	return claim
+	require.NotNil(t, work.Model.Prepared)
+	require.True(t, work.Model.Prepared.Claim.Claimed)
+	return work.Model.Prepared.Claim
 }
 
 func reclaimAgentWork(t *testing.T, ctx context.Context, f *processDaemonFixture) executionstore.ClaimedAgentWork {
@@ -108,8 +97,7 @@ func TestClaimNextAgentWorkPrecedence(t *testing.T) {
 }
 
 func TestClaimNextAgentWorkCrashRecovery(t *testing.T) {
-	for _, name := range []string{"before model preparation", "after model preparation", "release"} {
-		started := name == "after model preparation"
+	for _, name := range []string{"before provider request", "after provider request", "release"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newProcessDaemonFixture(t, ctx, "claim_crash")
@@ -121,10 +109,7 @@ func TestClaimNextAgentWorkCrashRecovery(t *testing.T) {
 				ownedCompleteTool(t, ctx, f, id)
 			}
 			work := reclaimAgentWork(t, ctx, &f)
-			var attempt executionstore.ModelCallClaim
-			if started {
-				attempt = ownedModelClaim(t, ctx, f, work)
-			}
+			attempt := ownedModelClaim(t, ctx, f, work)
 			if name == "release" {
 				require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
 				requireAgentWakeupCoverage(t, ctx, f.Store, testProjectID, f.AgentID)
@@ -142,15 +127,29 @@ func TestClaimNextAgentWorkCrashRecovery(t *testing.T) {
 			require.NotEqual(t, f.Lock.ID, replacement.RuntimeLock.ID)
 			require.Equal(t, work.Model.TurnID, replacement.Model.TurnID)
 			require.Equal(t, work.Model.InputIDs, replacement.Model.InputIDs)
-			if started {
-				require.Equal(t, executionstore.ModelWorkResume, replacement.Model.Kind)
-				require.Equal(t, attempt.Context.ID, replacement.Model.ModelCallContextID)
-			} else if name == "release" {
-				require.Equal(t, executionstore.ModelWorkStart, replacement.Model.Kind)
-			} else {
-				require.Equal(t, executionstore.ModelWorkContinue, replacement.Model.Kind)
-				require.Equal(t, work.Model.SourceModelOutputID, replacement.Model.SourceModelOutputID)
-			}
+			require.Equal(t, executionstore.ModelWorkResume, replacement.Model.Kind)
+			require.Equal(t, attempt.Context.ID, replacement.Model.ModelCallContextID)
 		})
 	}
+}
+
+func TestClaimNextAgentWorkReturnsDurablePreparedModel(t *testing.T) {
+	ctx := t.Context()
+	f := newProcessDaemonFixture(t, ctx, "prepared_claim")
+	input := ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "prepared")
+	work := reclaimAgentWork(t, ctx, &f)
+	require.NotNil(t, work.Model.Prepared)
+	prepared := work.Model.Prepared
+	require.True(t, prepared.Claim.Claimed)
+	require.True(t, prepared.Claim.Created)
+	require.Equal(t, f.Lock.ID, prepared.Claim.Context.RuntimeLockID)
+	require.Equal(t, work.OrgID, prepared.Claim.Context.OrgID)
+	require.Equal(t, f.AgentID, work.RootAgentID)
+	require.Equal(t, prepared.Snapshot.AgentConfig.ID, prepared.Claim.Context.AgentConfigID)
+	require.Equal(t, prepared.Snapshot.InputEventSequence, prepared.Claim.Context.InputEventSequence)
+	require.Equal(t, []uuid.UUID{input.ID}, work.Model.InputIDs)
+	saved, found, err := f.Store.Execution().GetModelCallContext(ctx, testProjectID, f.AgentID, prepared.Claim.Context.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, prepared.Claim.Context, saved)
 }

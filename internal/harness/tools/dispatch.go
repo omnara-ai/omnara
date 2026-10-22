@@ -25,9 +25,10 @@ func (e Executor) dispatchToolHandler(
 	ctx context.Context,
 	turn Turn,
 	call model.ToolCall,
-	toolCallID uuid.UUID,
+	proposal executionstore.ToolCallRecord,
 	handler toolHandler,
 ) (toolDispatchResult, error) {
+	toolCallID := proposal.ID
 	if handler.Transactional == nil && handler.Async == nil {
 		return nil, errors.New(
 			"tool handler requires a transactional or async phase",
@@ -50,6 +51,11 @@ func (e Executor) dispatchToolHandler(
 	execution, err := e.Store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{
+			Completion:        turn.Completion,
+			ResolveRecorded:   true,
+			ObservedState:     proposal.State,
+			RequireCompletion: handler.completion != completionUnspecified,
+			Authorize:         turn.AuthorizeOnDispatch, BatchOutputID: turn.BatchOutputID, RootAgentID: turn.RootAgentID,
 			ProjectID:     turn.ProjectID,
 			AgentID:       turn.AgentID,
 			ToolCallID:    toolCallID,
@@ -146,6 +152,11 @@ func (e Executor) dispatchToolHandler(
 			}
 		}
 		return nil, err
+	}
+	finished := execution.StepDisposition == executionstore.StepFinished ||
+		execution.StepDisposition == executionstore.StepTransferred
+	if finished && turn.StepDisposition != nil {
+		*turn.StepDisposition = execution.StepDisposition
 	}
 	pipeline := toolPhasePipeline{
 		executor:   e,
@@ -315,10 +326,7 @@ func (e Executor) persistAsyncToolFailure(
 	call asyncToolContext,
 	cause error,
 ) error {
-	completionCtx, cancelCompletion := context.WithTimeout(
-		context.WithoutCancel(ctx),
-		asyncToolCompletionTimeout,
-	)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	return e.completeAsyncToolFailure(
 		completionCtx,
@@ -333,10 +341,7 @@ func (e Executor) requeueAsyncTool(
 	ctx context.Context,
 	call asyncToolContext,
 ) error {
-	completionCtx, cancelCompletion := context.WithTimeout(
-		context.WithoutCancel(ctx),
-		asyncToolCompletionTimeout,
-	)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	return retryAsyncToolPersistence(completionCtx, func(ctx context.Context) error {
 		return e.Store.Execution().RequeueRuntimeToolCall(
@@ -423,10 +428,7 @@ func (e Executor) startAsyncTool(
 					"error",
 					cause,
 				)
-				completionCtx, cancelCompletion := context.WithTimeout(
-					context.WithoutCancel(ctx),
-					asyncToolCompletionTimeout,
-				)
+				completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 				defer cancelCompletion()
 				completionErr = e.completeAsyncToolFailure(
 					completionCtx,
@@ -463,10 +465,7 @@ func (e Executor) executeAsyncTool(
 	if runErr != nil {
 		return e.persistAsyncToolFailure(ctx, call, runErr)
 	}
-	completionCtx, cancelCompletion := context.WithTimeout(
-		context.WithoutCancel(ctx),
-		asyncToolCompletionTimeout,
-	)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	switch result := result.(type) {
 	case completeAsync:
@@ -524,6 +523,7 @@ func (e Executor) executeAsyncTool(
 }
 
 type toolHandler struct {
+	completion    toolCompletionCapability
 	Transactional transactionalToolHandler
 	Async         asyncToolHandler
 	Background    backgroundToolHandler

@@ -72,6 +72,7 @@ type Options struct {
 }
 
 type activeRuntime struct {
+	completion      executionstore.StepCompletion
 	agentID         uuid.UUID
 	cancel          context.CancelFunc
 	cancelRequested atomic.Bool
@@ -328,11 +329,16 @@ func (w *Worker) executeClaimedWork(
 		logent.AdmittedAgentInputTurn(ctx, claim.Model.AdmittedInputTurn)
 	}
 	asyncScope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
-	err = w.executeWork(tools.WithAsyncExecutionScope(turnCtx, asyncScope), claim, now)
+	executionCtx := tools.WithAsyncExecutionScope(turnCtx, asyncScope)
+	disposition, err := w.executeWorkStep(executionCtx, claim, now, &active.completion)
 	asyncScope.Seal()
 	if asyncScope.Started() {
 		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal)
 		return runtimeExecutionError(err, active)
+	}
+	if disposition == executionstore.StepFinished || disposition == executionstore.StepTransferred {
+		stopRenewal()
+		return err
 	}
 	if err == nil {
 		err = turnCtx.Err()
@@ -385,9 +391,14 @@ func (w *Worker) retainRuntimeUntilAsyncCompletion(
 	}()
 }
 
-func (w *Worker) executeWork(
-	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time,
-) (err error) {
+func (w *Worker) executeWork(ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time) error {
+	_, err := w.executeWorkStep(ctx, claim, now, nil)
+	return err
+}
+
+func (w *Worker) executeWorkStep(
+	ctx context.Context, claim executionstore.ClaimedAgentWork, now time.Time, completion *executionstore.StepCompletion,
+) (disposition executionstore.StepDisposition, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicError("agent work", recovered)
@@ -396,6 +407,8 @@ func (w *Worker) executeWork(
 	switch claim.Kind {
 	case executionstore.AgentWorkModel:
 		input := kernel.ModelWorkExecution{
+			Completion: completion,
+			Prepared:   claim.Model.Prepared, RootAgentID: claim.RootAgentID,
 			Kind:                     claim.Model.Kind,
 			OrgID:                    claim.OrgID,
 			ProjectID:                claim.ProjectID,
@@ -409,9 +422,16 @@ func (w *Worker) executeWork(
 			RuntimeLockID:            claim.RuntimeLock.ID,
 			Now:                      now,
 		}
-		return w.executor.ExecuteModelWork(ctx, input)
+		if executor, ok := w.executor.(interface {
+			ExecuteModelWorkStep(context.Context, kernel.ModelWorkExecution) (executionstore.StepDisposition, error)
+		}); ok {
+			return executor.ExecuteModelWorkStep(ctx, input)
+		}
+		return executionstore.StepRetained, w.executor.ExecuteModelWork(ctx, input)
 	case executionstore.AgentWorkTool:
-		return w.executor.ExecuteToolWork(ctx, kernel.ToolWorkExecution{
+		input := kernel.ToolWorkExecution{
+			RootAgentID:        claim.RootAgentID,
+			Completion:         completion,
 			Prepared:           claim.Tool.Prepared,
 			ProjectID:          claim.ProjectID,
 			AgentID:            claim.AgentID,
@@ -421,9 +441,15 @@ func (w *Worker) executeWork(
 			SourceEventID:      claim.Tool.SourceEventID,
 			RuntimeLockID:      claim.RuntimeLock.ID,
 			Now:                now,
-		})
+		}
+		if executor, ok := w.executor.(interface {
+			ExecuteToolWorkStep(context.Context, kernel.ToolWorkExecution) (executionstore.StepDisposition, error)
+		}); ok {
+			return executor.ExecuteToolWorkStep(ctx, input)
+		}
+		return executionstore.StepRetained, w.executor.ExecuteToolWork(ctx, input)
 	default:
-		return fmt.Errorf("unsupported agent work kind %d", claim.Kind)
+		return executionstore.StepRetained, fmt.Errorf("unsupported agent work kind %d", claim.Kind)
 	}
 }
 
@@ -548,15 +574,13 @@ func (w *Worker) startRuntimeRenewal(
 				cancelTurn()
 				return
 			case errors.Is(err, storeerr.ErrRuntimeLockInactive):
-				active.renewalFailed.Store(true)
-				cancelTurn()
+				active.completion.LeaseLost(func() { active.renewalFailed.Store(true); cancelTurn() })
 				return
 			case renewalCtx.Err() != nil:
 				return
 			}
 
-			active.renewalFailed.Store(true)
-			cancelTurn()
+			active.completion.LeaseLost(func() { active.renewalFailed.Store(true); cancelTurn() })
 			return
 		}
 	}()

@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type PrepareNormalModelCallInput struct {
@@ -46,4 +48,17 @@ func (s *Store) PrepareNormalModelCall(
 			}
 			return result, nil
 		})
+}
+
+func (s *Store) CheckPreparedModelCall(ctx context.Context, projectID, agentID, contextID, runtimeID uuid.UUID) error {
+	executable, err := s.q.ReadPreparedModelCallStatus(ctx, dbsqlc.ReadPreparedModelCallStatusParams{
+		ProjectID: projectID, AgentID: agentID, ContextID: contextID, RuntimeID: runtimeID,
+	})
+	if err != nil {
+		return err
+	}
+	if !executable {
+		return storeerr.ErrAgentNotAdvanceable
+	}
+	return nil
 }

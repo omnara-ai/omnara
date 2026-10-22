@@ -22,6 +22,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	"github.com/stretchr/testify/require"
 )
 
 type renewalDeadlineStore struct {
@@ -1174,5 +1175,191 @@ func TestWorkerDrainInterruptsPendingClaimAndRunsItsLease(t *testing.T) {
 		if got := store.releaseCounts(); !slices.Equal(got, []int{1}) {
 			t.Fatalf("runtime release counts = %v, want the lease released once", got)
 		}
+	})
+}
+
+type finishedModelStepExecutor struct {
+	fixedModelErrorExecutor
+	renewalCanceled atomic.Bool
+}
+
+func (e *finishedModelStepExecutor) ExecuteModelWorkStep(
+	ctx context.Context, input kernel.ModelWorkExecution,
+) (executionstore.StepDisposition, error) {
+	finish := input.Completion.Begin(ctx, true)
+	input.Completion.LeaseLost(func() { e.renewalCanceled.Store(true) })
+	finish(true)
+	return executionstore.StepFinished, ctx.Err()
+}
+
+func TestWorkerFinishedStepDoesNotReleaseAgainOrFailRenewal(t *testing.T) {
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			ProjectID: uuid.New(), AgentID: uuid.New(), Kind: executionstore.AgentWorkModel,
+			RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+			LocalLeaseBudgetStartedAt: time.Now(),
+		},
+		released: make(chan uuid.UUID, 1),
+	}
+	executor := &finishedModelStepExecutor{}
+	worker := NewWorker(store, executor, Options{RuntimeLockLeaseDuration: time.Minute, Capacity: 1})
+	worked, err := worker.RunOnce(t.Context())
+	require.NoError(t, err)
+	require.True(t, worked)
+	require.False(t, executor.renewalCanceled.Load())
+	select {
+	case <-store.released:
+		t.Fatal("finished step released twice")
+	default:
+	}
+}
+
+func TestUnknownClaimOutcomeNeverStartsProviderOrReleases(t *testing.T) {
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			AgentID: uuid.New(), ProjectID: uuid.New(), Kind: executionstore.AgentWorkModel,
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+		},
+		claimErr: storeerr.ErrCommitOutcomeUnknown,
+		released: make(chan uuid.UUID, 1),
+	}
+	executor := &recordingModelWorkExecutor{}
+	worker := NewWorker(store, executor, Options{Capacity: 1})
+	worked, err := worker.RunOnce(t.Context())
+	require.ErrorIs(t, err, storeerr.ErrCommitOutcomeUnknown)
+	require.False(t, worked)
+	require.Equal(t, uuid.Nil, executor.got.AgentID)
+	select {
+	case <-store.released:
+		t.Fatal("uncertain claim released")
+	default:
+	}
+}
+
+type completionRenewalStore struct {
+	retainedRuntimeStore
+	mode      string
+	exhausted chan struct{}
+}
+
+func (s *completionRenewalStore) RenewAgentRuntimeLock(
+	ctx context.Context, _, _, _ uuid.UUID, _ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	defer close(s.exhausted)
+	if s.mode == "cancellation" {
+		return executionstore.AgentRuntimeLockRenewal{
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{CancelRequestedAt: new(time.Now())},
+		}, nil
+	}
+	if s.mode == "inactive" {
+		return executionstore.AgentRuntimeLockRenewal{}, storeerr.ErrRuntimeLockInactive
+	}
+	<-ctx.Done()
+	return executionstore.AgentRuntimeLockRenewal{}, ctx.Err()
+}
+
+type delayedCompletionExecutor struct {
+	fixedModelErrorExecutor
+	started chan context.Context
+	ack     chan struct{}
+}
+
+func (e *delayedCompletionExecutor) ExecuteModelWorkStep(
+	ctx context.Context, input kernel.ModelWorkExecution,
+) (executionstore.StepDisposition, error) {
+	finish := input.Completion.Begin(ctx, true)
+	e.started <- ctx
+	<-e.ack
+	finish(true)
+	return executionstore.StepFinished, ctx.Err()
+}
+
+func TestWorkerRenewalFailureWaitsForDelayedCompletionAcknowledgement(t *testing.T) {
+	for _, mode := range []string{"timeout", "inactive", "cancellation"} {
+		t.Run(mode, func(t *testing.T) {
+			store := &completionRenewalStore{
+				retainedRuntimeStore: retainedRuntimeStore{
+					claim: executionstore.ClaimedAgentWork{
+						ProjectID: uuid.New(), AgentID: uuid.New(), Kind: executionstore.AgentWorkModel,
+						RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+						LocalLeaseBudgetStartedAt: time.Now(),
+					}, released: make(chan uuid.UUID, 1),
+				}, mode: mode, exhausted: make(chan struct{}),
+			}
+			executor := &delayedCompletionExecutor{started: make(chan context.Context, 1), ack: make(chan struct{})}
+			worker := NewWorker(store, executor, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond, Capacity: 1})
+			done := make(chan error, 1)
+			go func() { _, err := worker.RunOnce(t.Context()); done <- err }()
+			executionCtx := <-executor.started
+			select {
+			case <-store.exhausted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("renewal did not exhaust its budget")
+			}
+			if mode == "cancellation" {
+				select {
+				case <-executionCtx.Done():
+				case <-time.After(time.Second):
+					t.Fatal("genuine cancellation was deferred")
+				}
+			} else {
+				select {
+				case <-executionCtx.Done():
+					t.Fatal("renewal canceled pending completion")
+				case <-time.After(50 * time.Millisecond):
+				}
+			}
+			close(executor.ack)
+			select {
+			case err := <-done:
+				if mode != "cancellation" {
+					require.NoError(t, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("worker did not finish after acknowledgement")
+			}
+			require.Empty(t, store.released)
+		})
+	}
+}
+
+func TestWorkerCancellationPreservesIndependentCleanupTimeouts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &completionRenewalStore{mode: "inactive", exhausted: make(chan struct{})}
+		worker := NewWorker(store, nil, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond})
+		ctx, cancelExecution := context.WithCancel(t.Context())
+		defer cancelExecution()
+		turn, active, stop, err := worker.startRuntimeRenewal(ctx, uuid.New(), uuid.New(),
+			executionstore.AgentRuntimeLockRecord{ID: uuid.New()}, time.Now())
+		require.NoError(t, err)
+		defer stop()
+		started := time.Now()
+		finish := active.completion.Begin(turn, true)
+		defer finish(false)
+		<-store.exhausted
+		synctest.Wait()
+		require.NoError(t, turn.Err())
+		require.False(t, active.renewalFailed.Load())
+		cancelExecution()
+		synctest.Wait()
+		require.ErrorIs(t, turn.Err(), context.Canceled)
+		require.False(t, active.renewalFailed.Load())
+		finalize, cancelFinalize := worker.finalizeContext(turn)
+		defer cancelFinalize()
+		require.NoError(t, finalize.Err())
+		finalizing := time.Now()
+		<-finalize.Done()
+		synctest.Wait()
+		require.Equal(t, 5*time.Second, time.Since(finalizing))
+		require.ErrorIs(t, finalize.Err(), context.DeadlineExceeded)
+		require.False(t, active.renewalFailed.Load())
+		<-time.After(time.Until(started.Add(10 * time.Second)))
+		synctest.Wait()
+		require.True(t, active.renewalFailed.Load())
+		late, cancelLate := worker.finalizeContext(turn)
+		defer cancelLate()
+		require.NoError(t, late.Err())
+		<-late.Done()
+		require.ErrorIs(t, late.Err(), context.DeadlineExceeded)
 	})
 }

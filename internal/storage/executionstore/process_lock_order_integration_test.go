@@ -26,6 +26,7 @@ func TestStartProcessLocksMachineBeforeAgent(t *testing.T) {
 		"run_command",
 	)
 	transaction := executionstore.ExecuteToolCallInput{
+		RootAgentID:   fixture.AgentID,
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ToolCallID:    toolCallID,
@@ -64,6 +65,7 @@ func TestCreateProcessActionLocksMachineBeforeAgent(t *testing.T) {
 	)
 	processToolCallID, actionToolCallID := toolCallIDs[0], toolCallIDs[1]
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		RootAgentID:   fixture.AgentID,
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ToolCallID:    processToolCallID,
@@ -87,6 +89,7 @@ func TestCreateProcessActionLocksMachineBeforeAgent(t *testing.T) {
 		t.Fatalf("accept process found=%v err=%v", found, err)
 	}
 	transaction := executionstore.ExecuteToolCallInput{
+		RootAgentID:   fixture.AgentID,
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ToolCallID:    actionToolCallID,

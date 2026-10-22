@@ -187,3 +187,10 @@ LEFT JOIN LATERAL (
 WHERE tool_result_event.sequence > sqlc.arg(after_event_sequence)
   AND tool_result_event.sequence <= sqlc.arg(max_event_sequence)
 ORDER BY tc.source_event_sequence, call_block.ordinal, tc.created_at, tc.id;
+
+-- name: GetCommittedToolResult :one
+SELECT result.id,result.outcome
+FROM tool_call_results result
+JOIN agents agent ON agent.id=result.agent_id
+WHERE agent.project_id=sqlc.arg(project_id) AND result.agent_id=sqlc.arg(agent_id)
+ AND result.tool_call_id=sqlc.arg(tool_call_id);

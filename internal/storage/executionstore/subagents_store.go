@@ -416,7 +416,8 @@ func SendSubagentMessageForToolCall(
 	input SendSubagentMessageInput,
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replaySubagentCompletion(input.TargetAgentID, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if err := tx.sendSubagentMessage(ctx, input); err != nil {
 			return nil, err
 		}
@@ -431,12 +432,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	if err := t.unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
 		{ProjectID: t.input.ProjectID, AgentID: input.TargetAgentID},
-	},
-		&agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
-			RuntimeLockID: t.input.RuntimeLockID}); err != nil {
-		return err
-	}
-	if err := t.lockForMutation(ctx); err != nil {
+	}, nil); err != nil {
 		return err
 	}
 	parent, err := loadAgentInProjectTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
@@ -449,6 +445,12 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	}
 	if child.ParentAgentID != parent.ID {
 		return storeerr.InvalidRequest(errors.New("target agent is not a subagent of this agent"))
+	}
+	if err := t.lockOrAcceptExisting(ctx); err != nil {
+		return err
+	}
+	if t.disposition == ToolCallDispositionCompleted {
+		return nil
 	}
 	if child.State != AgentStateActive {
 		return storeerr.InvalidRequest(errors.New("subagent is archived"))
@@ -489,7 +491,8 @@ func LaunchSubagentForToolCall(
 	input LaunchAgentInput,
 	completion ToolCallCompletionBuilder[LaunchAgentResult],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayLaunchSubagent(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("subagent launch completion builder is required")
 		}
@@ -504,7 +507,7 @@ func LaunchSubagentForToolCall(
 		if err != nil {
 			return nil, err
 		}
-		if err := tx.lockForMutation(ctx); err != nil {
+		if err := tx.lockOrAcceptExisting(ctx); err != nil {
 			return nil, err
 		}
 		toolCompletion, err := completion(result)
@@ -527,7 +530,8 @@ func StopSubagentForToolCall(
 	input StopSubagentInput,
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replaySubagentCompletion(input.TargetAgentID, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if err := enterActiveAgentProjectTx(ctx, tx.tx, tx.q, tx.input.ProjectID); err != nil {
 			return nil, err
 		}
@@ -538,23 +542,36 @@ func StopSubagentForToolCall(
 		if child.ParentAgentID != tx.input.AgentID {
 			return nil, storeerr.InvalidRequest(errors.New("target agent is not a subagent of this agent"))
 		}
+		call, err := getToolCallTx(ctx, tx.tx, tx.input.ProjectID, tx.input.AgentID, tx.input.ToolCallID)
+		if err != nil && !errors.Is(err, storeerr.ErrNotFound) {
+			return nil, err
+		}
+		if err == nil && call.State == ToolCallStateCompleted {
+			_, err := tx.completeToolCall(ctx, completion)
+			return nil, err
+		}
 		var machines []MachineRecord
 		if input.Archive {
-			machines, err = archiveAgentTreeTx(
+			locked, err := lockAgentTreeTx(
 				ctx,
 				tx.unit,
 				tx.q,
 				child.ProjectID,
 				child.ID,
-				nil,
 			)
 			if err != nil {
 				return nil, err
 			}
+			if err := tx.lockOrAcceptExisting(ctx); err != nil {
+				return nil, err
+			}
+			if tx.disposition != ToolCallDispositionCompleted {
+				machines, err = archiveLockedAgentTreeTx(ctx, tx.unit, tx.q, locked, nil)
+				if err != nil {
+					return nil, err
+				}
+			}
 		} else if err := tx.cancelSubagent(ctx, child); err != nil {
-			return nil, err
-		}
-		if err := tx.lockForMutation(ctx); err != nil {
 			return nil, err
 		}
 		if _, err := tx.completeToolCall(ctx, completion); err != nil {
@@ -565,16 +582,24 @@ func StopSubagentForToolCall(
 }
 
 func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRecord) error {
-	if child.State != AgentStateActive {
-		return storeerr.InvalidRequest(errors.New("subagent is archived"))
-	}
 	if err := t.unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{
 		{ProjectID: child.ProjectID, AgentID: child.ID},
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
-	},
-		&agentexecution.RuntimeAuthority{AgentID: t.input.AgentID,
-			RuntimeLockID: t.input.RuntimeLockID}); err != nil {
+	}, nil); err != nil {
 		return err
+	}
+	if err := t.lockOrAcceptExisting(ctx); err != nil {
+		return err
+	}
+	if t.disposition == ToolCallDispositionCompleted {
+		return nil
+	}
+	child, err := loadAgentInProjectTx(ctx, t.tx, child.ProjectID, child.ID)
+	if err != nil {
+		return err
+	}
+	if child.State != AgentStateActive {
+		return storeerr.InvalidRequest(errors.New("subagent is archived"))
 	}
 	parent, err := loadAgentInProjectTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
 	if err != nil {

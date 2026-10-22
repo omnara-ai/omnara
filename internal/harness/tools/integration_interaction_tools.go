@@ -20,11 +20,15 @@ func interactionToolRegistrations() []toolRegistration {
 	return []toolRegistration{
 		{
 			name:            toolcatalog.ToolNameListInteractionHandlers,
+			completion:      completionBoundedDatabase,
+			locks:           locksCallingAgent,
 			handler:         toolHandler{Transactional: listInteractionHandlers},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:            toolcatalog.ToolNameSetInteractionHandler,
+			completion:      completionBoundedDatabase,
+			locks:           locksResourcesBeforeAgents,
 			handler:         toolHandler{Transactional: setInteractionHandler},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
