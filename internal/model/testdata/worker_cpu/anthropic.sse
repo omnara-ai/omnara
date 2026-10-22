@@ -1,0 +1,45 @@
+event: message_start
+data: {"message":{"id":"msg_1","model":"claude-test-served","usage":{"input_tokens":10}}}
+
+event: content_block_start
+data: {"index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"index":0,"delta":{"type":"thinking_delta","thinking":"pondering"}}
+
+event: content_block_delta
+data: {"index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}
+
+event: content_block_stop
+data: {"index":0}
+
+event: content_block_start
+data: {"index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"index":1,"delta":{"type":"text_delta","text":"Hello "}}
+
+event: content_block_delta
+data: {"index":1,"delta":{"type":"text_delta","text":"world"}}
+
+event: content_block_stop
+data: {"index":1}
+
+event: content_block_start
+data: {"index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}
+
+event: content_block_delta
+data: {"index":2,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}
+
+event: content_block_delta
+data: {"index":2,"delta":{"type":"input_json_delta","partial_json":"\"sf\"}"}}
+
+event: content_block_stop
+data: {"index":2}
+
+event: message_delta
+data: {"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":25}}
+
+event: message_stop
+data: {}
+

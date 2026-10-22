@@ -1,0 +1,22 @@
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"reasoning":"Checked ","reasoning_details":[{"type":"reasoning.text","text":"Checked ","id":"rs_1","format":"anthropic-claude-v1","index":0}]}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"reasoning":"the command plan","reasoning_details":[{"type":"reasoning.text","text":"the command plan","id":"rs_1","format":"anthropic-claude-v1","index":0}]}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"","signature":"sig_1","id":"rs_1","format":"anthropic-claude-v1","index":0}]}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"content":"Hello "}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"content":"world"}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"run_command","arguments":"{\"command\":"}}]}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"pwd\"}"}}]}}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl_1","model":"anthropic/claude-sonnet-4","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.0000125,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}}
+
+data: [DONE]
+

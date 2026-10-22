@@ -1,0 +1,27 @@
+event: response.output_item.added
+data: {"item":{"id":"msg_1","type":"message"}}
+
+event: response.content_part.added
+data: {"item_id":"msg_1","content_index":0,"part":{"type":"output_text"}}
+
+event: response.output_text.delta
+data: {"item_id":"msg_1","content_index":0,"delta":"Hello "}
+
+event: response.output_text.delta
+data: {"item_id":"msg_1","content_index":0,"delta":"world"}
+
+event: response.content_part.done
+data: {"item_id":"msg_1","content_index":0}
+
+event: response.output_item.added
+data: {"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather"}}
+
+event: response.function_call_arguments.delta
+data: {"item_id":"fc_1","delta":"{\"city\":\"sf\"}"}
+
+event: response.output_item.done
+data: {"item":{"id":"fc_1","type":"function_call"}}
+
+event: response.completed
+data: {"response":{"id":"resp_1","model":"gpt-test-served","status":"completed","output":[{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"Hello world"}]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"sf\"}"}],"usage":{"input_tokens":10,"output_tokens":25}}}
+
