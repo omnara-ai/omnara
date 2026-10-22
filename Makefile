@@ -532,6 +532,7 @@ test-live-api-format-switching:
 test-live-sandbox-providers:
 	@$(LOAD_DOTENV); \
 	$(GO) test -count=1 -v \
+		./internal/machinepool/providers/agent37 \
 		./internal/machinepool/providers/arker \
 		./internal/machinepool/providers/blaxel \
 		./internal/machinepool/providers/boxd \
@@ -543,7 +544,7 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/superserve \
 		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
 
 test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 

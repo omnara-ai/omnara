@@ -176,6 +176,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
+    case 'agent37':
     case 'arker':
     case 'freestyle':
     case 'modal':
@@ -342,6 +343,7 @@ export function machinePoolUpdateRequest(
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
+    case 'agent37':
     case 'arker':
     case 'freestyle':
     case 'modal':
@@ -436,6 +438,7 @@ function clusterMachinePoolUpdateRequest(
     ),
   }
   switch (values.provider) {
+    case 'agent37':
     case 'arker':
     case 'freestyle':
     case 'modal':

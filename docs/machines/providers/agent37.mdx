@@ -1,0 +1,76 @@
+---
+title: Agent37
+description: Always-on Linux computers for agents, running in seconds from any image and billed by the minute
+icon: "/logo/providers/agent37.svg"
+---
+
+[Agent37](https://www.agent37.com) gives each machine its own always-on Linux sandbox with a persistent disk, created through the Agents API in a few seconds. Connect your Agent37 workspace with a custom pool.
+
+## Why Agent37
+
+- **Any image, running in seconds.** Turn a public registry image into a template with one API call, or build one from a Dockerfile in Agent37's cloud with no local Docker. Every machine from it is up in a few seconds.
+- **A URL for every port.** A dev server or app an agent starts gets its own HTTPS address at `https://{instance}-{port}.agent37.app`, and a [signed link](https://www.agent37.com/docs/agents-api/urls) opens it in your browser.
+- **SSH into any machine.** Add your public key once, then use `ssh`, `scp`, or VS Code Remote to watch an agent work or pick up where it left off. See [SSH](https://www.agent37.com/docs/agents-api/ssh).
+- **Pay for the minutes you use.** Machines bill by the minute from a prepaid balance, and auto top-up refills it before it runs out.
+
+## Set up an Agent37 pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Agent37 dashboard](https://www.agent37.com/dashboard/cloud/api-keys), create an API key and store it as an org-owned [secret](/organization/secrets) in Omnara. Machines run and bill in that key's workspace, so [add funds](https://www.agent37.com/docs/agents-api/billing) before you create the pool: a workspace that has never been topped up runs one small machine.
+  </Step>
+  <Step title="Create a template">
+    A template is the image every machine runs. Register a public `linux/amd64` image that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements) with one call:
+
+    ```bash
+    curl -X POST https://api.agent37.com/v1/templates \
+      -H "Authorization: Bearer $AGENT37_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "omnara-machine",
+        "image_ref": "docker.io/library/buildpack-deps:24.04-curl",
+        "entrypoint": ["/bin/sh", "-c", "trap \"exit 0\" TERM; while :; do sleep 3600 & wait $!; done"]
+      }'
+    ```
+
+    - Omnara starts the daemon with a command on the running machine, so the image's main process only has to keep running. The `entrypoint` above does that for an image whose own command exits, and cleans up the processes agents leave behind.
+    - Agents run commands as the image's default user, so pick an image that runs as root if they should install packages.
+    - Machines are containers, so pick an image that doesn't need Docker or systemd.
+    - For your own tools, build a template from a Dockerfile with `npx agent37 templates build`. See [Agent37 templates](https://www.agent37.com/docs/agents-api/templates).
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Agent37**. Enter the credential, the template name, the CPU and memory, and capacity limits.
+
+    Each machine is 2 vCPU with 4 GB of memory, or 4 vCPU with 8, 16, or 32 GB. Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the machine.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "agent37-pool",
+  "provider": "agent37",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "template": "omnara-machine",
+    "disk_gb": 12 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `template` is the name of a template in your Agent37 workspace. Add `@<revision>`, such as `omnara-machine@2`, to pin a published revision.
+- CPU and memory must be one of Agent37's sizes: 2 vCPU with 4096 MB, or 4 vCPU with 8192, 16384, or 32768 MB.
+- `disk_gb` is optional. Without it, each machine gets its size's default disk, 4 GB at 2 vCPU. See [instance sizing](https://www.agent37.com/docs/agents-api/instance-sizing) for each size's range.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

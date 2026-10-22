@@ -15074,7 +15074,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [arker, freestyle, modal, tenki, unikraft]
+                  enum: [agent37, arker, freestyle, modal, tenki, unikraft]
                 default_machine_cpu:
                   type: integer
                   format: int32
