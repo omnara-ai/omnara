@@ -25,7 +25,7 @@ type ActivatedConfig struct {
 
 func (h *Handle) captureOpening(ctx context.Context, turn uuid.UUID, watermark, stop int64) (Opening, error) {
 	rows, err := executiondb.New().CaptureExecutionOpening(ctx, h.unit.DB(), executiondb.CaptureExecutionOpeningParams{
-		ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, TurnID: turn, Watermark: watermark, StopSequence: stop})
+		AgentID: h.route.AgentID, TurnID: turn, Watermark: watermark, StopSequence: stop})
 	if err != nil {
 		return Opening{}, err
 	}

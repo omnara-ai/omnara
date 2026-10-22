@@ -22,6 +22,7 @@ import {
 import { sourceHint } from './agent-chat-transport'
 import type { CreateAgentInputResult } from './agent-chat-types'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
+import { openAgentInteractionsQueryKey } from './agent-interactions'
 
 const transport = chatTransport()
 
@@ -110,6 +111,62 @@ describe('AgentChatSession input lifecycle', () => {
       (state) => state.messages.at(-1)?.id === 'input-event',
     )
     expect(snapshot.error).toBeUndefined()
+    session.disconnect()
+  })
+
+  it('refreshes interaction transitions and cached open calls across the agent tree', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const key = openAgentInteractionsQueryKey(sessionClient, scope)
+    queryClient.setQueryData(key, { data: [{ tool_call_id: 'tcl_open' }] })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const session = startSession([], sessionClient, queryClient)
+    const stream = await connection(0)
+    for (const state of ['ready', 'running', 'waiting', 'completed'] as const) {
+      stream.push({ event: 'tool_call_update', data: { tool_call_id: 'tcl_unrelated', state } })
+    }
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+    await waitForSnapshot(session, (state) => state.messages.at(-1)?.id === 'input-event')
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: key })
+    invalidate.mockClear()
+    stream.push({
+      event: 'tool_call_update',
+      data: {
+        tool_call_id: 'tcl_question',
+        agent_id: 'agt_child',
+        state: 'waiting',
+        interaction_update: { id: 'ain_question', interaction_kind: 'question', state: 'open' },
+      },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(1)
+    })
+    stream.push({
+      event: 'tool_call_update',
+      data: { tool_call_id: 'tcl_open', state: 'completed' },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(2)
+    })
+    stream.push({
+      event: 'tool_call_update',
+      data: {
+        tool_call_id: 'tcl_question',
+        agent_id: 'agt_child',
+        state: 'completed',
+        interaction_update: { id: 'ain_question', interaction_kind: 'question', state: 'resolved' },
+      },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(3)
+    })
+    stream.push({
+      event: 'tool_call_update',
+      data: { tool_call_id: 'tcl_permission', state: 'awaiting_permission' },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(4)
+    })
     session.disconnect()
   })
 

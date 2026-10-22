@@ -98,12 +98,20 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	contract, err := agentconfig.RuntimeContractFromCompiled(
-		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.EffectiveDefinitionHash,
-	)
-	if err != nil {
-		return Bundle{}, err
+	var contract agentconfig.RuntimeContract
+	if input.RuntimeContract != nil {
+		if input.AgentConfigSnapshot == nil {
+			return Bundle{}, fmt.Errorf("runtime contract requires its captured agent config snapshot")
+		}
+		contract = *input.RuntimeContract
+	} else {
+		contract, err = agentconfig.RuntimeContractFromCompiled(
+			snapshot.AgentConfig.CompiledDefinition,
+			snapshot.AgentConfig.EffectiveDefinitionHash,
+		)
+		if err != nil {
+			return Bundle{}, err
+		}
 	}
 	toolSpecs, err := RuntimeContractToolSpecs(
 		ctx,

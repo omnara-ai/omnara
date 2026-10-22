@@ -61,9 +61,10 @@ func (e AgentExecutor) streamSinkForCall(
 }
 
 const (
-	streamSinkBufferSize     = 256
-	streamSinkPublishTimeout = 250 * time.Millisecond
-	streamSinkCloseTimeout   = 2 * time.Second
+	streamSinkBufferSize       = 256
+	streamSinkCoalesceInterval = 100 * time.Millisecond
+	streamSinkPublishTimeout   = 250 * time.Millisecond
+	streamSinkCloseTimeout     = 2 * time.Second
 )
 
 type harnessStreamSink struct {
@@ -210,38 +211,52 @@ func (s *harnessStreamSink) Close() {
 
 func (s *harnessStreamSink) run(ctx context.Context) {
 	defer close(s.done)
-	for envelope, ok := s.nextCoalesced(ctx); ok; envelope, ok = s.nextCoalesced(ctx) {
-		s.publish(ctx, envelope)
-	}
-}
-
-func (s *harnessStreamSink) nextCoalesced(ctx context.Context) (streamEnvelope, bool) {
-	envelope, ok := <-s.events
-	if !ok {
-		return streamEnvelope{}, false
-	}
-	if !coalescableStreamEvent(envelope.Event.Kind) {
-		return envelope, true
+	timer := time.NewTimer(streamSinkCoalesceInterval)
+	defer timer.Stop()
+	timer.Stop()
+	var tick <-chan time.Time
+	var pending streamEnvelope
+	var delta strings.Builder
+	flush := func() {
+		if pending.CoalescedCount == 0 {
+			return
+		}
+		pending.Event.Delta = delta.String()
+		s.publish(ctx, pending)
+		pending = streamEnvelope{}
+		delta.Reset()
+		timer.Stop()
+		tick = nil
 	}
 	for {
 		select {
-		case next, ok := <-s.events:
+		case envelope, ok := <-s.events:
 			if !ok {
-				return envelope, true
+				flush()
+				return
 			}
-			if next.Event.Kind == envelope.Event.Kind && next.Event.BlockIndex == envelope.Event.BlockIndex {
-				envelope.Event.Delta += next.Event.Delta
-				envelope.SourceSeqEnd = next.SourceSeqEnd
-				envelope.CoalescedCount += next.CoalescedCount
+			if !coalescableStreamEvent(envelope.Event.Kind) {
+				flush()
+				s.publish(ctx, envelope)
 				continue
 			}
-			s.publish(ctx, envelope)
-			if !coalescableStreamEvent(next.Event.Kind) {
-				return next, true
+			if pending.CoalescedCount != 0 &&
+				(pending.Event.Kind != envelope.Event.Kind || pending.Event.BlockIndex != envelope.Event.BlockIndex ||
+					pending.SourceSeqEnd+1 != envelope.SourceSeqStart) {
+				flush()
 			}
-			envelope = next
-		default:
-			return envelope, true
+			if pending.CoalescedCount == 0 {
+				pending = envelope
+				delta.WriteString(envelope.Event.Delta)
+				timer.Reset(streamSinkCoalesceInterval)
+				tick = timer.C
+			} else {
+				delta.WriteString(envelope.Event.Delta)
+				pending.SourceSeqEnd = envelope.SourceSeqEnd
+				pending.CoalescedCount += envelope.CoalescedCount
+			}
+		case <-tick:
+			flush()
 		}
 	}
 }

@@ -313,3 +313,17 @@ func TestEffectiveRevisionReachesAnthropicWire(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderTransportIdleBudgets(t *testing.T) {
+	for name, transport := range map[string]*http.Transport{
+		"default": defaultHTTPTransport, "loopback": loopbackHTTPTransport,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, 1024, transport.MaxIdleConnsPerHost)
+			require.Equal(t, 2048, transport.MaxIdleConns)
+			require.Equal(t, 90*time.Second, transport.IdleConnTimeout)
+			require.Zero(t, transport.ResponseHeaderTimeout)
+			require.True(t, transport.ForceAttemptHTTP2)
+		})
+	}
+}

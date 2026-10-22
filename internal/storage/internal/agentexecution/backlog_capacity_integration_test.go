@@ -3,6 +3,7 @@
 package agentexecution_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -139,4 +140,26 @@ JOIN content_blocks c ON c.owner_agent_input_id=i.id WHERE i.id=$1`, original.ID
 	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
 	require.NoError(t, u.Rollback(t.Context()))
 	require.Equal(t, 51, pendingExecutionCount(t, f, agent))
+}
+
+func TestReceiveContentPreparesOnlyNewInputs(t *testing.T) {
+	f, agent, _ := commandFixture(t)
+	u, h := f.handle(t, agent)
+	prepared := 0
+	input := agentexecution.ReceiveContentInput{
+		DeliveryMode: "queued", IdempotencyScope: "test", IdempotencyKey: "prepare-once",
+		Prepare: func(context.Context) (uuid.UUID, []agentexecution.Content, error) {
+			prepared++
+			return uuid.Nil, []agentexecution.Content{{Kind: "text", Text: "prepared"}}, nil
+		},
+	}
+	first, err := h.ReceiveContent(t.Context(), input)
+	require.NoError(t, err)
+	require.False(t, first.Replayed)
+	replay, err := h.ReceiveContent(t.Context(), input)
+	require.NoError(t, err)
+	require.True(t, replay.Replayed)
+	require.Equal(t, first.ID, replay.ID)
+	require.Equal(t, 1, prepared)
+	require.NoError(t, u.Commit(t.Context(), "prepared input replay"))
 }

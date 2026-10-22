@@ -24,15 +24,15 @@ WITH boundary AS MATERIALIZED (
     SELECT i.id,e.sequence,e.created_at FROM boundary b
     JOIN agent_events e ON e.agent_id=$1 AND e.is_opening_event
         AND e.sequence>b.sequence AND e.sequence<=$2
-    JOIN agent_inputs i ON i.project_id=$4 AND i.agent_id=e.agent_id AND i.id=e.agent_input_id
+    JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
         AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
 )
 SELECT id,sequence,created_at FROM unanswered
 UNION ALL
 SELECT i.id,e.sequence,e.created_at FROM agent_events e
-JOIN agent_inputs i ON i.project_id=$4 AND i.agent_id=e.agent_id AND i.id=e.agent_input_id
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
     AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
-WHERE e.agent_id=$1 AND e.turn_id=$5 AND e.is_opening_event
+WHERE e.agent_id=$1 AND e.turn_id=$4 AND e.is_opening_event
   AND e.sequence<=$2 AND NOT EXISTS(SELECT 1 FROM unanswered)
 ORDER BY sequence
 `
@@ -41,7 +41,6 @@ type CaptureExecutionOpeningParams struct {
 	AgentID      uuid.UUID
 	Watermark    int64
 	StopSequence int64
-	ProjectID    uuid.UUID
 	TurnID       uuid.UUID
 }
 
@@ -56,7 +55,6 @@ func (q *Queries) CaptureExecutionOpening(ctx context.Context, db DBTX, arg Capt
 		arg.AgentID,
 		arg.Watermark,
 		arg.StopSequence,
-		arg.ProjectID,
 		arg.TurnID,
 	)
 	if err != nil {

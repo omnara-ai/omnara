@@ -15,6 +15,8 @@ type TransportOptions struct {
 	ResponseHeaderTimeout        time.Duration
 	DisableResponseHeaderTimeout bool
 	IdleConnTimeout              time.Duration
+	MaxIdleConnsPerHost          int
+	MaxIdleConns                 int
 }
 
 func NewTransport(opts TransportOptions) *http.Transport {
@@ -38,6 +40,8 @@ func NewTransport(opts TransportOptions) *http.Transport {
 		TLSHandshakeTimeout:   opts.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
 		IdleConnTimeout:       opts.IdleConnTimeout,
+		MaxIdleConnsPerHost:   opts.MaxIdleConnsPerHost,
+		MaxIdleConns:          opts.MaxIdleConns,
 		ForceAttemptHTTP2:     true,
 		HTTP2: &http.HTTP2Config{
 			SendPingTimeout: 15 * time.Second,
