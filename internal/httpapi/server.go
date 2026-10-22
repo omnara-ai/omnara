@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/authn"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
@@ -45,6 +46,7 @@ type Server struct {
 	authOAuthStates                     httpauth.OAuthStateStore
 	trustedProxyNets                    []*net.IPNet
 	email                               httpauth.EmailSender
+	authClientRateLimits                authn.ClientRateLimits
 	authSignupEnabled                   bool
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
@@ -118,6 +120,12 @@ func WithPasswordAuthEnabled(signupEnabled, resetEnabled bool) Option {
 	return func(s *Server) {
 		s.authSignupEnabled = signupEnabled
 		s.authResetEnabled = resetEnabled
+	}
+}
+
+func WithAuthClientRateLimits(limits authn.ClientRateLimits) Option {
+	return func(s *Server) {
+		s.authClientRateLimits = limits
 	}
 }
 
@@ -425,6 +433,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		Log:                      log,
 		Store:                    authStore,
 		CompromiseRevoker:        compromiseRevoker,
+		ClientRateLimits:         server.authClientRateLimits,
 		Limiter:                  server.authLimiter,
 		OAuthStates:              server.authOAuthStates,
 		Email:                    server.email,

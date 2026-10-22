@@ -179,6 +179,25 @@ Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In productio
 | `OMNARA_SMTP_REQUIRE_TLS` | Require STARTTLS; disabling is dev-only | `1` | No |
 | `SENDGRID_API_KEY` | SendGrid API key | — | With `sendgrid` |
 
+## Authentication rate limits
+
+These API settings accept positive integers and count requests per client IP.
+Per-email, per-token, per-device-code, and per-account limits are fixed. Limits are
+tracked separately for each operation in Redis and replenish continuously over
+the listed window. Set the same values on every API replica. Behind a proxy,
+configure `OMNARA_TRUSTED_PROXY_CIDRS` so limits use the client IP.
+
+| Variable | Purpose | Default | Window |
+| --- | --- | --- | --- |
+| `OMNARA_AUTH_SIGNUP_CLIENT_LIMIT` | Signup and verification email requests (shared budget) | `500` | 1 hour |
+| `OMNARA_AUTH_LOGIN_CLIENT_LIMIT` | Password login | `1000` | 15 minutes |
+| `OMNARA_AUTH_PASSWORD_RESET_CLIENT_LIMIT` | Password reset requests, password changes, and token revocation (separate budgets) | `500` | 1 hour |
+| `OMNARA_AUTH_TOKEN_CLIENT_LIMIT` | Email verification, password reset completion, OAuth grants, and device/OAuth authorization lookups and decisions (separate budgets) | `5000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CONNECTOR_CLIENT_LIMIT` | OAuth login starts per connector | `1000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CLIENT_LIMIT` | OAuth login starts across connectors | `2000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_AUTHORIZATION_CLIENT_LIMIT` | Device authorization starts | `1000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_POLL_CLIENT_LIMIT` | Device token polling | `30000` | 15 minutes |
+
 ## Auth and SSO connectors
 
 | Variable | Purpose | Default | Required |

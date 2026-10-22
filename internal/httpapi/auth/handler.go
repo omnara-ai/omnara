@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
@@ -86,6 +87,7 @@ type Handler struct {
 	log                      *slog.Logger
 	store                    Store
 	compromiseRevoker        CompromiseRevoker
+	clientRateLimits         authn.ClientRateLimits
 	limiter                  RateLimiter
 	oauthStates              OAuthStateStore
 	email                    EmailSender
@@ -103,6 +105,7 @@ type Config struct {
 	Log                      *slog.Logger
 	Store                    Store
 	CompromiseRevoker        CompromiseRevoker
+	ClientRateLimits         authn.ClientRateLimits
 	Limiter                  RateLimiter
 	OAuthStates              OAuthStateStore
 	Email                    EmailSender
@@ -174,6 +177,7 @@ func New(config Config) *Handler {
 		log:                      config.Log,
 		store:                    config.Store,
 		compromiseRevoker:        config.CompromiseRevoker,
+		clientRateLimits:         config.ClientRateLimits.WithDefaults(),
 		limiter:                  config.Limiter,
 		oauthStates:              config.OAuthStates,
 		email:                    config.Email,

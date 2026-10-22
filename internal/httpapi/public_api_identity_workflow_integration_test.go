@@ -2017,11 +2017,13 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 		t.Fatalf("missing limiter status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	const clientLimit = 12
 	redisClient := integrationredis.OpenClient(t)
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("http://omnara.test"),
 		WithRedisBackedAuth(redisClient),
+		WithAuthClientRateLimits(authn.ClientRateLimits{Signup: clientLimit}),
 		WithEmailSender(emailSender),
 	)
 	req = newJSONRequest(http.MethodPost, "http://omnara.test/api/auth/signup", `{"email":"`+email+`"}`)
@@ -2051,7 +2053,7 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("subject-wide signup limit status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for i := range httpauth.SignupClientLimit - httpauth.SignupLimit {
+	for i := range clientLimit - httpauth.SignupLimit {
 		req = newAuthJSONRequest(
 			http.MethodPost,
 			"/api/auth/signup",
@@ -3009,7 +3011,13 @@ func TestOAuthLoginRateLimitsStateCreation(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	redisClient := integrationredis.OpenClient(t)
-	handler := newIntegrationServer(pool, WithPublicURL("http://omnara.test"), WithRedisBackedAuth(redisClient))
+	const clientLimit = 3
+	handler := newIntegrationServer(
+		pool,
+		WithPublicURL("http://omnara.test"),
+		WithRedisBackedAuth(redisClient),
+		WithAuthClientRateLimits(authn.ClientRateLimits{OAuthLoginConnector: clientLimit}),
+	)
 	store := integrationStoreForHandler(t, handler)
 	runKey := identitystore.HashBearerToken(t.Name() + time.Now().UTC().Format(time.RFC3339Nano))[:12]
 	clientBucket := "oauth-rate-client-" + runKey
@@ -3028,7 +3036,7 @@ func TestOAuthLoginRateLimitsStateCreation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create auth connector: %v", err)
 	}
-	for i := range 30 {
+	for i := range clientLimit {
 		req := httptest.NewRequest(http.MethodGet, "http://omnara.test/api/auth/connectors/github-rate/login", nil)
 		req.RemoteAddr = clientBucket
 		rec := performRequest(handler, req)
