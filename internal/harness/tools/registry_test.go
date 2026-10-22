@@ -424,7 +424,7 @@ func TestDatabaseCompletionCapabilities(t *testing.T) {
 				}
 				switch mode {
 				case "async":
-					r.handler.Async = runReadFileAsync
+					r.handler.Async = runStorageReadAsync
 				case "missing transaction":
 					r.handler.Transactional = nil
 				case "background":
