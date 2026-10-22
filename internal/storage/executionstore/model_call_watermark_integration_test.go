@@ -98,15 +98,19 @@ SELECT extra_id, project_id, agent_id, 'received',
   CASE extra_kind WHEN 'config_change' THEN config_id END, now()
 FROM transcript_turns WHERE extra_kind <> 'checkpoint';
 INSERT INTO artifacts(id,agent_id,content_type,created_at)
-SELECT artifact_id, agent_id, 'image/png', now() FROM transcript_turns WHERE k % 3 = 0;
+SELECT artifact_id, agent_id, 'image/png', now() FROM transcript_turns;
 INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,ordinal,block_kind,text_content,artifact_id,
-  created_at)
-SELECT agent_id, 'agent_input', input_id, 0, 'text', 'input ' || k, NULL, now() FROM transcript_turns
+  exclude_from_model_context,created_at)
+SELECT agent_id, 'agent_input', input_id, 0, 'text', 'input ' || k, NULL, false, now() FROM transcript_turns
 UNION ALL
-SELECT agent_id, 'agent_input', input_id, 1, 'artifact', NULL, artifact_id, now() FROM transcript_turns WHERE k % 3 = 0
+SELECT agent_id, 'agent_input', input_id, 1, 'artifact', NULL, artifact_id, k % 3 = 1, now() FROM transcript_turns
+WHERE k % 3 IN (0, 1)
 UNION ALL
-SELECT agent_id, 'agent_input', extra_id, 0, 'text', 'steer ' || k, NULL, now() FROM transcript_turns
-WHERE extra_kind = 'content';
+SELECT agent_id, 'agent_input', extra_id, 0, 'text', 'steer ' || k, NULL, false, now() FROM transcript_turns
+WHERE extra_kind = 'content'
+UNION ALL
+SELECT agent_id, 'agent_input', extra_id, 0, 'artifact', NULL, artifact_id, true, now() FROM transcript_turns
+WHERE extra_kind = 'empty';
 INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,agent_input_id,is_opening_event,idempotency_key,
   created_at)
 SELECT input_event_id, agent_id, turn_id, b, 'agent_input', input_id, true, 'agent_input:' || input_id, now()

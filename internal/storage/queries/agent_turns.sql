@@ -184,6 +184,7 @@ WITH page AS MATERIALIZED (
                   WHERE block.agent_id = input.agent_id
                     AND block.owner_agent_input_id = input.id
                     AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
+                    AND NOT block.exclude_from_model_context
                 )
               )
             )
@@ -251,6 +252,7 @@ LEFT JOIN LATERAL (
       OR block.owner_model_output_id = page.model_output_id
     )
     AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
+    AND NOT block.exclude_from_model_context
 ) blocks ON true
 ORDER BY page.sequence ASC;
 
