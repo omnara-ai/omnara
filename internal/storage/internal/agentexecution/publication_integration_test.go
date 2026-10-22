@@ -170,6 +170,9 @@ func TestUnchangedToolReadinessPreservesNotificationsAndWebhooks(t *testing.T) {
 	output, err := h.AcceptOutput(t.Context(), stepToolOutput(prepared, work.RuntimeID, 1))
 	require.NoError(t, err)
 	require.NoError(t, u.Commit(t.Context(), "output"))
+	var before, after []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT to_jsonb(h) FROM agent_execution_state h WHERE agent_id=$1`, a).Scan(&before))
 	u, h = f.handle(t, a)
 	trace, err := agentexecution.TraceExecutionCommand(u, func() error {
 		work, err = h.Claim(t.Context(), uuid.New(), time.Minute)
@@ -179,12 +182,20 @@ func TestUnchangedToolReadinessPreservesNotificationsAndWebhooks(t *testing.T) {
 		return u.Commit(t.Context(), "claim tools")
 	})
 	require.NoError(t, err)
+	publications := 0
 	for _, statement := range trace {
-		require.NotContains(t, statement.Query.SQL, "name: PublishExecution")
+		if strings.Contains(statement.Query.SQL, "name: PublishExecution") {
+			publications++
+		}
 	}
-	var before, after []byte
+	require.Zero(t, publications)
+	var wakeups int
 	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT to_jsonb(h) FROM agent_execution_state h WHERE agent_id=$1`, a).Scan(&before))
+		`SELECT count(*) FROM agent_wakeups WHERE agent_id=$1`, a).Scan(&wakeups))
+	require.Zero(t, wakeups)
+	require.NoError(t, f.pool.QueryRow(t.Context(),
+		`SELECT to_jsonb(h) FROM agent_execution_state h WHERE agent_id=$1`, a).Scan(&after))
+	require.JSONEq(t, string(before), string(after))
 	collector := &publicationCollector{}
 	u, err = agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, collector, nil))
 	require.NoError(t, err)

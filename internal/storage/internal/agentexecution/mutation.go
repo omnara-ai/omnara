@@ -28,11 +28,17 @@ func (h *Handle) executionMutation(ctx context.Context) (*executionMutation, err
 	if h.mutation != nil {
 		return h.mutation, nil
 	}
-	base, err := executiondb.New().LoadExecutionBase(ctx, h.unit.DB(), executiondb.LoadExecutionBaseParams{
-		ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
-	})
-	if err != nil {
-		return nil, err
+	var base executiondb.LoadExecutionBaseRow
+	if h.claimBase != nil {
+		base = *h.claimBase
+	} else {
+		var err error
+		base, err = executiondb.New().LoadExecutionBase(ctx, h.unit.DB(), executiondb.LoadExecutionBaseParams{
+			ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	if !base.HeadExists {
 		return nil, fmt.Errorf("load execution head: %w", pgx.ErrNoRows)

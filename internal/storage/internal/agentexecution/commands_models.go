@@ -78,13 +78,17 @@ func (h *Handle) PrepareModel(ctx context.Context, input PrepareModelInput) (Pre
 			return PreparedModel{}, err
 		}
 		q := executiondb.New()
-		boundary, err := q.ExecutionPreparationBoundary(
-			ctx,
-			h.unit.DB(),
-			executiondb.ExecutionPreparationBoundaryParams{AgentID: h.route.AgentID},
-		)
-		if err != nil {
-			return PreparedModel{}, err
+		var boundary executiondb.ExecutionPreparationBoundaryRow
+		var err error
+		if h.claimBoundary != nil {
+			boundary = *h.claimBoundary
+			h.claimBoundary = nil
+		} else {
+			boundary, err = q.ExecutionPreparationBoundary(ctx, h.unit.DB(),
+				executiondb.ExecutionPreparationBoundaryParams{AgentID: h.route.AgentID})
+			if err != nil {
+				return PreparedModel{}, err
+			}
 		}
 		desired := PreparedModel{ConfigID: boundary.CurrentConfigID, RuntimeLockID: input.RuntimeLockID,
 			Context: ModelContext{

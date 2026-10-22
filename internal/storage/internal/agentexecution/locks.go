@@ -230,6 +230,20 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 			ID: route.AgentID, OrgID: wakeup.OrgID, State: wakeup.State,
 		}}
 	}
+	h := u.handles[route.AgentID]
+	h.claimUnleased = true
+	h.claimBase = &executiondb.LoadExecutionBaseRow{
+		AgentID: route.AgentID, RootAgentID: route.RootAgentID, State: wakeup.State, DatabaseNow: wakeup.DatabaseNow,
+		CurrentTurnID: wakeup.CurrentTurnID, StopSequence: wakeup.StopSequence,
+		MaxNormalInputSequence: wakeup.MaxNormalInputSequence, MaxContextInputSequence: wakeup.MaxContextInputSequence,
+		NormalContextID: wakeup.NormalContextID, CompactionContextID: wakeup.CompactionContextID,
+		PendingToolOutputID: wakeup.PendingToolOutputID, PendingOutputLimitID: wakeup.PendingOutputLimitID,
+		PendingConfigInputID: wakeup.PendingConfigInputID, PendingCheckpointID: wakeup.PendingCheckpointID,
+		IncompleteTools: wakeup.IncompleteTools, LogicalReadyAt: wakeup.LogicalReadyAt, HeadExists: wakeup.HeadExists,
+	}
+	h.claimBoundary = &executiondb.ExecutionPreparationBoundaryRow{
+		CurrentConfigID: wakeup.CurrentConfigID, Watermark: wakeup.Watermark, Started: wakeup.Started, DatabaseNow: wakeup.DatabaseNow,
+	}
 	u.claimedAgent = route.AgentID
 	return route, nil
 }

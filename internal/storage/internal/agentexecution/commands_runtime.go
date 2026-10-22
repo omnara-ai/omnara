@@ -35,16 +35,14 @@ func (h *Handle) Claim(
 			return ClaimedWork{}, err
 		}
 		q := executiondb.New()
-		_, err := q.ReadExecutionRuntime(
-			ctx,
-			h.unit.DB(),
-			executiondb.ReadExecutionRuntimeParams{AgentID: h.route.AgentID},
-		)
-		if err == nil {
-			return ClaimedWork{}, storeerr.ErrAgentNotAdvanceable
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return ClaimedWork{}, err
+		if !h.claimUnleased {
+			_, err := q.ReadExecutionRuntime(ctx, h.unit.DB(), executiondb.ReadExecutionRuntimeParams{AgentID: h.route.AgentID})
+			if err == nil {
+				return ClaimedWork{}, storeerr.ErrAgentNotAdvanceable
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return ClaimedWork{}, err
+			}
 		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
@@ -56,6 +54,7 @@ func (h *Handle) Claim(
 		}
 		result := ClaimedWork{}
 		if snapshot.Selection.Work == WorkInput {
+			h.claimBoundary = nil
 			result.Admission, err = h.admitInputs(ctx, m, snapshot.Selection.Admission)
 			if err != nil {
 				return ClaimedWork{}, err
@@ -85,11 +84,7 @@ func (h *Handle) Claim(
 		result.Runtime = RuntimeRecord(runtime)
 		h.unit.runtimeLocked = true
 		h.lockedRuntimeID = result.RuntimeID
-		if err = q.ConsumeExecutionWakeup(ctx,
-			h.unit.DB(),
-			executiondb.ConsumeExecutionWakeupParams{AgentID: h.route.AgentID}); err != nil {
-			return ClaimedWork{}, err
-		}
+		h.claimUnleased = false
 		return result, nil
 	})
 }

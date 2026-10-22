@@ -64,7 +64,7 @@ subagents:
 			require.NoError(t, err)
 			require.True(t, found)
 			if merged {
-				require.EqualValues(t, 1, trace.ExecutionBase.Load(), "claim base loads")
+				require.EqualValues(t, 0, trace.ExecutionBase.Load(), "claim base loads")
 				require.EqualValues(t, 1, trace.ExecutionFacts.Load(), "claim fact loads")
 				require.Zero(t, trace.ExecutionContexts.Load(), "claim context loads")
 			}
@@ -85,15 +85,15 @@ subagents:
 			modelStatements := trace.Statements.Load()
 			modelTrips := trace.RoundTrips.Load()
 			if merged {
-				require.EqualValues(t, 50, modelTrips)
-				require.EqualValues(t, 2, trace.ExecutionBase.Load())
+				require.EqualValues(t, 47, modelTrips)
+				require.EqualValues(t, 1, trace.ExecutionBase.Load())
 				require.EqualValues(t, 2, trace.ExecutionFacts.Load())
 				require.Zero(t, trace.ExecutionContexts.Load())
 			}
 			t.Logf("model trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged {
-				require.EqualValues(t, 50, modelStatements, "merged model statement count")
+				require.EqualValues(t, 47, modelStatements, "merged model statement count")
 			}
 			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			toolClaimInput := kernelTestClaimInput(f.Now)
@@ -105,7 +105,7 @@ subagents:
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentWorkTool, claim.Kind)
 			if merged {
-				require.EqualValues(t, 3, trace.ExecutionBase.Load(), "tool claim base loads")
+				require.EqualValues(t, 1, trace.ExecutionBase.Load(), "tool claim base loads")
 				require.EqualValues(t, 3, trace.ExecutionFacts.Load(), "tool claim fact loads")
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load(), "tool claim context loads")
 			}
@@ -136,17 +136,17 @@ subagents:
 			t.Logf("cycle trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged && !inline {
-				require.EqualValues(t, 34, toolStatements, "merged list_agents statement count")
+				require.EqualValues(t, 32, toolStatements, "merged list_agents statement count")
 			}
 			if inline {
-				require.EqualValues(t, 28, toolStatements)
-				require.EqualValues(t, 26, trace.RoundTrips.Load()-modelTrips)
-				require.EqualValues(t, 3, trace.ExecutionBase.Load())
+				require.EqualValues(t, 25, toolStatements)
+				require.EqualValues(t, 23, trace.RoundTrips.Load()-modelTrips)
+				require.EqualValues(t, 1, trace.ExecutionBase.Load())
 				require.EqualValues(t, 3, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
 			} else if merged {
-				require.EqualValues(t, 32, trace.RoundTrips.Load()-modelTrips)
-				require.EqualValues(t, 4, trace.ExecutionBase.Load())
+				require.EqualValues(t, 30, trace.RoundTrips.Load()-modelTrips)
+				require.EqualValues(t, 2, trace.ExecutionBase.Load())
 				require.EqualValues(t, 4, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
 			}
