@@ -20,7 +20,8 @@ VALUES(sqlc.arg(id),sqlc.arg(agent_id),sqlc.arg(worker_id),statement_timestamp()
 DELETE FROM agent_runtime_locks WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id);
 
 -- name: RenewExecutionRuntime :one
-UPDATE agent_runtime_locks r SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
+UPDATE agent_runtime_locks r
+SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
  lease_expires_at=greatest(r.lease_expires_at,greatest(r.renewed_at,statement_timestamp())+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond')
 WHERE r.agent_id=sqlc.arg(agent_id) AND r.id=sqlc.arg(id)
  AND EXISTS(SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.project_id=sqlc.arg(project_id))

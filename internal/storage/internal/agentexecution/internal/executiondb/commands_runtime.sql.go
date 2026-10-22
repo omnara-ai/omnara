@@ -222,7 +222,8 @@ func (q *Queries) ReadExecutionRuntime(ctx context.Context, db DBTX, arg ReadExe
 }
 
 const renewExecutionRuntime = `-- name: RenewExecutionRuntime :one
-UPDATE agent_runtime_locks r SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
+UPDATE agent_runtime_locks r
+SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
  lease_expires_at=greatest(r.lease_expires_at,greatest(r.renewed_at,statement_timestamp())+$1::bigint*interval '1 microsecond')
 WHERE r.agent_id=$2 AND r.id=$3
  AND EXISTS(SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.project_id=$4)

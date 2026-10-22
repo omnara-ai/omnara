@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 type runtimeLockLeaseFixture struct {
@@ -354,7 +357,7 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 	}
 }
 
-func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing.T) {
+func TestAgentRuntimeLockRenewalBudgetIncludesRuntimeLockWait(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newRuntimeLockLeaseFixture(t, ctx)
@@ -388,7 +391,7 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 		)
 		renewed <- renewalResult{renewal: renewedLock, err: renewErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockExecutionRuntime", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "RenewExecutionRuntime", 1)
 	var releasedAfter time.Time
 	if err := fixture.Pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releasedAfter); err != nil {
 		t.Fatalf("read database time before runtime unlock: %v", err)
@@ -402,23 +405,23 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 	if result.err != nil {
 		t.Fatalf("renew after runtime unlock: %v", result.err)
 	}
-	if result.renewal.LocalLeaseBudgetStartedAt.Before(unlockStartedAt) {
+	if !result.renewal.LocalLeaseBudgetStartedAt.Before(unlockStartedAt) {
 		t.Fatalf(
-			"local lease budget started before row-lock wait ended: started=%s marker=%s",
+			"local lease budget did not include the row-lock wait: started=%s marker=%s",
 			result.renewal.LocalLeaseBudgetStartedAt,
 			unlockStartedAt,
 		)
 	}
 	renewedLock := result.renewal.RuntimeLock
-	if renewedLock.RenewedAt.Before(releasedAfter) {
+	if renewedLock.RenewedAt.After(releasedAfter) {
 		t.Fatalf(
-			"lease renewed before row-lock wait ended: renewed=%s marker=%s",
+			"renewal did not use statement start time: renewed=%s marker=%s",
 			renewedLock.RenewedAt,
 			releasedAfter,
 		)
 	}
 	if got := renewedLock.LeaseExpiresAt.Sub(renewedLock.RenewedAt); got != leaseDuration {
-		t.Fatalf("post-wait renewed lease duration = %s, want full %s", got, leaseDuration)
+		t.Fatalf("renewed lease duration = %s, want full %s", got, leaseDuration)
 	}
 }
 
@@ -666,7 +669,7 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 		)
 		renewalDone <- renewalErr
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "LockExecutionRuntime", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Pool, "RenewExecutionRuntime", 1)
 	if err := reapTx.Commit(ctx, "commit winning reaper"); err != nil {
 		t.Fatalf("commit winning reaper: %v", err)
 	}
@@ -738,4 +741,37 @@ func TestConcurrentRuntimeLockReapersApplyRecoveryOnce(t *testing.T) {
 	if runtimeExists {
 		t.Fatal("winning reaper did not delete runtime lock")
 	}
+}
+
+func TestRuntimeRenewalAutocommitAndKnownRootRelease(t *testing.T) {
+	ctx := t.Context()
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
+	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
+	_, err := fixture.Pool.Exec(ctx,
+		`UPDATE agent_runtime_locks SET cancel_requested_at=statement_timestamp() WHERE id=$1`, lock.ID)
+	require.NoError(t, err)
+	var scopes atomic.Int64
+	trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+		if strings.Contains(sql, "name: LoadExecutionScope ") {
+			scopes.Add(1)
+		}
+	}}
+	config := fixture.Pool.Config()
+	config.ConnConfig.Tracer = trace
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	defer pool.Close()
+	counted := storage.NewStore(pool)
+	before := time.Now()
+	renewal, err := counted.Execution().RenewAgentRuntimeLock(ctx, testProjectID, fixture.AgentID, lock.ID, time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, renewal.RuntimeLock.CancelRequestedAt)
+	require.False(t, renewal.LocalLeaseBudgetStartedAt.Before(before))
+	require.EqualValues(t, 1, trace.Statements.Load())
+	require.EqualValues(t, 1, trace.RoundTrips.Load())
+	require.Zero(t, trace.Begins.Load())
+	require.Zero(t, trace.Commits.Load())
+	require.NoError(t, counted.Execution().ReleaseAgentRuntimeLockForStep(ctx, testProjectID,
+		fixture.AgentID, fixture.AgentID, lock.ID))
+	require.Zero(t, scopes.Load())
 }

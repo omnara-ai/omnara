@@ -21,6 +21,7 @@ type transactionBeginner interface {
 }
 
 type AgentCell struct {
+	database     executiondb.DBTX
 	pool         transactionBeginner
 	publisher    notifications.PostCommitPublisher
 	retryBackoff func(int, string) time.Duration
@@ -34,8 +35,10 @@ func NewCell(
 	if retryBackoff == nil {
 		retryBackoff = modelprotocol.RetryBackoff
 	}
+	database := executionPool{Pool: storeutil.WrapPool(pool), raw: pool}
 	return &AgentCell{
-		pool:         storeutil.WrapPool(pool),
+		pool:         database,
+		database:     database,
 		publisher:    publisher,
 		retryBackoff: retryBackoff,
 	}
@@ -69,4 +72,13 @@ func (c *AgentCell) DeferClaim(ctx context.Context, agentID uuid.UUID) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+type executionPool struct {
+	*storeutil.Pool
+	raw *pgxpool.Pool
+}
+
+func (p executionPool) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return p.raw.SendBatch(ctx, batch)
 }
