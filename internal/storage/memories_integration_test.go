@@ -355,6 +355,31 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment wrote: %v", err)
 	}
+	t.Run("many small directories", func(t *testing.T) {
+		root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = root.Close() }()
+		for i := range 101 {
+			directory := fmt.Sprintf("many/%03d", i)
+			if err := root.MkdirAll(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for j := range 100 {
+				if err := root.WriteFile(fmt.Sprintf("%s/%03d.md", directory, j), nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		paged, err := collectFileListing(ctx, store, agent.ID, "/memory/engineering/many/**/*.md", 100)
+		if err != nil || len(paged) != 10100 {
+			t.Fatalf("listed %d of 10100 files: %v", len(paged), err)
+		}
+		if err := root.RemoveAll("many"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("resource budget", func(t *testing.T) {
 		root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
 		if err != nil {

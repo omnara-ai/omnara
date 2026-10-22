@@ -95,6 +95,12 @@ func TestGlobFilesystem(t *testing.T) {
 	if entries, err := filesystem.ReadDir("."); len(entries) != 0 || !errors.Is(err, ErrFileTraversalLimit) {
 		t.Fatalf("returned an incomplete directory: %v, %v", entries, err)
 	}
+	remaining = 0
+	skipping := filesystem
+	skipping.skipping = func() bool { return true }
+	if entries, err := skipping.ReadDir("."); len(entries) == 0 || err != nil || remaining != 0 {
+		t.Fatalf("charged reads before the offset: %v, %v, remaining=%d", entries, err, remaining)
+	}
 	if err := os.Symlink("dir", filepath.Join(base, "link")); err != nil {
 		t.Fatal(err)
 	}

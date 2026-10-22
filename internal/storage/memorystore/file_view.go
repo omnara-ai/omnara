@@ -186,6 +186,8 @@ type globFS struct {
 	root          *os.Root
 	checkCanceled func() error
 	remaining     *int
+	// Reads before the requested offset are capped per directory but not charged to remaining.
+	skipping func() bool
 }
 
 func (g globFS) Open(name string) (fs.File, error) {
@@ -210,7 +212,11 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if err := g.checkCanceled(); err != nil {
 		return nil, err
 	}
-	if *g.remaining <= 0 {
+	budget, charged := *g.remaining, g.skipping == nil || !g.skipping()
+	if !charged {
+		budget = memoryListingTraversalLimit
+	}
+	if budget <= 0 {
 		return nil, ErrFileTraversalLimit
 	}
 	file, err := g.Open(name)
@@ -222,17 +228,19 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if !ok {
 		return nil, errors.New("memory path is not a directory")
 	}
-	entries, err := directory.ReadDir(*g.remaining + 1)
+	entries, err := directory.ReadDir(budget + 1)
 	if errors.Is(err, syscall.ENOTDIR) {
 		return nil, fs.ErrNotExist
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
-	if len(entries) > *g.remaining {
+	if len(entries) > budget {
 		return nil, ErrFileTraversalLimit
 	}
-	*g.remaining -= len(entries)
+	if charged {
+		*g.remaining -= len(entries)
+	}
 	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return entries, nil
 }

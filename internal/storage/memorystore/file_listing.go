@@ -36,17 +36,23 @@ func (s *Store) ListFiles(
 	if err != nil {
 		return nil, err
 	}
-	remaining := memoryListingTraversalLimit
+	remaining, skipped := memoryListingTraversalLimit, 0
 	view := storeFS{
-		globFS: globFS{checkCanceled: ctx.Err, remaining: &remaining},
-		files:  s.files, projectID: projectID, stores: rows,
+		globFS: globFS{
+			checkCanceled: ctx.Err, remaining: &remaining,
+			skipping: func() bool { return skipped < offset },
+		},
+		files: s.files, projectID: projectID, stores: rows,
 	}
 	defer func() { _ = view.Close() }()
 	entries := make([]listing.FileEntry, 0, limit)
-	skipped := 0
 	err = globFiles(ctx, &view, memoryGlobPattern(pattern), func(name string, item fs.DirEntry) error {
 		full := "/" + name
 		if name == "memory" || !matcher.MatchString(full) {
+			return nil
+		}
+		if skipped < offset {
+			skipped++
 			return nil
 		}
 		entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
@@ -66,10 +72,6 @@ func (s *Store) ListFiles(
 				mode = agentconfig.MemoryStoreAccessRead
 			}
 			entry.Description, entry.Access = store.Description, string(mode)
-		}
-		if skipped < offset {
-			skipped++
-			return nil
 		}
 		entries = append(entries, entry)
 		if len(entries) == limit {
