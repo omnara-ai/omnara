@@ -22,22 +22,20 @@ func readIntegrationCallbackBody(
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(deadline)
-	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-		} else {
-			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
-		}
-		return nil, false
+	if err == nil && int64(len(raw)) <= maxBodyBytes {
+		_ = controller.SetReadDeadline(time.Time{})
+		return raw, true
 	}
-	if int64(len(raw)) > maxBodyBytes {
+	_ = controller.SetReadDeadline(time.Now())
+	w.Header().Set("Connection", "close")
+	var tooLarge *http.MaxBytesError
+	if err == nil || errors.As(err, &tooLarge) {
 		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-		return nil, false
+	} else {
+		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
 	}
-	return raw, true
+	return nil, false
 }
 
 func writeIntegrationProviderError(w http.ResponseWriter, err error) {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -10,11 +11,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -383,6 +386,80 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 			}
 			if strings.Contains(w.Body.String(), "webhook-secret") || strings.Contains(w.Body.String(), "private-key") {
 				t.Fatalf("credential leak: %s", w.Body.String())
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPIntakeConnectionLifecycle(t *testing.T) {
+	t.Parallel()
+	wire := func(body string) string {
+		var raw strings.Builder
+		if err := githubIntakeRequest(t, newGitHubIntakeFixture(), body).Write(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return raw.String()
+	}
+	oversized := func(extra int) string {
+		return wire(strings.Repeat(" ", integrationstore.IntegrationInboxMaxPayloadBytes+extra))
+	}
+	for _, tc := range []struct {
+		name     string
+		timeout  time.Duration
+		requests []string
+		withheld int
+		statuses []int
+		closed   bool
+	}{
+		{name: "slow body", timeout: 100 * time.Millisecond, requests: []string{wire(githubIntakeBody)}, withheld: 16,
+			statuses: []int{http.StatusBadRequest}, closed: true},
+		{name: "oversized body with a stalled remainder", requests: []string{oversized(513)}, withheld: 512,
+			statuses: []int{http.StatusRequestEntityTooLarge}, closed: true},
+		{name: "oversized body", requests: []string{oversized(1)},
+			statuses: []int{http.StatusRequestEntityTooLarge}, closed: true},
+		{name: "complete bodies", requests: []string{wire(githubIntakeBody), wire(githubIntakeBody)},
+			statuses: []int{http.StatusNoContent, http.StatusNoContent}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			intake := chain(&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations},
+				requestEvents(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil), maxBody(requestBodyLimit))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.timeout > 0 {
+					ctx, cancel := context.WithTimeout(r.Context(), tc.timeout)
+					defer cancel()
+					r = r.WithContext(ctx)
+				}
+				intake.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			conn, err := net.Dial("tcp", server.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			responses := bufio.NewReader(conn)
+			for i, request := range tc.requests {
+				if _, err := io.WriteString(conn, request[:len(request)-tc.withheld]); err != nil {
+					t.Fatal(err)
+				}
+				response, err := http.ReadResponse(responses, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if body, err := io.ReadAll(response.Body); err != nil || response.StatusCode != tc.statuses[i] {
+					t.Fatalf("response %d: %d %s %v", i, response.StatusCode, body, err)
+				}
+			}
+			if !tc.closed {
+				return
+			}
+			if _, err := responses.ReadByte(); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+				t.Fatalf("connection still open after abandoning the body: %v", err)
 			}
 		})
 	}
