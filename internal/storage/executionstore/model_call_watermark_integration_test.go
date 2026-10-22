@@ -340,6 +340,23 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 			ProjectID: testProjectID, AgentID: lt.agentID, ID: lt.id("call_a", last),
 		})
 		require.NoError(t, err)
+		contextID := lt.id("context1", last)
+		_, err = reads.GetModelCallContext(ctx, dbsqlc.GetModelCallContextParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ID: contextID,
+		})
+		require.NoError(t, err)
+		_, err = reads.GetModelOutputByModelContext(ctx, dbsqlc.GetModelOutputByModelContextParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
+		})
+		require.NoError(t, err)
+		_, err = reads.CountModelCallRetries(ctx, dbsqlc.CountModelCallRetriesParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
+		})
+		require.NoError(t, err)
+		_, err = reads.GetProviderReplaySuppressionCutoff(ctx, dbsqlc.GetProviderReplaySuppressionCutoffParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
+		})
+		require.NoError(t, err)
 		for _, turn := range []int{previous, last} {
 			configID, err := reads.GetToolCallAgentConfigID(ctx, dbsqlc.GetToolCallAgentConfigIDParams{
 				ProjectID: testProjectID, AgentID: lt.agentID, ToolCallID: lt.id("call_a", turn),

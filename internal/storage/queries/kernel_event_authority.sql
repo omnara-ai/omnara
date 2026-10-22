@@ -11,8 +11,7 @@ SELECT output.id, agent.project_id, output.agent_id,
   output.created_at
 FROM model_outputs output
 JOIN agents agent ON agent.id = output.agent_id
-JOIN model_call_contexts context ON context.project_id = agent.project_id
-  AND context.agent_id = output.agent_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id
   AND context.id = output.model_call_context_id
 WHERE agent.project_id = sqlc.arg(project_id)
   AND output.agent_id = sqlc.arg(agent_id)
