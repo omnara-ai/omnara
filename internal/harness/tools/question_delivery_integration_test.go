@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -384,7 +383,7 @@ func TestQuestionClaimReplayPresentsAfterLeaseDeletion(t *testing.T) {
 				BackgroundRunner: runner}
 			armed := &atomic.Bool{}
 			armed.Store(true)
-			executionCtx, cancelExecution := context.WithCancel(cleanupcontext.WithDrain(ctx, ctx))
+			executionCtx, cancelExecution := context.WithCancel(ctx)
 			defer cancelExecution()
 			read, proceed := make(chan struct{}), make(chan struct{})
 			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {

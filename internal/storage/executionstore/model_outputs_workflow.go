@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -160,7 +159,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 func (s *Store) resolveOutput(
 	ctx context.Context, input RecordModelOutputAndCompleteContextInput, bindings []ToolCallBindingInput,
 ) (agentexecution.AcceptedOutput, bool, error) {
-	ctx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	type resolution struct {
 		output agentexecution.AcceptedOutput

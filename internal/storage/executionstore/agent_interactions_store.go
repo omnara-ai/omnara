@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -404,7 +403,7 @@ func (s *Store) resolveInteractionCommit(
 	if !errors.Is(commitErr, storeerr.ErrCommitOutcomeUnknown) {
 		return false, commitErr
 	}
-	resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
+	resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	row, err := s.q.GetAgentInteractionByToolCallKind(resolveCtx, dbsqlc.GetAgentInteractionByToolCallKindParams{
 		ProjectID: record.ProjectID, AgentID: record.AgentID, ToolCallID: record.ToolCallID,

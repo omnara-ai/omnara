@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
@@ -2105,7 +2104,7 @@ func (q stepResolutionQuery) QueryRow(ctx context.Context, sql string, args ...a
 }
 
 func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
-	for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "drain canceled"} {
+	for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "resolution timeout"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			f := newMachineLifecycleLockOrderFixture(t, ctx, "command-ack")
@@ -2124,20 +2123,17 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 			armed.Store(true)
 			executionCtx, cancelExecution := context.WithCancel(ctx)
 			defer cancelExecution()
-			drainCtx, endDrain := context.WithCancel(ctx)
-			defer endDrain()
-			executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
 			f.store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
 				return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: cancelExecution}
 			})
-			resolving := make(chan struct{}, 1)
+			resolving := make(chan context.Context, 1)
 			f.store.Execution().IntegrationWrapQueries(func(db dbsqlc.DBTX) dbsqlc.DBTX {
 				return stepResolutionQuery{DBTX: db, resolve: func(ctx context.Context) error {
-					resolving <- struct{}{}
+					resolving <- ctx
 					if mode == "resolution unavailable" {
 						return io.ErrClosedPipe
 					}
-					if mode == "drain canceled" {
+					if mode == "resolution timeout" {
 						<-ctx.Done()
 						return ctx.Err()
 					}
@@ -2152,12 +2148,20 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 				return f.store.Execution().ExecuteToolCall(executionCtx, input, plan)
 			})
 			select {
-			case <-resolving:
+			case resolveCtx := <-resolving:
+				require.ErrorIs(t, executionCtx.Err(), context.Canceled)
+				deadline, bounded := resolveCtx.Deadline()
+				require.True(t, bounded)
+				require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+				if mode == "resolution timeout" {
+					select {
+					case <-resolveCtx.Done():
+					case <-time.After(15 * time.Second):
+						t.Fatal("resolution exceeded its cleanup timeout")
+					}
+				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("store did not resolve uncertain command completion")
-			}
-			if mode == "drain canceled" {
-				endDrain()
 			}
 			outcome := integrationdb.Await(t, done, "command completion resolution")
 			if mode == "resolved" {
@@ -2167,8 +2171,8 @@ func TestCommandToolStoreLostAcknowledgement(t *testing.T) {
 			} else {
 				require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 			}
-			if mode == "drain canceled" {
-				require.ErrorIs(t, outcome.Err, context.Canceled)
+			if mode == "resolution timeout" {
+				require.ErrorIs(t, outcome.Err, context.DeadlineExceeded)
 			}
 			if mode == "before commit" {
 				var count int
@@ -2614,7 +2618,7 @@ func processTransferCommandForTest(t *testing.T, kind string) (
 }
 
 func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
-	modes := []string{"before commit", "different owner", "resolved", "resolution unavailable", "drain canceled"}
+	modes := []string{"before commit", "different owner", "resolved", "resolution unavailable", "resolution timeout"}
 	for _, kind := range []string{"start", "upload", "download", "read", "write", "interrupt", "terminate", "question"} {
 		for _, mode := range modes {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
@@ -2624,9 +2628,6 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				armed.Store(true)
 				executionCtx, cancelExecution := context.WithCancel(ctx)
 				defer cancelExecution()
-				drainCtx, endDrain := context.WithCancel(ctx)
-				defer endDrain()
-				executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
 				var newer uuid.UUID
 				var afterErr error
 				f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
@@ -2647,14 +2648,14 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 							}
 						}}
 				})
-				resolving := make(chan struct{}, 1)
+				resolving := make(chan context.Context, 1)
 				f.Store.Execution().IntegrationWrapQueries(func(db dbsqlc.DBTX) dbsqlc.DBTX {
 					return stepResolutionQuery{DBTX: db, resolve: func(ctx context.Context) error {
-						resolving <- struct{}{}
+						resolving <- ctx
 						if mode == "resolution unavailable" {
 							return io.ErrClosedPipe
 						}
-						if mode == "drain canceled" {
+						if mode == "resolution timeout" {
 							<-ctx.Done()
 						}
 						return ctx.Err()
@@ -2664,12 +2665,20 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 					return f.Store.Execution().ExecuteToolCall(executionCtx, input, plan)
 				})
 				select {
-				case <-resolving:
+				case resolveCtx := <-resolving:
+					require.ErrorIs(t, executionCtx.Err(), context.Canceled)
+					deadline, bounded := resolveCtx.Deadline()
+					require.True(t, bounded)
+					require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+					if mode == "resolution timeout" {
+						select {
+						case <-resolveCtx.Done():
+						case <-time.After(15 * time.Second):
+							t.Fatal("resolution exceeded its cleanup timeout")
+						}
+					}
 				case <-time.After(3 * time.Second):
 					t.Fatal("store did not resolve uncertain ownership transfer")
-				}
-				if mode == "drain canceled" {
-					endDrain()
 				}
 				outcome := integrationdb.Await(t, done, "ownership transfer resolution")
 				require.NoError(t, afterErr)
@@ -2683,8 +2692,8 @@ func TestProcessOwnershipTransferLostAcknowledgement(t *testing.T) {
 				} else {
 					require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 				}
-				if mode == "drain canceled" {
-					require.ErrorIs(t, outcome.Err, context.Canceled)
+				if mode == "resolution timeout" {
+					require.ErrorIs(t, outcome.Err, context.DeadlineExceeded)
 				}
 				call, err := f.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, input.ToolCallID)
 				require.NoError(t, err)

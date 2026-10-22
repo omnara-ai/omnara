@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
@@ -1324,33 +1323,43 @@ func TestWorkerRenewalFailureWaitsForDelayedCompletionAcknowledgement(t *testing
 	}
 }
 
-func TestWorkerDrainBoundsPendingCompletionAndFinalization(t *testing.T) {
+func TestWorkerCancellationPreservesIndependentCleanupTimeouts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &completionRenewalStore{mode: "inactive", exhausted: make(chan struct{})}
 		worker := NewWorker(store, nil, Options{RuntimeLockLeaseDuration: 150 * time.Millisecond})
-		drain, endDrain := context.WithCancel(t.Context())
-		defer endDrain()
-		ctx := cleanupcontext.WithDrain(drain, drain)
+		ctx, cancelExecution := context.WithCancel(t.Context())
+		defer cancelExecution()
 		turn, active, stop, err := worker.startRuntimeRenewal(ctx, uuid.New(), uuid.New(),
 			executionstore.AgentRuntimeLockRecord{ID: uuid.New()}, time.Now())
 		require.NoError(t, err)
 		defer stop()
-		finalize, cancelFinalize := worker.finalizeContext(turn)
-		defer cancelFinalize()
-		finish := active.completion.Begin(finalize, true)
+		started := time.Now()
+		finish := active.completion.Begin(turn, true)
 		defer finish(false)
 		<-store.exhausted
 		synctest.Wait()
 		require.NoError(t, turn.Err())
-		require.NoError(t, finalize.Err())
 		require.False(t, active.renewalFailed.Load())
-		endDrain()
+		cancelExecution()
 		synctest.Wait()
 		require.ErrorIs(t, turn.Err(), context.Canceled)
-		require.ErrorIs(t, finalize.Err(), context.Canceled)
+		require.False(t, active.renewalFailed.Load())
+		finalize, cancelFinalize := worker.finalizeContext(turn)
+		defer cancelFinalize()
+		require.NoError(t, finalize.Err())
+		finalizing := time.Now()
+		<-finalize.Done()
+		synctest.Wait()
+		require.Equal(t, 5*time.Second, time.Since(finalizing))
+		require.ErrorIs(t, finalize.Err(), context.DeadlineExceeded)
+		require.False(t, active.renewalFailed.Load())
+		<-time.After(time.Until(started.Add(10 * time.Second)))
+		synctest.Wait()
 		require.True(t, active.renewalFailed.Load())
 		late, cancelLate := worker.finalizeContext(turn)
 		defer cancelLate()
-		require.ErrorIs(t, late.Err(), context.Canceled)
+		require.NoError(t, late.Err())
+		<-late.Done()
+		require.ErrorIs(t, late.Err(), context.DeadlineExceeded)
 	})
 }

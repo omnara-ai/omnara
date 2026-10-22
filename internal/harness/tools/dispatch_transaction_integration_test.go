@@ -1062,8 +1062,15 @@ func TestAsyncFileFailureCodes(t *testing.T) {
 			call := fixture.recordToolCall(t, ctx, "call_file_failure", "storage_read",
 				`{"path":"/memory/notes/file.txt"}`, fixture.Now.Add(20*time.Second))
 			callID := fixture.toolCallID(t, ctx, call.ID)
-			dispatchTestAsyncHandler(t, ctx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, toolHandler{
-				Async: func(context.Context, asyncToolContext) (asyncPhaseResult, error) { return nil, test.cause },
+			executionCtx, cancelExecution := context.WithCancel(ctx)
+			defer cancelExecution()
+			dispatchTestAsyncHandler(t, executionCtx, Executor{Store: fixture.Store}, fixture.turn(), call, callID, toolHandler{
+				Async: func(context.Context, asyncToolContext) (asyncPhaseResult, error) {
+					if errors.Is(test.cause, context.Canceled) {
+						cancelExecution()
+					}
+					return nil, test.cause
+				},
 			})
 			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)
 			require.NoError(t, err)

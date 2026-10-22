@@ -2877,6 +2877,7 @@ type workerResolutionFaultTx struct {
 	armed     *atomic.Bool
 	lost      *atomic.Bool
 	resolving chan context.Context
+	proceed   <-chan struct{}
 }
 
 func (tx workerResolutionFaultTx) Commit(ctx context.Context) error {
@@ -2893,8 +2894,11 @@ func (tx workerResolutionFaultTx) Commit(ctx context.Context) error {
 func (tx workerResolutionFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if tx.lost.CompareAndSwap(true, false) {
 		tx.resolving <- ctx
-		<-ctx.Done()
-		return workerResolutionErrorRow{err: ctx.Err()}
+		select {
+		case <-ctx.Done():
+			return workerResolutionErrorRow{err: ctx.Err()}
+		case <-tx.proceed:
+		}
 	}
 	return tx.Tx.QueryRow(ctx, sql, args...)
 }
@@ -2903,61 +2907,75 @@ type workerResolutionErrorRow struct{ err error }
 
 func (r workerResolutionErrorRow) Scan(...any) error { return r.err }
 
-func TestWorkerShutdownBoundsUncertainResultResolution(t *testing.T) {
-	ctx := t.Context()
-	pool := openWorkerIntegrationDB(t, ctx)
-	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
-	now := time.Date(2026, 5, 16, 21, 30, 0, 0, time.UTC)
-	agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
-	createWorkerInput(t, ctx, store, agentID, userID, "finish during shutdown", now.Add(time.Second))
-	modelClient := drainingModelClient{
-		fixedModelClient: fixedModelClient{providerModelSlug: "worker-kernel-test", text: "committed before shutdown"},
-		responding:       make(chan struct{}, 1), release: make(chan struct{}),
+func TestWorkerShutdownPreservesIndependentResolutionTimeout(t *testing.T) {
+	for _, mode := range []string{"resolved", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			pool := openWorkerIntegrationDB(t, ctx)
+			store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+			now := time.Date(2026, 5, 16, 21, 30, 0, 0, time.UTC)
+			agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
+			createWorkerInput(t, ctx, store, agentID, userID, "finish during shutdown", now.Add(time.Second))
+			modelClient := drainingModelClient{
+				fixedModelClient: fixedModelClient{providerModelSlug: "worker-kernel-test", text: "committed before shutdown"},
+				responding:       make(chan struct{}, 1), release: make(chan struct{}),
+			}
+			var armed, lost atomic.Bool
+			resolving := make(chan context.Context, 1)
+			proceed := make(chan struct{})
+			store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return workerResolutionFaultTx{Tx: tx, armed: &armed, lost: &lost, resolving: resolving, proceed: proceed}
+			})
+			worker := NewWorker(store.Execution(), kernel.AgentExecutor{
+				Store: store, ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+			}, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1, ControlSubscriber: noopControlSubscriber{}})
+			executionCtx, cancelExecution := context.WithCancel(ctx)
+			defer cancelExecution()
+			drain := make(chan struct{})
+			done := make(chan error, 1)
+			go func() { done <- worker.Run(executionCtx, drain) }()
+			select {
+			case <-modelClient.responding:
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker did not start model execution")
+			}
+			armed.Store(true)
+			close(modelClient.release)
+			var resolutionCtx context.Context
+			select {
+			case resolutionCtx = <-resolving:
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker did not reach automatic store resolution")
+			}
+			close(drain)
+			require.NoError(t, resolutionCtx.Err())
+			deadline, bounded := resolutionCtx.Deadline()
+			require.True(t, bounded)
+			require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+			select {
+			case <-done:
+				t.Fatal("worker exited with unresolved completion")
+			case <-time.After(25 * time.Millisecond):
+			}
+			cancelExecution()
+			require.NoError(t, resolutionCtx.Err())
+			if mode == "resolved" {
+				close(proceed)
+			}
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(15 * time.Second):
+				t.Fatal("resolution exceeded its cleanup timeout")
+			}
+			if mode == "timeout" {
+				require.ErrorIs(t, resolutionCtx.Err(), context.DeadlineExceeded)
+			}
+			outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
+			assertCompletedModelContext(t, ctx, pool, agentID, outputID)
+			waitNoRuntimeLock(t, ctx, pool, agentID)
+		})
 	}
-	var armed, lost atomic.Bool
-	resolving := make(chan context.Context, 1)
-	store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
-		return workerResolutionFaultTx{Tx: tx, armed: &armed, lost: &lost, resolving: resolving}
-	})
-	worker := NewWorker(store.Execution(), kernel.AgentExecutor{
-		Store: store, ModelResolver: liveWorkerTestModelResolver(store, modelClient),
-	}, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1, ControlSubscriber: noopControlSubscriber{}})
-	executionCtx, cancelExecution := context.WithCancel(ctx)
-	defer cancelExecution()
-	drain := make(chan struct{})
-	done := make(chan error, 1)
-	go func() { done <- worker.Run(executionCtx, drain) }()
-	select {
-	case <-modelClient.responding:
-	case <-time.After(3 * time.Second):
-		t.Fatal("worker did not start model execution")
-	}
-	armed.Store(true)
-	close(modelClient.release)
-	var resolutionCtx context.Context
-	select {
-	case resolutionCtx = <-resolving:
-	case <-time.After(3 * time.Second):
-		t.Fatal("worker did not reach automatic store resolution")
-	}
-	close(drain)
-	require.NoError(t, resolutionCtx.Err())
-	select {
-	case <-done:
-		t.Fatal("worker exited before the drain deadline")
-	case <-time.After(25 * time.Millisecond):
-	}
-	cancelExecution()
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("resolution escaped the worker drain deadline")
-	}
-	require.ErrorIs(t, resolutionCtx.Err(), context.Canceled)
-	outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
-	assertCompletedModelContext(t, ctx, pool, agentID, outputID)
-	waitNoRuntimeLock(t, ctx, pool, agentID)
 }
 
 type leaseLossSearch struct {

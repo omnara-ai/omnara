@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"io"
@@ -238,7 +237,7 @@ func TestClaimStoreLostAcknowledgementDoesNotReturnExecutableWork(t *testing.T) 
 func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 	for _, kind := range []string{"model", "built_in", "custom", "mcp"} {
 		tool := kind != "model"
-		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "drain canceled"} {
+		for _, mode := range []string{"before commit", "resolved", "resolution unavailable", "resolution timeout"} {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
 				ctx := t.Context()
 				f := newProcessDaemonFixture(t, ctx, "output_store_ack")
@@ -287,10 +286,7 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				armed.Store(true)
 				executionCtx, cancelExecution := context.WithCancel(ctx)
 				defer cancelExecution()
-				drainCtx, endDrain := context.WithCancel(ctx)
-				defer endDrain()
-				executionCtx = cleanupcontext.WithDrain(executionCtx, drainCtx)
-				resolving := make(chan struct{}, 1)
+				resolving := make(chan context.Context, 1)
 				var resolveCalled atomic.Bool
 				f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
 					if armed.Load() {
@@ -300,11 +296,11 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 						if !resolveCalled.CompareAndSwap(false, true) {
 							return nil
 						}
-						resolving <- struct{}{}
+						resolving <- ctx
 						if mode == "resolution unavailable" {
 							return io.ErrClosedPipe
 						}
-						if mode == "drain canceled" {
+						if mode == "resolution timeout" {
 							<-ctx.Done()
 							return ctx.Err()
 						}
@@ -313,12 +309,20 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				})
 				done := integrationdb.RunAsync(func() (uuid.UUID, error) { return complete(executionCtx) })
 				select {
-				case <-resolving:
+				case resolveCtx := <-resolving:
+					require.ErrorIs(t, executionCtx.Err(), context.Canceled)
+					deadline, bounded := resolveCtx.Deadline()
+					require.True(t, bounded)
+					require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+					if mode == "resolution timeout" {
+						select {
+						case <-resolveCtx.Done():
+						case <-time.After(15 * time.Second):
+							t.Fatal("resolution exceeded its cleanup timeout")
+						}
+					}
 				case <-time.After(3 * time.Second):
 					t.Fatal("store did not resolve uncertain model completion")
-				}
-				if mode == "drain canceled" {
-					endDrain()
 				}
 				outcome := integrationdb.Await(t, done, "model output resolution")
 				if mode == "resolved" {
@@ -327,8 +331,8 @@ func TestModelOutputStoreAutomaticallyResolvesUncertainCommit(t *testing.T) {
 				} else {
 					require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
 				}
-				if mode == "drain canceled" {
-					require.ErrorIs(t, outcome.Err, context.Canceled)
+				if mode == "resolution timeout" {
+					require.ErrorIs(t, outcome.Err, context.DeadlineExceeded)
 				}
 				var outputs, leases int
 				require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT

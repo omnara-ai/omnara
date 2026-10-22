@@ -53,7 +53,7 @@ func TestStepCompletionBoundsPendingResolution(t *testing.T) {
 	})
 }
 
-func TestStepCompletionRespectsEarlierDeadline(t *testing.T) {
+func TestStepCompletionSurvivesExecutionDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		scope := &StepCompletion{}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -64,6 +64,34 @@ func TestStepCompletionRespectsEarlierDeadline(t *testing.T) {
 		scope.LeaseLost(func() { canceled.Store(true) })
 		<-time.After(time.Second)
 		synctest.Wait()
+		require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+		require.False(t, canceled.Load())
+		<-time.After(9 * time.Second)
+		synctest.Wait()
 		require.True(t, canceled.Load())
 	})
+}
+
+func TestStepCompletionResolvesAfterExecutionCancellation(t *testing.T) {
+	for _, finished := range []bool{false, true} {
+		for _, cancelBefore := range []bool{false, true} {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				if cancelBefore {
+					cancel()
+				}
+				scope := &StepCompletion{}
+				end := scope.Begin(ctx, true)
+				defer end(false)
+				var canceled atomic.Bool
+				scope.LeaseLost(func() { canceled.Store(true) })
+				cancel()
+				synctest.Wait()
+				require.False(t, canceled.Load())
+				end(finished)
+				require.Equal(t, !finished, canceled.Load())
+			})
+		}
+	}
 }

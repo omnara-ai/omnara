@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -231,7 +230,7 @@ func (s *Store) executeToolCallCommand(
 	defer func() { finish(finished) }()
 	if err := unit.Commit(ctx, "execute tool call"); err != nil {
 		if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && toolTx.applied {
-			resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
+			resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 			committed, resolveErr := toolTx.resolveCommitted(resolveCtx)
 			if resolveErr == nil && committed {

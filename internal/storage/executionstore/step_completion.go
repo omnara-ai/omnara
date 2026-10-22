@@ -29,7 +29,7 @@ func (s *StepCompletion) Begin(ctx context.Context, canFinish bool) func(bool) {
 	if s == nil || !canFinish {
 		return func(bool) {}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	resolution := &stepCompletionResolution{}
 	s.mu.Lock()
 	s.pending = resolution

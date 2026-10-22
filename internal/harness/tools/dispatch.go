@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -327,7 +326,7 @@ func (e Executor) persistAsyncToolFailure(
 	call asyncToolContext,
 	cause error,
 ) error {
-	completionCtx, cancelCompletion := cleanupcontext.Detach(ctx, asyncToolCompletionTimeout)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	return e.completeAsyncToolFailure(
 		completionCtx,
@@ -342,7 +341,7 @@ func (e Executor) requeueAsyncTool(
 	ctx context.Context,
 	call asyncToolContext,
 ) error {
-	completionCtx, cancelCompletion := cleanupcontext.Detach(ctx, asyncToolCompletionTimeout)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	return retryAsyncToolPersistence(completionCtx, func(ctx context.Context) error {
 		return e.Store.Execution().RequeueRuntimeToolCall(
@@ -429,7 +428,7 @@ func (e Executor) startAsyncTool(
 					"error",
 					cause,
 				)
-				completionCtx, cancelCompletion := cleanupcontext.Detach(ctx, asyncToolCompletionTimeout)
+				completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 				defer cancelCompletion()
 				completionErr = e.completeAsyncToolFailure(
 					completionCtx,
@@ -466,7 +465,7 @@ func (e Executor) executeAsyncTool(
 	if runErr != nil {
 		return e.persistAsyncToolFailure(ctx, call, runErr)
 	}
-	completionCtx, cancelCompletion := cleanupcontext.Detach(ctx, asyncToolCompletionTimeout)
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancelCompletion()
 	switch result := result.(type) {
 	case completeAsync:
