@@ -578,6 +578,13 @@ WHERE process.org_id = $1
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
   AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials'
+  AND EXISTS (
+    SELECT 1
+    FROM agent_events source_event
+    WHERE source_event.agent_id = output.agent_id
+      AND source_event.model_output_id = output.id
+      AND source_event.event_kind = 'model_output'
+  )
 `
 
 type GetDaemonGitCredentialsScopeParams struct {

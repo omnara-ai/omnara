@@ -422,7 +422,14 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials';
+  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials'
+  AND EXISTS (
+    SELECT 1
+    FROM agent_events source_event
+    WHERE source_event.agent_id = output.agent_id
+      AND source_event.model_output_id = output.id
+      AND source_event.event_kind = 'model_output'
+  );
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec

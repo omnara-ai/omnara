@@ -301,7 +301,7 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		require.Equal(t, expectedLongTranscriptGetToolCall(t, lt, last, call), canonicalToolCalls(t, record)[0])
 	}
 	machineID, bindingID := createLongTranscriptMachine(t, ctx, lt)
-	processID := createGrantedShellProcess(t, ctx, lt, machineID, bindingID, lt.id("call_a", last))
+	processID := createGrantedShellProcess(t, ctx, lt.store.pool, lt, machineID, bindingID, lt.id("call_a", last))
 	scope, found, err := lt.store.Execution().GetDaemonGitCredentialsScope(ctx, testOrgID, machineID, processID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -348,6 +348,21 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 			require.Equal(t, lt.configIDs[turn%2], configID)
 		}
 	}
+	unscopedProcessID, outputID := createUncommittedToolOutputProcess(t, ctx, tx, lt, machineID, bindingID)
+	scopes := dbsqlc.New(tx)
+	_, err = scopes.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
+		OrgID: testOrgID, MachineID: machineID, ProcessID: unscopedProcessID,
+	})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	_, err = tx.Exec(ctx, `INSERT INTO agent_events(agent_id,turn_id,sequence,event_kind,model_output_id,created_at)
+VALUES ($1, $2, $3, 'model_output', $4, now())`, lt.agentID, lt.id("turn", last), lt.watermark+1, outputID)
+	require.NoError(t, err)
+	gotScope, err := scopes.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
+		OrgID: testOrgID, MachineID: machineID, ProcessID: unscopedProcessID,
+	})
+	require.NoError(t, err)
+	gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
+	require.Equal(t, wantScope, gotScope)
 }
 
 type outputBoundedPlanDB struct {
@@ -657,6 +672,7 @@ func createLongTranscriptMachine(t *testing.T, ctx context.Context, lt longTrans
 func createGrantedShellProcess(
 	t *testing.T,
 	ctx context.Context,
+	db dbsqlc.DBTX,
 	lt longTranscript,
 	machineID, bindingID, toolCallID uuid.UUID,
 ) uuid.UUID {
@@ -664,11 +680,39 @@ func createGrantedShellProcess(
 	spec, err := json.Marshal(processcmd.ForShell("git fetch", processcmd.ShellSH, processcmd.IOModePipe))
 	require.NoError(t, err)
 	processID := uuid.New()
-	_, err = lt.store.pool.Exec(ctx, `INSERT INTO processes(id,org_id,project_id,agent_id,tool_call_id,runtime_lock_id,
+	_, err = db.Exec(ctx, `INSERT INTO processes(id,org_id,project_id,agent_id,tool_call_id,runtime_lock_id,
   agent_machine_binding_id,machine_id,execution_spec,state,execution_granted_at,state_changed_at,created_at,updated_at,
   last_activity_at)
 VALUES ($1, $2, $3, $4, $5, $1, $6, $7, $8::jsonb, 'starting', now(), now(), now(), now(), now())`,
 		processID, testOrgID, testProjectID, lt.agentID, toolCallID, bindingID, machineID, string(spec))
 	require.NoError(t, err)
 	return processID
+}
+
+func createUncommittedToolOutputProcess(
+	t *testing.T,
+	ctx context.Context,
+	tx pgx.Tx,
+	lt longTranscript,
+	machineID, bindingID uuid.UUID,
+) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	contextID, outputID, callID := uuid.New(), uuid.New(), uuid.New()
+	_, err := tx.Exec(ctx, `INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,
+  attempt_number,agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
+  opening_input_ids,opening_event_sequence)
+SELECT $3, org_id, project_id, agent_id, turn_id, operation_kind, attempt_number + 1, agent_config_id,
+  configured_model_revision_id, input_event_sequence, $3, now(), opening_input_ids, opening_event_sequence
+FROM model_call_contexts WHERE agent_id = $1 AND id = $2`,
+		lt.agentID, lt.id("context2", longTranscriptTurns-1), contextID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at)
+VALUES ($1, $2, $3, 'tool_use', now())`, outputID, lt.agentID, contextID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,
+  created_at)
+VALUES ($1, $2, $3, 'git_call', 'run_command', '{}', 'built_in', 'awaiting_authorization', now())`,
+		callID, lt.agentID, outputID)
+	require.NoError(t, err)
+	return createGrantedShellProcess(t, ctx, tx, lt, machineID, bindingID, callID), outputID
 }
