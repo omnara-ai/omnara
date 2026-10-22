@@ -137,3 +137,33 @@ func TestScrubLogStringRedactsProviderSecrets(t *testing.T) {
 		t.Fatalf("ScrubLogString() removed unrelated content: %q", got)
 	}
 }
+
+func TestSafeLogAtomsMatchFullScrubbing(t *testing.T) {
+	values := []string{
+		"", "018f7f6c-0314-7cbb-82f3-229f16533776", "ListContextEvents", "completed", "1.25", "-123",
+		"sk_live_hidden", "prefix-sk_test_hidden", "rk_live_hidden", "rk_test_hidden", "whsec_hidden", "sk-or-hidden",
+		"Bearer hidden", "TOKEN=hidden", `{"password":"hidden"}`, "https://example.test/?token=hidden",
+		"user@host/path", "☃ token=hidden", "code:hidden", "x\ntoken=hidden",
+	}
+	for _, value := range values {
+		t.Run(value, func(t *testing.T) {
+			want := scrubURLParameters(value)
+			want = bearerTokenPattern.ReplaceAllString(want, `${1}`+redactedLogValue)
+			want = quotedSensitivePattern.ReplaceAllString(want, `${1}"`+redactedLogValue+`"`)
+			want = sensitiveAssignmentPattern.ReplaceAllString(want, `${1}`+redactedLogValue)
+			want = providerSecretPattern.ReplaceAllString(want, redactedLogValue)
+			if got := ScrubLogString(value); got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestSafeLogAtomNeverTrustsAttributeName(t *testing.T) {
+	for _, name := range []string{"agent_id", "query_name", "status", "message"} {
+		got := scrubAttr(slog.String(name, "token=hidden"))
+		if strings.Contains(got.Value.String(), "hidden") {
+			t.Fatalf("unsafe %s: %s", name, got.Value.String())
+		}
+	}
+}

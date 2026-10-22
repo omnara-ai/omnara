@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -57,6 +58,12 @@ func main() {
 		log.Error("load config", "error", err)
 		os.Exit(1)
 	}
+	level, err := parseLogLevel(cfg.LogLevel)
+	if err != nil {
+		log.Error("parse log level", "error", err)
+		os.Exit(1)
+	}
+	log = slog.New(logpkg.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	if err := cfg.ValidateWorker(); err != nil {
 		log.Error("validate worker config", "error", err)
 		os.Exit(1)
@@ -505,4 +512,19 @@ func jitteredFireDelay(interval time.Duration) time.Duration {
 		return interval
 	}
 	return interval - spread + time.Duration(rand.Int64N(int64(2*spread)+1))
+}
+
+func parseLogLevel(value string) (slog.Level, error) {
+	switch strings.ToLower(value) {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info", "":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return slog.LevelInfo, errors.New("OMNARA_LOG_LEVEL must be debug, info, warn, or error")
+	}
 }

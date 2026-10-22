@@ -33,7 +33,7 @@ var (
 // secret assignments and provider credential shapes before a value is emitted
 // to process logs.
 func ScrubLogString(value string) string {
-	if value == "" {
+	if value == "" || safeLogAtom(value) {
 		return value
 	}
 	value = scrubURLParameters(value)
@@ -91,4 +91,16 @@ func scrubURL(raw string) string {
 
 func isASCIILetter(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func safeLogAtom(value string) bool {
+	for i := range len(value) {
+		c := value[i]
+		if !isASCIILetter(c) && (c < '0' || c > '9') && c != '_' && c != '-' && c != '.' {
+			return false
+		}
+	}
+	return !strings.Contains(value, "sk_live_") && !strings.Contains(value, "sk_test_") &&
+		!strings.Contains(value, "rk_live_") && !strings.Contains(value, "rk_test_") &&
+		!strings.Contains(value, "whsec_") && !strings.Contains(value, "sk-or-")
 }
