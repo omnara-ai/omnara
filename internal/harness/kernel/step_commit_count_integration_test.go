@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -58,9 +59,20 @@ subagents:
 			pool, err := pgxpool.NewWithConfig(ctx, config)
 			require.NoError(t, err)
 			defer pool.Close()
-			counted := storage.NewStore(pool)
+			counted := storage.NewStore(pool, storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)))
 			client := &sequenceKernelModel{providerModelSlug: "commit-count", responses: []model.Response{{ID: "count-response", StopReason: model.StopReasonToolUse, Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{{ID: "count-call", Name: toolcatalog.ToolNameListAgents, Input: json.RawMessage(`{}`)}})}}}
 			executor := AgentExecutor{Store: counted, ModelResolver: liveTestModelResolver(counted, client)}
+			if merged {
+				var revision uuid.UUID
+				require.NoError(t, f.Pool.QueryRow(ctx, `SELECT m.current_revision_id FROM agent_configs c JOIN configured_models m ON m.id=c.configured_model_id WHERE c.id=$1`, profile.CurrentConfigID).Scan(&revision))
+				resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(), Secrets: counted.Secrets()}, Client: client}
+				_, err = resolver.Resolve(ctx, model.Selection{OrgID: kernelTestOrgID.String(), ProjectID: kernelTestProjectID.String(), ConfiguredModelRevisionID: revision.String()})
+				require.NoError(t, err)
+				executor.ModelResolver = resolver
+				trace.Statements.Store(0)
+				trace.RoundTrips.Store(0)
+			}
+
 			var claim executionstore.ClaimedAgentWork
 			var found bool
 			if merged {
@@ -93,7 +105,7 @@ subagents:
 			modelStatements := trace.Statements.Load()
 			modelTrips := trace.RoundTrips.Load()
 			if merged {
-				require.EqualValues(t, 38, modelTrips)
+				require.EqualValues(t, 36, modelTrips)
 				require.EqualValues(t, 0, trace.ExecutionBase.Load())
 				require.EqualValues(t, 2, trace.ExecutionFacts.Load())
 				require.Zero(t, trace.ExecutionContexts.Load())
@@ -101,7 +113,7 @@ subagents:
 			t.Logf("model trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged {
-				require.EqualValues(t, 43, modelStatements, "merged model statement count")
+				require.EqualValues(t, 41, modelStatements, "merged model statement count")
 			}
 			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			toolClaimInput := kernelTestClaimInput(f.Now)
@@ -200,9 +212,16 @@ subagents:
 }
 
 func databaseToolClaimFixture(t *testing.T, calls []model.ToolCall, extra string) (kernelFixture, uuid.UUID) {
+	return databaseToolClaimFixtureWithWebhook(t, calls, extra, true)
+}
+
+func databaseToolClaimFixtureWithWebhook(t *testing.T, calls []model.ToolCall, extra string, webhook bool) (kernelFixture, uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
+	if webhook {
+		extra += "\nevent_webhook:\n  url: https://example.com/events\n  events: [model_output, tool_call_update, tool_result]\n"
+	}
 	profile := f.createConfigAndProfileBookmark(t, ctx, "Database tools", "database-tools", `instruction: Use tools.
 model:
   provider_config: openai-prod
@@ -210,9 +229,6 @@ model:
 subagents:
   fork:
     type: self
-event_webhook:
-  url: https://example.com/events
-  events: [model_output, tool_call_update, tool_result]
 `+extra)
 	launch, err := f.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: kernelTestProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
@@ -499,4 +515,41 @@ func TestDatabaseToolClaimInvalidLaterMemberFallsBack(t *testing.T) {
 			require.Equal(t, 1, results)
 		})
 	}
+}
+
+func TestProductionContinueStepStatements(t *testing.T) {
+	ctx := t.Context()
+	f, agentID := databaseToolClaimFixtureWithWebhook(t, []model.ToolCall{{ID: "initial", Name: "list_agents", Input: json.RawMessage(`{}`)}}, "", false)
+	toolInput := kernelTestClaimInput(f.Now)
+	toolInput.DatabaseTools = tools.PlanDatabaseTool
+	finished, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, toolInput)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.StepFinished, finished.StepDisposition)
+	trace := &integrationdb.QueryTrace{}
+	config := f.Pool.Config()
+	config.ConnConfig.Tracer = trace
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	defer pool.Close()
+	counted := storage.NewStore(pool, storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)))
+	client := &sequenceKernelModel{providerModelSlug: "database-tools", responses: []model.Response{{ID: "continued", StopReason: model.StopReasonToolUse, Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{{ID: "continued-tool", Name: "list_agents", Input: json.RawMessage(`{}`)}})}}}
+	resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(), Secrets: counted.Secrets()}, Client: client}
+	_, err = resolver.Resolve(ctx, model.Selection{OrgID: finished.OrgID.String(), ProjectID: finished.ProjectID.String(), ConfiguredModelRevisionID: finished.Tool.Prepared.Context.ConfiguredModelRevisionID.String()})
+	require.NoError(t, err)
+	beforeStatements, beforeTrips, beforeCommits := trace.Statements.Load(), trace.RoundTrips.Load(), trace.Commits.Load()
+	claim, found, err := counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, agentID, claim.AgentID)
+	require.Equal(t, executionstore.ModelWorkContinue, claim.Model.Kind)
+	executor := AgentExecutor{Store: counted, ModelResolver: resolver}
+	disposition, err := executor.ExecuteModelWorkStep(ctx, modelWorkExecutionFromClaimForKernelTest(claim, f.Now))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.StepFinished, disposition)
+	statements, trips, commits := trace.Statements.Load()-beforeStatements, trace.RoundTrips.Load()-beforeTrips, trace.Commits.Load()-beforeCommits
+	t.Logf("production continue: statements=%d round_trips=%d commits=%d", statements, trips, commits)
+	require.EqualValues(t, 33, statements)
+	require.EqualValues(t, 26, trips)
+	require.EqualValues(t, 2, commits)
 }

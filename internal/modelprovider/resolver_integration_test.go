@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -33,6 +34,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func modelProviderUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
@@ -925,7 +927,14 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("grant configured model: %v", err)
 	}
-	resolver := integrationResolver(store)
+	trace := &integrationdb.QueryTrace{}
+	poolConfig := pool.Config()
+	poolConfig.ConnConfig.Tracer = trace
+	countedPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	require.NoError(t, err)
+	defer countedPool.Close()
+	counted := storage.NewStore(countedPool, storage.WithSecretKeyWrapper(keyWrapper))
+	resolver := integrationResolver(counted)
 	resolver.OpenRouterAttribution = OpenRouterAttribution{SiteURL: "https://omnara.com", AppTitle: "Omnara"}
 	requestHeaders := func() http.Header {
 		resolved, err := resolver.Resolve(ctx, model.Selection{
@@ -957,6 +966,30 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 		headers.Get("X-Openrouter-Title") != "Omnara" {
 		t.Fatalf("request headers = %v", headers)
 	}
+
+	before := trace.Statements.Load()
+	require.Equal(t, "gw-secret", requestHeaders().Get("X-Gateway-Key"))
+	require.EqualValues(t, 1, trace.Statements.Load()-before)
+	_, _, err = store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
+		OrgID: created.Org.ID, SecretID: gatewayKeyID, Actor: modelProviderUserPrincipal(user.ID),
+		Material: secrets.GenericMaterial{Value: "gw-rotated"},
+	})
+	require.NoError(t, err)
+	before = trace.Statements.Load()
+	require.Equal(t, "gw-rotated", requestHeaders().Get("X-Gateway-Key"))
+	require.EqualValues(t, 2, trace.Statements.Load()-before)
+	before = trace.Statements.Load()
+	require.Equal(t, "gw-rotated", requestHeaders().Get("X-Gateway-Key"))
+	require.EqualValues(t, 1, trace.Statements.Load()-before)
+	resolver = integrationResolver(storage.NewStore(countedPool, storage.WithSecretKeyWrapper(keyWrapper)))
+	before = trace.Statements.Load()
+	headers = requestHeaders()
+	require.Equal(t, "gw-rotated", headers.Get("X-Gateway-Key"))
+	require.Equal(t, "Bearer sk-provider", headers.Get("Authorization"))
+	require.EqualValues(t, 3, trace.Statements.Load()-before)
+	before = trace.Statements.Load()
+	require.Equal(t, "gw-rotated", requestHeaders().Get("X-Gateway-Key"))
+	require.EqualValues(t, 1, trace.Statements.Load()-before)
 
 	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
 		OrgID:    created.Org.ID,

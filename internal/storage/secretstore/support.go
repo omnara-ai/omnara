@@ -2,6 +2,7 @@ package secretstore
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,8 @@ type Access interface {
 }
 
 type Store struct {
+	versionMu        sync.Mutex
+	versionPayloads  map[uuid.UUID]versionPayload
 	pool             *storeutil.Pool
 	q                *dbsqlc.Queries
 	secretKeyWrapper secrets.KeyWrapper

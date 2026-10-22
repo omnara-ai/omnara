@@ -24,14 +24,20 @@ func (e AgentExecutor) ensureMCPConnections(
 	input ModelWorkExecution,
 	contract agentconfig.RuntimeContract,
 	trigger mcp.ConnectionTrigger,
+	knownConnections ...bool,
 ) error {
 	if len(contract.MCPServers) == 0 {
-		connections, err := e.Store.Execution().ListAgentMCPConnections(ctx, input.ProjectID, input.AgentID)
-		if err != nil {
-			return err
-		}
-		if len(connections) == 0 {
+		if len(knownConnections) > 0 && !knownConnections[0] {
 			return nil
+		}
+		if len(knownConnections) == 0 {
+			connections, err := e.Store.Execution().ListAgentMCPConnections(ctx, input.ProjectID, input.AgentID)
+			if err != nil {
+				return err
+			}
+			if len(connections) == 0 {
+				return nil
+			}
 		}
 	}
 	connections, err := e.Store.Execution().ReconcileAgentMCPConnections(

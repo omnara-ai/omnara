@@ -50,14 +50,16 @@ func (e AgentExecutor) executeModelStep(
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	var claim executionstore.ModelCallClaim
 	var err error
+	var knownMCP []bool
 	if input.Prepared != nil {
 		claim, snapshot = input.Prepared.Claim, input.Prepared.Snapshot
 		if claim.Claimed {
-			if err := e.Store.Execution().CheckPreparedModelCall(
-				ctx, input.ProjectID, input.AgentID, claim.Context.ID, input.RuntimeLockID,
-			); err != nil {
-				return modelStep{}, err
+			hasMCP, checkErr := e.Store.Execution().CheckPreparedModelCall(ctx, input.ProjectID, input.AgentID,
+				claim.Context.ID, input.RuntimeLockID)
+			if checkErr != nil {
+				return modelStep{}, checkErr
 			}
+			knownMCP = []bool{hasMCP}
 		}
 	} else if input.Kind == executionstore.ModelWorkResume {
 		claim, err = e.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
@@ -142,7 +144,7 @@ func (e AgentExecutor) executeModelStep(
 			claim.Context.OrgID,
 			input,
 			contract,
-			mcpTrigger,
+			mcpTrigger, knownMCP...,
 		); err != nil {
 			return e.recordNormalPreSendFailure(
 				ctx, input, claim, model.ResolvedClient{}, err,

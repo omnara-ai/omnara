@@ -96,7 +96,7 @@ WHERE context.agent_id = sqlc.arg(agent_id)
       AND scoped_agent.id = sqlc.arg(agent_id)
   );
 
--- name: ReadPreparedModelCallStatus :one
+-- name: ReadModelCallEntry :one
 SELECT EXISTS(
     SELECT 1 FROM model_call_contexts c
     JOIN agents a ON a.id=c.agent_id AND a.project_id=sqlc.arg(project_id)
@@ -105,4 +105,6 @@ SELECT EXISTS(
       AND c.id=sqlc.arg(context_id) AND c.runtime_lock_id=sqlc.arg(runtime_id)
       AND c.state='started' AND c.operation_kind='normal' AND a.state='active'
       AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp()
-) AS executable;
+) AS executable,
+ EXISTS(SELECT 1 FROM agent_mcp_connections mc JOIN agents ma ON ma.id=mc.agent_id
+ WHERE ma.project_id=sqlc.arg(project_id) AND mc.agent_id=sqlc.arg(agent_id)) AS has_mcp_connections;
