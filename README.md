@@ -222,7 +222,7 @@ memory filesystem. The
 - **[Machines](https://docs.omnara.com/machines/overview).** Machines are tools
   the agent uses. Install the Omnara daemon on any macOS or Linux laptop, VM, or
   container and your agents can run commands and edit files there, with no inbound ports or
-  SSH keys. Or use sandboxes from eleven providers (Arker, Blaxel, boxd, CreateOS,
+  SSH keys. Or use sandboxes from twelve providers (Agent37, Arker, Blaxel, boxd, CreateOS,
   Daytona, E2B, Freestyle, Modal, Superserve, Tenki, Unikraft). An agent can use several machines
   at once (for example, a set of GPU servers) and move between them. If your
   laptop goes offline, the agent can continue in a sandbox and sync its work

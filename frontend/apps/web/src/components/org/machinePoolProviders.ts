@@ -297,6 +297,24 @@ const superserve: MachinePoolProviderDefinition = {
   },
 }
 
+const agent37: MachinePoolProviderDefinition = {
+  label: 'Agent37',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'omnara-machine',
+    description:
+      'An Agent37 template name. Machines are 2 vCPU with 4 GB, or 4 vCPU with 8, 16, or 32 GB.',
+    descriptionHref: 'https://www.agent37.com/docs/agents-api/templates',
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -309,6 +327,7 @@ export const machinePoolProviderDefinitions = {
   createos,
   e2b,
   superserve,
+  agent37,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

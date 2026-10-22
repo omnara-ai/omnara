@@ -2465,6 +2465,7 @@ export const zCreateMachinePoolRequestBase = z.object({
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
+            'agent37',
             'arker',
             'freestyle',
             'modal',

@@ -3373,7 +3373,7 @@ export type Artifact = {
  * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
+    provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
