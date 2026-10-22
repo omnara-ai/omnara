@@ -242,7 +242,8 @@ func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {
 		IncompleteTools: wakeup.IncompleteTools, LogicalReadyAt: wakeup.LogicalReadyAt, HeadExists: wakeup.HeadExists,
 	}
 	h.claimBoundary = &executiondb.ExecutionPreparationBoundaryRow{
-		CurrentConfigID: wakeup.CurrentConfigID, Watermark: wakeup.Watermark, Started: wakeup.Started, DatabaseNow: wakeup.DatabaseNow,
+		CurrentConfigID: wakeup.CurrentConfigID, Watermark: wakeup.Watermark, Started: wakeup.Started,
+		DatabaseNow: wakeup.DatabaseNow,
 	}
 	u.claimedAgent = route.AgentID
 	return route, nil
@@ -310,4 +311,45 @@ func (u *Unit) ReuseAgentRoute(route AgentRoute) {
 		u.knownRoutes = make(map[uuid.UUID]AgentRoute)
 	}
 	u.knownRoutes[route.AgentID] = route
+}
+
+func (u *Unit) LockStepAgent(ctx context.Context, route AgentRoute, runtimeID uuid.UUID) (*Handle, error) {
+	if len(u.expanded.agents) > 0 || len(u.handles) > 0 {
+		if err := u.LockAgents(ctx, u.PlanKnownAgents([]AgentRoute{route})); err != nil {
+			return nil, err
+		}
+		return u.Agent(route)
+	}
+	if err := u.active(); err != nil {
+		return nil, err
+	}
+	row, err := executiondb.New().LockStepExecution(ctx, u.DB(), executiondb.LockStepExecutionParams{
+		ProjectID: route.ProjectID, AgentID: route.AgentID, RuntimeID: runtimeID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if row.RootAgentID != route.RootAgentID {
+		return nil, ErrLockPlan
+	}
+	base := executiondb.LoadExecutionBaseRow{
+		AgentID: row.AgentID, RootAgentID: row.RootAgentID, State: row.State, DatabaseNow: row.DatabaseNow,
+		CurrentTurnID: row.CurrentTurnID, StopSequence: row.StopSequence,
+		MaxNormalInputSequence: row.MaxNormalInputSequence, MaxContextInputSequence: row.MaxContextInputSequence,
+		NormalContextID: row.NormalContextID, CompactionContextID: row.CompactionContextID,
+		PendingToolOutputID: row.PendingToolOutputID, PendingOutputLimitID: row.PendingOutputLimitID,
+		PendingConfigInputID: row.PendingConfigInputID, PendingCheckpointID: row.PendingCheckpointID,
+		IncompleteTools: row.IncompleteTools, LogicalReadyAt: row.LogicalReadyAt, HeadExists: row.HeadExists,
+	}
+	h := &Handle{unit: u, route: route, claimBase: &base,
+		identity: &dbsqlc.LockAgentInProjectRow{ID: row.AgentID, OrgID: row.OrgID, State: row.State}}
+	if row.RuntimeID != nil {
+		h.lockedRuntimeID = *row.RuntimeID
+		u.runtimeLocked = true
+	}
+	u.handles[route.AgentID] = h
+	return h, nil
 }

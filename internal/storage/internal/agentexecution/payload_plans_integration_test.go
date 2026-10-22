@@ -78,7 +78,8 @@ SELECT array_agg(b.ordinal ORDER BY b.ordinal),bool_and(b.created_at=i.queued_at
 	require.NoError(t, err)
 	inserts := 0
 	for _, statement := range trace {
-		if strings.Contains(statement.Query.SQL, "name: InsertExecutionContent") {
+		if strings.Contains(statement.Query.SQL, "name: InsertExecutionContent") ||
+			strings.Contains(statement.Query.SQL, "name: QueueExecutionContent") {
 			inserts++
 		}
 	}

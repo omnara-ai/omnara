@@ -181,61 +181,65 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if len(input.Response.ProviderReplay) > 0 {
 			replay = &input.Response.ProviderReplay
 		}
-		output, err := q.CreateExecutionOutput(ctx, h.unit.DB(), executiondb.CreateExecutionOutputParams{
-			AgentID: h.route.AgentID, ContextID: input.ContextID, ServedModel: input.Response.ServedProviderModelSlug,
-			StopReason: string(input.Response.Normalized.StopReason), Replay: replay})
+		outputID, event, err := h.createOutputEvent(ctx, source.TurnID, input, replay)
 		if err != nil {
 			return AcceptedOutput{}, err
 		}
-		event, err := h.appendEvent(
-			ctx,
-			source.TurnID,
-			"model_output",
-			uuid.Nil,
-			output.ID,
-			uuid.Nil,
-			false,
-		)
-		if err != nil {
-			return AcceptedOutput{}, err
-		}
-		result := AcceptedOutput{ID: output.ID, Event: event, Created: true,
+		result := AcceptedOutput{ID: outputID, Event: event, Created: true,
 			Projections: make(map[uuid.UUID]dbsqlc.GetToolCallRow)}
 		writes := make([]executiondb.CreateExecutionToolProposalParams, len(proposals))
 		for i, call := range proposals {
-			writes[i] = executiondb.CreateExecutionToolProposalParams{ID: call.ID, AgentID: h.route.AgentID, OutputID: output.ID,
+			writes[i] = executiondb.CreateExecutionToolProposalParams{ID: call.ID, AgentID: h.route.AgentID, OutputID: outputID,
 				ProviderCallID: call.ProviderCallID, Name: call.Name, Input: call.Input, Type: call.Type}
 		}
+		batch := factsBatch{DBTX: h.unit.DB()}
 		if len(writes) > 0 {
-			inserted := q.CreateExecutionToolProposal(ctx, h.unit.DB(), writes)
-			inserted.QueryRow(func(i int, proposal executiondb.CreateExecutionToolProposalRow, queryErr error) {
-				if queryErr != nil {
-					err = errors.Join(err, queryErr)
-					return
-				}
-				call := proposals[i]
-				if call.Error == "" {
-					result.Projections[call.ID] = dbsqlc.GetToolCallRow{ID: proposal.ID,
-						ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
-						TurnID: source.TurnID, SourceEventID: event.ID, ModelCallContextID: source.ID,
-						ProviderCallID: call.ProviderCallID,
-						Name:           call.Name, Input: call.Input, Type: call.Type,
-						CreatedAt: proposal.CreatedAt, State: proposal.State, ResultContentParts: []byte(`[]`)}
-				}
-				h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
-				result.Tools = append(result.Tools, call.ToolProposal)
+			inserted := q.CreateExecutionToolProposal(ctx, &batch, writes)
+			batch.readers = append(batch.readers, func() {
+				inserted.QueryRow(func(i int, proposal executiondb.CreateExecutionToolProposalRow, queryErr error) {
+					if queryErr != nil {
+						err = errors.Join(err, queryErr)
+						return
+					}
+					call := proposals[i]
+					if call.Error == "" {
+						result.Projections[call.ID] = dbsqlc.GetToolCallRow{ID: proposal.ID,
+							ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
+							TurnID: source.TurnID, SourceEventID: event.ID, ModelCallContextID: source.ID,
+							ProviderCallID: call.ProviderCallID,
+							Name:           call.Name, Input: call.Input, Type: call.Type,
+							CreatedAt: proposal.CreatedAt, State: proposal.State, ResultContentParts: []byte(`[]`)}
+					}
+					h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
+					result.Tools = append(result.Tools, call.ToolProposal)
+				})
+				batch.err = errors.Join(batch.err, err, inserted.Close())
 			})
-			if err = errors.Join(err, inserted.Close()); err != nil {
-				return AcceptedOutput{}, err
+		}
+		h.queueOutputContent(ctx, &batch, outputID, input.prepared.content)
+		h.queueTurnAdvance(ctx, &batch, event, len(proposals) == 0)
+		pipelined := true
+		for _, call := range proposals {
+			if call.Error != "" {
+				pipelined = false
 			}
 		}
-		if err = h.writePreparedContent(
-			ctx, "model_output", output.ID, input.prepared.content,
-		); err != nil {
+		released := pipelined && input.FinishClaim && ParentEffectKind(input.Response) == ""
+		if pipelined {
+			if err = h.queueOutputSuccess(ctx, &batch, source, evidence); err != nil {
+				return AcceptedOutput{}, err
+			}
+			if released {
+				if err = h.queueOutputRelease(ctx, &batch, input.RuntimeLockID); err != nil {
+					return AcceptedOutput{}, err
+				}
+			}
+		}
+		if err = batch.read(ctx); err != nil {
 			return AcceptedOutput{}, err
 		}
-		if err = h.advanceTurn(ctx, event, len(proposals) == 0); err != nil {
-			return AcceptedOutput{}, err
+		if pipelined {
+			m.changed()
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
@@ -244,17 +248,19 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				}
 			}
 		}
-		if _, err = h.finishAttempt(
-			ctx, m, source, ContextSucceeded, ModelFailure{RuntimeLockID: input.RuntimeLockID}, evidence,
-		); err != nil {
-			return AcceptedOutput{}, err
+		if !pipelined {
+			if _, err = h.finishAttempt(
+				ctx, m, source, ContextSucceeded, ModelFailure{RuntimeLockID: input.RuntimeLockID}, evidence,
+			); err != nil {
+				return AcceptedOutput{}, err
+			}
 		}
 		sourceContext := attemptRecord(source).Context
 		sourceContext.State = ContextSucceeded
 		if err = applyAcceptedOutput(m,
 			snapshot,
 			sourceContext,
-			output.ID,
+			outputID,
 			event,
 			len(proposals) > 0,
 			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens); err != nil {
@@ -270,12 +276,12 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			if err = h.parentEffect(ctx,
 				kind,
 				strings.TrimSpace(input.Response.Text()),
-				"model_output:"+output.ID.String(),
+				"model_output:"+outputID.String(),
 				uuid.Nil); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
-		if input.FinishClaim {
+		if input.FinishClaim && !released {
 			if err := h.finishRuntime(ctx, m, input.RuntimeLockID); err != nil {
 				return AcceptedOutput{}, err
 			}

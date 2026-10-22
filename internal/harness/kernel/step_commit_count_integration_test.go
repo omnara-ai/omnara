@@ -93,15 +93,15 @@ subagents:
 			modelStatements := trace.Statements.Load()
 			modelTrips := trace.RoundTrips.Load()
 			if merged {
-				require.EqualValues(t, 46, modelTrips)
-				require.EqualValues(t, 1, trace.ExecutionBase.Load())
+				require.EqualValues(t, 38, modelTrips)
+				require.EqualValues(t, 0, trace.ExecutionBase.Load())
 				require.EqualValues(t, 2, trace.ExecutionFacts.Load())
 				require.Zero(t, trace.ExecutionContexts.Load())
 			}
 			t.Logf("model trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged {
-				require.EqualValues(t, 46, modelStatements, "merged model statement count")
+				require.EqualValues(t, 43, modelStatements, "merged model statement count")
 			}
 			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			toolClaimInput := kernelTestClaimInput(f.Now)
@@ -113,7 +113,7 @@ subagents:
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentWorkTool, claim.Kind)
 			if merged {
-				require.EqualValues(t, 1, trace.ExecutionBase.Load(), "tool claim base loads")
+				require.EqualValues(t, 0, trace.ExecutionBase.Load(), "tool claim base loads")
 				require.EqualValues(t, 3, trace.ExecutionFacts.Load(), "tool claim fact loads")
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load(), "tool claim context loads")
 			}
@@ -149,12 +149,12 @@ subagents:
 			if inline {
 				require.EqualValues(t, 25, toolStatements)
 				require.EqualValues(t, 23, trace.RoundTrips.Load()-modelTrips)
-				require.EqualValues(t, 1, trace.ExecutionBase.Load())
+				require.EqualValues(t, 0, trace.ExecutionBase.Load())
 				require.EqualValues(t, 3, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
 			} else if merged {
 				require.EqualValues(t, 30, trace.RoundTrips.Load()-modelTrips)
-				require.EqualValues(t, 2, trace.ExecutionBase.Load())
+				require.EqualValues(t, 1, trace.ExecutionBase.Load())
 				require.EqualValues(t, 4, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
 			}

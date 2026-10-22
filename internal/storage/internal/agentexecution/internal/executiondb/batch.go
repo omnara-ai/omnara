@@ -869,6 +869,387 @@ func (b *PublishExecutionBatchResults) Close() error {
 	return b.br.Close()
 }
 
+const queueExecutionContent = `-- name: QueueExecutionContent :batchone
+WITH payload AS MATERIALIZED (
+ SELECT agent_payload_created_at($1,$2,$3,
+ coalesce($4::uuid,$5::uuid,$6::uuid),false) AS created_at
+), inserted AS (
+INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,
+ ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
+SELECT $2,$3,$4,$5,$6,
+ p.ordinal,p.kind,p.text,p.data::jsonb,p.artifact_id,p.tool_id,p.exclude,p.metadata,payload.created_at
+FROM payload CROSS JOIN jsonb_to_recordset($7::jsonb) AS p(ordinal integer,kind text,text text,data text,
+ artifact_id uuid,tool_id uuid,exclude boolean,metadata jsonb) RETURNING 1
+) SELECT count(*)::bigint FROM inserted
+`
+
+type QueueExecutionContentBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionContentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	OwnerKind string
+	InputID   *uuid.UUID
+	OutputID  *uuid.UUID
+	ResultID  *uuid.UUID
+	Parts     json.RawMessage
+}
+
+func (q *Queries) QueueExecutionContent(ctx context.Context, db DBTX, arg []QueueExecutionContentParams) *QueueExecutionContentBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ProjectID,
+			a.AgentID,
+			a.OwnerKind,
+			a.InputID,
+			a.OutputID,
+			a.ResultID,
+			a.Parts,
+		}
+		batch.Queue(queueExecutionContent, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionContentBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionContentBatchResults) QueryRow(f func(int, int64, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var column_1 int64
+		if b.closed {
+			if f != nil {
+				f(t, column_1, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&column_1)
+		if f != nil {
+			f(t, column_1, err)
+		}
+	}
+}
+
+func (b *QueueExecutionContentBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionEvent = `-- name: QueueExecutionEvent :batchone
+WITH payload AS MATERIALIZED (
+ SELECT agent_payload_created_at($11,$2,CASE WHEN $8::uuid IS NOT NULL THEN 'tool_call_result' ELSE $4 END,
+ coalesce($5::uuid,$6::uuid,$7::uuid,$8::uuid),true) AS created_at
+), allocated AS (
+ UPDATE agents SET next_event_sequence=next_event_sequence+1 WHERE id=$2
+ RETURNING next_event_sequence-1 AS sequence
+)
+INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,agent_input_id,model_output_id,
+ context_checkpoint_id,tool_call_result_id,is_opening_event,created_at,idempotency_key)
+SELECT $1,$2,$3,sequence,$4,$5,
+ $6,$7,$8,$9,payload.created_at,
+ $10 FROM allocated CROSS JOIN payload
+RETURNING id,sequence,created_at
+`
+
+type QueueExecutionEventBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionEventParams struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         *uuid.UUID
+	Kind           string
+	InputID        *uuid.UUID
+	OutputID       *uuid.UUID
+	CheckpointID   *uuid.UUID
+	ResultID       *uuid.UUID
+	Opening        bool
+	IdempotencyKey *string
+	ProjectID      uuid.UUID
+}
+
+type QueueExecutionEventRow struct {
+	ID        uuid.UUID
+	Sequence  int64
+	CreatedAt time.Time
+}
+
+func (q *Queries) QueueExecutionEvent(ctx context.Context, db DBTX, arg []QueueExecutionEventParams) *QueueExecutionEventBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.TurnID,
+			a.Kind,
+			a.InputID,
+			a.OutputID,
+			a.CheckpointID,
+			a.ResultID,
+			a.Opening,
+			a.IdempotencyKey,
+			a.ProjectID,
+		}
+		batch.Queue(queueExecutionEvent, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionEventBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionEventBatchResults) QueryRow(f func(int, QueueExecutionEventRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i QueueExecutionEventRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.Sequence, &i.CreatedAt)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *QueueExecutionEventBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionOutput = `-- name: QueueExecutionOutput :batchone
+INSERT INTO model_outputs(id,agent_id,model_call_context_id,served_provider_model_slug,stop_reason,provider_replay,created_at)
+VALUES($1,$2,$3,$4,$5,$6::jsonb,statement_timestamp())
+RETURNING id,created_at
+`
+
+type QueueExecutionOutputBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionOutputParams struct {
+	ID          uuid.UUID
+	AgentID     uuid.UUID
+	ContextID   uuid.UUID
+	ServedModel string
+	StopReason  string
+	Replay      *json.RawMessage
+}
+
+type QueueExecutionOutputRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) QueueExecutionOutput(ctx context.Context, db DBTX, arg []QueueExecutionOutputParams) *QueueExecutionOutputBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.ContextID,
+			a.ServedModel,
+			a.StopReason,
+			a.Replay,
+		}
+		batch.Queue(queueExecutionOutput, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionOutputBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionOutputBatchResults) QueryRow(f func(int, QueueExecutionOutputRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i QueueExecutionOutputRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.CreatedAt)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *QueueExecutionOutputBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionRelease = `-- name: QueueExecutionRelease :batchone
+DELETE FROM agent_runtime_locks WHERE agent_id=$1 AND id=$2 RETURNING id
+`
+
+type QueueExecutionReleaseBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionReleaseParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) QueueExecutionRelease(ctx context.Context, db DBTX, arg []QueueExecutionReleaseParams) *QueueExecutionReleaseBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ID,
+		}
+		batch.Queue(queueExecutionRelease, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionReleaseBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionReleaseBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *QueueExecutionReleaseBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionSuccess = `-- name: QueueExecutionSuccess :batchone
+UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
+ retry_at=CASE WHEN $3::bigint IS NULL THEN NULL
+ ELSE statement_timestamp()+$3::bigint*interval '1 microsecond' END,
+ api_format=$4,api_variant=$5,provider_request_id=$6,
+ provider_response_id=$7,error_kind=$8,error_code=$9,
+ error_message=$10,error_details=$11::jsonb,
+ input_tokens_total=$12::integer,uncached_input_tokens=$13::integer,
+ cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
+ output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
+ provider_reported_cost_usd=$18::text::numeric,provider_metadata=$19::jsonb,
+ input_fingerprint=$20::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$21 AND c.id=$22 AND c.state='started' AND c.runtime_lock_id=$23
+ AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
+ AND r.id=$23 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp()) RETURNING c.id
+`
+
+type QueueExecutionSuccessBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionSuccessParams struct {
+	State             string
+	Recovery          *string
+	RetryMicroseconds *int64
+	ApiFormat         string
+	ApiVariant        string
+	RequestID         string
+	ResponseID        string
+	ErrorKind         string
+	ErrorCode         string
+	ErrorMessage      string
+	ErrorDetails      json.RawMessage
+	InputTokens       *int32
+	UncachedTokens    *int32
+	CacheReadTokens   *int32
+	CacheWriteTokens  *int32
+	OutputTokens      *int32
+	ReasoningTokens   *int32
+	Cost              *string
+	ProviderMetadata  json.RawMessage
+	InputFingerprint  *string
+	AgentID           uuid.UUID
+	ID                uuid.UUID
+	RuntimeID         uuid.UUID
+}
+
+func (q *Queries) QueueExecutionSuccess(ctx context.Context, db DBTX, arg []QueueExecutionSuccessParams) *QueueExecutionSuccessBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.State,
+			a.Recovery,
+			a.RetryMicroseconds,
+			a.ApiFormat,
+			a.ApiVariant,
+			a.RequestID,
+			a.ResponseID,
+			a.ErrorKind,
+			a.ErrorCode,
+			a.ErrorMessage,
+			a.ErrorDetails,
+			a.InputTokens,
+			a.UncachedTokens,
+			a.CacheReadTokens,
+			a.CacheWriteTokens,
+			a.OutputTokens,
+			a.ReasoningTokens,
+			a.Cost,
+			a.ProviderMetadata,
+			a.InputFingerprint,
+			a.AgentID,
+			a.ID,
+			a.RuntimeID,
+		}
+		batch.Queue(queueExecutionSuccess, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionSuccessBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionSuccessBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *QueueExecutionSuccessBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const readExecutionProposals = `-- name: ReadExecutionProposals :batchmany
 SELECT c.id,c.provider_call_id,c.name,c.input,c.type FROM tool_calls c
 WHERE c.agent_id=$1 AND c.model_output_id=(SELECT o.id FROM model_outputs o WHERE o.agent_id=$1

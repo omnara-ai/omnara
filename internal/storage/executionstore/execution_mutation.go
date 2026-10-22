@@ -60,14 +60,8 @@ func beginStepExecution(
 	if err != nil {
 		return nil, nil, err
 	}
-	plan := unit.PlanKnownAgents([]agentexecution.AgentRoute{
-		{ProjectID: projectID, AgentID: agentID, RootAgentID: rootID},
-	})
-	if err := unit.LockAgents(ctx, plan); err != nil {
-		_ = unit.Rollback(ctx)
-		return nil, nil, err
-	}
-	h, err := unit.Handle(projectID, agentID)
+	h, err := unit.LockStepAgent(ctx, agentexecution.AgentRoute{ProjectID: projectID, AgentID: agentID,
+		RootAgentID: rootID}, runtimeID)
 	if err != nil {
 		_ = unit.Rollback(ctx)
 		return nil, nil, err

@@ -141,3 +141,79 @@ func (q *Queries) LoadExecutionToolBatch(ctx context.Context, db DBTX, arg LoadE
 	)
 	return i, err
 }
+
+const lockStepExecution = `-- name: LockStepExecution :one
+WITH locked_agent AS MATERIALIZED (
+ SELECT a.id,a.project_id,a.org_id,a.root_agent_id,a.state FROM agents a
+ WHERE a.id=$1 AND a.project_id=$2 FOR UPDATE OF a
+), locked_runtime AS MATERIALIZED (
+ SELECT r.id FROM locked_agent a JOIN agent_runtime_locks r ON r.agent_id=a.id
+ WHERE r.id=$3 FOR UPDATE OF r
+)
+SELECT a.org_id,r.id AS runtime_id,coalesce(h.agent_id,a.id)::uuid AS agent_id,h.current_turn_id,
+       coalesce(h.stop_sequence,0)::bigint AS stop_sequence,
+       coalesce(h.max_normal_input_sequence,0)::bigint AS max_normal_input_sequence,
+       coalesce(h.max_context_input_sequence,0)::bigint AS max_context_input_sequence,
+       h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,
+       h.pending_config_input_id,h.pending_checkpoint_id,
+       coalesce(h.incomplete_tools,false)::boolean AS incomplete_tools,h.logical_ready_at,
+       (h.agent_id IS NOT NULL)::boolean AS head_exists,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now
+FROM locked_agent a LEFT JOIN LATERAL (
+ SELECT head.agent_id,head.current_turn_id,head.stop_sequence,head.max_normal_input_sequence,head.max_context_input_sequence,head.normal_context_id,head.compaction_context_id,head.pending_tool_output_id,head.pending_output_limit_id,head.pending_config_input_id,head.pending_checkpoint_id,head.incomplete_tools,head.logical_ready_at FROM agent_execution_state head WHERE head.agent_id=a.id FOR UPDATE OF head
+) h ON true LEFT JOIN locked_runtime r ON true
+`
+
+type LockStepExecutionParams struct {
+	AgentID   uuid.UUID
+	ProjectID uuid.UUID
+	RuntimeID uuid.UUID
+}
+
+type LockStepExecutionRow struct {
+	OrgID                   uuid.UUID
+	RuntimeID               *uuid.UUID
+	AgentID                 uuid.UUID
+	CurrentTurnID           *uuid.UUID
+	StopSequence            int64
+	MaxNormalInputSequence  int64
+	MaxContextInputSequence int64
+	NormalContextID         *uuid.UUID
+	CompactionContextID     *uuid.UUID
+	PendingToolOutputID     *uuid.UUID
+	PendingOutputLimitID    *uuid.UUID
+	PendingConfigInputID    *uuid.UUID
+	PendingCheckpointID     *uuid.UUID
+	IncompleteTools         bool
+	LogicalReadyAt          *time.Time
+	HeadExists              bool
+	RootAgentID             uuid.UUID
+	State                   string
+	DatabaseNow             time.Time
+}
+
+func (q *Queries) LockStepExecution(ctx context.Context, db DBTX, arg LockStepExecutionParams) (LockStepExecutionRow, error) {
+	row := db.QueryRow(ctx, lockStepExecution, arg.AgentID, arg.ProjectID, arg.RuntimeID)
+	var i LockStepExecutionRow
+	err := row.Scan(
+		&i.OrgID,
+		&i.RuntimeID,
+		&i.AgentID,
+		&i.CurrentTurnID,
+		&i.StopSequence,
+		&i.MaxNormalInputSequence,
+		&i.MaxContextInputSequence,
+		&i.NormalContextID,
+		&i.CompactionContextID,
+		&i.PendingToolOutputID,
+		&i.PendingOutputLimitID,
+		&i.PendingConfigInputID,
+		&i.PendingCheckpointID,
+		&i.IncompleteTools,
+		&i.LogicalReadyAt,
+		&i.HeadExists,
+		&i.RootAgentID,
+		&i.State,
+		&i.DatabaseNow,
+	)
+	return i, err
+}
