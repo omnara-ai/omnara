@@ -19,13 +19,18 @@ func (c Client) routeClient() route.Client {
 			DefaultBaseURL: "https://api.anthropic.com/v1",
 			Path:           c.EndpointPath,
 		},
-		Auth: route.Chain{
-			c.Auth,
-			route.Headers{"Anthropic-Version": APIVersion},
-		},
+		Auth:      route.Chain{c.Auth, c.versionHeaders()},
 		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
 		Protocol:  protocol{client: c},
 	}
+}
+
+func (c Client) versionHeaders() route.Headers {
+	headers := route.Headers{"Anthropic-Version": APIVersion}
+	if c.firstPartyAnthropic() {
+		headers["Anthropic-Beta"] = thinkingBindingControlsBeta
+	}
+	return headers
 }
 
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {

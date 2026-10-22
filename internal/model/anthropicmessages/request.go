@@ -84,11 +84,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		"tools",
 		"tool_choice",
 	}
+	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
+	if err != nil {
+		return nil, err
+	}
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
-		options, err := decodeAPIVariantOptions(c.APIVariantOptions)
-		if err != nil {
-			return nil, err
-		}
 		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
 		if err != nil {
 			return nil, err
@@ -101,6 +101,18 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		if thinkingOff {
 			payload.Thinking = &thinkingConfig{Type: "adaptive"}
 			ownedFields = append(ownedFields, "thinking")
+		}
+	}
+	if c.firstPartyAnthropic() {
+		thinking, bound, err := dropPrefixMismatchedThinking(payload.Thinking, options["thinking"])
+		if err != nil {
+			return nil, err
+		}
+		if bound {
+			if payload.Thinking == nil {
+				ownedFields = append(ownedFields, "thinking")
+			}
+			payload.Thinking = thinking
 		}
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
@@ -155,11 +167,47 @@ type messagesRequest struct {
 	Tools        []toolDefinition           `json:"tools,omitempty"`
 	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
 	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
-	Thinking     *thinkingConfig            `json:"thinking,omitempty"`
+	Thinking     any                        `json:"thinking,omitempty"`
 }
 
 type thinkingConfig struct {
-	Type string `json:"type"`
+	Type         string                `json:"type"`
+	BlockBinding *thinkingBlockBinding `json:"block_binding,omitempty"`
+}
+
+type thinkingBlockBinding struct {
+	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
+}
+
+const prefixMismatchDropBlock = "drop_block"
+
+func dropPrefixMismatchedThinking(current any, configured json.RawMessage) (any, bool, error) {
+	if thinking, ok := current.(*thinkingConfig); ok {
+		thinking.BlockBinding = &thinkingBlockBinding{PrefixMismatchBehavior: prefixMismatchDropBlock}
+		return thinking, true, nil
+	}
+	configured = bytes.TrimSpace(configured)
+	if len(configured) == 0 || bytes.Equal(configured, []byte("null")) {
+		return nil, false, nil
+	}
+	var thinking map[string]json.RawMessage
+	if err := json.Unmarshal(configured, &thinking); err != nil || thinking == nil {
+		return nil, false, errors.New("api_variant_options.thinking must be a JSON object")
+	}
+	var thinkingType string
+	_ = json.Unmarshal(thinking["type"], &thinkingType)
+	if thinkingType != "adaptive" {
+		return nil, false, nil
+	}
+	if _, ok := thinking["block_binding"]; ok {
+		return nil, false, nil
+	}
+	binding, err := json.Marshal(thinkingBlockBinding{PrefixMismatchBehavior: prefixMismatchDropBlock})
+	if err != nil {
+		return nil, false, err
+	}
+	thinking["block_binding"] = binding
+	return thinking, true, nil
 }
 
 type anthropicRole string
@@ -475,7 +523,7 @@ func completeAnthropicReplay(
 	target modelenvelope.ProviderReplayIdentity,
 	usedIDs map[string]bool,
 ) ([]any, map[string]string, bool) {
-	if !source.ProviderReplaySource.Matches(target) {
+	if !anthropicReplayCompatible(source.ProviderReplaySource, target) {
 		return nil, nil, false
 	}
 	var rawBlocks []json.RawMessage
@@ -498,6 +546,17 @@ func completeAnthropicReplay(
 		usedIDs[id] = true
 	}
 	return blocks, replayToolIDs, true
+}
+
+func anthropicReplayCompatible(source, target modelenvelope.ProviderReplayIdentity) bool {
+	if source.Matches(target) {
+		return true
+	}
+	sameModel := target
+	sameModel.RequestedProviderModelSlug = source.RequestedProviderModelSlug
+	return source.Matches(sameModel) &&
+		model.IsClaudeFamilyModelSlug(source.RequestedProviderModelSlug) &&
+		model.IsClaudeFamilyModelSlug(target.RequestedProviderModelSlug)
 }
 
 type anthropicReplaySemantic struct {
