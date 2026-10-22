@@ -102,6 +102,7 @@ func (m RenderedMedia) InputModality() string {
 }
 
 type Message struct {
+	validatedContent          *validatedMessageContent
 	InputFingerprint          string                               `json:"-"`
 	InputEventSequence        int64                                `json:"-"`
 	AgentConfigID             uuid.UUID                            `json:"-"`

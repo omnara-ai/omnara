@@ -179,7 +179,13 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if input.MediaProjector != nil {
 		bundle.RenderedMedia = input.MediaProjector.ProjectRenderedMedia(bundle)
 	}
-	if err := normalizerOrDefault(b.Normalizer).Normalize(bundle); err != nil {
+	normalizer := normalizerOrDefault(b.Normalizer)
+	if _, ok := normalizer.(ProjectionNormalizer); ok {
+		err = normalizeProjection(bundle, true)
+	} else {
+		err = normalizer.Normalize(bundle)
+	}
+	if err != nil {
 		return Bundle{}, err
 	}
 	return bundle, nil

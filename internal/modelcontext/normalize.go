@@ -1,6 +1,7 @@
 package modelcontext
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -16,6 +17,10 @@ type Normalizer interface {
 type ProjectionNormalizer struct{}
 
 func (ProjectionNormalizer) Normalize(bundle Bundle) error {
+	return normalizeProjection(bundle, false)
+}
+
+func normalizeProjection(bundle Bundle, rememberContent bool) error {
 	if bundle.ProjectID == uuid.Nil || bundle.AgentID == uuid.Nil || bundle.TurnID == uuid.Nil ||
 		len(bundle.OpeningInputIDs) == 0 {
 		return fmt.Errorf("project, agent, turn, and opening inputs are required")
@@ -27,7 +32,7 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 	}
 	lastSequence := int64(0)
 	seenMessages := map[string]bool{}
-	for _, message := range bundle.Messages {
+	for index, message := range bundle.Messages {
 		if message.ID == "" || message.Role == "" {
 			return fmt.Errorf("message id and role are required")
 		}
@@ -42,8 +47,14 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 		if !jsonIsArray(message.Content) {
 			return fmt.Errorf("message %s content must be a json array", message.ID)
 		}
-		if err := validateMessageContentBlocks(message.Role, message.Content); err != nil {
+		blocks, err := parseMessageContentBlocks(message.Role, message.Content)
+		if err != nil {
 			return fmt.Errorf("message %s content: %w", message.ID, err)
+		}
+		if rememberContent {
+			bundle.Messages[index].validatedContent = &validatedMessageContent{
+				role: message.Role, raw: string(message.Content), blocks: blocks,
+			}
 		}
 		if message.Sequence <= 0 {
 			return fmt.Errorf("message %s event sequence is required", message.ID)
@@ -119,13 +130,20 @@ func normalizerOrDefault(n Normalizer) Normalizer {
 }
 
 func jsonIsArray(raw json.RawMessage) bool {
-	if len(raw) == 0 || !json.Valid(raw) {
-		return false
+	raw = bytes.TrimSpace(raw)
+	return len(raw) > 0 && raw[0] == '['
+}
+
+type validatedMessageContent struct {
+	role   modelprotocol.MessageRole
+	raw    string
+	blocks []json.RawMessage
+}
+
+func (message Message) contentBlocks() ([]json.RawMessage, error) {
+	if cached := message.validatedContent; cached != nil &&
+		cached.role == message.Role && cached.raw == string(message.Content) {
+		return cached.blocks, nil
 	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return false
-	}
-	_, ok := value.([]any)
-	return ok
+	return parseMessageContentBlocks(message.Role, message.Content)
 }

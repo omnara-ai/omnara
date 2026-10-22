@@ -1,6 +1,7 @@
 package modelcontext
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,7 +53,8 @@ func CanonicalHistory(bundle Bundle) ([]HistoryEntry, error) {
 		if message.Sequence <= 0 {
 			return nil, errors.New("model context message event sequence is required")
 		}
-		if err := validateMessageContentBlocks(message.Role, message.Content); err != nil {
+		blocks, err := message.contentBlocks()
+		if err != nil {
 			return nil, fmt.Errorf("message %s content: %w", message.ID, err)
 		}
 		entry := HistoryEntry{Sequence: message.Sequence, Message: message}
@@ -71,7 +73,7 @@ func CanonicalHistory(bundle Bundle) ([]HistoryEntry, error) {
 			entries = append(entries, entry)
 			continue
 		}
-		content, orderedResults, err := canonicalAssistantContent(message.Content, results)
+		content, orderedResults, err := canonicalAssistantContent(blocks, results)
 		if err != nil {
 			return nil, fmt.Errorf("assemble assistant message %s: %w", message.ID, err)
 		}
@@ -99,16 +101,9 @@ func CanonicalHistory(bundle Bundle) ([]HistoryEntry, error) {
 }
 
 func canonicalAssistantContent(
-	raw json.RawMessage,
+	blocks []json.RawMessage,
 	results []ToolResultRef,
 ) ([]AssistantContentEntry, []ToolResultRef, error) {
-	var blocks []json.RawMessage
-	if err := json.Unmarshal(raw, &blocks); err != nil || blocks == nil {
-		if err == nil {
-			err = errors.New("content must be a JSON array")
-		}
-		return nil, nil, err
-	}
 	resultIndexByCallID := make(map[string]int, len(results))
 	for index := range results {
 		callID := results[index].ToolCallID
@@ -132,7 +127,7 @@ func canonicalAssistantContent(
 			return nil, nil, fmt.Errorf("decode content block %d: %w", index, err)
 		}
 		if discriminator.Type != canonicalContentBlockToolCall {
-			content = append(content, AssistantBlockEntry{Content: block})
+			content = append(content, AssistantBlockEntry{Content: bytes.Clone(block)})
 			continue
 		}
 		var link struct {

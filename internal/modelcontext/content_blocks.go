@@ -19,11 +19,11 @@ const (
 	canonicalContentBlockStructuredData canonicalContentBlockType = "structured_data"
 )
 
-func validateMessageContentBlocks(role modelprotocol.MessageRole, content json.RawMessage) error {
+func parseMessageContentBlocks(role modelprotocol.MessageRole, content json.RawMessage) ([]json.RawMessage, error) {
 	if role != modelprotocol.RoleUser && role != modelprotocol.RoleAssistant {
-		return fmt.Errorf("unsupported message role %q", role)
+		return nil, fmt.Errorf("unsupported message role %q", role)
 	}
-	return validateContentBlockArray(content, func(index int, fields map[string]json.RawMessage) error {
+	return parseContentBlockArray(content, func(index int, fields map[string]json.RawMessage) error {
 		kind, err := requiredContentBlockString(fields, "type")
 		if err != nil {
 			return err
@@ -77,23 +77,31 @@ func validateContentBlockArray(
 	content json.RawMessage,
 	validate func(index int, fields map[string]json.RawMessage) error,
 ) error {
+	_, err := parseContentBlockArray(content, validate)
+	return err
+}
+
+func parseContentBlockArray(
+	content json.RawMessage,
+	validate func(index int, fields map[string]json.RawMessage) error,
+) ([]json.RawMessage, error) {
 	var blocks []json.RawMessage
 	if err := json.Unmarshal(content, &blocks); err != nil || blocks == nil {
 		if err == nil {
 			err = errors.New("must be a JSON array")
 		}
-		return err
+		return nil, err
 	}
 	for index, raw := range blocks {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-			return fmt.Errorf("content block %d must be a JSON object", index)
+			return nil, fmt.Errorf("content block %d must be a JSON object", index)
 		}
 		if err := validate(index, fields); err != nil {
-			return fmt.Errorf("content block %d: %w", index, err)
+			return nil, fmt.Errorf("content block %d: %w", index, err)
 		}
 	}
-	return nil
+	return blocks, nil
 }
 
 func validateTextContentBlock(fields map[string]json.RawMessage) error {
