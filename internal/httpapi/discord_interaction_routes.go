@@ -66,6 +66,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		} else if permanentIntegrationIngressError(err) {
 			http.Error(w, "interaction owner unavailable", http.StatusNotFound)
 		} else {
+			logIntegrationError(ctx, "Discord interaction owner", err)
 			http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		}
 		return
@@ -78,9 +79,14 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 	handler, err := discord.NewInteractionHandler(
 		applicationID, integrationruntime.DiscordInteractionPublicKey(integration.ProviderConfig),
 		func(ctx context.Context, input discord.Interaction) (discord.InteractionResponse, error) {
-			return s.resolveDiscordInteraction(ctx, integration, input)
+			response, err := s.resolveDiscordInteraction(ctx, integration, input)
+			if cause := errors.Join(err, ctx.Err()); cause != nil {
+				logIntegrationError(ctx, "Discord interaction intake", cause)
+			}
+			return response, err
 		})
 	if err != nil {
+		logIntegrationError(ctx, "Discord interaction handler", err)
 		http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		return
 	}

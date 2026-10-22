@@ -24,7 +24,7 @@ func integrationSetupInputError(ctx context.Context, err error) error {
 			return apierror.FromCode(openapi.ErrorCodeRateLimited,
 				"Discord integration setup is rate limited; retry later")
 		default:
-			logIntegrationCredentialError(ctx, "verify Discord integration identity", err)
+			logIntegrationError(ctx, "verify Discord integration identity", err)
 			return apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 				"Discord identity verification is unavailable; retry later")
 		}
@@ -45,7 +45,7 @@ func integrationSetupInputError(ctx context.Context, err error) error {
 		return apierror.FromCode(openapi.ErrorCodeRateLimited,
 			"GitHub integration setup is rate limited; retry later")
 	default:
-		logIntegrationCredentialError(ctx, "verify GitHub integration identity", err)
+		logIntegrationError(ctx, "verify GitHub integration identity", err)
 		return apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 			"GitHub identity verification is unavailable; retry later")
 	}

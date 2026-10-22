@@ -71,6 +71,7 @@ func (s *Server) slackEventsRoute(w http.ResponseWriter, r *http.Request) {
 			return true, err
 		})
 	if err != nil {
+		logIntegrationError(ctx, "Slack intake", err)
 		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "Slack intake unavailable")
 		return
 	}

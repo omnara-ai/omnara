@@ -2,13 +2,17 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func readIntegrationCallbackBody(
@@ -30,15 +34,22 @@ func readIntegrationCallbackBody(
 	_ = controller.SetReadDeadline(time.Now())
 	w.Header().Set("Connection", "close")
 	var tooLarge *http.MaxBytesError
-	if err == nil || errors.As(err, &tooLarge) {
+	var timeout net.Error
+	switch {
+	case err == nil || errors.As(err, &tooLarge):
+		logpkg.Error(r.Context(), errors.New("read integration callback body: request body too large"))
 		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-	} else {
-		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
+		return nil, false
+	case errors.As(err, &timeout) && timeout.Timeout():
+		logpkg.Error(r.Context(), fmt.Errorf("read integration callback body: %w", os.ErrDeadlineExceeded))
+	default:
+		logpkg.Error(r.Context(), fmt.Errorf("read integration callback body: %T", err))
 	}
+	apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
 	return nil, false
 }
 
-func writeIntegrationProviderError(w http.ResponseWriter, err error) {
+func writeIntegrationProviderError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, storeerr.ErrNotFound):
 		apierror.Write(w, openapi.ErrorCodeNotFound)
@@ -47,6 +58,7 @@ func writeIntegrationProviderError(w http.ResponseWriter, err error) {
 	case errors.Is(err, storeerr.ErrConflict), errors.Is(err, storeerr.ErrIdempotencyConflict):
 		apierror.Write(w, openapi.ErrorCodeConflict)
 	default:
+		logIntegrationError(r.Context(), "integration callback", err)
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 	}
 }
