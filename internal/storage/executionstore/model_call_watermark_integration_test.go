@@ -316,11 +316,12 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 	scope, found, err := lt.store.Execution().GetDaemonGitCredentialsScope(ctx, testOrgID, machineID, processID)
 	require.NoError(t, err)
 	require.True(t, found)
+	credentials := agentconfig.GitCredentialsCompiled{Integration: "github", IntegrationID: lt.integrationID}
 	require.Equal(t, executionstore.DaemonGitCredentialsScope{
-		ProjectID: testProjectID, AgentID: lt.agentID, IntegrationID: lt.integrationID,
+		ProjectID: testProjectID, AgentID: lt.agentID, GitCredentialsCompiled: credentials,
 	}, scope)
 	wantScope := dbsqlc.GetDaemonGitCredentialsScopeRow{ProjectID: testProjectID, AgentID: lt.agentID,
-		OriginalIntegrationID: lt.integrationID, CurrentIntegrationID: lt.integrationID}
+		GitCredentials: canonicalJSON(t, credentials)}
 	tx := integrationdb.BeginTx(t, ctx, lt.store.pool)
 	_, err = tx.Exec(ctx, multiTenantTranscriptStatistics)
 	require.NoError(t, err)
@@ -352,6 +353,7 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 			OrgID: testOrgID, MachineID: machineID, ProcessID: processID,
 		})
 		require.NoError(t, err, mode)
+		gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
 		require.Equal(t, wantScope, gotScope, mode)
 	}
 	unscopedProcessID, outputID := createUncommittedToolOutputProcess(t, ctx, tx, lt, machineID, bindingID)
@@ -367,6 +369,7 @@ VALUES ($1, $2, $3, 'model_output', $4, now())`, lt.agentID, lt.id("turn", last)
 		OrgID: testOrgID, MachineID: machineID, ProcessID: unscopedProcessID,
 	})
 	require.NoError(t, err)
+	gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
 	require.Equal(t, wantScope, gotScope)
 }
 
