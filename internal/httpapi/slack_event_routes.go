@@ -40,6 +40,10 @@ func (s *Server) slackEventsRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"challenge": challenge})
 		return
 	}
+	if envelope.TeamID == "" || envelope.APIAppID == "" {
+		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "slack event is missing team_id or api_app_id")
+		return
+	}
 	if s.store == nil {
 		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
 		return
