@@ -4,6 +4,7 @@ import {
   type ListAgentInteractionsResponse,
   type OmnaraClient,
   sdk,
+  type ToolCallUpdate,
 } from '@omnara/sdk'
 import {
   getActorOptions,
@@ -183,4 +184,21 @@ export async function invalidateSubagentList(
       queryKey: listOrgAgentsQueryKey({ path: { orgID: scope.orgID }, client }),
     }),
   ])
+}
+
+export function refreshToolState(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  scope: AgentChatScope,
+  update: ToolCallUpdate,
+): void {
+  const queryKey = openAgentInteractionsQueryKey(client, scope)
+  const current = queryClient.getQueryData<ListAgentInteractionsResponse>(queryKey)
+  if (
+    update.interaction_update != null ||
+    update.state === 'awaiting_permission' ||
+    current?.data.some((interaction) => interaction.tool_call_id === update.tool_call_id)
+  ) {
+    void queryClient.invalidateQueries({ queryKey })
+  }
 }
