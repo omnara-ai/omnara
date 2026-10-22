@@ -241,18 +241,16 @@ JOIN projects p ON p.id = s.project_id
 WHERE s.project_id = $1
   AND s.id = ANY($2::uuid[])
   AND s.deleted_at IS NULL
-  AND s.name >= $3::text COLLATE "C"
-  AND ($4::text = '' OR s.name = $4)
-  AND s.name >= $5::text COLLATE "C"
-  AND s.name < ($5::text || '{') COLLATE "C"
+  AND ($3::text = '' OR s.name = $3)
+  AND s.name >= $4::text COLLATE "C"
+  AND s.name < ($4::text || '{') COLLATE "C"
 ORDER BY s.name COLLATE "C"
-LIMIT $6::integer
+LIMIT $5::integer
 `
 
 type ListAttachedMemoryStoresParams struct {
 	ProjectID   uuid.UUID
 	StoreIds    []uuid.UUID
-	FromName    string
 	StoreName   string
 	StorePrefix string
 	RowLimit    *int32
@@ -270,7 +268,6 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 	rows, err := q.db.Query(ctx, listAttachedMemoryStores,
 		arg.ProjectID,
 		arg.StoreIds,
-		arg.FromName,
 		arg.StoreName,
 		arg.StorePrefix,
 		arg.RowLimit,

@@ -35,6 +35,10 @@ const (
 	ruleParseError             = "parse-error"
 )
 
+// offsetPaginationExemptions names queries allowed to page with OFFSET.
+// ListAgentArtifacts serves storage_list, whose model-facing contract is offset + limit.
+var offsetPaginationExemptions = map[string]bool{"ListAgentArtifacts": true}
+
 type issue struct {
 	Path    string
 	Line    int
@@ -425,7 +429,7 @@ func (checker *queryChecker) checkMessage(
 	case *pg_query.SelectStmt:
 		checker.checkOutputTargets(node.GetTargetList(), visibleRelationNames(node.GetFromClause()))
 		checker.checkRelationList(node.GetFromClause())
-		if node.GetLimitOffset() != nil {
+		if node.GetLimitOffset() != nil && !offsetPaginationExemptions[checker.name] {
 			checker.report(
 				ruleNoOffsetPagination,
 				"product storage queries must use keyset pagination instead of OFFSET",

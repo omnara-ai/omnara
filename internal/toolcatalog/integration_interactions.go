@@ -18,8 +18,8 @@ func interactionHandlerTools() ([]Entry, error) {
 		"List eligible handlers for future questions and approval prompts. Returns handler keys, destinations, descriptions, "+
 			"effective argument schemas, and the current selection including args independently of the page. "+
 			"Reports whether auto_select is enabled. "+
-			"Pass next_cursor as cursor to continue listing. Null selection means dashboard only.", nil, map[string]any{
-			"cursor": map[string]any{"type": "string", "minLength": 1},
+			"Pass next_offset as offset to continue listing. Null selection means dashboard only.", nil, map[string]any{
+			"offset": map[string]any{"type": "integer", "minimum": 0},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": InteractionHandlersMaxLimit},
 		})
 	if err != nil {

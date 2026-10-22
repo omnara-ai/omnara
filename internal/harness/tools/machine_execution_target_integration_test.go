@@ -250,7 +250,7 @@ tools:
 	listCall := model.ToolCall{ID: "call_observe-byo-list", Name: "list_machines", Input: json.RawMessage(`{}`)}
 	continuationListCall := model.ToolCall{
 		ID: "call_observe-byo-list-next", Name: "list_machines",
-		Input: json.RawMessage(`{"cursor":"` + machineID + `"}`),
+		Input: json.RawMessage(`{"offset":2}`), // one pool plus one machine
 	}
 	inspectCall := model.ToolCall{ID: "call_observe-byo-inspect", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
 	mixedInspectCall := model.ToolCall{
@@ -332,6 +332,10 @@ tools:
 	if !ok || len(machines) != 1 {
 		t.Fatalf("list_machines result = %+v, want one machine", listBody)
 	}
+	if pools, ok := listBody["machine_pools"].([]any); !ok || len(pools) != 1 ||
+		listBody["has_more"] != false || listBody["next_offset"] != nil {
+		t.Fatalf("list_machines result = %+v, want one pool and no more pages", listBody)
+	}
 	listed, ok := machines[0].(map[string]any)
 	if !ok {
 		t.Fatalf("list_machines entry = %+v", machines[0])
@@ -344,7 +348,9 @@ tools:
 	}
 	continuedBody := toolResultMapFromTestParts(t, continued.ContentParts)
 	remaining, ok := continuedBody["machines"].([]any)
-	if !ok || len(remaining) != 0 || continuedBody["next_cursor"] != nil {
+	remainingPools, poolsOK := continuedBody["machine_pools"].([]any)
+	if !ok || len(remaining) != 0 || !poolsOK || len(remainingPools) != 0 ||
+		continuedBody["has_more"] != false || continuedBody["next_offset"] != nil {
 		t.Fatalf("unexpected final machine page: %+v", continuedBody)
 	}
 
@@ -1901,7 +1907,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 	readCall := model.ToolCall{
 		ID:    "call_replay_read",
 		Name:  "read_process",
-		Input: json.RawMessage(`{"process_id":"` + processHandle + `","cursor":0,"max_bytes":4096}`),
+		Input: json.RawMessage(`{"process_id":"` + processHandle + `","offset_byte":0,"limit_bytes":4096}`),
 	}
 	readProviderResponse, err := model.NewResponseEnvelopeForStorage(
 		"tools-test",

@@ -152,7 +152,7 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 		{
 			name:    "list_processes",
 			valid:   json.RawMessage(`{}`),
-			invalid: json.RawMessage(`{"cursor":0}`),
+			invalid: json.RawMessage(`{"offset_byte":0}`),
 		},
 	}
 	for _, test := range tests {

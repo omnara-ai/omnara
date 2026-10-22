@@ -105,14 +105,16 @@ Use these tools to follow or control commands that are still running. A process 
 
 ### `read_process`
 
-Reads process output from a byte cursor and can briefly wait for new output.
+Reads process output from a byte offset and can briefly wait for new output.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
-| `cursor` | integer | ≥ 0; resume where the last read stopped |
-| `max_bytes` | integer | 1–65536 (default 8192) |
+| `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
+| `limit_bytes` | integer | 1–65536 (default 8192) |
 | `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. |
+
+`run_command` and `read_process` results include `offset_byte` and `next_offset_byte`. To continue from a specific point, pass `next_offset_byte` as `offset_byte`.
 
 ### `write_process`
 
@@ -163,7 +165,7 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Machine results include `cpu` and `memory_mb` when known, identify `source_kind` and `binding_kind`, and include `machine_pool_id` for pool-backed machines. Only pool bindings can be passed to `delete_machine`.
 
-When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing. Pools are listed first, followed by machines. If `list_machines` is disabled, provide the agent with any needed pool IDs, supported resource overrides, and limits in its instructions.
+`list_machines` accepts `offset` (default 0) and `limit` (1–100, default 50). When the result has `has_more: true`, pass `next_offset` as `offset` in the next call to continue listing. Pools are listed first, followed by machines. If `list_machines` is disabled, provide the agent with any needed pool IDs, supported resource overrides, and limits in its instructions.
 
 ## Files
 
@@ -178,12 +180,12 @@ Lists matching files and directories without reading their contents.
 | Input | Type | Notes |
 | --- | --- | --- |
 | `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Path pattern under literal `/memory` or `/artifacts`; globs are allowed only below the root |
+| `offset` | integer | ≥ 0; default 0. Use `next_offset` from the previous result with the same pattern |
 | `limit` | integer | 1–100; default 50 |
-| `cursor` | string | `next_cursor` from the previous result; keep the same pattern |
 
 Use `/artifacts/*` for the agent's artifacts, `/memory/*` for attached stores and their descriptions, or `/memory/**` to list paths across attached stores recursively. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
 
-Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths for reading or downloading. An exact `/artifacts/<artifact_id>` selects one artifact; wildcards match filenames, not IDs, and a filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. Continue with `next_cursor` until it is `null`; narrow the pattern if the listing exceeds its resource limit.
+Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths for reading or downloading. An exact `/artifacts/<artifact_id>` selects one artifact; wildcards match filenames, not IDs, and a filename can match multiple artifacts. Artifacts are ordered newest first and include creation time and content type. Results include hidden entries. While `has_more` is true, continue with `next_offset`; narrow the pattern if the listing exceeds its resource limit.
 
 ### `storage_upload`
 
@@ -280,7 +282,7 @@ them from the integration's [Conversations list or subscriptions API](/integrati
 Select these tools explicitly under `tools`, or use an integration launcher that supplies
 an interaction handler and adds them, preserving explicit tool settings. They
 are not global defaults.
-`list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
+`list_interaction_handlers` accepts `offset` and `limit`, returning handler keys,
 descriptions, eligible destinations and argument schemas. Its current selection is included
 independently of pagination. No eligible handlers means an empty list.
 

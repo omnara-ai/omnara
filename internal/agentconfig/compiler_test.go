@@ -659,9 +659,13 @@ func assertReadProcessInputSchema(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		t.Fatalf("decode read_process schema: %v", err)
 	}
-	maxBytes := schema.Properties["max_bytes"]
-	if maxBytes.Type != "integer" || maxBytes.Minimum != 1 || maxBytes.Maximum != processaction.MaxObservationBytes {
-		t.Fatalf("read_process max_bytes schema = %+v", maxBytes)
+	offsetByte, ok := schema.Properties["offset_byte"]
+	if !ok || offsetByte.Type != "integer" || offsetByte.Minimum != 0 {
+		t.Fatalf("read_process offset_byte schema = %+v", offsetByte)
+	}
+	limitBytes := schema.Properties["limit_bytes"]
+	if limitBytes.Type != "integer" || limitBytes.Minimum != 1 || limitBytes.Maximum != processaction.MaxObservationBytes {
+		t.Fatalf("read_process limit_bytes schema = %+v", limitBytes)
 	}
 	waitMS := schema.Properties["wait_ms"]
 	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {

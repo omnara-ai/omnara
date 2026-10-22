@@ -28,27 +28,31 @@ func (s *Store) ListFiles(
 	attachments []agentconfig.MemoryStoreCompiled,
 	pattern string,
 	matcher *regexp.Regexp,
-	limit int,
-	after string,
+	offset, limit int,
 ) ([]listing.FileEntry, error) {
 	defer s.recorder.StartListing().ObserveDuration()
 
-	from, _, _ := strings.Cut(strings.TrimPrefix(after, Root+"/"), "/")
-	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, from, limit+1)
+	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, offset+limit)
 	if err != nil {
 		return nil, err
 	}
-	remaining := memoryListingTraversalLimit
+	remaining, skipped := memoryListingTraversalLimit, 0
 	view := storeFS{
-		globFS: globFS{checkCanceled: ctx.Err, remaining: &remaining},
-		files:  s.files, projectID: projectID, stores: rows,
-		after: strings.TrimPrefix(after, "/"),
+		globFS: globFS{
+			checkCanceled: ctx.Err, remaining: &remaining,
+			skipping: func() bool { return skipped < offset },
+		},
+		files: s.files, projectID: projectID, stores: rows,
 	}
 	defer func() { _ = view.Close() }()
 	entries := make([]listing.FileEntry, 0, limit)
 	err = globFiles(ctx, &view, memoryGlobPattern(pattern), func(name string, item fs.DirEntry) error {
 		full := "/" + name
-		if compareFilePaths(full, after) <= 0 || name == "memory" || !matcher.MatchString(full) {
+		if name == "memory" || !matcher.MatchString(full) {
+			return nil
+		}
+		if skipped < offset {
+			skipped++
 			return nil
 		}
 		entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
@@ -86,7 +90,6 @@ func (s *Store) listAttachedStores(
 	projectID uuid.UUID,
 	attachments []agentconfig.MemoryStoreCompiled,
 	pattern string,
-	from string,
 	limit int,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]agentconfig.MemoryStoreAccess, error) {
 	ids := make([]uuid.UUID, 0, len(attachments))
@@ -99,7 +102,7 @@ func (s *Store) listAttachedStores(
 	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
 		prefix = prefix[:i]
 	}
-	params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids, FromName: from}
+	params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids}
 	if rest, ok := strings.CutPrefix(prefix, Root+"/"); ok {
 		name, _, complete := strings.Cut(rest, "/")
 		params.StorePrefix = name
@@ -133,7 +136,7 @@ func (s *Store) VisitSearchStores(
 		return nil
 	}
 	storePattern = memoryGlobEscaper.Replace(storePattern)
-	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, "", 0)
+	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, 0)
 	if err != nil {
 		return err
 	}

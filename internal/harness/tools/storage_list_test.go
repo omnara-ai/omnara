@@ -1,62 +1,47 @@
 package tools
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestFileListCursorValidation(t *testing.T) {
+func TestListFilesOffsetValidation(t *testing.T) {
 	for _, test := range []struct {
-		key   string
-		id    uuid.UUID
+		input string
 		valid bool
 	}{
-		{"/artifacts", uuid.Nil, true},
-		{"/artifacts", uuid.New(), true},
-		{"/memory", uuid.Nil, true},
-		{"/memory", uuid.New(), false},
-		{"/artifacts/", uuid.New(), false},
-		{"/artifacts/note.txt", uuid.New(), false},
-		{"/memory/a-b", uuid.Nil, true},
-		{"/memory/a/nested/note.txt", uuid.Nil, true},
-		{"/memory/a/" + strings.Repeat("<", 250) + "/" + strings.Repeat("\u2028", 80), uuid.Nil, true},
-		{"/memory/a/../other", uuid.Nil, false},
-		{"/memory/a\x00", uuid.Nil, false},
-		{"/memory/a/note\x00.txt", uuid.Nil, false},
-		{"/memory/a/note.txt", uuid.New(), false},
-		{"/artifacts/a/b", uuid.New(), false},
-		{"/artifacts/note.txt", uuid.Nil, false},
-		{"/other", uuid.Nil, false},
+		{`{"pattern":"/memory/**"}`, true},
+		{`{"pattern":"/memory/**","offset":0}`, true},
+		{`{"pattern":"/memory/**","offset":50,"limit":25}`, true},
+		{fmt.Sprintf(`{"pattern":"/artifacts/*","offset":%d}`, toolcatalog.StorageListMaxOffset), true},
+		{fmt.Sprintf(`{"pattern":"/artifacts/*","offset":%d}`, toolcatalog.StorageListMaxOffset+1), false},
+		{`{"pattern":"/memory/**","offset":-1}`, false},
+		{`{"pattern":"/memory/**","offset":1.5}`, false},
+		{`{"pattern":"/memory/**","offset":"1"}`, false},
+		{`{"pattern":"/memory/**","offset":null}`, false},
+		{`{"pattern":"/memory/**","cursor":"e30"}`, false},
 	} {
-		t.Run(test.key, func(t *testing.T) {
-			want := fileListCursor{Version: 1, Scope: "scope", Key: test.key, ID: test.id}
-			var payload bytes.Buffer
-			encoder := json.NewEncoder(&payload)
-			encoder.SetEscapeHTML(false)
-			if err := encoder.Encode(want); err != nil {
-				t.Fatal(err)
-			}
-			token := base64.RawURLEncoding.EncodeToString(payload.Bytes())
-			got, err := decodeFileListCursor(token)
-			if test.valid {
-				if err != nil || got != want {
-					t.Fatalf("cursor round trip: %+v, %v", got, err)
-				}
-			} else if !errors.Is(err, errInvalidFileListCursor) {
-				t.Fatalf("accepted invalid cursor: %v", err)
+		t.Run(test.input, func(t *testing.T) {
+			err := validateRegisteredToolInput(toolcatalog.ToolNameStorageList, json.RawMessage(test.input))
+			if test.valid && err != nil {
+				t.Fatalf("valid input rejected: %v", err)
+			} else if !test.valid && err == nil {
+				t.Fatal("invalid input accepted")
 			}
 		})
 	}
-	for _, raw := range []string{"bad", strings.Repeat("a", toolcatalog.StorageListMaxCursorLength+1), "e30"} {
-		if _, err := decodeFileListCursor(raw); !errors.Is(err, errInvalidFileListCursor) {
-			t.Fatalf("accepted malformed cursor: %v", err)
+	for _, offset := range []int{-1, toolcatalog.StorageListMaxOffset + 1} {
+		raw, err := json.Marshal(storageListRequest{Pattern: "/memory/**", Offset: offset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateStorageList(raw); err == nil ||
+			!strings.Contains(err.Error(), "offset must be between 0 and") {
+			t.Fatalf("offset %d: %v", offset, err)
 		}
 	}
 }

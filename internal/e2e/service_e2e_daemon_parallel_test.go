@@ -384,8 +384,8 @@ func serviceE2EReadProcessCall(
 	waitMS int,
 ) fakeOpenAIFunctionCall {
 	args := map[string]any{
-		"process_id": processID,
-		"max_bytes":  4096,
+		"process_id":  processID,
+		"limit_bytes": 4096,
 	}
 	if waitMS > 0 {
 		args["wait_ms"] = waitMS

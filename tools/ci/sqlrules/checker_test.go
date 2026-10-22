@@ -392,6 +392,17 @@ func TestCheckerRules(t *testing.T) {
 	}
 }
 
+func TestOffsetPaginationExemptionIsPerQuery(t *testing.T) {
+	const query = "SELECT id FROM users ORDER BY id LIMIT 10 OFFSET 10;\n"
+	if issues := checkSource("fixture.sql", []byte("-- name: ListAgentArtifacts :many\n"+query)); len(issues) != 0 {
+		t.Fatalf("exempt query issues = %+v", issues)
+	}
+	issues := checkSource("fixture.sql", []byte("-- name: ListOtherRows :many\n"+query))
+	if len(issues) != 1 || issues[0].Rule != ruleNoOffsetPagination {
+		t.Fatalf("issues = %+v, want %s", issues, ruleNoOffsetPagination)
+	}
+}
+
 func TestBlockQueryAnnotation(t *testing.T) {
 	issues := checkSource("fixture.sql", []byte("/* name: Unsafe :many */\nSELECT * FROM users;\n"))
 	if len(issues) != 1 || issues[0].Rule != ruleExplicitOutputColumns {

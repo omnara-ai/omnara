@@ -125,7 +125,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 	var requestCount atomic.Int64
 	var mu sync.Mutex
 	var processID string
-	var processCursor int64
+	var processOffset int64
 	modelFailures := make(chan string, 1)
 	failModelRequest := func(w http.ResponseWriter, status int, format string, args ...any) {
 		message := fmt.Sprintf(format, args...)
@@ -233,18 +233,18 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_create",
 				"call_read_create",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": 0, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "limit_bytes": 4096, "wait_ms": 1000},
 			)
 		case 6:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_create")
-			if !ok || result.Output != "C" || result.NextCursor == nil {
+			if !ok || result.Output != "C" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "create read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
 			mu.Unlock()
 			writeOpenAIFunctionCall(
@@ -261,7 +261,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			}
 			mu.Lock()
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -269,20 +269,20 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_delete",
 				"call_read_delete",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": cursor, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": offset, "limit_bytes": 4096, "wait_ms": 1000},
 			)
 		case 8:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_delete")
-			if !ok || result.Output != "D" || result.NextCursor == nil {
+			if !ok || result.Output != "D" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "delete read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -291,22 +291,22 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"call_wait_running",
 				"read_process",
 				map[string]any{
-					"process_id": id,
-					"cursor":     cursor,
-					"max_bytes":  4096,
-					"wait_ms":    100,
+					"process_id":  id,
+					"offset_byte": offset,
+					"limit_bytes": 4096,
+					"wait_ms":     100,
 				},
 			)
 		case 9:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_wait_running")
-			if !ok || result.State != "running" || result.NextCursor == nil {
+			if !ok || result.State != "running" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "running read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
 			mu.Unlock()
 			writeOpenAIFunctionCall(
@@ -323,7 +323,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			}
 			mu.Lock()
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -332,10 +332,10 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"call_read_terminal",
 				"read_process",
 				map[string]any{
-					"process_id": id,
-					"cursor":     cursor,
-					"max_bytes":  4096,
-					"wait_ms":    1000,
+					"process_id":  id,
+					"offset_byte": offset,
+					"limit_bytes": 4096,
+					"wait_ms":     1000,
 				},
 			)
 		case 11:
@@ -369,7 +369,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_ready",
 				"call_read_ready",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": 0, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "limit_bytes": 4096, "wait_ms": 1000},
 			)
 		case 13:
 			if !fakeModelToolOutputContains(w, body, failModelRequest, "call_read_ready", "R") {
@@ -2376,15 +2376,15 @@ func validateServiceE2EProcessToolResult(
 }
 
 type serviceE2EProcessResult struct {
-	Outcome    string `json:"outcome"`
-	ProcessID  string `json:"process_id"`
-	State      string `json:"state"`
-	Output     string `json:"output"`
-	Cursor     *int64 `json:"cursor"`
-	NextCursor *int64 `json:"next_cursor"`
-	Truncated  *bool  `json:"truncated"`
-	Done       *bool  `json:"done"`
-	ExitCode   *int   `json:"exit_code"`
+	Outcome        string `json:"outcome"`
+	ProcessID      string `json:"process_id"`
+	State          string `json:"state"`
+	Output         string `json:"output"`
+	OffsetByte     *int64 `json:"offset_byte"`
+	NextOffsetByte *int64 `json:"next_offset_byte"`
+	Truncated      *bool  `json:"truncated"`
+	Done           *bool  `json:"done"`
+	ExitCode       *int   `json:"exit_code"`
 }
 
 func decodeServiceE2EProcessResult(raw string) (serviceE2EProcessResult, error) {

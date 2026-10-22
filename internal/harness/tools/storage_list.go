@@ -1,67 +1,20 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
-	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-const fileListCursorVersion = 1
-
 type storageListRequest struct {
 	Pattern string `json:"pattern"`
+	Offset  int    `json:"offset,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
-	Cursor  string `json:"cursor,omitempty"`
-}
-
-type fileListCursor struct {
-	Version int       `json:"v"`
-	Scope   string    `json:"scope"`
-	Key     string    `json:"key"`
-	ID      uuid.UUID `json:"id"`
-}
-
-var errInvalidFileListCursor = errors.New("invalid file listing cursor; keep the same pattern or restart the listing")
-
-func decodeFileListCursor(raw string) (fileListCursor, error) {
-	var cursor fileListCursor
-	if raw == "" {
-		return cursor, nil
-	}
-	if len(raw) > toolcatalog.StorageListMaxCursorLength {
-		return cursor, errInvalidFileListCursor
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || json.Unmarshal(payload, &cursor) != nil ||
-		cursor.Version != fileListCursorVersion || cursor.Scope == "" {
-		return cursor, errInvalidFileListCursor
-	}
-	switch {
-	case cursor.Key == toolcatalog.ArtifactVFSRoot:
-		return cursor, nil
-	case cursor.Key == memorystore.Root:
-		if cursor.ID == uuid.Nil {
-			return cursor, nil
-		}
-	case strings.HasPrefix(cursor.Key, memorystore.Root+"/"):
-		name, path, hasPath := strings.Cut(strings.TrimPrefix(cursor.Key, memorystore.Root+"/"), "/")
-		if cursor.ID == uuid.Nil && skills.ValidateName(name) == nil && (!hasPath || memorystore.ValidatePath(path) == nil) {
-			return cursor, nil
-		}
-	}
-	return cursor, errInvalidFileListCursor
 }
 
 func validateStorageList(raw json.RawMessage) error {
@@ -69,10 +22,10 @@ func validateStorageList(raw json.RawMessage) error {
 	if err := decodeSingleStrictJSON(raw, &input, "storage_list request"); err != nil {
 		return err
 	}
-	if _, err := storage.CompileFilePattern(input.Pattern); err != nil {
-		return err
+	if input.Offset < 0 || input.Offset > toolcatalog.StorageListMaxOffset {
+		return fmt.Errorf("offset must be between 0 and %d", toolcatalog.StorageListMaxOffset)
 	}
-	_, err := decodeFileListCursor(input.Cursor)
+	_, err := storage.CompileFilePattern(input.Pattern)
 	return err
 }
 
@@ -81,20 +34,8 @@ func runStorageList(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 	if err := json.Unmarshal(call.Call.Input, &input); err != nil {
 		return nil, err
 	}
-	cursor, err := decodeFileListCursor(input.Cursor)
-	if err != nil {
-		return nil, err
-	}
-	scope := fmt.Sprintf("%x", sha256.Sum256([]byte(
-		call.Turn.ProjectID.String()+"/"+call.Turn.AgentID.String()+"/"+input.Pattern,
-	)))
-	root, _, _ := strings.Cut(strings.TrimPrefix(input.Pattern, "/"), "/")
-	if input.Cursor != "" && (cursor.Scope != scope || !strings.HasPrefix(cursor.Key+"/", "/"+root+"/")) {
-		return nil, errInvalidFileListCursor
-	}
 	result, err := call.Executor.Store.ListFiles(
-		ctx, call.Turn.ProjectID, call.Turn.AgentID, input.Pattern, input.Limit,
-		listing.Cursor{Set: input.Cursor != "", Key: cursor.Key, ID: cursor.ID},
+		ctx, call.Turn.ProjectID, call.Turn.AgentID, input.Pattern, input.Offset, input.Limit,
 	)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
@@ -102,25 +43,9 @@ func runStorageList(ctx context.Context, call asyncToolContext) (asyncPhaseResul
 		}
 		return nil, err
 	}
-	var next *string
-	if result.Next.Set {
-		var payload bytes.Buffer
-		encoder := json.NewEncoder(&payload)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(fileListCursor{
-			Version: fileListCursorVersion, Scope: scope, Key: result.Next.Key, ID: result.Next.ID,
-		}); err != nil {
-			return nil, err
-		}
-		token := base64.RawURLEncoding.EncodeToString(payload.Bytes())
-		next = &token
-	}
 	// Digests are bookkeeping for memory read tracking, not something the model acts on.
 	for i := range result.Entries {
 		result.Entries[i].Digest = ""
 	}
-	return completeFileTool(struct {
-		Entries    []listing.FileEntry `json:"entries"`
-		NextCursor *string             `json:"next_cursor"`
-	}{Entries: result.Entries, NextCursor: next})
+	return completeFileTool(listing.NewFilePage(result.Entries, result.HasMore, input.Offset))
 }

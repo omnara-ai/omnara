@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -31,6 +32,7 @@ func commandTerminalToolResult(
 		return nil, errors.New("terminal command result must be an object")
 	}
 	object["process_id"] = publicResourceID(publicid.KindProcess, processID)
+	processresult.PublicOutputRange(object)
 	return marshalJSON(object)
 }
 

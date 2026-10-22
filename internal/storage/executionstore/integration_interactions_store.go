@@ -55,22 +55,22 @@ func (s *Store) ReconcileInteractionSelectionInUnit(
 
 func (r *ToolCallReader) ListInteractionHandlers(
 	ctx context.Context,
-	cursor string,
+	offset int,
 	limit int,
 ) (agentconfig.InteractionHandlerPage, error) {
 	t := r.transaction
-	return listInteractionHandlers(ctx, t.tx, t.input.ProjectID, t.input.AgentID, cursor, limit)
+	return listInteractionHandlers(ctx, t.tx, t.input.ProjectID, t.input.AgentID, offset, limit)
 }
 
 func listInteractionHandlers(
 	ctx context.Context,
 	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
-	cursor string,
+	offset int,
 	limit int,
 ) (agentconfig.InteractionHandlerPage, error) {
 	q := dbsqlc.New(tx)
-	if _, err := agentconfig.ListInteractionHandlers(nil, nil, cursor, limit); err != nil {
+	if _, err := agentconfig.ListInteractionHandlers(nil, nil, offset, limit); err != nil {
 		return agentconfig.InteractionHandlerPage{}, storeerr.InvalidRequest(err)
 	}
 	selection, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
@@ -117,7 +117,7 @@ func listInteractionHandlers(
 			}
 		}
 	}
-	page, err := agentconfig.ListInteractionHandlers(entries, current, cursor, limit)
+	page, err := agentconfig.ListInteractionHandlers(entries, current, offset, limit)
 	page.AutoSelect = selection.AutoSelect
 	return page, err
 }

@@ -4,15 +4,14 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -44,10 +43,11 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 	}
 	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
 	type page struct {
-		Entries []listing.FileEntry `json:"entries"`
-		Next    *string             `json:"next_cursor"`
+		Entries    []listing.FileEntry `json:"entries"`
+		HasMore    bool                `json:"has_more"`
+		NextOffset *int                `json:"next_offset"`
 	}
-	read := func(input storageListRequest, turn Turn) (page, error) {
+	read := func(input storageListRequest) (page, error) {
 		raw, err := json.Marshal(input)
 		if err != nil {
 			return page{}, err
@@ -56,7 +56,6 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 			return page{}, err
 		}
 		local := call
-		local.Turn = turn
 		local.Call = model.ToolCall{Name: toolcatalog.ToolNameStorageList, Input: raw}
 		result, err := runStorageList(ctx, local)
 		if err != nil {
@@ -71,20 +70,26 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 		if len(parts) != 1 {
 			t.Fatalf("unexpected tool result: %+v", parts)
 		}
+		if parts[0].Value.HasMore != (parts[0].Value.NextOffset != nil) {
+			t.Fatalf("next_offset must be present exactly when has_more: %+v", parts[0].Value)
+		}
 		return parts[0].Value, nil
 	}
 	for _, pattern := range []string{"/artifacts", "/memory", "/artifacts/*", "/artifacts/tool-result", "/memory/**"} {
-		baseline, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 100, listing.Cursor{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		expected := append([]listing.FileEntry{}, baseline.Entries...)
-		for baseline.Next.Set {
-			baseline, err = fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 100, baseline.Next)
+		var expected []listing.FileEntry
+		for offset := 0; ; {
+			baseline, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, offset, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
 			expected = append(expected, baseline.Entries...)
+			if !baseline.HasMore {
+				break
+			}
+			if len(baseline.Entries) == 0 {
+				t.Fatal("store pagination did not advance")
+			}
+			offset += len(baseline.Entries)
 		}
 		if pattern == "/artifacts/tool-result" && len(expected) != 101 {
 			t.Fatalf("lost duplicate filenames: %d", len(expected))
@@ -100,86 +105,100 @@ SELECT $1, 'text/plain', 'tool-result', statement_timestamp() FROM generate_seri
 				if pages > len(expected)+1 {
 					t.Fatal("pagination failed to finish")
 				}
-				result, err := read(request, call.Turn)
+				result, err := read(request)
 				if err != nil {
 					t.Fatal(err)
 				}
+				if len(result.Entries) > limit {
+					t.Fatalf("%s limit %d: page returned %d entries", pattern, limit, len(result.Entries))
+				}
 				got = append(got, result.Entries...)
-				if result.Next == nil {
+				if !result.HasMore {
 					break
 				}
-				if len(result.Entries) == 0 || *result.Next == request.Cursor {
-					t.Fatal("cursor did not advance")
+				if len(result.Entries) == 0 || *result.NextOffset != request.Offset+len(result.Entries) {
+					t.Fatalf("offset did not advance: request=%d entries=%d next=%d",
+						request.Offset, len(result.Entries), *result.NextOffset)
 				}
-				request.Cursor = *result.Next
+				request.Offset = *result.NextOffset
 			}
 			if !slices.EqualFunc(got, expected, func(a, b listing.FileEntry) bool { return a.Path == b.Path }) {
 				t.Fatalf("%s limit %d: got %d entries, want %d", pattern, limit, len(got), len(expected))
 			}
+			// has_more is exact: a page that ends on the last entry reports no more.
+			if len(expected) > 0 && len(expected)%limit == 0 {
+				last, err := read(storageListRequest{Pattern: pattern, Limit: limit, Offset: len(expected) - limit})
+				if err != nil || len(last.Entries) != limit || last.HasMore {
+					t.Fatalf("%s limit %d: exact final page %+v, %v", pattern, limit, last, err)
+				}
+			}
+		}
+		for _, offset := range []int{len(expected), len(expected) + 5, toolcatalog.StorageListMaxOffset} {
+			past, err := read(storageListRequest{Pattern: pattern, Offset: offset})
+			if err != nil || len(past.Entries) != 0 || past.HasMore {
+				t.Fatalf("%s offset %d past the end: %+v, %v", pattern, offset, past, err)
+			}
 		}
 	}
 	for _, pattern := range []string{"/*", "/**/review-note.txt", "/mem*/*", "/unknown/*"} {
-		_, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 100, listing.Cursor{})
+		_, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, pattern, 0, 100)
 		if !errors.Is(err, storeerr.ErrInvalidRequest) || !strings.Contains(err.Error(), "/memory or /artifacts") {
 			t.Fatalf("invalid root %s: %v", pattern, err)
 		}
 	}
-	first, err := read(storageListRequest{Pattern: "/artifacts/*", Limit: 1}, call.Turn)
-	if err != nil || first.Next == nil {
-		t.Fatalf("first page: %+v, %v", first, err)
-	}
-	request := storageListRequest{Pattern: "/artifacts/*", Limit: 100, Cursor: *first.Next}
-	for _, dimension := range []string{"pattern", "agent", "project"} {
-		changed, turn := request, call.Turn
-		switch dimension {
-		case "pattern":
-			changed.Pattern = "/memory/**"
-		case "agent":
-			turn.AgentID = uuid.New()
-		case "project":
-			turn.ProjectID = uuid.New()
+	for _, offset := range []int{-1, toolcatalog.StorageListMaxOffset + 1} {
+		_, err := fixture.Store.ListFiles(ctx, toolsTestProjectID, fixture.Agent.ID, "/artifacts/*", offset, 100)
+		if !errors.Is(err, storeerr.ErrInvalidRequest) || !strings.Contains(err.Error(), "offset must be between") {
+			t.Fatalf("invalid offset %d: %v", offset, err)
 		}
-		if _, err := read(changed, turn); !errors.Is(err, errInvalidFileListCursor) {
-			t.Fatalf("cursor accepted another %s: %v", dimension, err)
+		if _, err := read(storageListRequest{Pattern: "/artifacts/*", Offset: offset}); err == nil {
+			t.Fatalf("tool accepted offset %d", offset)
 		}
 	}
-	cursor, err := decodeFileListCursor(*first.Next)
+	first, err := read(storageListRequest{Pattern: "/artifacts/*", Limit: 100})
+	if err != nil || len(first.Entries) != 100 || !first.HasMore || *first.NextOffset != 100 {
+		t.Fatalf("first page: %d entries, has_more=%t, %v", len(first.Entries), first.HasMore, err)
+	}
+	exact, err := read(storageListRequest{Pattern: "/artifacts/*", Offset: 1, Limit: 100})
+	if err != nil || len(exact.Entries) != 100 || exact.HasMore {
+		t.Fatalf("exact final page: %d entries, has_more=%t, %v", len(exact.Entries), exact.HasMore, err)
+	}
+	single, err := read(storageListRequest{Pattern: first.Entries[0].Path})
+	if err != nil || len(single.Entries) != 1 || single.Entries[0].Path != first.Entries[0].Path || single.HasMore {
+		t.Fatalf("exact artifact listing: %+v, %v", single, err)
+	}
+	if single, err = read(storageListRequest{Pattern: first.Entries[0].Path, Offset: 1}); err != nil ||
+		len(single.Entries) != 0 || single.HasMore {
+		t.Fatalf("exact artifact listing past its only entry: %+v, %v", single, err)
+	}
+	artifactID, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(first.Entries[0].Path, "/artifacts/"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongRoot := cursor
-	wrongRoot.Key, wrongRoot.ID = "/memory/engineering", uuid.Nil
-	payload, err := json.Marshal(wrongRoot)
-	if err != nil {
+	if _, err := fixture.Pool.Exec(ctx, "DELETE FROM artifacts WHERE id = $1", artifactID); err != nil {
 		t.Fatal(err)
 	}
-	wrongRequest := request
-	wrongRequest.Cursor = base64.RawURLEncoding.EncodeToString(payload)
-	if _, err := read(wrongRequest, call.Turn); !errors.Is(err, errInvalidFileListCursor) {
-		t.Fatalf("cursor accepted a position from another root: %v", err)
+	// Offsets index the current listing, so removing an earlier entry shifts later ones down.
+	continued, err := read(storageListRequest{Pattern: "/artifacts/*", Offset: 1, Limit: 100})
+	if err != nil || len(continued.Entries) != 99 || continued.HasMore ||
+		continued.Entries[0].Path != first.Entries[2].Path {
+		t.Fatalf("listing after deleting an earlier entry: %d entries, %v", len(continued.Entries), err)
 	}
-	if _, err := fixture.Pool.Exec(ctx, "DELETE FROM artifacts WHERE id = $1", cursor.ID); err != nil {
-		t.Fatal(err)
-	}
-	continued, err := read(request, call.Turn)
-	if err != nil || len(continued.Entries) != 100 {
-		t.Fatalf("deleted cursor anchor: %d entries, %v", len(continued.Entries), err)
-	}
-	memoryPage, err := read(storageListRequest{Pattern: "/memory/**", Limit: 1}, call.Turn)
-	if err != nil || memoryPage.Next == nil {
+	memoryPage, err := read(storageListRequest{Pattern: "/memory/**", Limit: 1})
+	if err != nil || !memoryPage.HasMore {
 		t.Fatalf("first memory page: %+v, %v", memoryPage, err)
 	}
 	if err := fixture.Store.Memories().Delete(ctx, scope, store.ID); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := read(storageListRequest{Pattern: "/memory/**", Cursor: *memoryPage.Next}, call.Turn)
-	if err != nil || len(removed.Entries) != 0 || removed.Next != nil {
+	removed, err := read(storageListRequest{Pattern: "/memory/**", Offset: *memoryPage.NextOffset})
+	if err != nil || len(removed.Entries) != 0 || removed.HasMore {
 		t.Fatalf("deleted store remained visible: %+v, %v", removed, err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, err := fixture.Store.ListFiles(
-		canceled, toolsTestProjectID, fixture.Agent.ID, "/memory/**", 1, listing.Cursor{},
+		canceled, toolsTestProjectID, fixture.Agent.ID, "/memory/**", 0, 1,
 	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled listing succeeded: %v", err)
 	}

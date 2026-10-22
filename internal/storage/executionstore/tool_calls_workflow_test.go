@@ -41,6 +41,11 @@ func TestCommandTerminalToolResultUsesCanonicalProcessID(t *testing.T) {
 			want:  `{"done":true,"process_id":"` + publicProcessID + `"}`,
 		},
 		{
+			name:  "output range",
+			input: json.RawMessage(`{"cursor":3,"done":true,"next_cursor":9}`),
+			want:  `{"done":true,"next_offset_byte":9,"offset_byte":3,"process_id":"` + publicProcessID + `"}`,
+		},
+		{
 			name:  "empty object",
 			input: json.RawMessage(`{}`),
 			want:  `{"process_id":"` + publicProcessID + `"}`,

@@ -2,6 +2,7 @@ package processresult
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,12 +31,37 @@ type Action struct {
 	ID      uuid.UUID
 	Payload json.RawMessage
 }
-type daemonProcessReadObservation struct {
-	ProcessID  string  `json:"process_id"`
-	Output     *string `json:"output"`
-	Cursor     *int64  `json:"cursor"`
-	NextCursor *int64  `json:"next_cursor"`
-	Truncated  *bool   `json:"truncated"`
+type processReadObservation struct {
+	ProcessID  string
+	Output     *string
+	Cursor     *int64
+	NextCursor *int64
+	Truncated  *bool
+}
+
+// decodeReadObservation accepts the daemon's cursor fields and the published
+// byte offsets, because process action completion re-reads results that were
+// already canonicalized.
+func decodeReadObservation(raw json.RawMessage) (processReadObservation, error) {
+	var body struct {
+		ProcessID      string  `json:"process_id"`
+		Output         *string `json:"output"`
+		Cursor         *int64  `json:"cursor"`
+		NextCursor     *int64  `json:"next_cursor"`
+		OffsetByte     *int64  `json:"offset_byte"`
+		NextOffsetByte *int64  `json:"next_offset_byte"`
+		Truncated      *bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return processReadObservation{}, err
+	}
+	return processReadObservation{
+		ProcessID:  body.ProcessID,
+		Output:     body.Output,
+		Cursor:     cmp.Or(body.Cursor, body.OffsetByte),
+		NextCursor: cmp.Or(body.NextCursor, body.NextOffsetByte),
+		Truncated:  body.Truncated,
+	}, nil
 }
 
 func TerminalState(state string) bool {
@@ -57,8 +83,8 @@ func Read(
 		return nil, nil, fmt.Errorf("decode read request: %w", err)
 	}
 
-	var observed daemonProcessReadObservation
-	if err := json.Unmarshal(raw, &observed); err != nil {
+	observed, err := decodeReadObservation(raw)
+	if err != nil {
 		return nil, nil, fmt.Errorf("decode read observation: %w", err)
 	}
 	if observed.Output == nil ||
@@ -95,13 +121,13 @@ func Read(
 	}
 
 	result := map[string]any{
-		"process_id":  publicProcessID,
-		"state":       process.State,
-		"output":      *observed.Output,
-		"cursor":      *observed.Cursor,
-		"next_cursor": *observed.NextCursor,
-		"truncated":   *observed.Truncated,
-		"done":        TerminalState(process.State),
+		"process_id":       publicProcessID,
+		"state":            process.State,
+		"output":           *observed.Output,
+		"offset_byte":      *observed.Cursor,
+		"next_offset_byte": *observed.NextCursor,
+		"truncated":        *observed.Truncated,
+		"done":             TerminalState(process.State),
 	}
 	if process.SourceStartedAt != nil {
 		result["started_at"] = *process.SourceStartedAt
@@ -199,6 +225,7 @@ func Started(process Process, observed json.RawMessage) (json.RawMessage, error)
 		if err := json.Unmarshal(observed, &observedObject); err != nil {
 			return nil, fmt.Errorf("decode process started result: %w", err)
 		}
+		PublicOutputRange(observedObject)
 		for key, value := range observedObject {
 			result[key] = value
 		}
@@ -240,13 +267,12 @@ func ReadMatches(
 	raw json.RawMessage,
 	result json.RawMessage,
 ) (bool, error) {
-	var observed daemonProcessReadObservation
-	ok := json.Unmarshal(raw, &observed) == nil
-	if !ok {
-		return false, nil
+	observed, err := decodeReadObservation(raw)
+	if err != nil {
+		return false, nil //nolint:nilerr // An undecodable observation differs from the committed result.
 	}
-	var committed daemonProcessReadObservation
-	if err := json.Unmarshal(result, &committed); err != nil {
+	committed, err := decodeReadObservation(result)
+	if err != nil {
 		return false, fmt.Errorf("decode committed read result: %w", err)
 	}
 	if observed.Output == nil || committed.Output == nil ||
@@ -302,6 +328,20 @@ func ObservationNextCursor(
 		)
 	}
 	return *observed.NextCursor, true, nil
+}
+
+// PublicOutputRange renames the daemon's output cursor fields to the byte
+// offsets that process tool results expose.
+func PublicOutputRange(body map[string]any) {
+	for wire, public := range map[string]string{
+		"cursor":      "offset_byte",
+		"next_cursor": "next_offset_byte",
+	} {
+		if value, ok := body[wire]; ok {
+			delete(body, wire)
+			body[public] = value
+		}
+	}
 }
 
 func NormalizeObservation(raw json.RawMessage) json.RawMessage {
