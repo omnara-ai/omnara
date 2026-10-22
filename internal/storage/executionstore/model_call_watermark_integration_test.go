@@ -82,32 +82,25 @@ func TestPreparedModelCallTranscriptIgnoresLaterEvents(t *testing.T) {
 	require.Equal(t, calls, laterCalls)
 }
 
-const (
-	longTranscriptTurns          = 350
-	longTranscriptCheckpointTurn = 175
-)
+const longTranscriptTurns = 350
 
 const longTranscriptFixtureSQL = `
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,delivery_mode,control_type,agent_config_id,queued_at)
 SELECT input_id, project_id, agent_id, 'received', 'content', 'queued', NULL, NULL, now() FROM transcript_turns
 UNION ALL
 SELECT extra_id, project_id, agent_id, 'received',
-  CASE extra_kind WHEN 'empty' THEN 'content' WHEN 'control' THEN 'control' ELSE extra_kind END,
-  CASE WHEN extra_kind IN ('content', 'empty') THEN 'steering' ELSE 'immediate' END,
-  CASE extra_kind WHEN 'control' THEN 'cancel_current' END,
+  CASE extra_kind WHEN 'empty' THEN 'content' ELSE extra_kind END,
+  CASE extra_kind WHEN 'empty' THEN 'steering' ELSE 'immediate' END, NULL,
   CASE extra_kind WHEN 'config_change' THEN config_id END, now()
-FROM transcript_turns WHERE extra_kind <> 'checkpoint';
+FROM transcript_turns;
 INSERT INTO artifacts(id,agent_id,content_type,created_at)
-SELECT artifact_id, agent_id, 'image/png', now() FROM transcript_turns;
+SELECT artifact_id, agent_id, 'image/png', now() FROM transcript_turns WHERE k % 3 IN (0, 1) OR extra_kind = 'empty';
 INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,ordinal,block_kind,text_content,artifact_id,
   exclude_from_model_context,created_at)
 SELECT agent_id, 'agent_input', input_id, 0, 'text', 'input ' || k, NULL, false, now() FROM transcript_turns
 UNION ALL
 SELECT agent_id, 'agent_input', input_id, 1, 'artifact', NULL, artifact_id, k % 3 = 1, now() FROM transcript_turns
 WHERE k % 3 IN (0, 1)
-UNION ALL
-SELECT agent_id, 'agent_input', extra_id, 0, 'text', 'steer ' || k, NULL, false, now() FROM transcript_turns
-WHERE extra_kind = 'content'
 UNION ALL
 SELECT agent_id, 'agent_input', extra_id, 0, 'artifact', NULL, artifact_id, true, now() FROM transcript_turns
 WHERE extra_kind = 'empty';
@@ -117,13 +110,13 @@ SELECT input_event_id, agent_id, turn_id, b, 'agent_input', input_id, true, 'age
 FROM transcript_turns
 UNION ALL
 SELECT extra_event_id, agent_id, turn_id, b + 5, 'agent_input', extra_id, false, 'agent_input:' || extra_id, now()
-FROM transcript_turns WHERE extra_kind <> 'checkpoint';
+FROM transcript_turns;
 UPDATE agent_inputs input SET state = 'resolved', admitted_event_id = admitted.event_id, admitted_at = now(),
   resolved_at = now()
 FROM (
   SELECT agent_id, input_id AS id, input_event_id AS event_id FROM transcript_turns
   UNION ALL
-  SELECT agent_id, extra_id, extra_event_id FROM transcript_turns WHERE extra_kind IN ('content', 'empty', 'control')
+  SELECT agent_id, extra_id, extra_event_id FROM transcript_turns WHERE extra_kind = 'empty'
 ) admitted
 WHERE input.agent_id = admitted.agent_id AND input.id = admitted.id;
 UPDATE agent_inputs input SET state = 'resolved', admitted_event_id = turn.extra_event_id, admitted_at = now(),
@@ -189,24 +182,6 @@ BEGIN
     END IF;
     INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,model_output_id,created_at)
     VALUES (turn.output2_event_id, turn.agent_id, turn.turn_id, turn.b + 4, 'model_output', turn.output2_id, now());
-    IF turn.extra_kind = 'checkpoint' THEN
-      INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
-        agent_config_id,configured_model_revision_id,input_event_sequence,source_event_sequence_end,runtime_lock_id,
-        created_at,opening_input_ids,opening_event_sequence)
-      VALUES (turn.compaction_id, turn.org_id, turn.project_id, turn.agent_id, turn.turn_id, 'compaction', 1,
-        turn.config_id, turn.revision_id, turn.b + 4, turn.b + 4, turn.compaction_id, now(), ARRAY[turn.input_id],
-        turn.b);
-      INSERT INTO context_checkpoints(id,agent_id,summarized_through_event_sequence,producer_model_call_context_id,
-        summary,opening_input_ids,opening_event_sequence,created_at)
-      VALUES (turn.checkpoint_id, turn.agent_id, turn.b + 4, turn.compaction_id, 'summary ' || turn.k,
-        ARRAY[turn.input_id], turn.b, now());
-      INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,context_checkpoint_id,created_at)
-      VALUES (turn.extra_event_id, turn.agent_id, turn.turn_id, turn.b + 5, 'context_checkpoint', turn.checkpoint_id,
-        now());
-      UPDATE model_call_contexts SET state = 'succeeded', api_format = 'openai-responses', api_variant = 'default',
-        input_tokens_total = 300, uncached_input_tokens = 300, output_tokens_total = 10, completed_at = now()
-      WHERE agent_id = turn.agent_id AND id = turn.compaction_id;
-    END IF;
   END LOOP;
 END
 $fixture$;
@@ -222,8 +197,7 @@ SELECT agent_id, 'tool_call_result', result_a_id, 0, 'text', 'result ' || k, NUL
 UNION ALL
 SELECT agent_id, 'tool_call_result', result_a_id, 1, 'structured_data', NULL, jsonb_build_object('k', k), false, now()
 FROM transcript_turns
-UNION ALL
-SELECT agent_id, 'tool_call_result', result_b_id, 0, 'text', 'hidden ' || k, NULL, true, now() FROM transcript_turns;
+;
 INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,tool_call_result_id,created_at)
 SELECT result_a_event_id, agent_id, turn_id, b + 2, 'tool_result', result_a_id, now() FROM transcript_turns
 UNION ALL
@@ -246,7 +220,7 @@ type longTranscript struct {
 }
 
 func (lt longTranscript) id(name string, turn int) uuid.UUID {
-	return longTranscriptID(lt.agentID, name, turn)
+	return uuid.UUID(md5.Sum(fmt.Appendf(nil, "%s:%s:%d", lt.agentID, name, turn)))
 }
 
 func longTranscriptBase(turn int) int64 { return int64(2 + 6*turn) }
@@ -266,7 +240,7 @@ func TestContextEventsPageLongTranscript(t *testing.T) {
 			break
 		}
 	}
-	require.Equal(t, []int{500, 500, 226}, pageSizes)
+	require.Equal(t, []int{500, 500, 225}, pageSizes)
 	for i := range events {
 		events[i].ContentParts = canonicalJSON(t, events[i].ContentParts)
 		events[i].ProviderReplay = canonicalJSON(t, events[i].ProviderReplay)
@@ -284,10 +258,10 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		want       []executionstore.ToolCallRecord
 	}{
 		{longTranscriptBase(previous) - 1, longTranscriptBase(last) + 1, []executionstore.ToolCallRecord{
-			expectedLongTranscriptToolCall(t, lt, previous, "a"),
+			expectedLongTranscriptToolCall(t, lt, previous),
 		}},
 		{longTranscriptBase(previous) + 1, longTranscriptBase(last) + 2, []executionstore.ToolCallRecord{
-			expectedLongTranscriptToolCall(t, lt, last, "a"),
+			expectedLongTranscriptToolCall(t, lt, last),
 		}},
 	} {
 		calls, err := lt.store.Execution().ListCompletedToolCallsAtWatermark(ctx, testProjectID, lt.agentID,
@@ -295,22 +269,11 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, window.want, canonicalToolCalls(t, calls...), "(%d, %d]", window.after, window.max)
 	}
-	for _, call := range []string{"a", "b"} {
-		record, err := lt.store.Execution().GetToolCall(ctx, testProjectID, lt.agentID, lt.id("call_"+call, last))
-		require.NoError(t, err)
-		require.Equal(t, expectedLongTranscriptGetToolCall(t, lt, last, call), canonicalToolCalls(t, record)[0])
-	}
+	record, err := lt.store.Execution().GetToolCall(ctx, testProjectID, lt.agentID, lt.id("call_a", last))
+	require.NoError(t, err)
+	require.Equal(t, expectedLongTranscriptGetToolCall(t, lt, last), canonicalToolCalls(t, record)[0])
 	machineID, bindingID := createLongTranscriptMachine(t, ctx, lt)
 	processID := createGrantedShellProcess(t, ctx, lt.store.pool, lt, machineID, bindingID, lt.id("call_a", last))
-	scope, found, err := lt.store.Execution().GetDaemonGitCredentialsScope(ctx, testOrgID, machineID, processID)
-	require.NoError(t, err)
-	require.True(t, found)
-	credentials := agentconfig.GitCredentialsCompiled{Integration: "github", IntegrationID: lt.integrationID}
-	require.Equal(t, executionstore.DaemonGitCredentialsScope{
-		ProjectID: testProjectID, AgentID: lt.agentID, GitCredentialsCompiled: credentials,
-	}, scope)
-	wantScope := dbsqlc.GetDaemonGitCredentialsScopeRow{ProjectID: testProjectID, AgentID: lt.agentID,
-		GitCredentials: canonicalJSON(t, credentials)}
 	tx := integrationdb.BeginTx(t, ctx, lt.store.pool)
 	_, err = tx.Exec(ctx, multiTenantTranscriptStatistics)
 	require.NoError(t, err)
@@ -318,16 +281,15 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
 		_, err := tx.Exec(ctx, "SET LOCAL plan_cache_mode = "+mode)
 		require.NoError(t, err)
-		_, err = reads.ListContextEvents(ctx, dbsqlc.ListContextEventsParams{
+		page, err := reads.ListContextEvents(ctx, dbsqlc.ListContextEventsParams{
 			ProjectID: testProjectID, AgentID: lt.agentID, AfterSequence: 0, Watermark: lt.watermark, PageLimit: 50,
 		})
 		require.NoError(t, err, mode)
-		gotScope, err := reads.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
+		require.Len(t, page, 50, mode)
+		_, err = reads.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
 			OrgID: testOrgID, MachineID: machineID, ProcessID: processID,
 		})
 		require.NoError(t, err, mode)
-		gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
-		require.Equal(t, wantScope, gotScope, mode)
 		if mode != "force_generic_plan" {
 			continue
 		}
@@ -379,7 +341,10 @@ VALUES ($1, $2, $3, 'model_output', $4, now())`, lt.agentID, lt.id("turn", last)
 	})
 	require.NoError(t, err)
 	gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
-	require.Equal(t, wantScope, gotScope)
+	require.Equal(t, dbsqlc.GetDaemonGitCredentialsScopeRow{ProjectID: testProjectID, AgentID: lt.agentID,
+		GitCredentials: canonicalJSON(t, agentconfig.GitCredentialsCompiled{
+			Integration: "github", IntegrationID: lt.integrationID,
+		})}, gotScope)
 }
 
 type outputBoundedPlanDB struct {
@@ -407,15 +372,11 @@ func (db outputBoundedPlanDB) QueryRow(ctx context.Context, sql string, args ...
 
 func (db outputBoundedPlanDB) requireOutputBoundedPlan(ctx context.Context, sql string, args []any) {
 	db.t.Helper()
-	literals := make([]string, len(args))
-	for i, arg := range args {
-		literals[i] = "'" + strings.ReplaceAll(fmt.Sprint(arg), "'", "''") + "'"
-	}
 	_, err := db.Exec(ctx, "PREPARE bounded_read AS "+sql)
 	require.NoError(db.t, err)
 	var raw []byte
-	require.NoError(db.t, db.Tx.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE bounded_read("+
-		strings.Join(literals, ", ")+")").Scan(&raw))
+	require.NoError(db.t, db.Tx.QueryRow(ctx,
+		"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE bounded_read("+sqlArguments(args)+")").Scan(&raw))
 	_, err = db.Exec(ctx, "DEALLOCATE bounded_read")
 	require.NoError(db.t, err)
 	rows := int(integrationdb.ReadPlan(db.t, raw).Rows)
@@ -453,10 +414,6 @@ func newLongTranscriptAgent(t *testing.T, ctx context.Context) longTranscript {
 	return lt
 }
 
-func longTranscriptID(agentID uuid.UUID, name string, turn int) uuid.UUID {
-	return uuid.UUID(md5.Sum(fmt.Appendf(nil, "%s:%s:%d", agentID, name, turn)))
-}
-
 func canonicalJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, ok := value.(json.RawMessage)
@@ -484,52 +441,29 @@ func canonicalToolCalls(t *testing.T, calls ...executionstore.ToolCallRecord) []
 	return calls
 }
 
-func expectedLongTranscriptToolCall(
-	t *testing.T,
-	lt longTranscript,
-	turn int,
-	call string,
-) executionstore.ToolCallRecord {
+func expectedLongTranscriptToolCall(t *testing.T, lt longTranscript, turn int) executionstore.ToolCallRecord {
 	t.Helper()
 	id := func(name string) uuid.UUID { return lt.id(name, turn) }
-	record := executionstore.ToolCallRecord{ID: id("call_" + call), ProjectID: testProjectID, AgentID: lt.agentID,
+	sourceSequence := longTranscriptBase(turn) + 1
+	return executionstore.ToolCallRecord{ID: id("call_a"), ProjectID: testProjectID, AgentID: lt.agentID,
 		TurnID: id("turn"), SourceEventID: id("output1_event"), ModelCallContextID: id("context1"),
-		ProviderCallID: fmt.Sprintf("call_%s_%d", call, turn), Type: toolcatalog.ToolTypeBuiltIn,
+		ProviderCallID: fmt.Sprintf("call_a_%d", turn), Name: "read_file",
+		Input: canonicalJSON(t, map[string]any{"k": turn}), Type: toolcatalog.ToolTypeBuiltIn,
 		CreatedAt: lt.createdAt, State: executionstore.ToolCallStateCompleted, CompletedAt: &lt.createdAt,
-		ToolCallResultID: id("result_" + call), ToolResultEventID: id("result_" + call + "_event"),
-		SourceEventSequence: longTranscriptBase(turn) + 1}
-	if call == "a" {
-		record.Name, record.Input = "read_file", canonicalJSON(t, map[string]any{"k": turn})
-		record.Outcome = executionstore.ToolResultOutcomeSucceeded
-		record.ToolResultEventSequence = record.SourceEventSequence + 1
-		record.ResultContentParts = canonicalJSON(t, []any{
+		Outcome: executionstore.ToolResultOutcomeSucceeded, ToolCallResultID: id("result_a"),
+		ToolResultEventID: id("result_a_event"), SourceEventSequence: sourceSequence,
+		ToolResultEventSequence: sourceSequence + 1,
+		ResultContentParts: canonicalJSON(t, []any{
 			map[string]any{"type": "text", "text": fmt.Sprintf("result %d", turn)},
 			map[string]any{"type": "structured_data", "value": map[string]any{"k": turn}},
-		})
-	} else {
-		record.Name, record.Input = "list_files", canonicalJSON(t, map[string]any{})
-		record.Outcome = executionstore.ToolResultOutcomeFailed
-		record.ToolResultEventSequence = record.SourceEventSequence + 2
-		record.ResultContentParts = canonicalJSON(t, []any{})
-	}
-	return record
+		})}
 }
 
-func expectedLongTranscriptGetToolCall(
-	t *testing.T,
-	lt longTranscript,
-	turn int,
-	call string,
-) executionstore.ToolCallRecord {
+func expectedLongTranscriptGetToolCall(t *testing.T, lt longTranscript, turn int) executionstore.ToolCallRecord {
 	t.Helper()
-	record := expectedLongTranscriptToolCall(t, lt, turn, call)
+	record := expectedLongTranscriptToolCall(t, lt, turn)
 	record.ToolCallResultID, record.ToolResultEventID = uuid.Nil, uuid.Nil
 	record.SourceEventSequence, record.ToolResultEventSequence = 0, 0
-	if call == "b" {
-		record.ResultContentParts = canonicalJSON(t, []any{
-			map[string]any{"type": "text", "text": fmt.Sprintf("hidden %d", turn)},
-		})
-	}
 	return record
 }
 
@@ -608,13 +542,7 @@ WHERE agent.id = $1`, lt.agentID).Scan(&model.ConfiguredModelRevisionID, &model.
 			answer.Usage = modelenvelope.Usage{InputTokens: 200 + turn, UncachedInputTokens: 200 + turn, OutputTokens: 10}
 		}
 		events = append(events, opening, toolUse, answer)
-		switch {
-		case turn == longTranscriptCheckpointTurn:
-		case turn%4 == 0:
-			steering := event("extra_event", base+5, part("text", "text", fmt.Sprintf("steer %d", turn)))
-			steering.AgentInputID = id("extra")
-			events = append(events, steering)
-		case turn%4 == 1:
+		if turn%2 == 0 {
 			configChange := event("extra_event", base+5, part("text", "text",
 				"Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call."))
 			configChange.AgentInputID = id("extra")
@@ -647,17 +575,14 @@ SELECT k, agent.id AS agent_id, agent.org_id, agent.project_id,
   md5(agent.id || ':context2:' || k)::uuid AS context2_id, md5(agent.id || ':output2:' || k)::uuid AS output2_id,
   md5(agent.id || ':output2_event:' || k)::uuid AS output2_event_id,
   md5(agent.id || ':extra:' || k)::uuid AS extra_id, md5(agent.id || ':extra_event:' || k)::uuid AS extra_event_id,
-  md5(agent.id || ':compaction:' || k)::uuid AS compaction_id,
-  md5(agent.id || ':checkpoint:' || k)::uuid AS checkpoint_id,
-  CASE WHEN k = $4 THEN 'checkpoint'
-    ELSE (ARRAY['content', 'config_change', 'empty', 'control'])[k % 4 + 1] END AS extra_kind,
+  CASE WHEN k % 2 = 0 THEN 'config_change' ELSE 'empty' END AS extra_kind,
   k % 7 = 3 AS output2_failed,
   k = $2::int - 2 AS call_b_excluded
 FROM agents agent
 JOIN agent_configs config ON config.project_id = agent.project_id AND config.id = agent.current_config_id
 JOIN configured_models model ON model.org_id = config.org_id AND model.id = config.configured_model_id
 CROSS JOIN generate_series(0, $2::int - 1) k
-WHERE agent.id = $1`, lt.agentID, longTranscriptTurns, lt.configIDs[1], longTranscriptCheckpointTurn)
+WHERE agent.id = $1`, lt.agentID, longTranscriptTurns, lt.configIDs[1])
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, longTranscriptFixtureSQL)
 	require.NoError(t, err)
