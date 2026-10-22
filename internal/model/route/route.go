@@ -324,27 +324,32 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	if err != nil {
 		return model.PreparedRequest{}, SetupError{Err: err}
 	}
-	body, err := c.Protocol.BuildRequest(ctx, input)
+	var body json.RawMessage
+	streamMediaType := ""
+	if direct, ok := c.Protocol.(interface {
+		StreamProtocol
+		BuildStreamingRequest(context.Context, model.PrepareInput) (json.RawMessage, error)
+	}); ok {
+		body, err = direct.BuildStreamingRequest(ctx, input)
+		streamMediaType = direct.StreamAccept()
+	} else {
+		body, err = c.Protocol.BuildRequest(ctx, input)
+		if err == nil && !json.Valid(body) {
+			err = errors.New("model protocol built an invalid JSON request")
+		}
+		if streamProtocol, ok := c.Protocol.(StreamProtocol); ok && err == nil {
+			body, err = streamProtocol.BuildStreamRequest(body)
+			if err == nil && !json.Valid(body) {
+				err = errors.New("model protocol built an invalid JSON stream request")
+			}
+			streamMediaType = streamProtocol.StreamAccept()
+		}
+	}
 	if err != nil {
 		return model.PreparedRequest{}, SetupError{Err: err}
 	}
-	if !json.Valid(body) {
-		return model.PreparedRequest{}, SetupError{Err: errors.New("model protocol built an invalid JSON request")}
-	}
-	streamMediaType := ""
-	if streamProtocol, ok := c.Protocol.(StreamProtocol); ok {
-		streamBody, streamErr := streamProtocol.BuildStreamRequest(body)
-		if streamErr != nil {
-			return model.PreparedRequest{}, SetupError{Err: streamErr}
-		}
-		if !json.Valid(streamBody) {
-			return model.PreparedRequest{}, SetupError{Err: errors.New("model protocol built an invalid JSON stream request")}
-		}
-		body = streamBody
-		streamMediaType = streamProtocol.StreamAccept()
-		if strings.TrimSpace(streamMediaType) == "" {
-			return model.PreparedRequest{}, SetupError{Err: errors.New("model stream media type is required")}
-		}
+	if _, ok := c.Protocol.(StreamProtocol); ok && strings.TrimSpace(streamMediaType) == "" {
+		return model.PreparedRequest{}, SetupError{Err: errors.New("model stream media type is required")}
 	}
 	if err := c.Transport.validateRequest(ctx, endpoint, body, c.Auth, streamMediaType); err != nil {
 		return model.PreparedRequest{}, err

@@ -14,6 +14,14 @@ import (
 )
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, false)
+}
+
+func (p protocol) BuildStreamingRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, true)
+}
+
+func (p protocol) buildRequest(ctx context.Context, input model.PrepareInput, stream bool) (json.RawMessage, error) {
 	_ = ctx
 	c := p.client
 	if c.ProviderModelSlug == "" {
@@ -38,6 +46,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		return nil, err
 	}
 	payload := responsesRequest{
+		Stream:       stream,
 		Model:        c.ProviderModelSlug,
 		Instructions: modelcontext.ProjectedSystemPrompt(input.Context),
 		Input:        requestInput,

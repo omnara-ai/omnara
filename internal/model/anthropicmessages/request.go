@@ -23,6 +23,14 @@ import (
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, false)
+}
+
+func (p protocol) BuildStreamingRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, true)
+}
+
+func (p protocol) buildRequest(ctx context.Context, input model.PrepareInput, stream bool) (json.RawMessage, error) {
 	_ = ctx
 	c := p.client
 	providerModelSlug := c.RequestedProviderModelSlug()
@@ -62,6 +70,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		return nil, err
 	}
 	payload := messagesRequest{
+		Stream:    stream,
 		Model:     providerModelSlug,
 		MaxTokens: maxTokens,
 		System:    systemContent(input.Context, control),

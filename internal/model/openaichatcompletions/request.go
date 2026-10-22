@@ -17,6 +17,14 @@ import (
 )
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, false)
+}
+
+func (p protocol) BuildStreamingRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+	return p.buildRequest(ctx, input, true)
+}
+
+func (p protocol) buildRequest(ctx context.Context, input model.PrepareInput, stream bool) (json.RawMessage, error) {
 	_ = ctx
 	c := p.client
 	providerModelSlug := c.RequestedProviderModelSlug()
@@ -43,6 +51,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	compat := c.compat()
 	payload := chatCompletionsRequest{
+		Stream:   stream,
 		Model:    providerModelSlug,
 		Messages: messages,
 		Tools:    buildTools(input.Context.ToolSpecs, compat),
@@ -71,10 +80,19 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		plan.ConversationKey = ""
 	}
 	applyPromptCachePlan(&payload, plan, compat)
+	ownedFields := chatCompletionsOwnedFields(reasoningOwned)
+	if stream && compat.usageViaStreamOptions {
+		var options map[string]json.RawMessage
+		if len(c.APIVariantOptions) > 0 {
+			_ = json.Unmarshal(c.APIVariantOptions, &options)
+		}
+		payload.StreamOptions = streamOptionsWithUsage(options["stream_options"])
+		ownedFields = append(ownedFields, "stream_options")
+	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
-		chatCompletionsOwnedFields(reasoningOwned)...,
+		ownedFields...,
 	)
 }
 
@@ -113,6 +131,7 @@ func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) err
 }
 
 type chatCompletionsRequest struct {
+	StreamOptions       json.RawMessage      `json:"stream_options,omitempty"`
 	Model               string               `json:"model"`
 	Stream              bool                 `json:"stream"`
 	Messages            []chatMessage        `json:"messages"`
