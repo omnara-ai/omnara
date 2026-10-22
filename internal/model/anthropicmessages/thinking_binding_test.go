@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -93,20 +94,39 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyOnFirstPartyAnthropic(t *testin
 }
 
 func TestThinkingBindingBetaHeaderOnlyOnFirstPartyAnthropic(t *testing.T) {
+	operatorBetas := route.Headers{"Anthropic-Beta": "context-1m-2025-08-07, interleaved-thinking-2025-05-14"}
 	for _, tc := range []struct {
 		name     string
 		client   Client
 		wantBeta string
 	}{
 		{name: "default base URL", wantBeta: thinkingBindingControlsBeta},
+		{
+			name:     "keeps operator betas",
+			client:   Client{Auth: operatorBetas},
+			wantBeta: "context-1m-2025-08-07,interleaved-thinking-2025-05-14," + thinkingBindingControlsBeta,
+		},
+		{
+			name: "operator already sends the beta",
+			client: Client{Auth: route.Headers{
+				"Anthropic-Beta": thinkingBindingControlsBeta + ",context-1m-2025-08-07",
+			}},
+			wantBeta: thinkingBindingControlsBeta + ",context-1m-2025-08-07",
+		},
 		{name: "anthropic-compatible base URL", client: Client{BaseURL: "https://api.minimax.io/anthropic"}},
-		{name: "openrouter", client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}},
+		{
+			name:     "openrouter keeps operator betas untouched",
+			client:   Client{APIVariant: modelprotocol.APIVariantOpenRouter, Auth: operatorBetas},
+			wantBeta: "context-1m-2025-08-07, interleaved-thinking-2025-05-14",
+		},
 		{name: "bedrock", client: Client{APIVariant: modelprotocol.APIVariantBedrock}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example.test", nil)
 			require.NoError(t, err)
-			require.NoError(t, tc.client.versionHeaders().Apply(req))
+			auth := tc.client.routeClient().Auth
+			require.NoError(t, auth.Apply(req))
+			require.NoError(t, auth.Apply(req), "auth may apply again before sending")
 			require.Equal(t, APIVersion, req.Header.Get("Anthropic-Version"))
 			require.Equal(t, tc.wantBeta, req.Header.Get("Anthropic-Beta"))
 		})
