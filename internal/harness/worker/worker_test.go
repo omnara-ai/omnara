@@ -3,12 +3,15 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -521,7 +524,7 @@ func TestClaimLoopDoesNotClaimAfterCancellation(t *testing.T) {
 	cancel()
 	for range 200 {
 		var executions sync.WaitGroup
-		worker.claimLoop(ctx, make(chan struct{}, 1), &executions)
+		worker.claimLoop(ctx, context.Background(), make(chan struct{}, 1), &executions)
 		executions.Wait()
 	}
 	if got := claims.Load(); got != 0 {
@@ -839,7 +842,7 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 
 func runClaimLoop(ctx context.Context, worker *Worker) {
 	var executions sync.WaitGroup
-	worker.claimLoop(ctx, make(chan struct{}, worker.capacity), &executions)
+	worker.claimLoop(ctx, ctx, make(chan struct{}, worker.capacity), &executions)
 	executions.Wait()
 }
 
@@ -858,10 +861,14 @@ type noopSubscription struct{}
 func (noopSubscription) Unsubscribe() error { return nil }
 
 type dispatchStore struct {
-	claimDelay   time.Duration
-	activeClaims atomic.Int32
-	maxClaims    atomic.Int32
-	claims       atomic.Int32
+	claimDelay       time.Duration
+	leaseAfterCancel bool
+	activeClaims     atomic.Int32
+	maxClaims        atomic.Int32
+	claims           atomic.Int32
+	renewals         atomic.Int32
+	releaseMu        sync.Mutex
+	released         map[uuid.UUID]int
 }
 
 func (s *dispatchStore) ClaimNextAgentWork(
@@ -874,7 +881,9 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	select {
 	case <-time.After(s.claimDelay):
 	case <-ctx.Done():
-		return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+		if !s.leaseAfterCancel {
+			return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+		}
 	}
 	s.claims.Add(1)
 	return executionstore.ClaimedAgentWork{
@@ -890,15 +899,32 @@ func (s *dispatchStore) ClaimNextAgentWork(
 	}, true, nil
 }
 
-func (*dispatchStore) ReleaseAgentRuntimeLock(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+func (s *dispatchStore) ReleaseAgentRuntimeLock(_ context.Context, _, _, runtimeID uuid.UUID) error {
+	s.releaseMu.Lock()
+	defer s.releaseMu.Unlock()
+	if s.released == nil {
+		s.released = make(map[uuid.UUID]int)
+	}
+	s.released[runtimeID]++
 	return nil
 }
 
-func (*dispatchStore) RenewAgentRuntimeLock(
+func (s *dispatchStore) releaseCounts() []int {
+	s.releaseMu.Lock()
+	defer s.releaseMu.Unlock()
+	counts := make([]int, 0, len(s.released))
+	for _, count := range s.released {
+		counts = append(counts, count)
+	}
+	return counts
+}
+
+func (s *dispatchStore) RenewAgentRuntimeLock(
 	_ context.Context,
 	_, _, runtimeID uuid.UUID,
 	_ time.Duration,
 ) (executionstore.AgentRuntimeLockRenewal, error) {
+	s.renewals.Add(1)
 	return executionstore.AgentRuntimeLockRenewal{
 		RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: runtimeID},
 		LocalLeaseBudgetStartedAt: time.Now(),
@@ -950,7 +976,7 @@ func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) 
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(ctx) }()
+	go func() { runDone <- worker.Run(ctx, nil) }()
 
 	defer cancel()
 	for range capacity {
@@ -1023,4 +1049,130 @@ func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
 			}
 		})
 	}
+}
+
+type drainProbeExecutor struct {
+	modelWorkOnlyExecutor
+	calls           atomic.Int32
+	retainedRelease chan struct{}
+	activeRelease   chan struct{}
+	events          chan string
+}
+
+func newDrainProbeExecutor() *drainProbeExecutor {
+	return &drainProbeExecutor{
+		retainedRelease: make(chan struct{}),
+		activeRelease:   make(chan struct{}),
+		events:          make(chan string, 4),
+	}
+}
+
+func (e *drainProbeExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
+	if e.calls.Add(1) > 1 {
+		return e.wait(ctx, e.activeRelease, "active")
+	}
+	reservation, err := tools.ReserveAsyncExecution(ctx)
+	if err != nil {
+		return err
+	}
+	reservation.Start()
+	go func() { reservation.Done(e.wait(ctx, e.retainedRelease, "retained")) }()
+	return nil
+}
+
+func (e *drainProbeExecutor) wait(ctx context.Context, release <-chan struct{}, name string) error {
+	select {
+	case <-release:
+	case <-ctx.Done():
+	}
+	e.events <- fmt.Sprintf("%s: %v", name, ctx.Err())
+	return ctx.Err()
+}
+
+func receivedEvents(events chan string) []string {
+	var received []string
+	for len(events) > 0 {
+		received = append(received, <-events)
+	}
+	return received
+}
+
+func TestWorkerDrainFinishesActiveThenRetainedWorkBeforeReturning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const leaseDuration = time.Minute
+		store := &dispatchStore{}
+		executor := newDrainProbeExecutor()
+		worker := NewWorker(store, executor, Options{
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: leaseDuration,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
+		})
+		drain := make(chan struct{})
+		go func() { executor.events <- fmt.Sprintf("run: %v", worker.Run(t.Context(), drain)) }()
+		synctest.Wait()
+		if got := store.claims.Load(); got != 2 {
+			t.Fatalf("claims before drain = %d, want 2", got)
+		}
+
+		close(drain)
+		renewalsAtDrain := store.renewals.Load()
+		time.Sleep(leaseDuration) //nolint:omnaralint // Advance synctest's virtual clock.
+		synctest.Wait()
+		if store.renewals.Load() <= renewalsAtDrain {
+			t.Fatal("runtime leases stopped renewing during the drain")
+		}
+		close(executor.activeRelease)
+		synctest.Wait()
+		close(executor.retainedRelease)
+		synctest.Wait()
+		want := []string{"active: <nil>", "retained: <nil>", "run: <nil>"}
+		if got := receivedEvents(executor.events); !slices.Equal(got, want) {
+			t.Fatalf("drain order = %v, want %v", got, want)
+		}
+		if got := store.claims.Load(); got != 2 {
+			t.Fatalf("claims after drain = %d, want 2", got)
+		}
+		if got := store.releaseCounts(); !slices.Equal(got, []int{1, 1}) {
+			t.Fatalf("runtime release counts = %v, want each of the 2 runtimes released once", got)
+		}
+	})
+}
+
+func TestWorkerDrainInterruptsPendingClaimAndRunsItsLease(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &dispatchStore{claimDelay: time.Hour, leaseAfterCancel: true}
+		executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
+		close(executor.release)
+		worker := NewWorker(store, executor, Options{
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: time.Minute,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
+		})
+		drain := make(chan struct{})
+		runDone := make(chan error, 1)
+		go func() { runDone <- worker.Run(t.Context(), drain) }()
+		synctest.Wait()
+
+		close(drain)
+		drainStartedAt := time.Now()
+		if err := <-runDone; err != nil {
+			t.Fatalf("run error = %v, want nil after drain", err)
+		}
+		if elapsed := time.Since(drainStartedAt); elapsed != 0 {
+			t.Fatalf("worker returned %s after the drain started, want at once", elapsed)
+		}
+		if got := store.claims.Load(); got != 1 {
+			t.Fatalf("claims = %d, want the interrupted claim's lease", got)
+		}
+		if got := len(executor.started); got != 1 {
+			t.Fatalf("executions = %d, want the interrupted claim's lease to run once", got)
+		}
+		if got := store.releaseCounts(); !slices.Equal(got, []int{1}) {
+			t.Fatalf("runtime release counts = %v, want the lease released once", got)
+		}
+	})
 }

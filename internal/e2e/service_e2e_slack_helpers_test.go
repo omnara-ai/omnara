@@ -128,7 +128,7 @@ func startServiceSlackWorkers(
 		integrationruntime.IntegrationInboxWorkerOptions{Log: log, Capacity: 1})
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 2)
-	go func() { done <- kernelWorker.Run(workerCtx) }()
+	go func() { done <- kernelWorker.Run(workerCtx, nil) }()
 	go func() { done <- integrationWorker.Run(workerCtx) }()
 	t.Cleanup(func() {
 		cancel()

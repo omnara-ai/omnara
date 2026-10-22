@@ -41,6 +41,7 @@ const (
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
 const defaultMigrationTimeout = 30 * time.Minute
+const defaultWorkerDrainTimeout = 20 * time.Second
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"
@@ -73,6 +74,7 @@ type Config struct {
 	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
+	WorkerDrainTimeout                time.Duration
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
@@ -298,6 +300,7 @@ func Load() (Config, error) {
 		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
+		WorkerDrainTimeout:                defaultWorkerDrainTimeout,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
@@ -391,6 +394,13 @@ func Load() (Config, error) {
 		cfg.SkillDownloadSigningKey = base64.StdEncoding.EncodeToString(
 			[]byte("omnara-insecure-dev-skill-key!!!"),
 		)
+	}
+	if raw := os.Getenv("OMNARA_WORKER_DRAIN_TIMEOUT"); raw != "" {
+		duration, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_WORKER_DRAIN_TIMEOUT: %w", err)
+		}
+		cfg.WorkerDrainTimeout = duration
 	}
 	if raw := os.Getenv("OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL"); raw != "" {
 		duration, err := time.ParseDuration(raw)
@@ -678,6 +688,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.WorkerBackgroundToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY must be positive")
+	}
+	if cfg.WorkerDrainTimeout < 0 {
+		return fmt.Errorf("OMNARA_WORKER_DRAIN_TIMEOUT must be non-negative")
 	}
 	if !cfg.AllowInsecureDev && cfg.DatabaseURL == "" {
 		return fmt.Errorf(

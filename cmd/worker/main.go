@@ -81,10 +81,16 @@ func main() {
 	defer db.Close()
 	metricSet.MustRegister(metrics.NewDBPoolCollector(db))
 
-	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	signalCtx, cancelOnSignal := context.WithCancel(context.Background())
+	defer cancelOnSignal()
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
+	executionCtx, abortExecutions := cancelAfterDone(ctx, cfg.WorkerDrainTimeout)
+	defer abortExecutions()
+	go cancelOnSignals(signals, cancelOnSignal, abortExecutions)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -174,7 +180,7 @@ func main() {
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
-		ctx,
+		executionCtx,
 		log,
 		cfg.WorkerBackgroundToolCapacity,
 		metricSet,
@@ -253,7 +259,7 @@ func main() {
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(ctx)
+		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -405,6 +411,22 @@ func main() {
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func cancelAfterDone(parent context.Context, delay time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	stopWaiting := context.AfterFunc(parent, func() { time.AfterFunc(delay, cancel) })
+	return ctx, func() {
+		stopWaiting()
+		cancel()
+	}
+}
+
+func cancelOnSignals(signals <-chan os.Signal, cancels ...context.CancelFunc) {
+	for _, cancel := range cancels {
+		<-signals
+		cancel()
 	}
 }
 

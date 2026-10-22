@@ -45,7 +45,9 @@ type serviceProcess struct {
 
 type serviceProcessLifecycle struct {
 	stopOnce sync.Once
+	waitOnce sync.Once
 	done     chan struct{}
+	exitErr  error
 }
 
 func newServiceProcess(cmd *exec.Cmd, logs *safeLogBuffer) serviceProcess {
@@ -720,14 +722,11 @@ func (p serviceProcess) stop() {
 	}
 	p.lifecycle.stopOnce.Do(func() {
 		if p.cmd == nil || p.cmd.Process == nil {
-			close(p.lifecycle.done)
+			p.lifecycle.waitOnce.Do(func() { close(p.lifecycle.done) })
 			return
 		}
 		_ = p.cmd.Process.Signal(os.Interrupt)
-		go func() {
-			_ = p.cmd.Wait()
-			close(p.lifecycle.done)
-		}()
+		p.exited()
 	})
 	select {
 	case <-p.lifecycle.done:
@@ -735,6 +734,16 @@ func (p serviceProcess) stop() {
 		_ = p.cmd.Process.Kill()
 		<-p.lifecycle.done
 	}
+}
+
+func (p serviceProcess) exited() <-chan struct{} {
+	p.lifecycle.waitOnce.Do(func() {
+		go func() {
+			p.lifecycle.exitErr = p.cmd.Wait()
+			close(p.lifecycle.done)
+		}()
+	})
+	return p.lifecycle.done
 }
 
 func freePort(t *testing.T) string {
