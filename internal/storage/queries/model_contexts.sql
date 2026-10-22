@@ -23,9 +23,14 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
   context.provider_metadata
 FROM model_call_contexts context
-WHERE context.project_id = sqlc.arg(project_id)
-  AND context.agent_id = sqlc.arg(agent_id)
-  AND context.id = sqlc.arg(id);
+WHERE context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(id)
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = sqlc.arg(project_id)
+      AND scoped_agent.id = sqlc.arg(agent_id)
+  );
 
 -- name: GetProviderReplaySuppressionCutoff :one
 -- @sqlc-vet-disable model-provider-configs-deleted-at
@@ -39,9 +44,14 @@ WITH current_replay_identity AS MATERIALIZED (
     AND revision.id = context.configured_model_revision_id
   JOIN model_provider_configs provider ON provider.org_id = revision.org_id
     AND provider.id = revision.model_provider_config_id
-  WHERE context.project_id = sqlc.arg(project_id)
-    AND context.agent_id = sqlc.arg(agent_id)
+  WHERE context.agent_id = sqlc.arg(agent_id)
     AND context.id = sqlc.arg(model_call_context_id)
+    AND EXISTS (
+      SELECT 1
+      FROM agents scoped_agent
+      WHERE scoped_agent.project_id = sqlc.arg(project_id)
+        AND scoped_agent.id = sqlc.arg(agent_id)
+    )
 )
 SELECT COALESCE((
   SELECT MAX(failure.input_event_sequence)
@@ -77,5 +87,11 @@ SELECT (
     )
 )::bigint AS retry_count
 FROM model_call_contexts context
-WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
-  AND context.id = sqlc.arg(model_call_context_id);
+WHERE context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(model_call_context_id)
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = sqlc.arg(project_id)
+      AND scoped_agent.id = sqlc.arg(agent_id)
+  );
