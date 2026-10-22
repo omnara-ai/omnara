@@ -153,7 +153,9 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"adaptive"}}`),
 			},
 			outputField: "max_tokens",
-			wantFields:  map[string]string{"thinking": `{"type":"adaptive"}`},
+			wantFields: map[string]string{
+				"thinking": `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`,
+			},
 		},
 		{
 			name: "Anthropic future thinking mode",

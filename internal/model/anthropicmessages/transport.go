@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -23,18 +24,39 @@ func (c Client) routeClient() route.Client {
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
 		Endpoint:          c.endpoint(),
-		Auth:              route.Chain{c.Auth, c.versionHeaders()},
-		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
-		Protocol:          protocol{client: c},
+		Auth: route.Chain{
+			c.Auth,
+			route.Headers{"Anthropic-Version": APIVersion},
+			c.betaHeader(),
+		},
+		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
+		Protocol:  protocol{client: c},
 	}
 }
 
-func (c Client) versionHeaders() route.Headers {
-	headers := route.Headers{"Anthropic-Version": APIVersion}
-	if c.firstPartyAnthropic() {
-		headers["Anthropic-Beta"] = thinkingBindingControlsBeta
+func (c Client) betaHeader() route.Auth {
+	if !c.firstPartyAnthropic() {
+		return nil
 	}
-	return headers
+	return anthropicBeta(thinkingBindingControlsBeta)
+}
+
+type anthropicBeta string
+
+func (b anthropicBeta) Apply(req *http.Request) error {
+	var betas []string
+	for _, value := range req.Header.Values("Anthropic-Beta") {
+		for _, beta := range strings.Split(value, ",") {
+			if beta = strings.TrimSpace(beta); beta != "" {
+				betas = append(betas, beta)
+			}
+		}
+	}
+	if !slices.Contains(betas, string(b)) {
+		betas = append(betas, string(b))
+	}
+	req.Header.Set("Anthropic-Beta", strings.Join(betas, ","))
+	return nil
 }
 
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
