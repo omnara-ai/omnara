@@ -52,7 +52,7 @@ jobs:
             tools/goose/go.sum
             tools/omnaralint/go.sum
 
-      - run: make test-live-web
+      - run: make test-live-web || { echo "::warning::make test-live-web failed, retrying once"; make test-live-web; }
         env:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
 
@@ -141,34 +141,34 @@ jobs:
         id: testdb
         if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true'
 
-      - run: make test-live-openai-responses
+      - run: make test-live-openai-responses || { echo "::warning::make test-live-openai-responses failed, retrying once"; make test-live-openai-responses; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      - run: make test-live-openai-chat-completions
+      - run: make test-live-openai-chat-completions || { echo "::warning::make test-live-openai-chat-completions failed, retrying once"; make test-live-openai-chat-completions; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      - run: make test-live-openrouter
+      - run: make test-live-openrouter || { echo "::warning::make test-live-openrouter failed, retrying once"; make test-live-openrouter; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openrouter == 'true' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-      - run: make test-live-anthropic
+      - run: make test-live-anthropic || { echo "::warning::make test-live-anthropic failed, retrying once"; make test-live-anthropic; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.anthropic == 'true' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      - run: make test-live-api-format-switching
+      - run: make test-live-api-format-switching || { echo "::warning::make test-live-api-format-switching failed, retrying once"; make test-live-api-format-switching; }
         if: ${{ !cancelled() && steps.testdb.outcome == 'success' && steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      - run: make test-live-sandbox-providers
+      - run: make test-live-sandbox-providers || { echo "::warning::make test-live-sandbox-providers failed, retrying once"; make test-live-sandbox-providers; }
         if: ${{ !cancelled() && steps.go.outcome == 'success' && steps.secrets.outputs.sandboxes == 'true' }}
         env:
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
