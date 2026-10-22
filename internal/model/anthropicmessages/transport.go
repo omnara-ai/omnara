@@ -23,13 +23,18 @@ func (c Client) routeClient() route.Client {
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
 		Endpoint:          c.endpoint(),
-		Auth: route.Chain{
-			c.Auth,
-			route.Headers{"Anthropic-Version": APIVersion},
-		},
-		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
-		Protocol:  protocol{client: c},
+		Auth:              route.Chain{c.Auth, c.versionHeaders()},
+		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
+		Protocol:          protocol{client: c},
 	}
+}
+
+func (c Client) versionHeaders() route.Headers {
+	headers := route.Headers{"Anthropic-Version": APIVersion}
+	if c.firstPartyAnthropic() {
+		headers["Anthropic-Beta"] = thinkingBindingControlsBeta
+	}
+	return headers
 }
 
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {

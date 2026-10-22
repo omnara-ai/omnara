@@ -135,7 +135,7 @@ func OpenAIImageTokenEstimateForModels(
 		var estimate int
 		if ok {
 			estimate = openAIImageTokenEstimateForDimensions(providerModelSlug, width, height)
-		} else if isClaudeFamilyModelSlug(providerModelSlug) {
+		} else if IsClaudeFamilyModelSlug(providerModelSlug) {
 			estimate = anthropicImageResolutionLimits(providerModelSlug).maxTokens
 		} else {
 			estimate = openAIUnknownImageTokens
@@ -150,7 +150,7 @@ func OpenAIImageTokenEstimateForModels(
 
 func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, height int) int {
 	name := normalizedProviderModelName(providerModelSlug)
-	if isClaudeFamilyModelSlug(name) {
+	if IsClaudeFamilyModelSlug(name) {
 		return anthropicImageTokenEstimateForDimensions(providerModelSlug, width, height)
 	}
 	patches := ceilDiv(width, 32) * ceilDiv(height, 32)
@@ -203,7 +203,7 @@ func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, heig
 	}
 }
 
-func isClaudeFamilyModelSlug(providerModelSlug string) bool {
+func IsClaudeFamilyModelSlug(providerModelSlug string) bool {
 	name := normalizedProviderModelName(providerModelSlug)
 	if !strings.HasPrefix(name, "claude-") {
 		return false
