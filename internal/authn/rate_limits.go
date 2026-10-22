@@ -1,6 +1,7 @@
 package authn
 
-// ClientRateLimits sets per-client authentication budgets. Zero fields use the defaults.
+// ClientRateLimits sets per-client authentication budgets.
+// Fields with a value of 0 use the default limit.
 type ClientRateLimits struct {
 	Signup              int
 	Login               int
