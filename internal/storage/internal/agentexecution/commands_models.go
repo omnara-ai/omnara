@@ -77,89 +77,94 @@ func (h *Handle) PrepareModel(ctx context.Context, input PrepareModelInput) (Pre
 		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
 			return PreparedModel{}, err
 		}
-		q := executiondb.New()
-		var boundary executiondb.ExecutionPreparationBoundaryRow
-		var err error
-		if h.claimBoundary != nil {
-			boundary = *h.claimBoundary
-			h.claimBoundary = nil
-		} else {
-			boundary, err = q.ExecutionPreparationBoundary(ctx, h.unit.DB(),
-				executiondb.ExecutionPreparationBoundaryParams{AgentID: h.route.AgentID})
-			if err != nil {
-				return PreparedModel{}, err
-			}
-		}
-		desired := PreparedModel{ConfigID: boundary.CurrentConfigID, RuntimeLockID: input.RuntimeLockID,
-			Context: ModelContext{
-				ID:                 uuid.New(),
-				AgentID:            h.route.AgentID,
-				TurnID:             input.Selected.TurnID,
-				Operation:          OperationNormal,
-				Attempt:            1,
-				InputEventSequence: boundary.Watermark,
-				State:              ContextStarted,
-				Opening:            input.Selected.Opening,
-			}}
-		if input.Selected.Kind == ModelResume {
-			source, err := q.ReadExecutionAttempt(
-				ctx,
-				h.unit.DB(),
-				executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: input.Selected.SourceContextID},
-			)
-			if err != nil {
-				return PreparedModel{}, err
-			}
-			desired = attemptRecord(source)
-			desired.Context.ID = uuid.New()
-			desired.Context.Attempt++
-			desired.Context.State = ContextStarted
-			desired.Context.Recovery = RecoveryNone
-			desired.Context.RetryAt = nil
-			desired.RuntimeLockID = input.RuntimeLockID
-		}
-		if desired.Context.InputEventSequence <= m.head.MaxContextInputSequence {
-			id, err := q.LatestExecutionAttempt(
-				ctx,
-				h.unit.DB(),
-				executiondb.LatestExecutionAttemptParams{AgentID: h.route.AgentID,
-					Operation: string(desired.Context.Operation),
-					Watermark: desired.Context.InputEventSequence,
-					SourceEnd: optionalSequence(desired.Context.SourceEventSequenceEnd)},
-			)
-			if err == nil {
-				existing, err := q.ReadExecutionAttempt(
-					ctx,
-					h.unit.DB(),
-					executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: id},
-				)
-				if err != nil {
-					return PreparedModel{}, err
-				}
-				record := attemptRecord(existing)
-				if record.Context.Attempt >= desired.Context.Attempt {
-					if record.Context.TurnID != input.Selected.TurnID || record.ConfigID != desired.ConfigID ||
-						!slices.Equal(record.Context.Opening.InputIDs, input.Selected.Opening.InputIDs) ||
-						record.Context.Opening.EventSequence != input.Selected.Opening.EventSequence {
-						return PreparedModel{}, storeerr.ErrIdempotencyConflict
-					}
-					return record, nil
-				}
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return PreparedModel{}, err
-			}
-		}
-		snapshot, err := h.LoadExecution(ctx)
+		return h.prepareFencedModel(ctx, m, input)
+	})
+}
+
+func (h *Handle) prepareFencedModel(ctx context.Context, m *executionMutation,
+	input PrepareModelInput) (PreparedModel, error) {
+	q := executiondb.New()
+	var boundary executiondb.ExecutionPreparationBoundaryRow
+	var err error
+	if h.claimBoundary != nil {
+		boundary = *h.claimBoundary
+		h.claimBoundary = nil
+	} else {
+		boundary, err = q.ExecutionPreparationBoundary(ctx, h.unit.DB(),
+			executiondb.ExecutionPreparationBoundaryParams{AgentID: h.route.AgentID})
 		if err != nil {
 			return PreparedModel{}, err
 		}
-		candidate := snapshot.Selection.Model
-		if candidate == nil || !sameDecision(*candidate, input.Selected) || boundary.Started ||
-			(input.Selected.Kind == ModelResume && candidate.ReadyAt.After(boundary.DatabaseNow)) {
-			return PreparedModel{}, storeerr.ErrAgentNotAdvanceable
+	}
+	desired := PreparedModel{ConfigID: boundary.CurrentConfigID, RuntimeLockID: input.RuntimeLockID,
+		Context: ModelContext{
+			ID:                 uuid.New(),
+			AgentID:            h.route.AgentID,
+			TurnID:             input.Selected.TurnID,
+			Operation:          OperationNormal,
+			Attempt:            1,
+			InputEventSequence: boundary.Watermark,
+			State:              ContextStarted,
+			Opening:            input.Selected.Opening,
+		}}
+	if input.Selected.Kind == ModelResume {
+		source, err := q.ReadExecutionAttempt(
+			ctx,
+			h.unit.DB(),
+			executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: input.Selected.SourceContextID},
+		)
+		if err != nil {
+			return PreparedModel{}, err
 		}
-		return h.createAttempt(ctx, m, desired, snapshot)
-	})
+		desired = attemptRecord(source)
+		desired.Context.ID = uuid.New()
+		desired.Context.Attempt++
+		desired.Context.State = ContextStarted
+		desired.Context.Recovery = RecoveryNone
+		desired.Context.RetryAt = nil
+		desired.RuntimeLockID = input.RuntimeLockID
+	}
+	if desired.Context.InputEventSequence <= m.head.MaxContextInputSequence {
+		id, err := q.LatestExecutionAttempt(
+			ctx,
+			h.unit.DB(),
+			executiondb.LatestExecutionAttemptParams{AgentID: h.route.AgentID,
+				Operation: string(desired.Context.Operation),
+				Watermark: desired.Context.InputEventSequence,
+				SourceEnd: optionalSequence(desired.Context.SourceEventSequenceEnd)},
+		)
+		if err == nil {
+			existing, err := q.ReadExecutionAttempt(
+				ctx,
+				h.unit.DB(),
+				executiondb.ReadExecutionAttemptParams{AgentID: h.route.AgentID, ID: id},
+			)
+			if err != nil {
+				return PreparedModel{}, err
+			}
+			record := attemptRecord(existing)
+			if record.Context.Attempt >= desired.Context.Attempt {
+				if record.Context.TurnID != input.Selected.TurnID || record.ConfigID != desired.ConfigID ||
+					!slices.Equal(record.Context.Opening.InputIDs, input.Selected.Opening.InputIDs) ||
+					record.Context.Opening.EventSequence != input.Selected.Opening.EventSequence {
+					return PreparedModel{}, storeerr.ErrIdempotencyConflict
+				}
+				return record, nil
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return PreparedModel{}, err
+		}
+	}
+	snapshot, err := h.LoadExecution(ctx)
+	if err != nil {
+		return PreparedModel{}, err
+	}
+	candidate := snapshot.Selection.Model
+	if candidate == nil || !sameDecision(*candidate, input.Selected) || boundary.Started ||
+		(input.Selected.Kind == ModelResume && candidate.ReadyAt.After(boundary.DatabaseNow)) {
+		return PreparedModel{}, storeerr.ErrAgentNotAdvanceable
+	}
+	return h.createAttempt(ctx, m, desired, snapshot)
 }
 
 func (h *Handle) createAttempt(
@@ -271,7 +276,7 @@ type PrepareNormalInput struct {
 }
 
 func (h *Handle) PrepareNormal(ctx context.Context, input PrepareNormalInput) (PreparedModel, error) {
-	return executeCommand(ctx, h, func(_ *executionMutation) (PreparedModel, error) {
+	return executeCommand(ctx, h, func(m *executionMutation) (PreparedModel, error) {
 		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
 			return PreparedModel{}, err
 		}
@@ -302,8 +307,8 @@ func (h *Handle) PrepareNormal(ctx context.Context, input PrepareNormalInput) (P
 					input.SourceOutputID != uuid.Nil)) {
 			return PreparedModel{}, storeerr.ErrAgentNotAdvanceable
 		}
-		prepared, err := h.PrepareModel(
-			ctx,
+		prepared, err := h.prepareFencedModel(
+			ctx, m,
 			PrepareModelInput{RuntimeLockID: input.RuntimeLockID, Selected: *selected},
 		)
 		if err != nil {

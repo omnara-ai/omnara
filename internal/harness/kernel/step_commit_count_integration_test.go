@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,7 +47,12 @@ subagents:
 			require.NoError(t, err)
 			_, _, _, err = f.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{ProjectID: kernelTestProjectID, AgentID: launch.Agent.ID, Actor: kernelTestOmnaraActorParams(t, kernelTestUserID), ContentBlocks: json.RawMessage(`[{"type":"text","text":"list agents"}]`), IdempotencyKey: "count-input"})
 			require.NoError(t, err)
-			trace := &integrationdb.QueryTrace{}
+			var fences atomic.Int64
+			trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+				if strings.Contains(sql, "name: FenceExecutionRuntime ") {
+					fences.Add(1)
+				}
+			}}
 			config := f.Pool.Config()
 			config.ConnConfig.Tracer = trace
 			pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -64,6 +71,7 @@ subagents:
 			require.NoError(t, err)
 			require.True(t, found)
 			if merged {
+				require.EqualValues(t, 1, fences.Load(), "claim preparation fence")
 				require.EqualValues(t, 0, trace.ExecutionBase.Load(), "claim base loads")
 				require.EqualValues(t, 1, trace.ExecutionFacts.Load(), "claim fact loads")
 				require.Zero(t, trace.ExecutionContexts.Load(), "claim context loads")
@@ -85,7 +93,7 @@ subagents:
 			modelStatements := trace.Statements.Load()
 			modelTrips := trace.RoundTrips.Load()
 			if merged {
-				require.EqualValues(t, 47, modelTrips)
+				require.EqualValues(t, 46, modelTrips)
 				require.EqualValues(t, 1, trace.ExecutionBase.Load())
 				require.EqualValues(t, 2, trace.ExecutionFacts.Load())
 				require.Zero(t, trace.ExecutionContexts.Load())
@@ -93,7 +101,7 @@ subagents:
 			t.Logf("model trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged {
-				require.EqualValues(t, 47, modelStatements, "merged model statement count")
+				require.EqualValues(t, 46, modelStatements, "merged model statement count")
 			}
 			t.Logf("%s: %d statements for one model step", name, modelStatements)
 			toolClaimInput := kernelTestClaimInput(f.Now)
