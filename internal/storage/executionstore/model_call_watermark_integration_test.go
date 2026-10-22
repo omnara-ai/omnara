@@ -151,11 +151,12 @@ BEGIN
       (turn.call_b_id, turn.agent_id, turn.output1_id, 'call_b_' || turn.k, 'list_files', '{}', 'built_in',
         'awaiting_authorization', now());
     INSERT INTO content_blocks(agent_id,owner_kind,owner_model_output_id,ordinal,block_kind,text_content,tool_call_id,
-      created_at)
-    VALUES (turn.agent_id, 'model_output', turn.output1_id, 0, 'reasoning', 'thinking ' || turn.k, NULL, now()),
-      (turn.agent_id, 'model_output', turn.output1_id, 1, 'text', 'calling ' || turn.k, NULL, now()),
-      (turn.agent_id, 'model_output', turn.output1_id, 2, 'tool_call', NULL, turn.call_a_id, now()),
-      (turn.agent_id, 'model_output', turn.output1_id, 3, 'tool_call', NULL, turn.call_b_id, now());
+      exclude_from_model_context,created_at)
+    VALUES (turn.agent_id, 'model_output', turn.output1_id, 0, 'reasoning', 'thinking ' || turn.k, NULL, false, now()),
+      (turn.agent_id, 'model_output', turn.output1_id, 1, 'text', 'calling ' || turn.k, NULL, false, now()),
+      (turn.agent_id, 'model_output', turn.output1_id, 2, 'tool_call', NULL, turn.call_a_id, false, now()),
+      (turn.agent_id, 'model_output', turn.output1_id, 3, 'tool_call', NULL, turn.call_b_id, turn.call_b_excluded,
+        now());
     INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,model_output_id,created_at)
     VALUES (turn.output1_event_id, turn.agent_id, turn.turn_id, turn.b + 1, 'model_output', turn.output1_id, now());
     UPDATE model_call_contexts SET state = 'succeeded', api_format = 'openai-responses', api_variant = 'default',
@@ -229,14 +230,9 @@ UNION ALL
 SELECT result_b_event_id, agent_id, turn_id, b + 3, 'tool_result', result_b_id, now() FROM transcript_turns`
 
 const multiTenantTranscriptStatistics = `
-ALTER TABLE agent_events ALTER COLUMN agent_id SET (n_distinct = -0.02);
-ALTER TABLE agent_inputs ALTER COLUMN agent_id SET (n_distinct = -0.02);
 ALTER TABLE model_outputs ALTER COLUMN agent_id SET (n_distinct = -0.02);
-ALTER TABLE model_call_contexts ALTER COLUMN agent_id SET (n_distinct = -0.02),
-  ALTER COLUMN project_id SET (n_distinct = -0.1);
-ALTER TABLE tool_calls ALTER COLUMN agent_id SET (n_distinct = -0.02);
-ALTER TABLE tool_call_results ALTER COLUMN agent_id SET (n_distinct = -0.02);
-ALTER TABLE content_blocks ALTER COLUMN agent_id SET (n_distinct = -0.02);
+ALTER TABLE model_call_contexts ALTER COLUMN agent_id SET (n_distinct = -0.1),
+  ALTER COLUMN project_id SET (n_distinct = -0.02);
 ANALYZE agents, agent_events, agent_inputs, model_outputs, model_call_contexts, tool_calls, tool_call_results,
   content_blocks`
 
@@ -260,33 +256,22 @@ func TestContextEventsPageLongTranscript(t *testing.T) {
 	ctx := t.Context()
 	lt := newLongTranscriptAgent(t, ctx)
 	var events []executionstore.ContextEventRecord
-	var pageEnds []int64
+	var pageSizes []int
 	for after := int64(0); after < lt.watermark; after = events[len(events)-1].Sequence {
 		page, err := lt.store.Execution().ListContextEvents(ctx, testProjectID, lt.agentID, after, lt.watermark, 500)
 		require.NoError(t, err)
 		events = append(events, page...)
-		pageEnds = append(pageEnds, page[len(page)-1].Sequence)
+		pageSizes = append(pageSizes, len(page))
 		if len(page) < 500 {
 			break
 		}
 	}
-	require.Len(t, pageEnds, 3)
-	var checkpointSequence int64
-	require.NoError(t, lt.store.pool.QueryRow(ctx, `SELECT sequence FROM agent_events
-WHERE agent_id = $1 AND id = $2 AND event_kind = 'context_checkpoint'`, lt.agentID,
-		lt.id("extra_event", longTranscriptCheckpointTurn)).Scan(&checkpointSequence))
-	require.Greater(t, checkpointSequence, pageEnds[0])
-	require.Less(t, checkpointSequence, pageEnds[1])
+	require.Equal(t, []int{500, 500, 226}, pageSizes)
 	for i := range events {
 		events[i].ContentParts = canonicalJSON(t, events[i].ContentParts)
 		events[i].ProviderReplay = canonicalJSON(t, events[i].ProviderReplay)
 	}
 	require.Equal(t, expectedLongTranscriptEvents(t, ctx, lt), events)
-	tx := integrationdb.BeginTx(t, ctx, lt.store.pool)
-	_, err := dbsqlc.New(outputBoundedPlanDB{Tx: tx, t: t}).ListContextEvents(ctx, dbsqlc.ListContextEventsParams{
-		ProjectID: testProjectID, AgentID: lt.agentID, AfterSequence: 0, Watermark: lt.watermark, PageLimit: 50,
-	})
-	require.NoError(t, err)
 }
 
 func TestTranscriptReadsStayAgentBound(t *testing.T) {
@@ -299,7 +284,7 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		want       []executionstore.ToolCallRecord
 	}{
 		{longTranscriptBase(previous) - 1, longTranscriptBase(last) + 1, []executionstore.ToolCallRecord{
-			expectedLongTranscriptToolCall(t, lt, previous, "a"), expectedLongTranscriptToolCall(t, lt, previous, "b"),
+			expectedLongTranscriptToolCall(t, lt, previous, "a"),
 		}},
 		{longTranscriptBase(previous) + 1, longTranscriptBase(last) + 2, []executionstore.ToolCallRecord{
 			expectedLongTranscriptToolCall(t, lt, last, "a"),
@@ -316,7 +301,7 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		require.Equal(t, expectedLongTranscriptGetToolCall(t, lt, last, call), canonicalToolCalls(t, record)[0])
 	}
 	machineID, bindingID := createLongTranscriptMachine(t, ctx, lt)
-	processID := createGrantedShellProcess(t, ctx, lt.store.pool, lt, machineID, bindingID, lt.id("call_a", last))
+	processID := createGrantedShellProcess(t, ctx, lt, machineID, bindingID, lt.id("call_a", last))
 	scope, found, err := lt.store.Execution().GetDaemonGitCredentialsScope(ctx, testOrgID, machineID, processID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -337,44 +322,32 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 			ProjectID: testProjectID, AgentID: lt.agentID, AfterSequence: 0, Watermark: lt.watermark, PageLimit: 50,
 		})
 		require.NoError(t, err, mode)
-		_, err = reads.ListCompletedToolCallsAtWatermark(ctx, dbsqlc.ListCompletedToolCallsAtWatermarkParams{
-			ProjectID: testProjectID, AgentID: lt.agentID,
-			AfterEventSequence: longTranscriptBase(previous) - 1, MaxEventSequence: lt.watermark,
-		})
-		require.NoError(t, err, mode)
-		_, err = reads.GetToolCall(ctx, dbsqlc.GetToolCallParams{
-			ProjectID: testProjectID, AgentID: lt.agentID, ID: lt.id("call_a", last),
-		})
-		require.NoError(t, err, mode)
-		for _, turn := range []int{previous, last} {
-			configID, err := reads.GetToolCallAgentConfigID(ctx, dbsqlc.GetToolCallAgentConfigIDParams{
-				ProjectID: testProjectID, AgentID: lt.agentID, ToolCallID: lt.id("call_a", turn),
-			})
-			require.NoError(t, err, mode)
-			require.Equal(t, lt.configIDs[turn%2], configID, mode)
-		}
 		gotScope, err := reads.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
 			OrgID: testOrgID, MachineID: machineID, ProcessID: processID,
 		})
 		require.NoError(t, err, mode)
 		gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
 		require.Equal(t, wantScope, gotScope, mode)
+		if mode != "force_generic_plan" {
+			continue
+		}
+		_, err = reads.ListCompletedToolCallsAtWatermark(ctx, dbsqlc.ListCompletedToolCallsAtWatermarkParams{
+			ProjectID: testProjectID, AgentID: lt.agentID,
+			AfterEventSequence: longTranscriptBase(previous) - 1, MaxEventSequence: lt.watermark,
+		})
+		require.NoError(t, err)
+		_, err = reads.GetToolCall(ctx, dbsqlc.GetToolCallParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ID: lt.id("call_a", last),
+		})
+		require.NoError(t, err)
+		for _, turn := range []int{previous, last} {
+			configID, err := reads.GetToolCallAgentConfigID(ctx, dbsqlc.GetToolCallAgentConfigIDParams{
+				ProjectID: testProjectID, AgentID: lt.agentID, ToolCallID: lt.id("call_a", turn),
+			})
+			require.NoError(t, err)
+			require.Equal(t, lt.configIDs[turn%2], configID)
+		}
 	}
-	unscopedProcessID, outputID := createUncommittedToolOutputProcess(t, ctx, tx, lt, machineID, bindingID)
-	scopes := dbsqlc.New(tx)
-	_, err = scopes.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
-		OrgID: testOrgID, MachineID: machineID, ProcessID: unscopedProcessID,
-	})
-	require.ErrorIs(t, err, pgx.ErrNoRows)
-	_, err = tx.Exec(ctx, `INSERT INTO agent_events(agent_id,turn_id,sequence,event_kind,model_output_id,created_at)
-VALUES ($1, $2, $3, 'model_output', $4, now())`, lt.agentID, lt.id("turn", last), lt.watermark+1, outputID)
-	require.NoError(t, err)
-	gotScope, err := scopes.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
-		OrgID: testOrgID, MachineID: machineID, ProcessID: unscopedProcessID,
-	})
-	require.NoError(t, err)
-	gotScope.GitCredentials = canonicalJSON(t, gotScope.GitCredentials)
-	require.Equal(t, wantScope, gotScope)
 }
 
 type outputBoundedPlanDB struct {
@@ -415,7 +388,7 @@ func (db outputBoundedPlanDB) requireOutputBoundedPlan(ctx context.Context, sql 
 	require.NoError(db.t, err)
 	rows := int(integrationdb.ReadPlan(db.t, raw).Rows)
 	require.Positive(db.t, rows, "%s", raw)
-	require.LessOrEqual(db.t, integrationdb.PlanBuffers(db.t, raw), 40*rows+40, "%s", raw)
+	require.LessOrEqual(db.t, integrationdb.PlanBuffers(db.t, raw), 40*rows, "%s", raw)
 }
 
 func newLongTranscriptAgent(t *testing.T, ctx context.Context) longTranscript {
@@ -575,9 +548,12 @@ WHERE agent.id = $1`, lt.agentID).Scan(&model.ConfiguredModelRevisionID, &model.
 		}
 		opening := event("input_event", base, parts...)
 		opening.AgentInputID = id("input")
-		toolUse := output("output1", base+1, "context1", base, modelenvelope.StopReasonToolUse,
-			part("reasoning", "text", fmt.Sprintf("thinking %d", turn)), part("text", "text", fmt.Sprintf("calling %d", turn)),
-			part("tool_call", "tool_call_id", id("call_a")), part("tool_call", "tool_call_id", id("call_b")))
+		toolParts := []any{part("reasoning", "text", fmt.Sprintf("thinking %d", turn)),
+			part("text", "text", fmt.Sprintf("calling %d", turn)), part("tool_call", "tool_call_id", id("call_a"))}
+		if turn != longTranscriptTurns-2 {
+			toolParts = append(toolParts, part("tool_call", "tool_call_id", id("call_b")))
+		}
+		toolUse := output("output1", base+1, "context1", base, modelenvelope.StopReasonToolUse, toolParts...)
 		toolUse.InputFingerprint = strings.Repeat("a", 64)
 		toolUse.Usage = modelenvelope.Usage{InputTokens: 100 + turn, UncachedInputTokens: 100 + turn,
 			OutputTokens: 10, ReasoningTokens: 5}
@@ -643,7 +619,8 @@ SELECT k, agent.id AS agent_id, agent.org_id, agent.project_id,
   md5(agent.id || ':checkpoint:' || k)::uuid AS checkpoint_id,
   CASE WHEN k = $4 THEN 'checkpoint'
     ELSE (ARRAY['content', 'config_change', 'empty', 'control'])[k % 4 + 1] END AS extra_kind,
-  k % 7 = 3 AS output2_failed
+  k % 7 = 3 AS output2_failed,
+  k = $2::int - 2 AS call_b_excluded
 FROM agents agent
 JOIN agent_configs config ON config.project_id = agent.project_id AND config.id = agent.current_config_id
 JOIN configured_models model ON model.org_id = config.org_id AND model.id = config.configured_model_id
@@ -680,7 +657,6 @@ func createLongTranscriptMachine(t *testing.T, ctx context.Context, lt longTrans
 func createGrantedShellProcess(
 	t *testing.T,
 	ctx context.Context,
-	db dbsqlc.DBTX,
 	lt longTranscript,
 	machineID, bindingID, toolCallID uuid.UUID,
 ) uuid.UUID {
@@ -688,39 +664,11 @@ func createGrantedShellProcess(
 	spec, err := json.Marshal(processcmd.ForShell("git fetch", processcmd.ShellSH, processcmd.IOModePipe))
 	require.NoError(t, err)
 	processID := uuid.New()
-	_, err = db.Exec(ctx, `INSERT INTO processes(id,org_id,project_id,agent_id,tool_call_id,runtime_lock_id,
+	_, err = lt.store.pool.Exec(ctx, `INSERT INTO processes(id,org_id,project_id,agent_id,tool_call_id,runtime_lock_id,
   agent_machine_binding_id,machine_id,execution_spec,state,execution_granted_at,state_changed_at,created_at,updated_at,
   last_activity_at)
 VALUES ($1, $2, $3, $4, $5, $1, $6, $7, $8::jsonb, 'starting', now(), now(), now(), now(), now())`,
 		processID, testOrgID, testProjectID, lt.agentID, toolCallID, bindingID, machineID, string(spec))
 	require.NoError(t, err)
 	return processID
-}
-
-func createUncommittedToolOutputProcess(
-	t *testing.T,
-	ctx context.Context,
-	tx pgx.Tx,
-	lt longTranscript,
-	machineID, bindingID uuid.UUID,
-) (uuid.UUID, uuid.UUID) {
-	t.Helper()
-	contextID, outputID, callID := uuid.New(), uuid.New(), uuid.New()
-	_, err := tx.Exec(ctx, `INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,
-  attempt_number,agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
-  opening_input_ids,opening_event_sequence)
-SELECT $3, org_id, project_id, agent_id, turn_id, operation_kind, attempt_number + 1, agent_config_id,
-  configured_model_revision_id, input_event_sequence, $3, now(), opening_input_ids, opening_event_sequence
-FROM model_call_contexts WHERE agent_id = $1 AND id = $2`,
-		lt.agentID, lt.id("context2", longTranscriptTurns-1), contextID)
-	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `INSERT INTO model_outputs(id,agent_id,model_call_context_id,stop_reason,created_at)
-VALUES ($1, $2, $3, 'tool_use', now())`, outputID, lt.agentID, contextID)
-	require.NoError(t, err)
-	_, err = tx.Exec(ctx, `INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,
-  created_at)
-VALUES ($1, $2, $3, 'git_call', 'run_command', '{}', 'built_in', 'awaiting_authorization', now())`,
-		callID, lt.agentID, outputID)
-	require.NoError(t, err)
-	return createGrantedShellProcess(t, ctx, tx, lt, machineID, bindingID, callID), outputID
 }

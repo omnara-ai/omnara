@@ -356,7 +356,7 @@ func (q *Queries) ListAgentTurnsForRead(ctx context.Context, arg ListAgentTurnsF
 }
 
 const listContextEvents = `-- name: ListContextEvents :many
-WITH page AS MATERIALIZED (
+WITH page AS (
   SELECT event.id, event.agent_id, event.agent_input_id, event.sequence, event.created_at,
          event.event_kind, event.model_output_id
   FROM agent_events event
