@@ -81,3 +81,24 @@ func TestServerHandlerReadyzNotReady(t *testing.T) {
 		t.Fatalf("ready status body=%q want=%q", body["status"], "not_ready")
 	}
 }
+
+func TestProfilingRequiresOptInAndLoopback(t *testing.T) {
+	for _, value := range []string{"", "1"} {
+		t.Setenv("OMNARA_PPROF", value)
+		rec := httptest.NewRecorder()
+		ServerHandler(New(), nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+		want := http.StatusNotFound
+		if value == "1" {
+			want = http.StatusOK
+		}
+		if rec.Code != want {
+			t.Fatalf("profiling %q: status %d, want %d", value, rec.Code, want)
+		}
+	}
+	for _, addr := range []string{":9090", "0.0.0.0:9090", "[::]:9090", "example.com:9090"} {
+		got, err := profilingAddress(addr)
+		if err != nil || got != "127.0.0.1:9090" {
+			t.Fatalf("profiling address %q: %q, %v", addr, got, err)
+		}
+	}
+}

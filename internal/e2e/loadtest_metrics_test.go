@@ -95,12 +95,12 @@ func TestLoadQueryDeltasUsePerQueryWindowCounters(t *testing.T) {
 	nested := loadQueryKey{userID: 1, queryID: 42}
 	newQuery := loadQueryKey{userID: 1, queryID: 43, toplevel: true}
 	start := &loadQuerySnapshot{resetAt: reset, queries: map[loadQueryKey]loadQueryStat{
-		key:       {calls: 100, totalMS: 10000, name: "warmup"},
+		key:       {calls: 100, rows: 500, totalMS: 10000, name: "warmup"},
 		otherUser: {calls: 10, totalMS: 50, name: "other user"},
 		nested:    {calls: 2, totalMS: 20, name: "nested"},
 	}}
 	end := &loadQuerySnapshot{resetAt: reset, queries: map[loadQueryKey]loadQueryStat{
-		key:       {calls: 102, totalMS: 10030, name: "warmup"},
+		key:       {calls: 102, rows: 540, totalMS: 10030, name: "warmup"},
 		otherUser: {calls: 10, totalMS: 50, name: "other user"},
 		nested:    {calls: 3, totalMS: 25, name: "nested"},
 		newQuery:  {calls: 3, totalMS: 60, name: "new query"},
@@ -109,7 +109,7 @@ func TestLoadQueryDeltasUsePerQueryWindowCounters(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []loadQueryStat{
 		{calls: 3, totalMS: 60, name: "new query"},
-		{calls: 2, totalMS: 30, name: "warmup"},
+		{calls: 2, rows: 40, totalMS: 30, name: "warmup"},
 		{calls: 1, totalMS: 5, name: "nested"},
 	}, deltas)
 	require.Equal(t, int64(100), start.queries[key].calls)

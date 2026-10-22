@@ -6,14 +6,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -42,7 +45,10 @@ type loadModelConfig struct {
 }
 
 type loadFakeModel struct {
-	cfg         loadModelConfig
+	cfg         atomic.Pointer[loadModelConfig]
+	historyDone sync.Map
+	requestMu   sync.Mutex
+	requests    []loadRequestSample
 	onStart     func(key string, at time.Time)
 	onEnd       func(key string, at time.Time, tool bool)
 	seq         atomic.Int64
@@ -115,10 +121,24 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _ := io.ReadAll(r.Body)
+	cfg := *m.cfg.Load()
 	var body struct {
 		Stream bool `json:"stream"`
+		Input  []struct {
+			Role string `json:"role"`
+			Type string `json:"type"`
+		} `json:"input"`
 	}
 	_ = json.Unmarshal(raw, &body)
+	messages := 0
+	for _, item := range body.Input {
+		if item.Role != "" || item.Type == "message" {
+			messages++
+		}
+	}
+	m.requestMu.Lock()
+	m.requests = append(m.requests, loadRequestSample{at: time.Now(), bytes: len(raw), messages: messages})
+	m.requestMu.Unlock()
 	agentKey := ""
 	if matches := loadInputPattern.FindAllSubmatch(raw, -1); len(matches) > 0 {
 		agentKey = string(matches[len(matches)-1][1])
@@ -135,12 +155,13 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := m.seq.Add(1)
 	rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(id)))
 	respID := fmt.Sprintf("resp_load_%d", id)
-	isTool := rng.Float64() < m.cfg.toolProbability
+	_, historyDone := m.historyDone.Load(agentKey)
+	isTool := !historyDone && rng.Float64() < cfg.toolProbability
 	if isTool {
 		m.toolCalls.Add(1)
 	}
-	inputTokens := randBetween(rng, m.cfg.inputTokensMin, m.cfg.inputTokensMax)
-	tps := randBetween(rng, m.cfg.tpsMin, m.cfg.tpsMax)
+	inputTokens := randBetween(rng, cfg.inputTokensMin, cfg.inputTokensMax)
+	tps := randBetween(rng, cfg.tpsMin, cfg.tpsMax)
 	ctx := r.Context()
 	sleep := func(d time.Duration) bool {
 		timer := time.NewTimer(d)
@@ -158,7 +179,7 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if m.onEnd != nil {
 		defer func() { m.onEnd(agentKey, time.Now(), isTool) }()
 	}
-	if !sleep(randDuration(rng, m.cfg.ttftMin, m.cfg.ttftMax)) {
+	if !sleep(randDuration(rng, cfg.ttftMin, cfg.ttftMax)) {
 		return
 	}
 	flusher, _ := w.(http.Flusher)
@@ -180,7 +201,7 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isTool {
 		fcID := fmt.Sprintf("fc_load_%d", id)
 		callID := fmt.Sprintf("call_load_%d", id)
-		outputTokens = randBetween(rng, m.cfg.toolTokensMin, m.cfg.toolTokensMax)
+		outputTokens = randBetween(rng, cfg.toolTokensMin, cfg.toolTokensMax)
 		if !sleep(time.Duration(float64(outputTokens) / float64(tps) * float64(time.Second))) {
 			return
 		}
@@ -192,11 +213,11 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			`","name":"list_agents","arguments":"{}"}`
 	} else {
 		msgID := fmt.Sprintf("msg_load_%d", id)
-		outputTokens = randBetween(rng, m.cfg.textTokensMin, m.cfg.textTokensMax)
+		outputTokens = randBetween(rng, cfg.textTokensMin, cfg.textTokensMax)
 		write("response.output_item.added", `{"item":{"id":"`+msgID+`","type":"message"}}`)
 		write("response.content_part.added",
 			`{"item_id":"`+msgID+`","content_index":0,"part":{"type":"output_text"}}`)
-		perTick := int(math.Max(1, float64(tps)*m.cfg.deltaInterval.Seconds()))
+		perTick := int(math.Max(1, float64(tps)*cfg.deltaInterval.Seconds()))
 		var text strings.Builder
 		for sent := 0; sent < outputTokens; {
 			chunk := perTick
@@ -208,7 +229,7 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			write("response.output_text.delta",
 				`{"item_id":"`+msgID+`","content_index":0,"delta":`+jsonString(delta)+`}`)
 			sent += chunk
-			if !sleep(m.cfg.deltaInterval) {
+			if !sleep(cfg.deltaInterval) {
 				return
 			}
 		}
@@ -228,16 +249,17 @@ func (m *loadFakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type loadAgent struct {
-	id       string
-	uuid     string
-	project  *deterministicProject
-	sending  bool
-	waiting  bool
-	seenBusy bool
-	sentAt   time.Time
-	nextAt   time.Time
-	started  bool
-	inputs   int
+	id           string
+	uuid         string
+	project      *deterministicProject
+	sending      bool
+	waiting      bool
+	seenBusy     bool
+	sentAt       time.Time
+	nextAt       time.Time
+	started      bool
+	historyReady bool
+	inputs       int
 }
 
 type loadTurnSample struct {
@@ -420,6 +442,7 @@ type loadQueryKey struct {
 
 type loadQueryStat struct {
 	calls   int64
+	rows    int64
 	totalMS float64
 	name    string
 }
@@ -431,7 +454,7 @@ type loadQuerySnapshot struct {
 }
 
 func (e *serviceE2EEnvironment) loadQuerySnapshot(ctx context.Context) (*loadQuerySnapshot, error) {
-	rows, err := e.db.Query(ctx, `SELECT userid, queryid, toplevel, calls, total_exec_time,
+	rows, err := e.db.Query(ctx, `SELECT userid, queryid, toplevel, calls, rows, total_exec_time,
  coalesce(substring(query from '-- name: (\w+)'), left(regexp_replace(query, '\s+', ' ', 'g'), 60)),
  info.stats_reset, info.dealloc
  FROM public.pg_stat_statements CROSS JOIN public.pg_stat_statements_info info
@@ -444,7 +467,7 @@ func (e *serviceE2EEnvironment) loadQuerySnapshot(ctx context.Context) (*loadQue
 	for rows.Next() {
 		var key loadQueryKey
 		var stat loadQueryStat
-		if err := rows.Scan(&key.userID, &key.queryID, &key.toplevel, &stat.calls, &stat.totalMS,
+		if err := rows.Scan(&key.userID, &key.queryID, &key.toplevel, &stat.calls, &stat.rows, &stat.totalMS,
 			&stat.name, &snapshot.resetAt, &snapshot.dealloc); err != nil {
 			return nil, err
 		}
@@ -468,10 +491,11 @@ func loadQueryDeltas(start, end *loadQuerySnapshot) ([]loadQueryStat, bool) {
 	var deltas []loadQueryStat
 	for key, stat := range end.queries {
 		previous := start.queries[key]
-		if stat.calls < previous.calls || stat.totalMS < previous.totalMS {
+		if stat.calls < previous.calls || stat.rows < previous.rows || stat.totalMS < previous.totalMS {
 			return nil, false
 		}
 		stat.calls -= previous.calls
+		stat.rows -= previous.rows
 		stat.totalMS -= previous.totalMS
 		if stat.calls > 0 {
 			deltas = append(deltas, stat)
@@ -495,6 +519,10 @@ func psCPUSeconds(pid int) (float64, float64) {
 	if len(fields) < 2 {
 		return 0, 0
 	}
+	return parseProcessCPU(fields)
+}
+
+func parseProcessCPU(fields []string) (float64, float64) {
 	cpu := 0.0
 	timeField := fields[0]
 	days := 0.0
@@ -514,32 +542,63 @@ func psCPUSeconds(pid int) (float64, float64) {
 	return cpu, rssKB / 1024
 }
 
-func pgTreeCPU() (float64, float64) {
+type loadPGProcessSnapshot struct {
+	cpu map[int]float64
+	rss float64
+}
+
+func pgTreeCPU() *loadPGProcessSnapshot {
 	pidfile := os.Getenv("LOADTEST_PG_PIDFILE")
 	if pidfile == "" {
-		return 0, 0
+		return nil
 	}
 	raw, err := os.ReadFile(pidfile)
 	if err != nil {
-		return 0, 0
+		return nil
 	}
 	postmaster := strings.TrimSpace(strings.SplitN(string(raw), "\n", 2)[0])
 	out, err := exec.Command("ps", "-Ao", "pid=,ppid=,time=,rss=").Output()
 	if err != nil {
-		return 0, 0
+		return nil
 	}
-	total, rss := 0.0, 0.0
-	for _, line := range strings.Split(string(out), "\n") {
+	return parsePGProcesses(string(out), postmaster)
+}
+
+func parsePGProcesses(raw, postmaster string) *loadPGProcessSnapshot {
+	snap := &loadPGProcessSnapshot{cpu: map[int]float64{}}
+	for _, line := range strings.Split(raw, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 4 || (f[0] != postmaster && f[1] != postmaster) {
+		if len(f) != 4 || (f[0] != postmaster && f[1] != postmaster) {
 			continue
 		}
-		pid, _ := strconv.Atoi(f[0])
-		cpu, mem := psCPUSeconds(pid)
-		total += cpu
-		rss += mem
+		pid, err := strconv.Atoi(f[0])
+		if err != nil {
+			continue
+		}
+		cpu, rss := parseProcessCPU(f[2:])
+		snap.cpu[pid] = cpu
+		snap.rss += rss
 	}
-	return total, rss
+	if len(snap.cpu) == 0 {
+		return nil
+	}
+	return snap
+}
+
+func loadPGCPUDelta(start, end *loadPGProcessSnapshot) (*float64, *int) {
+	if start == nil || end == nil {
+		return nil, nil
+	}
+	seconds, exited := 0.0, 0
+	for pid := range start.cpu {
+		if _, ok := end.cpu[pid]; !ok {
+			exited++
+		}
+	}
+	for pid, cpu := range end.cpu {
+		seconds += math.Max(0, cpu-start.cpu[pid])
+	}
+	return &seconds, &exited
 }
 
 type poolSnapshot struct {
@@ -708,14 +767,104 @@ var loadHTTPClient = &http.Client{
 }
 
 func withPoolMax(databaseURL string, poolMax int) string {
-	sep := "?"
-	if strings.Contains(databaseURL, "?") {
-		sep = "&"
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		panic(err)
 	}
-	return databaseURL + sep + "pool_max_conns=" + strconv.Itoa(poolMax)
+	values := parsed.Query()
+	values.Set("pool_max_conns", strconv.Itoa(poolMax))
+	for key, env := range map[string]string{
+		"pool_max_conn_lifetime":   "LOADTEST_POOL_MAX_CONN_LIFETIME",
+		"pool_max_conn_idle_time":  "LOADTEST_POOL_MAX_CONN_IDLE_TIME",
+		"statement_cache_capacity": "LOADTEST_STATEMENT_CACHE_CAPACITY",
+	} {
+		if value := os.Getenv(env); value != "" {
+			values.Set(key, value)
+		}
+	}
+	parsed.RawQuery = values.Encode()
+	return parsed.String()
+}
+
+type loadRequestSample struct {
+	at              time.Time
+	bytes, messages int
+}
+
+func (m *loadFakeModel) requestWindow(from, to time.Time) (float64, float64, float64) {
+	m.requestMu.Lock()
+	defer m.requestMu.Unlock()
+	var sizes []float64
+	total, messages := 0, 0
+	for _, sample := range m.requests {
+		if sample.at.Before(from) || !sample.at.Before(to) {
+			continue
+		}
+		sizes = append(sizes, float64(sample.bytes))
+		total += sample.bytes
+		messages += sample.messages
+	}
+	sort.Float64s(sizes)
+	count := math.Max(1, float64(len(sizes)))
+	return float64(total) / count, percentile(sizes, .95), float64(messages) / count
+}
+
+func loadCPUProfiles(ctx context.Context, urls []string, dir string, stage, seconds int) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		var wg sync.WaitGroup
+		failures := make(chan error, len(urls))
+		for worker, baseURL := range urls {
+			wg.Go(func() {
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+					baseURL+"/debug/pprof/profile?seconds="+strconv.Itoa(seconds), nil)
+				if err != nil {
+					failures <- err
+					return
+				}
+				client := &http.Client{Timeout: time.Duration(seconds+10) * time.Second}
+				resp, err := client.Do(req)
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					failures <- fmt.Errorf("worker %d profile status %d", worker, resp.StatusCode)
+					return
+				}
+				data, err := io.ReadAll(resp.Body)
+				if err == nil {
+					err = os.WriteFile(filepath.Join(dir, fmt.Sprintf("stage-%02d-worker-%02d.pprof", stage, worker)), data, 0600)
+				}
+				if err != nil {
+					failures <- err
+				}
+			})
+		}
+		wg.Wait()
+		close(failures)
+		var errs []error
+		for err := range failures {
+			errs = append(errs, err)
+		}
+		done <- errors.Join(errs...)
+	}()
+	return done
 }
 
 type loadStageResult struct {
+	RequestBodyBytesAvg        float64  `json:"request_body_bytes_avg_per_provider_request"`
+	RequestBodyBytesP95        float64  `json:"request_body_bytes_p95_per_provider_request"`
+	MessagesAvg                float64  `json:"messages_avg_per_provider_request"`
+	TranscriptEventsAvg        *float64 `json:"transcript_events_read_per_provider_request_pgss"`
+	WorkerCPUMSPerCall         *float64 `json:"worker_cpu_ms_per_provider_request"`
+	PGExitedBackends           *int     `json:"pg_native_start_pids_exited"`
+	PGCPUWarning               string   `json:"pg_native_cpu_warning,omitempty"`
+	HistorySeconds             float64  `json:"history_build_seconds"`
+	HistoryEventsAvg           float64  `json:"history_events_avg_per_agent"`
+	HistoryCompactionAvoidance string   `json:"history_compaction_avoidance"`
+
 	AcceptedModelOutputs       int64    `json:"accepted_model_outputs"`
 	AcceptedModelOutputsPerSec float64  `json:"accepted_model_outputs_per_sec"`
 	ProviderRequests           int64    `json:"provider_requests"`
@@ -789,7 +938,14 @@ func TestServiceE2ELoadAgents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), total)
 	defer cancel()
 
-	model := &loadFakeModel{cfg: loadModelConfig{
+	historyTarget := loadEnvInt("LOADTEST_HISTORY_EVENTS", 0)
+	require.GreaterOrEqual(t, historyTarget, 0)
+	require.Greater(t, stageSeconds, warmupSeconds)
+	profileDir := os.Getenv("LOADTEST_CPU_PROFILE_DIR")
+	if profileDir != "" {
+		require.NoError(t, os.MkdirAll(profileDir, 0700))
+	}
+	realistic := loadModelConfig{
 		ttftMin:         time.Duration(loadEnvInt("LOADTEST_TTFT_MIN_MS", 500)) * time.Millisecond,
 		ttftMax:         time.Duration(loadEnvInt("LOADTEST_TTFT_MAX_MS", 2000)) * time.Millisecond,
 		textTokensMin:   loadEnvInt("LOADTEST_TEXT_TOKENS_MIN", 100),
@@ -802,7 +958,15 @@ func TestServiceE2ELoadAgents(t *testing.T) {
 		inputTokensMin:  2000,
 		inputTokensMax:  20000,
 		deltaInterval:   time.Duration(loadEnvInt("LOADTEST_DELTA_INTERVAL_MS", 100)) * time.Millisecond,
-	}}
+	}
+	model := &loadFakeModel{}
+	model.cfg.Store(&realistic)
+	if historyTarget > 0 {
+		model.cfg.Store(&loadModelConfig{
+			textTokensMin: 1, textTokensMax: 1, toolTokensMin: 1, toolTokensMax: 1,
+			tpsMin: 1000000, tpsMax: 1000000, toolProbability: .98, inputTokensMin: 1, inputTokensMax: 1,
+		})
+	}
 	observer := newProviderObserver()
 	model.onStart = observer.start
 	model.onEnd = observer.end
@@ -875,6 +1039,9 @@ func TestServiceE2ELoadAgents(t *testing.T) {
 		"OMNARA_DATABASE_URL=" + withPoolMax(baseURL, workerPool),
 		"OMNARA_WORKER_CAPACITY=" + strconv.Itoa(workerCapacity),
 	}
+	if profileDir != "" {
+		workerEnv = append(workerEnv, "OMNARA_PPROF=1")
+	}
 	processes := []loadProcess{{label: "api", pid: api.cmd.Process.Pid}}
 	var workerMetricURLs []string
 	for range workerCount {
@@ -889,6 +1056,7 @@ func TestServiceE2ELoadAgents(t *testing.T) {
 
 	var mu sync.Mutex
 	active := 0
+	buildingHistory := historyTarget > 0
 	var turnSamples []loadTurnSample
 	var sendErrors atomic.Int64
 	var lastSendErr atomic.Value
@@ -958,10 +1126,13 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 					agent.waiting = false
 					turnSamples = append(turnSamples, loadTurnSample{at: now, duration: now.Sub(agent.sentAt)})
 					think := time.Duration(0)
-					if thinkMaxMS > 0 {
+					if thinkMaxMS > 0 && !buildingHistory {
 						think = time.Duration(rand.IntN(thinkMaxMS)) * time.Millisecond
 					}
 					agent.nextAt = now.Add(think)
+				}
+				if buildingHistory && agent.historyReady {
+					continue
 				}
 				if now.Before(agent.nextAt) {
 					continue
@@ -994,8 +1165,67 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 		}
 	}()
 
+	historySeconds, historyEventsAvg := 0.0, 0.0
+	if historyTarget > 0 {
+		started := time.Now()
+		mu.Lock()
+		active = maxActive
+		mu.Unlock()
+		ids := make([]string, maxActive)
+		for i, agent := range agents[:maxActive] {
+			ids[i] = agent.uuid
+		}
+		for {
+			rows, err := env.db.Query(ctx, `SELECT a.id::text, count(e.id)
+FROM agents a LEFT JOIN agent_events e ON e.agent_id = a.id
+WHERE a.id = ANY($1::uuid[]) GROUP BY a.id`, ids)
+			require.NoError(t, err)
+			total, ready := int64(0), 0
+			for rows.Next() {
+				var id string
+				var events int64
+				require.NoError(t, rows.Scan(&id, &events))
+				total += events
+				if events >= int64(historyTarget) {
+					ready++
+					agent := uuidByID[id]
+					model.historyDone.Store(agent.id, true)
+					mu.Lock()
+					agent.historyReady = true
+					mu.Unlock()
+				}
+			}
+			require.NoError(t, rows.Err())
+			rows.Close()
+			mu.Lock()
+			idle := true
+			for _, agent := range agents[:maxActive] {
+				if agent.sending || agent.waiting {
+					idle = false
+				}
+			}
+			mu.Unlock()
+			if ready == maxActive && idle {
+				historyEventsAvg = float64(total) / float64(maxActive)
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("history building timed out")
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+		historySeconds = time.Since(started).Seconds()
+		model.cfg.Store(&realistic)
+		model.historyDone.Clear()
+		mu.Lock()
+		buildingHistory = false
+		active = 0
+		mu.Unlock()
+		t.Logf("history built in %.3fs: %.1f events/agent; reported input tokens=1", historySeconds, historyEventsAvg)
+	}
 	var results []loadStageResult
-	for _, n := range stages {
+	for stage, n := range stages {
 		mu.Lock()
 		active = n
 		mu.Unlock()
@@ -1030,7 +1260,7 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 			t.Logf("explicit transaction statistics unavailable: %v", err)
 		}
 		redisCPUStart := loadRedisCPU(ctx, redisClient)
-		pgCPUStart, _ := pgTreeCPU()
+		pgCPUStart := pgTreeCPU()
 		poolStart := scrapePool(workerMetricURLs)
 		cpuStart := map[int]float64{}
 		for _, p := range processes {
@@ -1045,6 +1275,10 @@ WHERE NOT EXISTS (SELECT 1 FROM agent_wakeups w WHERE w.agent_id = a.id)
 		dockerSamples := 0
 		rss := map[string]float64{}
 		measureEnd := windowStart.Add(time.Duration(stageSeconds-warmupSeconds) * time.Second)
+		var profileDone <-chan error
+		if profileDir != "" {
+			profileDone = loadCPUProfiles(ctx, workerMetricURLs, profileDir, stage, max(1, stageSeconds-warmupSeconds-1))
+		}
 		sampleTicker := time.NewTicker(3 * time.Second)
 		for time.Now().Before(measureEnd) {
 			var ready, locks int64
@@ -1088,6 +1322,9 @@ SELECT
 			}
 		}
 		sampleTicker.Stop()
+		if profileDone != nil {
+			require.NoError(t, <-profileDone)
+		}
 		mu.Lock()
 		windowEnd := time.Now()
 		endTurns := len(turnSamples)
@@ -1125,11 +1362,18 @@ SELECT
 		}
 		var databaseCores *float64
 		databaseCPUSource := "unavailable"
-		if pgCPUEnd, pgRSS := pgTreeCPU(); pgCPUStart > 0 && pgCPUEnd >= pgCPUStart {
-			cores["pg_native_cpu_live_processes"] = (pgCPUEnd - pgCPUStart) / window
-			databaseCores = new(cores["pg_native_cpu_live_processes"])
-			databaseCPUSource = "pg_native_cpu_live_processes"
-			rss["pg_native_sum_rss"] = pgRSS
+		pgCPUEnd := pgTreeCPU()
+		pgSeconds, exitedBackends := loadPGCPUDelta(pgCPUStart, pgCPUEnd)
+		pgWarning := ""
+		if pgSeconds != nil {
+			cores["pg_native_observed_live_pid_cpu_lower_bound"] = *pgSeconds / window
+			databaseCores = new(*pgSeconds / window)
+			databaseCPUSource = "ps_live_pid_deltas_lower_bound"
+			rss["pg_native_sum_rss"] = pgCPUEnd.rss
+			pgWarning = "ps excludes CPU after a sampled backend exits and backends born and exited between snapshots"
+			if *exitedBackends > 0 {
+				t.Logf("WARNING: %d starting Postgres PIDs exited; CPU is a lower bound", *exitedBackends)
+			}
 		}
 		for name, v := range dockerCPU {
 			label := strings.TrimPrefix(name, "omnara-loadtest-")
@@ -1213,7 +1457,25 @@ WHERE input.queued_at >= $1::timestamptz AND input.queued_at < $2::timestamptz`,
 		} else {
 			t.Log("query statistics deltas unavailable: missing or discontinuous snapshots")
 		}
+		requestBytesAvg, requestBytesP95, messagesAvg := model.requestWindow(windowStart, windowEnd)
+		var workerMS, transcriptEvents *float64
+		if providerRequests > 0 {
+			workerMS = new(cores["workers"] * window * 1000 / float64(providerRequests))
+			if deltas, ok := loadQueryDeltas(startQueries, endQueries); ok {
+				for _, stat := range deltas {
+					if stat.name == "ListContextEvents" {
+						transcriptEvents = new(float64(stat.rows) / float64(providerRequests))
+					}
+				}
+			}
+		}
 		result := loadStageResult{
+			RequestBodyBytesAvg: requestBytesAvg, RequestBodyBytesP95: requestBytesP95, MessagesAvg: messagesAvg,
+			WorkerCPUMSPerCall: workerMS, TranscriptEventsAvg: transcriptEvents,
+			PGExitedBackends: exitedBackends, PGCPUWarning: pgWarning,
+			HistorySeconds: historySeconds, HistoryEventsAvg: historyEventsAvg,
+			HistoryCompactionAvoidance: "reported_input_tokens_1",
+
 			AcceptedModelOutputs:       acceptedOutputs,
 			AcceptedModelOutputsPerSec: float64(acceptedOutputs) / window,
 			ProviderRequests:           providerRequests,
