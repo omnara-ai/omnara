@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -180,7 +179,7 @@ func (s *Store) claimNextAgentWork(
 			claim.LocalLeaseBudgetStartedAt = started
 			if err = unit.Commit(ctx, "claim agent work"); err != nil {
 				if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && len(completed) > 0 {
-					resolveCtx, cancel := cleanupcontext.Detach(ctx, 10*time.Second)
+					resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 					defer cancel()
 					for _, tool := range completed {
 						committed, resolveErr := tool.resolveCommitted(resolveCtx)

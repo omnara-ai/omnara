@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/cleanupcontext"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -164,7 +163,7 @@ func TestClaimNextAgentWorkReturnsDurablePreparedModel(t *testing.T) {
 
 func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 	for _, mode := range []string{
-		"before commit", "resolved", "newer claim", "resolution unavailable", "drain canceled",
+		"before commit", "resolved", "newer claim", "resolution unavailable", "resolution timeout",
 	} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
@@ -182,9 +181,7 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 						ResultContentParts: json.RawMessage(`[{"type":"text","text":"database result"}]`)}, true, nil
 				}, true, nil
 			}
-			drainCtx, endDrain := context.WithCancel(ctx)
-			defer endDrain()
-			claimCtx, stopClaiming := context.WithCancel(cleanupcontext.WithDrain(drainCtx, drainCtx))
+			claimCtx, stopClaiming := context.WithCancel(ctx)
 			defer stopClaiming()
 			armed := &atomic.Bool{}
 			armed.Store(true)
@@ -201,14 +198,14 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 					}
 				}}
 			})
-			resolving := make(chan struct{}, len(calls))
+			resolving := make(chan context.Context, len(calls))
 			f.Store.Execution().IntegrationWrapQueries(func(db dbsqlc.DBTX) dbsqlc.DBTX {
 				return stepResolutionQuery{DBTX: db, resolve: func(ctx context.Context) error {
-					resolving <- struct{}{}
+					resolving <- ctx
 					if mode == "resolution unavailable" {
 						return io.ErrClosedPipe
 					}
-					if mode == "drain canceled" {
+					if mode == "resolution timeout" {
 						<-ctx.Done()
 					}
 					return ctx.Err()
@@ -223,12 +220,20 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 				return result{claim, found}, err
 			})
 			select {
-			case <-resolving:
+			case resolveCtx := <-resolving:
+				require.ErrorIs(t, claimCtx.Err(), context.Canceled)
+				deadline, bounded := resolveCtx.Deadline()
+				require.True(t, bounded)
+				require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+				if mode == "resolution timeout" {
+					select {
+					case <-resolveCtx.Done():
+					case <-time.After(15 * time.Second):
+						t.Fatal("claim resolution exceeded its cleanup timeout")
+					}
+				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("claim did not resolve the tool result")
-			}
-			if mode == "drain canceled" {
-				endDrain()
 			}
 			outcome := integrationdb.Await(t, done, "database claim resolution")
 			if mode == "resolved" || mode == "newer claim" {
@@ -240,8 +245,8 @@ func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
 				require.False(t, outcome.Value.found)
 				require.Equal(t, executionstore.ClaimedAgentWork{}, outcome.Value.claim)
 			}
-			if mode == "drain canceled" {
-				require.ErrorIs(t, outcome.Err, context.Canceled)
+			if mode == "resolution timeout" {
+				require.ErrorIs(t, outcome.Err, context.DeadlineExceeded)
 			}
 			var results, leases, wakes int
 			require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT

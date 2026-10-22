@@ -63,19 +63,32 @@ func (s *Store) completeClaimedDatabaseTools(
 			return nil, databaseToolFallbackError(err)
 		}
 	}
-	for i, tx := range transactions {
-		if _, err := tx.completeToolCall(ctx, completions[i]); err != nil {
-			return nil, err
-		}
-		if !tx.applied {
-			return nil, storeerr.ErrStateTransitionConflict
-		}
-	}
 	if len(transactions) == 0 {
 		return nil, nil
 	}
 	h, err := unit.Handle(claim.ProjectID, claim.AgentID)
 	if err != nil {
+		return nil, err
+	}
+	complete := func() error {
+		for i, tx := range transactions {
+			if _, err := tx.completeToolCall(ctx, completions[i]); err != nil {
+				return err
+			}
+			if !tx.applied {
+				return storeerr.ErrStateTransitionConflict
+			}
+		}
+		return nil
+	}
+	if prepared.wholeBatch {
+		if err := h.CompleteClaimedToolBatch(ctx, claim.RuntimeLock.ID, claim.Tool.ModelOutputID,
+			prepared.databaseRows, complete); err != nil {
+			return nil, err
+		}
+		return transactions, nil
+	}
+	if err := complete(); err != nil {
 		return nil, err
 	}
 	finished, transferred, err := h.FinishToolBatch(ctx, claim.RuntimeLock.ID, claim.Tool.ModelOutputID)

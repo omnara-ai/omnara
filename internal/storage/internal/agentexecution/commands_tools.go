@@ -39,6 +39,12 @@ type CompletedTool struct {
 }
 
 func (h *Handle) tool(ctx context.Context, id uuid.UUID) (executiondb.ReadExecutionToolRow, error) {
+	if h.claimTools != nil {
+		if row, ok := h.claimTools.rows[id]; ok {
+			delete(h.claimTools.rows, id)
+			return row, nil
+		}
+	}
 	return executiondb.New().
 		ReadExecutionTool(ctx, h.unit.DB(), executiondb.ReadExecutionToolParams{AgentID: h.route.AgentID, ID: id})
 }
@@ -303,7 +309,12 @@ func (h *Handle) completeTool(
 		EventBoundary: EventBoundary{Sequence: event.Sequence, Time: event.CreatedAt},
 	}
 	batch := factsBatch{DBTX: h.unit.DB()}
-	h.queueTurnAdvance(ctx, &batch, admitted, false)
+	if h.claimTools == nil || len(h.claimTools.rows) == 0 {
+		h.queueTurnAdvance(ctx, &batch, admitted, false)
+		if h.claimTools != nil {
+			h.claimTools.turnAdvanced = true
+		}
+	}
 	interactions := q.CloseExecutionToolInteractions(ctx, &batch, []executiondb.CloseExecutionToolInteractionsParams{{
 		AgentID: h.route.AgentID, ToolID: row.ID,
 	}})
@@ -333,6 +344,10 @@ func (h *Handle) completeTool(
 			OpeningInputIds: row.OpeningInputIds, OpeningEventSequence: row.OpeningEventSequence,
 			OutputID: &row.ModelOutputID, OutputStopReason: &row.StopReason, OutputEventID: &row.SourceEventID,
 			OutputSequence: &row.SourceSequence, OutputCreatedAt: &row.OutputCreatedAt}}
+	}
+	if h.claimTools != nil {
+		h.claimTools.completed = append(h.claimTools.completed, CompletedTool{ID: row.ID, ResultID: id,
+			Event: admitted, Changed: true})
 	}
 	h.unit.Notifications().AddAgentEvent(h.route.AgentID, event.Sequence, "tool_result")
 	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "completed", interaction)

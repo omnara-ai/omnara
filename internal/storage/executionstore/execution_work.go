@@ -40,7 +40,11 @@ func shapeClaimedWork(
 		result.Kind = AgentWorkTool
 		result.Tool = ClaimedToolWork{TurnID: selected.TurnID, ModelCallContextID: selected.SourceContextID,
 			ModelOutputID: selected.OutputID, SourceEventID: selected.SourceEventID}
-		result.Tool.Prepared, err = prepareToolWorkTx(ctx, q, projectID, agentID, result.Tool, databaseTools)
+		known, loadErr := h.ClaimedToolContext(selected.SourceContextID)
+		if loadErr != nil {
+			return result, loadErr
+		}
+		result.Tool.Prepared, err = prepareToolWorkTx(ctx, q, projectID, agentID, result.Tool, databaseTools, known)
 		return result, err
 	}
 	selected := work.Selection.Model

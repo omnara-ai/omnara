@@ -93,7 +93,12 @@ WHERE o.agent_id=sqlc.arg(agent_id) AND o.id IN(sqlc.narg(tool_output_id)::uuid,
 )
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
 c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,
-o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
+ c.org_id,c.project_id,c.agent_config_id,c.configured_model_revision_id,c.runtime_lock_id,
+ c.api_format,c.api_variant,c.provider_request_id,c.provider_response_id,c.error_kind,c.error_code,c.error_message,c.error_details,
+ coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ c.input_tokens_total,c.uncached_input_tokens,c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
+ coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,c.created_at,c.completed_at,
+ o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
 o.sequence AS output_sequence,o.created_at AS output_created_at
 FROM model_call_contexts c LEFT JOIN outputs o ON o.model_call_context_id=c.id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=ANY(

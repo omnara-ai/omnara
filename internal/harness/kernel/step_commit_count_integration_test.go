@@ -64,9 +64,13 @@ subagents:
 			executor := AgentExecutor{Store: counted, ModelResolver: liveTestModelResolver(counted, client)}
 			if merged {
 				var revision uuid.UUID
-				require.NoError(t, f.Pool.QueryRow(ctx, `SELECT m.current_revision_id FROM agent_configs c JOIN configured_models m ON m.id=c.configured_model_id WHERE c.id=$1`, profile.CurrentConfigID).Scan(&revision))
-				resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(), Secrets: counted.Secrets()}, Client: client}
-				_, err = resolver.Resolve(ctx, model.Selection{OrgID: kernelTestOrgID.String(), ProjectID: kernelTestProjectID.String(), ConfiguredModelRevisionID: revision.String()})
+				require.NoError(t, f.Pool.QueryRow(ctx,
+					`SELECT m.current_revision_id FROM agent_configs c JOIN configured_models m ON m.id=c.configured_model_id WHERE c.id=$1`,
+					profile.CurrentConfigID).Scan(&revision))
+				resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(),
+					Secrets: counted.Secrets()}, Client: client}
+				_, err = resolver.Resolve(ctx, model.Selection{OrgID: kernelTestOrgID.String(),
+					ProjectID: kernelTestProjectID.String(), ConfiguredModelRevisionID: revision.String()})
 				require.NoError(t, err)
 				executor.ModelResolver = resolver
 				trace.Statements.Store(0)
@@ -156,16 +160,16 @@ subagents:
 			t.Logf("cycle trips=%d base=%d facts=%d contexts=%d",
 				trace.RoundTrips.Load(), trace.ExecutionBase.Load(), trace.ExecutionFacts.Load(), trace.ExecutionContexts.Load())
 			if merged && !inline {
-				require.EqualValues(t, 32, toolStatements, "merged list_agents statement count")
+				require.EqualValues(t, 30, toolStatements, "merged list_agents statement count")
 			}
 			if inline {
-				require.EqualValues(t, 25, toolStatements)
-				require.EqualValues(t, 23, trace.RoundTrips.Load()-modelTrips)
+				require.EqualValues(t, 21, toolStatements)
+				require.EqualValues(t, 19, trace.RoundTrips.Load()-modelTrips)
 				require.EqualValues(t, 0, trace.ExecutionBase.Load())
 				require.EqualValues(t, 3, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
 			} else if merged {
-				require.EqualValues(t, 30, trace.RoundTrips.Load()-modelTrips)
+				require.EqualValues(t, 28, trace.RoundTrips.Load()-modelTrips)
 				require.EqualValues(t, 1, trace.ExecutionBase.Load())
 				require.EqualValues(t, 4, trace.ExecutionFacts.Load())
 				require.EqualValues(t, 1, trace.ExecutionContexts.Load())
@@ -215,12 +219,14 @@ func databaseToolClaimFixture(t *testing.T, calls []model.ToolCall, extra string
 	return databaseToolClaimFixtureWithWebhook(t, calls, extra, true)
 }
 
-func databaseToolClaimFixtureWithWebhook(t *testing.T, calls []model.ToolCall, extra string, webhook bool) (kernelFixture, uuid.UUID) {
+func databaseToolClaimFixtureWithWebhook(t *testing.T, calls []model.ToolCall, extra string,
+	webhook bool) (kernelFixture, uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
 	if webhook {
-		extra += "\nevent_webhook:\n  url: https://example.com/events\n  events: [model_output, tool_call_update, tool_result]\n"
+		extra += "\nevent_webhook:\n  url: https://example.com/events\n" +
+			"  events: [model_output, tool_call_update, tool_result]\n"
 	}
 	profile := f.createConfigAndProfileBookmark(t, ctx, "Database tools", "database-tools", `instruction: Use tools.
 model:
@@ -323,7 +329,25 @@ func TestDatabaseToolClaimBatchAndFallback(t *testing.T) {
 			}, test.extra)
 			input := kernelTestClaimInput(f.Now)
 			input.DatabaseTools = tools.PlanDatabaseTool
-			claim, found, err := f.Store.Execution().ClaimNextAgentWork(t.Context(), input)
+			var advances, toolReads, contextReads atomic.Int64
+			trace := &integrationdb.QueryTrace{OnQuery: func(sql string) {
+				if strings.Contains(sql, "name: AdvanceExecutionTurn ") {
+					advances.Add(1)
+				}
+				if strings.Contains(sql, "name: ReadExecutionTool ") {
+					toolReads.Add(1)
+				}
+				if strings.Contains(sql, "name: GetModelCallContext ") {
+					contextReads.Add(1)
+				}
+			}}
+			config := f.Pool.Config()
+			config.ConnConfig.Tracer = trace
+			pool, err := pgxpool.NewWithConfig(t.Context(), config)
+			require.NoError(t, err)
+			defer pool.Close()
+			counted := storage.NewStore(pool)
+			claim, found, err := counted.Execution().ClaimNextAgentWork(t.Context(), input)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentWorkTool, claim.Kind)
@@ -335,6 +359,9 @@ func TestDatabaseToolClaimBatchAndFallback(t *testing.T) {
     (SELECT count(*) FROM model_call_contexts WHERE agent_id=$1)`, agentID).Scan(&results, &leases, &wakes, &attempts))
 			require.Equal(t, 1, attempts)
 			if test.finished {
+				require.EqualValues(t, 1, advances.Load())
+				require.Zero(t, toolReads.Load())
+				require.Zero(t, contextReads.Load())
 				require.Equal(t, executionstore.StepFinished, claim.StepDisposition)
 				require.Equal(t, 2, results)
 				require.Zero(t, leases)
@@ -534,8 +561,11 @@ func TestProductionContinueStepStatements(t *testing.T) {
 	defer pool.Close()
 	counted := storage.NewStore(pool, storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)))
 	client := &sequenceKernelModel{providerModelSlug: "database-tools", responses: []model.Response{{ID: "continued", StopReason: model.StopReasonToolUse, Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{{ID: "continued-tool", Name: "list_agents", Input: json.RawMessage(`{}`)}})}}}
-	resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(), Secrets: counted.Secrets()}, Client: client}
-	_, err = resolver.Resolve(ctx, model.Selection{OrgID: finished.OrgID.String(), ProjectID: finished.ProjectID.String(), ConfiguredModelRevisionID: finished.Tool.Prepared.Context.ConfiguredModelRevisionID.String()})
+	resolver := &productionPolicyTestResolver{Resolver: modelprovider.Resolver{Models: counted.Models(),
+		Secrets: counted.Secrets()}, Client: client}
+	_, err = resolver.Resolve(ctx, model.Selection{OrgID: finished.OrgID.String(),
+		ProjectID:                 finished.ProjectID.String(),
+		ConfiguredModelRevisionID: finished.Tool.Prepared.Context.ConfiguredModelRevisionID.String()})
 	require.NoError(t, err)
 	beforeStatements, beforeTrips, beforeCommits := trace.Statements.Load(), trace.RoundTrips.Load(), trace.Commits.Load()
 	claim, found, err := counted.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
@@ -547,9 +577,48 @@ func TestProductionContinueStepStatements(t *testing.T) {
 	disposition, err := executor.ExecuteModelWorkStep(ctx, modelWorkExecutionFromClaimForKernelTest(claim, f.Now))
 	require.NoError(t, err)
 	require.Equal(t, executionstore.StepFinished, disposition)
-	statements, trips, commits := trace.Statements.Load()-beforeStatements, trace.RoundTrips.Load()-beforeTrips, trace.Commits.Load()-beforeCommits
+	statements, trips, commits := trace.Statements.Load()-beforeStatements,
+		trace.RoundTrips.Load()-beforeTrips, trace.Commits.Load()-beforeCommits
 	t.Logf("production continue: statements=%d round_trips=%d commits=%d", statements, trips, commits)
 	require.EqualValues(t, 33, statements)
 	require.EqualValues(t, 26, trips)
 	require.EqualValues(t, 2, commits)
+}
+
+func TestDatabaseToolClaimKeepsEarlierResults(t *testing.T) {
+	ctx := t.Context()
+	f, agentID := databaseToolClaimFixture(t, []model.ToolCall{
+		{ID: "first", Name: "list_agents", Input: json.RawMessage(`{}`)},
+		{ID: "second", Name: "list_agents", Input: json.RawMessage(`{}`)},
+	}, "")
+	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = f.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+		RootAgentID: claim.RootAgentID, ProjectID: claim.ProjectID, AgentID: claim.AgentID,
+		ToolCallID: claim.Tool.Prepared.FirstCall.ID, RuntimeLockID: claim.RuntimeLock.ID, Authorize: true,
+	}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		return executionstore.CompleteToolCallInExecution(executionstore.ToolCallCompletionInput{
+			Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: json.RawMessage(`[{"type":"text","text":"first"}]`),
+		}), nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLockForStep(ctx, claim.ProjectID, agentID,
+		claim.RootAgentID, claim.RuntimeLock.ID))
+	input := kernelTestClaimInput(f.Now)
+	input.DatabaseTools = tools.PlanDatabaseTool
+	remaining, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, input)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.StepFinished, remaining.StepDisposition)
+	for _, state := range []string{"awaiting_authorization", "ready", "completed"} {
+		var count int
+		require.NoError(t, f.Pool.QueryRow(ctx,
+			`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1 AND tool_state=$2`, agentID, state).Scan(&count))
+		require.Equal(t, 2, count)
+	}
+	next, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(f.Now))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.ModelWorkContinue, next.Model.Kind)
 }

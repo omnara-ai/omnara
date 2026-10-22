@@ -8,6 +8,7 @@ import (
 )
 
 type Handle struct {
+	claimTools      *claimedToolBatch
 	claimBase       *executiondb.LoadExecutionBaseRow
 	claimBoundary   *executiondb.ExecutionPreparationBoundaryRow
 	claimUnleased   bool

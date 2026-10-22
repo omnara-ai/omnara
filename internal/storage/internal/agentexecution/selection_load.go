@@ -27,6 +27,7 @@ type ExecutionHead struct {
 }
 
 type ExecutionSnapshot struct {
+	contexts    []executiondb.LoadExecutionContextsRow
 	Head        ExecutionHead
 	View        ExecutionView
 	Selection   Selection

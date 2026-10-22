@@ -16,16 +16,16 @@ type PreparedToolWork struct {
 	Config          AgentConfigRecord
 	FirstCall       *ToolCallRecord
 	databaseCalls   []ToolCallRecord
+	databaseRows    []dbsqlc.ListClaimToolCallsRow
+	wholeBatch      bool
 	databaseBlocked bool
 }
 
 func prepareToolWorkTx(
-	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID, work ClaimedToolWork, databaseTools bool,
+	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID, work ClaimedToolWork,
+	databaseTools bool, known dbsqlc.GetModelCallContextRow,
 ) (*PreparedToolWork, error) {
-	model, err := loadModelCallContextByID(ctx, q, projectID, agentID, work.ModelCallContextID)
-	if err != nil {
-		return nil, err
-	}
+	model := modelCallContextRecordFromSQLC(known)
 	if model.State != ModelCallContextSucceeded {
 		return nil, storeerr.ErrStateTransitionConflict
 	}
@@ -41,6 +41,8 @@ func prepareToolWorkTx(
 		if err != nil {
 			return nil, fmt.Errorf("load claimed tool batch: %w", err)
 		}
+		result.databaseRows = rows
+		result.wholeBatch = len(rows) > 0 && rows[0].WholeBatch
 		for _, row := range rows {
 			record := ToolCallRecord{
 				ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, TurnID: row.TurnID,

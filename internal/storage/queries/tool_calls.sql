@@ -200,13 +200,21 @@ SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
   call.model_call_context_id,
   call.provider_call_id, call.name, call.input,
-  call.type, call.state,
+  call.type, call.state,call.model_output_id,
+  context.operation_kind,context.attempt_number,context.input_event_sequence,context.source_event_sequence_end,
+  context.state AS context_state,context.recovery_kind,context.retry_at,context.opening_input_ids,context.opening_event_sequence,
+  output.stop_reason,output.created_at AS output_created_at,source.sequence AS source_sequence,
+  NOT EXISTS(SELECT 1 FROM tool_calls sibling WHERE sibling.agent_id=call.agent_id
+    AND sibling.model_output_id=call.model_output_id AND sibling.state='completed') AS whole_batch,count(*) OVER()::bigint AS batch_count,
   ''::text AS outcome, call.runtime_lock_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at, NULL::timestamptz AS completed_at,
   EXISTS(SELECT 1 FROM agent_interactions i WHERE i.agent_id=call.agent_id
     AND i.tool_call_id=call.id AND i.interaction_kind='permission') AS has_permission
 FROM tool_call_read_projection call
+JOIN model_outputs output ON output.agent_id=call.agent_id AND output.id=call.model_output_id
+JOIN model_call_contexts context ON context.agent_id=call.agent_id AND context.id=call.model_call_context_id
+JOIN agent_events source ON source.agent_id=call.agent_id AND source.model_output_id=call.model_output_id
 LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
   AND call_block.tool_call_id = call.id
   AND call_block.block_kind = 'tool_call'
