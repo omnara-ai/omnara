@@ -15,10 +15,11 @@ func loadExecution(
 	db executiondb.DBTX,
 	route AgentRoute,
 	override *ExecutionHead,
+	known ...executiondb.LoadExecutionContextsRow,
 ) (ExecutionSnapshot, error) {
 	q := executiondb.New()
 	if override != nil {
-		return loadExecutionFacts(ctx, db, route, *override)
+		return loadExecutionFacts(ctx, db, route, *override, known...)
 	}
 	base, err := q.LoadExecutionBase(ctx, db, executiondb.LoadExecutionBaseParams{
 		ProjectID: route.ProjectID, AgentID: route.AgentID,
@@ -35,10 +36,10 @@ func loadExecution(
 func loadExecutionFacts(ctx context.Context,
 	db executiondb.DBTX,
 	route AgentRoute,
-	head ExecutionHead) (ExecutionSnapshot,
+	head ExecutionHead, known ...executiondb.LoadExecutionContextsRow) (ExecutionSnapshot,
 	error) {
 	batch := factsBatch{DBTX: db}
-	facts := batch.queue(ctx, route, head)
+	facts := batch.queue(ctx, route, head, known...)
 	if err := batch.read(ctx); err != nil {
 		return ExecutionSnapshot{}, err
 	}
@@ -143,5 +144,5 @@ func executionSnapshot(route AgentRoute, head ExecutionHead, facts executionFact
 	}
 	head.IncompleteTools = selected.IncompleteTools
 	head.LogicalReadyAt = selected.LogicalReadyAt
-	return ExecutionSnapshot{Head: head, View: view, Selection: selected, databaseNow: now}, nil
+	return ExecutionSnapshot{Head: head, View: view, Selection: selected, databaseNow: now, contexts: facts.contexts}, nil
 }

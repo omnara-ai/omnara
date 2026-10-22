@@ -39,6 +39,7 @@ type MoveQueuedBacklogInputInput struct {
 }
 
 type ClaimNextAgentWorkInput struct {
+	DatabaseTools   DatabaseToolPlanner
 	WorkerProcessID uuid.UUID
 	LeaseDuration   time.Duration
 }
@@ -80,6 +81,7 @@ type ClaimedToolWork struct {
 }
 
 type ClaimedAgentWork struct {
+	StepDisposition           StepDisposition
 	RootAgentID               uuid.UUID
 	LocalLeaseBudgetStartedAt time.Time
 	OrgID                     uuid.UUID
@@ -147,7 +149,9 @@ func (s *Store) claimNextAgentWork(
 			if err := applyAdmissionDestination(ctx, unit, route.ProjectID, route.AgentID, work.Admission); err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
-			claim, err := shapeClaimedWork(ctx, unit, route.ProjectID, route.AgentID, work)
+			claim, err := shapeClaimedWork(
+				ctx, unit, route.ProjectID, route.AgentID, work, prepare && input.DatabaseTools != nil,
+			)
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
@@ -162,8 +166,29 @@ func (s *Store) claimNextAgentWork(
 				}
 				claim.Model.Prepared = &prepared
 			}
+			var completed []*toolCallTransaction
+			if prepare && claim.Kind == AgentWorkTool {
+				completed, err = s.completeClaimedDatabaseTools(ctx, unit, claim, input.DatabaseTools)
+				if err != nil {
+					return executionResult{}, err
+				}
+				if len(completed) > 0 {
+					claim.StepDisposition = StepFinished
+				}
+			}
 			claim.LocalLeaseBudgetStartedAt = started
 			if err = unit.Commit(ctx, "claim agent work"); err != nil {
+				if errors.Is(err, storeerr.ErrCommitOutcomeUnknown) && len(completed) > 0 {
+					resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+					defer cancel()
+					for _, tool := range completed {
+						committed, resolveErr := tool.resolveCommitted(resolveCtx)
+						if resolveErr != nil || !committed {
+							return executionResult{}, errors.Join(err, resolveErr)
+						}
+					}
+					return executionResult{claim, true}, nil
+				}
 				return executionResult{ClaimedAgentWork{}, false}, err
 			}
 			return executionResult{claim, true}, nil

@@ -67,6 +67,11 @@ type IntegrationStore interface {
 	) (map[uuid.UUID]agentconfig.IntegrationResolution, error)
 }
 
+type ToolSpecStore interface {
+	IntegrationStore
+	ListAgentMCPConnections(context.Context, uuid.UUID, uuid.UUID) ([]executionstore.MCPConnectionRecord, error)
+}
+
 type Store interface {
 	IntegrationStore
 	ArtifactStore

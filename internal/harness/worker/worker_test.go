@@ -1363,3 +1363,12 @@ func TestWorkerCancellationPreservesIndependentCleanupTimeouts(t *testing.T) {
 		require.ErrorIs(t, late.Err(), context.DeadlineExceeded)
 	})
 }
+
+func TestWorkerSkipsFinishedDatabaseClaim(t *testing.T) {
+	w := &Worker{}
+	err := w.executeClaimedWork(t.Context(), executionstore.ClaimedAgentWork{
+		Kind: executionstore.AgentWorkTool, StepDisposition: executionstore.StepFinished,
+		AgentID: uuid.New(), ProjectID: uuid.New(), RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+	}, time.Time{})
+	require.NoError(t, err)
+}

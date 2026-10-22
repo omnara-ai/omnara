@@ -7,6 +7,7 @@ package executiondb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -18,6 +19,280 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
+const advanceExecutionTurn = `-- name: AdvanceExecutionTurn :batchone
+UPDATE agent_turns SET latest_event_id=$1,
+ latest_semantic_event_id=CASE WHEN $2::boolean THEN $1 ELSE latest_semantic_event_id END
+WHERE agent_id=$3 AND id=$4
+RETURNING id
+`
+
+type AdvanceExecutionTurnBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type AdvanceExecutionTurnParams struct {
+	EventID  uuid.UUID
+	Semantic bool
+	AgentID  uuid.UUID
+	TurnID   uuid.UUID
+}
+
+func (q *Queries) AdvanceExecutionTurn(ctx context.Context, db DBTX, arg []AdvanceExecutionTurnParams) *AdvanceExecutionTurnBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.EventID,
+			a.Semantic,
+			a.AgentID,
+			a.TurnID,
+		}
+		batch.Queue(advanceExecutionTurn, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &AdvanceExecutionTurnBatchResults{br, len(arg), false}
+}
+
+func (b *AdvanceExecutionTurnBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *AdvanceExecutionTurnBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const closeExecutionToolInteractions = `-- name: CloseExecutionToolInteractions :batchmany
+UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
+WHERE agent_id=$1 AND tool_call_id=$2 AND state='open'
+RETURNING id,interaction_kind,state
+`
+
+type CloseExecutionToolInteractionsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CloseExecutionToolInteractionsParams struct {
+	AgentID uuid.UUID
+	ToolID  uuid.UUID
+}
+
+type CloseExecutionToolInteractionsRow struct {
+	ID              uuid.UUID
+	InteractionKind string
+	State           string
+}
+
+func (q *Queries) CloseExecutionToolInteractions(ctx context.Context, db DBTX, arg []CloseExecutionToolInteractionsParams) *CloseExecutionToolInteractionsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ToolID,
+		}
+		batch.Queue(closeExecutionToolInteractions, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &CloseExecutionToolInteractionsBatchResults{br, len(arg), false}
+}
+
+func (b *CloseExecutionToolInteractionsBatchResults) Query(f func(int, []CloseExecutionToolInteractionsRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []CloseExecutionToolInteractionsRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i CloseExecutionToolInteractionsRow
+				if err := rows.Scan(&i.ID, &i.InteractionKind, &i.State); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *CloseExecutionToolInteractionsBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const createExecutionToolProposal = `-- name: CreateExecutionToolProposal :batchone
+INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT $1,$2,o.id,$3,$4,$5::jsonb,
+ $6,'awaiting_authorization',o.created_at FROM model_outputs o
+ WHERE o.agent_id=$2 AND o.id=$7
+ RETURNING id,created_at,state
+`
+
+type CreateExecutionToolProposalBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CreateExecutionToolProposalParams struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	OutputID       uuid.UUID
+}
+
+type CreateExecutionToolProposalRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+	State     string
+}
+
+func (q *Queries) CreateExecutionToolProposal(ctx context.Context, db DBTX, arg []CreateExecutionToolProposalParams) *CreateExecutionToolProposalBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.ProviderCallID,
+			a.Name,
+			a.Input,
+			a.Type,
+			a.OutputID,
+		}
+		batch.Queue(createExecutionToolProposal, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &CreateExecutionToolProposalBatchResults{br, len(arg), false}
+}
+
+func (b *CreateExecutionToolProposalBatchResults) QueryRow(f func(int, CreateExecutionToolProposalRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i CreateExecutionToolProposalRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.CreatedAt, &i.State)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *CreateExecutionToolProposalBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const findExecutionOutput = `-- name: FindExecutionOutput :batchone
+SELECT o.id,o.served_provider_model_slug,o.stop_reason,o.provider_replay,e.id AS event_id,e.turn_id,e.sequence,e.created_at
+FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
+WHERE o.agent_id=$1 AND o.model_call_context_id=$2
+`
+
+type FindExecutionOutputBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type FindExecutionOutputParams struct {
+	AgentID   uuid.UUID
+	ContextID uuid.UUID
+}
+
+type FindExecutionOutputRow struct {
+	ID                      uuid.UUID
+	ServedProviderModelSlug string
+	StopReason              string
+	ProviderReplay          *json.RawMessage
+	EventID                 uuid.UUID
+	TurnID                  uuid.UUID
+	Sequence                int64
+	CreatedAt               time.Time
+}
+
+func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg []FindExecutionOutputParams) *FindExecutionOutputBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ContextID,
+		}
+		batch.Queue(findExecutionOutput, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &FindExecutionOutputBatchResults{br, len(arg), false}
+}
+
+func (b *FindExecutionOutputBatchResults) QueryRow(f func(int, FindExecutionOutputRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i FindExecutionOutputRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(
+			&i.ID,
+			&i.ServedProviderModelSlug,
+			&i.StopReason,
+			&i.ProviderReplay,
+			&i.EventID,
+			&i.TurnID,
+			&i.Sequence,
+			&i.CreatedAt,
+		)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *FindExecutionOutputBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const loadExecutionContexts = `-- name: LoadExecutionContexts :batchmany
 WITH outputs AS (
 SELECT o.id,o.model_call_context_id,o.stop_reason,e.id AS event_id,e.sequence,e.created_at
@@ -26,7 +301,12 @@ WHERE o.agent_id=$1 AND o.id IN($4::uuid,$5::uuid)
 )
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
 c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,
-o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
+ c.org_id,c.project_id,c.agent_config_id,c.configured_model_revision_id,c.runtime_lock_id,
+ c.api_format,c.api_variant,c.provider_request_id,c.provider_response_id,c.error_kind,c.error_code,c.error_message,c.error_details,
+ coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ c.input_tokens_total,c.uncached_input_tokens,c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
+ coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,c.created_at,c.completed_at,
+ o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
 o.sequence AS output_sequence,o.created_at AS output_created_at
 FROM model_call_contexts c LEFT JOIN outputs o ON o.model_call_context_id=c.id
 WHERE c.agent_id=$1 AND c.id=ANY(
@@ -49,23 +329,47 @@ type LoadExecutionContextsParams struct {
 }
 
 type LoadExecutionContextsRow struct {
-	ID                     uuid.UUID
-	AgentID                uuid.UUID
-	TurnID                 uuid.UUID
-	OperationKind          string
-	AttemptNumber          int32
-	InputEventSequence     int64
-	SourceEventSequenceEnd *int64
-	State                  string
-	RecoveryKind           *string
-	RetryAt                *time.Time
-	OpeningInputIds        []uuid.UUID
-	OpeningEventSequence   int64
-	OutputID               *uuid.UUID
-	OutputStopReason       *string
-	OutputEventID          *uuid.UUID
-	OutputSequence         *int64
-	OutputCreatedAt        *time.Time
+	ID                        uuid.UUID
+	AgentID                   uuid.UUID
+	TurnID                    uuid.UUID
+	OperationKind             string
+	AttemptNumber             int32
+	InputEventSequence        int64
+	SourceEventSequenceEnd    *int64
+	State                     string
+	RecoveryKind              *string
+	RetryAt                   *time.Time
+	OpeningInputIds           []uuid.UUID
+	OpeningEventSequence      int64
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+	AgentConfigID             uuid.UUID
+	ConfiguredModelRevisionID uuid.UUID
+	RuntimeLockID             uuid.UUID
+	ApiFormat                 string
+	ApiVariant                string
+	ProviderRequestID         string
+	ProviderResponseID        string
+	ErrorKind                 string
+	ErrorCode                 string
+	ErrorMessage              string
+	ErrorDetails              json.RawMessage
+	InputFingerprint          string
+	InputTokensTotal          *int32
+	UncachedInputTokens       *int32
+	CacheReadInputTokens      *int32
+	CacheWriteInputTokens     *int32
+	OutputTokensTotal         *int32
+	ReasoningOutputTokens     *int32
+	ProviderReportedCostUsd   string
+	ProviderMetadata          json.RawMessage
+	CreatedAt                 time.Time
+	CompletedAt               *time.Time
+	OutputID                  *uuid.UUID
+	OutputStopReason          *string
+	OutputEventID             *uuid.UUID
+	OutputSequence            *int64
+	OutputCreatedAt           *time.Time
 }
 
 func (q *Queries) LoadExecutionContexts(ctx context.Context, db DBTX, arg []LoadExecutionContextsParams) *LoadExecutionContextsBatchResults {
@@ -115,6 +419,30 @@ func (b *LoadExecutionContextsBatchResults) Query(f func(int, []LoadExecutionCon
 					&i.RetryAt,
 					&i.OpeningInputIds,
 					&i.OpeningEventSequence,
+					&i.OrgID,
+					&i.ProjectID,
+					&i.AgentConfigID,
+					&i.ConfiguredModelRevisionID,
+					&i.RuntimeLockID,
+					&i.ApiFormat,
+					&i.ApiVariant,
+					&i.ProviderRequestID,
+					&i.ProviderResponseID,
+					&i.ErrorKind,
+					&i.ErrorCode,
+					&i.ErrorMessage,
+					&i.ErrorDetails,
+					&i.InputFingerprint,
+					&i.InputTokensTotal,
+					&i.UncachedInputTokens,
+					&i.CacheReadInputTokens,
+					&i.CacheWriteInputTokens,
+					&i.OutputTokensTotal,
+					&i.ReasoningOutputTokens,
+					&i.ProviderReportedCostUsd,
+					&i.ProviderMetadata,
+					&i.CreatedAt,
+					&i.CompletedAt,
 					&i.OutputID,
 					&i.OutputStopReason,
 					&i.OutputEventID,
@@ -139,11 +467,19 @@ func (b *LoadExecutionContextsBatchResults) Close() error {
 }
 
 const loadExecutionFacts = `-- name: LoadExecutionFacts :batchone
-WITH batch AS (
-SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2) AS has_tools,
-EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2 AND c.state<>'completed') AS incomplete,
-EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$2
-AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE $2::uuid IS NOT NULL) present
+WITH turn_openings AS MATERIALIZED (
+ SELECT x.sequence,x.agent_input_id FROM agent_events x
+ WHERE x.agent_id=$1 AND x.turn_id=$2 AND x.is_opening_event
+), opening_bounds AS MATERIALIZED (
+ SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+ min(x.sequence) FILTER (WHERE (SELECT i.input_kind FROM agent_inputs i
+ WHERE i.agent_id=$1 AND i.id=x.agent_input_id)='content') AS first_content_sequence
+ FROM turn_openings x
+), batch AS (
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$3) AS has_tools,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$3 AND c.state<>'completed') AS incomplete,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=$1 AND c.model_output_id=$3
+AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE $3::uuid IS NOT NULL) present
 ), tool_batch AS (
 SELECT b.has_tools,b.incomplete,b.runnable,coalesce(r.calls,0)::bigint AS calls,coalesce(r.results,0)::bigint AS results,
 coalesce(r.events,0)::bigint AS events,coalesce(r.last_sequence,0)::bigint AS last_sequence,
@@ -153,7 +489,7 @@ SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::
 max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
 FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
+WHERE c.agent_id=$1 AND c.model_output_id=$3 AND NOT b.incomplete
 ) r ON NOT b.incomplete
 ), scope AS MATERIALIZED (
  SELECT a.id,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now,t.id AS turn_id,
@@ -167,14 +503,9 @@ WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
  coalesce(o.first_opening_sequence,0)::bigint AS first_opening_sequence,
  coalesce(o.last_opening_sequence,0)::bigint AS last_opening_sequence,
  coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
- FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$3
+ FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=$2
  LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
- LEFT JOIN LATERAL (
-  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
-   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
-  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
-  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ) o ON true
+ LEFT JOIN opening_bounds o ON true
  WHERE a.id=$1 AND a.project_id=$4
 ) , boundary AS MATERIALIZED (
     SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=$1
@@ -192,7 +523,7 @@ WHERE c.agent_id=$1 AND c.model_output_id=$2 AND NOT b.incomplete
     SELECT id,sequence,created_at FROM unanswered
     UNION ALL
     SELECT i.id,e.sequence,e.created_at FROM boundary b
-    JOIN agent_events e ON e.agent_id=$1 AND e.turn_id=$3 AND e.is_opening_event
+    JOIN agent_events e ON e.agent_id=$1 AND e.turn_id=$2 AND e.is_opening_event
         AND e.sequence<=(SELECT last_opening_sequence FROM scope)
     JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
         AND i.input_kind='content' AND i.state='resolved' AND i.admitted_event_id=e.id
@@ -219,8 +550,8 @@ type LoadExecutionFactsBatchResults struct {
 
 type LoadExecutionFactsParams struct {
 	AgentID                 uuid.UUID
-	ToolOutputID            *uuid.UUID
 	TurnID                  *uuid.UUID
+	ToolOutputID            *uuid.UUID
 	ProjectID               uuid.UUID
 	StopSequence            int64
 	MaxContextInputSequence int64
@@ -257,8 +588,8 @@ func (q *Queries) LoadExecutionFacts(ctx context.Context, db DBTX, arg []LoadExe
 	for _, a := range arg {
 		vals := []interface{}{
 			a.AgentID,
-			a.ToolOutputID,
 			a.TurnID,
+			a.ToolOutputID,
 			a.ProjectID,
 			a.StopSequence,
 			a.MaxContextInputSequence,
@@ -590,6 +921,467 @@ func (b *PublishExecutionBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
 }
 
 func (b *PublishExecutionBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionContent = `-- name: QueueExecutionContent :batchone
+WITH payload AS MATERIALIZED (
+ SELECT agent_payload_created_at($1,$2,$3,
+ coalesce($4::uuid,$5::uuid,$6::uuid),false) AS created_at
+), inserted AS (
+INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,
+ ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
+SELECT $2,$3,$4,$5,$6,
+ p.ordinal,p.kind,p.text,p.data::jsonb,p.artifact_id,p.tool_id,p.exclude,p.metadata,payload.created_at
+FROM payload CROSS JOIN jsonb_to_recordset($7::jsonb) AS p(ordinal integer,kind text,text text,data text,
+ artifact_id uuid,tool_id uuid,exclude boolean,metadata jsonb) RETURNING 1
+) SELECT count(*)::bigint FROM inserted
+`
+
+type QueueExecutionContentBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionContentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	OwnerKind string
+	InputID   *uuid.UUID
+	OutputID  *uuid.UUID
+	ResultID  *uuid.UUID
+	Parts     json.RawMessage
+}
+
+func (q *Queries) QueueExecutionContent(ctx context.Context, db DBTX, arg []QueueExecutionContentParams) *QueueExecutionContentBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ProjectID,
+			a.AgentID,
+			a.OwnerKind,
+			a.InputID,
+			a.OutputID,
+			a.ResultID,
+			a.Parts,
+		}
+		batch.Queue(queueExecutionContent, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionContentBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionContentBatchResults) QueryRow(f func(int, int64, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var column_1 int64
+		if b.closed {
+			if f != nil {
+				f(t, column_1, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&column_1)
+		if f != nil {
+			f(t, column_1, err)
+		}
+	}
+}
+
+func (b *QueueExecutionContentBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionEvent = `-- name: QueueExecutionEvent :batchone
+WITH payload AS MATERIALIZED (
+ SELECT agent_payload_created_at($11,$2,CASE WHEN $8::uuid IS NOT NULL THEN 'tool_call_result' ELSE $4 END,
+ coalesce($5::uuid,$6::uuid,$7::uuid,$8::uuid),true) AS created_at
+), allocated AS (
+ UPDATE agents SET next_event_sequence=next_event_sequence+1 WHERE id=$2
+ RETURNING next_event_sequence-1 AS sequence
+)
+INSERT INTO agent_events(id,agent_id,turn_id,sequence,event_kind,agent_input_id,model_output_id,
+ context_checkpoint_id,tool_call_result_id,is_opening_event,created_at,idempotency_key)
+SELECT $1,$2,$3,sequence,$4,$5,
+ $6,$7,$8,$9,payload.created_at,
+ $10 FROM allocated CROSS JOIN payload
+RETURNING id,sequence,created_at
+`
+
+type QueueExecutionEventBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionEventParams struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         *uuid.UUID
+	Kind           string
+	InputID        *uuid.UUID
+	OutputID       *uuid.UUID
+	CheckpointID   *uuid.UUID
+	ResultID       *uuid.UUID
+	Opening        bool
+	IdempotencyKey *string
+	ProjectID      uuid.UUID
+}
+
+type QueueExecutionEventRow struct {
+	ID        uuid.UUID
+	Sequence  int64
+	CreatedAt time.Time
+}
+
+func (q *Queries) QueueExecutionEvent(ctx context.Context, db DBTX, arg []QueueExecutionEventParams) *QueueExecutionEventBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.TurnID,
+			a.Kind,
+			a.InputID,
+			a.OutputID,
+			a.CheckpointID,
+			a.ResultID,
+			a.Opening,
+			a.IdempotencyKey,
+			a.ProjectID,
+		}
+		batch.Queue(queueExecutionEvent, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionEventBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionEventBatchResults) QueryRow(f func(int, QueueExecutionEventRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i QueueExecutionEventRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.Sequence, &i.CreatedAt)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *QueueExecutionEventBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionOutput = `-- name: QueueExecutionOutput :batchone
+INSERT INTO model_outputs(id,agent_id,model_call_context_id,served_provider_model_slug,stop_reason,provider_replay,created_at)
+VALUES($1,$2,$3,$4,$5,$6::jsonb,statement_timestamp())
+RETURNING id,created_at
+`
+
+type QueueExecutionOutputBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionOutputParams struct {
+	ID          uuid.UUID
+	AgentID     uuid.UUID
+	ContextID   uuid.UUID
+	ServedModel string
+	StopReason  string
+	Replay      *json.RawMessage
+}
+
+type QueueExecutionOutputRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) QueueExecutionOutput(ctx context.Context, db DBTX, arg []QueueExecutionOutputParams) *QueueExecutionOutputBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.AgentID,
+			a.ContextID,
+			a.ServedModel,
+			a.StopReason,
+			a.Replay,
+		}
+		batch.Queue(queueExecutionOutput, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionOutputBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionOutputBatchResults) QueryRow(f func(int, QueueExecutionOutputRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var i QueueExecutionOutputRow
+		if b.closed {
+			if f != nil {
+				f(t, i, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&i.ID, &i.CreatedAt)
+		if f != nil {
+			f(t, i, err)
+		}
+	}
+}
+
+func (b *QueueExecutionOutputBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionRelease = `-- name: QueueExecutionRelease :batchone
+DELETE FROM agent_runtime_locks WHERE agent_id=$1 AND id=$2 RETURNING id
+`
+
+type QueueExecutionReleaseBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionReleaseParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) QueueExecutionRelease(ctx context.Context, db DBTX, arg []QueueExecutionReleaseParams) *QueueExecutionReleaseBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ID,
+		}
+		batch.Queue(queueExecutionRelease, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionReleaseBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionReleaseBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *QueueExecutionReleaseBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const queueExecutionSuccess = `-- name: QueueExecutionSuccess :batchone
+UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
+ retry_at=CASE WHEN $3::bigint IS NULL THEN NULL
+ ELSE statement_timestamp()+$3::bigint*interval '1 microsecond' END,
+ api_format=$4,api_variant=$5,provider_request_id=$6,
+ provider_response_id=$7,error_kind=$8,error_code=$9,
+ error_message=$10,error_details=$11::jsonb,
+ input_tokens_total=$12::integer,uncached_input_tokens=$13::integer,
+ cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
+ output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
+ provider_reported_cost_usd=$18::text::numeric,provider_metadata=$19::jsonb,
+ input_fingerprint=$20::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$21 AND c.id=$22 AND c.state='started' AND c.runtime_lock_id=$23
+ AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
+ AND r.id=$23 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp()) RETURNING c.id
+`
+
+type QueueExecutionSuccessBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type QueueExecutionSuccessParams struct {
+	State             string
+	Recovery          *string
+	RetryMicroseconds *int64
+	ApiFormat         string
+	ApiVariant        string
+	RequestID         string
+	ResponseID        string
+	ErrorKind         string
+	ErrorCode         string
+	ErrorMessage      string
+	ErrorDetails      json.RawMessage
+	InputTokens       *int32
+	UncachedTokens    *int32
+	CacheReadTokens   *int32
+	CacheWriteTokens  *int32
+	OutputTokens      *int32
+	ReasoningTokens   *int32
+	Cost              *string
+	ProviderMetadata  json.RawMessage
+	InputFingerprint  *string
+	AgentID           uuid.UUID
+	ID                uuid.UUID
+	RuntimeID         uuid.UUID
+}
+
+func (q *Queries) QueueExecutionSuccess(ctx context.Context, db DBTX, arg []QueueExecutionSuccessParams) *QueueExecutionSuccessBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.State,
+			a.Recovery,
+			a.RetryMicroseconds,
+			a.ApiFormat,
+			a.ApiVariant,
+			a.RequestID,
+			a.ResponseID,
+			a.ErrorKind,
+			a.ErrorCode,
+			a.ErrorMessage,
+			a.ErrorDetails,
+			a.InputTokens,
+			a.UncachedTokens,
+			a.CacheReadTokens,
+			a.CacheWriteTokens,
+			a.OutputTokens,
+			a.ReasoningTokens,
+			a.Cost,
+			a.ProviderMetadata,
+			a.InputFingerprint,
+			a.AgentID,
+			a.ID,
+			a.RuntimeID,
+		}
+		batch.Queue(queueExecutionSuccess, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &QueueExecutionSuccessBatchResults{br, len(arg), false}
+}
+
+func (b *QueueExecutionSuccessBatchResults) QueryRow(f func(int, uuid.UUID, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id uuid.UUID
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *QueueExecutionSuccessBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const readExecutionProposals = `-- name: ReadExecutionProposals :batchmany
+SELECT c.id,c.provider_call_id,c.name,c.input,c.type FROM tool_calls c
+WHERE c.agent_id=$1 AND c.model_output_id=(SELECT o.id FROM model_outputs o WHERE o.agent_id=$1
+ AND o.model_call_context_id=$2) ORDER BY c.provider_call_id
+`
+
+type ReadExecutionProposalsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type ReadExecutionProposalsParams struct {
+	AgentID   uuid.UUID
+	ContextID uuid.UUID
+}
+
+type ReadExecutionProposalsRow struct {
+	ID             uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+}
+
+func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg []ReadExecutionProposalsParams) *ReadExecutionProposalsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AgentID,
+			a.ContextID,
+		}
+		batch.Queue(readExecutionProposals, vals...)
+	}
+	br := db.SendBatch(ctx, batch)
+	return &ReadExecutionProposalsBatchResults{br, len(arg), false}
+}
+
+func (b *ReadExecutionProposalsBatchResults) Query(f func(int, []ReadExecutionProposalsRow, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		items := []ReadExecutionProposalsRow{}
+		if b.closed {
+			if f != nil {
+				f(t, items, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		err := func() error {
+			rows, err := b.br.Query()
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var i ReadExecutionProposalsRow
+				if err := rows.Scan(
+					&i.ID,
+					&i.ProviderCallID,
+					&i.Name,
+					&i.Input,
+					&i.Type,
+				); err != nil {
+					return err
+				}
+				items = append(items, i)
+			}
+			return rows.Err()
+		}()
+		if f != nil {
+			f(t, items, err)
+		}
+	}
+}
+
+func (b *ReadExecutionProposalsBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

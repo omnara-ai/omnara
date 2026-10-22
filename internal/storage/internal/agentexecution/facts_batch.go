@@ -59,7 +59,9 @@ type executionFacts struct {
 	checkpoints []executiondb.LoadExecutionPendingCheckpointRow
 }
 
-func (b *factsBatch) queue(ctx context.Context, route AgentRoute, head ExecutionHead) *executionFacts {
+func (b *factsBatch) queue(
+	ctx context.Context, route AgentRoute, head ExecutionHead, known ...executiondb.LoadExecutionContextsRow,
+) *executionFacts {
 	facts := &executionFacts{}
 	q := executiondb.New()
 	scope := q.LoadExecutionFacts(ctx,
@@ -77,18 +79,36 @@ func (b *factsBatch) queue(ctx context.Context, route AgentRoute, head Execution
 		})
 		b.err = errors.Join(b.err, scope.Close())
 	})
-	if head.NormalContextID != uuid.Nil ||
-		head.CompactionContextID != uuid.Nil ||
-		head.PendingToolOutputID != uuid.Nil ||
-		head.PendingOutputLimitID != uuid.Nil {
+	contextHead := head
+	for _, row := range known {
+		if row.ID == contextHead.NormalContextID {
+			contextHead.NormalContextID = uuid.Nil
+		}
+		if row.ID == contextHead.CompactionContextID {
+			contextHead.CompactionContextID = uuid.Nil
+		}
+		if row.OutputID != nil {
+			if *row.OutputID == contextHead.PendingToolOutputID {
+				contextHead.PendingToolOutputID = uuid.Nil
+			}
+			if *row.OutputID == contextHead.PendingOutputLimitID {
+				contextHead.PendingOutputLimitID = uuid.Nil
+			}
+		}
+	}
+	facts.contexts = append(facts.contexts, known...)
+	if contextHead.NormalContextID != uuid.Nil ||
+		contextHead.CompactionContextID != uuid.Nil ||
+		contextHead.PendingToolOutputID != uuid.Nil ||
+		contextHead.PendingOutputLimitID != uuid.Nil {
 		rows := q.LoadExecutionContexts(ctx, b, []executiondb.LoadExecutionContextsParams{{AgentID: route.AgentID,
-			NormalContextID:     storeutil.IDFromNil(head.NormalContextID),
-			CompactionContextID: storeutil.IDFromNil(head.CompactionContextID),
-			ToolOutputID:        storeutil.IDFromNil(head.PendingToolOutputID),
-			LimitOutputID:       storeutil.IDFromNil(head.PendingOutputLimitID)}})
+			NormalContextID:     storeutil.IDFromNil(contextHead.NormalContextID),
+			CompactionContextID: storeutil.IDFromNil(contextHead.CompactionContextID),
+			ToolOutputID:        storeutil.IDFromNil(contextHead.PendingToolOutputID),
+			LimitOutputID:       storeutil.IDFromNil(contextHead.PendingOutputLimitID)}})
 		b.readers = append(b.readers, func() {
 			rows.Query(func(_ int, rows []executiondb.LoadExecutionContextsRow, err error) {
-				facts.contexts = rows
+				facts.contexts = append(facts.contexts, rows...)
 				b.err = errors.Join(b.err, err)
 			})
 			b.err = errors.Join(b.err, rows.Close())

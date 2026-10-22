@@ -2,6 +2,7 @@ package agentexecution
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +27,7 @@ type ExecutionHead struct {
 }
 
 type ExecutionSnapshot struct {
+	contexts    []executiondb.LoadExecutionContextsRow
 	Head        ExecutionHead
 	View        ExecutionView
 	Selection   Selection
@@ -42,6 +44,11 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 	if m != nil {
 		head = &m.head
 		if m.loaded != nil {
+			if m.toolBatchChanged {
+				if err := h.refreshToolBatch(ctx, m); err != nil {
+					return ExecutionSnapshot{}, err
+				}
+			}
 			if m.loaded.Selection.Wait == WaitModelDeadline {
 				now, err := executiondb.New().ExecutionDatabaseTime(ctx, h.unit.DB())
 				if err != nil {
@@ -55,7 +62,11 @@ func (h *Handle) LoadExecution(ctx context.Context) (ExecutionSnapshot, error) {
 			return cloneExecutionSnapshot(*m.loaded), nil
 		}
 	}
-	snapshot, err := loadExecution(ctx, h.unit.DB(), route, head)
+	var known []executiondb.LoadExecutionContextsRow
+	if m != nil {
+		known = m.knownContexts
+	}
+	snapshot, err := loadExecution(ctx, h.unit.DB(), route, head, known...)
 	if err == nil {
 		if m == nil {
 			m = &executionMutation{}
@@ -84,4 +95,28 @@ func executionHead(row executiondb.LoadExecutionBaseRow) ExecutionHead {
 		PendingCheckpointID: storeutil.ValueOrZero(row.PendingCheckpointID),
 		IncompleteTools:     row.IncompleteTools, LogicalReadyAt: row.LogicalReadyAt,
 	}
+}
+
+func (h *Handle) refreshToolBatch(ctx context.Context, m *executionMutation) error {
+	row, err := executiondb.New().LoadExecutionToolBatch(ctx, h.unit.DB(), executiondb.LoadExecutionToolBatchParams{
+		AgentID: h.route.AgentID, ToolOutputID: storeutil.IDFromNil(m.head.PendingToolOutputID),
+	})
+	if err != nil {
+		return err
+	}
+	if !row.HasTools {
+		return fmt.Errorf("%w: pending output has no tools", ErrInvalidState)
+	}
+	batch := m.loaded.View.ToolBatch
+	batch.HasIncomplete, batch.HasRunnable = row.Incomplete, row.Runnable
+	batch.Completion = nil
+	if !row.Incomplete {
+		if row.Calls == 0 || row.Calls != row.Results || row.Calls != row.Events {
+			return fmt.Errorf("%w: incomplete result authority", ErrInvalidState)
+		}
+		batch.Completion = &BatchCompletion{LastResultSequence: row.LastSequence, ReadyAt: row.ReadyAt}
+	}
+	m.toolBatchChanged = false
+	m.loaded.databaseNow = row.DatabaseNow
+	return m.selectLoaded()
 }

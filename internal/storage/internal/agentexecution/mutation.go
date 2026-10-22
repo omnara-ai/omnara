@@ -12,10 +12,12 @@ import (
 )
 
 type executionMutation struct {
+	knownContexts    []executiondb.LoadExecutionContextsRow
 	head             ExecutionHead
 	insertHead       bool
 	dirty            bool
 	selectionChanged bool
+	toolBatchChanged bool
 	loaded           *ExecutionSnapshot
 }
 
@@ -26,11 +28,17 @@ func (h *Handle) executionMutation(ctx context.Context) (*executionMutation, err
 	if h.mutation != nil {
 		return h.mutation, nil
 	}
-	base, err := executiondb.New().LoadExecutionBase(ctx, h.unit.DB(), executiondb.LoadExecutionBaseParams{
-		ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
-	})
-	if err != nil {
-		return nil, err
+	var base executiondb.LoadExecutionBaseRow
+	if h.claimBase != nil {
+		base = *h.claimBase
+	} else {
+		var err error
+		base, err = executiondb.New().LoadExecutionBase(ctx, h.unit.DB(), executiondb.LoadExecutionBaseParams{
+			ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	if !base.HeadExists {
 		return nil, fmt.Errorf("load execution head: %w", pgx.ErrNoRows)
@@ -69,10 +77,15 @@ func (u *Unit) publishExecution(ctx context.Context) error {
 		if h.mutation == nil || !h.mutation.dirty {
 			continue
 		}
+		if h.mutation.toolBatchChanged {
+			if _, err := h.LoadExecution(ctx); err != nil {
+				return err
+			}
+		}
 		handles = append(handles, h)
 		if h.mutation.loaded == nil && h.mutation.selectionChanged {
 			reloaded = append(reloaded, h)
-			facts = append(facts, loads.queue(ctx, h.route, h.mutation.head))
+			facts = append(facts, loads.queue(ctx, h.route, h.mutation.head, h.mutation.knownContexts...))
 		}
 	}
 	if len(handles) == 0 {
@@ -128,6 +141,8 @@ func executeCommand[T any](
 }
 
 func (m *executionMutation) changed() {
+	m.knownContexts = nil
+	m.toolBatchChanged = false
 	m.dirty = true
 	m.selectionChanged = true
 	m.loaded = nil
@@ -154,4 +169,14 @@ func (m *executionMutation) updated(snapshot ExecutionSnapshot) error {
 	m.dirty = true
 	m.loaded = &snapshot
 	return m.selectLoaded()
+}
+
+func (m *executionMutation) changedTools() {
+	if m.loaded == nil || m.loaded.View.ToolBatch == nil {
+		m.changed()
+		return
+	}
+	m.dirty = true
+	m.selectionChanged = true
+	m.toolBatchChanged = true
 }

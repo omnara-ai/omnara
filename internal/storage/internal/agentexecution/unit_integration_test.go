@@ -249,7 +249,14 @@ func TestUnitExpandedClaimKeepsOriginalAgent(t *testing.T) {
 	project, org, first, other, parent := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	_, err := pool.Exec(ctx, `
 CREATE TABLE agent_wakeups(agent_id uuid PRIMARY KEY, ready_at timestamptz NOT NULL);
-CREATE TABLE agent_runtime_locks(agent_id uuid PRIMARY KEY);`)
+CREATE TABLE agent_runtime_locks(agent_id uuid PRIMARY KEY);
+ALTER TABLE agents ADD COLUMN current_config_id uuid NOT NULL DEFAULT gen_random_uuid(),
+	ADD COLUMN next_event_sequence bigint NOT NULL DEFAULT 1;
+CREATE TABLE model_call_contexts(agent_id uuid, state text);
+CREATE TABLE agent_execution_state(agent_id uuid PRIMARY KEY, current_turn_id uuid,
+ stop_sequence bigint, max_normal_input_sequence bigint, max_context_input_sequence bigint,
+ normal_context_id uuid, compaction_context_id uuid, pending_tool_output_id uuid, pending_output_limit_id uuid,
+ pending_config_input_id uuid, pending_checkpoint_id uuid, incomplete_tools boolean, logical_ready_at timestamptz);`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO agents(id,project_id,org_id,root_agent_id)
 SELECT id,$1,$2,id FROM unnest($3::uuid[]) id`, project, org, []uuid.UUID{first, other, parent})

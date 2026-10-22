@@ -259,6 +259,7 @@ func (w *Worker) claimNext(ctx context.Context) (claim executionstore.ClaimedAge
 	claim, handled, err = w.store.ClaimNextAgentWork(
 		ctx,
 		executionstore.ClaimNextAgentWorkInput{
+			DatabaseTools:   tools.PlanDatabaseTool,
 			WorkerProcessID: w.workerProcessID,
 			LeaseDuration:   w.runtimeLockLeaseDuration,
 		},
@@ -297,6 +298,9 @@ func (w *Worker) executeClaimedWork(
 	claim executionstore.ClaimedAgentWork,
 	now time.Time,
 ) error {
+	if claim.StepDisposition == executionstore.StepFinished {
+		return nil
+	}
 	runtime := claim.RuntimeLock
 	projectID, agentID := claim.ProjectID, claim.AgentID
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
@@ -312,12 +316,8 @@ func (w *Worker) executeClaimedWork(
 	if err != nil {
 		finalizeCtx, cancelFinalize := w.finalizeContext(ctx)
 		defer cancelFinalize()
-		if releaseErr := w.store.ReleaseAgentRuntimeLock(
-			finalizeCtx,
-			projectID,
-			agentID,
-			runtime.ID,
-		); releaseErr != nil && !errors.Is(releaseErr, storeerr.ErrRuntimeLockInactive) {
+		if releaseErr := w.releaseRuntime(finalizeCtx, projectID, agentID, claim.RootAgentID,
+			runtime.ID); releaseErr != nil && !errors.Is(releaseErr, storeerr.ErrRuntimeLockInactive) {
 			return releaseErr
 		}
 		if errors.Is(err, errRuntimeCancelRequested) {
@@ -333,7 +333,7 @@ func (w *Worker) executeClaimedWork(
 	disposition, err := w.executeWorkStep(executionCtx, claim, now, &active.completion)
 	asyncScope.Seal()
 	if asyncScope.Started() {
-		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, runtime.ID, asyncScope, stopRenewal)
+		w.retainRuntimeUntilAsyncCompletion(ctx, projectID, agentID, claim.RootAgentID, runtime.ID, asyncScope, stopRenewal)
 		return runtimeExecutionError(err, active)
 	}
 	if disposition == executionstore.StepFinished || disposition == executionstore.StepTransferred {
@@ -347,12 +347,7 @@ func (w *Worker) executeClaimedWork(
 	finalizeCtx, cancelFinalize := w.finalizeContext(ctx)
 	defer cancelFinalize()
 	err = runtimeExecutionError(err, active)
-	if releaseErr := w.store.ReleaseAgentRuntimeLock(
-		finalizeCtx,
-		projectID,
-		agentID,
-		runtime.ID,
-	); releaseErr != nil &&
+	if releaseErr := w.releaseRuntime(finalizeCtx, projectID, agentID, claim.RootAgentID, runtime.ID); releaseErr != nil &&
 		err == nil {
 		err = releaseErr
 	}
@@ -361,7 +356,7 @@ func (w *Worker) executeClaimedWork(
 
 func (w *Worker) retainRuntimeUntilAsyncCompletion(
 	ctx context.Context,
-	projectID, agentID, runtimeLockID uuid.UUID,
+	projectID, agentID, rootID, runtimeLockID uuid.UUID,
 	scope *tools.AsyncExecutionScope,
 	stopRenewal func(),
 ) {
@@ -380,12 +375,8 @@ func (w *Worker) retainRuntimeUntilAsyncCompletion(
 		if err := scope.Err(); err != nil {
 			logpkg.Error(finalizeCtx, err)
 		}
-		if err := w.store.ReleaseAgentRuntimeLock(
-			finalizeCtx,
-			projectID,
-			agentID,
-			runtimeLockID,
-		); err != nil && !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+		if err := w.releaseRuntime(finalizeCtx, projectID, agentID, rootID, runtimeLockID); err != nil &&
+			!errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 			logpkg.Error(finalizeCtx, err)
 		}
 	}()
@@ -766,4 +757,13 @@ func runtimeExecutionError(err error, active *activeRuntime) error {
 		return storeerr.ErrRuntimeLockInactive
 	}
 	return err
+}
+
+func (w *Worker) releaseRuntime(ctx context.Context, projectID, agentID, rootID, runtimeID uuid.UUID) error {
+	if store, ok := w.store.(interface {
+		ReleaseAgentRuntimeLockForStep(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error
+	}); ok {
+		return store.ReleaseAgentRuntimeLockForStep(ctx, projectID, agentID, rootID, runtimeID)
+	}
+	return w.store.ReleaseAgentRuntimeLock(ctx, projectID, agentID, runtimeID)
 }

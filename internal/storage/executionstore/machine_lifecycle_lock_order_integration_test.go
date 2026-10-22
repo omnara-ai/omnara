@@ -2218,7 +2218,8 @@ type lifecycleBarrierTx struct {
 }
 
 func (tx lifecycleBarrierTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	if (strings.Contains(sql, "name: LockAgentInProject ") || strings.Contains(sql, "name: TryLockAgentInProject ")) &&
+	if (strings.Contains(sql, "name: LockAgentInProject ") ||
+		strings.Contains(sql, "name: TryLockAgentInProject ") || strings.Contains(sql, "name: LockStepExecution ")) &&
 		tx.armed.CompareAndSwap(true, false) {
 		close(tx.entered)
 		select {

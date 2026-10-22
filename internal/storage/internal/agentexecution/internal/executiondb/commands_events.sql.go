@@ -13,32 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const advanceExecutionTurn = `-- name: AdvanceExecutionTurn :execrows
-UPDATE agent_turns SET latest_event_id=$1,
- latest_semantic_event_id=CASE WHEN $2::boolean THEN $1 ELSE latest_semantic_event_id END
-WHERE agent_id=$3 AND id=$4
-`
-
-type AdvanceExecutionTurnParams struct {
-	EventID  uuid.UUID
-	Semantic bool
-	AgentID  uuid.UUID
-	TurnID   uuid.UUID
-}
-
-func (q *Queries) AdvanceExecutionTurn(ctx context.Context, db DBTX, arg AdvanceExecutionTurnParams) (int64, error) {
-	result, err := db.Exec(ctx, advanceExecutionTurn,
-		arg.EventID,
-		arg.Semantic,
-		arg.AgentID,
-		arg.TurnID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const appendExecutionEvent = `-- name: AppendExecutionEvent :one
 WITH payload AS MATERIALIZED (
  SELECT agent_payload_created_at($11,$2,CASE WHEN $8::uuid IS NOT NULL THEN 'tool_call_result' ELSE $4 END,
@@ -94,53 +68,43 @@ func (q *Queries) AppendExecutionEvent(ctx context.Context, db DBTX, arg AppendE
 	return i, err
 }
 
-const insertExecutionContent = `-- name: InsertExecutionContent :exec
+const insertExecutionContent = `-- name: InsertExecutionContent :execrows
 WITH payload AS MATERIALIZED (
- SELECT agent_payload_created_at($14,$1,$2,
+ SELECT agent_payload_created_at($7,$1,$2,
  coalesce($3::uuid,$4::uuid,$5::uuid),false) AS created_at
 )
 INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,
  ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
 SELECT $1,$2,$3,$4,$5,
- $6,$7,$8,$9::jsonb,$10,$11,
- $12,$13::jsonb,payload.created_at FROM payload
+ p.ordinal,p.kind,p.text,p.data::jsonb,p.artifact_id,p.tool_id,p.exclude,p.metadata,payload.created_at
+FROM payload CROSS JOIN jsonb_to_recordset($6::jsonb) AS p(ordinal integer,kind text,text text,data text,
+ artifact_id uuid,tool_id uuid,exclude boolean,metadata jsonb)
 `
 
 type InsertExecutionContentParams struct {
-	AgentID    uuid.UUID
-	OwnerKind  string
-	InputID    *uuid.UUID
-	OutputID   *uuid.UUID
-	ResultID   *uuid.UUID
-	Ordinal    int32
-	Kind       string
-	Text       *string
-	Data       *json.RawMessage
-	ArtifactID *uuid.UUID
-	ToolID     *uuid.UUID
-	Exclude    bool
-	Metadata   json.RawMessage
-	ProjectID  uuid.UUID
+	AgentID   uuid.UUID
+	OwnerKind string
+	InputID   *uuid.UUID
+	OutputID  *uuid.UUID
+	ResultID  *uuid.UUID
+	Parts     json.RawMessage
+	ProjectID uuid.UUID
 }
 
-func (q *Queries) InsertExecutionContent(ctx context.Context, db DBTX, arg InsertExecutionContentParams) error {
-	_, err := db.Exec(ctx, insertExecutionContent,
+func (q *Queries) InsertExecutionContent(ctx context.Context, db DBTX, arg InsertExecutionContentParams) (int64, error) {
+	result, err := db.Exec(ctx, insertExecutionContent,
 		arg.AgentID,
 		arg.OwnerKind,
 		arg.InputID,
 		arg.OutputID,
 		arg.ResultID,
-		arg.Ordinal,
-		arg.Kind,
-		arg.Text,
-		arg.Data,
-		arg.ArtifactID,
-		arg.ToolID,
-		arg.Exclude,
-		arg.Metadata,
+		arg.Parts,
 		arg.ProjectID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const openExecutionTurn = `-- name: OpenExecutionTurn :exec

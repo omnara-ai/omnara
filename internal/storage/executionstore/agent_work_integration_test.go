@@ -5,7 +5,14 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"io"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -152,4 +159,117 @@ func TestClaimNextAgentWorkReturnsDurablePreparedModel(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, prepared.Claim.Context, saved)
+}
+
+func TestDatabaseToolClaimUncertainCommit(t *testing.T) {
+	for _, mode := range []string{
+		"before commit", "resolved", "newer claim", "resolution unavailable", "resolution timeout",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			f := newProcessDaemonFixture(t, ctx, "database_claim_ack")
+			calls := createToolCallBatchForProcessTest(t, ctx, f, "database_claim", []processToolCallBatchItem{
+				builtInProcessToolCallBatchItem("first", "list_agents"), builtInProcessToolCallBatchItem("second", "list_agents"),
+			})
+			require.NoError(t, f.Store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, f.AgentID, f.Lock.ID))
+			input := testClaimNextAgentWorkInput()
+			input.DatabaseTools = func(
+				_ executionstore.ClaimedAgentWork, _ executionstore.ToolCallRecord,
+			) (executionstore.DatabaseToolPlan, bool, error) {
+				return func(context.Context, *executionstore.ToolCallReader) (executionstore.ToolCallCompletionInput, bool, error) {
+					return executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded,
+						ResultContentParts: json.RawMessage(`[{"type":"text","text":"database result"}]`)}, true, nil
+				}, true, nil
+			}
+			claimCtx, stopClaiming := context.WithCancel(ctx)
+			defer stopClaiming()
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			var newer executionstore.ClaimedAgentWork
+			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return stepFaultTx{Tx: tx, armed: armed, committed: mode != "before commit", after: func() {
+					stopClaiming()
+					if mode == "newer claim" {
+						var found bool
+						var err error
+						newer, found, err = f.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
+						require.NoError(t, err)
+						require.True(t, found)
+					}
+				}}
+			})
+			resolving := make(chan context.Context, len(calls))
+			f.Store.Execution().IntegrationWrapQueries(func(db dbsqlc.DBTX) dbsqlc.DBTX {
+				return stepResolutionQuery{DBTX: db, resolve: func(ctx context.Context) error {
+					resolving <- ctx
+					if mode == "resolution unavailable" {
+						return io.ErrClosedPipe
+					}
+					if mode == "resolution timeout" {
+						<-ctx.Done()
+					}
+					return ctx.Err()
+				}}
+			})
+			type result struct {
+				claim executionstore.ClaimedAgentWork
+				found bool
+			}
+			done := integrationdb.RunAsync(func() (result, error) {
+				claim, found, err := f.Store.Execution().ClaimNextAgentWork(claimCtx, input)
+				return result{claim, found}, err
+			})
+			select {
+			case resolveCtx := <-resolving:
+				require.ErrorIs(t, claimCtx.Err(), context.Canceled)
+				deadline, bounded := resolveCtx.Deadline()
+				require.True(t, bounded)
+				require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+				if mode == "resolution timeout" {
+					select {
+					case <-resolveCtx.Done():
+					case <-time.After(15 * time.Second):
+						t.Fatal("claim resolution exceeded its cleanup timeout")
+					}
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("claim did not resolve the tool result")
+			}
+			outcome := integrationdb.Await(t, done, "database claim resolution")
+			if mode == "resolved" || mode == "newer claim" {
+				require.NoError(t, outcome.Err)
+				require.True(t, outcome.Value.found)
+				require.Equal(t, executionstore.StepFinished, outcome.Value.claim.StepDisposition)
+			} else {
+				require.ErrorIs(t, outcome.Err, storeerr.ErrCommitOutcomeUnknown)
+				require.False(t, outcome.Value.found)
+				require.Equal(t, executionstore.ClaimedAgentWork{}, outcome.Value.claim)
+			}
+			if mode == "resolution timeout" {
+				require.ErrorIs(t, outcome.Err, context.DeadlineExceeded)
+			}
+			var results, leases, wakes int
+			require.NoError(t, f.Store.pool.QueryRow(ctx, `SELECT
+    (SELECT count(*) FROM tool_call_results WHERE tool_call_id=ANY($1)),
+    (SELECT count(*) FROM agent_runtime_locks WHERE agent_id=$2),
+    (SELECT count(*) FROM agent_wakeups WHERE agent_id=$2)`, calls, f.AgentID).Scan(&results, &leases, &wakes))
+			if mode == "before commit" {
+				require.Zero(t, results)
+				require.Zero(t, leases)
+				require.Equal(t, 1, wakes)
+			} else {
+				require.Len(t, calls, results)
+				if mode == "newer claim" {
+					require.Equal(t, 1, leases)
+					var exists bool
+					require.NoError(t, f.Store.pool.QueryRow(ctx,
+						`SELECT EXISTS(SELECT 1 FROM agent_runtime_locks WHERE id=$1)`, newer.RuntimeLock.ID).Scan(&exists))
+					require.True(t, exists)
+				} else {
+					require.Zero(t, leases)
+					require.Equal(t, 1, wakes)
+				}
+			}
+		})
+	}
 }

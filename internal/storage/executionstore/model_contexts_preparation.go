@@ -50,15 +50,16 @@ func (s *Store) PrepareNormalModelCall(
 		})
 }
 
-func (s *Store) CheckPreparedModelCall(ctx context.Context, projectID, agentID, contextID, runtimeID uuid.UUID) error {
-	executable, err := s.q.ReadPreparedModelCallStatus(ctx, dbsqlc.ReadPreparedModelCallStatusParams{
+func (s *Store) CheckPreparedModelCall(ctx context.Context, projectID, agentID, contextID,
+	runtimeID uuid.UUID) (bool, error) {
+	status, err := s.q.ReadModelCallEntry(ctx, dbsqlc.ReadModelCallEntryParams{
 		ProjectID: projectID, AgentID: agentID, ContextID: contextID, RuntimeID: runtimeID,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	if !executable {
-		return storeerr.ErrAgentNotAdvanceable
+	if !status.Executable {
+		return false, storeerr.ErrAgentNotAdvanceable
 	}
-	return nil
+	return status.HasMcpConnections, nil
 }

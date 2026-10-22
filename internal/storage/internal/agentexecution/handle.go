@@ -2,11 +2,16 @@ package agentexecution
 
 import (
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 type Handle struct {
+	claimTools      *claimedToolBatch
+	claimBase       *executiondb.LoadExecutionBaseRow
+	claimBoundary   *executiondb.ExecutionPreparationBoundaryRow
+	claimUnleased   bool
 	unit            *Unit
 	route           AgentRoute
 	created         bool

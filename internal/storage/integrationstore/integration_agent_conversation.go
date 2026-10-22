@@ -53,10 +53,10 @@ func (s *Store) AssignAgentIntegrationConversationTx(
 func (s *Store) GetAgentIntegrationConversation(
 	ctx context.Context, projectID, agentID, integrationID uuid.UUID,
 ) (ConversationAddress, bool, error) {
-	return getAgentIntegrationConversation(ctx, s.q, projectID, agentID, integrationID)
+	return GetAgentIntegrationConversationTx(ctx, s.q, projectID, agentID, integrationID)
 }
 
-func getAgentIntegrationConversation(
+func GetAgentIntegrationConversationTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID, integrationID uuid.UUID,
@@ -93,7 +93,7 @@ func GetAgentIntegrationConversationTargetTx(
 	projectID, agentID, integrationID uuid.UUID,
 ) (AgentIntegrationConversationTarget, bool, error) {
 	q := dbsqlc.New(tx)
-	address, found, err := getAgentIntegrationConversation(ctx, q, projectID, agentID, integrationID)
+	address, found, err := GetAgentIntegrationConversationTx(ctx, q, projectID, agentID, integrationID)
 	if errors.Is(err, storeerr.ErrInvalidRequest) {
 		return AgentIntegrationConversationTarget{}, false, nil
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
@@ -84,65 +85,111 @@ func (h *Handle) appendEvent(
 	}, nil
 }
 
-func (h *Handle) writeContent(ctx context.Context, kind string, id uuid.UUID, parts []Content) error {
+type PreparedContent struct {
+	data  json.RawMessage
+	count int64
+}
+
+type contentValue struct {
+	Ordinal    int32           `json:"ordinal"`
+	Kind       string          `json:"kind"`
+	Text       *string         `json:"text"`
+	Data       *string         `json:"data"`
+	ArtifactID *uuid.UUID      `json:"artifact_id"`
+	ToolID     *uuid.UUID      `json:"tool_id"`
+	Exclude    bool            `json:"exclude"`
+	Metadata   json.RawMessage `json:"metadata"`
+}
+
+func PrepareContent(kind string, parts []Content) (PreparedContent, error) {
+	values := make([]contentValue, len(parts))
 	for n, part := range parts {
-		ordinal := int32(n)
-		if kind == "model_output" {
-			ordinal = part.Ordinal
-		}
 		if err := dbsafe.Text(part.Text); err != nil {
-			return err
+			return PreparedContent{}, err
 		}
 		metadata, err := objectJSON(part.Metadata)
 		if err != nil {
-			return err
+			return PreparedContent{}, err
 		}
 		if err := dbsafe.JSONStrings(metadata); err != nil {
-			return err
+			return PreparedContent{}, err
 		}
-		args := executiondb.InsertExecutionContentParams{AgentID: h.route.AgentID,
-			ProjectID:  h.route.ProjectID,
-			OwnerKind:  kind,
-			Ordinal:    ordinal,
-			Kind:       part.Kind,
-			ArtifactID: storeutil.IDFromNil(part.ArtifactID),
-			ToolID:     storeutil.IDFromNil(part.ToolID),
-			Exclude:    part.Exclude,
-			Metadata:   metadata}
-		switch kind {
-		case "agent_input":
-			args.InputID = &id
-		case "model_output":
-			args.OutputID = &id
-		case "tool_call_result":
-			args.ResultID = &id
+		value := contentValue{Ordinal: int32(n), Kind: part.Kind, ArtifactID: storeutil.IDFromNil(part.ArtifactID),
+			ToolID: storeutil.IDFromNil(part.ToolID), Exclude: part.Exclude, Metadata: metadata}
+		if kind == "model_output" {
+			value.Ordinal = part.Ordinal
 		}
 		if part.Kind == "text" || part.Kind == "reasoning" || part.Kind == "error" {
-			args.Text = &part.Text
+			value.Text = &part.Text
 		}
 		if len(part.Data) > 0 {
 			if !json.Valid(part.Data) {
-				return errors.New("invalid structured content")
+				return PreparedContent{}, errors.New("invalid structured content")
 			}
 			if err := dbsafe.JSONStrings(part.Data); err != nil {
-				return err
+				return PreparedContent{}, err
 			}
-			args.Data = &part.Data
+			data := string(part.Data)
+			value.Data = &data
 		}
-		if err := executiondb.New().InsertExecutionContent(ctx, h.unit.DB(), args); err != nil {
-			return err
-		}
+		values[n] = value
 	}
-	return nil
+	data, err := json.Marshal(values)
+	return PreparedContent{data: data, count: int64(len(parts))}, err
 }
 
-func (h *Handle) advanceTurn(ctx context.Context, event ExecutionEvent, semantic bool) error {
-	n, err := executiondb.New().AdvanceExecutionTurn(ctx, h.unit.DB(), executiondb.AdvanceExecutionTurnParams{
-		AgentID: h.route.AgentID, TurnID: event.TurnID, EventID: event.ID, Semantic: semantic})
-	if err == nil && n != 1 {
+func (h *Handle) writeContent(
+	ctx context.Context, kind string, id uuid.UUID, parts []Content,
+) error {
+	prepared, err := PrepareContent(kind, parts)
+	if err != nil {
+		return err
+	}
+	return h.writePreparedContent(ctx, kind, id, prepared)
+}
+
+func (h *Handle) writePreparedContent(
+	ctx context.Context, kind string, id uuid.UUID, parts PreparedContent,
+) error {
+	if parts.count == 0 {
+		return nil
+	}
+	args := executiondb.InsertExecutionContentParams{AgentID: h.route.AgentID, ProjectID: h.route.ProjectID,
+		OwnerKind: kind, Parts: parts.data}
+	switch kind {
+	case "agent_input":
+		args.InputID = &id
+	case "model_output":
+		args.OutputID = &id
+	case "tool_call_result":
+		args.ResultID = &id
+	}
+	count, err := executiondb.New().InsertExecutionContent(ctx, h.unit.DB(), args)
+	if err == nil && count != parts.count {
 		return ErrInvalidState
 	}
 	return err
+}
+
+func (h *Handle) advanceTurn(ctx context.Context, event ExecutionEvent, semantic bool) error {
+	batch := factsBatch{DBTX: h.unit.DB()}
+	h.queueTurnAdvance(ctx, &batch, event, semantic)
+	return batch.read(ctx)
+}
+
+func (h *Handle) queueTurnAdvance(ctx context.Context, batch *factsBatch, event ExecutionEvent, semantic bool) {
+	rows := executiondb.New().AdvanceExecutionTurn(ctx, batch, []executiondb.AdvanceExecutionTurnParams{{
+		AgentID: h.route.AgentID, TurnID: event.TurnID, EventID: event.ID, Semantic: semantic,
+	}})
+	batch.readers = append(batch.readers, func() {
+		rows.QueryRow(func(_ int, id uuid.UUID, err error) {
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && id != event.TurnID {
+				err = ErrInvalidState
+			}
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, rows.Close())
+	})
 }
 
 func (m *executionMutation) openTurn(id uuid.UUID) {

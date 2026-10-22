@@ -35,16 +35,14 @@ func (h *Handle) Claim(
 			return ClaimedWork{}, err
 		}
 		q := executiondb.New()
-		_, err := q.ReadExecutionRuntime(
-			ctx,
-			h.unit.DB(),
-			executiondb.ReadExecutionRuntimeParams{AgentID: h.route.AgentID},
-		)
-		if err == nil {
-			return ClaimedWork{}, storeerr.ErrAgentNotAdvanceable
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return ClaimedWork{}, err
+		if !h.claimUnleased {
+			_, err := q.ReadExecutionRuntime(ctx, h.unit.DB(), executiondb.ReadExecutionRuntimeParams{AgentID: h.route.AgentID})
+			if err == nil {
+				return ClaimedWork{}, storeerr.ErrAgentNotAdvanceable
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return ClaimedWork{}, err
+			}
 		}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
@@ -56,6 +54,7 @@ func (h *Handle) Claim(
 		}
 		result := ClaimedWork{}
 		if snapshot.Selection.Work == WorkInput {
+			h.claimBoundary = nil
 			result.Admission, err = h.admitInputs(ctx, m, snapshot.Selection.Admission)
 			if err != nil {
 				return ClaimedWork{}, err
@@ -85,12 +84,7 @@ func (h *Handle) Claim(
 		result.Runtime = RuntimeRecord(runtime)
 		h.unit.runtimeLocked = true
 		h.lockedRuntimeID = result.RuntimeID
-		m.dirty = true
-		if err = q.ConsumeExecutionWakeup(ctx,
-			h.unit.DB(),
-			executiondb.ConsumeExecutionWakeupParams{AgentID: h.route.AgentID}); err != nil {
-			return ClaimedWork{}, err
-		}
+		h.claimUnleased = false
 		return result, nil
 	})
 }
@@ -177,9 +171,19 @@ type RuntimeRenewal struct {
 	LocalStartedAt time.Time
 }
 
-func (u *Unit) RenewRuntime(
-	ctx context.Context, route AgentRoute, id uuid.UUID, leaseDuration time.Duration,
-) (RuntimeRenewal, error) {
+func (u *Unit) RenewRuntime(ctx context.Context, route AgentRoute, id uuid.UUID,
+	leaseDuration time.Duration) (RuntimeRenewal, error) {
+	u.runtimeLocked = true
+	return renewRuntime(ctx, u.DB(), route, id, leaseDuration)
+}
+
+func (c *AgentCell) RenewRuntime(ctx context.Context, route AgentRoute, id uuid.UUID,
+	leaseDuration time.Duration) (RuntimeRenewal, error) {
+	return renewRuntime(ctx, c.database, route, id, leaseDuration)
+}
+
+func renewRuntime(ctx context.Context, db executiondb.DBTX, route AgentRoute, id uuid.UUID,
+	leaseDuration time.Duration) (RuntimeRenewal, error) {
 	if route.ProjectID == uuid.Nil || route.AgentID == uuid.Nil ||
 		id == uuid.Nil {
 		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
@@ -188,20 +192,8 @@ func (u *Unit) RenewRuntime(
 		return RuntimeRenewal{}, err
 	}
 	q := executiondb.New()
-	_, err := q.LockExecutionRuntime(
-		ctx,
-		u.DB(),
-		executiondb.LockExecutionRuntimeParams{AgentID: route.AgentID, ID: id},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
-	}
-	if err != nil {
-		return RuntimeRenewal{}, err
-	}
-	u.runtimeLocked = true
 	started := time.Now() //nolint:omnaralint // Monotonic lease budget.
-	expires, err := q.RenewExecutionRuntime(ctx, u.DB(), executiondb.RenewExecutionRuntimeParams{
+	expires, err := q.RenewExecutionRuntime(ctx, db, executiondb.RenewExecutionRuntimeParams{
 		ProjectID: route.ProjectID, AgentID: route.AgentID, ID: id,
 		LeaseMicroseconds: leaseDuration.Microseconds(),
 	})

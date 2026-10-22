@@ -11,7 +11,15 @@ FROM agents a LEFT JOIN agent_execution_state h ON h.agent_id=a.id
 WHERE a.project_id=sqlc.arg(project_id) AND a.id=sqlc.arg(agent_id);
 
 -- name: LoadExecutionFacts :batchone
-WITH batch AS (
+WITH turn_openings AS MATERIALIZED (
+ SELECT x.sequence,x.agent_input_id FROM agent_events x
+ WHERE x.agent_id=sqlc.arg(agent_id) AND x.turn_id=sqlc.narg(turn_id) AND x.is_opening_event
+), opening_bounds AS MATERIALIZED (
+ SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+ min(x.sequence) FILTER (WHERE (SELECT i.input_kind FROM agent_inputs i
+ WHERE i.agent_id=sqlc.arg(agent_id) AND i.id=x.agent_input_id)='content') AS first_content_sequence
+ FROM turn_openings x
+), batch AS (
 SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)) AS has_tools,
 EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.state<>'completed') AS incomplete,
 EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)
@@ -41,12 +49,7 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_
  coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
  FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=sqlc.narg(turn_id)
  LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
- LEFT JOIN LATERAL (
-  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
-   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
-  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
-  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ) o ON true
+ LEFT JOIN opening_bounds o ON true
  WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id)
 ) , boundary AS MATERIALIZED (
     SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)
@@ -90,7 +93,12 @@ WHERE o.agent_id=sqlc.arg(agent_id) AND o.id IN(sqlc.narg(tool_output_id)::uuid,
 )
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
 c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,
-o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
+ c.org_id,c.project_id,c.agent_config_id,c.configured_model_revision_id,c.runtime_lock_id,
+ c.api_format,c.api_variant,c.provider_request_id,c.provider_response_id,c.error_kind,c.error_code,c.error_message,c.error_details,
+ coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ c.input_tokens_total,c.uncached_input_tokens,c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
+ coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,c.created_at,c.completed_at,
+ o.id AS output_id,o.stop_reason AS output_stop_reason,o.event_id AS output_event_id,
 o.sequence AS output_sequence,o.created_at AS output_created_at
 FROM model_call_contexts c LEFT JOIN outputs o ON o.model_call_context_id=c.id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=ANY(
@@ -109,3 +117,44 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
 -- name: ExecutionDatabaseTime :one
 SELECT statement_timestamp()::timestamptz;
+
+-- name: LoadExecutionToolBatch :one
+WITH batch AS (
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)) AS has_tools,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.state<>'completed') AS incomplete,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)
+AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE sqlc.narg(tool_output_id)::uuid IS NOT NULL) present
+), tool_batch AS (
+SELECT b.has_tools,b.incomplete,b.runnable,coalesce(r.calls,0)::bigint AS calls,coalesce(r.results,0)::bigint AS results,
+coalesce(r.events,0)::bigint AS events,coalesce(r.last_sequence,0)::bigint AS last_sequence,
+coalesce(r.ready_at,'epoch'::timestamptz)::timestamptz AS ready_at
+FROM batch b LEFT JOIN LATERAL (
+SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::bigint AS events,
+max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
+FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
+LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND NOT b.incomplete
+) r ON NOT b.incomplete
+)
+SELECT has_tools,incomplete,runnable,calls,results,events,last_sequence,ready_at,
+statement_timestamp()::timestamptz AS database_now FROM tool_batch;
+
+-- name: LockStepExecution :one
+WITH locked_agent AS MATERIALIZED (
+ SELECT a.id,a.project_id,a.org_id,a.root_agent_id,a.state FROM agents a
+ WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id) FOR UPDATE OF a
+), locked_runtime AS MATERIALIZED (
+ SELECT r.id FROM locked_agent a JOIN agent_runtime_locks r ON r.agent_id=a.id
+ WHERE r.id=sqlc.arg(runtime_id) FOR UPDATE OF r
+)
+SELECT a.org_id,r.id AS runtime_id,coalesce(h.agent_id,a.id)::uuid AS agent_id,h.current_turn_id,
+       coalesce(h.stop_sequence,0)::bigint AS stop_sequence,
+       coalesce(h.max_normal_input_sequence,0)::bigint AS max_normal_input_sequence,
+       coalesce(h.max_context_input_sequence,0)::bigint AS max_context_input_sequence,
+       h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,
+       h.pending_config_input_id,h.pending_checkpoint_id,
+       coalesce(h.incomplete_tools,false)::boolean AS incomplete_tools,h.logical_ready_at,
+       (h.agent_id IS NOT NULL)::boolean AS head_exists,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now
+FROM locked_agent a LEFT JOIN LATERAL (
+ SELECT head.agent_id,head.current_turn_id,head.stop_sequence,head.max_normal_input_sequence,head.max_context_input_sequence,head.normal_context_id,head.compaction_context_id,head.pending_tool_output_id,head.pending_output_limit_id,head.pending_config_input_id,head.pending_checkpoint_id,head.incomplete_tools,head.logical_ready_at FROM agent_execution_state head WHERE head.agent_id=a.id FOR UPDATE OF head
+) h ON true LEFT JOIN locked_runtime r ON true;

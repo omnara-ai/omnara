@@ -24,6 +24,7 @@ type ToolOwner struct {
 	ActionID      uuid.UUID
 }
 type ToolCompletion struct {
+	Prepared  *PreparedContent
 	Authorize bool
 	ToolRef
 	Outcome string
@@ -38,6 +39,12 @@ type CompletedTool struct {
 }
 
 func (h *Handle) tool(ctx context.Context, id uuid.UUID) (executiondb.ReadExecutionToolRow, error) {
+	if h.claimTools != nil {
+		if row, ok := h.claimTools.rows[id]; ok {
+			delete(h.claimTools.rows, id)
+			return row, nil
+		}
+	}
 	return executiondb.New().
 		ReadExecutionTool(ctx, h.unit.DB(), executiondb.ReadExecutionToolParams{AgentID: h.route.AgentID, ID: id})
 }
@@ -63,9 +70,7 @@ func (h *Handle) transitionTool(
 		return state == "awaiting_authorization" || state == "ready" && (row.Type == "built_in" || row.Type == "mcp")
 	}
 	if (row.State == "completed") != (state == "completed") || runnable(row.State) != runnable(state) {
-		m.changed()
-	} else {
-		m.dirty = true
+		m.changedTools()
 	}
 	return nil
 }
@@ -208,7 +213,7 @@ func (h *Handle) CompleteTool(ctx context.Context, input ToolCompletion) (Comple
 		if !allowed {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
-		return h.completeTool(ctx, m, row, input.Outcome, input.Content, input.RuntimeLockID, nil)
+		return h.completeTool(ctx, m, row, input.Outcome, input.Content, input.RuntimeLockID, nil, input.Prepared)
 	})
 }
 
@@ -239,6 +244,7 @@ func (h *Handle) completeTool(
 	content []Content,
 	fence uuid.UUID,
 	interaction *notifications.AgentInteractionUpdate,
+	prepared ...*PreparedContent,
 ) (CompletedTool, error) {
 	switch outcome {
 	case "succeeded", "failed", "denied", "canceled":
@@ -274,7 +280,16 @@ func (h *Handle) completeTool(
 		return CompletedTool{}, err
 	}
 	id := inserted.ID
-	if err = h.writeContent(ctx, "tool_call_result", id, content); err != nil {
+	var blocks PreparedContent
+	if len(prepared) > 0 && prepared[0] != nil {
+		blocks = *prepared[0]
+	} else {
+		blocks, err = PrepareContent("tool_call_result", content)
+	}
+	if err != nil {
+		return CompletedTool{}, err
+	}
+	if err = h.writePreparedContent(ctx, "tool_call_result", id, blocks); err != nil {
 		return CompletedTool{}, err
 	}
 	event, err := q.AppendExecutionEvent(ctx, h.unit.DB(), executiondb.AppendExecutionEventParams{
@@ -293,16 +308,25 @@ func (h *Handle) completeTool(
 		TurnID:        row.TurnID,
 		EventBoundary: EventBoundary{Sequence: event.Sequence, Time: event.CreatedAt},
 	}
-	if err = h.advanceTurn(ctx, admitted, false); err != nil {
-		return CompletedTool{}, err
+	batch := factsBatch{DBTX: h.unit.DB()}
+	if h.claimTools == nil || len(h.claimTools.rows) == 0 {
+		h.queueTurnAdvance(ctx, &batch, admitted, false)
+		if h.claimTools != nil {
+			h.claimTools.turnAdvanced = true
+		}
 	}
-	closed, err := q.CloseExecutionToolInteractions(
-		ctx,
-		h.unit.DB(),
-		executiondb.CloseExecutionToolInteractionsParams{
-			AgentID: h.route.AgentID, ToolID: row.ID},
-	)
-	if err != nil {
+	interactions := q.CloseExecutionToolInteractions(ctx, &batch, []executiondb.CloseExecutionToolInteractionsParams{{
+		AgentID: h.route.AgentID, ToolID: row.ID,
+	}})
+	var closed []executiondb.CloseExecutionToolInteractionsRow
+	batch.readers = append(batch.readers, func() {
+		interactions.Query(func(_ int, rows []executiondb.CloseExecutionToolInteractionsRow, err error) {
+			closed = rows
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, interactions.Close())
+	})
+	if err := batch.read(ctx); err != nil {
 		return CompletedTool{}, err
 	}
 	for _, i := range closed {
@@ -311,6 +335,19 @@ func (h *Handle) completeTool(
 			InteractionKind: i.InteractionKind,
 			State:           i.State,
 		}
+	}
+	if row.ModelOutputID == m.head.PendingToolOutputID {
+		m.knownContexts = []executiondb.LoadExecutionContextsRow{{ID: row.ContextID, AgentID: row.AgentID,
+			TurnID: row.TurnID, OperationKind: row.OperationKind, AttemptNumber: row.AttemptNumber,
+			InputEventSequence: row.InputEventSequence, SourceEventSequenceEnd: row.SourceEventSequenceEnd,
+			State: row.ContextState, RecoveryKind: row.RecoveryKind, RetryAt: row.RetryAt,
+			OpeningInputIds: row.OpeningInputIds, OpeningEventSequence: row.OpeningEventSequence,
+			OutputID: &row.ModelOutputID, OutputStopReason: &row.StopReason, OutputEventID: &row.SourceEventID,
+			OutputSequence: &row.SourceSequence, OutputCreatedAt: &row.OutputCreatedAt}}
+	}
+	if h.claimTools != nil {
+		h.claimTools.completed = append(h.claimTools.completed, CompletedTool{ID: row.ID, ResultID: id,
+			Event: admitted, Changed: true})
 	}
 	h.unit.Notifications().AddAgentEvent(h.route.AgentID, event.Sequence, "tool_result")
 	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "completed", interaction)

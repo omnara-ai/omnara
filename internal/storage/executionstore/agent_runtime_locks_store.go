@@ -54,21 +54,13 @@ func (s *Store) RenewAgentRuntimeLock(
 	return agentexecution.Retry(ctx,
 		"renew_agent_runtime_lock",
 		func(ctx context.Context) (AgentRuntimeLockRenewal, error) {
-			unit, err := s.cell.Begin(ctx)
-			if err != nil {
-				return AgentRuntimeLockRenewal{}, err
-			}
-			defer func() { _ = unit.Rollback(ctx) }()
-			renewal, err := unit.RenewRuntime(
+			renewal, err := s.cell.RenewRuntime(
 				ctx,
 				agentexecution.AgentRoute{ProjectID: projectID, AgentID: agentID},
 				runtimeLockID,
 				leaseDuration,
 			)
 			if err != nil {
-				return AgentRuntimeLockRenewal{}, err
-			}
-			if err = unit.Commit(ctx, "renew runtime"); err != nil {
 				return AgentRuntimeLockRenewal{}, err
 			}
 			return AgentRuntimeLockRenewal{
@@ -82,10 +74,15 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	ctx context.Context,
 	projectID, agentID, runtimeLockID uuid.UUID,
 ) error {
+	return s.ReleaseAgentRuntimeLockForStep(ctx, projectID, agentID, uuid.Nil, runtimeLockID)
+}
+
+func (s *Store) ReleaseAgentRuntimeLockForStep(ctx context.Context, projectID, agentID, rootID,
+	runtimeLockID uuid.UUID) error {
 	_, err := agentexecution.Retry(ctx,
 		"release_agent_runtime_lock",
 		func(ctx context.Context) (struct{}, error) {
-			unit, h, err := beginExecution(ctx, s, projectID, agentID, false, runtimeLockID)
+			unit, h, err := beginStepExecution(ctx, s, projectID, agentID, rootID, false, runtimeLockID)
 			if err != nil {
 				return struct{}{}, err
 			}

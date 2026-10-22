@@ -252,6 +252,12 @@ func TestExecutionCompactionCommands(t *testing.T) {
 	checkpoint, err := h.PublishCheckpoint(t.Context(), cp)
 	require.NoError(t, err)
 	require.True(t, checkpoint.Created)
+	var sameTimestamp bool
+	require.NoError(t, u.DB().QueryRow(t.Context(), `
+SELECT e.created_at=c.created_at FROM context_checkpoints c
+ JOIN agent_events e ON e.agent_id=c.agent_id AND e.context_checkpoint_id=c.id WHERE c.id=$1`,
+		checkpoint.ID).Scan(&sameTimestamp))
+	require.True(t, sameTimestamp)
 	snapshot = assertCommandState(t, u, h)
 	require.Equal(t, checkpoint.ID, snapshot.Head.PendingCheckpointID)
 	again, err := h.PublishCheckpoint(t.Context(), cp)
@@ -272,7 +278,7 @@ func TestExecutionCompactionCommands(t *testing.T) {
 }
 
 func TestExecutionCommandFencing(t *testing.T) {
-	for _, mode := range []string{"expired", "canceled", "wrong"} {
+	for _, mode := range []string{"expired", "canceled", "wrong", "missing"} {
 		t.Run(mode, func(t *testing.T) {
 			f, a, lease := commandFixture(t)
 			u, h := f.handle(t, a)
@@ -290,14 +296,15 @@ minutes',lease_expires_at=statement_timestamp()-interval '1 minute' WHERE id=$1`
 			} else if mode == "canceled" {
 				_, err = u.DB().Exec(t.Context(), `
 UPDATE agent_runtime_locks SET cancel_requested_at=statement_timestamp() WHERE id=$1`, lease)
+			} else if mode == "missing" {
+				lease = uuid.Nil
 			} else {
 				lease = uuid.New()
 			}
 			require.NoError(t, err)
-			_, err = h.PrepareModel(
-				t.Context(),
-				agentexecution.PrepareModelInput{RuntimeLockID: lease, Selected: *selected.Selection.Model},
-			)
+			_, err = h.PrepareNormal(t.Context(), agentexecution.PrepareNormalInput{
+				RuntimeLockID: lease, OpeningInputIDs: selected.Selection.Model.Opening.InputIDs,
+			})
 			require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
 			require.ErrorIs(t, u.Commit(context.Background(), "failed fence"), agentexecution.ErrUnitAborted)
 		})

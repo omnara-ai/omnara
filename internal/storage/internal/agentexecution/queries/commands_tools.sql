@@ -1,6 +1,8 @@
 -- name: ReadExecutionTool :one
 SELECT c.id,c.agent_id,c.created_at,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
- m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
+ m.turn_id,m.id AS context_id,m.operation_kind,m.attempt_number,m.input_event_sequence,m.source_event_sequence_end,
+ m.state AS context_state,m.recovery_kind,m.retry_at,m.opening_input_ids,m.opening_event_sequence,
+ o.stop_reason,o.created_at AS output_created_at,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
@@ -23,7 +25,7 @@ SELECT c.agent_id,c.id,sqlc.arg(outcome),statement_timestamp() FROM tool_calls c
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='completed'
 RETURNING id,completed_at;
 
--- name: CloseExecutionToolInteractions :many
+-- name: CloseExecutionToolInteractions :batchmany
 UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
 WHERE agent_id=sqlc.arg(agent_id) AND tool_call_id=sqlc.arg(tool_id) AND state='open'
 RETURNING id,interaction_kind,state;

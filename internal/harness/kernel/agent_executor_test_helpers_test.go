@@ -610,6 +610,7 @@ func (f kernelFixture) admitContentInputTurn(
 
 func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentWork, now time.Time) ModelWorkExecution {
 	return ModelWorkExecution{
+		RootAgentID:              claim.RootAgentID,
 		Prepared:                 claim.Model.Prepared,
 		Kind:                     claim.Model.Kind,
 		OrgID:                    claim.OrgID,

@@ -14,6 +14,9 @@ import (
 )
 
 const acquireExecutionRuntime = `-- name: AcquireExecutionRuntime :one
+WITH consumed AS (
+ DELETE FROM agent_wakeups WHERE agent_id=$2
+)
 INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
 VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),
  statement_timestamp()+$4::bigint*interval '1 microsecond') RETURNING id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at,cancel_requested_at
@@ -63,19 +66,6 @@ func (q *Queries) CancelExecutionInputs(ctx context.Context, db DBTX, arg Cancel
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const consumeExecutionWakeup = `-- name: ConsumeExecutionWakeup :exec
-DELETE FROM agent_wakeups WHERE agent_id=$1
-`
-
-type ConsumeExecutionWakeupParams struct {
-	AgentID uuid.UUID
-}
-
-func (q *Queries) ConsumeExecutionWakeup(ctx context.Context, db DBTX, arg ConsumeExecutionWakeupParams) error {
-	_, err := db.Exec(ctx, consumeExecutionWakeup, arg.AgentID)
-	return err
 }
 
 const deleteExecutionRuntime = `-- name: DeleteExecutionRuntime :execrows
@@ -232,7 +222,8 @@ func (q *Queries) ReadExecutionRuntime(ctx context.Context, db DBTX, arg ReadExe
 }
 
 const renewExecutionRuntime = `-- name: RenewExecutionRuntime :one
-UPDATE agent_runtime_locks r SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
+UPDATE agent_runtime_locks r
+SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
  lease_expires_at=greatest(r.lease_expires_at,greatest(r.renewed_at,statement_timestamp())+$1::bigint*interval '1 microsecond')
 WHERE r.agent_id=$2 AND r.id=$3
  AND EXISTS(SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.project_id=$4)

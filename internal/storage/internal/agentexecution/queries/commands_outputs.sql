@@ -3,21 +3,22 @@ INSERT INTO model_outputs(agent_id,model_call_context_id,served_provider_model_s
 VALUES(sqlc.arg(agent_id),sqlc.arg(context_id),sqlc.arg(served_model),sqlc.arg(stop_reason),sqlc.narg(replay)::jsonb,statement_timestamp())
 RETURNING id,created_at;
 
--- name: FindExecutionOutput :one
+-- name: FindExecutionOutput :batchone
 SELECT o.id,o.served_provider_model_slug,o.stop_reason,o.provider_replay,e.id AS event_id,e.turn_id,e.sequence,e.created_at
 FROM model_outputs o JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
 WHERE o.agent_id=sqlc.arg(agent_id) AND o.model_call_context_id=sqlc.arg(context_id);
 
--- name: CreateExecutionToolProposal :one
+-- name: CreateExecutionToolProposal :batchone
 INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
 SELECT sqlc.arg(id),sqlc.arg(agent_id),o.id,sqlc.arg(provider_call_id),sqlc.arg(name),sqlc.arg(input)::jsonb,
  sqlc.arg(type),'awaiting_authorization',o.created_at FROM model_outputs o
  WHERE o.agent_id=sqlc.arg(agent_id) AND o.id=sqlc.arg(output_id)
  RETURNING id,created_at,state;
 
--- name: ReadExecutionProposals :many
-SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id) ORDER BY provider_call_id;
+-- name: ReadExecutionProposals :batchmany
+SELECT c.id,c.provider_call_id,c.name,c.input,c.type FROM tool_calls c
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=(SELECT o.id FROM model_outputs o WHERE o.agent_id=sqlc.arg(agent_id)
+ AND o.model_call_context_id=sqlc.arg(context_id)) ORDER BY c.provider_call_id;
 
 -- name: ValidateExecutionCheckpoint :one
 SELECT (SELECT count(*) FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)

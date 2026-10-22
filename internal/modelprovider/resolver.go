@@ -77,7 +77,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	revision, err := r.Models.GetConfiguredModelRevisionForUse(ctx, orgID, revisionID)
+	live, err := r.Models.ResolveModelForUse(ctx, orgID, projectID, revisionID)
 	if err != nil {
 		if storeerr.IsNotFound(err) {
 			return model.ResolvedClient{}, resolverError(
@@ -89,18 +89,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		}
 		return model.ResolvedClient{}, err
 	}
-	providerConfig, err := r.Models.GetModelProviderConfig(ctx, orgID, revision.ModelProviderConfigID)
-	if err != nil {
-		if storeerr.IsNotFound(err) {
-			return model.ResolvedClient{}, resolverError(
-				model.ErrorKindInvalidRequest,
-				"model_provider_config_unavailable",
-				"The configured model provider is no longer available.",
-				err,
-			)
-		}
-		return model.ResolvedClient{}, err
-	}
+	revision, providerConfig := live.Revision, live.Provider
 	if strings.TrimSpace(providerConfig.EndpointPath) == "" {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -109,23 +98,12 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			errors.New("model endpoint path is required"),
 		)
 	}
-	grant, err := r.Models.GetActiveProjectModelGrantForConfiguredModel(
-		ctx,
-		orgID,
-		projectID,
-		revision.ConfiguredModelID,
-	)
-	if err != nil {
-		if storeerr.IsNotFound(err) {
-			return model.ResolvedClient{}, resolverError(
-				model.ErrorKindAuth,
-				"model_grant_unavailable",
-				"This project does not currently have access to the configured model.",
-				fmt.Errorf("configured model has no active project grant: %w", storeerr.ErrModelGrantUnavailable),
-			)
-		}
-		return model.ResolvedClient{}, err
+	if live.Grant == nil {
+		return model.ResolvedClient{}, resolverError(model.ErrorKindAuth, "model_grant_unavailable",
+			"This project does not currently have access to the configured model.",
+			fmt.Errorf("configured model has no active project grant: %w", storeerr.ErrModelGrantUnavailable))
 	}
+	grant := *live.Grant
 	effectiveRevision, err := modelstore.EffectiveConfiguredModelRevisionForProjectGrant(
 		providerConfig.APIFormat,
 		revision,
@@ -161,15 +139,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	credential, err := r.Secrets.ReadOrgOwnedSecretPayload(
-		ctx,
-		secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:          orgID,
-			SecretID:       providerConfig.CredentialSecretID,
-			ManagementKind: providerConfig.ManagementKind,
-			Kind:           credentialKind,
-		},
-	)
+	credential, err := r.liveSecretPayload(ctx, live, providerConfig.CredentialSecretID, credentialKind)
 	if err != nil {
 		if storeerr.IsNotFound(err) {
 			return model.ResolvedClient{}, resolverError(
@@ -203,7 +173,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
+	customHeaders, err := r.liveProviderHeaders(ctx, live)
 	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -468,4 +438,40 @@ func valueOrZero(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func (r Resolver) liveSecretPayload(ctx context.Context, live modelstore.ResolvedModelUse, id uuid.UUID,
+	kind secrets.Kind) (secretstore.SecretPayloadRecord, error) {
+	version, ok := live.SecretVersions[id]
+	if !ok || version.VersionID == uuid.Nil {
+		return secretstore.SecretPayloadRecord{}, storeerr.ErrNotFound
+	}
+	if version.Kind != kind {
+		return secretstore.SecretPayloadRecord{}, fmt.Errorf("secret kind %q does not match expected kind %q",
+			version.Kind, kind)
+	}
+	return r.Secrets.DecryptSecretVersion(ctx, live.Provider.OrgID, id, version.VersionID, kind)
+}
+
+func (r Resolver) liveProviderHeaders(ctx context.Context,
+	live modelstore.ResolvedModelUse) (map[string]string, error) {
+	parsed, err := modelstore.ModelProviderHeadersFromColumns(live.Provider.Headers, live.Provider.SecretHeaders)
+	if err != nil {
+		return nil, err
+	}
+	for name, id := range parsed.SecretHeaders {
+		secret, err := r.liveSecretPayload(ctx, live, id, secrets.KindGeneric)
+		if storeerr.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read secret for header %s: %w", name, err)
+		}
+		value := secret.Payload[secrets.KeyValue]
+		if err = modelstore.ValidateModelProviderHeaderValue("secret_headers."+name, value); err != nil {
+			return nil, err
+		}
+		parsed.Headers[name] = value
+	}
+	return parsed.Headers, nil
 }

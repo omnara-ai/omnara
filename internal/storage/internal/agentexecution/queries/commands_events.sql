@@ -18,12 +18,13 @@ INSERT INTO agent_turns(id,agent_id,turn_sequence,latest_event_id,latest_semanti
 SELECT sqlc.arg(id),sqlc.arg(agent_id),coalesce((SELECT max(turn_sequence)+1 FROM agent_turns
  WHERE agent_id=sqlc.arg(agent_id)),1),sqlc.arg(event_id),sqlc.arg(event_id);
 
--- name: AdvanceExecutionTurn :execrows
+-- name: AdvanceExecutionTurn :batchone
 UPDATE agent_turns SET latest_event_id=sqlc.arg(event_id),
  latest_semantic_event_id=CASE WHEN sqlc.arg(semantic)::boolean THEN sqlc.arg(event_id) ELSE latest_semantic_event_id END
-WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(turn_id);
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(turn_id)
+RETURNING id;
 
--- name: InsertExecutionContent :exec
+-- name: InsertExecutionContent :execrows
 WITH payload AS MATERIALIZED (
  SELECT agent_payload_created_at(sqlc.arg(project_id),sqlc.arg(agent_id),sqlc.arg(owner_kind),
  coalesce(sqlc.narg(input_id)::uuid,sqlc.narg(output_id)::uuid,sqlc.narg(result_id)::uuid),false) AS created_at
@@ -31,8 +32,9 @@ WITH payload AS MATERIALIZED (
 INSERT INTO content_blocks(agent_id,owner_kind,owner_agent_input_id,owner_model_output_id,owner_tool_call_result_id,
  ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata,created_at)
 SELECT sqlc.arg(agent_id),sqlc.arg(owner_kind),sqlc.narg(input_id),sqlc.narg(output_id),sqlc.narg(result_id),
- sqlc.arg(ordinal),sqlc.arg(kind),sqlc.narg(text),sqlc.narg(data)::jsonb,sqlc.narg(artifact_id),sqlc.narg(tool_id),
- sqlc.arg(exclude),sqlc.arg(metadata)::jsonb,payload.created_at FROM payload;
+ p.ordinal,p.kind,p.text,p.data::jsonb,p.artifact_id,p.tool_id,p.exclude,p.metadata,payload.created_at
+FROM payload CROSS JOIN jsonb_to_recordset(sqlc.arg(parts)::jsonb) AS p(ordinal integer,kind text,text text,data text,
+ artifact_id uuid,tool_id uuid,exclude boolean,metadata jsonb);
 
 -- name: ReadExecutionContent :many
 SELECT ordinal,block_kind,text_content,structured_data,artifact_id,tool_call_id,exclude_from_model_context,metadata

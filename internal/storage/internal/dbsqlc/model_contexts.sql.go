@@ -225,7 +225,7 @@ func (q *Queries) GetProviderReplaySuppressionCutoff(ctx context.Context, arg Ge
 	return cutoff_event_sequence, err
 }
 
-const readPreparedModelCallStatus = `-- name: ReadPreparedModelCallStatus :one
+const readModelCallEntry = `-- name: ReadModelCallEntry :one
 SELECT EXISTS(
     SELECT 1 FROM model_call_contexts c
     JOIN agents a ON a.id=c.agent_id AND a.project_id=$1
@@ -234,24 +234,31 @@ SELECT EXISTS(
       AND c.id=$3 AND c.runtime_lock_id=$4
       AND c.state='started' AND c.operation_kind='normal' AND a.state='active'
       AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp()
-) AS executable
+) AS executable,
+ EXISTS(SELECT 1 FROM agent_mcp_connections mc JOIN agents ma ON ma.id=mc.agent_id
+ WHERE ma.project_id=$1 AND mc.agent_id=$2) AS has_mcp_connections
 `
 
-type ReadPreparedModelCallStatusParams struct {
+type ReadModelCallEntryParams struct {
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
 	ContextID uuid.UUID
 	RuntimeID uuid.UUID
 }
 
-func (q *Queries) ReadPreparedModelCallStatus(ctx context.Context, arg ReadPreparedModelCallStatusParams) (bool, error) {
-	row := q.db.QueryRow(ctx, readPreparedModelCallStatus,
+type ReadModelCallEntryRow struct {
+	Executable        bool
+	HasMcpConnections bool
+}
+
+func (q *Queries) ReadModelCallEntry(ctx context.Context, arg ReadModelCallEntryParams) (ReadModelCallEntryRow, error) {
+	row := q.db.QueryRow(ctx, readModelCallEntry,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ContextID,
 		arg.RuntimeID,
 	)
-	var executable bool
-	err := row.Scan(&executable)
-	return executable, err
+	var i ReadModelCallEntryRow
+	err := row.Scan(&i.Executable, &i.HasMcpConnections)
+	return i, err
 }

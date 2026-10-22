@@ -9,6 +9,9 @@ SELECT id,worker_process_id,cancel_requested_at,lease_expires_at,statement_times
 FROM agent_runtime_locks WHERE agent_id=sqlc.arg(agent_id) AND (sqlc.narg(id)::uuid IS NULL OR id=sqlc.narg(id));
 
 -- name: AcquireExecutionRuntime :one
+WITH consumed AS (
+ DELETE FROM agent_wakeups WHERE agent_id=sqlc.arg(agent_id)
+)
 INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
 VALUES(sqlc.arg(id),sqlc.arg(agent_id),sqlc.arg(worker_id),statement_timestamp(),statement_timestamp(),
  statement_timestamp()+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond') RETURNING id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at,cancel_requested_at;
@@ -17,7 +20,8 @@ VALUES(sqlc.arg(id),sqlc.arg(agent_id),sqlc.arg(worker_id),statement_timestamp()
 DELETE FROM agent_runtime_locks WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id);
 
 -- name: RenewExecutionRuntime :one
-UPDATE agent_runtime_locks r SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
+UPDATE agent_runtime_locks r
+SET renewed_at=greatest(r.renewed_at,statement_timestamp()),
  lease_expires_at=greatest(r.lease_expires_at,greatest(r.renewed_at,statement_timestamp())+sqlc.arg(lease_microseconds)::bigint*interval '1 microsecond')
 WHERE r.agent_id=sqlc.arg(agent_id) AND r.id=sqlc.arg(id)
  AND EXISTS(SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.project_id=sqlc.arg(project_id))
@@ -57,6 +61,3 @@ FROM agents a WHERE a.id=sqlc.arg(agent_id) RETURNING id;
 UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
 WHERE agent_id=sqlc.arg(agent_id) AND state='received' AND input_kind='content'
  AND (delivery_mode='steering' OR sqlc.arg(include_queued)::boolean);
-
--- name: ConsumeExecutionWakeup :exec
-DELETE FROM agent_wakeups WHERE agent_id=sqlc.arg(agent_id);

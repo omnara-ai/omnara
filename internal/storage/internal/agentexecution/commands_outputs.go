@@ -19,6 +19,7 @@ type ToolProposal struct {
 	Type           string
 }
 type AcceptOutputInput struct {
+	prepared      *preparedOutput
 	FinishClaim   bool
 	RuntimeLockID uuid.UUID
 	ContextID     uuid.UUID
@@ -102,7 +103,38 @@ func outputParts(
 	return content, proposals, nil
 }
 
+type preparedOutput struct {
+	content   PreparedContent
+	proposals []outputProposal
+	evidence  ModelEvidence
+	err       error
+}
+
+func PrepareOutput(input AcceptOutputInput) AcceptOutputInput {
+	prepared := &preparedOutput{}
+	input.prepared = prepared
+	prepared.err = input.Response.Validate()
+	if prepared.err != nil {
+		return input
+	}
+	parts, proposals, err := outputParts(input.Response, input.Tools)
+	if err != nil {
+		prepared.err = err
+		return input
+	}
+	prepared.proposals = proposals
+	prepared.content, prepared.err = PrepareContent("model_output", parts)
+	prepared.evidence = ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
+		InputFingerprint: successfulInputFingerprint(input.Response), RequestID: input.RequestID,
+		ResponseID: input.Response.Normalized.ID, Usage: input.Response.Normalized.Usage,
+		Cost: input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
+	return input
+}
+
 func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, error) {
+	if input.prepared == nil {
+		input = PrepareOutput(input)
+	}
 	return executeCommand(ctx, h, func(m *executionMutation) (AcceptedOutput, error) {
 		q := executiondb.New()
 		source, err := q.ReadExecutionAttempt(
@@ -128,22 +160,19 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if source.State != "started" {
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
-		if err := input.Response.Validate(); err != nil {
-			return AcceptedOutput{}, err
+		if input.prepared.err != nil {
+			return AcceptedOutput{}, input.prepared.err
 		}
 		if source.ProviderModelSlug != input.Response.RequestedProviderModelSlug {
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
-		evidence := ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
-			InputFingerprint: successfulInputFingerprint(input.Response),
-			RequestID:        input.RequestID,
-			ResponseID:       input.Response.Normalized.ID,
-			Usage:            input.Response.Normalized.Usage,
-			Cost:             input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
-		parts, proposals, err := outputParts(input.Response, input.Tools)
-		if err != nil {
-			return AcceptedOutput{}, err
-		}
+		evidence, proposals := input.prepared.evidence, input.prepared.proposals
+		m.knownContexts = []executiondb.LoadExecutionContextsRow{{
+			ID: source.ID, AgentID: source.AgentID, TurnID: source.TurnID,
+			OperationKind: source.OperationKind, AttemptNumber: source.AttemptNumber,
+			InputEventSequence:     source.InputEventSequence,
+			SourceEventSequenceEnd: source.SourceEventSequenceEnd, State: source.State, RecoveryKind: source.RecoveryKind,
+			RetryAt: source.RetryAt, OpeningInputIds: source.OpeningInputIds, OpeningEventSequence: source.OpeningEventSequence}}
 		snapshot, err := h.LoadExecution(ctx)
 		if err != nil {
 			return AcceptedOutput{}, err
@@ -152,49 +181,65 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if len(input.Response.ProviderReplay) > 0 {
 			replay = &input.Response.ProviderReplay
 		}
-		output, err := q.CreateExecutionOutput(ctx, h.unit.DB(), executiondb.CreateExecutionOutputParams{
-			AgentID: h.route.AgentID, ContextID: input.ContextID, ServedModel: input.Response.ServedProviderModelSlug,
-			StopReason: string(input.Response.Normalized.StopReason), Replay: replay})
+		outputID, event, err := h.createOutputEvent(ctx, source.TurnID, input, replay)
 		if err != nil {
 			return AcceptedOutput{}, err
 		}
-		event, err := h.appendEvent(
-			ctx,
-			source.TurnID,
-			"model_output",
-			uuid.Nil,
-			output.ID,
-			uuid.Nil,
-			false,
-		)
-		if err != nil {
-			return AcceptedOutput{}, err
-		}
-		result := AcceptedOutput{ID: output.ID, Event: event, Created: true,
+		result := AcceptedOutput{ID: outputID, Event: event, Created: true,
 			Projections: make(map[uuid.UUID]dbsqlc.GetToolCallRow)}
+		writes := make([]executiondb.CreateExecutionToolProposalParams, len(proposals))
+		for i, call := range proposals {
+			writes[i] = executiondb.CreateExecutionToolProposalParams{ID: call.ID, AgentID: h.route.AgentID, OutputID: outputID,
+				ProviderCallID: call.ProviderCallID, Name: call.Name, Input: call.Input, Type: call.Type}
+		}
+		batch := factsBatch{DBTX: h.unit.DB()}
+		if len(writes) > 0 {
+			inserted := q.CreateExecutionToolProposal(ctx, &batch, writes)
+			batch.readers = append(batch.readers, func() {
+				inserted.QueryRow(func(i int, proposal executiondb.CreateExecutionToolProposalRow, queryErr error) {
+					if queryErr != nil {
+						err = errors.Join(err, queryErr)
+						return
+					}
+					call := proposals[i]
+					if call.Error == "" {
+						result.Projections[call.ID] = dbsqlc.GetToolCallRow{ID: proposal.ID,
+							ProjectID: h.route.ProjectID, AgentID: h.route.AgentID,
+							TurnID: source.TurnID, SourceEventID: event.ID, ModelCallContextID: source.ID,
+							ProviderCallID: call.ProviderCallID,
+							Name:           call.Name, Input: call.Input, Type: call.Type,
+							CreatedAt: proposal.CreatedAt, State: proposal.State, ResultContentParts: []byte(`[]`)}
+					}
+					h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
+					result.Tools = append(result.Tools, call.ToolProposal)
+				})
+				batch.err = errors.Join(batch.err, err, inserted.Close())
+			})
+		}
+		h.queueOutputContent(ctx, &batch, outputID, input.prepared.content)
+		h.queueTurnAdvance(ctx, &batch, event, len(proposals) == 0)
+		pipelined := true
 		for _, call := range proposals {
-			proposal, err := q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
-				ID: call.ID, AgentID: h.route.AgentID, OutputID: output.ID, ProviderCallID: call.ProviderCallID,
-				Name: call.Name, Input: call.Input, Type: call.Type})
-			if err != nil {
+			if call.Error != "" {
+				pipelined = false
+			}
+		}
+		released := pipelined && input.FinishClaim && ParentEffectKind(input.Response) == ""
+		if pipelined {
+			if err = h.queueOutputSuccess(ctx, &batch, source, evidence); err != nil {
 				return AcceptedOutput{}, err
 			}
-			if call.Error == "" {
-				result.Projections[call.ID] = dbsqlc.GetToolCallRow{
-					ID: proposal.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, TurnID: source.TurnID,
-					SourceEventID: event.ID, ModelCallContextID: source.ID, ProviderCallID: call.ProviderCallID,
-					Name: call.Name, Input: call.Input, Type: call.Type, CreatedAt: proposal.CreatedAt,
-					State: proposal.State, ResultContentParts: []byte(`[]`),
+			if released {
+				if err = h.queueOutputRelease(ctx, &batch, input.RuntimeLockID); err != nil {
+					return AcceptedOutput{}, err
 				}
 			}
-			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
-			result.Tools = append(result.Tools, call.ToolProposal)
 		}
-		if err = h.writeContent(ctx, "model_output", output.ID, parts); err != nil {
+		if err = batch.read(ctx); err != nil {
 			return AcceptedOutput{}, err
 		}
-		if err = h.advanceTurn(ctx, event, len(proposals) == 0); err != nil {
-			return AcceptedOutput{}, err
+		if pipelined {
+			m.changed()
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
@@ -203,17 +248,19 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				}
 			}
 		}
-		if _, err = h.finishAttempt(
-			ctx, m, source, ContextSucceeded, ModelFailure{RuntimeLockID: input.RuntimeLockID}, evidence,
-		); err != nil {
-			return AcceptedOutput{}, err
+		if !pipelined {
+			if _, err = h.finishAttempt(
+				ctx, m, source, ContextSucceeded, ModelFailure{RuntimeLockID: input.RuntimeLockID}, evidence,
+			); err != nil {
+				return AcceptedOutput{}, err
+			}
 		}
 		sourceContext := attemptRecord(source).Context
 		sourceContext.State = ContextSucceeded
 		if err = applyAcceptedOutput(m,
 			snapshot,
 			sourceContext,
-			output.ID,
+			outputID,
 			event,
 			len(proposals) > 0,
 			input.Response.Normalized.StopReason == modelenvelope.StopReasonMaxTokens); err != nil {
@@ -221,7 +268,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		}
 		for _, call := range proposals {
 			if call.Error != "" {
-				m.changed()
+				m.changedTools()
 				break
 			}
 		}
@@ -229,12 +276,12 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			if err = h.parentEffect(ctx,
 				kind,
 				strings.TrimSpace(input.Response.Text()),
-				"model_output:"+output.ID.String(),
+				"model_output:"+outputID.String(),
 				uuid.Nil); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
-		if input.FinishClaim {
+		if input.FinishClaim && !released {
 			if err := h.finishRuntime(ctx, m, input.RuntimeLockID); err != nil {
 				return AcceptedOutput{}, err
 			}
@@ -245,16 +292,29 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 
 func (h *Handle) replayOutput(ctx context.Context, contextID uuid.UUID, tools []ToolProposal) (AcceptedOutput, error) {
 	q := executiondb.New()
-	output, err := q.FindExecutionOutput(ctx, h.unit.DB(), executiondb.FindExecutionOutputParams{
-		AgentID: h.route.AgentID, ContextID: contextID,
+	batch := factsBatch{DBTX: h.unit.DB()}
+	var output executiondb.FindExecutionOutputRow
+	var stored []executiondb.ReadExecutionProposalsRow
+	outputs := q.FindExecutionOutput(ctx, &batch, []executiondb.FindExecutionOutputParams{
+		{AgentID: h.route.AgentID, ContextID: contextID},
 	})
-	if err != nil {
-		return AcceptedOutput{}, err
-	}
-	stored, err := q.ReadExecutionProposals(ctx, h.unit.DB(), executiondb.ReadExecutionProposalsParams{
-		AgentID: h.route.AgentID, OutputID: output.ID,
+	proposals := q.ReadExecutionProposals(ctx, &batch, []executiondb.ReadExecutionProposalsParams{
+		{AgentID: h.route.AgentID, ContextID: contextID},
 	})
-	if err != nil {
+	batch.readers = append(batch.readers, func() {
+		outputs.QueryRow(func(_ int, row executiondb.FindExecutionOutputRow, err error) {
+			output = row
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, outputs.Close())
+	}, func() {
+		proposals.Query(func(_ int, rows []executiondb.ReadExecutionProposalsRow, err error) {
+			stored = rows
+			batch.err = errors.Join(batch.err, err)
+		})
+		batch.err = errors.Join(batch.err, proposals.Close())
+	})
+	if err := batch.read(ctx); err != nil {
 		return AcceptedOutput{}, err
 	}
 	bindings := make([]ToolProposal, len(stored))

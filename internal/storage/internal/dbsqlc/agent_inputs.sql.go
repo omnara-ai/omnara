@@ -14,37 +14,66 @@ import (
 )
 
 const claimNextAgentWakeup = `-- name: ClaimNextAgentWakeup :one
-WITH locked_agent AS MATERIALIZED (
-  SELECT agent.id AS agent_id, agent.project_id, agent.root_agent_id, agent.org_id, agent.state
+WITH candidate AS MATERIALIZED (
+  SELECT agent.id,agent.project_id,agent.root_agent_id,agent.org_id,agent.state,agent.current_config_id,agent.next_event_sequence,locked_wake.agent_id
   FROM agent_wakeups wake
-  JOIN agents agent ON agent.id = wake.agent_id
-  WHERE agent.state <> 'archived'
-    AND wake.ready_at <= statement_timestamp()
-  ORDER BY wake.ready_at ASC, wake.agent_id ASC
-  FOR UPDATE OF agent SKIP LOCKED
+  CROSS JOIN LATERAL (
+    SELECT a.id, a.project_id, a.root_agent_id, a.org_id, a.state,
+           a.current_config_id, a.next_event_sequence
+    FROM agents a
+    WHERE a.id=wake.agent_id AND a.state<>'archived'
+    FOR UPDATE OF a SKIP LOCKED
+  ) agent
+  CROSS JOIN LATERAL (
+    SELECT w.agent_id
+    FROM agent_wakeups w
+    WHERE w.agent_id=agent.id AND w.ready_at<=statement_timestamp()
+      AND NOT EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=w.agent_id)
+    FOR UPDATE OF w SKIP LOCKED
+  ) locked_wake
+  WHERE wake.ready_at<=statement_timestamp()
+  ORDER BY wake.ready_at, wake.agent_id
   LIMIT 1
-),
-locked_wake AS MATERIALIZED (
-  SELECT wake.agent_id, agent.project_id, agent.root_agent_id, agent.org_id, agent.state
-  FROM agent_wakeups wake
-  JOIN locked_agent agent ON agent.agent_id = wake.agent_id
-  WHERE NOT EXISTS (
-      SELECT 1
-      FROM agent_runtime_locks runtime_lock
-      WHERE runtime_lock.agent_id = wake.agent_id
-    )
-  FOR UPDATE OF wake
 )
-SELECT agent_id, project_id, root_agent_id, org_id, state
-FROM locked_wake
+SELECT c.agent_id,c.project_id,c.root_agent_id,c.org_id,c.state,
+       h.current_turn_id,coalesce(h.stop_sequence,0)::bigint AS stop_sequence,
+       coalesce(h.max_normal_input_sequence,0)::bigint AS max_normal_input_sequence,
+       coalesce(h.max_context_input_sequence,0)::bigint AS max_context_input_sequence,
+       h.normal_context_id,h.compaction_context_id,h.pending_tool_output_id,h.pending_output_limit_id,
+       h.pending_config_input_id,h.pending_checkpoint_id,
+       coalesce(h.incomplete_tools,false)::boolean AS incomplete_tools,h.logical_ready_at,
+       (h.agent_id IS NOT NULL)::boolean AS head_exists,
+       c.current_config_id,(c.next_event_sequence-1)::bigint AS watermark,
+       EXISTS(SELECT 1 FROM model_call_contexts m WHERE m.agent_id=c.agent_id AND m.state='started')::boolean AS started,
+       statement_timestamp()::timestamptz AS database_now
+FROM candidate c LEFT JOIN LATERAL (
+ SELECT head.agent_id,head.current_turn_id,head.stop_sequence,head.max_normal_input_sequence,head.max_context_input_sequence,head.normal_context_id,head.compaction_context_id,head.pending_tool_output_id,head.pending_output_limit_id,head.pending_config_input_id,head.pending_checkpoint_id,head.incomplete_tools,head.logical_ready_at FROM agent_execution_state head WHERE head.agent_id=c.agent_id FOR UPDATE OF head
+) h ON true
 `
 
 type ClaimNextAgentWakeupRow struct {
-	AgentID     uuid.UUID
-	ProjectID   uuid.UUID
-	RootAgentID uuid.UUID
-	OrgID       uuid.UUID
-	State       string
+	AgentID                 uuid.UUID
+	ProjectID               uuid.UUID
+	RootAgentID             uuid.UUID
+	OrgID                   uuid.UUID
+	State                   string
+	CurrentTurnID           *uuid.UUID
+	StopSequence            int64
+	MaxNormalInputSequence  int64
+	MaxContextInputSequence int64
+	NormalContextID         *uuid.UUID
+	CompactionContextID     *uuid.UUID
+	PendingToolOutputID     *uuid.UUID
+	PendingOutputLimitID    *uuid.UUID
+	PendingConfigInputID    *uuid.UUID
+	PendingCheckpointID     *uuid.UUID
+	IncompleteTools         bool
+	LogicalReadyAt          *time.Time
+	HeadExists              bool
+	CurrentConfigID         uuid.UUID
+	Watermark               int64
+	Started                 bool
+	DatabaseNow             time.Time
 }
 
 func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeupRow, error) {
@@ -56,6 +85,23 @@ func (q *Queries) ClaimNextAgentWakeup(ctx context.Context) (ClaimNextAgentWakeu
 		&i.RootAgentID,
 		&i.OrgID,
 		&i.State,
+		&i.CurrentTurnID,
+		&i.StopSequence,
+		&i.MaxNormalInputSequence,
+		&i.MaxContextInputSequence,
+		&i.NormalContextID,
+		&i.CompactionContextID,
+		&i.PendingToolOutputID,
+		&i.PendingOutputLimitID,
+		&i.PendingConfigInputID,
+		&i.PendingCheckpointID,
+		&i.IncompleteTools,
+		&i.LogicalReadyAt,
+		&i.HeadExists,
+		&i.CurrentConfigID,
+		&i.Watermark,
+		&i.Started,
+		&i.DatabaseNow,
 	)
 	return i, err
 }
