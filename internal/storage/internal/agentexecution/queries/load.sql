@@ -11,7 +11,15 @@ FROM agents a LEFT JOIN agent_execution_state h ON h.agent_id=a.id
 WHERE a.project_id=sqlc.arg(project_id) AND a.id=sqlc.arg(agent_id);
 
 -- name: LoadExecutionFacts :batchone
-WITH batch AS (
+WITH turn_openings AS MATERIALIZED (
+ SELECT x.sequence,x.agent_input_id FROM agent_events x
+ WHERE x.agent_id=sqlc.arg(agent_id) AND x.turn_id=sqlc.narg(turn_id) AND x.is_opening_event
+), opening_bounds AS MATERIALIZED (
+ SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
+ min(x.sequence) FILTER (WHERE (SELECT i.input_kind FROM agent_inputs i
+ WHERE i.agent_id=sqlc.arg(agent_id) AND i.id=x.agent_input_id)='content') AS first_content_sequence
+ FROM turn_openings x
+), batch AS (
 SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)) AS has_tools,
 EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.state<>'completed') AS incomplete,
 EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)
@@ -41,12 +49,7 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_
  coalesce(o.first_content_sequence,0)::bigint AS first_content_sequence
  FROM agents a LEFT JOIN agent_turns t ON t.agent_id=a.id AND t.id=sqlc.narg(turn_id)
  LEFT JOIN agent_events e ON e.agent_id=a.id AND e.id=t.latest_semantic_event_id
- LEFT JOIN LATERAL (
-  SELECT min(x.sequence) AS first_opening_sequence,max(x.sequence) AS last_opening_sequence,
-   min(x.sequence) FILTER (WHERE i.input_kind='content') AS first_content_sequence
-  FROM agent_events x JOIN agent_inputs i ON i.agent_id=x.agent_id AND i.id=x.agent_input_id
-  WHERE x.agent_id=a.id AND x.turn_id=t.id AND x.is_opening_event
- ) o ON true
+ LEFT JOIN opening_bounds o ON true
  WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id)
 ) , boundary AS MATERIALIZED (
     SELECT greatest(coalesce((SELECT e.sequence FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)

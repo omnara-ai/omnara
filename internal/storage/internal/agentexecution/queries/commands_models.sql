@@ -16,7 +16,7 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
  r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
- (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
+ (SELECT count(*) FROM model_call_contexts prior WHERE prior.project_id=c.project_id AND prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
  AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
