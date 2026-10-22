@@ -776,27 +776,32 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	mcpServer := mcptest.NewJSONServerWithGreetResult(t, sampleID)
 	toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
 	env.startAPI(t, ctx)
-	sourceYAML := strings.Join([]string{
-		"instruction: Use tools only when explicitly requested. Preserve exact tool results and conversation facts across compaction.",
-		"model:",
-		"  provider_config: " + opts.ProviderConfig,
-		"  name: " + opts.ConfiguredModelName,
-		"mcp:",
-		"  docs:",
-		"    url: " + mcpServer.URL,
-		"    permission:",
-		"      mode: always_allow",
-		"",
-	}, "\n")
+	const setupContextWindow = 128000
+	const compactionContextWindow = 16000
+	sourceForContextWindow := func(contextWindow int) string {
+		return strings.Join([]string{
+			"instruction: Use tools only when explicitly requested. Preserve exact tool results and conversation facts across compaction.",
+			"model:",
+			"  provider_config: " + opts.ProviderConfig,
+			"  name: " + opts.ConfiguredModelName,
+			"  context_window_tokens: " + strconv.Itoa(contextWindow),
+			"mcp:",
+			"  docs:",
+			"    url: " + mcpServer.URL,
+			"    permission:",
+			"      mode: always_allow",
+			"",
+		}, "\n")
+	}
 	modelOptions := opts.ModelOptions
-	modelOptions.ContextWindowTokens = 16000
+	modelOptions.ContextWindowTokens = setupContextWindow
 	modelOptions.MaxOutputTokens = 8192
 	modelOptions.DefaultMaxOutputTokens = 4096
 	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		opts.Seed,
-		sourceYAML,
+		sourceForContextWindow(setupContextWindow),
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{
 				ProviderConfigName:  opts.ProviderConfig,
@@ -815,11 +820,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		http.StatusOK,
 	)
 	modelConfig := testutil.RequireType[map[string]any](t, config["model"])
-	if modelConfig["context_window_tokens"] != float64(16000) || modelConfig["max_output_tokens"] != float64(8192) ||
+	if modelConfig["context_window_tokens"] != float64(setupContextWindow) ||
+		modelConfig["max_output_tokens"] != float64(8192) ||
 		modelConfig["default_max_output_tokens"] != float64(4096) {
 		t.Fatalf(
-			"live compaction agent config model budget = %+v, want context_window_tokens=16000 max_output_tokens=8192 default_max_output_tokens=4096",
+			"live compaction setup model budget = %+v, want context_window_tokens=%d max_output_tokens=8192 default_max_output_tokens=4096",
 			modelConfig,
+			setupContextWindow,
 		)
 	}
 	agentID := project.createAgent(t, ctx)
@@ -845,6 +852,34 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	waitForLiveModelOutputText(t, ctx, env, project.projectID, agentID, "ACK_"+projectLabel, worker)
 	waitForLiveAgentIdle(t, ctx, env, project.projectID, agentID, worker)
 	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
+	var earlyCheckpoints int
+	if err := env.db.QueryRow(ctx,
+		`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+		projectUUID, agentUUID,
+	).Scan(&earlyCheckpoints); err != nil {
+		t.Fatalf("query checkpoints before context pressure: %v", err)
+	}
+	if earlyCheckpoints != 0 {
+		t.Fatalf("compaction occurred before the complete tool turn: checkpoints=%d", earlyCheckpoints)
+	}
+	// Establish the complete tool turn with ample headroom, then impose context
+	// pressure through the public config API. Tokenizer differences must not
+	// decide whether this fixture tests a summarized or retained tool result.
+	configChange := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		project.projectPath+"/agents/"+agentID+"/config",
+		map[string]any{"source_format": "yaml", "source": sourceForContextWindow(compactionContextWindow)},
+		"idem-"+agentID+"-compaction-budget",
+		project.adminToken,
+		http.StatusOK,
+	)
+	updatedConfig := testutil.RequireType[map[string]any](t, configChange["agent_config"])
+	updatedModel := testutil.RequireType[map[string]any](t, updatedConfig["model"])
+	if updatedModel["context_window_tokens"] != float64(compactionContextWindow) {
+		t.Fatalf("live compaction model budget = %+v, want context_window_tokens=%d", updatedModel, compactionContextWindow)
+	}
 
 	secondPrompt := strings.Join([]string{
 		"Create enough ordinary context pressure that the system may compact older history before this turn completes.",
@@ -863,16 +898,26 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	project.createInput(t, ctx, agentID, secondPrompt)
 	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
-		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(
+		// Read output first so the evidence below cannot precede a newly completed turn.
+		latestOutput, err := latestModelOutputTextAfterSequence(
 			ctx,
-			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`,
-			projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken,
-		).
-			Scan(&checkpoints); err != nil {
+			env,
+			projectUUID,
+			agentUUID,
+			beforeBridgeSequence,
+		)
+		if err != nil {
 			return false, err.Error()
 		}
-		var err error
+		var checkpoints, matchingCheckpoints, compactedContexts, failedBudgetContexts int
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*), count(*) FILTER (WHERE strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+			projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken,
+		).
+			Scan(&checkpoints, &matchingCheckpoints); err != nil {
+			return false, err.Error()
+		}
 		compactedContexts, err = successfulContextsUsingSummaryCheckpoint(
 			ctx,
 			env,
@@ -900,20 +945,10 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 				maxCompactionRounds,
 			)
 		}
-		latestOutput, err := latestModelOutputTextAfterSequence(
-			ctx,
-			env,
-			projectUUID,
-			agentUUID,
-			beforeBridgeSequence,
-		)
-		if err != nil {
-			return false, err.Error()
-		}
 		outputMatches := strings.Contains(latestOutput, bridgeToken) &&
 			!strings.Contains(latestOutput, projectLabel) &&
 			!strings.Contains(latestOutput, sampleID)
-		if outputMatches && checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 {
+		if outputMatches && matchingCheckpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 {
 			return true, ""
 		}
 		var locks, wakeups int
@@ -929,9 +964,13 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
-		if checkpoints >= 1 && compactedContexts >= 1 && failedBudgetContexts >= 1 && locks == 0 && wakeups == 0 {
+		if latestOutput != "" && locks == 0 && wakeups == 0 {
 			t.Fatalf(
-				"post-compaction model output violated bridge contract: output=%q want_contains=%q want_excludes=%q,%q",
+				"idle agent violated compaction bridge contract: checkpoints=%d matching_checkpoints=%d compacted_contexts=%d failed_budget_contexts=%d output=%q want_contains=%q want_excludes=%q,%q",
+				checkpoints,
+				matchingCheckpoints,
+				compactedContexts,
+				failedBudgetContexts,
 				latestOutput,
 				bridgeToken,
 				projectLabel,
@@ -939,6 +978,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			)
 		}
 		return false, "live compaction bridge not complete checkpoints=" + itoa(checkpoints) +
+			" matching_checkpoints=" + itoa(matchingCheckpoints) +
 			" compacted_contexts=" + itoa(compactedContexts) +
 			" failed_budget_contexts=" + itoa(failedBudgetContexts) +
 			" locks=" + itoa(locks) +
