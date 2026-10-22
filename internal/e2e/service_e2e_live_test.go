@@ -865,7 +865,6 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	// Establish the complete tool turn with ample headroom, then impose context
 	// pressure through the public config API. Tokenizer differences must not
 	// decide whether this fixture tests a summarized or retained tool result.
-	worker.stop()
 	configChange := env.requestJSON(
 		t,
 		ctx,
@@ -897,10 +896,6 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		t.Fatalf("query pre-bridge event sequence: %v", err)
 	}
 	project.createInput(t, ctx, agentID, secondPrompt)
-	worker = env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
-		ProviderConfig: opts.ProviderConfig,
-		BaseURL:        opts.BaseURL,
-	})
 	const maxCompactionRounds = 3
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		// Read output first so the evidence below cannot precede a newly completed turn.
