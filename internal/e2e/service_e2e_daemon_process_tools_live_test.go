@@ -319,7 +319,8 @@ FROM process_actions
 WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID)
 	processStates = scanSummary(`
 SELECT coalesce(string_agg(
-  state || ':granted=' || (execution_granted_at IS NOT NULL)::text || ':cmd=' || coalesce(execution_spec->'shell'->>'command', ''),
+  state || ':granted=' || (execution_granted_at IS NOT NULL)::text || ':cmd='
+      || coalesce(execution_spec->'shell'->>'command', ''),
   ',' ORDER BY created_at, id
 ), '')
 FROM processes
