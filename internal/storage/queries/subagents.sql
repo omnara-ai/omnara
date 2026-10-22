@@ -15,14 +15,14 @@ SELECT agent.id,
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_question,
        EXISTS (
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_permission,
        (
          EXISTS (
@@ -59,14 +59,14 @@ SELECT agent.id,
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_question,
        EXISTS (
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_permission,
        (
          EXISTS (
@@ -156,24 +156,114 @@ WHERE binding.project_id = sqlc.arg(project_id)
 ORDER BY binding.created_at, binding.id;
 
 -- name: ListAgentInteractionsForAgents :many
-SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
-       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND interaction.state = sqlc.arg(state)::text
+      AND (interaction.created_at, interaction.id) >
+          (coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+           coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT sqlc.arg(row_limit)::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY(sqlc.arg(agent_ids)::uuid[])
+    AND scoped_agent.project_id = sqlc.arg(project_id)
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
        interaction.destination, interaction.presentation_receipt,
        agent.name AS agent_name, agent.subagent_key
-FROM agent_interaction_read_projection interaction
-JOIN agents agent ON agent.project_id = interaction.project_id
-  AND agent.id = interaction.agent_id
-WHERE interaction.project_id = sqlc.arg(project_id)
-  AND interaction.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
-  AND (sqlc.arg(state)::text = '' OR interaction.state = sqlc.arg(state))
-  AND (
-    sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
-  )
-ORDER BY interaction.created_at ASC, interaction.id ASC
-LIMIT sqlc.arg(row_limit)::bigint;
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id;
+
+-- name: ListOpenAgentInteractionsForAgents :many
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND interaction.state = 'open'
+      AND (interaction.created_at, interaction.id) >
+          (coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+           coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT sqlc.arg(row_limit)::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY(sqlc.arg(agent_ids)::uuid[])
+    AND scoped_agent.project_id = sqlc.arg(project_id)
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id;
+
+-- name: ListAllAgentInteractionsForAgents :many
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND (interaction.created_at, interaction.id) >
+          (coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+           coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT sqlc.arg(row_limit)::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY(sqlc.arg(agent_ids)::uuid[])
+    AND scoped_agent.project_id = sqlc.arg(project_id)
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id;
 
 -- name: ListIdleAgentsForArchive :many
 WITH RECURSIVE candidate AS (

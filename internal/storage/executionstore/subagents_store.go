@@ -370,7 +370,30 @@ func (s *Store) ListAgentInteractions(
 		params.CursorCreatedAt = &createdAt
 		params.CursorID = &id
 	}
-	rows, err := s.q.ListAgentInteractionsForAgents(ctx, params)
+	var rows []dbsqlc.ListAgentInteractionsForAgentsRow
+	var err error
+	switch input.State {
+	case "open":
+		var page []dbsqlc.ListOpenAgentInteractionsForAgentsRow
+		page, err = s.q.ListOpenAgentInteractionsForAgents(ctx, dbsqlc.ListOpenAgentInteractionsForAgentsParams{
+			ProjectID: params.ProjectID, AgentIds: params.AgentIds, RowLimit: params.RowLimit,
+			CursorCreatedAt: params.CursorCreatedAt, CursorID: params.CursorID,
+		})
+		for _, row := range page {
+			rows = append(rows, dbsqlc.ListAgentInteractionsForAgentsRow(row))
+		}
+	case "":
+		var page []dbsqlc.ListAllAgentInteractionsForAgentsRow
+		page, err = s.q.ListAllAgentInteractionsForAgents(ctx, dbsqlc.ListAllAgentInteractionsForAgentsParams{
+			ProjectID: params.ProjectID, AgentIds: params.AgentIds, RowLimit: params.RowLimit,
+			CursorCreatedAt: params.CursorCreatedAt, CursorID: params.CursorID,
+		})
+		for _, row := range page {
+			rows = append(rows, dbsqlc.ListAgentInteractionsForAgentsRow(row))
+		}
+	default:
+		rows, err = s.q.ListAgentInteractionsForAgents(ctx, params)
+	}
 	if err != nil {
 		return ListAgentInteractionsResult{}, fmt.Errorf("list agent interactions: %w", err)
 	}
