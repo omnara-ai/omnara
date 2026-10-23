@@ -3,7 +3,6 @@ package anthropicmessages
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -16,8 +15,6 @@ import (
 const APIVersion = "2023-06-01"
 
 const thinkingBindingControlsBeta = "thinking-binding-controls-2026-08-01"
-
-const firstPartyAnthropicHost = "api.anthropic.com"
 
 type Client struct {
 	ModelProviderConfigID string
@@ -46,16 +43,8 @@ func (c Client) ModelAPIVariant() modelprotocol.APIVariant {
 	return normalizeAPIVariant(c.APIVariant)
 }
 
-func (c Client) firstPartyAnthropic() bool {
-	if c.ModelAPIVariant() != modelprotocol.APIVariantDefault {
-		return false
-	}
-	baseURL := strings.TrimSpace(c.BaseURL)
-	if baseURL == "" {
-		return true
-	}
-	parsed, err := url.Parse(baseURL)
-	return err == nil && strings.EqualFold(parsed.Hostname(), firstPartyAnthropicHost)
+func (c Client) supportsThinkingBindingControls() bool {
+	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
 }
 
 func (c Client) Capabilities() model.Capabilities {

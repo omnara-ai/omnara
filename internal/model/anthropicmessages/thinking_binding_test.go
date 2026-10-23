@@ -20,7 +20,7 @@ func prepareThinkingRequest(t *testing.T, client Client, messages []modelcontext
 	t.Helper()
 	client.EndpointPath = testEndpointPath
 	if client.ProviderModelSlug == "" {
-		client.ProviderModelSlug = "claude-test"
+		client.ProviderModelSlug = "claude-opus-5-5"
 	}
 	supportsReasoning := true
 	if len(messages) == 0 {
@@ -40,7 +40,7 @@ func prepareThinkingRequest(t *testing.T, client Client, messages []modelcontext
 	return payload
 }
 
-func TestPrepareDropsPrefixMismatchedThinkingOnlyOnFirstPartyAnthropic(t *testing.T) {
+func TestPrepareDropsPrefixMismatchedThinkingOnlyForClaudeModels(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		client       Client
@@ -53,6 +53,32 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyOnFirstPartyAnthropic(t *testin
 		{
 			name:         "explicit anthropic base URL",
 			client:       Client{BaseURL: "https://api.anthropic.com/v1"},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name: "openrouter claude slug",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				ProviderModelSlug: "anthropic/claude-opus-5.5",
+			},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name: "openrouter dated claude slug",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				ProviderModelSlug: "anthropic/claude-sonnet-4.5:beta",
+			},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:         "bedrock claude slug",
+			client:       Client{APIVariant: modelprotocol.APIVariantBedrock},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:         "claude behind an anthropic-compatible base URL",
+			client:       Client{BaseURL: "https://gateway.example.test/anthropic"},
 			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
@@ -71,18 +97,24 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyOnFirstPartyAnthropic(t *testin
 			wantThinking: `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"error"}}`,
 		},
 		{
-			name:         "anthropic-compatible base URL",
-			client:       Client{BaseURL: "https://api.minimax.io/anthropic"},
+			name: "openrouter non-claude slug",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				ProviderModelSlug: "minimax/minimax-m3.1-flash",
+			},
 			wantThinking: `{"type":"adaptive"}`,
 		},
 		{
-			name:         "openrouter",
-			client:       Client{APIVariant: modelprotocol.APIVariantOpenRouter},
+			name: "non-claude anthropic-compatible provider",
+			client: Client{
+				BaseURL:           "https://api.minimax.io/anthropic",
+				ProviderModelSlug: "MiniMax-M3",
+			},
 			wantThinking: `{"type":"adaptive"}`,
 		},
 		{
-			name:         "bedrock",
-			client:       Client{APIVariant: modelprotocol.APIVariantBedrock},
+			name:         "claude-named non-family slug",
+			client:       Client{ProviderModelSlug: "my-claude-proxy"},
 			wantThinking: `{"type":"adaptive"}`,
 		},
 	} {
@@ -93,33 +125,48 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyOnFirstPartyAnthropic(t *testin
 	}
 }
 
-func TestThinkingBindingBetaHeaderOnlyOnFirstPartyAnthropic(t *testing.T) {
+func TestThinkingBindingBetaHeaderOnlyForClaudeModels(t *testing.T) {
+	const claude = "claude-opus-5-5"
 	operatorBetas := route.Headers{"Anthropic-Beta": "context-1m-2025-08-07, interleaved-thinking-2025-05-14"}
 	for _, tc := range []struct {
 		name     string
 		client   Client
 		wantBeta string
 	}{
-		{name: "default base URL", wantBeta: thinkingBindingControlsBeta},
+		{name: "default base URL", client: Client{ProviderModelSlug: claude}, wantBeta: thinkingBindingControlsBeta},
 		{
 			name:     "keeps operator betas",
-			client:   Client{Auth: operatorBetas},
+			client:   Client{ProviderModelSlug: claude, Auth: operatorBetas},
 			wantBeta: "context-1m-2025-08-07,interleaved-thinking-2025-05-14," + thinkingBindingControlsBeta,
 		},
 		{
 			name: "operator already sends the beta",
-			client: Client{Auth: route.Headers{
+			client: Client{ProviderModelSlug: claude, Auth: route.Headers{
 				"Anthropic-Beta": thinkingBindingControlsBeta + ",context-1m-2025-08-07",
 			}},
 			wantBeta: thinkingBindingControlsBeta + ",context-1m-2025-08-07",
 		},
-		{name: "anthropic-compatible base URL", client: Client{BaseURL: "https://api.minimax.io/anthropic"}},
 		{
-			name:     "openrouter keeps operator betas untouched",
-			client:   Client{APIVariant: modelprotocol.APIVariantOpenRouter, Auth: operatorBetas},
+			name: "openrouter claude slug",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				ProviderModelSlug: "anthropic/claude-opus-5.5",
+			},
+			wantBeta: thinkingBindingControlsBeta,
+		},
+		{
+			name: "openrouter non-claude slug keeps operator betas untouched",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+				ProviderModelSlug: "minimax/minimax-m3.1-flash",
+				Auth:              operatorBetas,
+			},
 			wantBeta: "context-1m-2025-08-07, interleaved-thinking-2025-05-14",
 		},
-		{name: "bedrock", client: Client{APIVariant: modelprotocol.APIVariantBedrock}},
+		{
+			name:   "non-claude anthropic-compatible provider",
+			client: Client{BaseURL: "https://api.minimax.io/anthropic", ProviderModelSlug: "MiniMax-M3"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example.test", nil)
