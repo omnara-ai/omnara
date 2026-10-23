@@ -49,9 +49,10 @@ const (
 		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
 		"running and you get a message when it ends; use its process_id with the process tools to read " +
 		"output, send input, or stop it."
-	writeProcessToolDescription = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
-	stopProcessToolDescription  = "Interrupt or terminate a running process."
-	readProcessToolDescription  = "Read retained process output, optionally waiting for the process to end. " +
+	writeProcessToolDescription = "Write exact stdin/PTY bytes to a running process started with stdin: true or " +
+		"io_mode: pty, close pipe stdin, or do both."
+	stopProcessToolDescription = "Interrupt or terminate a running process."
+	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
@@ -164,6 +165,11 @@ func buildDefaultCatalog() (Catalog, error) {
 				"enum": []string{"pipe", "pty"},
 				"description": "Process I/O transport. Omit for pipe. " +
 					"Use pty for interactive terminal programs or persistent shells.",
+			},
+			"stdin": map[string]any{
+				"type": "boolean",
+				"description": "Keep stdin open so write_process can send input. Defaults to false: a pipe command " +
+					"reads end of input, so a prompt fails at once instead of waiting. pty commands always have input.",
 			},
 			"detach": map[string]any{
 				"type": "boolean",

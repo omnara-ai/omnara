@@ -228,6 +228,7 @@ type localProcessRunner struct {
 	stdin               *os.File
 	stdinMu             sync.Mutex
 	stdinOK             bool
+	noStdin             bool
 	ptyMode             bool
 	output              processOutput
 	outputDone          chan struct{}

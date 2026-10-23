@@ -22,6 +22,7 @@ type runCommandRequest struct {
 	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
 	Detach    *bool           `json:"detach,omitempty"`
+	Stdin     *bool           `json:"stdin,omitempty"`
 	// NotifyMatch is a regular expression for output lines to report.
 	NotifyMatch *string `json:"notify_match,omitempty"`
 }
@@ -34,8 +35,17 @@ type resolvedRunCommandRequest struct {
 	WaitMs    int
 	IOMode    processcmd.IOMode
 	Detach    bool
+	// Stdin keeps a pipe command's stdin open for write_process.
+	Stdin bool
 	// NotifyMatch is a regular expression for output lines to report.
 	NotifyMatch string
+}
+
+// executionSpec gives pipe commands no stdin unless the agent asked for it.
+func (r resolvedRunCommandRequest) executionSpec() processcmd.ExecutionSpec {
+	spec := processcmd.ForShell(r.Command, r.Selector, r.IOMode)
+	spec.Shell.NoStdin = r.IOMode == processcmd.IOModePipe && !r.Stdin
+	return spec
 }
 
 func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, error) {
@@ -131,6 +141,7 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 		WaitMs:      waitMs,
 		IOMode:      ioMode,
 		Detach:      input.Detach != nil && *input.Detach,
+		Stdin:       input.Stdin != nil && *input.Stdin,
 		NotifyMatch: notifyMatch,
 	}, nil
 }

@@ -55,8 +55,14 @@ func (s ExecutionSpec) ValidateLocal() error {
 		if _, err := NormalizeShellCommand(s.Shell.Command, s.Shell.Shell); err != nil {
 			return err
 		}
-		_, err := NormalizeIOMode(s.Shell.IOMode)
-		return err
+		mode, err := NormalizeIOMode(s.Shell.IOMode)
+		if err != nil {
+			return err
+		}
+		if s.Shell.NoStdin && mode != IOModePipe {
+			return errors.New("only pipe commands can run without stdin")
+		}
+		return nil
 	case KindFileTransfer:
 		if s.FileTransfer == nil || s.Shell != nil {
 			return errors.New("file transfer execution requires only a file transfer payload")
