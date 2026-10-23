@@ -610,7 +610,7 @@ func (s *runnerServerState) freezeInitialObservation(
 	// The terminal report waits for startedDone, so output matches watched
 	// below are frozen before it.
 	defer s.startedOnce.Do(func() { close(s.startedDone) })
-	result, next, observedAt, done, err := initialProcessObservation(
+	result, window, observedAt, done, err := initialProcessObservation(
 		ctx,
 		s.assignment,
 		runner,
@@ -640,21 +640,21 @@ func (s *runnerServerState) freezeInitialObservation(
 	}); err != nil || s.assignment.NotifyMatch == "" {
 		return
 	}
-	s.watchOutputMatches(ctx, runner, next)
+	s.watchOutputMatches(ctx, runner, window)
 }
 
 func initialProcessObservation(
 	ctx context.Context,
 	assignment ProcessAssignment,
 	runner *localProcessRunner,
-) (json.RawMessage, int64, time.Time, bool, error) {
+) (json.RawMessage, outputWindow, time.Time, bool, error) {
 	wait := time.Duration(assignment.WaitMs) * time.Millisecond
 	deadline := time.Now().Add(wait)
 	maxBytes, headBytes := assignment.outputBudget()
 	settle := newOutputSettle(assignment.OutputWait)
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, 0, time.Time{}, false, err
+			return nil, outputWindow{}, time.Time{}, false, err
 		}
 		window, observationErr := runner.Window(0, maxBytes, headBytes)
 		done := runner.hasTerminalResult()
@@ -690,10 +690,10 @@ func initialProcessObservation(
 			}
 			window.addTail(result)
 			body, err := marshalJSON(result)
-			return body, window.Next, runner.sourceTimeNow(), done, err
+			return body, window, runner.sourceTimeNow(), done, err
 		}
 		if err := sleepContext(ctx, 25*time.Millisecond); err != nil {
-			return nil, 0, time.Time{}, false, err
+			return nil, outputWindow{}, time.Time{}, false, err
 		}
 	}
 }

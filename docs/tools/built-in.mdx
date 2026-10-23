@@ -101,7 +101,7 @@ When a command outlives its `run_command` call, Omnara sends the agent a message
 
 There is no message when the agent stopped the process with `stop_process`, when a `read_process` call was waiting on it as it ended (its result reports the exit instead), or when `run_command` was called with `detach: true`. Use `detach` for processes that are meant to keep running, such as development servers.
 
-With `notify_match`, the agent also receives the output lines that match the expression, starting after `run_command` returns. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `detach: true` and `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.9 or later.
+With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `detach: true` and `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.9 or later.
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 
