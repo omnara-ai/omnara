@@ -13,8 +13,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
-const adaptiveThinkingDroppingPrefixMismatches = `{"type":"adaptive",` +
-	`"block_binding":{"prefix_mismatch_behavior":"drop_block"}}`
+const adaptiveThinkingDroppingPrefixMismatches = `{"block_binding":{"prefix_mismatch_behavior":"drop_block"},` +
+	`"type":"adaptive"}`
 
 func prepareThinkingRequest(t *testing.T, client Client, messages []modelcontext.Message) map[string]json.RawMessage {
 	t.Helper()
