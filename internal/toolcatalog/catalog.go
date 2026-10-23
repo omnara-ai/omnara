@@ -244,7 +244,8 @@ func buildDefaultCatalog() (Catalog, error) {
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
 			"description": "Wait up to this long for the process to end before returning (up to 300000 ms). " +
-				"A pty program waiting at a prompt returns once its output goes quiet. Omit to return immediately. " +
+				"A program with input (pty, or stdin: true) waiting at a prompt returns once its output goes quiet. " +
+				"With offset_byte, returns once output exists there. Omit to return immediately. " +
 				"Prefer one long wait over repeated reads.",
 		},
 	}

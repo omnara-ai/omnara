@@ -381,24 +381,31 @@ func (s *Store) GetProcessByToolCall(
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
 
-// ProcessExecutionSpec returns what one of the agent's processes runs.
-func (r *ToolCallReader) ProcessExecutionSpec(
+// ProcessExecution is what one of the agent's processes runs and the version
+// of the daemon currently connected for its machine, empty when none is.
+type ProcessExecution struct {
+	Spec          processcmd.ExecutionSpec
+	DaemonVersion string
+}
+
+// ProcessExecution returns what one of the agent's processes runs.
+func (r *ToolCallReader) ProcessExecution(
 	ctx context.Context,
 	processID uuid.UUID,
-) (processcmd.ExecutionSpec, bool, error) {
+) (ProcessExecution, bool, error) {
 	t := r.transaction
-	spec, err := t.q.GetProcessExecutionSpecForAgent(ctx, dbsqlc.GetProcessExecutionSpecForAgentParams{
+	row, err := t.q.GetProcessExecutionSpecForAgent(ctx, dbsqlc.GetProcessExecutionSpecForAgentParams{
 		ProjectID: t.input.ProjectID,
 		AgentID:   t.input.AgentID,
 		ID:        processID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return processcmd.ExecutionSpec{}, false, nil
+		return ProcessExecution{}, false, nil
 	}
 	if err != nil {
-		return processcmd.ExecutionSpec{}, false, fmt.Errorf("get process execution spec: %w", err)
+		return ProcessExecution{}, false, fmt.Errorf("get process execution spec: %w", err)
 	}
-	return spec, true, nil
+	return ProcessExecution{Spec: row.ExecutionSpec, DaemonVersion: row.DaemonVersion}, true, nil
 }
 
 func (r *ToolCallReader) ListActiveProcesses(

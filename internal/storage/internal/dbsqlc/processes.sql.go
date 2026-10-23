@@ -949,8 +949,14 @@ func (q *Queries) GetProcessExecutionConfig(ctx context.Context, arg GetProcessE
 }
 
 const getProcessExecutionSpecForAgent = `-- name: GetProcessExecutionSpecForAgent :one
-SELECT process.execution_spec
+SELECT process.execution_spec,
+       coalesce(current_runtime.daemon_version, '')::text AS daemon_version
 FROM processes process
+LEFT JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE process.project_id = $1
   AND process.agent_id = $2
   AND process.id = $3
@@ -962,11 +968,16 @@ type GetProcessExecutionSpecForAgentParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetProcessExecutionSpecForAgent(ctx context.Context, arg GetProcessExecutionSpecForAgentParams) (processcmd.ExecutionSpec, error) {
+type GetProcessExecutionSpecForAgentRow struct {
+	ExecutionSpec processcmd.ExecutionSpec
+	DaemonVersion string
+}
+
+func (q *Queries) GetProcessExecutionSpecForAgent(ctx context.Context, arg GetProcessExecutionSpecForAgentParams) (GetProcessExecutionSpecForAgentRow, error) {
 	row := q.db.QueryRow(ctx, getProcessExecutionSpecForAgent, arg.ProjectID, arg.AgentID, arg.ID)
-	var execution_spec processcmd.ExecutionSpec
-	err := row.Scan(&execution_spec)
-	return execution_spec, err
+	var i GetProcessExecutionSpecForAgentRow
+	err := row.Scan(&i.ExecutionSpec, &i.DaemonVersion)
+	return i, err
 }
 
 const getProcessForUpdate = `-- name: GetProcessForUpdate :one

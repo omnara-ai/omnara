@@ -92,7 +92,7 @@ func TestEncodeForDaemonStripsOutputWaitForOlderDaemons(t *testing.T) {
 		ProcessActionRead,
 		`{"max_bytes":16384,"wait_ms":5000,"wait_for_exit":true,"quiet_ms":1000,"head_bytes":2048}`,
 	)
-	for _, version := range []string{"0.2.8", "0.2.5", ""} {
+	for _, version := range []string{"0.2.10", "0.2.8", "0.2.5", ""} {
 		payload := encodedOfferPayload(t, version, read)
 		for _, name := range []string{"wait_for_exit", "quiet_ms", "head_bytes"} {
 			if _, ok := payload[name]; ok {

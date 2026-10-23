@@ -109,3 +109,28 @@ func TestExecutionSpecRejectsPTYWithoutStdin(t *testing.T) {
 		t.Fatal("a pty command without stdin passed validation")
 	}
 }
+
+func TestAgentOutputWaitReturnsEarlyOnlyWithStdin(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mode    IOMode
+		noStdin bool
+		quiet   bool
+	}{
+		{name: "pty", mode: IOModePTY, quiet: true},
+		{name: "pipe with stdin", mode: IOModePipe, quiet: true},
+		{name: "pipe without stdin", mode: IOModePipe, noStdin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := ForShell("python3", ShellDefault, test.mode)
+			spec.Shell.NoStdin = test.noStdin
+			wait, ok := spec.AgentOutputWait()
+			if !ok || !wait.WaitForExit {
+				t.Fatalf("wait = %+v, ok = %t", wait, ok)
+			}
+			if (wait.QuietMS > 0) != test.quiet {
+				t.Fatalf("quiet_ms = %d, want quiet %t", wait.QuietMS, test.quiet)
+			}
+		})
+	}
+}

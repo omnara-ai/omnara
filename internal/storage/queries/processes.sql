@@ -574,8 +574,14 @@ WHERE machine.id = sqlc.arg(machine_id)
 LIMIT 1;
 
 -- name: GetProcessExecutionSpecForAgent :one
-SELECT process.execution_spec
+SELECT process.execution_spec,
+       coalesce(current_runtime.daemon_version, '')::text AS daemon_version
 FROM processes process
+LEFT JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
 WHERE process.project_id = sqlc.arg(project_id)
   AND process.agent_id = sqlc.arg(agent_id)
   AND process.id = sqlc.arg(id);

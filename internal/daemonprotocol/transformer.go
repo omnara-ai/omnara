@@ -39,29 +39,14 @@ func encodeForDaemon(daemonVersion string, message Message) ([]byte, error) {
 
 // Daemons before 0.2.6 reject read waits over 10s; remove this clamp once they are unsupported.
 func supportsLongReadWaits(daemonVersion string) bool {
-	return daemonAtLeast(daemonVersion, processaction.LongWaitDaemonVersion)
+	return daemonversion.AtLeast(daemonVersion, processaction.LongWaitDaemonVersion)
 }
 
-// Daemons before 0.2.9 reject the output-window read fields; without them a
+// Daemons before 0.2.11 reject the output-window read fields; without them a
 // read returns on the first output, as it always did. Process offers need no
 // change because daemons ignore unknown offer fields.
 func supportsOutputWindows(daemonVersion string) bool {
-	return daemonAtLeast(daemonVersion, processaction.OutputWindowDaemonVersion)
-}
-
-func daemonAtLeast(daemonVersion, minimumVersion string) bool {
-	if daemonVersion == daemonversion.Development {
-		return true
-	}
-	release, err := daemonversion.ParseRelease(daemonVersion)
-	if err != nil {
-		return false
-	}
-	minimum, err := daemonversion.ParseRelease(minimumVersion)
-	if err != nil {
-		return false
-	}
-	return daemonversion.Compare(release, minimum) >= 0
+	return daemonversion.AtLeast(daemonVersion, processaction.OutputWindowDaemonVersion)
 }
 
 func withoutOutputWait(payload json.RawMessage) (json.RawMessage, error) {
