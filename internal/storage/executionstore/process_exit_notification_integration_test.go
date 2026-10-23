@@ -130,6 +130,86 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 	}
 }
 
+func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		kind   executionstore.ProcessActionKind
+		update string
+		notify bool
+	}{
+		{name: "queued_interrupt", kind: executionstore.ProcessActionKindInterrupt},
+		{
+			name:   "recent_interrupt",
+			kind:   executionstore.ProcessActionKindInterrupt,
+			update: `state = 'applied', updated_at = now()`,
+		},
+		{
+			name:   "survived_interrupt",
+			kind:   executionstore.ProcessActionKindInterrupt,
+			update: `state = 'applied', updated_at = now() - interval '1 minute'`,
+			notify: true,
+		},
+		{
+			name:   "old_terminate",
+			kind:   executionstore.ProcessActionKindTerminate,
+			update: `state = 'applied', updated_at = now() - interval '1 minute'`,
+		},
+		{
+			name:   "failed_terminate",
+			kind:   executionstore.ProcessActionKindTerminate,
+			update: `state = 'failed', state_reason_code = 'process_not_running'`,
+			notify: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			name := "stop_exit_" + tc.name
+			fixture := newProcessDaemonFixture(t, ctx, name)
+			process := startBackgroundProcessForTest(t, ctx, fixture, name, true)
+			stopToolCallID := createToolCallForProcessTest(t, ctx, fixture, name+"_stop", "stop_process")
+			action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ToolCallID:    stopToolCallID,
+				RuntimeLockID: fixture.Lock.ID,
+			}, executionstore.CreateProcessActionInput{
+				ProcessID:  process.ID,
+				ActionKind: tc.kind,
+			})
+			if err != nil {
+				t.Fatalf("create stop action: %v", err)
+			}
+			if tc.update != "" {
+				if _, err := fixture.Store.pool.Exec(ctx,
+					`UPDATE process_actions SET `+tc.update+` WHERE agent_id = $1 AND id = $2`,
+					fixture.AgentID, action.ID,
+				); err != nil {
+					t.Fatalf("update stop action: %v", err)
+				}
+			}
+
+			exitCode := 0
+			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ID:            process.ID,
+				Authority:     fixture.authority(),
+				State:         executionstore.ProcessStateExited,
+				ExitCode:      &exitCode,
+				Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
+				SourceEndedAt: fixture.Now.Add(65 * time.Second),
+			}); err != nil {
+				t.Fatalf("complete process: %v", err)
+			}
+			if texts := processNotificationTexts(t, ctx, fixture); (len(texts) == 1) != tc.notify {
+				t.Fatalf("notify = %v, notifications = %q", tc.notify, texts)
+			}
+		})
+	}
+}
+
 func startBackgroundProcessForTest(
 	t *testing.T,
 	ctx context.Context,
