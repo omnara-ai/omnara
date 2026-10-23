@@ -21,13 +21,14 @@ const (
 
 	// Agent-facing process reads wait for exit instead of the first output
 	// and return at most AgentOutputBytes, keeping the first AgentHeadBytes
-	// and the end of longer output. Daemons older than OutputWindowDaemonVersion
-	// ignore these settings.
-	AgentOutputBytes          = 16 * 1024
-	AgentHeadBytes            = 2 * 1024
-	CommandWaitMilliseconds   = 10 * 1000
-	PTYQuietMilliseconds      = 1000
-	OutputWindowDaemonVersion = "0.2.9"
+	// and the end of longer output. run_command waits
+	// DefaultCommandWaitMilliseconds unless the agent asks for another wait.
+	// Daemons older than OutputWindowDaemonVersion ignore these settings.
+	AgentOutputBytes               = 16 * 1024
+	AgentHeadBytes                 = 2 * 1024
+	DefaultCommandWaitMilliseconds = 10 * 1000
+	PTYQuietMilliseconds           = 1000
+	OutputWindowDaemonVersion      = "0.2.9"
 )
 
 // Process output replaces NUL bytes and invalid UTF-8, which Postgres cannot

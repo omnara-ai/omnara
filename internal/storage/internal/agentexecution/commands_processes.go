@@ -100,7 +100,10 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			return ExternalCompletion{}, err
 		}
 		if !published.Matches {
-			if backgrounded && row.NotifyOnExit && !row.StopRequested {
+			// A read_process still waiting for its result reports the exit
+			// itself, since read results take the process state when they
+			// complete.
+			if backgrounded && row.NotifyOnExit && !row.StopRequested && !row.ReadPending {
 				return published, h.notifyProcessExit(ctx, row, input.Observed)
 			}
 			return published, nil

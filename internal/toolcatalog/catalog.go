@@ -45,7 +45,7 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to 10 seconds for it to exit " +
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 10 seconds) for it to exit " +
 		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
 		"running and you get a message when it ends; use its process_id with the process tools to read " +
 		"output, send input, or stop it."
@@ -150,6 +150,14 @@ func buildDefaultCatalog() (Catalog, error) {
 			"cwd": map[string]any{
 				"type":        "string",
 				"description": "Working directory. Omit to use the assigned machine default; do not guess /.",
+			},
+			"wait_ms": map[string]any{
+				"type":    "integer",
+				"minimum": 1,
+				"maximum": processaction.MaxWaitMilliseconds,
+				"description": "How long to wait for the command to exit before returning (default 10000, up to 300000 ms). " +
+					"Set it to how long you expect the command to take, so a build or test returns its result in one call. " +
+					"This is not a lifetime timeout: a command still running keeps running.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",

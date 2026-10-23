@@ -92,6 +92,44 @@ func TestDetachedProcessExitDoesNotNotifyAgent(t *testing.T) {
 	}
 }
 
+func TestPendingReadSuppressesExitNotification(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "pending_read_exit_silent")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "pending_read_exit_silent", true)
+
+	readToolCallID := createToolCallForProcessTest(t, ctx, fixture, "pending_read_exit_silent_read", "read_process")
+	if _, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    readToolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessActionInput{
+		ProcessID:  process.ID,
+		ActionKind: executionstore.ProcessActionKindRead,
+		Payload:    json.RawMessage(`{"wait_ms":300000}`),
+	}); err != nil {
+		t.Fatalf("create read action: %v", err)
+	}
+
+	exitCode := 0
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ID:            process.ID,
+		Authority:     fixture.authority(),
+		State:         executionstore.ProcessStateExited,
+		ExitCode:      &exitCode,
+		Result:        json.RawMessage(`{"state":"exited","output":"done\n","cursor":0,"next_cursor":5,"truncated":false,"done":true}`),
+		SourceEndedAt: fixture.Now.Add(65 * time.Second),
+	}); err != nil {
+		t.Fatalf("complete process: %v", err)
+	}
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
+		t.Fatalf("process with a pending read sent notifications: %q", texts)
+	}
+}
+
 func startBackgroundProcessForTest(
 	t *testing.T,
 	ctx context.Context,
