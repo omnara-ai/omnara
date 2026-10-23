@@ -80,3 +80,26 @@ SELECT id, provider, provider_user_id
 FROM actors
 WHERE project_id = sqlc.arg(project_id)
   AND id = ANY(sqlc.arg(ids)::uuid[]);
+
+-- name: GetLatestInputActor :one
+SELECT a.id, a.provider, a.provider_user_id, i.queued_at
+FROM agent_inputs i
+JOIN actors a ON a.project_id = i.project_id AND a.id = i.actor_id
+WHERE i.project_id = sqlc.arg(project_id)
+  AND i.agent_id = sqlc.arg(agent_id)
+  AND i.id = ANY(sqlc.arg(input_ids)::uuid[])
+ORDER BY i.queued_at DESC, i.id DESC
+LIMIT 1;
+
+-- name: GetLatestRootOpeningActorBefore :one
+SELECT a.id, a.provider, a.provider_user_id
+FROM agents g
+JOIN agent_events e ON e.agent_id = g.root_agent_id AND e.is_opening_event
+JOIN agent_inputs i ON i.project_id = g.project_id AND i.agent_id = e.agent_id AND i.id = e.agent_input_id
+JOIN actors a ON a.project_id = i.project_id AND a.id = i.actor_id
+WHERE g.project_id = sqlc.arg(project_id)
+  AND g.id = sqlc.arg(agent_id)
+  AND e.created_at <= sqlc.arg(opened_before)
+  AND NOT (a.provider = 'omnara' AND starts_with(a.provider_user_id, sqlc.arg(agent_public_id_prefix)::text))
+ORDER BY e.sequence DESC
+LIMIT 1;

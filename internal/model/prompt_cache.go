@@ -82,13 +82,13 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 }
 
 func openAIPromptCacheCapability(baseURL string) promptCacheCapability {
-	if !isOpenAIHost(baseURL) {
+	if !IsOpenAIHost(baseURL) {
 		return promptCacheCapability{}
 	}
 	return promptCacheCapability{conversationKey: true}
 }
 
-func isOpenAIHost(baseURL string) bool {
+func IsOpenAIHost(baseURL string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
 		return false

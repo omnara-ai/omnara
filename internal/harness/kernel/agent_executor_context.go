@@ -193,6 +193,9 @@ func (e AgentExecutor) executeModelStep(
 		}
 		return e.recordNormalFailure(ctx, input, claim, resolved, cause, false, model.Response{})
 	}
+	if err == nil {
+		bundle.SafetyIdentifier, err = e.safetyIdentifier(ctx, input)
+	}
 	if err != nil {
 		return e.recordNormalPreSendFailure(
 			ctx, input, claim, resolved, err,

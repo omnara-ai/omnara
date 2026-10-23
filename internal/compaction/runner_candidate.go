@@ -376,6 +376,7 @@ func compactionBundle(input RunInput, priorSummary, sourceText string) (modelcon
 		TurnID:             input.TurnID,
 		OpeningInputIDs:    input.OpeningInputIDs,
 		InputEventSequence: input.Plan.InputEventSequence,
+		SafetyIdentifier:   input.SafetyIdentifier,
 		SystemPrompt: "You compact a closed Omnara event prefix into a cumulative continuation checkpoint. " +
 			"Return only the requested concise summary and never call tools.",
 		Messages: []modelcontext.Message{{

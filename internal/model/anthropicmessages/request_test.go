@@ -875,3 +875,36 @@ func TestPrepareBoundsCacheBreakpointsWithCheckpointAndUncacheableTail(t *testin
 		t.Fatalf("thinking block must not carry a cache breakpoint: %s", body)
 	}
 }
+
+func TestPrepareSendsSafetyIdentifierAsMetadataUserID(t *testing.T) {
+	for _, tc := range []struct {
+		variant modelprotocol.APIVariant
+		want    string
+	}{
+		{variant: modelprotocol.APIVariantDefault, want: "sid"},
+		{variant: modelprotocol.APIVariantBedrock},
+	} {
+		client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", APIVariant: tc.variant}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+			Context: modelcontext.Bundle{
+				SafetyIdentifier: "sid",
+				Messages:         []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+			},
+			Policy: model.RequestPolicy{MaxOutputTokens: 64},
+		})
+		if err != nil {
+			t.Fatalf("prepare: %v", err)
+		}
+		var payload struct {
+			Metadata struct {
+				UserID string `json:"user_id"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.Metadata.UserID != tc.want {
+			t.Fatalf("%s metadata.user_id = %q, want %q", tc.variant, payload.Metadata.UserID, tc.want)
+		}
+	}
+}

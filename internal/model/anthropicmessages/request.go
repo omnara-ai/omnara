@@ -71,6 +71,9 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
 	}
+	if input.Context.SafetyIdentifier != "" && c.ModelAPIVariant() != modelprotocol.APIVariantBedrock {
+		payload.Metadata = map[string]string{"user_id": input.Context.SafetyIdentifier}
+	}
 	supportsReasoning := c.ModelCapabilities.SupportsReasoning
 	if input.Policy.SupportsReasoning != nil {
 		supportsReasoning = *input.Policy.SupportsReasoning
@@ -154,6 +157,7 @@ type messagesRequest struct {
 	Messages     []message                  `json:"messages"`
 	Tools        []toolDefinition           `json:"tools,omitempty"`
 	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
+	Metadata     map[string]string          `json:"metadata,omitempty"`
 	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
 	Thinking     *thinkingConfig            `json:"thinking,omitempty"`
 }

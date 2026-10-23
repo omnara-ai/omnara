@@ -886,6 +886,20 @@ func TestValidateAPIRejectsMissingSecretEncryptionConfigEvenInDevConfig(t *testi
 	}
 }
 
+func TestSafetyIdentifierKeyBytes(t *testing.T) {
+	if key, err := (Config{}).SafetyIdentifierKeyBytes(); key != nil || err != nil {
+		t.Fatalf("unset safety identifier key = %v, err %v", key, err)
+	}
+	short := base64.StdEncoding.EncodeToString([]byte("short"))
+	if _, err := (Config{SafetyIdentifierKey: short}).SafetyIdentifierKeyBytes(); err == nil {
+		t.Fatal("expected short safety identifier key error")
+	}
+	key, err := Config{SafetyIdentifierKey: testSkillDownloadSigningKey()}.SafetyIdentifierKeyBytes()
+	if err != nil || len(key) != 32 {
+		t.Fatalf("safety identifier key = %d bytes, err %v", len(key), err)
+	}
+}
+
 func TestValidateSkillDownloadSigningKey(t *testing.T) {
 	config := Config{}
 	err := validateSkillDownloadSigningKeyConfig(config)

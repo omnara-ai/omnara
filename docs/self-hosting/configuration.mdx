@@ -246,6 +246,14 @@ Skill archive offers use a short-lived capability bound to one machine, skill, a
 | --- | --- | --- | --- |
 | `OMNARA_SKILL_DOWNLOAD_SIGNING_KEY` | Base64-encoded 32-byte HMAC key for machine-bound skill download capabilities; generate with `openssl rand -base64 32` and set the same value on API and worker | *dev:* insecure local key | Yes |
 
+## Model safety identifiers
+
+Requests to OpenAI, OpenRouter, and Anthropic carry a hashed identifier for the user or service that caused them, so the provider can restrict one user instead of the whole account.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_SAFETY_IDENTIFIER_KEY` | Base64-encoded 32-byte HMAC key for those identifiers; generate with `openssl rand -base64 32` and set it on the worker. Unset sends none; changing it gives every user a new identifier | — | No |
+
 ## Blob storage
 
 Artifact content lives in S3-compatible object storage; a bucket is required.

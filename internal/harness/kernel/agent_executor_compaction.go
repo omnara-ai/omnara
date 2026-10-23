@@ -21,6 +21,10 @@ func (e AgentExecutor) executeCompaction(
 	plan compaction.Plan,
 	claim executionstore.ModelCallClaim,
 ) error {
+	safetyIdentifier, err := e.safetyIdentifier(ctx, input)
+	if err != nil {
+		return err
+	}
 	runner := compaction.Runner{
 		Store:           e.Store.Execution(),
 		Resolver:        resolver,
@@ -33,6 +37,7 @@ func (e AgentExecutor) executeCompaction(
 		OpeningInputIDs:      input.InputIDs,
 		OpeningEventSequence: input.OpeningEventSequence,
 		RuntimeLockID:        input.RuntimeLockID,
+		SafetyIdentifier:     safetyIdentifier,
 	}, claim)
 	if err != nil {
 		return err

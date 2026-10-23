@@ -1428,3 +1428,56 @@ func TestPrepareMarksOpenRouterExplicitFiveMinuteModelsWithoutTTL(t *testing.T) 
 		t.Fatalf("cache_control marks = %+v, want two default-ttl breakpoints: %s", marks, prepared.Body)
 	}
 }
+
+func TestPrepareSendsSafetyIdentifierPerRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		client               Client
+		wantUser, wantSafety string
+	}{
+		{
+			name: "openrouter",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			wantUser: "sid",
+		},
+		{
+			name:       "openai",
+			client:     Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			wantSafety: "sid",
+		},
+		{
+			name: "openai-compatible host",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://api.deepseek.com/v1",
+				ProviderModelSlug: "deepseek-chat",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+				SafetyIdentifier: "sid",
+				Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+					Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+				}},
+			}})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				User             string `json:"user"`
+				SafetyIdentifier string `json:"safety_identifier"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if payload.User != tc.wantUser || payload.SafetyIdentifier != tc.wantSafety {
+				t.Fatalf("user = %q, safety_identifier = %q: %s", payload.User, payload.SafetyIdentifier, prepared.Body)
+			}
+		})
+	}
+}

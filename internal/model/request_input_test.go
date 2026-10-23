@@ -182,6 +182,22 @@ func TestProviderBaselineCountsNewlyLoadedDeferredSchema(t *testing.T) {
 	}
 }
 
+func TestProviderBaselineSurvivesSafetyIdentifierChange(t *testing.T) {
+	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
+	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps, baseURL: "https://api.openai.com/v1"}) {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := measuredInputBundle(t, tc.client)
+			bundle.SafetyIdentifier = "changed-safety-identifier"
+			prepared, err := model.PrepareForSend(t.Context(), tc.client, model.PrepareForSendInput{
+				Context: bundle, Policy: model.RequestPolicyFromCapabilities(caps),
+			})
+			require.NoError(t, err)
+			require.Contains(t, string(prepared.Body), bundle.SafetyIdentifier)
+			require.True(t, prepared.UsesProviderInputUsage)
+		})
+	}
+}
+
 func TestProviderBaselineReanchorsAfterModelChange(t *testing.T) {
 	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
 	clients := adapterWireClients(wireClientConfig{capabilities: caps})

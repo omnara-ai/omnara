@@ -391,10 +391,11 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		fixture.Now.Add(3*time.Second),
 	)
 	executor := AgentExecutor{
-		Store:         fixture.Store,
-		ModelResolver: liveTestModelResolver(fixture.Store, retryModel),
-		ToolExecutor:  tools.Executor{Store: fixture.Store},
-		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
+		Store:               fixture.Store,
+		ModelResolver:       liveTestModelResolver(fixture.Store, retryModel),
+		ToolExecutor:        tools.Executor{Store: fixture.Store},
+		Now:                 func() time.Time { return fixture.Now.Add(4 * time.Second) },
+		SafetyIdentifierKey: []byte("kernel-test-safety-identifier-key"),
 	}
 	if err := executor.ExecuteModelWork(ctx, retryTurn); err != nil {
 		t.Fatalf("execute retry turn: %v", err)
@@ -415,6 +416,12 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 	}
 	if len(retryModel.responded[1].ToolSpecs) != 0 {
 		t.Fatalf("compaction request exposed tools: %+v", retryModel.responded[1].ToolSpecs)
+	}
+	normalSafetyID := retryModel.responded[0].Bundle.SafetyIdentifier
+	if compactionSafetyID := retryModel.responded[1].Bundle.SafetyIdentifier; normalSafetyID == "" ||
+		compactionSafetyID != normalSafetyID {
+		t.Fatalf("safety identifiers = %q (normal), %q (compaction), want one shared identifier",
+			normalSafetyID, compactionSafetyID)
 	}
 	var completedCompactionContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `

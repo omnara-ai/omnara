@@ -71,6 +71,9 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Policy.CacheRetention,
 	)
 	payload.PromptCacheKey = plan.ConversationKey
+	if model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()) {
+		payload.SafetyIdentifier = input.Context.SafetyIdentifier
+	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
@@ -117,6 +120,7 @@ type responsesRequest struct {
 	ParallelToolCalls bool                `json:"parallel_tool_calls,omitempty"`
 	MaxOutputTokens   int                 `json:"max_output_tokens,omitempty"`
 	PromptCacheKey    string              `json:"prompt_cache_key,omitempty"`
+	SafetyIdentifier  string              `json:"safety_identifier,omitempty"`
 	Include           []string            `json:"include,omitempty"`
 	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
 	Store             bool                `json:"store"`

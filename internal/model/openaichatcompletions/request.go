@@ -71,6 +71,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		plan.ConversationKey = ""
 	}
 	applyPromptCachePlan(&payload, plan, compat)
+	switch {
+	case c.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter:
+		payload.User = input.Context.SafetyIdentifier
+	case model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()):
+		payload.SafetyIdentifier = input.Context.SafetyIdentifier
+	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
@@ -122,6 +128,8 @@ type chatCompletionsRequest struct {
 	N                   int                  `json:"n"`
 	PromptCacheKey      string               `json:"prompt_cache_key,omitempty"`
 	SessionID           string               `json:"session_id,omitempty"`
+	User                string               `json:"user,omitempty"`
+	SafetyIdentifier    string               `json:"safety_identifier,omitempty"`
 	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`
 	Reasoning           *chatReasoning       `json:"reasoning,omitempty"`
 	Store               *bool                `json:"store,omitempty"`

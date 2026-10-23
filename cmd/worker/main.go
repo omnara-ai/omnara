@@ -210,6 +210,14 @@ func main() {
 		log.Error("configure SigV4 credential cache", "error", err)
 		os.Exit(1)
 	}
+	safetyIdentifierKey, err := cfg.SafetyIdentifierKeyBytes()
+	if err != nil {
+		log.Error("decode safety identifier key", "error", err)
+		os.Exit(1)
+	}
+	if safetyIdentifierKey == nil {
+		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
+	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
@@ -234,6 +242,7 @@ func main() {
 		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
 		MCPAuthHTTPClient:    mcpHTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
+		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{
 			Store:                 store,
 			Skills:                store.Skills(),
