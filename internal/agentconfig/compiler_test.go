@@ -711,8 +711,9 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if got := schema.Properties["shell"].Enum; !sameStringSliceForAgentConfig(got, wantSelectors) {
 		t.Fatalf("shell selector enum = %v, want %v", got, wantSelectors)
 	}
-	if _, ok := schema.Properties["wait_ms"]; ok {
-		t.Fatalf("run_command schema must not expose wait_ms: %s", string(raw))
+	waitMS := schema.Properties["wait_ms"]
+	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
+		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
 	}
 	if detach := schema.Properties["detach"]; detach.Type != "boolean" {
 		t.Fatalf("run_command detach schema = %+v", detach)

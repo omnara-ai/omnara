@@ -33,6 +33,7 @@ type runCommandAuthorization struct {
 	Command               string                   `json:"command"`
 	ShellSelector         processcmd.ShellSelector `json:"shell_selector"`
 	Cwd                   string                   `json:"cwd,omitempty"`
+	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
 	Detach                bool                     `json:"detach,omitempty"`
 	NotifyMatch           string                   `json:"notify_match,omitempty"`
@@ -67,6 +68,7 @@ func runCommandAuthorizationInput(
 		Command:               resolved.Command,
 		ShellSelector:         resolved.Selector,
 		Cwd:                   resolved.Cwd,
+		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
 		Detach:                resolved.Detach,
 		NotifyMatch:           resolved.NotifyMatch,

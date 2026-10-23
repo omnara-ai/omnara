@@ -19,6 +19,7 @@ type runCommandRequest struct {
 	MachineID json.RawMessage `json:"machine_id,omitempty"`
 	Shell     json.RawMessage `json:"shell,omitempty"`
 	Cwd       json.RawMessage `json:"cwd,omitempty"`
+	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
 	Detach    *bool           `json:"detach,omitempty"`
 	// NotifyMatch is a regular expression for output lines to report.
@@ -75,6 +76,26 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 			return resolvedRunCommandRequest{}, errors.New("cwd cannot contain NUL")
 		}
 	}
+	waitMs := processaction.DefaultCommandWaitMilliseconds
+	if len(input.WaitMs) != 0 {
+		var rawWait *int
+		if err := json.Unmarshal(input.WaitMs, &rawWait); err != nil {
+			return resolvedRunCommandRequest{}, fmt.Errorf("parse wait_ms: %w", err)
+		}
+		if rawWait == nil {
+			return resolvedRunCommandRequest{}, errors.New("wait_ms cannot be null")
+		}
+		waitMs = *rawWait
+		if waitMs <= 0 {
+			return resolvedRunCommandRequest{}, errors.New("wait_ms must be positive")
+		}
+		if waitMs > processaction.MaxWaitMilliseconds {
+			return resolvedRunCommandRequest{}, fmt.Errorf(
+				"wait_ms must be at most %d",
+				processaction.MaxWaitMilliseconds,
+			)
+		}
+	}
 	ioMode := processcmd.IOModePipe
 	if len(input.IOMode) > 0 {
 		var rawMode *string
@@ -107,7 +128,7 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 		MachineID:   machineID,
 		Selector:    spec.Shell,
 		Cwd:         cwd,
-		WaitMs:      processaction.CommandWaitMilliseconds,
+		WaitMs:      waitMs,
 		IOMode:      ioMode,
 		Detach:      input.Detach != nil && *input.Detach,
 		NotifyMatch: notifyMatch,

@@ -19,6 +19,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		input       json.RawMessage
 		command     string
 		selector    processcmd.ShellSelector
+		waitMs      int
 		ioMode      processcmd.IOMode
 		detach      bool
 		notifyMatch string
@@ -32,9 +33,10 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:     "sh",
-			input:    json.RawMessage(`{"command":"echo ok","shell":"sh"}`),
+			input:    json.RawMessage(`{"command":"echo ok","shell":"sh","wait_ms":5}`),
 			command:  "echo ok",
 			selector: "sh",
+			waitMs:   5,
 			ioMode:   "pipe",
 		},
 		{
@@ -96,6 +98,14 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			ioMode:   "pipe",
 			detach:   true,
 		},
+		{
+			name:     "max wait",
+			input:    json.RawMessage(`{"command":"make test","wait_ms":300000}`),
+			command:  "make test",
+			selector: "default",
+			waitMs:   processaction.MaxWaitMilliseconds,
+			ioMode:   "pipe",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,8 +113,12 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve run_command: %v", err)
 			}
+			wantWait := tc.waitMs
+			if wantWait == 0 {
+				wantWait = processaction.DefaultCommandWaitMilliseconds
+			}
 			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
-				resolved.WaitMs != processaction.CommandWaitMilliseconds ||
+				resolved.WaitMs != wantWait ||
 				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach ||
 				resolved.NotifyMatch != tc.notifyMatch {
 				t.Fatalf("unexpected resolution: %+v", resolved)
@@ -158,7 +172,10 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 			raw:  json.RawMessage("{\"command\":\"echo ok\",\"cwd\":\"/tmp\\u0000x\"}"),
 			want: "cwd cannot contain NUL",
 		},
-		{name: "wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":5000}`), want: "unknown field"},
+		{name: "zero wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":0}`), want: "wait_ms must be positive"},
+		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
+		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
+		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
 		{
 			name: "invalid notify_match",
 			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"(listening"}`),
