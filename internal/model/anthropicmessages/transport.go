@@ -35,7 +35,7 @@ func (c Client) routeClient() route.Client {
 }
 
 func (c Client) betaHeader() route.Auth {
-	if !c.firstPartyAnthropic() {
+	if !c.supportsThinkingBindingControls() {
 		return nil
 	}
 	return anthropicBeta(thinkingBindingControlsBeta)

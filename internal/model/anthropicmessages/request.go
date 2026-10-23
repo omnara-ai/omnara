@@ -113,7 +113,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 			ownedFields = append(ownedFields, "thinking")
 		}
 	}
-	if c.firstPartyAnthropic() {
+	if c.supportsThinkingBindingControls() {
 		thinking := payload.Thinking
 		if thinking == nil {
 			thinking, err = decodeThinkingConfig(options["thinking"])

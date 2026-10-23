@@ -149,7 +149,7 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 		{
 			name: "Anthropic adaptive thinking",
 			client: anthropicmessages.Client{
-				EndpointPath: "/messages", ProviderModelSlug: "claude-test", ModelCapabilities: highReasoning,
+				EndpointPath: "/messages", ProviderModelSlug: "claude-opus-5-5", ModelCapabilities: highReasoning,
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"adaptive"}}`),
 			},
 			outputField: "max_tokens",

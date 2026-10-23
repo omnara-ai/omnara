@@ -697,7 +697,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := Client{
 				EndpointPath:      testEndpointPath,
-				ProviderModelSlug: "claude-test",
+				ProviderModelSlug: "claude-opus-5-5",
 				APIVariantOptions: json.RawMessage(tc.apiVariantOptions),
 			}
 			supportsReasoning := tc.supportsReasoning
@@ -731,7 +731,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 func TestPrepareReasoningEffortKeepsOtherAPIVariantOptions(t *testing.T) {
 	client := Client{
 		EndpointPath:      testEndpointPath,
-		ProviderModelSlug: "claude-test",
+		ProviderModelSlug: "claude-opus-5-5",
 		APIVariantOptions: json.RawMessage(`{
 			"metadata":{"user_id":"user-1"},
 			"top_k":5,
