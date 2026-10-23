@@ -178,7 +178,7 @@ const prefixMismatchDropBlockBinding = `{"prefix_mismatch_behavior":"drop_block"
 func decodeThinkingConfig(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil, nil
+		return map[string]json.RawMessage{}, nil
 	}
 	var thinking map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &thinking); err != nil || thinking == nil {
