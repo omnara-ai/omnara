@@ -32,6 +32,7 @@ const (
 	providerRuntimeDiscoveryInterval = 5 * time.Minute
 	providerRuntimeRecheckInterval   = 30 * time.Second
 	idleMachineReconcileInterval     = time.Minute
+	deniedMachineReconcileInterval   = time.Hour
 	memoryCleanupInterval            = time.Hour
 )
 
@@ -512,7 +513,13 @@ func runMachinePoolMaintenanceLoop(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	var nextIdleReconcileAt time.Time
+	var nextDeniedReconcileAt time.Time
 	for {
+		if now := time.Now(); !now.Before(nextDeniedReconcileAt) {
+			if runDeniedMachineDeletionTick(ctx, log, machinePoolManager) < machinepool.DefaultReconcileBatchSize {
+				nextDeniedReconcileAt = now.Add(deniedMachineReconcileInterval)
+			}
+		}
 		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
 		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
 			candidateCount, err := runIdleMachineDeletionMaintenanceTick(
@@ -547,6 +554,26 @@ func runIdleMachineDeletionMaintenanceTick(
 	return reconcile(ctx, machinepool.DefaultReconcileBatchSize)
 }
 
+func runDeniedMachineDeletionTick(
+	ctx context.Context,
+	log *slog.Logger,
+	machinePoolManager *machinepool.Manager,
+) (candidateCount int) {
+	defer recoverMachinePoolMaintenancePanic(log)
+	candidateCount, err := machinePoolManager.ReconcileManagedWorkDeniedDeletion(
+		ctx,
+		log,
+		machinepool.DefaultReconcileBatchSize,
+	)
+	outcome := completedMaintenanceOutcome(ctx, err)
+	if outcome.err != nil {
+		log.Error("reconcile managed work denied machine deletion", "candidate_count", candidateCount, "error", outcome.err)
+	} else if !outcome.interrupted && candidateCount > 0 {
+		log.Info("reconciled managed work denied machine deletion", "candidate_count", candidateCount)
+	}
+	return candidateCount
+}
+
 func recoverMachinePoolMaintenancePanic(log *slog.Logger) {
 	if recovered := recover(); recovered != nil {
 		log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
@@ -568,17 +595,6 @@ func runMachinePoolMaintenanceTick(
 		log.Error("reconcile machine provisioning", "attempted_count", provisioned, "error", provisionOutcome.err)
 	} else if !provisionOutcome.interrupted && provisioned > 0 {
 		log.Info("attempted machine provisioning reconcile", "attempted_count", provisioned)
-	}
-	denied, deniedErr := machinePoolManager.ReconcileManagedWorkDeniedDeletion(
-		ctx,
-		log,
-		machinepool.DefaultReconcileBatchSize,
-	)
-	deniedOutcome := completedMaintenanceOutcome(ctx, deniedErr)
-	if deniedOutcome.err != nil {
-		log.Error("reconcile managed work denied machine deletion", "candidate_count", denied, "error", deniedOutcome.err)
-	} else if !deniedOutcome.interrupted && denied > 0 {
-		log.Info("reconciled managed work denied machine deletion", "candidate_count", denied)
 	}
 	cleaned, cleanupErr := machinePoolManager.ReconcileCleanup(
 		ctx,
