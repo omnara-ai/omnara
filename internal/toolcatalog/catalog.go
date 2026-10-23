@@ -181,7 +181,7 @@ func buildDefaultCatalog() (Catalog, error) {
 				"minLength": 1,
 				"maxLength": 500,
 				"description": "Regular expression (RE2). While the command runs after this returns, you get a " +
-					"message with new output lines that match, batched and rate limited.",
+					"message with output lines that match and that this result did not show, batched and rate limited.",
 			},
 		},
 	)

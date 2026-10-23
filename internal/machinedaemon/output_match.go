@@ -24,13 +24,29 @@ const (
 	outputMatchMaxReports   = 50
 )
 
+// outputSpan is the output from start to end.
+type outputSpan struct {
+	start, end int64
+}
+
+// shownSpans returns the output the window's result showed the agent.
+func (w outputWindow) shownSpans() []outputSpan {
+	if w.TailStart > 0 {
+		return []outputSpan{{w.Start, w.HeadEnd}, {w.TailStart, w.Next}}
+	}
+	return []outputSpan{{w.Start, w.Next}}
+}
+
 // outputMatcher finds complete output lines that match a pattern and batches
-// them into reports.
+// them into reports. Lines that lie wholly within shown spans are skipped,
+// since the agent has already seen them.
 type outputMatcher struct {
 	pattern      *regexp.Regexp
 	now          func() time.Time
 	cursor       int64
+	shown        []outputSpan
 	partial      string
+	partialShown bool
 	pending      []string
 	dropped      int
 	firstPending time.Time
@@ -42,20 +58,40 @@ func newOutputMatcher(pattern *regexp.Regexp, cursor, seq int64) *outputMatcher 
 	return &outputMatcher{pattern: pattern, now: time.Now, cursor: cursor, seq: seq}
 }
 
-// scan consumes a contiguous window read from the matcher's cursor.
-func (m *outputMatcher) scan(window outputWindow) {
+// region reports whether output at the cursor was shown, and how many bytes
+// remain until that changes, or 0 if it never does.
+func (m *outputMatcher) region() (bool, int64) {
+	for _, span := range m.shown {
+		if m.cursor < span.start {
+			return false, span.start - m.cursor
+		}
+		if m.cursor < span.end {
+			return true, span.end - m.cursor
+		}
+	}
+	return false, 0
+}
+
+// scan consumes a contiguous window read from the matcher's cursor, all of
+// it shown or all of it not.
+func (m *outputMatcher) scan(window outputWindow, shown bool) {
 	if window.Start > m.cursor {
 		// Older output was dropped from retention, so the partial line is gone.
 		m.partial = ""
 	}
 	m.cursor = window.Next
+	firstShown := shown && (m.partial == "" || m.partialShown)
 	lines := strings.Split(m.partial+window.Output, "\n")
 	m.partial = lines[len(lines)-1]
-	for _, line := range lines[:len(lines)-1] {
-		m.consider(line)
+	m.partialShown = shown
+	if len(lines) == 1 {
+		m.partialShown = firstShown
+	}
+	for i, line := range lines[:len(lines)-1] {
+		m.consider(line, shown && (i > 0 || firstShown))
 	}
 	if len(m.partial) > processaction.MaxObservationBytes {
-		m.consider(m.partial)
+		m.consider(m.partial, m.partialShown)
 		m.partial = ""
 	}
 }
@@ -63,14 +99,14 @@ func (m *outputMatcher) scan(window outputWindow) {
 // finish treats a trailing line without a newline as complete.
 func (m *outputMatcher) finish() {
 	if m.partial != "" {
-		m.consider(m.partial)
+		m.consider(m.partial, m.partialShown)
 		m.partial = ""
 	}
 }
 
-func (m *outputMatcher) consider(line string) {
+func (m *outputMatcher) consider(line string, shown bool) {
 	line = strings.TrimSuffix(line, "\r")
-	if !m.pattern.MatchString(line) {
+	if shown || !m.pattern.MatchString(line) {
 		return
 	}
 	if len(m.pending) == 0 && m.dropped == 0 {
@@ -118,12 +154,13 @@ func (m *outputMatcher) exhausted() bool {
 }
 
 // watchOutputMatches reports output lines matching the assignment's
-// notify_match from cursor until the process ends, flushing what is pending
-// before returning so it precedes the terminal report.
+// notify_match until the process ends, skipping lines the initial window
+// showed in full, and flushes what is pending before returning so it precedes
+// the terminal report.
 func (s *runnerServerState) watchOutputMatches(
 	ctx context.Context,
 	runner *localProcessRunner,
-	cursor int64,
+	initial outputWindow,
 ) {
 	pattern, err := regexp.Compile(s.assignment.NotifyMatch)
 	if err != nil {
@@ -137,18 +174,24 @@ func (s *runnerServerState) watchOutputMatches(
 	}); err != nil {
 		return
 	}
-	matcher := newOutputMatcher(pattern, cursor, seq)
+	matcher := newOutputMatcher(pattern, initial.Start, seq)
+	matcher.shown = initial.shownSpans()
 	for !matcher.exhausted() {
 		terminal := runner.hasTerminalResult()
 		for {
-			window, err := runner.Window(matcher.cursor, processaction.MaxObservationBytes, 0)
+			shown, limit := matcher.region()
+			maxBytes := processaction.MaxObservationBytes
+			if limit > 0 && limit < int64(maxBytes) {
+				maxBytes = int(limit)
+			}
+			window, err := runner.Window(matcher.cursor, maxBytes, 0)
 			if err != nil {
 				return
 			}
 			if window.Output == "" {
 				break
 			}
-			matcher.scan(window)
+			matcher.scan(window, shown)
 		}
 		if terminal {
 			matcher.finish()
