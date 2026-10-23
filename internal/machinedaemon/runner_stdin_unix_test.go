@@ -38,19 +38,22 @@ func TestPipeCommandWithoutStdinReadsEndOfInput(t *testing.T) {
 	}
 
 	// With an open stdin pipe, read would block until the test times out.
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		status, err := os.ReadFile(markerPath)
-		if err == nil && len(status) > 0 {
-			if strings.TrimSpace(string(status)) == "0" {
-				t.Fatal("read got a line from a command without stdin")
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("read is still waiting for input")
-		}
-		time.Sleep(25 * time.Millisecond)
+	exited := make(chan struct{})
+	go func() {
+		_ = runner.cmd.Wait()
+		close(exited)
+	}()
+	select {
+	case <-exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("read is still waiting for input")
+	}
+	status, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if strings.TrimSpace(string(status)) == "0" {
+		t.Fatal("read got a line from a command without stdin")
 	}
 	if err := runner.WriteInput(ctx, "late\n"); err == nil {
 		t.Fatal("wrote to a command without stdin")
