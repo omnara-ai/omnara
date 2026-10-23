@@ -463,6 +463,36 @@ func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, e
 	return len(candidates), err
 }
 
+func (m Manager) ReconcileManagedWorkDeniedDeletion(
+	ctx context.Context,
+	logger *slog.Logger,
+	limit int32,
+) (int, error) {
+	candidates, err := m.Execution.ListManagedWorkDeniedPoolMachines(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	_, err = runBoundedReconcile(
+		ctx,
+		len(candidates),
+		poolMachineReconcileConcurrency,
+		func(ctx context.Context, i int) error {
+			candidate := candidates[i]
+			marked, err := m.Execution.MarkManagedWorkDeniedPoolMachineDeleting(ctx, candidate)
+			if err != nil || !marked {
+				return err
+			}
+			logger.Info(
+				"marked managed work denied machine for deletion",
+				"org_id", candidate.OrgID,
+				"machine_id", candidate.MachineID,
+			)
+			return nil
+		},
+	)
+	return len(candidates), err
+}
+
 func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error) {
 	return runBoundedReconcile(
 		ctx,

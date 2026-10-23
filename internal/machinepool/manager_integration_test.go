@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -1919,6 +1921,115 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 	}
 	if grantRows != 0 {
 		t.Fatalf("generated grant rows after teardown = %d, want 0", grantRows)
+	}
+}
+
+func TestManagerDeletesManagedWorkDeniedMachine(t *testing.T) {
+	ctx := context.Background()
+	pool := openManagerIntegrationDB(t, ctx)
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+	)
+	now := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	orgID := seedManagerOrg(t, ctx, pool, "managed-work-denied", now)
+	projectID, _ := seedManagerProjectActor(
+		t,
+		ctx,
+		pool,
+		store,
+		orgID,
+		"managed-work-denied-project",
+		"managed-work-denied@example.com",
+		now,
+	)
+	t.Setenv("TEST_MANAGED_WORK_DENIED_TOKEN", "pool-token")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin default pool provisioning: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := store.Execution().ProvisionOrganizationDefaultsTx(
+		ctx,
+		tx,
+		orgID,
+		projectID,
+		[]executionstore.DefaultMachinePoolTemplate{{
+			Name:                          "Managed Work Denied Pool",
+			Provider:                      "capture",
+			DefaultMachineCPU:             new(1),
+			DefaultMachineMemoryMB:        new(1024),
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"denied"}`),
+			ProviderAuthEnvVar:            "TEST_MANAGED_WORK_DENIED_TOKEN",
+			MaxTotalMachines:              1,
+			MaxTotalCPU:                   new(1),
+			MaxTotalMemoryMB:              new(1024),
+			MaxMachineCPU:                 new(1),
+			MaxMachineMemoryMB:            new(1024),
+		}},
+	); err != nil {
+		t.Fatalf("provision default pool: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit default pool provisioning: %v", err)
+	}
+	var machinePoolID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+SELECT id
+FROM machine_pools
+WHERE org_id = $1 AND name = 'Managed Work Denied Pool' AND deleted_at IS NULL
+`, orgID).Scan(&machinePoolID); err != nil {
+		t.Fatalf("load default pool id: %v", err)
+	}
+	machinePool, err := store.Execution().GetMachinePool(ctx, orgID, machinePoolID)
+	if err != nil {
+		t.Fatalf("load default pool: %v", err)
+	}
+	machineID := insertPoolMachineForManagerTest(t, ctx, pool, machinePool, "active", "resource-denied", now)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(
+    org_id, new_managed_work_allowed, admission_changed_at, delete_machines_after_minutes
+)
+VALUES ($1, false, statement_timestamp() - interval '2 hours', 60)
+`, orgID); err != nil {
+		t.Fatalf("deny managed work: %v", err)
+	}
+	provider := &captureProvider{}
+	manager := Manager{
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(&testProviderDefinition{provider: provider}),
+		PublicAPIURL: "https://api.omnara.test/v1",
+	}
+
+	candidates, err := manager.ReconcileManagedWorkDeniedDeletion(
+		ctx,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		10,
+	)
+	if err != nil || candidates != 1 {
+		t.Fatalf("reconcile managed work denied deletion = (%d, %v), want (1, nil)", candidates, err)
+	}
+	machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+	if err != nil {
+		t.Fatalf("get marked machine: %v", err)
+	}
+	if machine.LifecycleState != "deleting" || machine.LifecycleReasonCode != "managed_work_admission_denied" {
+		t.Fatalf("marked machine = %+v, want deleting/managed_work_admission_denied", machine)
+	}
+	if _, err := manager.ReconcileCleanup(ctx, 10); err != nil {
+		t.Fatalf("reconcile cleanup: %v", err)
+	}
+	if len(provider.deletedResourceIDs) != 1 || provider.deletedResourceIDs[0] != "resource-denied" {
+		t.Fatalf("deleted resources = %v, want resource-denied", provider.deletedResourceIDs)
+	}
+	machine, err = store.Execution().GetMachine(ctx, orgID, machineID)
+	if err != nil {
+		t.Fatalf("get deleted machine: %v", err)
+	}
+	if machine.LifecycleState != "deleted" || machine.DeletedAt == nil {
+		t.Fatalf("machine was not deleted after reconcile cleanup: %+v", machine)
 	}
 }
 

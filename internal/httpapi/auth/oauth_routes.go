@@ -22,13 +22,11 @@ import (
 )
 
 const (
-	maxOAuthResponseBytes     = 1024 * 1024
-	oauthFlowCookieName       = "omnara_oauth_flow"
-	oauthFlowHostCookieName   = "__Host-omnara_oauth_flow"
-	oauthFlowCookieTTL        = 10 * time.Minute
-	oauthLoginRateLimit       = 30
-	oauthLoginClientRateLimit = 120
-	googleOIDCIssuer          = "https://accounts.google.com"
+	maxOAuthResponseBytes   = 1024 * 1024
+	oauthFlowCookieName     = "omnara_oauth_flow"
+	oauthFlowHostCookieName = "__Host-omnara_oauth_flow"
+	oauthFlowCookieTTL      = 10 * time.Minute
+	googleOIDCIssuer        = "https://accounts.google.com"
 )
 
 func (h *Handler) connectorLoginRoute(w http.ResponseWriter, r *http.Request) {

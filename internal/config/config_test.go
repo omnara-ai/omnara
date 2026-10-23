@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "")
 	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
@@ -70,6 +72,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 			"expected default worker background tool capacity 8, got %d",
 			cfg.WorkerBackgroundToolCapacity,
 		)
+	}
+	if cfg.WorkerDrainTimeout != 20*time.Second {
+		t.Fatalf("expected default worker drain timeout 20s, got %s", cfg.WorkerDrainTimeout)
 	}
 	if cfg.DaemonSocketFallbackDrainInterval != defaultDaemonSocketFallbackDrainInterval {
 		t.Fatalf("expected default daemon socket fallback drain interval, got %s", cfg.DaemonSocketFallbackDrainInterval)
@@ -563,6 +568,46 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_TRUSTED_PROXY_CIDRS") {
 		t.Fatalf("expected trusted proxy config error, got %v", err)
+	}
+}
+
+func TestLoadAPIRateLimitDefaults(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_BURST", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	got := []int{cfg.APIRateLimitReadsPerHour, cfg.APIRateLimitWritesPerHour, cfg.APIRateLimitBurst}
+	if want := []int{10000, 5000, 100}; !slices.Equal(got, want) {
+		t.Fatalf("reads, writes, burst = %v, want %v", got, want)
+	}
+}
+
+func TestValidateAPIRateLimit(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	cases := []struct{ reads, writes, burst, wantErr string }{
+		{reads: "10000", writes: "5000", burst: "100"},
+		{reads: "0", writes: "0", burst: "1000000"},
+		{reads: "-1", writes: "0", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_READS_PER_HOUR"},
+		{reads: "0", writes: "-1", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR"},
+		{reads: "10000", writes: "5000", burst: "0", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+		{reads: "10000", writes: "5000", burst: "1000001", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+	}
+	for _, tc := range cases {
+		t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", tc.reads)
+		t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", tc.writes)
+		t.Setenv("OMNARA_API_RATE_LIMIT_BURST", tc.burst)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load %+v: %v", tc, err)
+		}
+		err = cfg.ValidateAPI()
+		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Fatalf("validate %+v error = %v", tc, err)
+		}
 	}
 }
 
@@ -1168,6 +1213,40 @@ func TestValidateWorkerLoadsExplicitBackgroundToolCapacity(t *testing.T) {
 	}
 	if cfg.WorkerBackgroundToolCapacity != 16 {
 		t.Fatalf("unexpected background tool capacity: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerLoadsExplicitDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	for raw, want := range map[string]time.Duration{"45s": 45 * time.Second, "0s": 0} {
+		t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", raw)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config with drain timeout %s: %v", raw, err)
+		}
+		if err := cfg.ValidateWorker(); err != nil {
+			t.Fatalf("validate worker with drain timeout %s: %v", raw, err)
+		}
+		if cfg.WorkerDrainTimeout != want {
+			t.Fatalf("worker drain timeout = %s, want %s", cfg.WorkerDrainTimeout, want)
+		}
+	}
+}
+
+func TestValidateWorkerRejectsInvalidDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "100")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected unparseable worker drain timeout error")
+	}
+
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "-1s")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected negative worker drain timeout error")
 	}
 }
 

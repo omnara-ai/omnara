@@ -32,6 +32,8 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
+| `OMNARA_WORKER_DRAIN_TIMEOUT` | On the first SIGTERM or SIGINT, the worker stops claiming agent work and lets in-flight agent work and background tool tasks finish for up to this long. It then cancels what is left and tries to record interrupted tool calls and release runtime leases. A second signal cancels at once. `0s` skips draining. Set the orchestrator's stop timeout (ECS `stopTimeout`, Kubernetes `terminationGracePeriodSeconds` including any `preStop` time, Compose `OMNARA_WORKER_STOP_GRACE_PERIOD`) to at least this value plus 10s to leave time for that cleanup; the default fits the common 30s. Cleanup is best effort: leases a stopped worker did not release expire on their own. The health and metrics endpoints stop at the first signal. | `20s` | No |
+| `OMNARA_WORKER_STOP_GRACE_PERIOD` | Compose only: the worker container's `stop_grace_period`. Keep it at least `OMNARA_WORKER_DRAIN_TIMEOUT` plus 10s | `30s` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
 
 ### Monitoring agent execution
@@ -166,6 +168,16 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
+## API rate limits
+
+Limits apply per user, per org for org API keys, and per machine for machine daemons.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `10000` | No |
+| `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `5000` | No |
+| `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `100` | No |
+
 ## Email
 
 Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In production, use `smtp` or `sendgrid` — or disable both flows with `OMNARA_AUTH_SIGNUP_ENABLED=0` and `OMNARA_AUTH_PASSWORD_RESET_ENABLED=0`.
@@ -178,6 +190,25 @@ Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In productio
 | `OMNARA_SMTP_USERNAME` / `OMNARA_SMTP_PASSWORD` | SMTP credentials; set both or neither | — | No |
 | `OMNARA_SMTP_REQUIRE_TLS` | Require STARTTLS; disabling is dev-only | `1` | No |
 | `SENDGRID_API_KEY` | SendGrid API key | — | With `sendgrid` |
+
+## Authentication rate limits
+
+These API settings accept positive integers and count requests per client IP.
+Per-email, per-token, per-device-code, and per-account limits are fixed. Limits are
+tracked separately for each operation in Redis and replenish continuously over
+the listed window. Set the same values on every API replica. Behind a proxy,
+configure `OMNARA_TRUSTED_PROXY_CIDRS` so limits use the client IP.
+
+| Variable | Purpose | Default | Window |
+| --- | --- | --- | --- |
+| `OMNARA_AUTH_SIGNUP_CLIENT_LIMIT` | Signup and verification email requests (shared budget) | `500` | 1 hour |
+| `OMNARA_AUTH_LOGIN_CLIENT_LIMIT` | Password login | `1000` | 15 minutes |
+| `OMNARA_AUTH_PASSWORD_RESET_CLIENT_LIMIT` | Password reset requests, password changes, and token revocation (separate budgets) | `500` | 1 hour |
+| `OMNARA_AUTH_TOKEN_CLIENT_LIMIT` | Email verification, password reset completion, OAuth grants, and device/OAuth authorization lookups and decisions (separate budgets) | `5000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CONNECTOR_CLIENT_LIMIT` | OAuth login starts per connector | `1000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CLIENT_LIMIT` | OAuth login starts across connectors | `2000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_AUTHORIZATION_CLIENT_LIMIT` | Device authorization starts | `1000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_POLL_CLIENT_LIMIT` | Device token polling | `30000` | 15 minutes |
 
 ## Auth and SSO connectors
 

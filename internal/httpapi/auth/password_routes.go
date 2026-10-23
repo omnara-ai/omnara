@@ -20,14 +20,10 @@ import (
 
 const (
 	SignupLimit       = 5
-	SignupClientLimit = 25
 	LoginLimit        = 10
 	LoginSubjectLimit = 25
-	LoginClientLimit  = 100
 	ResetLimit        = 5
-	ResetClientLimit  = 25
 	TokenConsumeLimit = 10
-	TokenClientLimit  = 100
 
 	authShortWindow       = 15 * time.Minute
 	authLongWindow        = time.Hour
@@ -65,7 +61,7 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 		normalizedEmail,
 		SignupLimit,
 		SignupLimit,
-		SignupClientLimit,
+		h.clientRateLimits.Signup,
 		authLongWindow,
 	) {
 		return
@@ -163,7 +159,7 @@ func (h *Handler) completeEmailVerificationRoute(w http.ResponseWriter, r *http.
 		body.Token,
 		TokenConsumeLimit,
 		TokenConsumeLimit,
-		TokenClientLimit,
+		h.clientRateLimits.Token,
 		authShortWindow,
 	) {
 		return
@@ -228,7 +224,7 @@ func (h *Handler) passwordLoginRoute(w http.ResponseWriter, r *http.Request) {
 		normalizedEmail,
 		LoginLimit,
 		LoginSubjectLimit,
-		LoginClientLimit,
+		h.clientRateLimits.Login,
 		authShortWindow,
 	) {
 		return
@@ -284,7 +280,7 @@ func (h *Handler) requestPasswordResetRoute(w http.ResponseWriter, r *http.Reque
 		normalizedEmail,
 		ResetLimit,
 		ResetLimit,
-		ResetClientLimit,
+		h.clientRateLimits.PasswordReset,
 		authLongWindow,
 	) {
 		return
@@ -334,7 +330,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 		body.Token,
 		TokenConsumeLimit,
 		TokenConsumeLimit,
-		TokenClientLimit,
+		h.clientRateLimits.Token,
 		authShortWindow,
 	) {
 		return
@@ -398,7 +394,7 @@ func (h *Handler) changePasswordRoute(w http.ResponseWriter, r *http.Request) {
 		principal.ID.String(),
 		ResetLimit,
 		ResetLimit,
-		ResetClientLimit,
+		h.clientRateLimits.PasswordReset,
 		authLongWindow,
 	) {
 		return
@@ -463,7 +459,7 @@ func (h *Handler) revokeAllAuthTokensRoute(w http.ResponseWriter, r *http.Reques
 		principal.ID.String(),
 		ResetLimit,
 		ResetLimit,
-		ResetClientLimit,
+		h.clientRateLimits.PasswordReset,
 		authLongWindow,
 	) {
 		return

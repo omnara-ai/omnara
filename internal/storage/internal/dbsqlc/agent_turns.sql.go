@@ -356,12 +356,54 @@ func (q *Queries) ListAgentTurnsForRead(ctx context.Context, arg ListAgentTurnsF
 }
 
 const listContextEvents = `-- name: ListContextEvents :many
-SELECT event.id,
-       event.agent_input_id,
-       event.sequence,
-       event.created_at,
-       event.event_kind,
-       event.model_output_id,
+WITH page AS (
+  SELECT event.id, event.agent_id, event.agent_input_id, event.sequence, event.created_at,
+         event.event_kind, event.model_output_id
+  FROM agent_events event
+  WHERE event.agent_id = $1
+    AND event.sequence > $2
+    AND event.sequence <= $3
+    AND EXISTS (
+      SELECT 1
+      FROM agents scoped_agent
+      WHERE scoped_agent.project_id = $4
+        AND scoped_agent.id = $1
+    )
+    AND (
+      event.event_kind = 'model_output'
+      OR (
+        event.event_kind = 'agent_input'
+        AND EXISTS (
+          SELECT 1
+          FROM agent_inputs input
+          WHERE input.agent_id = event.agent_id
+            AND input.id = event.agent_input_id
+            AND (
+              (input.input_kind = 'config_change' AND event.sequence > 1)
+              OR (
+                input.input_kind = 'content'
+                AND EXISTS (
+                  SELECT 1
+                  FROM content_blocks block
+                  WHERE block.agent_id = input.agent_id
+                    AND block.owner_agent_input_id = input.id
+                    AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
+                    AND NOT block.exclude_from_model_context
+                )
+              )
+            )
+        )
+      )
+    )
+  ORDER BY event.sequence ASC
+  LIMIT $5
+)
+SELECT page.id,
+       page.agent_input_id,
+       page.sequence,
+       page.created_at,
+       page.event_kind,
+       page.model_output_id,
        output.model_call_context_id,
        revision.model_provider_config_id,
        coalesce(revision.provider_model_slug, '') AS requested_provider_model_slug,
@@ -377,76 +419,53 @@ SELECT event.id,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
        CASE
-         WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
+         WHEN page.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND page.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
          ELSE
-           coalesce(jsonb_agg(
-             CASE
-               WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', coalesce(block.text_content, ''))
-               WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id)
-               WHEN block.block_kind = 'reasoning' THEN jsonb_build_object('type', 'reasoning', 'text', coalesce(block.text_content, ''))
-               WHEN block.block_kind = 'tool_call' THEN jsonb_build_object('type', 'tool_call', 'tool_call_id', block.tool_call_id)
-               WHEN block.block_kind = 'error' THEN jsonb_build_object('type', 'error', 'text', coalesce(block.text_content, ''))
-               ELSE NULL
-             END
-             ORDER BY block.ordinal
-           ) FILTER (
-             WHERE block.id IS NOT NULL
-               AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
-           ), '[]'::jsonb)::jsonb
+           coalesce(blocks.content_parts, '[]'::jsonb)::jsonb
        END AS content_parts
-FROM agent_events event
-JOIN agents scoped_agent
-  ON scoped_agent.id = event.agent_id
+FROM page
 LEFT JOIN agent_inputs input
-  ON input.agent_id = event.agent_id
- AND input.id = event.agent_input_id
+  ON input.agent_id = page.agent_id
+ AND input.id = page.agent_input_id
 LEFT JOIN model_outputs output
-  ON output.agent_id = event.agent_id
- AND output.id = event.model_output_id
+  ON output.agent_id = page.agent_id
+ AND output.id = page.model_output_id
 LEFT JOIN model_call_contexts context
   ON context.agent_id = output.agent_id
  AND context.id = output.model_call_context_id
 LEFT JOIN configured_model_revisions revision
   ON revision.org_id = context.org_id
  AND revision.id = context.configured_model_revision_id
-LEFT JOIN content_blocks block
-  ON block.agent_id = event.agent_id
- AND (
-   block.owner_agent_input_id = event.agent_input_id
-   OR block.owner_model_output_id = event.model_output_id
- )
- AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
-WHERE scoped_agent.project_id = $1
-  AND event.agent_id = $2
-  AND event.sequence > $3
-  AND event.sequence <= $4
-  AND (
-    (event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1)
-    OR event.event_kind = 'model_output'
-    OR (
-      block.id IS NOT NULL
-      AND event.event_kind = 'agent_input'
-      AND input.input_kind = 'content'
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+           CASE
+             WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', coalesce(block.text_content, ''))
+             WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id)
+             WHEN block.block_kind = 'reasoning' THEN jsonb_build_object('type', 'reasoning', 'text', coalesce(block.text_content, ''))
+             WHEN block.block_kind = 'tool_call' THEN jsonb_build_object('type', 'tool_call', 'tool_call_id', block.tool_call_id)
+             WHEN block.block_kind = 'error' THEN jsonb_build_object('type', 'error', 'text', coalesce(block.text_content, ''))
+             ELSE NULL
+           END
+           ORDER BY block.ordinal
+         ) AS content_parts
+  FROM content_blocks block
+  WHERE block.agent_id = page.agent_id
+    AND (
+      block.owner_agent_input_id = page.agent_input_id
+      OR block.owner_model_output_id = page.model_output_id
     )
-  )
-GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
-  event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
-  revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, output.stop_reason, input.input_kind,
-  context.input_fingerprint, context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
-  context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
-  context.input_event_sequence, context.agent_config_id, context.configured_model_revision_id,
-  context.operation_kind, context.state
-ORDER BY event.sequence ASC
-LIMIT $5
+    AND block.block_kind IN ('text', 'artifact', 'reasoning', 'tool_call', 'error')
+    AND NOT block.exclude_from_model_context
+) blocks ON true
+ORDER BY page.sequence ASC
 `
 
 type ListContextEventsParams struct {
-	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
 	AfterSequence int64
 	Watermark     int64
+	ProjectID     uuid.UUID
 	PageLimit     int32
 }
 
@@ -480,10 +499,10 @@ type ListContextEventsRow struct {
 
 func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsParams) ([]ListContextEventsRow, error) {
 	rows, err := q.db.Query(ctx, listContextEvents,
-		arg.ProjectID,
 		arg.AgentID,
 		arg.AfterSequence,
 		arg.Watermark,
+		arg.ProjectID,
 		arg.PageLimit,
 	)
 	if err != nil {

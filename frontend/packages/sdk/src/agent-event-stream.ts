@@ -98,17 +98,6 @@ function retryable(error: AgentEventStreamError): boolean {
   )
 }
 
-function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
-  if (value == null) return undefined
-  const trimmed = value.trim()
-  if (/^\d+$/.test(trimmed)) {
-    return Math.min(Number.parseInt(trimmed, 10) * 1_000, retryAfterMaximumDelayMs)
-  }
-  const at = Date.parse(trimmed)
-  if (Number.isNaN(at)) return undefined
-  return Math.min(Math.max(at - now, 0), retryAfterMaximumDelayMs)
-}
-
 function reconnectDelay(attempt: number): number {
   const maximum = Math.min(retryBaseDelayMs * 2 ** Math.max(attempt - 1, 0), retryMaximumDelayMs)
   return Math.floor(Math.random() * maximum)
@@ -197,7 +186,10 @@ async function* openConnection(
       throw streamError('http', apiError.message, {
         status: response.status,
         code: apiError.code,
-        retryAfterMs: parseRetryAfter(response.headers.get('Retry-After')),
+        retryAfterMs:
+          apiError.retryAfterMs === undefined
+            ? undefined
+            : Math.min(apiError.retryAfterMs, retryAfterMaximumDelayMs),
         cause: apiError,
       })
     }

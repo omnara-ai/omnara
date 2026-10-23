@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	devicePollLimit       = 240
-	devicePollClientLimit = 600
+	devicePollLimit = 240
 )
 
 func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
@@ -47,9 +46,9 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		r,
 		"device_code",
 		h.clientBucket(r),
-		ResetClientLimit,
-		ResetClientLimit,
-		ResetClientLimit,
+		h.clientRateLimits.DeviceAuthorization,
+		h.clientRateLimits.DeviceAuthorization,
+		h.clientRateLimits.DeviceAuthorization,
 		authShortWindow,
 		false,
 	) {
@@ -120,7 +119,7 @@ func (h *Handler) deviceCodeGrant(w http.ResponseWriter, r *http.Request, form u
 		deviceCode,
 		devicePollLimit,
 		devicePollLimit,
-		devicePollClientLimit,
+		h.clientRateLimits.DevicePoll,
 		authShortWindow,
 		true,
 	) {
@@ -259,7 +258,7 @@ func (h *Handler) requireDeviceUserCodeRateLimits(
 		code,
 		TokenConsumeLimit,
 		TokenConsumeLimit,
-		TokenClientLimit,
+		h.clientRateLimits.Token,
 		authShortWindow,
 	) {
 		return false
@@ -271,7 +270,7 @@ func (h *Handler) requireDeviceUserCodeRateLimits(
 		userID.String(),
 		LoginLimit,
 		LoginSubjectLimit,
-		TokenClientLimit,
+		h.clientRateLimits.Token,
 		authShortWindow,
 	)
 }

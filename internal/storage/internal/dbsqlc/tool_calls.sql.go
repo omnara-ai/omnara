@@ -226,6 +226,7 @@ JOIN content_blocks call_block
   ON call_block.agent_id = tc.agent_id
  AND call_block.tool_call_id = tc.id
  AND call_block.block_kind = 'tool_call'
+ AND NOT call_block.exclude_from_model_context
 JOIN tool_call_results result
   ON result.agent_id = tc.agent_id
  AND result.tool_call_id = tc.id
