@@ -65,11 +65,6 @@ type storageToolConfig struct {
 	compiled                   []byte
 }
 
-type storageToolConfigKey struct {
-	projectID, hash    string
-	format, sourceHash sql.NullString
-}
-
 func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `LOCK TABLE agent_configs IN ACCESS EXCLUSIVE MODE`); err != nil {
 		return err
@@ -83,7 +78,6 @@ func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 	}
 	defer func() { _ = rows.Close() }()
 	var updates []storageToolConfig
-	keys := make(map[storageToolConfigKey]string)
 	for rows.Next() {
 		var config storageToolConfig
 		if err := rows.Scan(&config.id, &config.projectID, &config.source, &config.format,
@@ -94,11 +88,6 @@ func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 		if err != nil {
 			return fmt.Errorf("migrate storage tools in config %s: %w", config.id, err)
 		}
-		key := storageToolConfigKey{migrated.projectID, migrated.hash, migrated.format, migrated.sourceHash}
-		if previousID, exists := keys[key]; exists {
-			return fmt.Errorf("storage tool migration would make configs %s and %s duplicates", previousID, config.id)
-		}
-		keys[key] = config.id
 		if changed {
 			updates = append(updates, migrated)
 		}
@@ -132,7 +121,7 @@ func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 // migrateStorageToolConfig renames the tools in a config's compiled definition and, when present,
 // its source. Compiled configs can include default storage tools that their source omits.
 func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool, error) {
-	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiled)
+	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiled, true)
 	if err != nil {
 		return config, false, err
 	}
@@ -141,7 +130,8 @@ func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool
 	if config.source.Valid {
 		switch config.format.String {
 		case "json":
-			source, sourceChanged, err = renameStorageToolsJSONSource([]byte(config.source.String))
+			// Match the API's canonical JSON source encoding.
+			source, sourceChanged, err = renameStorageToolsJSON([]byte(config.source.String), false)
 		case "yaml":
 			source, sourceChanged, err = renameStorageToolsYAML([]byte(config.source.String))
 		default:
@@ -172,7 +162,7 @@ func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool
 	return config, true, nil
 }
 
-func renameStorageToolsJSON(raw []byte) ([]byte, bool, error) {
+func renameStorageToolsJSON(raw []byte, escapeHTML bool) ([]byte, bool, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
 		return nil, false, err
@@ -198,124 +188,13 @@ func renameStorageToolsJSON(raw []byte) ([]byte, bool, error) {
 	if !changed {
 		return raw, false, nil
 	}
-	encoded, err := json.Marshal(root)
-	return encoded, true, err
-}
-
-type storageToolKeyEdit struct {
-	start, end int
-	name       string
-}
-
-// Keep saved JSON text distinct even when two sources decode to the same value.
-// Only compiled JSON may be reserialized; source hashes cover the original text.
-func renameStorageToolsJSONSource(raw []byte) ([]byte, bool, error) {
-	expected, changed, err := renameStorageToolsJSON(raw)
-	if err != nil || !changed {
-		return raw, false, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if _, err := decoder.Token(); err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(escapeHTML)
+	if err := encoder.Encode(root); err != nil {
 		return nil, false, err
 	}
-	var edits []storageToolKeyEdit
-	foundTools := false
-	for decoder.More() {
-		key, err := decoder.Token()
-		if err != nil {
-			return nil, false, err
-		}
-		if key == "tools" {
-			if foundTools {
-				return nil, false, errors.New("config has duplicate tools fields")
-			}
-			foundTools = true
-			edits, err = storageToolJSONKeyEdits(decoder, raw)
-			if err != nil {
-				return nil, false, err
-			}
-		} else {
-			var value json.RawMessage
-			if err := decoder.Decode(&value); err != nil {
-				return nil, false, err
-			}
-		}
-	}
-	if _, err := decoder.Token(); err != nil {
-		return nil, false, err
-	}
-	encoded := applyStorageToolKeyEdits(raw, edits)
-	after, err := decodeAgentConfigNameMigrationJSON(encoded)
-	if err != nil {
-		return nil, false, fmt.Errorf("parse migrated source: %w", err)
-	}
-	want, err := decodeAgentConfigNameMigrationJSON(expected)
-	if err != nil {
-		return nil, false, err
-	}
-	if !reflect.DeepEqual(after, want) {
-		return nil, false, errors.New("renaming storage tools changed other source values")
-	}
-	return encoded, true, nil
-}
-
-func storageToolJSONKeyEdits(decoder *json.Decoder, raw []byte) ([]storageToolKeyEdit, error) {
-	token, err := decoder.Token()
-	if err != nil {
-		return nil, err
-	}
-	if token != json.Delim('{') {
-		return nil, errors.New("tools must be an object")
-	}
-	present := make(map[string]bool)
-	var edits []storageToolKeyEdit
-	for decoder.More() {
-		start := int(decoder.InputOffset())
-		token, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		name, ok := token.(string)
-		if !ok {
-			return nil, errors.New("tool key must be a string")
-		}
-		if present[name] {
-			return nil, fmt.Errorf("tool %s is set more than once", name)
-		}
-		present[name] = true
-		end := int(decoder.InputOffset())
-		for _, names := range storageToolRenames {
-			if name == names[0] {
-				// InputOffset starts before the comma/whitespace preceding this key.
-				quote := bytes.IndexByte(raw[start:end], '"')
-				if quote < 0 {
-					return nil, errors.New("tool key has no opening quote")
-				}
-				edits = append(edits, storageToolKeyEdit{start: start + quote + 1, end: end - 1, name: names[1]})
-			}
-		}
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			return nil, err
-		}
-	}
-	if _, err := decoder.Token(); err != nil {
-		return nil, err
-	}
-	for _, names := range storageToolRenames {
-		if present[names[0]] && present[names[1]] {
-			return nil, fmt.Errorf("tools %s and %s are both set", names[0], names[1])
-		}
-	}
-	return edits, nil
-}
-
-func applyStorageToolKeyEdits(raw []byte, edits []storageToolKeyEdit) []byte {
-	encoded := slices.Clone(raw)
-	for _, edit := range slices.Backward(edits) {
-		encoded = slices.Concat(encoded[:edit.start], []byte(edit.name), encoded[edit.end:])
-	}
-	return encoded
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), true, nil
 }
 
 // renameStorageToolsYAML rewrites only the tool keys in place, because re-encoding the document can
@@ -328,21 +207,6 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 	before, ok := beforeValue.(map[string]any)
 	if !ok {
 		return nil, false, errors.New("config must be an object")
-	}
-	expectedTools, _ := before["tools"].(map[string]any)
-	changed := false
-	for _, names := range storageToolRenames {
-		if value, exists := expectedTools[names[0]]; exists {
-			if _, exists := expectedTools[names[1]]; exists {
-				return nil, false, fmt.Errorf("tools %s and %s are both set", names[0], names[1])
-			}
-			expectedTools[names[1]] = value
-			delete(expectedTools, names[0])
-			changed = true
-		}
-	}
-	if !changed {
-		return raw, false, nil
 	}
 	var document yaml.Node
 	if err := yaml.Unmarshal(raw, &document); err != nil {
@@ -359,7 +223,7 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 		}
 	}
 	if tools == nil {
-		return nil, false, errors.New("legacy tool keys inherited through YAML merges are not supported")
+		return raw, false, nil
 	}
 	if tools.Kind != yaml.MappingNode {
 		return nil, false, errors.New("tools must be a mapping")
@@ -368,7 +232,11 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 	for i := 0; i < len(tools.Content); i += 2 {
 		present[tools.Content[i].Value] = true
 	}
-	var edits []storageToolKeyEdit
+	type keyEdit struct {
+		start, end int
+		name       string
+	}
+	var edits []keyEdit
 	for i := 0; i < len(tools.Content); i += 2 {
 		key := tools.Content[i]
 		for _, names := range storageToolRenames {
@@ -389,13 +257,23 @@ func renameStorageToolsYAML(raw []byte) ([]byte, bool, error) {
 			if end > len(raw) || string(raw[start:end]) != names[0] {
 				return nil, false, fmt.Errorf("tool key %s is not written literally", names[0])
 			}
-			edits = append(edits, storageToolKeyEdit{start: start, end: end, name: names[1]})
+			edits = append(edits, keyEdit{start: start, end: end, name: names[1]})
 		}
 	}
 	if len(edits) == 0 {
-		return nil, false, errors.New("legacy tool keys inherited through YAML merges are not supported")
+		return raw, false, nil
 	}
-	encoded := applyStorageToolKeyEdits(raw, edits)
+	encoded := slices.Clone(raw)
+	for _, edit := range slices.Backward(edits) {
+		encoded = slices.Concat(encoded[:edit.start], []byte(edit.name), encoded[edit.end:])
+	}
+	expectedTools, _ := before["tools"].(map[string]any)
+	for _, names := range storageToolRenames {
+		if value, exists := expectedTools[names[0]]; exists {
+			expectedTools[names[1]] = value
+			delete(expectedTools, names[0])
+		}
+	}
 	after, err := decodeAgentConfigNameMigrationYAML(encoded)
 	if err != nil {
 		return nil, false, fmt.Errorf("parse migrated source: %w", err)
