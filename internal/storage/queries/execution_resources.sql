@@ -664,6 +664,45 @@ FROM expired_idle_pool_machine_candidates
 ORDER BY org_id, machine_id
 LIMIT sqlc.arg(limit_count)::integer;
 
+-- name: ListManagedWorkDeniedPoolMachines :many
+SELECT machine.org_id, machine.id AS machine_id, machine.lifecycle_version
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+JOIN org_managed_work_admission admission ON admission.org_id = machine.org_id
+WHERE machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND pool.management_kind = 'cluster'
+  AND pool.deleted_at IS NULL
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+ORDER BY machine.org_id, machine.id
+LIMIT sqlc.arg(limit_count)::integer;
+
+-- name: MarkManagedWorkDeniedPoolMachineDeleting :execrows
+UPDATE machines machine
+SET lifecycle_state = 'deleting',
+    lifecycle_changed_at = statement_timestamp(),
+    lifecycle_version = machine.lifecycle_version + 1,
+    lifecycle_reason_code = 'managed_work_admission_denied',
+    lifecycle_reason_message = 'organization was denied managed work past its machine deletion delay',
+    next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
+    updated_at = statement_timestamp()
+FROM org_managed_work_admission admission
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(id)
+  AND machine.lifecycle_version = sqlc.arg(expected_lifecycle_version)::bigint
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND admission.org_id = machine.org_id
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes);
+
 -- name: LockPoolMachineDeletionAttemptForLifecycle :one
 SELECT id, machine_pool_id
 FROM machines
